@@ -1,0 +1,55 @@
+import { type QueueEdit } from "../model";
+import type { IncomingMessage } from "../conversation/incomingMessage";
+import { markSentNow } from "../conversation/pendingSteerModel";
+import { callNative } from "../callNative";
+
+/// Resumes the chat's paused messages with another agent (conversation/AgentPairNote.tsx).
+export const resumeAgentPair = (peer: string) => callNative("chat.agentPair.resume", { peer });
+
+export const editQueued = (promptId: string, edit: QueueEdit) =>
+  callNative<{ ok?: boolean } | null>("chat.queue.edit", { promptId, ...edit }).then((result) => {
+    const ok = result?.ok === true;
+    // Whichever control sent it now, its steer row (same promptId) offers no Send now again.
+    if (ok && edit.op === "send_now") markSentNow(promptId);
+    return ok;
+  });
+
+/// The recap's ×: the client drops its row (direct.ts dismissRecap), so no empty slot stays. The key
+/// names the chat, so a press on a chat a switch still shows never drops the next chat's recap.
+export const dismissRecap = (rowId: string, key: string) =>
+  void window.cmuxAcpmuxActions?.["chat.recap.dismiss"]?.({ rowId, key });
+
+/// Accept or Dismiss on a memory offer's facts: the daemon writes the instructions file
+/// (`_acpmux/memory_resolve`, direct.ts resolveMemory); the row settles from its answer.
+export const resolveMemory = (offerId: string, accept: string[], dismiss: string[]) =>
+  void window.cmuxAcpmuxActions?.["chat.memory.resolve"]?.({ offerId, accept, dismiss });
+
+/// The prompt coach card's ×: the chat never draws a coach card again on this device, and its row
+/// goes (direct.ts dismissPromptCoach).
+export const dismissPromptCoach = (rowId: string, sessionId: string) =>
+  void window.cmuxAcpmuxActions?.["chat.coach.dismiss"]?.({ rowId, sessionId });
+/// Approve or Not now on a no-prompt preset's card: acpmux records the person's answer
+/// (`_acpmux/presets`, direct.ts answerPresetApproval); the row closes from its answer.
+export const answerPresetApproval = (rowId: string, approve: boolean) =>
+  void window.cmuxAcpmuxActions?.["chat.presetApproval.answer"]?.({ rowId, approve });
+
+/// Opens a chat started from an offer (`chat.offer.open`): beside this one, else here.
+export const openOfferChat = (sessionId: string) =>
+  void callNative("chat.offer.open", { sessionId }).catch(() => undefined);
+
+/// Opens the chat that sent this one a message, from its received line's chip: any chat the daemon
+/// lists, this Mac's or a peer's, beside this one or in the tab that shows it (`sender`).
+export const openSenderChat = (sessionId: string) =>
+  void callNative("chat.offer.open", { sessionId, sender: true }).catch(() => undefined);
+
+/// Send now on a steer the agent has not read (`_acpmux/queue_edit` send_now with its promptId).
+export const sendSteerNow = (promptId: string) => void editQueued(promptId, { op: "send_now" }).catch(() => false);
+
+/// Reply on another agent's message card (`chat.message.reply`): its sender gets it in the thread.
+export const replyToMessage = (message: IncomingMessage, text: string) =>
+  callNative<void>("chat.message.reply", {
+    sessionId: message.sessionId,
+    msgId: message.msgId,
+    threadId: message.threadId,
+    text,
+  });

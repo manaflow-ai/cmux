@@ -8,7 +8,7 @@
 /// opens on the machine.
 
 import { isAgentHome } from "./sessionList";
-import { pickFolder } from "./startFolder";
+import { pickFolder } from "./startFolderModel";
 import type { ComposerAttachment } from "./attachments";
 
 /// What the page hands the host. `home`: the chat has no project folder on this Mac, so nothing is
@@ -20,7 +20,16 @@ export type CloudStart = {
   home?: boolean;
   harness?: string;
   model?: string;
+  /** The permission mode picked before the first send (cloudModePick.ts); none: the machine's own start mode. */
+  mode?: string;
   environment?: string;
+  reservationKey?: string;
+  /** A native gesture ticket reserved before waiting for a Cloud machine lease. */
+  gestureTicket?: string;
+  /** The send again after `cloud.signIn` signed in: the host's kept click authorizes it (cloudSignIn.ts startAfterSignIn). */
+  signedIn?: true;
+  /** The plan card's Switch to <team>: the host switches to this team (as the team picker does), then starts. */
+  team?: string;
 };
 
 /// Which folder a Cloud chat starts in: the chat's project on this Mac, copied to the machine, when
@@ -116,13 +125,119 @@ export function grantedCloudStart(
 }
 
 /// The host's answer: ok, or a code with the host's own words when it has them.
-export type CloudStartAnswer = { ok: true } | { ok: false; code: string; message?: string };
+/// `retryable`: another try of the same start can help (the machine didn't connect, a copy timed out), so the card offers Retry.
+export type CloudStartAnswer =
+  | { ok: true }
+  | { ok: false; code: string; message?: string; retryable?: boolean; details?: unknown };
 
-/// A page-side refusal before anything goes to the host: Cloud is picked but not offered now
-/// (a chat is starting here). Attachment contents go with the prompt; the native host checks them
-/// before provisioning and uploads them before opening the chat. A refused prompt stays in the composer.
-export function cloudPageRefusal(offered: boolean): "cloud_not_now" | undefined {
-  return offered ? undefined : "cloud_not_now";
+/// Keeps the failed first-send prompt in the composer while Cloud account sign-in runs, then
+/// resumes it once. Concurrent clicks share one browser callback, and a later click after a
+/// successful callback cannot send the prompt a second time.
+export type CloudSignInRetry = (() => Promise<boolean>) & { reset: () => void };
+
+export function makeCloudSignInRetry(resume: () => Promise<CloudStartAnswer> | undefined): CloudSignInRetry {
+  let inFlight: Promise<boolean> | undefined;
+  let resumed = false;
+  // A reset (another card) makes an older retry's late answer count for nothing.
+  let epoch = 0;
+  const retry = (() => {
+    if (resumed) return Promise.resolve(false);
+    if (inFlight) return inFlight;
+    const started = resume();
+    if (!started) return Promise.resolve(false);
+    const mine = epoch;
+    const attempt = started
+      .then((answer) => {
+        if (mine !== epoch || !answer.ok || resumed) return false;
+        resumed = true;
+        return true;
+      })
+      .catch(() => false)
+      .finally(() => {
+        if (inFlight === attempt) inFlight = undefined;
+      });
+    inFlight = attempt;
+    return attempt;
+  }) as CloudSignInRetry;
+  retry.reset = () => {
+    epoch += 1;
+    inFlight = undefined;
+    resumed = false;
+  };
+  return retry;
+}
+
+/// Why Cloud can't start from this tab yet, before anything goes to the host:
+/// - `cloud_checking`: the host hasn't said yet what this tab holds (`sandbox.checked`: the
+///   handshake's `sandbox.state` read is out, or didn't answer in its 15 s on a busy Mac). The send
+///   waits for that answer and then goes by itself (``cloudSendAfterCheck``); it is never refused.
+/// - `cloud_chat_starting`: a chat is starting or opening in this tab, so its session would replace
+///   the Cloud start: the person opens a new chat for Cloud.
+/// Leo 2026-11-10 got "Cloud isn't available for this chat" with no reason and no action for every
+/// folder and team: his tab's check hadn't answered yet, the line stayed, and his next Return started.
+/// Attachment contents go with the prompt; the native host checks them before provisioning and
+/// uploads them before opening the chat. A refused prompt stays in the composer.
+export type CloudNotNow = "cloud_checking" | "cloud_chat_starting";
+export function cloudPageRefusal(tab: { offerable: boolean; checked: boolean }): CloudNotNow | undefined {
+  if (!tab.offerable) return "cloud_chat_starting";
+  return tab.checked ? undefined : "cloud_checking";
+}
+
+/// Whether the composer still shows what it showed when a Cloud send was held (its raw text and
+/// chips), so the send's start may take it out: once the held send goes, a second Return can't send
+/// it again. A prompt the person changed meanwhile stays. Compared raw: the send's own text is
+/// trimmed and expanded, so it never matches an untouched composer's.
+export function heldPromptShown(
+  shown: { text: string; attachments: { id: string }[] } | undefined,
+  sent: { text: string; attachments: { id: string }[] } | undefined,
+): boolean {
+  if (!shown || !sent || shown.text !== sent.text || shown.attachments.length !== sent.attachments.length) return false;
+  return shown.attachments.every((attachment, index) => attachment.id === sent.attachments[index]?.id);
+}
+
+/// The one Cloud send that waits on the tab's check (`cloud_checking`): the newest send replaces an
+/// older one, it goes once Cloud is offered, and leaving Cloud (another mode, a chat here, another
+/// New Tab) drops it, so a held prompt never starts anywhere the person no longer looks.
+export function cloudSendAfterCheck() {
+  let held: (() => void) | undefined;
+  let what: { prompt: string; cwd?: string } | undefined;
+  return {
+    /// `prompt` and `cwd`: what the send carries, for a refusal's New Cloud chat (``take``).
+    hold(send: () => void, carried?: { prompt: string; cwd?: string }) {
+      held = send;
+      what = carried;
+    },
+    waiting: () => held !== undefined,
+    /// The check said the send can't go here: it is dropped, and what it carried comes back.
+    take(): { prompt: string; cwd?: string } | undefined {
+      const carried = held ? what : undefined;
+      held = undefined;
+      what = undefined;
+      return carried;
+    },
+    /// Cloud is offered now: the held send goes, once. True when one went.
+    offered(): boolean {
+      const send = held;
+      held = undefined;
+      what = undefined;
+      send?.();
+      return send !== undefined;
+    },
+    drop() {
+      held = undefined;
+      what = undefined;
+    },
+  };
+}
+
+/// Whether the composer's agent runs on this Mac, given that the chat itself is this Mac's
+/// (`chatLocal`): a new chat with Cloud picked runs its agent on the Cloud machine, whose sign-in the
+/// start handles (the login copy, or the machine's own sign-in). This Mac's harness health and sign-in
+/// then neither show nor hold Send: a Mac with no agent CLI signed in, whose composer then names a
+/// built-in such as UniiChat, kept every Cloud send under "unii isn't signed in", for a harness the
+/// start never runs (Cloud composer journey, run 42953585969).
+export function composerAgentLocal(chatLocal: boolean, runMode: string | undefined, sessionId?: string | null) {
+  return chatLocal && !(runMode === "cloud" && !sessionId);
 }
 
 /// Sends `start` to the host and resolves to its answer; never rejects. The host answers once the
@@ -138,21 +253,32 @@ export async function startCloudChat(
   else if (start.home) params.home = true;
   if (start.harness) params.harness = start.harness;
   if (start.model) params.model = start.model;
+  // The mode picked for this start (cloudModePick.ts); the host starts the chat in it on the
+  // person's own machine (AgentPaneCloudStart `mode`).
+  if (start.mode) params.mode = start.mode;
   if (start.environment) params.environment = start.environment;
+  if (start.reservationKey) params.reservationKey = start.reservationKey;
+  if (start.gestureTicket) params.gestureTicket = start.gestureTicket;
+  if (start.signedIn) params.signedIn = true;
+  if (start.team) params.team = start.team;
   try {
     await call("cloud.startChat", params);
     return { ok: true };
   } catch (error) {
-    const { code, message, userMessage } = (error ?? {}) as {
+    const { code, message, userMessage, retryable, details } = (error ?? {}) as {
       code?: unknown;
       message?: unknown;
       userMessage?: unknown;
+      retryable?: unknown;
+      details?: unknown;
     };
     const words = typeof userMessage === "string" ? userMessage : typeof message === "string" ? message : undefined;
     return {
       ok: false,
       code: typeof code === "string" && code ? code : "unavailable",
       ...(words ? { message: words } : {}),
+      ...(retryable === true ? { retryable: true } : {}),
+      ...(details !== undefined && details !== null ? { details } : {}),
     };
   }
 }
@@ -185,7 +311,8 @@ const CLOUD_START_KEYS = "cmux.cloudStart.keys";
 const CLOUD_START_KEY_TTL_MS = 24 * 60 * 60 * 1000;
 
 /// What makes two sends the same start: the prompt, its chips (by id, name and size, never their
-/// bytes), the folder, the agent, the model and the environment. An edited prompt is a new start.
+/// bytes), the folder, the agent, the model and the environment. An edited prompt is a new start, and so
+/// is a send in another team (the plan card's Switch to <team>): the first team's ledger entry is not its.
 export function cloudStartFingerprint(start: CloudStart): string {
   const chips = (start.attachments ?? []).map((chip) => [chip.id, chip.kind, chip.name, chip.size]);
   const text = JSON.stringify([
@@ -196,6 +323,10 @@ export function cloudStartFingerprint(start: CloudStart): string {
     start.harness ?? null,
     start.model ?? null,
     start.environment ?? null,
+    // Only a send that switches team names it, so every other start keeps the key it had.
+    ...(start.team ? [start.team] : []),
+    // A start in another mode is another start; one with no pick keeps the key it had.
+    ...(start.mode ? [`mode:${start.mode}`] : []),
   ]);
   // FNV-1a, two 32-bit lanes: a short stable name for the entry, never the prompt itself.
   let a = 0x811c9dc5;
@@ -281,9 +412,37 @@ export function cloudStartKeys(
   };
 }
 
-/// A failure the host already said in a toast (it ran the start): the page says nothing more.
-export function cloudStartToasted(answer: CloudStartAnswer): boolean {
-  return !answer.ok && answer.code === "cloud_start_failed";
+/// The team a Cloud send switches to (the plan card's Switch to <team>). It stays with the start it
+/// began, so the card's Retry of that start names the team too and reaches the same start key (its
+/// machine and copy); it goes once that start ends in a chat (or on this Mac), or the person leaves
+/// Cloud or the chat (`reset`).
+export function cloudStartTeam() {
+  let team: string | undefined;
+  return {
+    pick(id: string) {
+      team = id;
+    },
+    forSend(): string | undefined {
+      return team;
+    },
+    ended(answer: CloudStartAnswer) {
+      if (answer.ok || cloudRunsHere(answer)) team = undefined;
+    },
+    reset() {
+      team = undefined;
+    },
+  };
+}
+
+/// A failure the card already says in the host's words (with Retry when another try can help, or the
+/// sign-in's own reason), so the page says nothing more.
+export function cloudStartSaid(answer: CloudStartAnswer): boolean {
+  return (
+    !answer.ok &&
+    ["cloud_start_failed", "cloud_plan_required", "cloud_chat_already_started", "cloud_prompt_changed"].includes(
+      answer.code,
+    )
+  );
 }
 
 /// The host's card at the plan's machine cap answered Run on This Mac (CloudMachineCap.runHereCode): no machine was

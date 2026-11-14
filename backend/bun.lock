@@ -28,7 +28,6 @@
       "name": "@cmux/api",
       "version": "0.0.0",
       "dependencies": {
-        "@cmux/cloud-env": "workspace:*",
         "@cmux/db": "workspace:*",
         "@cmux/home-core": "workspace:*",
         "@cmux/ownership": "workspace:*",
@@ -106,15 +105,6 @@
         "drizzle-kit": "0.31.11",
         "pg": "8.23.0",
         "typescript": "7.0.2",
-      },
-    },
-    "packages/cloud-env": {
-      "name": "@cmux/cloud-env",
-      "version": "0.0.0",
-      "devDependencies": {
-        "@types/node": "26.6.2",
-        "typescript": "7.0.2",
-        "vitest": "4.1.12",
       },
     },
     "packages/home-core": {
@@ -289,7 +279,6 @@
 
     "@cmux/cloud-client": ["@cmux/cloud-client@workspace:../clients/ts/cloud"],
 
-    "@cmux/cloud-env": ["@cmux/cloud-env@workspace:packages/cloud-env"],
 
     "@cmux/dashboard": ["@cmux/dashboard@workspace:apps/dashboard"],
 

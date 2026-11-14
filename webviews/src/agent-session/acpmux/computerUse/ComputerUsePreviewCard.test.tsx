@@ -73,3 +73,33 @@ test("a card with no cursor draws none", () => {
   expect(html).not.toContain("acpmux-cu-preview__arrow");
   expect(html).toMatch(/class="acpmux-cu-preview__frame"><img /);
 });
+
+test("the person's pointer is a second telepointer labelled You, under the agent's cursor", () => {
+  const html = markup({
+    ...running,
+    pointer: { x: 0.25, y: 0.75, click: 4, windowWidth: 190 },
+    telepointers: { person: { x: 0.5, y: 0.2, visible: true, idle: false } },
+  });
+  expect(html).toContain("--cu-person-x:0.5;--cu-person-y:0.2");
+  expect(html).toContain('class="acpmux-cu-preview__person-label">You</span>');
+  expect(html.indexOf("acpmux-cu-preview__person")).toBeLessThan(html.indexOf("acpmux-cu-preview__arrow"));
+  expect(html).not.toContain("data-outside");
+  expect(html).not.toContain("data-idle");
+});
+
+test("the person's pointer outside the window hides, and dims once idle", () => {
+  const outside = markup({ ...running, telepointers: { person: { x: 1, y: 0.2, visible: false, idle: false } } });
+  expect(outside).toMatch(/class="acpmux-cu-preview__person" data-outside=""/);
+  const idle = markup({ ...running, telepointers: { person: { x: 0.3, y: 0.2, visible: true, idle: true } } });
+  expect(idle).toMatch(/class="acpmux-cu-preview__person" data-idle=""/);
+  expect(idle).not.toContain('class="acpmux-cu-preview__arrow"');
+});
+
+test("an agent telepointer with no pointer draws the agent's cursor with no click", () => {
+  const html = markup({ ...running, telepointers: { agent: { x: 0.4, y: 0.6, visible: true, idle: false } } });
+  expect(html).toContain("--cu-pointer-x:0.4;--cu-pointer-y:0.6;--cu-pointer-width:12px");
+  expect(html).toContain("acpmux-cu-preview__arrow");
+  expect(html).not.toContain("acpmux-cu-preview__ripple");
+  const hidden = markup({ ...running, telepointers: { agent: { x: 0.4, y: 0.6, visible: false, idle: false } } });
+  expect(hidden).not.toContain("acpmux-cu-preview__arrow");
+});

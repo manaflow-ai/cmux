@@ -65,6 +65,7 @@ fn vt_state_wire_prefix_identifies_attach_before_large_replay_data() {
         kitty_state: KittyReplayState::disabled(),
         colors: Value::Null,
         pending_sequence: Arc::from([]),
+        history_rows_omitted: None,
     };
 
     let serialized = RenderService::new().serialize_vt_state(&message).unwrap();
@@ -73,6 +74,29 @@ fn vt_state_wire_prefix_identifies_attach_before_large_replay_data() {
     let decoded: Value = serde_json::from_str(&serialized).unwrap();
     assert_eq!(decoded["data"], base64::engine::general_purpose::STANDARD.encode(replay));
     assert!(decoded.get("pending").is_none(), "a boundary replay must not add `pending`");
+    assert!(decoded.get("history_rows_omitted").is_none(), "a whole replay names no omission");
+}
+
+/// A tail replay (`attach-replay-history-rows-v1`) says how many older rows
+/// it left out, after the fields every viewer already reads.
+#[test]
+fn a_tail_vt_state_names_the_history_rows_it_left_out() {
+    let message = VtStateMessage {
+        surface: 7,
+        cols: 80,
+        rows: 24,
+        replay: Arc::from(&b"screen"[..]),
+        kitty_image_aliases: Vec::new(),
+        kitty_state: KittyReplayState::disabled(),
+        colors: Value::Null,
+        pending_sequence: Arc::from([]),
+        history_rows_omitted: Some(9_721),
+    };
+    let serialized = RenderService::new().serialize_vt_state(&message).unwrap();
+    assert!(serialized.starts_with(r#"{"event":"vt-state","surface":7,"#), "{}", &**serialized);
+    let decoded: Value = serde_json::from_str(&serialized).unwrap();
+    assert_eq!(decoded["history_rows_omitted"], 9_721);
+    assert_eq!(decoded["data"], base64::engine::general_purpose::STANDARD.encode(b"screen"));
 }
 
 #[test]
@@ -87,6 +111,7 @@ fn attach_replays_carry_the_pending_sequence_after_their_colors() {
         kitty_state: KittyReplayState::disabled(),
         colors: json!({"foreground": "#010203"}),
         pending_sequence: Arc::from(&b"\x1b[1;3"[..]),
+        history_rows_omitted: None,
     };
     let serialized = RenderService::new().serialize_vt_state(&message).unwrap();
     let decoded: Value = serde_json::from_str(&serialized).unwrap();
@@ -224,6 +249,7 @@ fn vt_state_streaming_releases_partial_global_budget_on_overflow() {
         kitty_state: KittyReplayState::disabled(),
         colors: Value::Null,
         pending_sequence: Arc::from([]),
+        history_rows_omitted: None,
     };
 
     let error = service
@@ -514,8 +540,10 @@ fn write_side_eof_drains_accepted_surface_requests() {
     )
     .unwrap();
     client.flush().unwrap();
-    client.shutdown(Shutdown::Write).unwrap();
+    // Before the shutdown: the server closes after its 2 replies, and macOS refuses a read
+    // timeout on a socket that can send no more and receive no more.
     client.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    client.shutdown(Shutdown::Write).unwrap();
 
     let mut responses = Vec::new();
     let mut reader = BufReader::new(client);
@@ -723,6 +751,7 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
             request: Request { id: Some(json!(id)), cmd, remote_line: None },
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
+            slow_log: None,
         });
     }
 
@@ -761,6 +790,7 @@ fn guarded_browser_pointer_input_overtakes_an_unrelated_clear_barrier() {
             request: Request { id: Some(json!(1)), cmd, remote_line: None },
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
+            slow_log: None,
         });
 
         assert_eq!(
@@ -1362,4 +1392,98 @@ fn client_detach_purges_attach_backlog_before_terminal_event() {
     let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
     assert_eq!(terminal, json!({"event": "detached", "surface": 41, "reason": "network"}));
     assert_eq!(outbound.try_pop(), None);
+}
+
+/// Accepts at most `limit` bytes per call and counts the calls.
+struct ShortVectoredWriter {
+    limit: usize,
+    bytes: Vec<u8>,
+    calls: usize,
+}
+
+impl Write for ShortVectoredWriter {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.write_vectored(&[std::io::IoSlice::new(buffer)])
+    }
+
+    fn write_vectored(&mut self, buffers: &[std::io::IoSlice<'_>]) -> std::io::Result<usize> {
+        self.calls += 1;
+        let mut taken = 0;
+        for buffer in buffers {
+            let room = self.limit - taken;
+            let part = &buffer[..buffer.len().min(room)];
+            self.bytes.extend_from_slice(part);
+            taken += part.len();
+            if taken == self.limit {
+                break;
+            }
+        }
+        Ok(taken)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// `value` as the line the writer thread takes, and that line's text.
+fn outbound_text(value: Value) -> (OutboundItem, String) {
+    let outbound = BoundedOutbound::default();
+    let text = RenderService::new().serialize_control(&value).unwrap();
+    let line = String::from_utf8(text.as_bytes().to_vec()).unwrap();
+    outbound.push_control(text).unwrap();
+    (outbound.recv().unwrap(), line)
+}
+
+#[test]
+fn an_outbound_line_is_one_write_with_its_newline() {
+    let (item, line) = outbound_text(json!({"id": 1, "ok": true, "data": {"pong": true}}));
+    let mut writer = ShortVectoredWriter { limit: usize::MAX, bytes: Vec::new(), calls: 0 };
+
+    write_line_outbound_item(&mut writer, item).unwrap();
+
+    assert_eq!(writer.calls, 1, "the body and its newline go out in one write");
+    assert_eq!(writer.bytes, format!("{line}\n").into_bytes());
+}
+
+#[test]
+fn a_short_write_still_sends_every_byte_of_the_line_in_order() {
+    let value = json!({"event": "tree-changed", "workspace": 12});
+    let line = outbound_text(value.clone()).1;
+    for limit in 1..=line.len() + 2 {
+        let mut writer = ShortVectoredWriter { limit, bytes: Vec::new(), calls: 0 };
+        write_line_outbound_item(&mut writer, outbound_text(value.clone()).0).unwrap();
+        assert_eq!(writer.bytes, format!("{line}\n").into_bytes(), "limit {limit}");
+    }
+}
+
+#[test]
+fn a_writer_that_takes_nothing_fails_the_line() {
+    struct Closed;
+    impl Write for Closed {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Ok(0)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let error = write_line_outbound_item(&mut Closed, outbound_text(json!({})).0).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::WriteZero);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_socket_reader_gets_each_line_whole() {
+    use std::io::BufRead as _;
+    let (mut daemon_side, client_side) = std::os::unix::net::UnixStream::pair().unwrap();
+    let mut lines = Vec::new();
+    for value in [json!({"id": 1, "ok": true}), json!({"event": "tree-changed"})] {
+        let (item, line) = outbound_text(value);
+        write_line_outbound_item(&mut daemon_side, item).unwrap();
+        lines.push(line);
+    }
+    drop(daemon_side);
+    let read = BufReader::new(client_side).lines().collect::<Result<Vec<_>, _>>().unwrap();
+    assert_eq!(read, lines);
 }

@@ -18,7 +18,11 @@ extension CreationInputBuffer {
     public struct HeldLane: Hashable, Sendable {
         public let tab: String
         public let machine: String?
-        public init(tab: String, machine: String?) { self.tab = tab; self.machine = machine }
+        /// The daemon's id of the terminal that a New Terminal Tab's create made, as its reply named it (a surface id's
+        /// raw value). The daemon has that terminal from the reply on, also while the store lists no tab of it: keys
+        /// with no view to go to are sent to this id (``NewTerminalKeys``). nil for every other lane.
+        public let madeSurface: UInt64?
+        public init(tab: String, machine: String?, madeSurface: UInt64? = nil) { self.tab = tab; self.machine = machine; self.madeSurface = madeSurface }
     }
 
     /// Held keys at the hold's end, in typing order (``take(focused:)``).
@@ -55,20 +59,32 @@ extension CreationInputBuffer {
     /// Calls ``onBound`` with ``Bound/limit`` after `limit` unless a creation of this hold still waits for its reply then
     /// (its reply arms the bound again: the coordinator calls this from `resolve`).
     public func expire(after limit: Duration) {
-        // task-owner: one-shot bound on this hold; a hold that ended first makes it a no-op
-        Task { @MainActor [weak self] in
+        // task-owner: one-shot bound on this hold; a hold that ended first makes it a no-op. Detached: the held keys run
+        // again in a turn of their own, never under the arming run's task locals (review of #35874); high: the person's held keys wait for it.
+        Task.detached(priority: .high) { [weak self] in
             // wakeup-allow: one-shot bound on a key hold, so a hold whose terminal never shows ends
             try? await Task.sleep(for: limit)
-            guard let self, !hasPendingCreation else { return }
-            onBound?(self, .limit)
+            await self?.limitPassed()
         }
     }
 
-    /// Held keys of a new workspace's terminal that never run: the log says how many and why.
+    /// The reply bound armed when creation `opened` began has passed: the hold ends unless it ended or a newer creation began.
+    func replyBoundPassed(opened: Int) {
+        guard awaitsCreationReply, newestCreation == opened else { return }
+        onBound?(self, .reply)
+    }
+
+    /// The hold's limit has passed: it ends unless a creation still waits for its reply.
+    private func limitPassed() {
+        guard !hasPendingCreation else { return }
+        onBound?(self, .limit)
+    }
+
+    /// Held keys of a new workspace's or a new tab's terminal that never run: the log says how many and why.
     static func logDropped(_ count: Int, why: String) {
         guard count > 0 else { return }
         Logger(subsystem: "com.cmuxterm.app.next", category: "focus.creation-hold")
-            .notice("\(count, privacy: .public) key(s) typed for a new workspace's terminal dropped: \(why, privacy: .public)")
+            .notice("\(count, privacy: .public) key(s) typed for a new terminal dropped: \(why, privacy: .public)")
     }
 
     /// Window `window` of the hold is gone: the keys held for a terminal, as runs for each terminal in typing order. A key

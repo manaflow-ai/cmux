@@ -50,6 +50,7 @@ import argparse, glob, json, os, signal, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # bench_arms, also under `python3 -I`
 import bench_arms  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -63,6 +64,8 @@ parser.add_argument("--arms", default="warm,quick,cold",
                     help="the arms to time (bench_arms.py): warm (the cold_pane runs), quick (a press right after a "
                          "press), cold (the launch's first press, and a press right after the spare was dropped)")
 parser.add_argument("--budget-ms", type=float, default=10.0, help="visible p95 target (reported, not enforced)")
+parser.add_argument("--tunable", action="append", default=[], metavar="KEY=JSON",
+                    help="a Debug Settings value for this run (repeatable), e.g. browserPage.sparePage=true: the arms of an A/B")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
 opts = parser.parse_args()
@@ -420,7 +423,7 @@ def profile_new_tabs(window, count):
         try:
             out[label] = profile_summary(trace, f"new-tab-{label}")
         except Exception as error:  # a failed export must not lose the timings
-            print(f"profile export failed: {error!r}", flush=True)
+            safe_print(f"profile export failed: {error!r}", flush=True)
         action("closeWorkspace", {"confirm": True})
         time.sleep(0.8)  # test harness: the workspace's pages close
     return out
@@ -488,6 +491,13 @@ def main():
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900"}
+    if opts.tunable:
+        # The build reads its Debug Settings from this file (DebugSettingsService), as chromium-host-bench.py does.
+        tunables = os.path.join(SCRATCH, "debug-tunables.json")
+        values = {k: json.loads(v) for k, v in (item.split("=", 1) for item in opts.tunable)}
+        json.dump({"version": 1, "values": values}, open(tunables, "w"))
+        env["CMUX_NEXT_DEBUG_TUNABLES_FILE"] = tunables
+        print(f"tunables: {values}", flush=True)
     os.makedirs(opts.out, exist_ok=True)
     log = open(os.path.join(opts.out, f"app-{TAG}.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)

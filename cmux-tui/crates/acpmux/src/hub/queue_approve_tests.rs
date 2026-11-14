@@ -188,6 +188,66 @@ async fn a_held_prompt_with_a_steer_flag_never_reaches_the_agent() {
     assert_ne!(ran[0]["steer"], true, "it went in as a steer: {:?}", ran[0]);
 }
 
+/// A signed-in link guest's prompt carries its sender (name and picture reach the provenance as
+/// `fromName` / `fromAvatar`), is still held for the owner, and once approved the agent reads who
+/// sent it while the transcript keeps the guest's own words (ask-2a1105b933).
+#[tokio::test]
+async fn a_guests_prompt_names_its_sender_to_the_agent_and_keeps_its_words() {
+    let hub = memory_hub();
+    let (tx, rx) = mpsc::channel(8);
+    let (out_tx, mut out) = mpsc::channel(4096);
+    let local = crate::server::Origin::Local;
+    tokio::spawn(crate::server::serve_connection_with(hub.clone(), rx, out_tx, local));
+    let send = |id: i64, m: &str, params: Value| Message::request(id, m, params).to_line();
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
+    tx.send(send(1, method::SESSION_NEW, new)).await.unwrap();
+    let created = until(&mut out, |v| v["id"] == 1).await;
+    let session = hub.resolve(created["result"]["sessionId"].as_str().unwrap()).unwrap();
+    let avatar = "https://lh3.example.com/a/cy.png";
+    // As `cmux-tui-core` binds a signed-in link guest: its role and picture beside its name.
+    let guest = json!({"id": "guest:s1.g1", "name": "Cy", "approval": "owner", "role": "talk",
+        "avatar": avatar});
+    let held = json!({"sessionId": session.id, "prompt": [{"type": "text", "text": "guest words"}],
+        "_meta": {"acpmux": {"promptId": "g-1", "author": guest}}});
+    tx.send(send(2, method::SESSION_PROMPT, held)).await.unwrap();
+    until(&mut out, |v| {
+        v["method"] == "_acpmux/prompt_accepted" && v["params"]["promptId"] == "g-1"
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(user_messages(&hub, &session.id, "g-1").is_empty(), "it ran before the owner said");
+    let queued = session.queue();
+    let waiting = queued.iter().find(|q| q.prompt_id == "g-1").expect("held in the queue");
+    assert!(waiting.awaiting_owner, "a signed-in guest's prompt is still held for the owner");
+    let events = hub.events(&session.id, 0, 10_000).unwrap();
+    let record = events.iter().find(|e| e.kind == "queued" && e.msg["promptId"] == "g-1").unwrap();
+    let provenance = &record.msg["_meta"]["provenance"];
+    assert_eq!(
+        (&provenance["fromName"], &provenance["fromAvatar"], &provenance["approval"]),
+        (&json!("Cy"), &json!(avatar), &json!("owner")),
+        "{provenance}"
+    );
+
+    let turn = waiting.turn_id.clone();
+    hub.approve_queued(&session, "g-1", &turn, 0, &OWNER).unwrap();
+    let echo = until(&mut out, |v| {
+        v.pointer("/params/update/content/text")
+            .and_then(Value::as_str)
+            .is_some_and(|t| t.contains("guest words"))
+    })
+    .await;
+    let echoed = echo.pointer("/params/update/content/text").and_then(Value::as_str).unwrap();
+    assert!(
+        echoed.contains("[Message from Cy, a guest in this shared chat]guest words"),
+        "the agent reads who sent it: {echoed}"
+    );
+    let ran = user_messages(&hub, &session.id, "g-1");
+    assert_eq!(ran.len(), 1, "{ran:?}");
+    assert_eq!(ran[0]["text"], "guest words", "the transcript keeps the guest's own words");
+    assert_eq!(ran[0]["_meta"]["provenance"]["fromAvatar"], avatar, "{:?}", ran[0]);
+    hub.shutdown_all().await;
+}
+
 /// A bundle's log in more than one `events/*.ndjson` segment, as import reads it (every segment,
 /// in name order): a prompt queued in a later segment still waits for the owner, so the move is
 /// refused (review of #26747: only `000001.ndjson` was read, and a held prompt in a later segment
@@ -500,4 +560,138 @@ async fn a_capable_host_name_fronting_an_older_receiver_does_not_move_an_approve
     let abort = json!({"sessionId": session.id, "transferId": manifest["transferId"], "epoch": manifest["epoch"]});
     hub.transfer_request("_acpmux/transfer_abort", &abort).await.unwrap();
     hub.shutdown_all().await;
+}
+
+/// A goal's continuation keeps its mark across a restart, in its provenance, and the person's
+/// edit of one drops it there too: the edited prompt is the person's, which no goal change may
+/// refuse (Codex review of #36666: the mark was a field that a restart and an edit's restore lost
+/// or kept wrongly).
+#[tokio::test]
+async fn a_restart_keeps_a_continuations_goal_mark_and_an_edit_drops_it() {
+    let dir = std::env::temp_dir().join(format!("acpmux-goal-mark-{}", uuid::Uuid::now_v7()));
+    let durable = || {
+        let mut cfg: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+            "defaultHarness": "fake"
+        }))
+        .unwrap();
+        cfg.store.mode = StoreMode::Local;
+        let store = crate::store::open(&cfg.store, &dir).unwrap();
+        Hub::new(cfg, store)
+    };
+    let hub = durable();
+    let new = crate::hub::NewRequest {
+        cwd: Some(std::env::temp_dir()),
+        ..crate::hub::NewRequest::default()
+    };
+    let session = hub.new_session(new).await.unwrap();
+    let id = session.id.clone();
+    let continuation = crate::prompt_provenance::notice(
+        &json!({"sender": "acpmux", "severity": "info", "title": "Keep going toward the goal"}),
+        &id,
+    );
+    let mut continuation = continuation;
+    cmux_json::JsonSet::set(&mut continuation, "goalMark", json!("41"));
+    for prompt_id in ["kept", "edited"] {
+        insert(&hub, &session, prompt_id, Some(&continuation));
+    }
+    let edit =
+        json!({"sessionId": id, "promptId": "edited", "op": "update", "text": "Do this instead"});
+    hub.queue_edit(&session, &edit, Control::Local, false, None).await.unwrap();
+    hub.shutdown_all().await;
+    drop((session, hub));
+
+    let hub = durable();
+    let session = hub.resolve(&id).unwrap();
+    hub.restore_queue(&session);
+    let marks: Vec<(String, Option<Value>)> = session
+        .queue()
+        .into_iter()
+        .map(|q| (q.prompt_id, q.run.provenance.as_ref().and_then(|p| p.get("goalMark")).cloned()))
+        .collect();
+    assert_eq!(
+        marks,
+        [("kept".to_owned(), Some(json!("41"))), ("edited".to_owned(), None)],
+        "the restored queue's goal marks"
+    );
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A prompt of acpmux's own control state the person rewrote in the queue is their prompt now:
+/// a restart keeps it, for every kind a restart or its cleanup leaves out (`queue_edit.rs`
+/// `controls`). Before, the edit kept the kind, so the load dropped the person's words: an inbox
+/// notice in `restore_queue`, a subagent retry in `drop_unsent_subagent_retries`, and a forum
+/// announcement's refresh rewrote them (Codex reviews of #37497). A message that names its
+/// sender keeps only that.
+#[tokio::test]
+async fn a_restart_keeps_control_prompts_the_person_rewrote() {
+    let dir = std::env::temp_dir().join(format!("acpmux-edited-control-{}", uuid::Uuid::now_v7()));
+    let durable = || {
+        let mut cfg: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+            "defaultHarness": "fake"
+        }))
+        .unwrap();
+        cfg.store.mode = StoreMode::Local;
+        let store = crate::store::open(&cfg.store, &dir).unwrap();
+        Hub::new(cfg, store)
+    };
+    let hub = durable();
+    let new = crate::hub::NewRequest {
+        cwd: Some(std::env::temp_dir()),
+        ..crate::hub::NewRequest::default()
+    };
+    let session = hub.new_session(new).await.unwrap();
+    let id = session.id.clone();
+    let kinds = [
+        ("notice", json!({"kind": super::super::inbox::NOTICE_KIND})),
+        (
+            "retry",
+            json!({"kind": super::super::subagent_retry::PROVENANCE_KIND,
+                "subagentId": "s/t9", "agentId": "agent-s/t9", "attempt": 1}),
+        ),
+        ("trigger", json!({"kind": "trigger"})),
+        ("forum-post-1", json!({"kind": super::super::forum::PROVENANCE_KIND, "postId": "post-1"})),
+        (
+            "report",
+            json!({"kind": super::super::lane_reports::KIND, "from": "acp:lane-1",
+                "fromName": "lane-1", "firstWork": true, "goalMark": "41"}),
+        ),
+    ];
+    for (prompt_id, provenance) in &kinds {
+        insert(&hub, &session, prompt_id, Some(provenance));
+        let text = format!("Do {prompt_id} instead");
+        let edit = json!({"sessionId": id, "promptId": prompt_id, "op": "update", "text": text});
+        hub.queue_edit(&session, &edit, Control::Local, false, None).await.unwrap();
+    }
+    hub.shutdown_all().await;
+    drop((session, hub));
+
+    let hub = durable();
+    let session = hub.resolve(&id).unwrap();
+    hub.load_session_log(&session);
+    let left: Vec<(String, String, Option<Value>)> = session
+        .queue()
+        .into_iter()
+        .map(|q| {
+            let kind = q.run.provenance.as_ref().and_then(|p| p.get("kind")).cloned();
+            (q.prompt_id, q.preview, kind)
+        })
+        .collect();
+    // A lane's report keeps who sent it, as a session's message and nothing more: no gate, first
+    // work or mark acts on the person's words.
+    let sender = |prompt_id: &str| (prompt_id == "report").then(|| json!("session_message"));
+    let want: Vec<(String, String, Option<Value>)> = kinds
+        .iter()
+        .map(|(id, _)| ((*id).to_owned(), format!("Do {id} instead"), sender(id)))
+        .collect();
+    assert_eq!(left, want, "the person's rewritten control prompts after a restart");
+    let report = session.queue().into_iter().find(|q| q.prompt_id == "report").unwrap();
+    let kept = report.run.provenance.clone().unwrap();
+    assert_eq!(kept["fromName"], "lane-1", "{kept}");
+    assert!(kept.get("firstWork").is_none() && kept.get("goalMark").is_none(), "{kept}");
+    assert!(kept.get(crate::prompt_provenance::EDITED_BY).is_some(), "{kept}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
 }

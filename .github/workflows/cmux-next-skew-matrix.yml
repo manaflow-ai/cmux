@@ -68,8 +68,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang libclang-dev pkg-config
 
+      # N builds libghostty-vt from ghostty-next. N-1's ghostty-next may need
+      # another Zig (the commit that moved it to 0.17.0); that one goes to
+      # OLD_ZIG, a local install that leaves PATH and the system zig alone.
       - name: Install zig
-        run: ./scripts/install-zig-ci.sh
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          ./scripts/install-zig-ci.sh
+          new="$(bash scripts/ghostty-zig-version.sh "$GITHUB_WORKSPACE")"
+          old="$(bash scripts/ghostty-zig-version.sh "$RUNNER_TEMP/old")"
+          if [ "$old" != "$new" ]; then
+            ZIG_REQUIRED="$old" ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=OLD_ZIG ./scripts/install-zig-ci.sh
+          fi
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -90,7 +102,7 @@ jobs:
       - name: Build cmux-tui N-1
         run: |
           cd "$RUNNER_TEMP/old/cmux-tui"
-          CARGO_TARGET_DIR="$GITHUB_WORKSPACE/cmux-tui/target-old" cargo build -p cmux-tui --bin cmux-tui
+          ZIG="${OLD_ZIG:-zig}" CARGO_TARGET_DIR="$GITHUB_WORKSPACE/cmux-tui/target-old" cargo build -p cmux-tui --bin cmux-tui
 
       - name: Skew matrix
         env:

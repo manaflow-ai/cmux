@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDesign
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -13,11 +14,17 @@ public struct AgentChatTabActions {
     /// ends (acpmux `acp.session.fork`) opens as a new tab and gets `prompt`; the chat stays as
     /// it is. False when the copy wasn't made (the tab owner said why).
     public var editAndResend: @MainActor (_ throughSeq: Int, _ prompt: String) async -> Bool
+    /// Another chat of the same Mac, by its acpmux session id, as a tab here (the tab already
+    /// showing it, else a new one) that comes to the front: the who-else card's session chips. The
+    /// tab owner says why when it can't. Nil: chips don't open.
+    public var openSession: (@MainActor (_ sessionID: String, _ harness: String, _ title: String?) async -> Void)?
 
     public init(fork: @escaping @MainActor () async -> Void,
-                editAndResend: @escaping @MainActor (_ throughSeq: Int, _ prompt: String) async -> Bool) {
+                editAndResend: @escaping @MainActor (_ throughSeq: Int, _ prompt: String) async -> Bool,
+                openSession: (@MainActor (_ sessionID: String, _ harness: String, _ title: String?) async -> Void)? = nil) {
         self.fork = fork
         self.editAndResend = editAndResend
+        self.openSession = openSession
     }
 }
 
@@ -77,7 +84,7 @@ struct EarlierPromptEditSheet: View {
                 }
             }
             .overlay {
-                if sending { ProgressView().controlSize(.large) }
+                if sending { CmuxSpinner().controlSize(.large) }
             }
         }
         .presentationDetents([.medium, .large])
@@ -115,7 +122,7 @@ struct SessionStatusSheet: View {
             Group {
                 switch load {
                 case .loading:
-                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                    CmuxSpinner().frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .failed(let message):
                     ContentUnavailableView {
                         Label("Status is unavailable", systemImage: "exclamationmark.triangle")

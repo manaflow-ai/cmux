@@ -38,6 +38,23 @@ fi
 # shard's timeout and cancelling react-apps-check.
 if [ "${CMUX_WEB_TEST_SKIP_BASE:-}" = 1 ]; then
   echo "::notice title=Webview test base comparison::base comparison runs in the separate react-apps base job"
+  # The pull request's shard step is continue-on-error (ci-web.yml), so this exit reaches no one:
+  # react-apps-base-check judges only the reds the published head results name. A run that ends red
+  # and names none (an exit other than 1, or 1 with every recorded test passing) broke, and its results
+  # would pass there; publish none, so the base job fails on their absence (guards_new_reds.py).
+  reds=""
+  if [ -s "$work/head.json" ]; then
+    reds="$(python3 "$here/webviews_test_results.py" --failed-files "$work/head.json")" || reds=""
+  fi
+  if [ "$status" -ne 0 ] && { [ "$status" -ne 1 ] || [ -z "$reds" ]; }; then
+    if [ -n "$head_results" ]; then rm -f "$head_results"; fi
+    echo "::error title=Webview test run broke::the run exited $status naming no red the base job can judge;" \
+      "no head results are published, so react-apps-base-check fails"
+  elif [ -n "$reds" ]; then
+    count="$(grep -c . <<< "$reds")"
+    echo "::warning title=Webview test reds on this head::$count file$([ "$count" -eq 1 ] || echo s) red here," \
+      "judged by react-apps-base-check: $(head -n 10 <<< "$reds" | paste -sd, - | sed 's/,/, /g')"
+  fi
   exit "$status"
 fi
 # 0 is green; anything but 1 (one or more files red) is a broken run, never a base red.

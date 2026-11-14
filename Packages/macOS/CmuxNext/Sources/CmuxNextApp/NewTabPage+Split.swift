@@ -2,6 +2,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import Foundation
 import enum CmuxNextLayout.NewChatPlacement
 
@@ -16,19 +17,22 @@ private final class SplitPageKey {
 /// one gesture, one transaction, one tree delta); an older daemon opens it hidden in the source pane
 /// and then moves it to a new split on `edge`, the way a new chat reaches its dock (NewChatPlacement.dock).
 extension NewTabPage {
-    /// Whether a person's split of `pane` opens the New Tab page: its selected tab is a browser
-    /// tab, the New Tab page or an agent chat. Terminal splits keep the terminal.
+    /// Whether a person's split of `pane` opens the New Tab page: a browser tab, the page, a chat or Home (the Chief pane, NEXT is
+    /// GUI-first, cmux#36300). Terminal splits keep the terminal; with `tabs.newTabTemplate` Terminal every split does.
     static func splitsToPage(_ pane: PaneController?, direction: PaneDirection, byPerson: Bool) -> Bool {
-        guard byPerson, direction == .right || direction == .down, let pane, let key = pane.currentTabKey else { return false }
-        return NewTabKind.of(key, tab: pane.selectedTab, services: pane.services) != .terminal
+        guard byPerson, direction == .right || direction == .down, let pane, let key = pane.currentTabKey, pane.services.settings?.snapshot.newTabTemplate != .terminal else { return false }
+        return pane.selectedTab.map { HomeService.isHomeTab(page: $0.page, app: $0.appTab?.app) } == true || NewTabKind.of(key, tab: pane.selectedTab, services: pane.services) != .terminal
     }
 
     /// `focusesPage` false (a tab dropped on its own pane's edge, #22287): the page neither takes the
     /// keys nor focus; the dropped tab keeps them. `swapsBack`: once the page's pane is placed on `edge`,
     /// the two panes swap, so the page ends across from `edge` (as Split Left splits right, then swaps).
     /// Returns whether the page was started.
+    /// `placed` (New ▸ New Tab Page at a column, row, workspace or window): the page opens hidden in
+    /// `source` and `placed` gets its key to move it there, instead of a split on `edge`.
     @discardableResult
-    static func split(_ source: PaneController, edge: PaneEdge, focusesPage: Bool = true, swapsBack: Bool = false) -> Bool {
+    static func split(_ source: PaneController, edge: PaneEdge, focusesPage: Bool = true, swapsBack: Bool = false,
+                      insertion: DividerInsertion? = nil, placed: (@MainActor (String) -> Void)? = nil) -> Bool {
         let services = source.services
         let machineID = source.daemon.machineID
         var page = Self.page(services, selected: source.selectedTab, pane: source, paletteActions: false)
@@ -53,10 +57,10 @@ extension NewTabPage {
             guard target == .here else { return jump(target, id) }
             if let services, let key = opened.value { Self.moveHere(id, page: key, onMachine: machineID, services: services) }
         }
-        let split: SplitDirection? = !source.daemon.supports(DaemonCapability.conversationTabSplit.rawValue) ? nil
+        let split: SplitDirection? = placed != nil || !source.daemon.supports(DaemonCapability.conversationTabSplit.rawValue) ? nil
             : edge == .right ? .right : edge == .bottom ? .down : nil
         // Even split sizing, as a terminal split (PaneHandlers.split), once the store's pane is placed.
-        let sizing = split.flatMap { source.workspace?.layoutModel.splitSizingChanges(splitting: source.layoutPaneID, axis: $0 == .right ? .horizontal : .vertical) } ?? []
+        let sizing = split.flatMap { insertion?.sizing ?? source.workspace?.layoutModel.splitSizingChanges(splitting: source.layoutPaneID, axis: $0 == .right ? .horizontal : .vertical) } ?? []
         // Shown with the split, in this frame (one spring for the whole chain); sent once the page is placed.
         let layoutModel = source.workspace?.layoutModel
         let shownSizing = split == nil ? nil : layoutModel?.showSplitSizing(sizing)
@@ -66,9 +70,14 @@ extension NewTabPage {
             input?.endIncoming(keys, pageMade: false)
         }
         let started = services.agentTabs.openTab(in: source, newTab: (page, handler), select: false, hidden: split == nil, split: split,
-                                                 focuses: focusesPage) { [weak source] key in
+                                                 around: split == nil ? nil : insertion?.around, focuses: focusesPage) { [weak source] key in
             opened.value = key
             guard let source else { return }
+            if let placed {
+                placed(key)
+                input.flushAll()
+                return
+            }
             guard let split else { return Self.moveToSplit(key, from: source, edge: swapsBack ? edge.opposite : edge, keys: keys, focuses: focusesPage) }
             if let shownSizing { layoutModel?.commitSplitSizing(shownSizing) }
             if swapsBack { source.daemon.send("swap-pane") { [handle = source.pane.handle] in try await $0.swapPane(handle, with: .direction(split == .right ? .right : .down)) } }
@@ -90,10 +99,10 @@ extension NewTabPage {
             if agent, services.agentTabs.isNewTabPage(tab.id) { return nil }
             let kind: AgentPaneTabKind = agent ? .agent : tab.kind == .browser ? .browser : .terminal
             // An untitled shell is named by its folder, a page by its address, as the bar names them.
-            let title = Self.place(tab, home: NSHomeDirectory())?.title ?? tab.displayTitle
+            let title = NewTabPlaces(home: NSHomeDirectory()).place(tab)?.title ?? tab.displayTitle
             return AgentPaneOmnibar.Tab(
                 id: tab.id, kind: kind, title: title,
-                detail: kind == .browser ? tab.url.map(Self.displayURL) : tab.cwd.map { Self.abbreviated($0) },
+                detail: kind == .browser ? tab.url.map(NewTabPlaces.displayURL) : tab.cwd.map(NewTabPlaces(home: NSHomeDirectory()).abbreviated),
                 icon: kind == .browser ? AppServices.dataURL(services.tabFavicon(tab)) : nil
             )
         }

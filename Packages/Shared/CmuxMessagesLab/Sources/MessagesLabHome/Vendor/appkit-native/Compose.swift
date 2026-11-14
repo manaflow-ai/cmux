@@ -941,7 +941,8 @@ final class ComposeView: UIView {
         let p = NSMutableParagraphStyle()
         p.minimumLineHeight = Fixture.lineHeight
         p.maximumLineHeight = Fixture.lineHeight
-        return [.font: Fixture.bodyFont, .foregroundColor: Fixture.incomingText, .kern: Fixture.bodyKern, .paragraphStyle: p]
+        // cmux: the composer's own text (the theme's), not a chat's chosen received-bubble text.
+        return [.font: Fixture.bodyFont, .foregroundColor: Fixture.composeText, .kern: Fixture.bodyKern, .paragraphStyle: p]
     }
     /// UITextView's text container inset above the first line (Catalyst value).
     static let textTopInset: CGFloat = ComposeView.firstBaseline - 13.26 - 0.25
@@ -989,7 +990,7 @@ final class ComposeView: UIView {
         tv.drawsBackground = false
         tv.backgroundColor = .clear
         tv.font = ComposeView.font
-        tv.textColor = Fixture.incomingText
+        tv.textColor = Fixture.composeText  // cmux: the composer's own text
         tv.insertionPointColor = Fixture.caret
         tv.installCaret()
         inlineHover.install(on: tv)  // cmux: an inline attachment's remove button on hover
@@ -1082,6 +1083,7 @@ final class ComposeView: UIView {
         renderChips()
         // cmux: the caret follows the palette too (the bubble style, the theme, the accent).
         textView.view.recolorCaret()
+        textView.view.recolorText()  // cmux: and the typed text (ComposeTextColor.swift)
     }
 
     /// The "+" button (opens the file picker).
@@ -1429,7 +1431,7 @@ final class ComposeView: UIView {
         ctx.translateBy(x: 0, y: -(995 + dy))
         Glass.draw(ctx, rect: CGRect(x: 10.5, y: 1000 + dy, width: 31, height: 30), radius: 15, fill: 49, rim: .button)
         Glass.draw(ctx, rect: CGRect(x: 586.5 + dx, y: 1000 + dy, width: 31, height: 30), radius: 15, fill: 49, rim: .button)
-        // Fitted to the lossless stills: plus 15.5 pt medium, emoji.face.grinning 15.5 pt medium.
+        // Fitted to the lossless stills: plus 15.5 pt medium, the emoji glyph (face.smiling.inverse) 15.5 pt medium.
         let cfg = UIImage.SymbolConfiguration(pointSize: 15.5, weight: .medium)
         if let img = UIImage(systemName: "plus", withConfiguration: cfg)?.withTintColor(.white, renderingMode: .alwaysOriginal) {
             let s = img.size, c = CGPoint(x: 26, y: 1015.25 + dy)

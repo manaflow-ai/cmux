@@ -12,6 +12,14 @@ public nonisolated enum BrowserLoadPhase: Hashable, Sendable {
     case finished
     /// The last navigation failed.
     case failed(BrowserLoadError)
+
+    /// The load ended: finished, stopped after it committed, or failed.
+    public var hasEnded: Bool {
+        switch self {
+        case .finished, .failed: true
+        case .idle, .provisional, .committed: false
+        }
+    }
 }
 
 /// Transport security of the committed page, as shown by the address bar

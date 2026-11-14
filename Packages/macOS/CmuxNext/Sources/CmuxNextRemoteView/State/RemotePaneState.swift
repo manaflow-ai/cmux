@@ -7,6 +7,13 @@ public nonisolated enum RemoteControlMode: String, Sendable, Hashable, CaseItera
     case control
 }
 
+/// How the toolbar offers control: the View / Control toggle, or (a Cloud machine's desktop,
+/// which opens watching the agent) one Take over / Hand back button.
+public nonisolated enum RemoteModeControl: Sendable, Hashable {
+    case toggle
+    case takeOver
+}
+
 /// Everything the pane shows, derived only from the transport's latest
 /// status and the viewer's choices. Pure value: `RemotePaneReducer` is the
 /// only writer and the tests drive it without views.
@@ -28,6 +35,10 @@ public nonisolated struct RemotePaneState: Sendable, Hashable {
     /// Connecting again after a session that showed frames: the card says "Reconnecting" over
     /// the last frame. Cleared by the next frame shown.
     public var reconnecting = false
+    /// The toggle, or Take over / Hand back.
+    public var modeControl = RemoteModeControl.toggle
+    /// Whether the path counts as high latency, held so one sample does not flip it.
+    public var latency = RemoteLatencyHold()
 
     public init(hostName: String, requestedMode: RemoteControlMode = .control, interactiveMaxRttMs: Int = 80) {
         self.hostName = hostName
@@ -37,8 +48,12 @@ public nonisolated struct RemotePaneState: Sendable, Hashable {
 
     public var sessionState: RemoteSessionState { status?.state ?? .connecting }
 
-    /// The path's RTT is above the interactive limit (section 2.1).
-    public var isHighLatency: Bool {
+    /// The path's RTT has stayed above the interactive limit (section 2.1) for
+    /// ``RemoteLatencyHold/sustain``; it counts as low again only after as long under it.
+    public var isHighLatency: Bool { latency.high }
+
+    /// The latest RTT sample is above the interactive limit (``latency`` holds it over time).
+    public var sampleOverLimit: Bool {
         guard let rtt = status?.rttMs else { return false }
         return rtt > interactiveMaxRttMs
     }

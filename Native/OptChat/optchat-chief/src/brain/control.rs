@@ -12,8 +12,10 @@
 //! - `cancel id`: over for good (its transcript stays for `zoom`).
 //! - `restart id [message]`: stop the turn, continue in the same session.
 //! - `priority id`: a queued one starts next. `cap n`: the live cap.
-//! - `show id` / `hide id`: open or close its sidebar workspace (#26386:
-//!   subagents run hidden unless `subagents.showWorkspaces` is on).
+//! - `show id` / `hide id`: move its workspace to the top of the sidebar, or
+//!   into the collapsed "Chief's workspaces" group (the Chief chose its kind at
+//!   its start, action_lifetime.rs). Neither closes it; one with no workspace
+//!   (the user closed it) gets a new one in that place.
 //!
 //! Pushed to the Chief, never polled: reports (spawns.rs), prompts
 //! (`permission_note`), stuck runs (`sub_tick`) and delivered inboxes.
@@ -209,7 +211,7 @@ pub(super) fn permission_note(id: &str, request: &Value, shown: bool) -> String 
         )
     } else {
         format!(
-            "No working local Allow button is confirmed yet for {id}. An eligible hidden local request appears in Home as an Allow/Deny card; any other opens its workspace, or control(action: \"show\", id: \"{id}\") does."
+            "No working local Allow button is confirmed yet for {id}. An eligible local request appears in Home as an Allow/Deny card; any other is answered in its workspace, which control(action: \"show\", id: \"{id}\") moves to the top of the sidebar."
         )
     };
     let deadline = crate::approval::PERMISSION_WAIT.as_secs();
@@ -255,10 +257,12 @@ impl Brain {
         }
     }
 
-    /// Serves `control show|hide id`: opens or closes the subagent's sidebar
-    /// workspace on a thread (the session daemon's I/O never runs on the
-    /// brain's loop), which answers `reply` once it is done. The record
-    /// changes first, so a second `show` while one opens is a noop.
+    /// Serves `control show|hide id`: moves the subagent's workspace to the top of the sidebar
+    /// (`show`) or into the collapsed "Chief's workspaces" group (`hide`), on a thread (the
+    /// session daemon's I/O never runs on the brain's loop), which answers `reply` once it is
+    /// done. Nothing is closed: no subagent is ever hidden (Aziz, 2026-11-11). One with no
+    /// workspace (the user closed it) gets a new one in that place; the record changes first,
+    /// so a second call while one opens is a noop.
     pub(super) fn control_workspace(
         &mut self,
         call: &ControlCall,
@@ -279,62 +283,79 @@ impl Brain {
             ));
             return;
         };
-        let log = self.log.clone();
-        if call.action == "hide" {
-            let Some(key) = sub.workspace.clone() else {
-                // A spawn may still be opening its workspace under the slot's
-                // key: a fresh key fences that open, which then closes.
-                if sub.workspace_slot.is_some() {
-                    if let Some(s) = self.state.sub_mut(&id) {
-                        retire_slot_key(s);
-                    }
-                    self.save();
-                }
-                let _ = reply.send(outcome(
-                    "noop",
-                    format!("{id} has no workspace; it runs hidden"),
-                ));
-                return;
-            };
-            if let Some(s) = self.state.sub_mut(&id) {
-                s.workspace = None;
-                s.ws_id = None;
-                retire_slot_key(s);
-            }
-            self.save();
-            self.rewatch_permission(&id);
+        let into_chief_group = call.action == "hide";
+        let place = if into_chief_group {
+            format!(
+                "the collapsed \"{}\" sidebar group",
+                crate::action_lifetime::CHIEF_GROUP
+            )
+        } else {
+            "the top of the sidebar".to_owned()
+        };
+        if let Some(key) = sub.workspace.clone() {
+            let tx = self.tx.clone();
+            let log = self.log.clone();
             std::thread::spawn(move || {
-                let mut text = format!(
-                    "closed {id}'s workspace; it goes on hidden, its link still opens its chat, and control(action: \"show\", id: \"{id}\") opens a new one"
-                );
-                // A workspace the user closed already fails here; the record
-                // stays hidden either way, so a later `show` opens a new one.
-                if let Err(e) = workspaces.close(&key) {
-                    log(&format!("subagent {id}: closing its workspace: {e}"));
-                    text.push_str(&format!(
-                        " (closing said: {e}; the user may have closed it already)"
-                    ));
-                }
-                let _ = reply.send(outcome("done", text));
+                let answer = match workspaces.move_to(&key, into_chief_group) {
+                    Ok(()) => {
+                        let _ = tx.send(Input::SubagentWorkspaceMoved {
+                            id: id.clone(),
+                            into_chief_group,
+                        });
+                        let mut text = format!("moved {id}'s workspace to {place}");
+                        if into_chief_group {
+                            text.push_str(
+                                "; it stays listed there and in search, and control(action: \"show\") moves it back",
+                            );
+                        }
+                        outcome("done", text)
+                    }
+                    // The user closed it: a show or hide opens a new one there.
+                    Err(e) if e.contains("does not list") => {
+                        let _ = tx.send(Input::SubagentWorkspaceFailed {
+                            id: id.clone(),
+                            key,
+                        });
+                        outcome(
+                            "noop",
+                            format!(
+                                "{id}'s workspace is gone (closed by the user?); control(action: \"{}\", id: \"{id}\") again opens a new one in {place}",
+                                if into_chief_group { "hide" } else { "show" }
+                            ),
+                        )
+                    }
+                    Err(e) => {
+                        log(&format!("subagent {id}: moving its workspace: {e}"));
+                        outcome(
+                            "noop",
+                            format!("{id} keeps its workspace where it is ({e})"),
+                        )
+                    }
+                };
+                let _ = reply.send(answer);
             });
-            return;
-        }
-        if sub.workspace.is_some() {
-            let _ = reply.send(outcome("noop", format!("{id} already has its workspace (closed by the user? hide, then show, opens a new one)")));
             return;
         }
         let Some(session) = sub.session_id.clone() else {
             let _ = reply.send(outcome(
                 "refused",
-                format!("{id} has not started yet; show it once it runs"),
+                format!("{id} has not started yet; it gets its workspace once it runs"),
             ));
             return;
         };
+        let log = self.log.clone();
         let mut record = sub.clone();
         if record.workspace_slot.is_none() {
             retire_slot_key(&mut record);
         }
-        let slot = record.workspace_slot.take().unwrap_or_default();
+        let mut slot = record.workspace_slot.take().unwrap_or_default();
+        slot.group = if into_chief_group {
+            crate::action_lifetime::CHIEF_GROUP.to_owned()
+        } else if crate::workspaces::is_chief_group(&slot.group) {
+            String::new()
+        } else {
+            slot.group
+        };
         let name = if sub.title.is_empty() {
             crate::workspaces::title(&sub.task)
         } else {
@@ -349,7 +370,6 @@ impl Brain {
         std::thread::spawn(move || {
             let answer = match workspaces.open(&slot.key, &session, &name, &slot.group, &slot.cwd) {
                 Ok(key) => {
-                    // No group unless the task named the user's "Chief agents" (#27712).
                     let group = if slot.group.is_empty() {
                         String::new()
                     } else {
@@ -502,8 +522,15 @@ impl Brain {
         if sub.priority != 0 {
             line.push_str(&format!("; priority {}", sub.priority));
         }
-        if sub.workspace.is_none() {
-            line.push_str("; hidden (no workspace)");
+        match (
+            &sub.workspace,
+            sub.made.as_ref().is_some_and(|m| m.in_chief_group()),
+        ) {
+            (None, _) => line.push_str("; no workspace now (control show opens one)"),
+            (Some(_), true) => {
+                line.push_str(&format!("; in \"{}\"", crate::action_lifetime::CHIEF_GROUP))
+            }
+            (Some(_), false) => {}
         }
         if sub.auto_continues > 0 {
             line.push_str(&format!("; auto-continued {}x", sub.auto_continues));

@@ -23,6 +23,7 @@ on:
       - skills/cmux-cloud-vm/references/headless.md
       - cmux-tui/rust-toolchain.toml
       - .github/actions/setup-cmux-tui-rust/**
+      - .github/actions/runner-cargo-home/**
       - .github/workflows/cmux-vm-clients.yml
   push:
     # feat-cmux-next too: cmux VM lands there first, and without this run an
@@ -38,6 +39,7 @@ on:
       - skills/cmux-cloud-vm/references/headless.md
       - cmux-tui/rust-toolchain.toml
       - .github/actions/setup-cmux-tui-rust/**
+      - .github/actions/runner-cargo-home/**
       - .github/workflows/cmux-vm-clients.yml
 
 concurrency:

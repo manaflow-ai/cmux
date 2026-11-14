@@ -151,6 +151,8 @@ export type CloudConnectInfo = {
 
 export type CloudConnectServices = ReadonlyArray<"daemon" | "ssh">
 
+export type CloudDeleteReason = "failed_create" | "never_used" | "unused" | "requested"
+
 export type CloudEnvironment = {
   readonly id: EnvironmentId
   readonly name: string
@@ -238,7 +240,15 @@ export type CloudMachine = {
   } | null
   readonly pause_reason?: "idle" | "no_report" | "provider_stopped" | "provider_paused" | null
   readonly hourly_rate_usd?: number | "Infinity" | "-Infinity" | "NaN" | null
+  readonly paused_hourly_rate_usd?: number | "Infinity" | "-Infinity" | "NaN" | null
   readonly running_since?: number | null
+  readonly desktop?: boolean
+  readonly evict_at?: number | null
+  readonly delete_reason?: CloudDeleteReason | null
+  readonly keep?: boolean
+  readonly notice?: CloudRetentionNotice | null
+  readonly paused_by?: "spend_cap"
+  readonly spend_cap_pause_at?: number
   readonly revision: Revision
 }
 
@@ -265,8 +275,53 @@ export type CloudPlan = {
     readonly active: number
     readonly saved: number
     readonly vm_hours_used: number | "Infinity" | "-Infinity" | "NaN" | null
+    readonly vm_hours_used_by_you?: number | "Infinity" | "-Infinity" | "NaN" | null
     readonly period_end: number
   }
+  readonly retention?: CloudRetention | null
+  readonly spend_cap?: {
+    readonly state: "under" | "near" | "at_cap" | null
+    readonly spent_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+    readonly cap_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+    readonly period_end: number | null
+    readonly checked_at: number | null
+    readonly pause_at: number | null
+    readonly paused_at: number | null
+  }
+}
+
+export type CloudRetention = {
+  readonly mode: "off" | "warn" | "on"
+  readonly settings: CloudRetentionSettings | null
+  readonly team: CloudRetentionOverrides
+  readonly email_heads_up: boolean
+}
+
+export type CloudRetentionNotice = {
+  readonly kind: "heads_up" | "last_note"
+  readonly at: number
+  readonly delete_at: number
+}
+
+export type CloudRetentionOverrides = {
+  readonly failed_create_hours?: number
+  readonly never_used_hours?: number
+  readonly idle_pause_minutes?: number
+  readonly worked_in_days?: number
+  readonly heads_up_days?: number
+  readonly last_note_days?: number
+  readonly archive_days?: number
+}
+
+export type CloudRetentionSettings = {
+  readonly tier: string
+  readonly failed_create_hours: number
+  readonly never_used_hours: number
+  readonly idle_pause_minutes: number
+  readonly worked_in_days: number | null
+  readonly heads_up_days: number
+  readonly last_note_days: number
+  readonly archive_days: number
 }
 
 export type CloudSnapshot = {
@@ -276,6 +331,11 @@ export type CloudSnapshot = {
   readonly size_mb: number
   readonly status: "creating" | "ready" | "deleting" | "failed"
   readonly created_at: number
+  readonly archive_of?: {
+    readonly machine: MachineId
+    readonly name: string | null
+    readonly until: number
+  } | null
   readonly revision: Revision
 }
 
@@ -305,6 +365,7 @@ export type CloudVmNetworkPolicyView = {
   readonly authority_version: string
   readonly checked_at: number
   readonly expires_at: number
+  readonly admit_until?: number
   readonly acl_version: number
   readonly policy_digest: string
   readonly peers: ReadonlyArray<CloudVmReceiverPeer>
@@ -318,7 +379,7 @@ export type CloudVmReceiverPeer = {
   readonly wg_public_key: WgPublicKey
   readonly install_public_key: string
   readonly authority_version: string
-  readonly services: ReadonlyArray<"daemon" | "ssh">
+  readonly services: ReadonlyArray<"daemon" | "ssh" | "desktop">
 }
 
 export type CodeRef = {
@@ -593,6 +654,10 @@ export type HomeChief = {
   readonly created_at: Timestamp
   readonly updated_at: Timestamp
   readonly archived_at: Timestamp | null
+  readonly channel?: {
+    readonly conversation: ConversationId
+    readonly title: string
+  }
 }
 
 /** rev after the op; seq and message_id for a new message; change is the committed Change. */
@@ -624,6 +689,8 @@ export type HomeConversationSummary = {
   readonly last_message?: HomeMessage
   readonly read_cursors: Readonly<Record<string, number>>
   readonly kind?: ConversationKind
+  /** A channel's own Chief (channel.create): it is woken only by this conversation. */
+  readonly channel_chief?: string
   readonly team?: string
   readonly created_by?: string
   readonly state?: "active" | "archived"
@@ -926,7 +993,7 @@ export type ManagedDevice = {
 
 export type MessageId = string
 
-export type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd"
+export type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd" | "cloud.machine_usd"
 
 export type MovedAutomation = {
   readonly id: AutomationId
@@ -956,6 +1023,16 @@ export type PairingInfo = {
   readonly cmux_version: string
   readonly capabilities?: ReadonlyArray<ServerCapability>
 }
+
+export type PairingInvite = {
+  readonly invite: PairingInviteCode
+  readonly display: string
+  readonly expires_at: number
+  readonly watch_secret: string
+}
+
+/** A normalized invite code: 10 Crockford base32 symbols, no hyphen. */
+export type PairingInviteCode = string
 
 export type PairingPreview = {
   readonly code: PairingCode
@@ -1758,6 +1835,14 @@ export interface CloudOps {
     }
     readonly result: unknown
   }
+  /** Create a channel: a group conversation you own with its own Chief, scoped to it (it is woken only by that conversation and keeps its own memory, instructions, personality and avatar). Answers the channel Chief; its channel.conversation is the channel. display_name defaults to "<title> Chief". Invite people with participants.add or invite.create on the channel. */
+  readonly "channel.create": {
+    readonly params: {
+      readonly title: string
+      readonly display_name?: string
+    }
+    readonly result: HomeChief
+  }
   /** Archive a chief (not the default): it stops waking; restorable for 30 days, then a tombstone keeps its id forever. */
   readonly "chief.archive": {
     readonly params: {
@@ -1870,7 +1955,16 @@ export interface CloudOps {
       readonly environment: CloudEnvironment
     }
   }
-  /** How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner only for its creator on the creator's personal team; every shared-team machine is team). */
+  /** Archive a paused machine's disk, then delete the machine. The archive is a snapshot (archive_of names the machine) kept for the plan's archive days; cloud.snapshot.restore makes a new machine from it. The machine's creator or a team admin only. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.machine.archive_delete": {
+    readonly params: {
+      readonly machine: MachineId
+    }
+    readonly result: {
+      readonly machine: CloudMachine
+    }
+  }
+  /** How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner for its creator on any team, never an agent token; every other member is team). */
   readonly "cloud.machine.connect_info": {
     readonly params: {
       readonly machine?: MachineId
@@ -1878,7 +1972,7 @@ export interface CloudOps {
     }
     readonly result: CloudConnectInfo
   }
-  /** Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used}, cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
+  /** Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
   readonly "cloud.machine.create": {
     readonly params: {
       readonly name?: string
@@ -1916,11 +2010,21 @@ export interface CloudOps {
       readonly machine: CloudMachine
     }
   }
-  /** Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. The token carries the caller's vm_kind (claim vmk, the same value as the result's vm_kind), so the owner answer is bound to this dial and ends with the token. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app. */
+  /** Keep a machine: it is never deleted automatically, whatever the plan's retention. keep: false lets the plan's retention apply again. The machine's creator or a team admin only. */
+  readonly "cloud.machine.keep": {
+    readonly params: {
+      readonly machine: MachineId
+      readonly keep: boolean
+    }
+    readonly result: {
+      readonly machine: CloudMachine
+    }
+  }
+  /** Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists, or `desktop`, which connect_info never lists: the machine's creator only, on a machine whose daemon advertises link-desktop-v1) and the current epoch, valid at most 5 minutes. The token carries the caller's vm_kind (claim vmk, the same value as the result's vm_kind), so the owner answer is bound to this dial and ends with the token. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app. */
   readonly "cloud.machine.link_token": {
     readonly params: {
       readonly host: HostId
-      readonly services: ReadonlyArray<"daemon" | "ssh">
+      readonly services: ReadonlyArray<"daemon" | "ssh" | "desktop">
       readonly native_proof?: ServerNetworkProof
     }
     readonly result: {
@@ -1928,7 +2032,7 @@ export interface CloudOps {
       readonly expires_at: number
       readonly host: HostId
       readonly epoch: number
-      readonly services: ReadonlyArray<"daemon" | "ssh">
+      readonly services: ReadonlyArray<"daemon" | "ssh" | "desktop">
       readonly vm_kind: "owner" | "team"
     }
   }
@@ -2012,6 +2116,16 @@ export interface CloudOps {
     readonly params: Readonly<Record<string, never>>
     readonly result: CloudPlan
   }
+  /** Set this team's cleanup numbers (a team admin; each within the plan's limit, a worked-in window never past the plan's) and whether you get the email heads-up before one of your machines is deleted. cloud.plan.get answers the settings in force as `retention`. */
+  readonly "cloud.retention.set": {
+    readonly params: {
+      readonly settings?: CloudRetentionOverrides | null
+      readonly email_heads_up?: boolean
+    }
+    readonly result: {
+      readonly changed: boolean
+    }
+  }
   /** Open the rescue shell: a wire stream id the client opens as a WebSocket (contract 2.6). Works when the VM daemon is down and for classic machines. */
   readonly "cloud.shell.open": {
     readonly params: {
@@ -2090,7 +2204,7 @@ export interface CloudOps {
       readonly delivered: boolean
     }
   }
-  /** Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 30 seconds and never outlives an included grant. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine). */
+  /** Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 120 seconds and never outlives an included grant; admit_until, when present, lets the receiver keep this policy through a failed renewal for at most one hour after checked_at. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine). */
   readonly "cloud.vm.network_policy": {
     readonly params: {
       readonly machine: MachineId
@@ -2968,18 +3082,43 @@ export interface CloudOps {
       readonly installation_id?: string
       readonly setup_action?: string
     }
-    readonly result: Connection
+    readonly result: {
+      readonly id: ConnectionId
+      readonly owner: TeamId
+      readonly created_by: UserId
+      readonly provider: IntegrationProvider
+      readonly account: {
+        readonly key: string
+        readonly name: string
+        readonly url?: string
+      } | null
+      readonly scopes_requested: ReadonlyArray<string>
+      readonly scopes_granted: ReadonlyArray<string>
+      readonly status: ConnectionStatus
+      readonly status_detail?: string
+      readonly sharing: "private" | "team"
+      readonly resources?: {
+        readonly repos: ReadonlyArray<string> | null
+      }
+      readonly created_at: number
+      readonly updated_at: number
+      readonly return_to?: string
+      readonly configure_url?: string
+    }
   }
-  /** Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it. */
+  /** Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it, or connected when a connection already covers the GitHub repository asked for. */
   readonly "integration.connect": {
     readonly params: {
       readonly provider: IntegrationProvider
       readonly scopes?: ReadonlyArray<string>
       readonly sharing?: "private" | "team"
+      readonly repo?: string
+      readonly return_to?: string
     }
     readonly result: {
       readonly connection: Connection
-      readonly authorize_url: string
+      readonly authorize_url?: string
+      readonly connected?: true
     }
   }
   /** List the team's connections the caller may use (no secrets) and which providers this deployment can connect. */
@@ -3392,6 +3531,13 @@ export interface CloudOps {
       readonly install: InstallId
       readonly network?: ServerNetworkReservation
     }
+  }
+  /** Make a 10-minute, single-use invite code that a new machine types (`cmux pair CODE`) to ask to join the team. Only the person who made it can approve that machine, after comparing its four words; making another invite voids this one. Origin user only. */
+  readonly "server.pair.invite": {
+    readonly params: {
+      readonly team: TeamId
+    }
+    readonly result: PairingInvite
   }
   /** Show what a pending pairing code would add: the server's name, platform, key thumbprint and location. */
   readonly "server.pair.preview": {
@@ -4054,6 +4200,7 @@ export const cloudOpMeta = {
   "calendar.event.create": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "send-external" },
   "calendar.event.respond": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "send-external" },
   "calendar.events.list": { class: "read", idempotency: "forbidden", owner: "cloud:ConnectionDO", risk: "read" },
+  "channel.create": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
   "chief.archive": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "destructive" },
   "chief.create": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
   "chief.delete": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "destructive" },
@@ -4065,11 +4212,13 @@ export const cloudOpMeta = {
   "cloud.environment.delete": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "destructive" },
   "cloud.environment.list": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.environment.set": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "mutate-shared" },
+  "cloud.machine.archive_delete": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "destructive" },
   "cloud.machine.connect_info": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.machine.create": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
   "cloud.machine.delete": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "destructive" },
   "cloud.machine.get": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.machine.idle_policy.set": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "mutate-shared" },
+  "cloud.machine.keep": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "mutate-shared" },
   "cloud.machine.link_token": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.machine.list": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.machine.pause": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "mutate-shared" },
@@ -4080,6 +4229,7 @@ export const cloudOpMeta = {
   "cloud.migration.start": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "mutate-own" },
   "cloud.migration.status": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.plan.get": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.retention.set": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "mutate-shared" },
   "cloud.shell.open": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.snapshot.create": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
   "cloud.snapshot.delete": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "destructive" },
@@ -4195,6 +4345,7 @@ export const cloudOpMeta = {
   "run.list": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
   "server.network.confirm": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-own" },
   "server.pair.approve": { class: "mutation", idempotency: "required", owner: "cloud:PairingDO", risk: "mutate-shared" },
+  "server.pair.invite": { class: "mutation", idempotency: "required", owner: "cloud:PairingDO", risk: "mutate-shared" },
   "server.pair.preview": { class: "read", idempotency: "forbidden", owner: "cloud:PairingDO", risk: "read" },
   "server.revoke": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "destructive" },
   "slack.post_as_bot": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "send-external" },

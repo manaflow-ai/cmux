@@ -2,14 +2,21 @@ name: cmux-tui SDKs
 
 on:
   push:
+    # feat-cmux-next too: a pull request into it is judged against the base's own verdict
+    # (scripts/ci/base_red_excuse.py), and with main alone a contract red the base caused
+    # (b9783320dc5, create-workspace first_tab) had no feat-cmux-next verdict to excuse it
+    # with, so every cmux-tui pull request stalled behind it (cmux#41132).
     branches:
       - main
+      - feat-cmux-next
     paths:
       - "cmux-tui/**"
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/actions/runner-cargo-home/**"
       - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
+      - "scripts/cmux-next/cmux-tui-build-profiles.json"
       - ".github/workflows/cmux-tui.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
@@ -30,6 +37,14 @@ on:
       - ".github/workflows/tui-publish-pypi.yml"
       - "tests/test_tui_installers.py"
       - "tests/test_tui_publish_workflow_security.py"
+      - "tests/workflow_jobs.py"
+      - "scripts/ci/gh_expressions.py"
+      - "scripts/ci/adopt_cmux_tui_commit.py"
+      - "scripts/ci/cmux_tui_manifest_sweep.py"
+      - "scripts/ci/cmux_tui_tree_handoff.py"
+      - "scripts/ci/deadline_http.py"
+      - "scripts/ci/gh_pages.py"
+      - "scripts/ci/verify_cmux_tui_publication.py"
       - "tests/test_cmux_tui_headless_debug_workflow.py"
       - ".github/workflows/cmux-tui-headless-debug.yml"
       - "tests/test_tui_pypi_postpublish_reconcile.sh"
@@ -39,13 +54,27 @@ on:
       - "web/public/tui/install-static.ps1"
       - "scripts/cmux-next/cmux-code-mode-runner"
       - "tests/test_cmux_code_mode_mcp.py"
+      - ".github/runners.json"
+      - "scripts/ci/cmux-tui-mark-daemon-tested.sh"
+      - "scripts/ci/publish-cmux-tui-tree.py"
+      - "scripts/cmux-next/pin-cmux-tui.sh"
+      - "scripts/cmux-next/request-nightly-next.sh"
+      - "scripts/cmux-next/tree-commit-marker.sh"
+      - "tests/blacksmith_linux_sizes.py"
+      - "tests/fleet-rule-allowlist.json"
+      - "tests/git_fixture_env.py"
+      - "tests/runs_on_labels.py"
+      - "tests/test_ci_fleet_rule_lints.py"
+      - "webviews/src/pages/shared/generated/pageRouter.ts"
   pull_request:
     paths:
       - "cmux-tui/**"
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/actions/runner-cargo-home/**"
       - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
+      - "scripts/cmux-next/cmux-tui-build-profiles.json"
       - ".github/workflows/cmux-tui.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
@@ -66,6 +95,14 @@ on:
       - ".github/workflows/tui-publish-pypi.yml"
       - "tests/test_tui_installers.py"
       - "tests/test_tui_publish_workflow_security.py"
+      - "tests/workflow_jobs.py"
+      - "scripts/ci/gh_expressions.py"
+      - "scripts/ci/adopt_cmux_tui_commit.py"
+      - "scripts/ci/cmux_tui_manifest_sweep.py"
+      - "scripts/ci/cmux_tui_tree_handoff.py"
+      - "scripts/ci/deadline_http.py"
+      - "scripts/ci/gh_pages.py"
+      - "scripts/ci/verify_cmux_tui_publication.py"
       - "tests/test_cmux_tui_headless_debug_workflow.py"
       - ".github/workflows/cmux-tui-headless-debug.yml"
       - "tests/test_tui_pypi_postpublish_reconcile.sh"
@@ -75,6 +112,18 @@ on:
       - "web/public/tui/install-static.ps1"
       - "scripts/cmux-next/cmux-code-mode-runner"
       - "tests/test_cmux_code_mode_mcp.py"
+      - ".github/runners.json"
+      - "scripts/ci/cmux-tui-mark-daemon-tested.sh"
+      - "scripts/ci/publish-cmux-tui-tree.py"
+      - "scripts/cmux-next/pin-cmux-tui.sh"
+      - "scripts/cmux-next/request-nightly-next.sh"
+      - "scripts/cmux-next/tree-commit-marker.sh"
+      - "tests/blacksmith_linux_sizes.py"
+      - "tests/fleet-rule-allowlist.json"
+      - "tests/git_fixture_env.py"
+      - "tests/runs_on_labels.py"
+      - "tests/test_ci_fleet_rule_lints.py"
+      - "webviews/src/pages/shared/generated/pageRouter.ts"
   workflow_dispatch:
 
 concurrency:
@@ -576,6 +625,10 @@ jobs:
       - name: Install Rust 1.88 MSRV toolchain
         run: rustup toolchain install 1.88.0 --profile minimal --component clippy --component rustfmt
 
+      # Before rust-cache: its cleanup must never reach a home a sibling runner builds from.
+      - name: Give this runner instance its own CARGO_HOME
+        uses: ./.github/actions/runner-cargo-home
+
       # Keep cargo's registry and the four target dirs (the cmux-tui workspace that
       # holds the SDK crates, and the three example workspaces) between runs. The
       # job's own key, with the toolchain in it, so 1.88 artifacts never mix with
@@ -665,24 +718,33 @@ jobs:
           "$JAVA_HOME_17_X64/bin/java" -version
           "$JAVA_HOME_17_X64/bin/javac" -version
 
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Set up Zig for Ghostty
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
-          version: 0.16.0
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
 
       - name: Install TypeScript adapter build tools
         working-directory: cmux-tui/bindings/typescript
         run: npm ci --no-audit --no-fund
 
-      # The build reads only the cmux-tui tree, the ghostty submodule, and the
-      # zig and Rust toolchains pinned here and in cmux-tui/rust-toolchain.toml.
+      # The build reads only the cmux-tui tree, the ghostty submodules, and the
+      # zig and Rust toolchains (the Zig that the ghostty-next gitlink's
+      # build.zig.zon names, and cmux-tui/rust-toolchain.toml).
       # Keyed on exactly those, an unchanged tree skips a five-minute compile,
       # which is every run started by a workflow-only edit.
       - name: Key the headless cmux-tui build
         id: headless-key
         run: |
           set -euo pipefail
-          echo "key=cmux-tui-headless-v1-${RUNNER_OS}-${RUNNER_ARCH}-zig0.16.0-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
+          echo "key=cmux-tui-headless-v2-${RUNNER_OS}-${RUNNER_ARCH}-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
 
       - name: Restore the headless cmux-tui build
         id: headless-cache
@@ -707,8 +769,10 @@ jobs:
       - name: Build exact headless cmux-tui
         if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
         working-directory: cmux-tui
+        env:
+          GHOSTTY_ZIG_REQUIRED: ${{ steps.ghostty-zig-version.outputs.version }}
         run: |
-          test "$(zig version)" = "0.16.0"
+          test "$(zig version)" = "$GHOSTTY_ZIG_REQUIRED"
           cargo build -p cmux-tui --bin cmux-tui --locked
 
       # Pull request caches stay read-only. main publishes the build they reuse,

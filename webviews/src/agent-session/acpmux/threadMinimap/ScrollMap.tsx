@@ -14,7 +14,7 @@ import { useHoverIntent } from "../../../ui/hoverIntent";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { animateScroll, reducedMotion, stopScroll } from "./scrollMotion";
 import { PreviewCard } from "./PreviewCard";
-import { railEdge, useRailSide } from "./railSide";
+import { RAIL_ACCESSIBILITY_ID, railEdge, useRailSide } from "./railSide";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import type { usePromptMarks } from "./promptMarks";
 import {
@@ -26,6 +26,7 @@ import {
   THREAD_PADDING_TOP,
   TICK_BOX,
   type MinimapTurn,
+  replyMore,
 } from "./model";
 import {
   MAP_MARGIN,
@@ -248,11 +249,18 @@ export function ScrollMap({
   const cardTurn = cardAt?.kind === "user" ? turns[cardAt.turn] : undefined;
   const cardMarked = cardTurn ? bookmarks.has(cardTurn) : false;
   return (
-    <div className="acpmux-minimap" style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}>
+    <div
+      className="acpmux-minimap"
+      // The scroller's mask reads the side from here, its own child (conversation.css): a `:has()`
+      // that looked deeper would be checked again for every node a streamed chunk inserts.
+      data-side={side}
+      style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}
+    >
       <ContextMenu items={menu}>
         <nav
           ref={rail}
           className="acpmux-minimap__rail acpmux-scrollmap"
+          id={RAIL_ACCESSIBILITY_ID}
           aria-label={t("minimap.label")}
           data-side={side}
           style={{ ...railEdge(side, placement.reserve + placement.left), top: MAP_MARGIN, width: ROW_WIDTH, height }}
@@ -348,6 +356,7 @@ export function ScrollMap({
           scroller={scroller.current}
           prompt={cardTurn?.prompt}
           reply={cardTurn ? cardTurn.reply : agentReply}
+          more={cardTurn ? () => replyMore(cardTurn) : undefined}
           metadata={cardTurn?.metadata}
           bookmark={
             cardTurn && bookmarks.can(cardTurn)

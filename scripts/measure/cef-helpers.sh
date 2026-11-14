@@ -4,7 +4,8 @@
 # "(Renderer)" / "(GPU)" helper apps, the page's JavaScript runs, no V8 CodeRange OOM). Pass
 # --arg=--release-signing to sign the plain helper as a release does (hardened runtime, no
 # allow-jit): a renderer started from it then dies with SIGTRAP, as in the cmux.43 NIGHTLY.
-# --cef-manifest-from REF (first arguments) builds with the CEF that REF's cef-manifest.json pins (a
+# --cef-manifest-from REF (first arguments) builds with the CEF that REF's cef-manifest.json pins, and the remote
+# browser host that REF's remote-browser-host.pin.json pins (a
 # pin commit not yet on feat-cmux-next): its artifacts are still checked against the manifest's sha256.
 # Runs alone on the worker because it launches an app:
 #   cmux-ci run --class exclusive --label measure --script scripts/measure/cef-helpers.sh --ref <sha> --artifact artifacts/cef-helpers.json [--arg=--cef-manifest-from --arg=<sha>] [--arg=--release-signing]
@@ -28,13 +29,18 @@ if [ "${1:-}" = "--cef-manifest-from" ]; then
   # A fleet warm checkout has no origin remote and a depth-1 fetch is a whole tree: a commit that
   # is not here yet gives its manifest from the public repository (a pushed scratch branch tip).
   case "$manifest_ref" in *[!0-9a-f]*) echo "cef-helpers: --cef-manifest-from takes a commit sha" >&2; exit 2;; esac
-  if git cat-file -e "${manifest_ref}^{commit}" 2>/dev/null; then
-    git show "${manifest_ref}:scripts/cmux-next/cef-manifest.json" > "$out/cef-manifest.json"
-  else
-    curl -fsSL --retry 3 --max-time 60 -o "$out/cef-manifest.json" \
-      "https://raw.githubusercontent.com/manaflow-ai/cmux/$manifest_ref/scripts/cmux-next/cef-manifest.json"
-  fi
-  export CMUX_CEF_MANIFEST="$out/cef-manifest.json"
+  # The remote browser host pin names the CEF it was built against, and the DEV build refuses a host whose
+  # CEF is not the app's, so a CEF pin change always moves both files: take both from REF (a run with only
+  # REF's manifest failed at "Embed remote browser host": CEF pin mismatch, step b8fb92f8, 2026-11-05).
+  for pinned in cef-manifest.json remote-browser-host.pin.json; do
+    if git cat-file -e "${manifest_ref}^{commit}" 2>/dev/null; then
+      git show "${manifest_ref}:scripts/cmux-next/$pinned" > "$out/$pinned"
+    else
+      curl -fsSL --retry 3 --max-time 60 -o "$out/$pinned" \
+        "https://raw.githubusercontent.com/manaflow-ai/cmux/$manifest_ref/scripts/cmux-next/$pinned"
+    fi
+  done
+  export CMUX_CEF_MANIFEST="$out/cef-manifest.json" CMUX_NEXT_RB_HOST_PIN="$out/remote-browser-host.pin.json"
   echo "cef-helpers: CEF from $manifest_ref: $(grep -m1 '"version"' "$CMUX_CEF_MANIFEST")"
 fi
 account_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"

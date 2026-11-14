@@ -52,21 +52,29 @@ import Testing
         return (sidebar, window)
     }
 
-    /// Leo's numbers: a 2 pt line, a 6 pt cut; `inside` sets it about 4 to 5 pt in from the header's left edge.
+    /// Leo's numbers: a 2 pt line, a 6 pt cut; `inside` sets it 2 pt in from the header's left edge, the 4 pt item
+    /// corner (99d72e1: the default corner is the omnibar's 8 pt, items nest two levels inside it) less the line.
     @Test func theShapeIsChromesMeasuredOne() {
         #expect(SidebarGroupLineLayout.tunable.defaultValue == .edge, "the line at the header bar's left edge is the default")
         #expect(SidebarStyle.groupBarWidth == 2)
         #expect(SidebarStyle.groupLineCut == 6)
         let inset = SidebarStyle.groupLineCornerInset
-        #expect(inset >= 4 && inset <= 5, "about 4 to 5 pt inside the header: \(inset)")
+        #expect(Metrics.itemCornerRadius == 4, "the default item corner, two levels inside the 8 pt pane corner")
+        #expect(inset == 2, "2 pt inside the header: \(inset)")
         #expect(inset + SidebarStyle.groupBarWidth == Metrics.itemCornerRadius, "the line's right edge is off the item corner arc's end")
     }
 
-    /// Lawrence msg 19775: the rail is one capsule, every corner rounded by half its width (SidebarGroupRailCapsuleTests
-    /// draws it).
-    @Test func theRailIsOneCapsule() {
+    /// Leo 2026-11-08, the katana: the body is square on the left up to its tip and cut at the top right, full width
+    /// below the tip; the bottom cap is the layer's corner clip, half the bar's width (SidebarGroupRailKatanaTests draws it).
+    @Test func theRailsTopIsTheKatana() {
+        let path = SidebarGroupLineShape.body(width: 2, height: 20)
+        #expect(path.contains(CGPoint(x: 0.1, y: 0.1)), "the left edge runs square up to the tip")
+        #expect(!path.contains(CGPoint(x: 1.9, y: 0.1)), "the top-right corner is cut")
+        #expect(path.contains(CGPoint(x: 1.9, y: SidebarGroupLineShape.tipLength(width: 2) + 0.1)), "full width below the tip")
+        #expect(path.contains(CGPoint(x: 1.9, y: 19.9)) && path.contains(CGPoint(x: 0.1, y: 19.9)), "the body runs to its bottom")
         #expect(SidebarGroupLineShape.cornerRadius(width: 2) == 1)
-        #expect(SidebarGroupLineShape.corners == [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner])
+        #expect(SidebarGroupLineShape.capCorners(flipped: true) == [.layerMinXMaxYCorner, .layerMaxXMaxYCorner])
+        #expect(SidebarGroupLineShape.capCorners(flipped: false) == [.layerMinXMinYCorner, .layerMaxXMinYCorner])
     }
 
     @Test @MainActor func theCutMaskRetainsCoverageWhenARailShrinks() {
@@ -96,9 +104,10 @@ import Testing
             let head = header.frame
             #expect(line.width == 2, "\(layout): the line is \(line.width) pt")
             view.layoutSubtreeIfNeeded()
-            #expect(view.layer?.cornerRadius == 1 && view.layer?.maskedCorners == SidebarGroupLineShape.corners
+            #expect(view.layer?.cornerRadius == 1
+                    && view.layer?.maskedCorners == SidebarGroupLineShape.capCorners(flipped: view.layer?.contentsAreFlipped() == true)
                     && view.layer?.masksToBounds == true && view.railShape.path != nil,
-                    "\(layout): the line is one clipped capsule")
+                    "\(layout): the line is the katana over a clipped round cap")
             #expect(view.railShape.frame.width == 2 && view.railShape.frame.height >= 4096,
                     "\(layout): the cut shape covers a rail during its bounds spring")
 
@@ -129,7 +138,9 @@ import Testing
                 #expect(line.maxX <= member.frame.minX, "\(layout): \(id.rawValue)'s fill covers the line")
             }
 
-            // One color: the line is the bar's rest color.
+            // One color: the line is the solid bar's rest color (on glass it is the pane's vivid tint, `GroupHeaderGlassTests`).
+            TunableStore.shared.set(SidebarGroupGlass.tunable.key, SidebarGroupGlass.solid.tunableValue)
+            defer { TunableStore.shared.set(SidebarGroupGlass.tunable.key, nil) }
             header.updateLayer()
             view.updateLayer()
             let barColor = try GroupPaletteDefaultTests.rgb(header.pill.backgroundColor)

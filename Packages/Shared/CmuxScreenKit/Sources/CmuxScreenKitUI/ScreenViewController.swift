@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxScreenKit
+import GameController
 import UIKit
 
 /// The remote screen: a zoomable view of the framebuffer, the local cursor,
@@ -37,6 +38,11 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     private let content = UIView()
     private let screenLayer = CALayer()
     private let cursorLayer = CALayer()
+    /// The agent's pointer (Computer Use) on a screen stream, from the Mac's telepointers.
+    private let agentLayer = CALayer()
+    /// A screen stream's pointers from the Mac, as fractions of its display (nil: none on this display).
+    private var streamPerson: CGPoint?
+    private var streamAgent: CGPoint?
     private var cursor = VNCCursor(width: 0, height: 0, hotspotX: 0, hotspotY: 0, pixels: [])
     private var hostCursorImage: CGImage?
     private let keyInput = KeyInputView()
@@ -56,11 +62,18 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     /// Stream mode: the Mac's video, and its displays (each streams on its own).
     private var videoView: ScreenVideoView?
     private var streamDisplays: [CGSize] = []
+    /// The decoded video's pixel size (stream mode; nil before the first frame).
+    private var videoSize: CGSize?
+    /// The 2 s viewer demand reports (stream mode).
+    private var demandReports: Task<Void, Never>?
 
     public init(session: ScreenSession) {
         self.session = session
         inputMode = session.preferences.inputMode
         super.init(nibName: nil, bundle: nil)
+        // This view draws a stream's pointers itself: the Mac leaves its cursor out of the video.
+        session.drawsPointers = true
+        session.stream?.drawPointers()
     }
 
     @available(*, unavailable)
@@ -69,6 +82,19 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     override public func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
+        // However the software keyboard was hidden: the screen takes the focus back for a
+        // hardware keyboard's keys, and the toolbar's keyboard button learns it is down.
+        keyInput.onResign = { [weak self] in
+            // After the resign has finished: taking the focus inside it handed the keyboard
+            // over to the screen instead of letting it go.
+            // task-owner: one main-actor hop; nothing waits on it
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                onKeyboardHidden?()
+                // Only when nothing took it meanwhile (a sign-in field the person tapped).
+                if currentFirstResponder() == nil { becomeFirstResponder() }
+            }
+        }
         // UI tests drive the screen through this element (a query by id stays cheap while it redraws).
         scrollView.accessibilityIdentifier = "screen.view"
         scrollView.frame = view.bounds
@@ -90,6 +116,12 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         cursorLayer.zPosition = 1
         cursorLayer.isHidden = true
         content.layer.addSublayer(cursorLayer)
+        agentLayer.actions = ["position": NSNull(), "bounds": NSNull(), "contents": NSNull(), "transform": NSNull()]
+        agentLayer.zPosition = 1
+        agentLayer.isHidden = true
+        agentLayer.contents = Self.agentPointer.image
+        agentLayer.bounds = CGRect(origin: .zero, size: Self.agentPointer.size)
+        content.layer.addSublayer(agentLayer)
         keyInput.session = session
         view.addSubview(keyInput)
         installGestures()
@@ -115,17 +147,49 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         session.onFrame = { [weak self] frame in self?.show(frame) }
         if session.isStream { installVideo() }
         session.onCursor = { [weak self] cursor in self?.setCursor(cursor) }
+        session.onTelepointers = { [weak self] person, agent in self?.setTelepointers(person: person, agent: agent) }
         session.onScreens = { [weak self] screens in
             self?.screensFromServer = true
             self?.setScreens(screens)
         }
     }
 
-    override public var canBecomeFirstResponder: Bool { true }
+    /// The screen takes the focus only for a hardware keyboard's keys
+    /// (`pressesBegan`). Without one it stays unfocused: a focused screen
+    /// had UIKit raise the software keyboard whenever a menu opened over it.
+    override public var canBecomeFirstResponder: Bool { GCKeyboard.coalesced != nil }
+
+    /// The responder that holds the focus now, if any: a nil-targeted action reaches it,
+    /// and it writes itself into the box sent along.
+    private func currentFirstResponder() -> UIResponder? {
+        let box = ScreenFirstResponderBox()
+        UIApplication.shared.sendAction(#selector(UIResponder.screenReportFirstResponder(_:)), to: nil, from: box, for: nil)
+        return box.responder
+    }
+
+    /// Called when the software keyboard was hidden by anything but `isKeyboardVisible`.
+    public var onKeyboardHidden: (() -> Void)?
+
+    /// A touch on the screen or its trackpad: the screen holds the focus while a
+    /// hardware keyboard is connected (one that connected since the screen
+    /// appeared included) and gives it up once none is. The software keyboard keeps it.
+    private func syncKeyboardFocus() {
+        guard !keyInput.isFirstResponder else { return }
+        if GCKeyboard.coalesced == nil {
+            if isFirstResponder { resignFirstResponder() }
+        } else if !isFirstResponder {
+            becomeFirstResponder()
+        }
+    }
 
     override public func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         becomeFirstResponder()
+        // The Mac streams at up to this rate (120 on a ProMotion iPhone or iPad
+        // when the Mac's display does 120 too); unreported, it stays at 60.
+        if let fps = view.window?.windowScene?.screen.maximumFramesPerSecond, fps > 0 {
+            session.displayMaximumFrameRate = fps
+        }
     }
 
     override public func viewDidLayoutSubviews() {
@@ -141,7 +205,11 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         video.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         content.insertSubview(video, at: 0)
         videoView = video
-        video.onSize = { [weak self] size in self?.applyFrameSize(size) }
+        video.onSize = { [weak self] size in
+            guard let self else { return }
+            videoSize = size
+            applyFrameSize(streamLayoutSize(for: size))
+        }
         video.onFrame = { [weak self] in self?.session.perf?.streamFrame() }
         session.onVideoTrack = { [weak video] box in video?.attach(box) }
         session.onStreamDisplays = { [weak self] sizes, current in
@@ -151,7 +219,38 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
             pageControl.numberOfPages = sizes.count
             pageControl.currentPage = current
             pageControl.isHidden = sizes.count < 2
+            // A video size that came before the displays: lay it out at the display's size now.
+            if let videoSize { applyFrameSize(streamLayoutSize(for: videoSize)) }
         }
+        // How large the stream shows, every 2 s: the Mac captures no larger than that.
+        demandReports?.cancel()
+        demandReports = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2)) // viewer demand heartbeat (Petal's 2 s)
+                guard let self else { return }
+                reportDemand(pinch: false)
+            }
+        }
+    }
+
+    /// The viewer's demand report: the long edge, in this screen's pixels, of
+    /// the whole streamed display at the current zoom.
+    private func reportDemand(pinch: Bool) {
+        guard session.isStream, frameSize.width > 0, view.window != nil else { return }
+        let pixels = max(frameSize.width, frameSize.height) * scrollView.zoomScale * traitCollection.displayScale
+        session.reportView(longEdge: Int(pixels.rounded(.up)), pinch: pinch)
+    }
+
+    /// The content size for a stream's video: the Mac display's own pixel
+    /// size when the video has its shape (the Mac may send it scaled down to
+    /// what this view shows), so a resolution step keeps the zoom and the
+    /// pointer where they are; the video's size otherwise.
+    private func streamLayoutSize(for video: CGSize) -> CGSize {
+        guard session.isStream, streamDisplays.indices.contains(page) else { return video }
+        let display = streamDisplays[page]
+        guard display.width > 0, display.height > 0, video.height > 0,
+              abs(display.width / display.height - video.width / video.height) < 0.01 else { return video }
+        return display
     }
 
     /// A new frame size (VNC framebuffer or video): reset the content and refit.
@@ -204,19 +303,40 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         updateCursor()
     }
 
+    /// A screen stream's pointers (fractions of the streamed display) from
+    /// the Mac: the person's is drawn as the cursor, the agent's as its own marker.
+    private func setTelepointers(person: CGPoint?, agent: CGPoint?) {
+        streamPerson = person
+        streamAgent = agent
+        updateCursor()
+    }
+
+    /// A pointer's fraction of the streamed display at the current frame size
+    /// (kept as fractions: a pointer that came before the first frame, or
+    /// before a size change, lands right once the size is known).
+    private func streamPixels(_ fraction: CGPoint?) -> CGPoint? {
+        fraction.map { CGPoint(x: $0.x * frameSize.width, y: $0.y * frameSize.height) }
+    }
+
     /// Draws the cursor at the pointer: the server's shape (local cursor),
     /// and in trackpad mode or under a hovering mouse the shape or, when
-    /// the server sends none (a screen stream), a plain arrow.
+    /// the server sends none (a screen stream), a plain arrow. Otherwise a
+    /// screen stream's cursor is where the Mac says its pointer is (the
+    /// video carries none); the agent's pointer is drawn beside it.
     private func updateCursor() {
-        let hostShape = !cursor.isEmpty && (session.preferences.localCursor || inputMode == .trackpad)
-        let visible = frameSize != .zero && (hostShape || inputMode == .trackpad || pointerHovering)
+        updateAgentPointer()
+        let relative = inputMode == .trackpad || trackpadPadActive
+        let hostShape = !cursor.isEmpty && (session.preferences.localCursor || relative)
+        let local = hostShape || relative || pointerHovering
+        let remote = local ? nil : streamPixels(streamPerson)
+        let visible = frameSize != .zero && (local || remote != nil)
         cursorLayer.isHidden = !visible
         guard visible else { return }
         let fallback = Self.fallbackCursor
         let image = hostShape ? hostCursorImage : fallback.image
         let size = hostShape ? CGSize(width: cursor.width, height: cursor.height) : fallback.size
         let hotspot = hostShape ? CGPoint(x: cursor.hotspotX, y: cursor.hotspotY) : fallback.hotspot
-        let pointer = session.pointer
+        let pointer = remote ?? session.pointer
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if (cursorLayer.contents as AnyObject?) !== image {
@@ -227,6 +347,19 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         // Keep the cursor a readable size when zoomed out.
         let scale = max(1, 0.75 / max(scrollView.zoomScale, 0.01))
         cursorLayer.transform = CATransform3DMakeScale(scale, scale, 1)
+        CATransaction.commit()
+    }
+
+    /// The agent's marker at its pointer, kept a readable size when zoomed out.
+    private func updateAgentPointer() {
+        let visible = frameSize != .zero && streamAgent != nil
+        agentLayer.isHidden = !visible
+        guard let point = streamPixels(streamAgent), visible else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        agentLayer.position = point
+        let scale = max(1, 0.75 / max(scrollView.zoomScale, 0.01))
+        agentLayer.transform = CATransform3DMakeScale(scale, scale, 1)
         CATransaction.commit()
     }
 
@@ -267,6 +400,20 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         }
     }
 
+    /// The size of the display the view was last fitted to (framebuffer
+    /// pixels), for chrome that sizes itself around the fitted screen.
+    var focusSize = CGSize.zero {
+        didSet { onFocusSize?(focusSize) }
+    }
+
+    var onFocusSize: ((CGSize) -> Void)?
+
+    /// The display the view is fitted to while paged or fitted, else the whole frame.
+    private func reportFocusSize() {
+        let size = fitToDisplay || paged ? focusRect.size : frameSize
+        if size != focusSize { focusSize = size }
+    }
+
     /// The display the view is pinned to: one of several, or the whole frame.
     private var focusRect: CGRect {
         screens.indices.contains(page) ? screens[page] : CGRect(origin: .zero, size: frameSize)
@@ -290,6 +437,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         paged = true
         pageControl.currentPage = page
         let rect = focusRect
+        reportFocusSize()
         let scale = fitScale(rect)
         let apply = { [self] in
             scrollView.minimumZoomScale = fitToDisplay ? scale : fitScale(CGRect(origin: .zero, size: frameSize))
@@ -375,6 +523,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
     private func updateZoomLimits(resetToFit: Bool) {
         guard frameSize.width > 0, frameSize.height > 0, view.bounds.width > 0 else { return }
+        defer { reportFocusSize() }
         if fitToDisplay || paged {
             // Re-fit after a rotation or resize; keep a zoomed-in view zoomed.
             let wasAtFit = abs(scrollView.zoomScale - scrollView.minimumZoomScale) < 0.001
@@ -539,6 +688,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     @objc private func handleLongPress(_ recognizer: UILongPressGestureRecognizer) {
         switch recognizer.state {
         case .began:
+            syncKeyboardFocus()
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             session.movePointer(to: framebufferPoint(recognizer))
             pressButton(.left)
@@ -557,6 +707,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     /// quick taps are two clicks at one point, which the Mac counts as a
     /// double click.
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
+        syncKeyboardFocus()
         let point = clickSnap.point(for: framebufferPoint(recognizer), at: CACurrentMediaTime(), radius: 24 * pixelsPerPoint)
         session.movePointer(to: point)
         session.click(.left, modifiers: keyInput.takeModifiers())
@@ -604,7 +755,20 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
     // MARK: Trackpad mode
 
-    private func handleTrackpad(_ event: SingleTouchRecognizer.Event) {
+    /// Which finger the trackpad gesture follows: the screen's (trackpad
+    /// mode) or the overlay pad's. One gesture at a time: the other's
+    /// touches are ignored while it is down.
+    private enum TrackpadFinger { case screen, pad }
+    private var trackpadFinger: TrackpadFinger?
+
+    private func handleTrackpad(_ event: SingleTouchRecognizer.Event, from finger: TrackpadFinger = .screen) {
+        if case .down = event {
+            if lastTrackpadPoint != nil, trackpadFinger != finger { return }
+            syncKeyboardFocus()
+            trackpadFinger = finger
+        } else if trackpadFinger != finger {
+            return
+        }
         switch event {
         case let .down(point, time):
             lastTrackpadPoint = point
@@ -660,6 +824,44 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         }
     }
 
+    // MARK: Trackpad overlay
+
+    /// The trackpad overlay is open: its pad moves the pointer, so the cursor
+    /// shows (and a zoomed view follows it) in either input mode.
+    public var trackpadPadActive = false {
+        didSet {
+            guard trackpadPadActive != oldValue else { return }
+            // Closing the pad mid-gesture (a tap's window, a drag) lets the button go.
+            if !trackpadPadActive, trackpadFinger == .pad { endPadGesture() }
+            updateCursor()
+            followCursor()
+        }
+    }
+
+    /// One finger on the overlay's pad: the same gesture as trackpad mode's finger on the screen.
+    func padTouch(_ event: SingleTouchRecognizer.Event) {
+        handleTrackpad(event, from: .pad)
+    }
+
+    private func endPadGesture() {
+        lastTrackpadPoint = nil
+        trackpadFinger = nil
+        applyTrackpad(trackpad.cancel())
+        scheduleTrackpadDeadline()
+    }
+
+    /// Two fingers tapped on the pad: a right click where the pointer is.
+    func padRightClick() {
+        session.click(.right, modifiers: keyInput.takeModifiers())
+        updateCursor()
+    }
+
+    /// Two fingers dragged on the pad: scrolls what is under the pointer.
+    func padScroll(by translation: CGPoint, began: Bool) {
+        if began { scrollRemainder = .zero }
+        scroll(by: translation)
+    }
+
     /// A pointer position kept on the focused display (fitted mode) or the frame.
     private func clampedToFocus(_ point: CGPoint) -> CGPoint {
         let rect = fitToDisplay ? focusRect : CGRect(origin: .zero, size: frameSize)
@@ -669,7 +871,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
     /// Trackpad mode, zoomed in: scrolls the view so the cursor stays clear of its edges.
     private func followCursor() {
-        guard inputMode == .trackpad, frameSize != .zero, view.bounds.width > 0 else { return }
+        guard inputMode == .trackpad || trackpadPadActive, frameSize != .zero, view.bounds.width > 0 else { return }
         let zoom = scrollView.zoomScale, bounds = scrollView.bounds.size
         let cursor = CGPoint(x: session.pointer.x * zoom, y: session.pointer.y * zoom)
         let margin = min(bounds.width, bounds.height) * 0.12
@@ -691,6 +893,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
     public func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
         followCursor()
+        reportDemand(pinch: true)
     }
 
     // MARK: Mouse and trackpad (iPad)
@@ -749,7 +952,12 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     public var isKeyboardVisible: Bool {
         get { keyInput.isFirstResponder }
         set {
-            if newValue { keyInput.becomeFirstResponder() } else { keyInput.resignFirstResponder(); becomeFirstResponder() }
+            if newValue {
+                keyInput.becomeFirstResponder()
+            } else {
+                keyInput.resignFirstResponder()
+                becomeFirstResponder()
+            }
         }
     }
 
@@ -764,6 +972,17 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
     override public func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         if !keyInput.forward(presses, down: false) { super.pressesCancelled(presses, with: event) }
+    }
+}
+/// Carries the focused responder back from a nil-targeted action.
+private final class ScreenFirstResponderBox: NSObject {
+    weak var responder: UIResponder?
+}
+
+extension UIResponder {
+    /// Answers `ScreenViewController.currentFirstResponder()`: the action goes to the focus.
+    @objc fileprivate func screenReportFirstResponder(_ sender: Any?) {
+        (sender as? ScreenFirstResponderBox)?.responder = self
     }
 }
 #endif

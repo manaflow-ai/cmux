@@ -31,11 +31,11 @@ function StreamingFollowMotionGallery({ variant }: { variant: MotionVariant }) {
       { id: `history-answer-${index}`, kind: "assistant", version: 1, at: index + 1, text: paragraph(index) },
     ]).flat();
     const text = Array.from({ length: count }, (_, index) => paragraph(index + 12)).join("\n\n");
-    // With the running turn's line under the reply, as the app draws it (Debug `liveLineBelow`).
+    // With the running turn's line under the reply, as the app draws it.
     return turnView(
       [...history, { id: "streaming-answer", kind: "assistant", version: count + 1, at: 99, text, streaming }],
       new Set(),
-      { working: streaming, lineBelow: true, liveRuns: true },
+      { working: streaming },
     );
   }, [count, streaming]);
   const start = () => {
@@ -123,7 +123,7 @@ export default componentEntry<{ variant: MotionVariant }>({
     anchorMovePx: { value: 0, reason: "Streaming content must not move the fixed stream control." },
     settleMaxMs: { value: 4_000, reason: "The deterministic stream has a fixed 1.3 second duration." },
   },
-  covers: ["agent-session/acpmux/App.tsx#VirtualTranscript"],
+  covers: ["agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript"],
   load: async () => StreamingFollowMotionGallery,
   pane: true,
   styles: () =>

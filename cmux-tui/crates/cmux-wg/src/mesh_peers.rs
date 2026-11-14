@@ -4,14 +4,17 @@
 
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::time::Duration;
 
 use boringtun::noise::Tunn;
+use cmux_transport::LocalNetwork;
 use ip_network::IpNetwork;
 use tokio::time::Instant;
 use x25519_dalek::{PublicKey, StaticSecret};
 
 use crate::error::WgError;
 use crate::mesh::WgPeer;
+use crate::mesh_paths::MeshPaths;
 use crate::mesh_route::PeerRoute;
 use crate::tcp_stack::PeerKey;
 use crate::timers::TimerSchedule;
@@ -20,16 +23,36 @@ use crate::timers::TimerSchedule;
 /// receiver index it hands out; the low 8 bits count sessions.
 const INDEX_BITS: u32 = 24;
 const INDEX_MASK: u32 = (1 << INDEX_BITS) - 1;
+/// How often a dial that waits on a handshake sends another initiation.
+/// boringtun resends only after REKEY_TIMEOUT (5 s) plus jitter, as long as
+/// `cmux link`'s whole dial: a dial whose first initiation was dropped (a
+/// just-created Cloud VM's receiver that did not hold this key yet) sent
+/// one initiation and never saw an answer.
+const HANDSHAKE_RESEND: Duration = Duration::from_secs(1);
+/// How long after its last queued packet a dial still counts as waiting:
+/// TCP resends a SYN while its dial lasts, so a dial that gave up stops
+/// the resends within this.
+const WAIT_WINDOW: Duration = Duration::from_secs(5);
+/// How often a session that carries traffic advertises this side's
+/// addresses again, in case a list was lost or an address changed.
+const ADVERTISE_INTERVAL: Duration = Duration::from_secs(30);
 
 pub(crate) struct Peer {
     pub(crate) tunn: Tunn,
     /// This peer's 24-bit index: receiver indexes `index << 8 | n` are its.
     pub(crate) index: u32,
     pub(crate) allowed_ips: Vec<IpNetwork>,
-    /// Where datagrams to the peer go: configured, or the source of its
-    /// latest authenticated datagram (a UDP address or a gateway).
-    pub(crate) route: Option<PeerRoute>,
+    /// Every address the peer may be reached at, and which one datagrams
+    /// take.
+    pub(crate) paths: MeshPaths,
+    /// When this side last advertised its addresses on the current session.
+    pub(crate) advertised_at: Option<Instant>,
     pub(crate) schedule: TimerSchedule,
+    /// When a packet was last queued for want of a session (a dial waiting
+    /// on the handshake).
+    pub(crate) waiting: Option<Instant>,
+    /// When this side last sent the peer a handshake initiation.
+    pub(crate) initiated: Option<Instant>,
 }
 
 impl Peer {
@@ -39,12 +62,54 @@ impl Peer {
     }
 
     /// The peer proved its key in a datagram from `source`: it is reachable
-    /// there now (first contact, or roaming, across UDP and gateways).
-    pub(crate) fn authenticated(&mut self, source: Option<PeerRoute>, now: Instant) {
+    /// there (first contact, another of its paths, or roaming).
+    pub(crate) fn heard(
+        &mut self,
+        source: Option<PeerRoute>,
+        networks: &[LocalNetwork],
+        now: Instant,
+    ) {
         if let Some(source) = source {
-            self.route = Some(source);
+            self.paths.heard(source.address(), false, networks, now);
+        }
+    }
+
+    /// [`Peer::heard`] for a datagram that is activity (anything but a
+    /// path probe or a candidate list).
+    pub(crate) fn authenticated(
+        &mut self,
+        source: Option<PeerRoute>,
+        networks: &[LocalNetwork],
+        now: Instant,
+    ) {
+        if let Some(source) = source {
+            self.paths.heard(source.address(), true, networks, now);
         }
         self.schedule.on_activity(now);
+    }
+
+    /// Whether this side's addresses are due on the current session: once
+    /// it is up, then every [`ADVERTISE_INTERVAL`]. Returns when they are
+    /// next due.
+    pub(crate) fn advertise_due(&mut self, now: Instant) -> (bool, Instant) {
+        let due = self.advertised_at.is_none_or(|at| now >= at + ADVERTISE_INTERVAL);
+        if due {
+            self.advertised_at = Some(now);
+        }
+        let at = self.advertised_at.unwrap_or(now);
+        (due, at + ADVERTISE_INTERVAL)
+    }
+
+    /// Whether a dial waits on this peer's handshake and the last initiation
+    /// is [`HANDSHAKE_RESEND`] old: the driver then sends a new one.
+    pub(crate) fn resend_due(&mut self, now: Instant) -> bool {
+        if self.tunn.time_since_last_handshake().is_some()
+            || self.waiting.is_none_or(|since| now >= since + WAIT_WINDOW)
+        {
+            self.waiting = None;
+            return false;
+        }
+        self.initiated.is_none_or(|sent| now >= sent + HANDSHAKE_RESEND)
     }
 }
 
@@ -136,9 +201,14 @@ impl PeerTable {
     }
 
     /// Add `peer` with a new session, replacing one with the same key. A
-    /// replaced peer keeps the route it was last seen on unless `peer`
-    /// names one. Call [`PeerTable::check`] first.
-    pub(crate) fn insert(&mut self, peer: WgPeer, now: Instant) -> &mut Peer {
+    /// replaced peer keeps the address it was last seen on unless `peer`
+    /// names a route. Call [`PeerTable::check`] first.
+    pub(crate) fn insert(
+        &mut self,
+        peer: WgPeer,
+        networks: &[LocalNetwork],
+        now: Instant,
+    ) -> &mut Peer {
         let previous = self.remove(&peer.public_key);
         let index = self.allocate_index();
         let tunn = Tunn::new(
@@ -150,12 +220,19 @@ impl PeerTable {
             None,
         );
         let keepalive = peer.persistent_keepalive.is_some_and(|seconds| seconds > 0);
+        let route = peer
+            .route
+            .map(|route| route.address())
+            .or_else(|| previous.and_then(|old| old.paths.latest()));
         let entry = Peer {
             tunn,
             index,
             allowed_ips: peer.allowed_ips,
-            route: peer.route.or(previous.and_then(|old| old.route)),
+            paths: MeshPaths::new(route, &peer.candidates, networks, now),
+            advertised_at: None,
             schedule: TimerSchedule::new(now, keepalive),
+            waiting: None,
+            initiated: None,
         };
         self.by_index.insert(index, peer.public_key);
         self.peers.entry(peer.public_key).or_insert(entry)

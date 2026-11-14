@@ -4,6 +4,7 @@ import CmuxMobileAgentChat
 import CmuxMobileBrowserStream
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxMobileScreenSharing
 import Observation
 import QuartzCore
 import OSLog
@@ -13,9 +14,10 @@ import UIKit
 private let tabsLog = Logger(subsystem: "dev.cmux.mobile", category: "tabs")
 
 /// Drives one workspace's `TabsView`: the workspace's tabs (agent chats,
-/// terminals, browsers) as TabsKit tabs, with the last tab used on this
-/// device active when the workspace opens. Every activation is remembered
-/// (`AppStore.noteOpened`), so the next open (or the next launch) starts there.
+/// terminals, browsers) as TabsKit tabs, opening on the active tab of the
+/// leftmost, topmost pane of the Mac's layout unless the open asked for a tab
+/// (`AppStore.openingTab`). Every activation is remembered
+/// (`AppStore.noteOpened`), so a relaunch restores the tab on screen.
 @MainActor
 @Observable
 public final class WorkspaceTabsSource: TabsDataSource {
@@ -56,6 +58,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Kept while the Mac creates it, since the placeholder tab becomes the
     /// Mac's real tab (a new page) once it confirms.
     @ObservationIgnored private(set) var focusOnOpen = false
+    /// The screen appeared (`opened()`): a tab requested after that replaces a tab that
+    /// vanished (a new workspace's first tab, once the Mac creates it; `refreshTabs`).
+    @ObservationIgnored private var hasAppeared = false
 
     public init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
                 sessions: AgentSessionDirectory = .shared, creator: WorkspaceCreator? = nil,
@@ -77,6 +82,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             selectedTabID = tab.id
         }
         focusOnOpen = store.wantsFocusOnOpen(workspaceID)
+        screenSharingTabOpen = Self.screenSharingTabs.contains(workspaceID)
         // Browser tabs get their web view when their page is first shown
         // (`localBrowser`): making one per browser tab here was most of
         // opening a workspace (a WKWebView each).
@@ -94,7 +100,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// have used it, so this only consumes (re-arming would raise the
     /// keyboard on the next page shown).
     public func opened() {
-        if let activeTabID { store.noteOpened(tabID: activeTabID, in: workspaceID) }
+        hasAppeared = true
+        if let activeTabID, activeTabID != Self.screenSharingTabID { store.noteOpened(tabID: activeTabID, in: workspaceID) }
+        // `init` already opened on the requested tab: the next open starts at the layout's top-left again.
+        store.takeRequestedTab(workspaceID)
         _ = store.takeFocusOnOpen(workspaceID)
     }
 
@@ -222,6 +231,16 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
         workspaceSnapshot = workspace
         if openingTabID != opening { openingTabID = opening }
+        // A request that arrives while the screen is up is taken here only when the tab on screen
+        // is gone (a new workspace's placeholder tab became the Mac's real one). Otherwise it is
+        // for the next screen of this workspace (a notification or Feed item rebuilds the page),
+        // which opens on it and takes it in `opened()`.
+        if hasAppeared, let workspace, let opening, store.requestedTabByWorkspace[workspace.id] == opening,
+           !workspace.tabs.contains(where: { $0.id == selectedTabID }) {
+            selectedTabID = opening
+            // Taken outside this rebuild (an action), so the next open starts at the layout's top-left.
+            Task { @MainActor [store] in store.takeRequestedTab(workspace.id) }
+        }
         let identity = workspace.map { WorkspaceIdentity(macID: $0.macID, title: $0.title, directory: $0.directory, branch: $0.branch,
                                                          screens: $0.screens) }
         if workspaceIdentity != identity { workspaceIdentity = identity }
@@ -254,6 +273,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
             tabGenerations[id] = nil
             preparedCards.remove(id)
         }
+        // The phone-side Screen Sharing tab (Open as Tab), after the Mac's tabs.
+        if isScreenSharingTabListed { next.append(screenSharingKitTab) }
         if next != listedTabs { listedTabs = next }
         if isSingleTab != (next.count == 1) { isSingleTab = next.count == 1 }
         if preparingCards { prepareTerminalCards(workspace.tabs) }
@@ -336,11 +357,23 @@ public final class WorkspaceTabsSource: TabsDataSource {
         TabsKitNewTabOption(id: teamsPrefix + teams.rawValue, title: teams.title, systemImage: teams.systemImage, kind: .terminal)
     }
 
-    /// Signed in with Screen Sharing set up: + offers the Mac's screen.
-    public var offersScreenSharing = false
+    /// Signed in with Screen Sharing set up: + offers the Mac's screen. Signed out, an open
+    /// Screen Sharing tab is not listed.
+    public var offersScreenSharing = false {
+        didSet { if offersScreenSharing != oldValue { refreshTabs() } }
+    }
     /// Screen Sharing is up (+ › Screen Sharing): the screen shows the account's Macs as a
     /// sheet and connects to this workspace's Mac. It is phone-side; the Mac opens no tab.
     public var showingScreenSharing = false
+    /// The sheet's Open as Tab: Screen Sharing as a tab of this workspace, listed after the
+    /// Mac's tabs (as the Mac's Mac Screen is a tab). Phone-side, so the Mac lists no such tab
+    /// (`openScreenSharingTab`, `closeScreenSharingTab`).
+    public internal(set) var screenSharingTabOpen = false
+    /// The account's Screen Sharing, for the tab's page (the screen sets it; nil signed out).
+    @ObservationIgnored public var screenSharing: ScreenSharingService?
+    /// Workspaces whose Screen Sharing tab is open, for this run of the app: leaving the
+    /// workspace and coming back keeps the tab.
+    static var screenSharingTabs: Set<String> = []
     static let screenSharingOption = TabsKitNewTabOption(id: "screen-sharing", title: "Screen Sharing",
                                                          systemImage: "rectangle.on.rectangle", kind: .web)
 
@@ -456,6 +489,12 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
 
     public func activate(_ id: TabsKitTab.ID) {
+        if id == Self.screenSharingTabID {
+            guard isScreenSharingTabListed else { return }
+            selectedTabID = id
+            CmuxMobileTheme.standard.haptics.selection()
+            return
+        }
         // A tab just added to the store is listed on the next refresh: list it now.
         if workspaceTab(id) == nil { refreshTabs() }
         guard workspaceTab(id) != nil else { return }
@@ -490,6 +529,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
 
     public func close(_ id: TabsKitTab.ID) async -> Bool {
+        if id == Self.screenSharingTabID {
+            closeScreenSharingTab()
+            return true
+        }
         guard let workspace, let tab = workspace.tabs.first(where: { $0.id == id }) else { return true }
         // A working agent or a program running in the tab: a phone close ends
         // its terminal with no way back. Ask first, exactly as the Mac's tab
@@ -540,7 +583,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         browsers[id] = nil
         streamed.drop(tab: id, macID: store.workspace(id: workspaceID)?.macID)
         native.drop(tab: id, macID: store.workspace(id: workspaceID)?.macID)
-        if selectedTabID == id || workspaceTab(selectedTabID ?? "") == nil {
+        if selectedTabID == id || !isListed(selectedTabID) {
             selectedTabID = next?.id
             if let next { store.noteOpened(tabID: next.id, in: workspaceID) }
         }
@@ -661,7 +704,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         toastText = text
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: ToastDismissal.lifetime(for: text))
-            if self?.toastText == text { withAnimation { self?.clearNotice() } }
+            if self?.toastText == text { withAnimation(.default.unlessReduceMotion) { self?.clearNotice() } }
         }
     }
 
@@ -720,7 +763,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
             return nil
         }
         if option.id == Self.screenSharingOption.id {
-            showingScreenSharing = true
+            // Its tab already open: show it, never a second Screen Sharing over it.
+            if isScreenSharingTabListed { openScreenSharingTab() } else { showingScreenSharing = true }
             return nil
         }
         if option.id.hasPrefix(Self.unavailablePrefix) {
@@ -834,7 +878,12 @@ public final class WorkspaceTabsSource: TabsDataSource {
         // `/fork` and an earlier prompt's Edit and Resend open their copy as a tab beside it.
         surface.tabActions = AgentChatTabActions(
             fork: { [weak self] in await self?.fork(id) },
-            editAndResend: { [weak self] seq, prompt in await self?.editAndResend(id, through: seq, prompt: prompt) ?? false }
+            editAndResend: { [weak self] seq, prompt in await self?.editAndResend(id, through: seq, prompt: prompt) ?? false },
+            // The who-else card's session chips: that chat as a tab here, as the Chats list opens one.
+            openSession: { [weak self] sessionID, harness, title in
+                let chat = AgentChatListing(id: sessionID, title: title, harness: harness, cwd: "", status: "idle", updatedAt: nil, archived: false)
+                if let refusal = await self?.openAgentChat(chat) { self?.show(refusal) }
+            }
         )
         surfaces[id] = surface
         return surface
@@ -1078,6 +1127,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     /// The grid rests: agent cards are drawn into pictures, one per frame,
     /// built cards first (`AgentCardRasterizer`).
+    /// Select Tabs is up in the grid: `WorkspaceGridHeader` steps aside for its Close | More.
+    public private(set) var isSelectingTabs = false
+    public func overviewSelectingChanged(_ selecting: Bool) { isSelectingTabs = selecting }
+
     public func overviewIdleChanged(_ idle: Bool) {
         gridIdle = idle
         if idle {
@@ -1358,7 +1411,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Drag in the grid: here at once, then on the Mac (`move-tab` to the place of the
     /// tab it lands on); a refusal puts it back.
     public func moveTab(_ id: TabsKitTab.ID, to index: Int) {
-        guard let workspace, let creator, let tab = workspaceTab(id),
+        // The Screen Sharing tab lists after the Mac's tabs: a drop on its slot is the Mac's last.
+        guard let workspace, !workspace.tabs.isEmpty else { return }
+        let index = min(index, workspace.tabs.count - 1)
+        guard let creator, let tab = workspaceTab(id),
               let from = workspace.tabs.firstIndex(where: { $0.id == id }), from != index,
               workspace.tabs.indices.contains(index) else { return }
         let target = workspace.tabs[index]
@@ -1526,7 +1582,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
         // `workspaceTab` reads the listed copy: list the removals before reading it.
         refreshTabs()
-        if workspaceTab(selectedTabID ?? "") == nil { selectedTabID = workspace?.tabs.first?.id }
+        if !isListed(selectedTabID) { selectedTabID = workspace?.tabs.first?.id }
         if workspace?.tabs.isEmpty ?? true { exit() }
     }
 
@@ -1639,7 +1695,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         let next = store.removeTab(id, from: workspaceID)
         refreshTabs()
         surfaces[id] = nil
-        if selectedTabID == id || workspaceTab(selectedTabID ?? "") == nil { selectedTabID = next?.id }
+        if selectedTabID == id || !isListed(selectedTabID) { selectedTabID = next?.id }
         if self.workspace?.tabs.isEmpty ?? true { exit() }
     }
 
@@ -1692,7 +1748,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         guard let workspace, let chatsBackend else { return "Connect to \(macName) first." }
         do {
             let created = try await chatsBackend.openAgentChatInNewWorkspace(chat, on: workspace.macID)
-            if let tab = created.tabs.first { store.noteOpened(tabID: tab.id, in: created.id) }
+            if let tab = created.tabs.first { store.requestOpen(tabID: tab.id, in: created.id) }
             openWorkspace?(created)
             return nil
         } catch {
@@ -1992,6 +2048,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
 
     public func pageMenu(for kit: TabsKitTab) -> [[TabsKitMenuItem]] {
+        if kit.id == Self.screenSharingTabID { return screenSharingPageMenu }
         guard let workspace, let tab = workspaceTab(kit.id) else { return [] }
         let edit = editItems(tab) + newTabItems(tab) + groupItems(tab) + moveItems(tab) + savedGroupItems(tab)
         // Panes and Screens: the workspace's layout pages; Send Message… (the Mac's tab and
@@ -2128,7 +2185,9 @@ struct WorkspaceTabPage: View {
     var body: some View {
         // The tab's own entry, not the workspace: a Mac publish re-runs the
         // page only when this tab changed.
-        if let tab = source.entry(tabID)?.tab, let workspace = source.listedWorkspace {
+        if tabID == WorkspaceTabsSource.screenSharingTabID {
+            ScreenSharingTabPage(source: source, context: context)
+        } else if let tab = source.entry(tabID)?.tab, let workspace = source.listedWorkspace {
             page(tab, workspace)
                 .onAppear {
                     source.remember(context.safeAreaInsets, pageSize: context.pageSize)
@@ -2276,7 +2335,9 @@ struct WorkspaceTabCard: View {
     var body: some View {
         // Its own tab's entry (one card re-runs when its tab changes), and
         // values only: no host or store is made here.
-        if let tab = source.entry(tabID)?.tab, let workspace = source.listedWorkspace {
+        if tabID == WorkspaceTabsSource.screenSharingTabID {
+            ScreenSharingTabCard(insets: insets)
+        } else if let tab = source.entry(tabID)?.tab, let workspace = source.listedWorkspace {
             #if DEBUG
             if ListStressSettings.shared.plainCards.contains(tab.kind.rawValue) {
                 Color.cmuxMobileBackground

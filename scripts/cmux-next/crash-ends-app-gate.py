@@ -30,6 +30,7 @@ import argparse, json, os, re, signal, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PRIMARY = "SentryCrash Exception Handler (Primary)"
@@ -134,10 +135,13 @@ def run(kind):
     teardown = TagTeardown(bundle)
     teardown.install()
     log = open(os.path.join(opts.out, f"app-{kind}.log"), "a")
-    process = subprocess.Popen([os.path.join(bundle, "Contents/MacOS/cmux DEV")], env=env,
+    # -ApplePersistenceIgnoreState: the crashes this gate causes are crash history, so a later launch on the same
+    # runner opened AppKit's modal "reopen windows?" alert before the debug socket, and the gate read a freeze
+    # (cmux#37269's run 42315815296: both launches' main threads in promptToIgnorePersistentStateWithCrashHistory).
+    process = subprocess.Popen([os.path.join(bundle, "Contents/MacOS/cmux DEV"), "-ApplePersistenceIgnoreState", "YES"], env=env,
                                stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     pid = process.pid
-    print(f"crash-ends-app-gate: {kind}: launched {tag} pid {pid}", flush=True)
+    safe_print(f"crash-ends-app-gate: {kind}: launched {tag} pid {pid}", flush=True)
     try:
         last = {}
 
@@ -181,8 +185,8 @@ def run(kind):
         if process.poll() is None:
             text = sample(pid, os.path.join(opts.out, f"frozen-{kind}.txt"), seconds=2)
             main = text.split("com.apple.main-thread", 1)[-1][:1600] if text else ""
-            print(f"crash-ends-app-gate: {kind}: the app still runs {elapsed:.0f} s after the crash; "
-                  f"main thread:\n{main}", flush=True)
+            safe_print(f"crash-ends-app-gate: {kind}: the app still runs {elapsed:.0f} s after the crash; "
+                       f"main thread:\n{main}", flush=True)
             return f"{kind}: the crash froze the app instead of ending it within {limit:.0f} s"
         if result.returncode != 0:
             return f"{kind}: exception-report-e2e.py exited {result.returncode}"
@@ -199,7 +203,7 @@ def run(kind):
                 path = os.path.join(folder, name)
                 if not os.path.exists(path) or os.path.getmtime(path) < started - 300:
                     return f"suspended: no fresh {name} in {folder}"
-        print(f"crash-ends-app-gate: {kind}: ended in {elapsed:.1f} s (exit status {process.returncode})", flush=True)
+        safe_print(f"crash-ends-app-gate: {kind}: ended in {elapsed:.1f} s (exit status {process.returncode})", flush=True)
         return None
     finally:
         if process.poll() is None:

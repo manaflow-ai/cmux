@@ -4,6 +4,175 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InboxMarkUnreadParams {
+    pub conversation: ConversationId,
+    pub unread: bool,
+}
+
+wire_errors! {
+    /// The error codes inbox.mark_unread declares.
+    InboxMarkUnreadError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParams = "invalid_params",
+        RevisionConflict = "revision.conflict",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Mute a conversation (until a time in ms, or until unmuted). Approvals still notify.
+    InboxMuteOp {
+        name: "inbox.mute",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: InboxMuteParams,
+        result: HomeInboxEntry,
+        error: InboxMuteError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InboxMuteParams {
+    pub conversation: ConversationId,
+    pub muted: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<WireNumber>,
+}
+
+wire_errors! {
+    /// The error codes inbox.mute declares.
+    InboxMuteError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParams = "invalid_params",
+        RevisionConflict = "revision.conflict",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Pin or unpin a conversation in your Home list.
+    InboxPinOp {
+        name: "inbox.pin",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: InboxPinParams,
+        result: HomeInboxEntry,
+        error: InboxPinError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InboxPinParams {
+    pub conversation: ConversationId,
+    pub pinned: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<i64>,
+}
+
+wire_errors! {
+    /// The error codes inbox.pin declares.
+    InboxPinError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParams = "invalid_params",
+        RevisionConflict = "revision.conflict",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// List the caller's installs and grants.
+    InstallListOp {
+        name: "install.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UserDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: InstallListParams,
+        result: InstallListResult,
+        error: InstallListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InstallListParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InstallListResult {
+    pub user: Option<UserProfile>,
+    pub installs: Vec<Install>,
+    pub grants: Vec<Grant>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes install.list declares.
+    InstallListError {
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Register an install's public key under the signed-in user; returns the install with its default grant. The server kinds vm and daemon are reserved (install.kind_reserved): the server creates those installs itself (pairing, Cloud bind).
+    InstallRegisterOp {
+        name: "install.register",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: InstallRegisterParams,
+        result: Install,
+        error: InstallRegisterError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InstallRegisterParams {
+    pub public_jwk: PublicJwk,
+    pub kind: InstallKind,
+    pub name: String,
+    pub device_name: String,
+    pub platform: Platform,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device: Option<DeviceId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub op_classes: Option<Vec<OpClass>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bound_team: Option<TeamId>,
+}
+
+wire_errors! {
+    /// The error codes install.register declares.
+    InstallRegisterError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        InstallKindReserved = "install.kind_reserved",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Rename an install. An install may rename only itself; the user's session may rename any of its installs.
     InstallRenameOp {
@@ -160,7 +329,7 @@ wire_op! {
         risk: "mutate-shared",
         principals: [Session],
         params: IntegrationCompleteParams,
-        result: Connection,
+        result: IntegrationCompleteResult,
         error: IntegrationCompleteError,
     }
 }
@@ -174,6 +343,49 @@ pub struct IntegrationCompleteParams {
     pub installation_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub setup_action: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationCompleteResultAccount {
+    pub key: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+wire_enum! {
+    IntegrationCompleteResultSharing {
+        Private = "private",
+        Team = "team",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationCompleteResultResources {
+    pub repos: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationCompleteResult {
+    pub id: ConnectionId,
+    pub owner: TeamId,
+    pub created_by: UserId,
+    pub provider: IntegrationProvider,
+    pub account: Option<IntegrationCompleteResultAccount>,
+    pub scopes_requested: Vec<String>,
+    pub scopes_granted: Vec<String>,
+    pub status: ConnectionStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_detail: Option<String>,
+    pub sharing: IntegrationCompleteResultSharing,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resources: Option<IntegrationCompleteResultResources>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub return_to: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub configure_url: Option<String>,
 }
 
 wire_errors! {
@@ -191,7 +403,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it.
+    /// Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it, or connected when a connection already covers the GitHub repository asked for.
     IntegrationConnectOp {
         name: "integration.connect",
         class: Mutation,
@@ -219,12 +431,19 @@ pub struct IntegrationConnectParams {
     pub scopes: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sharing: Option<IntegrationConnectParamsSharing>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub return_to: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct IntegrationConnectResult {
     pub connection: Connection,
-    pub authorize_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorize_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connected: Option<BoolLit<true>>,
 }
 
 wire_errors! {
@@ -683,216 +902,4 @@ pub struct LinearTeamsListResultTeamsItem {
     pub id: String,
     pub key: String,
     pub name: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct LinearTeamsListResult {
-    pub teams: Vec<LinearTeamsListResultTeamsItem>,
-}
-
-wire_errors! {
-    /// The error codes linear.teams.list declares.
-    LinearTeamsListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IntegrationUnavailable = "integration.unavailable",
-        ProviderError = "provider.error",
-        SelectorNotFound = "selector.not_found",
-    }
-}
-
-wire_op! {
-    /// Read one Gmail message (headers, plain text, attachment list) at call time; nothing is stored.
-    MailGetOp {
-        name: "mail.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConnectionDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: MailGetParams,
-        result: Value,
-        error: MailGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct MailGetParams {
-    pub connection: ConnectionId,
-    pub message_id: String,
-}
-
-wire_errors! {
-    /// The error codes mail.get declares.
-    MailGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IntegrationUnavailable = "integration.unavailable",
-        PolicyDenied = "policy.denied",
-        ProviderError = "provider.error",
-        SelectorNotFound = "selector.not_found",
-    }
-}
-
-wire_op! {
-    /// Change labels of Gmail messages or a thread (archive, mark read with remove_labels UNREAD).
-    MailModifyOp {
-        name: "mail.modify",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: MailModifyParams,
-        result: Value,
-        error: MailModifyError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct MailModifyParams {
-    pub connection: ConnectionId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub thread_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub message_ids: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub add_labels: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub remove_labels: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub archive: Option<bool>,
-}
-
-wire_errors! {
-    /// The error codes mail.modify declares.
-    MailModifyError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        IntegrationUnavailable = "integration.unavailable",
-        MutationIndeterminate = "mutation.indeterminate",
-        PolicyDenied = "policy.denied",
-        ProviderError = "provider.error",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Search the connected Gmail mailbox with Gmail query syntax; returns message and thread ids only.
-    MailSearchOp {
-        name: "mail.search",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConnectionDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: MailSearchParams,
-        result: Value,
-        error: MailSearchError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct MailSearchParams {
-    pub connection: ConnectionId,
-    pub query: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_results: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub page_token: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes mail.search declares.
-    MailSearchError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IntegrationUnavailable = "integration.unavailable",
-        PolicyDenied = "policy.denied",
-        ProviderError = "provider.error",
-        SelectorNotFound = "selector.not_found",
-    }
-}
-
-wire_op! {
-    /// Send a plain-text email from the connected Gmail account.
-    MailSendOp {
-        name: "mail.send",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "send-external",
-        principals: [Session, Install],
-        params: MailSendParams,
-        result: Value,
-        error: MailSendError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct MailSendParams {
-    pub connection: ConnectionId,
-    pub to: Vec<EmailAddress>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cc: Option<Vec<EmailAddress>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bcc: Option<Vec<EmailAddress>>,
-    pub subject: String,
-    pub body: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub thread_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub in_reply_to: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes mail.send declares.
-    MailSendError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        IntegrationUnavailable = "integration.unavailable",
-        MutationIndeterminate = "mutation.indeterminate",
-        PolicyDenied = "policy.denied",
-        ProviderError = "provider.error",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Read one Gmail thread (every message, as mail.get) at call time; nothing is stored.
-    MailThreadGetOp {
-        name: "mail.thread.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConnectionDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: MailThreadGetParams,
-        result: Value,
-        error: MailThreadGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct MailThreadGetParams {
-    pub connection: ConnectionId,
-    pub thread_id: String,
-}
-
-wire_errors! {
-    /// The error codes mail.thread.get declares.
-    MailThreadGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IntegrationUnavailable = "integration.unavailable",
-        PolicyDenied = "policy.denied",
-        ProviderError = "provider.error",
-        SelectorNotFound = "selector.not_found",
-    }
 }

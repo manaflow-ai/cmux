@@ -20,6 +20,9 @@ struct CloudCredentialTransferTests {
         var preflightRefusals = 0
         /// Exit codes of other commands; any other command exits `preflight`.
         var answers: [String: Int] = [:]
+        /// How long each exec takes (a slow guest), and the transfer's wait budget.
+        var execDelay: Duration?
+        var budget: Duration?
         var team: String? = "team"
         var user: String? = "user"
         var onAcquire: (() throws -> Void)?
@@ -28,7 +31,10 @@ struct CloudCredentialTransferTests {
             .init(callerOwnsVM: { await MainActor.run { self.owner } },
                   stillAllowed: { await MainActor.run { self.allowed } },
                   pause: { await MainActor.run { self.pauses += 1 } },
-                  exec: { command in await MainActor.run { self.commands.append(command); return self.answer(command) } },
+                  exec: { command in
+                      if let delay = await MainActor.run(body: { self.execDelay }) { try? await Task.sleep(for: delay) }
+                      return await MainActor.run { self.commands.append(command); return self.answer(command) }
+                  },
                   write: { path, data in await MainActor.run { self.writes.append((path, data)); self.onWrite?() } },
                   load: { await MainActor.run { self.cached } },
                   acquire: { try await MainActor.run { self.logins += 1; try self.onAcquire?(); return CloudCredentialTransferTests.token } },
@@ -39,7 +45,9 @@ struct CloudCredentialTransferTests {
             return answers[command] ?? preflight
         }
         var transfer: CloudCredentialTransfer {
-            .init(provider: .claude, machineID: "vm-one", teamID: "team", userID: "user", openTerminal: { _ in false })
+            var transfer = CloudCredentialTransfer(provider: .claude, machineID: "vm-one", teamID: "team", userID: "user", openTerminal: { _ in false })
+            if let budget { transfer.guestBudget = budget }
+            return transfer
         }
         func run(confirmed: Bool = true, refresh: Bool = false) async throws {
             try await transfer.run(currentTeamID: { self.team }, currentUserID: { self.user },
@@ -49,6 +57,17 @@ struct CloudCredentialTransferTests {
 
     /// A Release copy whose switch went off, or whose consent was taken back, during the confirm or
     /// the sign-in: the last check before the write stops it, and nothing reaches the machine.
+    /// A Keychain that does not answer is not "no cached login": the start's record must tell them apart.
+    @Test func anUnreadableCacheIsNotAMissingOne() async {
+        #expect(await CloudCredentialTransfer.cachedLogin { Self.token } == .cached)
+        #expect(await CloudCredentialTransfer.cachedLogin { nil } == .none)
+        #expect(await CloudCredentialTransfer.cachedLogin { throw CloudCredentialTransfer.Failure.storeFailed } == .unreadable)
+        #expect(await CloudCredentialTransfer.cachedLogin(provider: .codex, teamID: "team", userID: "user") == .none)
+        // The start records which one it was.
+        #expect(CloudCredentialTransfer.CachedLogin.cached.startOutcome == nil)
+        #expect(CloudCredentialTransfer.CachedLogin.unreadable.startOutcome != CloudCredentialTransfer.CachedLogin.none.startOutcome)
+    }
+
     @Test func aCopyTurnedOffBeforeTheWriteWritesNothing() async {
         let r = Recorder()
         r.cached = Self.token
@@ -100,8 +119,9 @@ struct CloudCredentialTransferTests {
         #expect(creator.preflight == CloudCredentialInstaller.creatorTeamPreflight)
         #expect(CloudCredentialInstaller.creatorTeamPreflight.contains("owner|team"))
         #expect(CloudCredentialInstaller.creatorTeamPreflight.contains("/etc/cmux/agent-auth.sh"))
-        #expect(CloudCredentialInstaller.command(provider: .claude, payloadPath: "/p").contains("'/p' owner <<"))
-        #expect(CloudCredentialInstaller.command(provider: .claude, payloadPath: "/p", creatorTeamGuest: true).contains("'/p' owner,team <<"))
+        #expect(CloudCredentialInstaller.command(provider: .claude, payloadPath: "/p").contains("'/p' owner '' <<"))
+        #expect(CloudCredentialInstaller.command(provider: .claude, payloadPath: "/p", creatorTeamGuest: true).contains("'/p' owner,team '' <<"))
+        #expect(CloudCredentialInstaller.command(provider: .claude, payloadPath: "/p", account: "user_a").contains("'/p' owner 'user_a' <<"))
     }
 
     /// Without the allowance, a caller-owned machine whose guest is a team one is refused before any login.
@@ -126,6 +146,90 @@ struct CloudCredentialTransferTests {
         r.answers[CloudCredentialTransfer.kindMissing] = 0
         await #expect(throws: CloudCredentialTransfer.Failure.machineNotReady) { try await r.run() }
         #expect(r.pauses == CloudCredentialTransfer.guestCheckTries - 1 && r.writes.isEmpty && r.logins == 0)
+    }
+
+    /// The budget holds in wall time: a guest whose every exec is slow is cut off at the budget, not after the
+    /// exec in flight finishes (two 2 s execs against 200 ms).
+    @Test func aSlowGuestIsCutOffAtTheBudget() async {
+        let r = Recorder(); r.cached = Self.token; r.preflight = 1
+        r.answers[CloudCredentialTransfer.kindMissing] = 0
+        r.execDelay = .seconds(2); r.budget = .milliseconds(200)
+        let started = ContinuousClock.now
+        await #expect(throws: CloudCredentialTransfer.Failure.machineNotReady) { try await r.run() }
+        #expect(ContinuousClock.now - started < .seconds(1) && r.logins == 0 && r.writes.isEmpty)
+    }
+
+    /// A login read from cmux's cache at once is delivered on the guest check just made: one preflight exec, not two
+    /// (cmuxterm-hq#8060). A sign-in in between, or a slow Keychain read, checks the guest again before the write.
+    @Test func aCachedLoginIsDeliveredOnOneGuestCheck() async throws {
+        let cached = Recorder(); cached.cached = Self.token
+        try await cached.run()
+        #expect(cached.commands.filter { $0 == CloudCredentialInstaller.preflight }.count == 1 && cached.writes.count == 1)
+        let signedIn = Recorder()
+        try await signedIn.run()
+        #expect(signedIn.commands.filter { $0 == CloudCredentialInstaller.preflight }.count == 2 && signedIn.writes.count == 1)
+        let slow = Recorder(); slow.cached = Self.token
+        var transfer = slow.transfer
+        transfer.recheckAfter = .zero
+        try await transfer.run(currentTeamID: { slow.team }, currentUserID: { slow.user }, confirmed: true, effects: slow.effects)
+        #expect(slow.commands.filter { $0 == CloudCredentialInstaller.preflight }.count == 2)
+    }
+
+    /// The start's guest check, passed just now beside its machine reads, is the transfer's first one: a cached login
+    /// goes out with no preflight exec of the transfer's own. One older than ``recheckAfter``, or for the creator
+    /// allowance (another program), is checked again; the owner check still runs before the write either way.
+    @Test func aGuestCheckPassedBesideTheReadsIsTheTransfersFirst() async throws {
+        let fresh = Recorder(); fresh.cached = Self.token
+        var transfer = fresh.transfer
+        transfer.guestCheckedAt = .init(machineID: "vm-one", teamID: "team")
+        try await transfer.run(currentTeamID: { fresh.team }, currentUserID: { fresh.user }, confirmed: true, effects: fresh.effects)
+        #expect(!fresh.commands.contains(CloudCredentialInstaller.preflight) && fresh.writes.count == 1)
+        let stale = Recorder(); stale.cached = Self.token
+        transfer = stale.transfer
+        transfer.guestCheckedAt = .init(machineID: "vm-one", teamID: "team", at: .now - .seconds(3))
+        try await transfer.run(currentTeamID: { stale.team }, currentUserID: { stale.user }, confirmed: true, effects: stale.effects)
+        #expect(stale.commands.filter { $0 == CloudCredentialInstaller.preflight }.count == 1 && stale.writes.count == 1)
+        let creator = Recorder(); creator.cached = Self.token
+        var team = CloudCredentialTransfer(provider: .claude, machineID: "vm-one", teamID: "team", userID: "user", allowsCreatorTeamGuest: true, openTerminal: { _ in false })
+        team.guestCheckedAt = .init(machineID: "vm-one", teamID: "team")
+        try await team.run(currentTeamID: { creator.team }, currentUserID: { creator.user }, confirmed: true, effects: creator.effects)
+        #expect(creator.commands.filter { $0 == CloudCredentialInstaller.creatorTeamPreflight }.count == 1)
+        for (machine, team) in [("vm-two", "team"), ("vm-one", "other")] as [(String, String?)] { // a check from elsewhere is checked again
+            let elsewhere = Recorder(); elsewhere.cached = Self.token
+            transfer = elsewhere.transfer
+            transfer.guestCheckedAt = .init(machineID: machine, teamID: team)
+            try await transfer.run(currentTeamID: { elsewhere.team }, currentUserID: { elsewhere.user }, confirmed: true, effects: elsewhere.effects)
+            #expect(elsewhere.commands.filter { $0 == CloudCredentialInstaller.preflight }.count == 1 && elsewhere.writes.count == 1)
+        }
+        let lost = Recorder(); lost.cached = Self.token; lost.owner = false
+        transfer = lost.transfer
+        transfer.guestCheckedAt = .init(machineID: "vm-one", teamID: "team")
+        await #expect(throws: CloudCredentialTransfer.Failure.sharedMachine) {
+            try await transfer.run(currentTeamID: { lost.team }, currentUserID: { lost.user }, confirmed: true, effects: lost.effects)
+        }
+        #expect(lost.writes.isEmpty)
+    }
+
+    /// A start-session's early claim copy runs only for a Claude run that asks for no other login: never for `--login none`
+    /// or `--login machine`, nor for a Codex or pi run, which the start itself would give no Claude login.
+    @Test func theEarlyCopyFollowsTheRunsLoginAndAgent() {
+        #expect(CloudHarnessLoginAsk().allowsEarlyCopy(harness: "claude") && CloudHarnessLoginAsk().allowsEarlyCopy(harness: nil))
+        #expect(CloudHarnessLoginAsk().allowsEarlyCopy(harness: "claude-sr2") && CloudHarnessLoginAsk().allowsEarlyCopy(harness: ""))
+        #expect(CloudHarnessLoginAsk(requested: .pass).allowsEarlyCopy(harness: "Claude"))
+        #expect(!CloudHarnessLoginAsk(requested: CloudHarnessLoginDecision.Choice.none).allowsEarlyCopy(harness: "claude"))
+        #expect(!CloudHarnessLoginAsk(requested: .machine).allowsEarlyCopy(harness: "claude"))
+        #expect(!CloudHarnessLoginAsk().allowsEarlyCopy(harness: "codex") && !CloudHarnessLoginAsk().allowsEarlyCopy(harness: "pi"))
+    }
+
+    /// The owner check still runs again before the write, cached login or not: it is local and costs no round trip.
+    @Test func aCachedLoginStillChecksTheOwnerBeforeTheWrite() async {
+        let r = Recorder(); r.cached = Self.token
+        var effects = r.effects
+        effects.callerOwnsVM = { await MainActor.run { defer { r.owner = false }; return r.owner } } // owned once, then not
+        await #expect(throws: CloudCredentialTransfer.Failure.sharedMachine) {
+            try await r.transfer.run(currentTeamID: { r.team }, currentUserID: { r.user }, confirmed: true, effects: effects)
+        }
+        #expect(r.writes.isEmpty)
     }
 
     @Test func firstTransferStoresThenDeliversAndRepeatReusesScopedCache() async throws {

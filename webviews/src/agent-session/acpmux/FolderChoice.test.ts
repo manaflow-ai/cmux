@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { showsFolderChoice } from "./FolderChoice";
+import { showsFolderChoice } from "./folderChoiceModel";
 
 const offered = {
   offered: true,

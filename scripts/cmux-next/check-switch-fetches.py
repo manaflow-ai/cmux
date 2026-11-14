@@ -42,10 +42,32 @@ ALLOWED_LISTENERS = {
     (f"{ACPMUX}/App.tsx", "visibilitychange"): "harness health re-reads only after a Log In ran "
     "in a terminal (`healthStale`)",
     (f"{ACPMUX}/App.tsx", "focus"): "harness health, as above",
+    (f"{ACPMUX}/header/worktreePillModel.ts", "visibilitychange"): "the worktree pill reads "
+    "`git.status` as the page shows only when a read came due while it was hidden (its chat started "
+    "or ended a turn, or came back to a folder: the one read it held back, `owed`); a switch away "
+    "and back with nothing due reads nothing. Listed in shared-projections.md section 6 with the "
+    "change that removes it",
+    (f"{ACPMUX}/chatSnapshot/live.ts", "visibilitychange"): "writes the chat's drawn copy for the "
+    "next launch as the page hides (`chat.snapshot.put`, a write, not a read)",
+    (f"{ACPMUX}/snapshotCache.ts", "visibilitychange"): "writes the reload copy as the page hides "
+    "(sessionStorage, a write, not a read)",
+    (f"{ACPMUX}/VirtualTranscript.tsx", "visibilitychange"): "forgets the rows still entering when "
+    "the page hides, so they don't replay on return; reads no data",
+    (f"{ACPMUX}/conversation/sendTuck.ts", "visibilitychange"): "ends a send's tuck animation and "
+    "removes its copies as the page hides; reads no data",
+    (f"{ACPMUX}/conversation/shimmerCadence.ts", "visibilitychange"): "pauses and restarts decorative "
+    "shimmer timers as the page hides or shows; reads no data",
+    (f"{ACPMUX}/chatPerfCapture.ts", "visibilitychange"): "`cmux app chat perf` notes when the "
+    "page hid during a capture, only while one runs (removed after); reads no data",
     (f"{ACPMUX}/composerFocus.ts", "focus"): "focus claim when the window is focused (the composer "
     "focus lane); reads no data",
     (f"{ACPMUX}/newtab/NewTabScreen.tsx", "focus"): "the field takes the keyboard back when the "
     "page is focused with nothing in it focused (#22456), as composerFocus.ts does; reads no data",
+    (f"{ACPMUX}/newtab/inputReady.ts", "focus"): "a New Tab field's readiness after Cmd-T waits "
+    "for the page's first focus, so the keys the app replays then are not lost; once per opening, "
+    "removed when it fires; reads no data",
+    (f"{ACPMUX}/session-info/stepAside.ts", "visibilitychange"): "Session Info comes back when "
+    "the tab an Outputs row opened over the chat closes (the page shows again); reads no data",
     (f"{ACPMUX}/threadMinimap/scrollMotion.ts", "visibilitychange"): "cancels the wheel's own "
     "motion when the page hides; reads no data",
     (f"{ACPMUX}/threadMinimap/ThreadMinimap.tsx", "visibilitychange"): "clears the occluded "
@@ -54,12 +76,21 @@ ALLOWED_LISTENERS = {
     "holds back from its throttled store write when the page hides; a write, reads no data",
     (f"{ACPMUX}/newtab/listMotion.ts", "visibilitychange"): "cancels the list's own motion when "
     "the page hides; reads no data",
+    (f"{ACPMUX}/subagents/traySeen.ts", "visibilitychange"): "pauses the composer hat's linger "
+    "clock while the page is hidden (trayLinger.ts); reads no data",
+    (f"{ACPMUX}/subagents/traySeen.ts", "focus"): "pauses the composer hat's linger clock while "
+    "the window is not focused, resumes it on focus; reads no data",
     (f"{ACPMUX}/avatars/AnimatedAvatar.tsx", "visibilitychange"): "stops the avatar's own CSS "
     "frame animation while the page hides; reads no data",
     (f"{ACPMUX}/subagents/SubagentGroup.tsx", "visibilitychange"): "`useNow` rests the running "
     "tray's and cards' one-second clock while the page hides and catches it up on show; reads no "
     "data",
     (f"{ACPMUX}/pageKey.ts", "focus"): "marks the page key or not for the caret; reads no data",
+    (f"{ACPMUX}/finish/useFinishMoments.ts", "visibilitychange"): "drops a long turn's finish sound "
+    "still waiting for its summary as the page hides, since the Agent Finished notification sounds "
+    "for it; reads no data",
+    (f"{ACPMUX}/flickerLog.ts", "visibilitychange"): "the flicker log records the page's visibility "
+    "as a diagnostic event and resets or re-arms its own frame watch; reads no data",
     (f"{ACPMUX}/Composer.tsx", "visibilitychange"): "flushes a new chat's waiting unsent draft to the host "
     "when the page hides (unsentDraftThrottle.ts); a write, reads no data",
     (f"{ACPMUX}/MarkdownField.tsx", "focus"): "puts back the prompt's selection, which WebKit moves "

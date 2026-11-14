@@ -79,7 +79,8 @@ public struct ArtifactsBrowser: View {
             Group {
                 if state.grid {
                     ScrollView {
-                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                        // Two square tiles across a phone; a wider screen (an unfolded foldable) adds columns.
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 240), spacing: 8)], spacing: 8) {
                             ForEach(shown) { artifact in
                                 NavigationLink(value: artifact) { ArtifactTile(artifact: artifact, source: source) }
                                     .buttonStyle(.plain)
@@ -124,7 +125,7 @@ public struct ArtifactsBrowser: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(state.grid ? "List" : "Grid", systemImage: state.grid ? "list.bullet" : "square.grid.2x2") {
-                        withAnimation(.snappy) { state.grid.toggle() }
+                        withAnimation(.snappy.unlessReduceMotion) { state.grid.toggle() }
                     }
                     .accessibilityIdentifier("artifacts.layout")
                 }
@@ -141,7 +142,7 @@ public struct ArtifactsBrowser: View {
                 ForEach(filters) { item in
                     let count = counts[item] ?? 0
                     Button {
-                        withAnimation(.snappy) { state.filter = item }
+                        withAnimation(.snappy.unlessReduceMotion) { state.filter = item }
                     } label: {
                         Text(item == .all ? "All \(count)" : item.rawValue)
                             .font(.subheadline.weight(.medium))
@@ -183,7 +184,7 @@ public struct ArtifactRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(artifact.name).font(.body).lineLimit(1)
                 HStack(spacing: 4) {
-                    if let detail = artifact.detail {
+                    if let detail = artifact.detail, !detail.isEmpty {
                         Text(detail).foregroundStyle(.secondary)
                         Text("·").foregroundStyle(.tertiary)
                     }
@@ -260,7 +261,7 @@ struct ArtifactTile: View {
                     .accessibilityHidden(true)
                 Text(artifact.name).font(.footnote).lineLimit(2)
             }
-            if let detail = artifact.detail {
+            if let detail = artifact.detail, !detail.isEmpty {
                 Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
         }

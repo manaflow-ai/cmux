@@ -455,6 +455,7 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
         platform: Platform,
         wg_public_key: WgPublicKey,
         network: Schema.optionalKey(ServerNetworkReservation),
+        machine_join_token: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,256}$/))),
         owner_user: UserId,
         approved_by: UserId
       }),

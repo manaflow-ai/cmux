@@ -40,6 +40,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
+# ci.yml copies this script with deadline_http.py beside it and runs it with -I, which leaves its own
+# directory off sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
+
 # Commits on the head's first-parent chain examined for a green head.
 MAX_CHAIN = 8
 # Commits fetched behind the head and main to find the merge base and check
@@ -60,6 +65,8 @@ CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 CI_POLICY_PREFIXES = (".github/", "scripts/ci/")
 CI_POLICY_TEST_PREFIXES = ("tests/test_ci_",)
 CI_POLICY_FILES = frozenset({"tests/test-execution.toml"})
+# The test registry's area fragments (scripts/ci/test_execution_registry.py).
+CI_POLICY_FILE_RE = re.compile(r"tests/test-execution\.d/[^/]+\.toml")
 # The GitHub Actions app, which owns every workflow check suite.
 ACTIONS_APP_ID = 15368
 CONCLUSIVE = frozenset({"success", "failure", "timed_out", "action_required", "startup_failure"})
@@ -214,7 +221,7 @@ def ci_policy_paths(paths: Iterable[str]) -> list[str]:
     return sorted(
         path for path in paths
         if path.startswith(CI_POLICY_PREFIXES) or path.startswith(CI_POLICY_TEST_PREFIXES)
-        or path in CI_POLICY_FILES
+        or path in CI_POLICY_FILES or CI_POLICY_FILE_RE.fullmatch(path) is not None
     )
 
 
@@ -339,8 +346,9 @@ def github_verdicts(repository: str, token: str, api_url: str, number: int, base
         left = 30.0 if deadline is None else min(30.0, deadline - time.monotonic())
         if left <= 0:
             raise Skip(f"reading CI verdicts would start past the {BUDGET_SECONDS} s budget")
-        with urllib.request.urlopen(request, timeout=left) as response:
-            return json.load(response)
+        # The whole call ends within LEFT, a trickled answer included (deadline_http).
+        _, payload, _ = deadline_http.request(request, left, raise_errors=True)
+        return json.loads(payload)
 
     def lookup(oids: list[str]) -> dict[str, Optional[str]]:
         owner, _, name = repository.partition("/")

@@ -28,6 +28,10 @@
 //! Tool names and arguments stay upstream-shaped. The trusted bridge adds
 //! the session's target allow-list to the helper envelope, outside model
 //! arguments; the Swift host resolves targets and enforces the policy.
+//!
+//! The bridge serves one tool of its own, [`wait_for::TOOL`]: it waits for an
+//! element with repeated `get_window_state` reads (AX tree only, no
+//! screenshot) instead of an agent's sleep-and-look loop.
 
 use std::path::{Path, PathBuf};
 
@@ -39,6 +43,7 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufRea
 use tokio::net::UnixStream;
 
 mod liveness;
+pub mod wait_for;
 
 pub use liveness::Owner;
 #[cfg(target_os = "macos")]
@@ -295,6 +300,8 @@ pub async fn run_bridge() -> Result<()> {
 #[cfg(unix)]
 pub async fn run_bridge() -> Result<()> {
     let dir = dir_from_env().ok_or_else(|| anyhow!("{ENDPOINT_DIR_ENV} is not set"))?;
+    // Stdin may stay open after the agent died (`parent_watch.rs`).
+    crate::parent_watch::exit_with_parent();
     let stdin = BufReader::new(tokio::io::stdin());
     let stdout = tokio::io::stdout();
     serve(stdin, stdout, || async { Helper::connect(&read_endpoint(&dir)?).await }).await
@@ -335,11 +342,26 @@ where
             "ping" => Ok(json!({})),
             "tools/list" => forward(&mut helper, &connect, "tools/list", None, Value::Null)
                 .await
-                .map(tools_list_result),
+                .map(|inventory| wait_for::with_definition(tools_list_result(inventory))),
             "tools/call" => {
                 let name = message["params"]["name"].as_str().unwrap_or_default().to_owned();
                 let arguments =
                     message["params"].get("arguments").cloned().unwrap_or_else(|| json!({}));
+                if name == wait_for::TOOL {
+                    let result = match wait_for::Wait::parse(&arguments) {
+                        Ok(wait) => {
+                            let mut reader =
+                                HelperReader { helper: &mut helper, connect: &connect };
+                            wait_for::run(&wait, &mut reader).await
+                        }
+                        Err(text) => {
+                            json!({"content": [{"type":"text", "text":text}], "isError":true})
+                        }
+                    };
+                    write_line(&mut output, &json!({"jsonrpc": "2.0", "id": id, "result": result}))
+                        .await?;
+                    continue;
+                }
                 Ok(
                     match forward(&mut helper, &connect, "tools/call", Some(&name), arguments).await
                     {
@@ -418,6 +440,31 @@ where
         }
     }
     Err((-32000, "the Computer Use helper is unavailable".into()))
+}
+
+/// [`wait_for`]'s checks: `get_window_state` through [`forward`], so each one
+/// passes the machine consent check and reconnects like a direct call.
+struct HelperReader<'a, S, C> {
+    helper: &'a mut Option<Helper<S>>,
+    connect: &'a C,
+}
+
+impl<S, C, F> wait_for::TreeReader for HelperReader<'_, S, C>
+where
+    S: tokio::io::AsyncRead + AsyncWrite + Unpin,
+    C: Fn() -> F,
+    F: std::future::Future<Output = Result<Helper<S>>>,
+{
+    async fn read(&mut self, arguments: Value) -> Result<Value, String> {
+        forward(self.helper, self.connect, "tools/call", Some(wait_for::READ_TOOL), arguments)
+            .await
+            .map_err(|(_, text)| text)
+    }
+
+    fn abandon(&mut self) {
+        // The cut-off call may still answer on this connection.
+        *self.helper = None;
+    }
 }
 
 fn is_connection_error(e: &anyhow::Error) -> bool {

@@ -18,7 +18,8 @@ import WebRTC
 /// width as a fraction of the frame width (32 / the width the rd host streams that display at);
 /// `CMUX_RD_MARKER_ORIGIN_Y` the marker's top as a fraction of the frame height (the marker
 /// prints its `marker-origin` in rd stream pixels; divide by that stream's height); optional `CMUX_RD_MARKER_SAMPLES` (default 300) and `CMUX_RD_MARKER_SNAPSHOT` (a PNG of the
-/// newest decoded frame). Prints one JSON line, `rdmarker: {...}`.
+/// newest decoded frame) and `CMUX_RD_MARKER_INPUT` (`click`, the default, or `key`: an "a" key
+/// press, as `cmux-rd bench --input key` sends). Prints one JSON line, `rdmarker: {...}`.
 struct RdMarkerClickLatencyTests {
     final class Reader: NSObject, RTCVideoRenderer, @unchecked Sendable {
         let fraction: Double
@@ -124,6 +125,8 @@ struct RdMarkerClickLatencyTests {
         let fraction = try #require(Double(env["CMUX_RD_MARKER_CELL_FRACTION"] ?? ""))
         let samples = Int(env["CMUX_RD_MARKER_SAMPLES"] ?? "") ?? 300
         let originY = Double(env["CMUX_RD_MARKER_ORIGIN_Y"] ?? "") ?? 0
+        let input = env["CMUX_RD_MARKER_INPUT"] ?? "click"
+        try #require(["click", "key"].contains(input), "CMUX_RD_MARKER_INPUT is click or key")
         let reader = Reader(fraction: fraction, originY: originY)
         let viewer = ScreenStreamViewer(pairing: pairing)
         viewer.onVideo = { $0.track.add(reader) }
@@ -147,8 +150,12 @@ struct RdMarkerClickLatencyTests {
             guard let current = reader.value else { break }
             let expected = current &+ 1
             let sent = ContinuousClock.now
-            viewer.send(ScreenInput(t: "move", x: at.x, y: at.y, b: 1))
-            viewer.send(ScreenInput(t: "move", x: at.x, y: at.y, b: 0))
+            if input == "key" {
+                viewer.send(ScreenInput(t: "chord", k: 0x61, m: []))
+            } else {
+                viewer.send(ScreenInput(t: "move", x: at.x, y: at.y, b: 1))
+                viewer.send(ScreenInput(t: "move", x: at.x, y: at.y, b: 0))
+            }
             let timeout = Task {
                 // The rd bench's loss deadline; a cancelled timer must not end the next wait.
                 guard (try? await Task.sleep(for: .seconds(1))) != nil else { return }
@@ -168,13 +175,15 @@ struct RdMarkerClickLatencyTests {
         if let path = env["CMUX_RD_MARKER_SNAPSHOT"], let pixels = reader.pixels { writePNG(pixels, to: path) }
         let report: [String: Any] = [
             "engine": "webrtc (CmuxVNCWebRTC ScreenStreamHost)",
+            "input": input,
             "g2g_ms": percentiles(latencies),
             "lost": lost,
             "connect_to_first_marker_ms": firstFrameMs,
             "frame": ["width": size.width, "height": size.height],
             "frames_per_s": (after.framesDecoded - before.framesDecoded) / seconds,
             "mbit_per_s": (after.bytesReceived - before.bytesReceived) * 8 / seconds / 1e6,
-            "decode_ms_mean": after.framesDecoded > 0 ? after.totalDecodeTime / after.framesDecoded * 1000 : -1,
+            "decode_ms_mean": after.framesDecoded > before.framesDecoded
+                ? (after.totalDecodeTime - before.totalDecodeTime) / (after.framesDecoded - before.framesDecoded) * 1000 : -1,
             "rtt_ms": after.rttMs ?? -1,
             "jitter_buffer_ms": after.jitterBufferMs ?? -1,
             "codec": after.codec ?? "?",

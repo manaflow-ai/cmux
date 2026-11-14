@@ -50,7 +50,7 @@ def source(name: str) -> tuple[str, str]:
     if name == "dia":
         return time.strftime("%Y-%m-%d"), "https://releases.diabrowser.com/release/Dia-latest.dmg"
     if name == "cmux-nightly":
-        feed = get("https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml").decode()
+        feed = get("https://files-next.cmux.com/nightly-next/appcast-arm64.xml").decode()
         url = re.search(r'enclosure url="([^"]+\.dmg)"', feed).group(1)
         return url.rsplit("-", 1)[-1].removesuffix(".dmg"), url
     raise SystemExit(f"fetch_browsers: unknown browser {name}")

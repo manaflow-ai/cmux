@@ -16,4 +16,36 @@ extension Strings {
     static func playgroundShipped(_ name: String) -> String {
         String(format: String(localized: "tabs.playground.shipped", defaultValue: "Shipped: %@", bundle: .module), name)
     }
+    /// A Corner Radius row's name ("Radius 10 pt, padding 2 pt").
+    static func playgroundCornerName(outer: CGFloat, padding: CGFloat) -> String {
+        String(format: String(localized: "tabs.playground.corner.name", defaultValue: "Radius %1$@ pt, padding %2$@ pt", bundle: .module),
+               points(outer), points(padding))
+    }
+    /// A Corner Radius row's caption: the nested radius it derives ("Tabs and inner fills: 8 pt").
+    static func playgroundCornerCaption(inner: CGFloat) -> String {
+        String(format: String(localized: "tabs.playground.corner.caption", defaultValue: "Tabs and inner fills: %@ pt", bundle: .module), points(inner))
+    }
+    /// The Folder Corners page's rows (``FolderCornerPlaygroundVariants``).
+    static var playgroundFolderOneColor: String {
+        String(localized: "tabs.playground.folder.oneColor", defaultValue: "One Color", bundle: .module)
+    }
+    static var playgroundFolderMiddle: String {
+        String(localized: "tabs.playground.folder.middle", defaultValue: "Subtle Tone, a middle tab selected", bundle: .module)
+    }
+    static var playgroundFolderFirstLeft: String {
+        String(localized: "tabs.playground.folder.firstLeft", defaultValue: "Subtle Tone, the first tab selected, sidebar on the left", bundle: .module)
+    }
+    static var playgroundFolderFirstRight: String {
+        String(localized: "tabs.playground.folder.firstRight", defaultValue: "Subtle Tone, the first tab selected, sidebar on the right", bundle: .module)
+    }
+    static var playgroundFolderFullscreen: String {
+        String(localized: "tabs.playground.folder.fullscreen", defaultValue: "Subtle Tone, full screen", bundle: .module)
+    }
+    /// A sample tab's title ("Tab 2").
+    static func playgroundTabTitle(_ number: Int) -> String {
+        String(format: String(localized: "tabs.playground.folder.tabTitle", defaultValue: "Tab %lld", bundle: .module), number)
+    }
+    private static func points(_ value: CGFloat) -> String {
+        value.rounded() == value ? String(Int(value)) : String(format: "%.1f", Double(value))
+    }
 }

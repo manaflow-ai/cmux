@@ -1,6 +1,7 @@
 // followGlide.ts: a followed reply's new line eases in within the live line's room, and nothing
 // else glides. The live browser behaviour is in test/streaming-text-frames.test.ts.
 import { expect, test } from "bun:test";
+import { MOTION_EASE_SEND, MOTION_MS, MOTION_SEND_MS } from "../../../motion/scale.generated";
 import type { AcpmuxRow, ConversationLayout } from "../model";
 import { createFollowGlide, followRoom } from "./followGlide";
 
@@ -103,4 +104,55 @@ test("a glide stops once the room it lands in is smaller than what it still hold
   expect(glides[0]!.cancelled).toBe(true);
   expect(glide.outstanding()).toBe(0);
   glide.fit(0);
+});
+
+test("on the scale's send step (0) a send rises nothing; on a page's own send clock it draws the thread back by the whole rise, past any room, and fit leaves it", () => {
+  // The scale's send step is 0 (Leo 2026-11-11: "that slow settle animation is just so bad. Like,
+  // just do it."): without a token of its own the page's thread is in place at once.
+  const product = thread();
+  expect(MOTION_SEND_MS).toBe(0);
+  expect(createFollowGlide().sent(product.node, 64)).toBe(0);
+  expect(product.glides).toHaveLength(0);
+  // A page that sets `--agent-motion-send` itself (a gallery) still gets the rise on that clock.
+  const glide = createFollowGlide();
+  const { node, glides, at } = thread({ token: "180ms" });
+  // The sent prompt's row (64) and its reply's live line came at once: no room cap.
+  expect(glide.sent(node, 64)).toBe(64);
+  expect(glides[0]!.keyframes).toEqual([{ translate: "0 64px" }, { translate: "0 0" }]);
+  // On the send motion (Leo 2026-11-07: "it's all just one unified motion"): the clock the sent
+  // prompt's bubble and the thinking row come in on.
+  expect(glides[0]!.options.duration).toBe(180);
+  expect(glides[0]!.options.easing).toBe(MOTION_EASE_SEND);
+  // No room under the last row (the live line names a call): the send still plays to rest.
+  glide.fit(0);
+  expect(glides[0]!.cancelled).toBe(false);
+  // The reply's first line lands halfway: it continues from what is still drawn back, uncapped.
+  at(0.5);
+  expect(glide.rise(node, 20, 4)).toBe(52);
+  expect(glides[0]!.cancelled).toBe(true);
+  // The reply's line that lands while the send plays keeps the send's clock.
+  expect(glides[1]!.options.duration).toBe(180);
+  // A row the next commit brings rises on the send's glide too.
+  at(0);
+  expect(glide.sent(node, 30)).toBe(82);
+  glide.stop();
+  expect(glide.outstanding()).toBe(0);
+  // Once it stopped, an ordinary rise is capped by the room again, and fit cuts it.
+  expect(glide.rise(node, 22.75, 10)).toBe(10);
+  expect(glides.at(-1)!.options.duration).toBe(MOTION_MS.standard);
+  glide.fit(0);
+  expect(glides.at(-1)!.cancelled).toBe(true);
+});
+
+test("a send glides nothing with motion off, for a fall, or without a thread", () => {
+  for (const motion of [{ reduce: true }, { off: true }, { token: "0ms" }]) {
+    const { node, glides } = thread(motion);
+    expect(createFollowGlide().sent(node, 64)).toBe(0);
+    expect(glides).toHaveLength(0);
+  }
+  const { node, glides } = thread();
+  const glide = createFollowGlide();
+  expect(glide.sent(node, -10)).toBe(0);
+  expect(glide.sent(null, 64)).toBe(0);
+  expect(glides).toHaveLength(0);
 });

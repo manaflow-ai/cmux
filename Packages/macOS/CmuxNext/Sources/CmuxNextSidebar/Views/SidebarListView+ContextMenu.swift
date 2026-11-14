@@ -23,11 +23,13 @@ extension SidebarListViewComponents {
             target = .section(id)
         case let .doneFold(fold)? where fold.kind == .archive:
             target = .background // the Archive row belongs to no list
+        case let .showMore(fold)? where fold.kind == .projects:
+            target = .background // Projects' row spans every computer's groups
         case let .doneFold(fold)?, let .showMore(fold)?:
             target = fold.group.map(SidebarContextTarget.group) ?? .section(fold.section)
         case let .item(item)?:
             target = .layoutItem(LayoutItemID(item))
-        case .block?, .status?:
+        case .block?, .status?, .listHeader?:
             target = .background
         case nil:
             target = .background

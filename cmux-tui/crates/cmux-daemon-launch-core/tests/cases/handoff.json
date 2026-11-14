@@ -1,0 +1,447 @@
+[
+ {
+  "name": "two stamped builds compare by build: same",
+  "op": "version_decision",
+  "request": {
+   "running": {
+    "commit": "abc1234",
+    "id": "abc1234"
+   },
+   "bundled": {
+    "commit": "abc1234",
+    "id": "abc1234"
+   }
+  },
+  "expect": {
+   "keep": "same build"
+  }
+ },
+ {
+  "name": "two stamped builds compare by build: other",
+  "op": "version_decision",
+  "request": {
+   "running": {
+    "commit": "abc1234",
+    "id": "abc1234"
+   },
+   "bundled": {
+    "commit": "def5678",
+    "id": "def5678"
+   }
+  },
+  "expect": {
+   "restart": {
+    "running": "abc1234",
+    "bundled": "def5678"
+   }
+  }
+ },
+ {
+  "name": "an owner without build_id compares commits: same",
+  "op": "version_decision",
+  "request": {
+   "running": {
+    "commit": "abc1234",
+    "id": null
+   },
+   "bundled": {
+    "commit": "abc1234",
+    "id": "abc1234"
+   }
+  },
+  "expect": {
+   "keep": "same build"
+  }
+ },
+ {
+  "name": "an owner without build_id compares commits: other",
+  "op": "version_decision",
+  "request": {
+   "running": {
+    "commit": "abc1234"
+   },
+   "bundled": {
+    "commit": "def5678",
+    "id": "def5678"
+   }
+  },
+  "expect": {
+   "restart": {
+    "running": "abc1234",
+    "bundled": "def5678"
+   }
+  }
+ },
+ {
+  "name": "a dirty build of the same commit is handed off",
+  "op": "version_decision",
+  "request": {
+   "running": {
+    "id": "abc1234-dirty.aaaa"
+   },
+   "bundled": {
+    "id": "abc1234-dirty.bbbb"
+   }
+  },
+  "expect": {
+   "restart": {
+    "running": "abc1234-dirty.aaaa",
+    "bundled": "abc1234-dirty.bbbb"
+   }
+  }
+ },
+ {
+  "name": "the same dirty build is kept",
+  "op": "version_decision",
+  "request": {
+   "running": {
+    "id": "abc1234-dirty.aaaa"
+   },
+   "bundled": {
+    "id": "abc1234-dirty.aaaa"
+   }
+  },
+  "expect": {
+   "keep": "same build"
+  }
+ },
+ {
+  "name": "the build id decides over the commit",
+  "op": "version_decision",
+  "request": {
+   "running": {
+    "commit": "abc1234",
+    "id": "abc1234-dirty.aaaa"
+   },
+   "bundled": {
+    "commit": "abc1234",
+    "id": "abc1234-dirty.bbbb"
+   }
+  },
+  "expect": {
+   "restart": {
+    "running": "abc1234-dirty.aaaa",
+    "bundled": "abc1234-dirty.bbbb"
+   }
+  }
+ },
+ {
+  "name": "running build unknown",
+  "op": "version_decision",
+  "request": {
+   "running": {
+    "commit": null,
+    "id": null
+   },
+   "bundled": {
+    "commit": "abc1234",
+    "id": "abc1234"
+   }
+  },
+  "expect": {
+   "keep": "running build unknown"
+  }
+ },
+ {
+  "name": "bundled build unknown (no answer)",
+  "op": "version_decision",
+  "request": {
+   "running": {
+    "commit": "abc1234",
+    "id": "abc1234"
+   },
+   "bundled": null
+  },
+  "expect": {
+   "keep": "bundled build unknown"
+  }
+ },
+ {
+  "name": "bundled build unknown (empty stamp)",
+  "op": "version_decision",
+  "request": {
+   "running": {
+    "commit": "abc1234",
+    "id": "abc1234"
+   },
+   "bundled": {
+    "commit": null,
+    "id": null
+   }
+  },
+  "expect": {
+   "keep": "bundled build unknown"
+  }
+ },
+ {
+  "name": "an empty commit from identify counts as none",
+  "op": "version_decision",
+  "request": {
+   "running": {
+    "commit": "",
+    "id": "abc1234"
+   },
+   "bundled": {
+    "commit": "",
+    "id": ""
+   }
+  },
+  "expect": {
+   "keep": "running build unknown"
+  }
+ },
+ {
+  "name": "version json gives the stamp",
+  "op": "build_stamp_from_version_json",
+  "request": {
+   "text": "{\"app\":\"cmux-tui\",\"build_identity\":\"abc1234-dirty.aaaa\",\"build_commit\":null}"
+  },
+  "expect": {
+   "commit": null,
+   "id": "abc1234-dirty.aaaa"
+  }
+ },
+ {
+  "name": "version text is not version json",
+  "op": "build_stamp_from_version_json",
+  "request": {
+   "text": "cmux 0.1.0"
+  },
+  "expect": null
+ },
+ {
+  "name": "version text gives the commit",
+  "op": "build_commit_from_version_text",
+  "request": {
+   "text": "cmux 0.1.0 (abc1234def; ghostty 1.2)"
+  },
+  "expect": "abc1234def"
+ },
+ {
+  "name": "a short commit is none",
+  "op": "build_commit_from_version_text",
+  "request": {
+   "text": "cmux 0.1.0 (abc12; ghostty)"
+  },
+  "expect": null
+ },
+ {
+  "name": "no parenthesis is none",
+  "op": "build_commit_from_version_text",
+  "request": {
+   "text": "cmux 0.1.0"
+  },
+  "expect": null
+ },
+ {
+  "name": "stale: another build begins under the bundled build's key",
+  "op": "handoff_gate",
+  "request": {
+   "kind": "stale",
+   "pid": 41,
+   "running": {
+    "id": "a"
+   },
+   "bundled": {
+    "id": "b"
+   }
+  },
+  "expect": {
+   "action": "begin",
+   "key": "b",
+   "decision": {
+    "restart": {
+     "running": "a",
+     "bundled": "b"
+    }
+   },
+   "refused": {
+    "keep": "already handed off to b"
+   }
+  }
+ },
+ {
+  "name": "stale: the same build is kept",
+  "op": "handoff_gate",
+  "request": {
+   "kind": "stale",
+   "pid": 41,
+   "running": {
+    "id": "a"
+   },
+   "bundled": {
+    "id": "a"
+   }
+  },
+  "expect": {
+   "action": "skip",
+   "decision": {
+    "keep": "same build"
+   }
+  }
+ },
+ {
+  "name": "capability: an external binary is never handed off",
+  "op": "handoff_gate",
+  "request": {
+   "kind": "capability",
+   "pid": 41,
+   "capability": "x-v1",
+   "binaryIsBundled": false
+  },
+  "expect": {
+   "action": "skip"
+  }
+ },
+ {
+  "name": "capability: an owner that serves it is kept",
+  "op": "handoff_gate",
+  "request": {
+   "kind": "capability",
+   "pid": 41,
+   "capability": "x-v1",
+   "binaryIsBundled": true,
+   "supports": true
+  },
+  "expect": {
+   "action": "skip"
+  }
+ },
+ {
+  "name": "capability: the exiting owner is waited out",
+  "op": "handoff_gate",
+  "request": {
+   "kind": "capability",
+   "pid": 41,
+   "capability": "x-v1",
+   "binaryIsBundled": true,
+   "exiting": 41
+  },
+  "expect": {
+   "action": "wait"
+  }
+ },
+ {
+  "name": "capability: begins once per capability",
+  "op": "handoff_gate",
+  "request": {
+   "kind": "capability",
+   "pid": 41,
+   "capability": "x-v1",
+   "binaryIsBundled": true,
+   "exiting": 7
+  },
+  "expect": {
+   "action": "begin",
+   "key": "capability:x-v1"
+  }
+ },
+ {
+  "name": "install key: only a launcher that holds one",
+  "op": "handoff_gate",
+  "request": {
+   "kind": "install_key",
+   "pid": 41,
+   "hasInstallKey": false
+  },
+  "expect": {
+   "action": "skip"
+  }
+ },
+ {
+  "name": "install key: begins",
+  "op": "handoff_gate",
+  "request": {
+   "kind": "install_key",
+   "pid": 41,
+   "hasInstallKey": true
+  },
+  "expect": {
+   "action": "begin",
+   "key": "install-key"
+  }
+ },
+ {
+  "name": "update: once per daemon process",
+  "op": "handoff_gate",
+  "request": {
+   "kind": "update",
+   "pid": 41,
+   "binaryIsBundled": true
+  },
+  "expect": {
+   "action": "begin",
+   "key": "update:41"
+  }
+ },
+ {
+  "name": "update: never for an external binary",
+  "op": "handoff_gate",
+  "request": {
+   "kind": "update",
+   "pid": 41,
+   "binaryIsBundled": false
+  },
+  "expect": {
+   "action": "skip"
+  }
+ },
+ {
+  "name": "incompatible: another session's owner is never ours",
+  "op": "handoff_gate",
+  "request": {
+   "kind": "incompatible",
+   "pid": 41,
+   "binaryIsBundled": true,
+   "session": "home",
+   "configuredSession": "cmux-app"
+  },
+  "expect": {
+   "action": "skip"
+  }
+ },
+ {
+  "name": "incompatible: pid 1 or less is never signalled",
+  "op": "handoff_gate",
+  "request": {
+   "kind": "incompatible",
+   "pid": 1,
+   "binaryIsBundled": true,
+   "session": "cmux-app",
+   "configuredSession": "cmux-app"
+  },
+  "expect": {
+   "action": "skip"
+  }
+ },
+ {
+  "name": "incompatible: the exiting owner is waited out",
+  "op": "handoff_gate",
+  "request": {
+   "kind": "incompatible",
+   "pid": 41,
+   "exiting": 41,
+   "binaryIsBundled": true,
+   "session": "cmux-app",
+   "configuredSession": "cmux-app"
+  },
+  "expect": {
+   "action": "wait"
+  }
+ },
+ {
+  "name": "incompatible: begins",
+  "op": "handoff_gate",
+  "request": {
+   "kind": "incompatible",
+   "pid": 41,
+   "binaryIsBundled": true,
+   "session": "cmux-app",
+   "configuredSession": "cmux-app"
+  },
+  "expect": {
+   "action": "begin",
+   "key": "incompatible"
+  }
+ }
+]

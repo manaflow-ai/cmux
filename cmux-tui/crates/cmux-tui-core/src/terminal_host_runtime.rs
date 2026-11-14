@@ -35,10 +35,10 @@ use crate::terminal_host_protocol::{
     FLAG_SHELL_ACTIVITY, FLAG_SMART_RENDERER, FLAG_TERMINAL_METADATA, FLAG_VIEWER_SIZE_ACKS,
     FLAG_VIEWER_SIZE_PRIORITY, Frame, HostLaunchFailure, HostLaunchFailureKind,
     KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION,
-    MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION,
-    RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, decode_host_launch_failure, decode_terminal_exit,
-    encode_host_launch_failure, encode_terminal_exit, read_frame,
-    wait_for_native_child_status_with_reap_result, write_frame,
+    MAX_BATCH_BYTES, MAX_BATCH_FRAMES, MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind,
+    PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, decode_host_launch_failure,
+    decode_terminal_exit, encode_host_launch_failure, encode_terminal_exit, read_frame,
+    wait_for_native_child_status_with_reap_result, write_frame, write_frames,
 };
 
 mod grant_failure;
@@ -621,6 +621,7 @@ mod unix {
                 command.env(key, value);
             }
         }
+        command.terminal_identity();
         for key in crate::shell_integration::keys_to_unset_in_child(&launch.extra_env) {
             command.env_remove(key);
         }
@@ -644,6 +645,8 @@ mod unix {
 #[cfg(any(unix, windows))]
 pub use shared::attachment::HostAttachment;
 pub(crate) use shared::attachment::HostInputRoute;
+#[cfg(unix)]
+pub(crate) use shared::attachment::INLINE_FRAME_MAX;
 #[cfg(any(unix, windows))]
 pub(crate) use shared::attachment::launch::adopt_terminal_host_with_kitty_limits;
 #[cfg(any(unix, windows))]
@@ -654,6 +657,8 @@ pub use shared::attachment::launch::{
 pub(crate) use shared::attachment::launch::{
     launch_terminal_host_from, launch_terminal_host_seeded,
 };
+#[cfg(all(test, target_vendor = "apple"))]
+pub(crate) use shared::attachment::room_check_queues;
 #[cfg(any(unix, windows))]
 pub(crate) use shared::clipboard_read::ClipboardReadSignal;
 #[cfg(any(unix, windows))]

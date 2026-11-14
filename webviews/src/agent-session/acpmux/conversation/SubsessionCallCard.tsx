@@ -21,6 +21,9 @@ import {
   waitingLine,
 } from "../subagents/subsessions";
 import { retryLabel, sessionRetry } from "../subagents/retryState";
+import { ResumeControl } from "../subagents/ResumeControl";
+import { subsessionResumeRow } from "../subagents/resumeState";
+import { TurnActionsContext } from "./turnActions";
 import { useFindReveal } from "./chatFind";
 import { useStartedName } from "./startedNames";
 import { ToolGroup } from "./icons";
@@ -28,10 +31,11 @@ import { Markdown } from "./Markdown";
 import { McpCallDetails } from "./McpCallRows";
 import { mcpCall, mcpRawName } from "./mcpCalls";
 import { CardCopy } from "./CardCopy";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { RawToggle, SentMessageLine } from "./SentMessageLine";
 import type { SubsessionCall, SubsessionDelivery, SubsessionReply } from "./subsessionCalls";
 import "./SubsessionCallCard.css";
+import { sessionLine } from "./subsessionCallCardModel";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const toolActivity = (tool: Tool): AcpmuxActivity => ({ kind: "tool", text: tool.title, tool });
@@ -124,45 +128,6 @@ function RunningLine({ children }: { children: ReactNode }) {
   );
 }
 
-/// The card's line for a session not waiting: what it does now, or, failed, why. Only a `doing` line
-/// that repeats the prompt shown under the card is left out; an error always stays, even one that
-/// starts like the prompt (Codex review of #27240), and stands in for a `doing` line left out.
-export function sessionLine(
-  doing: string | undefined,
-  error: string | undefined,
-  failed: boolean,
-  shown?: string,
-): string | undefined {
-  const step = doing && !(shown && repeatsPrompt(doing, shown)) ? doing : undefined;
-  return step ?? (failed ? error : undefined);
-}
-
-/// Whether a session's `doing` line only repeats the start of the prompt shown under it: acpmux
-/// names a new session from its prompt, so its first line is that prompt's opening words, often cut
-/// with an ellipsis. Compared on words, ignoring whitespace, case and a trailing ellipsis.
-export function repeatsPrompt(line: string, prompt: string): boolean {
-  // The line as it came first: a prompt may itself start with "Working on:". Then without acpmux's
-  // own prefix for a session with no step yet, "Working on: <prompt, cut>" (hub/subsession_send.rs).
-  const bare = line.replace(/^\s*Working on:\s*/iu, "");
-  return startsPrompt(line, prompt) || (bare !== line && startsPrompt(bare, prompt));
-}
-
-/// Whether `line` is the start of `prompt`, word for word, ignoring case and whitespace. Only a line
-/// that says it is cut (it ends in an ellipsis) may stop mid-word, so a real step ("Fix bug") never
-/// hides behind its prompt ("Fix bugs ...").
-function startsPrompt(line: string, prompt: string): boolean {
-  const ellipsis = /(?:\.\.\.|\u2026)\s*$/u;
-  const cut = ellipsis.test(line);
-  const words = (text: string) => text.replace(ellipsis, "").toLowerCase().split(/\s+/u).filter(Boolean);
-  const head = words(line);
-  if (head.length === 0) return false;
-  const body = words(prompt).slice(0, head.length);
-  if (body.length < head.length) return false;
-  return head.every((word, index) =>
-    cut && index === head.length - 1 ? body[index]!.startsWith(word) : body[index] === word,
-  );
-}
-
 /// The live card of sub-session `sessionId`, with what the call knew of it until the list has it.
 function SessionCard({
   tool,
@@ -174,6 +139,7 @@ function SessionCard({
   shown,
   disclosure = false,
   disclosureKey,
+  disclosureChevron,
   children,
 }: {
   tool: Tool;
@@ -188,6 +154,7 @@ function SessionCard({
   fallback?: Pick<SubsessionReply, "state" | "waiting" | "slot">;
   disclosure?: boolean;
   disclosureKey?: string;
+  disclosureChevron?: boolean;
   children?: ReactNode;
 }) {
   const t = useT();
@@ -195,11 +162,15 @@ function SessionCard({
   const findItems = useMemo(() => [toolActivity(tool)], [tool]);
   const listed = useSenderChat("", sessionId).harness;
   const open = useContext(SubsessionContext)?.open;
+  const actions = useContext(TurnActionsContext);
   // The card's retry, as every surface reads it (retryState.ts ``sessionRetry``): while acpmux
   // retries its failed turn, the card works, and its state says so. Its Retry is on its end line.
   const phase = live ? sessionRetry(live) : undefined;
   const retry = phase?.kind === "retrying" ? phase.retry : undefined;
   const state = retry ? "working" : (live?.state ?? fallback?.state);
+  // A stopped one says so and offers Resume, as a stopped helper's every row does (resumeState.ts):
+  // acpmux carries its chat on from where it stopped.
+  const stopped = !retry && live ? subsessionResumeRow(live) : undefined;
   const waiting = live ? live.waiting : fallback?.waiting;
   // A failed one says why (acpmux's lane error), a retry acpmux refused included.
   const doing = waiting ? waitingLine(t, waiting) : sessionLine(live?.doing, live?.error, state === "failed", shown);
@@ -211,11 +182,14 @@ function SessionCard({
       model={live?.model ?? model}
       state={state}
       {...(retry && { stateLabel: retryLabel(t, retry) })}
+      {...(stopped && { stateLabel: t("subagents.state.cancelled") })}
+      actions={stopped && <ResumeControl agent={stopped} actions={actions} />}
       slot={live ? live.slot === true : fallback?.slot === true}
       doing={doing}
       queued={live?.queued}
       disclosure={disclosure}
       disclosureKey={disclosureKey}
+      disclosureChevron={disclosureChevron}
       findItems={findItems}
       // The row is the session's name by its harness's mark, no "Started sub-session" in front of it
       // (design/chat-transcript.md: no narration, the icon names the type; transcript audit HQ#5154).
@@ -240,6 +214,7 @@ function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "st
       fallback={call.running ? { state: "working" } : undefined}
       shown={call.prompt}
       disclosure={true}
+      disclosureChevron={false}
       disclosureKey={`subsession-start:${tool.id}`}
     >
       {call.prompt && <CardCopy text={call.prompt} />}

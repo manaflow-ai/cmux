@@ -45,6 +45,9 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
   const GAP = 8;
   /** Subpixel rounding. */
   const TOLERANCE = 0.5;
+  /** Codex's chat look: the prompt-to-row gap and the room under the row (composerLook.css). */
+  const CODEX_PROMPT_GAP = 16;
+  const CODEX_ROW_BOTTOM = 12;
   /** The least room under a one-line prompt's text, to the box's bottom (10 px block inset). */
   const MIN_ROOM = 12;
 
@@ -61,6 +64,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     expect?: Row[];
     /** Trailing controls the layout must draw. */
     trailing?: ("mic" | "send")[];
+    /** The mic-to-Send gap in px: the chat composer's 4px token unless the surface ships its own. */
+    actionsGap?: number;
   };
   const LAYOUTS: Layout[] = [
     {
@@ -113,6 +118,7 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       look: "claude",
       expect: ["pills", "foot"],
       trailing: ["mic", "send"],
+      actionsGap: 2, // New Tab ships the tight arm of new-tab-composer-trailing-gap (Leo's pick)
     },
     {
       name: "new-tab-suggestions",
@@ -122,6 +128,7 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       look: "claude",
       expect: ["suggestions"],
       trailing: ["mic", "send"],
+      actionsGap: 2, // New Tab ships the tight arm of new-tab-composer-trailing-gap (Leo's pick)
     },
     {
       name: "new-tab-narrow",
@@ -159,6 +166,7 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       // The tray, as home-codex; the quiet row stands on +'s column.
       expect: ["foot"],
       trailing: ["mic", "send"],
+      actionsGap: 2, // New Tab ships the tight arm of new-tab-composer-trailing-gap (Leo's pick)
     },
   ];
 
@@ -369,8 +377,21 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
           }
         }
         inline = !!prompt?.querySelector(".acpmux-md-inline");
-        // The first line's text: what is typed, else the placeholder.
-        if (chosen)
+        // New Tab's prompt centers its first line box, not its glyphs' ink, on the controls (cmux#42292:
+        // `--acpmux-text-drop: 0`; newtab-input-scale.test.ts checks + at the field's top padding and
+        // half a line): its line is the field's first line box.
+        const ntField = card?.matches(".nt-box") ? card.querySelector<HTMLElement>(".nt-field") : null;
+        if (ntField && shown(ntField)) {
+          const style = getComputedStyle(ntField);
+          const top =
+            ntField.getBoundingClientRect().top +
+            parseFloat(style.borderTopWidth) +
+            parseFloat(style.paddingTop) -
+            ntField.scrollTop;
+          const height = parseFloat(style.lineHeight);
+          line = { top, center: top + height / 2, bottom: top + height, source: `${textSource} line box` };
+        } else if (chosen)
+          // The first line's text: what is typed, else the placeholder.
           line = {
             top: chosen.top,
             center: (chosen.top + chosen.bottom) / 2,
@@ -502,12 +523,13 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     const inset = plus.left - m.box.left;
     if (m.bar) {
       // ChatGPT's two-row spacing in Codex's look (Leo 2026-11-04): the prompt starts over the
-      // lower row, with one 24px gap before the controls. It never reserves +'s blank column.
+      // lower row, with one 16px gap before the controls (24px before Leo 2026-11-08: "we need to
+      // not have our thing be so tall"). It never reserves +'s blank column.
       if (m.text === null || Math.abs(m.text - m.box.left - 16) > TOLERANCE)
         out.push(
           `the full-width prompt starts ${m.text === null ? "nowhere" : f(m.text - m.box.left)} px into the box, not 16`,
         );
-      if (!m.line || plus.top - m.line.bottom < 24 - TOLERANCE)
+      if (!m.line || plus.top - m.line.bottom < CODEX_PROMPT_GAP - TOLERANCE)
         out.push("the lower controls crowd the prompt's first line");
     } else {
       if (m.text === null) return ["the text's start is not drawn"];
@@ -519,12 +541,13 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     const glyph = m.plus.glyphBox;
     const glyphLeft = glyph ? glyph.left - m.box.left : null;
     const glyphCenter = glyph ? centerX(glyph) - m.box.left : null;
-    // The suggestions' popover frosts what is under it: the menus' tint (78%) and a blur.
+    // The suggestions' popover frosts what is under it: every popup's one material, the menu
+    // level's tint (78%) and blur (glass.css GLASS LEVELS; Leo 2026-11-11, "the styles mix").
     if (layout.expect?.includes("suggestions")) {
       if (!m.popover) out.push("the suggestions' popover is not drawn");
       else {
-        if (m.popover.alpha < 0.85)
-          out.push(`the suggestions' fill is ${f(m.popover.alpha)} opaque, under the + menu's 0.86`);
+        if (m.popover.alpha < 0.77)
+          out.push(`the suggestions' fill is ${f(m.popover.alpha)} opaque, under the menu level's 0.78`);
         if (!/blur\(/.test(m.popover.backdrop))
           out.push(`the suggestions' popover has no blur (${m.popover.backdrop})`);
       }
@@ -575,8 +598,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     }
     if (layout.trailing?.includes("mic") && layout.trailing.includes("send")) {
       if (m.actionsGap === null) out.push("the trailing controls' gap is not measurable");
-      else if (Math.abs(m.actionsGap - 4) > TOLERANCE)
-        out.push(`the trailing controls' gap is ${f(m.actionsGap)} px, not 4`);
+      else if (Math.abs(m.actionsGap - (layout.actionsGap ?? 4)) > TOLERANCE)
+        out.push(`the trailing controls' gap is ${f(m.actionsGap)} px, not ${layout.actionsGap ?? 4}`);
     }
     // One center line: the prompt's first line in Claude's look, the controls' row in Codex's.
     const target =
@@ -585,8 +608,9 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       const dy = centerY(control.button) - target.y;
       if (Math.abs(dy) > TOLERANCE) out.push(`${name}'s center sits ${f(dy)} px off ${target.what}'s center`);
     }
-    // Equal insets. In Codex's look + stands as far off the box's left as off its row's bottom (the
-    // look's dots sit under it in the box), and the last control as far off its right. In Claude's,
+    // Equal insets. In Codex's look + and the last control stand the control inset off the box's
+    // sides, and the row CODEX_ROW_BOTTOM over its bottom (Leo 2026-11-08: "have more padding on the
+    // bottom"; it was the 8px side inset before). In Claude's,
     // + stands as far under the box's top as over its bottom (one line), and as far off its left as
     // the last control off its right.
     const floor = m.box.bottom;
@@ -600,8 +624,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       const left = b.left - m.box.left;
       const bottom = floor - b.bottom;
       if (m.bar) {
-        if (Math.abs(left - bottom) > TOLERANCE)
-          out.push(`+ stands ${f(left)} px off the box's left, ${f(bottom)} off its bottom`);
+        if (Math.abs(bottom - CODEX_ROW_BOTTOM) > TOLERANCE)
+          out.push(`+ stands ${f(left)} px off the box's left, ${f(bottom)} off its bottom, not ${CODEX_ROW_BOTTOM}`);
       } else {
         const top = b.top - m.box.top;
         // Over the attachments' band or beside an inline attachment the prompt is taller than one
@@ -618,7 +642,11 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     if (last) {
       const right = m.box.right - last.button.right;
       const bottom = floor - last.button.bottom;
-      if (m.bar && Math.abs(right - bottom) > TOLERANCE)
+      if (
+        m.bar &&
+        (Math.abs(bottom - CODEX_ROW_BOTTOM) > TOLERANCE ||
+          (m.plus && Math.abs(right - (m.plus.button.left - m.box.left)) > TOLERANCE))
+      )
         out.push(`the last control stands ${f(right)} px off the box's right, ${f(bottom)} off its bottom`);
       if (!m.bar && m.plus && Math.abs(bottom - (floor - m.plus.button.bottom)) > TOLERANCE)
         out.push(`the last control stands ${f(bottom)} px over the box's bottom, + ${f(floor - m.plus.button.bottom)}`);
@@ -631,7 +659,9 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
         out.push(`the first line has ${f(over)} px over it and ${f(under)} px under it`);
       if (under < MIN_ROOM - TOLERANCE) out.push(`the first line has ${f(under)} px under it, under ${MIN_ROOM}`);
     }
-    if (!m.bar && m.caret && m.plus) {
+    // The caret's box is its glyphs' height, so it centers on a line box only where the ink does:
+    // New Tab's line box centers on + instead (cmux#42292), checked above as the first line.
+    if (!m.bar && m.caret && m.plus && !m.line?.source.endsWith("line box")) {
       const dy = centerY(m.caret) - centerY(m.plus.button);
       if (Math.abs(dy) > TOLERANCE) out.push(`the caret's center sits ${f(dy)} px off +'s center`);
     }

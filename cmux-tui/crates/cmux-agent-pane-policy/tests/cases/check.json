@@ -34,12 +34,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
+    "needs_click": false,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -74,12 +76,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
+    "needs_click": false,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -169,12 +173,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
+    "needs_click": false,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -277,12 +283,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
+    "needs_click": false,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -323,6 +331,7 @@
     },
     "session_id": "s1",
     "needs_gesture": true,
+    "needs_click": false,
     "needs_path_check": false,
     "setting": {
      "session_id": "s1",
@@ -336,6 +345,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -372,6 +382,7 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
+    "needs_click": false,
     "needs_path_check": false,
     "setting": {
      "session_id": "s1",
@@ -388,6 +399,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -423,12 +435,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
+    "needs_click": false,
     "needs_path_check": false,
     "setting": null,
     "attach_session": "s9",
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -463,12 +477,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
+    "needs_click": false,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -504,12 +520,104 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
+    "needs_click": false,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": true,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "a review verdict for a chat outside the scope uses scope credit",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"_acpmux/review_verdict\",\"params\":{\"prUrl\":\"https://github.com/o/r/pull/1\",\"sessionId\":\"s9\",\"verdict\":\"changes\",\"comment\":\"fix it\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 12,
+    "method": "_acpmux/review_verdict",
+    "params": {
+     "prUrl": "https://github.com/o/r/pull/1",
+     "sessionId": "s9",
+     "verdict": "changes",
+     "comment": "fix it"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/review_verdict",
+    "page_id": "12",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": true,
+    "needs_click": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": true,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "a review verdict for the pane's own chat keeps the gesture rule",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"_acpmux/review_verdict\",\"params\":{\"prUrl\":\"https://github.com/o/r/pull/1\",\"sessionId\":\"s1\",\"verdict\":\"changes\",\"comment\":\"fix it\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 12,
+    "method": "_acpmux/review_verdict",
+    "params": {
+     "prUrl": "https://github.com/o/r/pull/1",
+     "sessionId": "s1",
+     "verdict": "changes",
+     "comment": "fix it"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/review_verdict",
+    "page_id": "12",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": true,
+    "needs_click": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -545,12 +653,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
+    "needs_click": false,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": true,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -585,12 +695,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
+    "needs_click": false,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -626,12 +738,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
+    "needs_click": false,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -666,12 +780,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
+    "needs_click": false,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": true,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -707,12 +823,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
+    "needs_click": false,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": true,
     "handoff_id": "h1",
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -747,13 +865,99 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
+    "needs_click": false,
     "needs_path_check": true,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": true,
     "free": false
+   }
+  }
+ },
+ {
+  "name": "a remote wire's session/new starts no session on this Mac",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"session/new\",\"params\":{\"cwd\":\"/x\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": [],
+   "remote_wire": true
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 14,
+    "method": "session/new",
+    "params": {
+     "cwd": "/x"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "session/new",
+    "page_id": "14",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_click": false,
+    "needs_path_check": true,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "a later frame never gets the token (on a remote wire too)",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"_acpmux/harnesses\",\"params\":{}}",
+  "state": {
+   "first": false,
+   "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": [],
+   "remote_wire": true
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "_acpmux/harnesses",
+    "params": {}
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/harnesses",
+    "page_id": "2",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_click": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": true
    }
   }
  },
@@ -788,12 +992,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
+    "needs_click": false,
     "needs_path_check": true,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -829,12 +1035,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
+    "needs_click": false,
     "needs_path_check": true,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -870,12 +1078,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
+    "needs_click": false,
     "needs_path_check": true,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -911,12 +1121,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
+    "needs_click": false,
     "needs_path_check": true,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -958,12 +1170,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
+    "needs_click": false,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -975,6 +1189,7 @@
    "first": false,
    "token": null,
    "mode_fields": null,
+   "gesture": "click",
    "sessions": [
     "s1"
    ],
@@ -1005,12 +1220,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
+    "needs_click": true,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1044,12 +1261,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
+    "needs_click": false,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -1114,12 +1333,14 @@
     },
     "session_id": "s1",
     "needs_gesture": true,
+    "needs_click": false,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1155,12 +1376,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
+    "needs_click": false,
     "needs_path_check": true,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": true,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1191,6 +1414,7 @@
    "first": false,
    "token": null,
    "mode_fields": null,
+   "gesture": "click",
    "sessions": [
     "s1"
    ],
@@ -1222,12 +1446,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
+    "needs_click": true,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1239,6 +1465,7 @@
    "first": false,
    "token": null,
    "mode_fields": null,
+   "gesture": "click",
    "sessions": [
     "s1"
    ],
@@ -1336,12 +1563,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
+    "needs_click": true,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1389,12 +1618,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
+    "needs_click": false,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -1517,6 +1748,7 @@
    "first": false,
    "token": null,
    "mode_fields": null,
+   "gesture": "click",
    "sessions": [
     "s1"
    ],
@@ -1551,12 +1783,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
+    "needs_click": true,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1590,6 +1824,7 @@
    "first": false,
    "token": null,
    "mode_fields": null,
+   "gesture": "click",
    "sessions": [
     "s1"
    ],
@@ -1625,12 +1860,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
+    "needs_click": true,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1754,12 +1991,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
+    "needs_click": false,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1784,12 +2023,99 @@
   }
  },
  {
+  "name": "side_chat of a chat outside the scope is refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":53,\"method\":\"_acpmux/side_chat\",\"params\":{\"sessionId\":\"s9\",\"live\":true}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "refuse": "transport.session_not_in_pane",
+   "method": "_acpmux/side_chat",
+   "id": "53",
+   "spend": null
+  }
+ },
+ {
+  "name": "memory_resolve for the pane's chat passes and needs a gesture",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":52,\"method\":\"_acpmux/memory_resolve\",\"params\":{\"sessionId\":\"s1\",\"offerId\":\"o1\",\"file\":\"CLAUDE.md\",\"accept\":[\"Use pnpm, not npm.\"],\"dismiss\":[]}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 52,
+    "method": "_acpmux/memory_resolve",
+    "params": {
+     "sessionId": "s1",
+     "offerId": "o1",
+     "file": "CLAUDE.md",
+     "accept": [
+      "Use pnpm, not npm."
+     ],
+     "dismiss": []
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/memory_resolve",
+    "page_id": "52",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": true,
+    "needs_click": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "memory_resolve for a chat outside the scope is refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":53,\"method\":\"_acpmux/memory_resolve\",\"params\":{\"sessionId\":\"s9\",\"offerId\":\"o1\",\"file\":\"CLAUDE.md\",\"accept\":[\"Use pnpm, not npm.\"],\"dismiss\":[]}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "refuse": "transport.session_not_in_pane",
+   "method": "_acpmux/memory_resolve",
+   "id": "53",
+   "spend": null
+  }
+ },
+ {
   "name": "a ticketed permission answer binds its pick to the session, permission and option",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":44,\"method\":\"_acpmux/permission_respond\",\"params\":{\"sessionId\":\"s1\",\"permissionId\":\"p1\",\"optionId\":\"o2\",\"_meta\":{\"cmuxGesture\":\"t5\"}}}",
   "state": {
    "first": false,
    "token": null,
    "mode_fields": null,
+   "gesture": "click",
    "sessions": [
     "s1"
    ],
@@ -1827,23 +2153,26 @@
     },
     "session_id": "s1",
     "needs_gesture": true,
+    "needs_click": true,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
  },
  {
-  "name": "a ticketed answer to a question picks nothing (its answers are no pick)",
+  "name": "a ticketed answer to a question picks its answers by their canonical digest",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":45,\"method\":\"_acpmux/permission_respond\",\"params\":{\"sessionId\":\"s1\",\"permissionId\":\"p1\",\"optionId\":\"allow_once\",\"answers\":{\"Which auth method should the API use?\":\"Passkeys\"},\"_meta\":{\"cmuxGesture\":\"t6\"}}}",
   "state": {
    "first": false,
    "token": null,
    "mode_fields": null,
+   "gesture": "click",
    "sessions": [
     "s1"
    ],
@@ -1874,16 +2203,23 @@
     "other_meta": false,
     "pick": {
      "method": "_acpmux/permission_respond",
-     "params": null
+     "params": {
+      "sessionId": "s1",
+      "permissionId": "p1",
+      "optionId": "allow_once",
+      "answers": "2790eafc7833f2bfa1e6f899324110e7ebca453b1399f6797bc6fcccce4201e9"
+     }
     },
     "session_id": "s1",
     "needs_gesture": true,
+    "needs_click": true,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1895,6 +2231,7 @@
    "first": false,
    "token": null,
    "mode_fields": null,
+   "gesture": "click",
    "sessions": [
     "s1"
    ],
@@ -1932,12 +2269,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
+    "needs_click": true,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -2039,12 +2378,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
+    "needs_click": false,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -2084,12 +2425,14 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
+    "needs_click": false,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -2206,6 +2549,180 @@
    "method": "_acpmux/session/auth",
    "id": "67",
    "spend": null
+  }
+ },
+ {
+  "name": "an allow on a key press is refused: an answer goes on a click only",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":68,\"method\":\"_acpmux/permission_respond\",\"params\":{\"sessionId\":\"s1\",\"permissionId\":\"p1\",\"optionId\":\"o2\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "gesture": "key",
+   "sessions": [
+    "s1"
+   ],
+   "denies": [
+    [
+     "p1",
+     "o1"
+    ]
+   ]
+  },
+  "expect": {
+   "refuse": "transport.gesture_required",
+   "method": "_acpmux/permission_respond",
+   "id": "68",
+   "spend": null
+  }
+ },
+ {
+  "name": "an allow from a host that names no gesture is refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":69,\"method\":\"_acpmux/permission_respond\",\"params\":{\"sessionId\":\"s1\",\"permissionId\":\"p1\",\"optionId\":\"o2\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": [
+    [
+     "p1",
+     "o1"
+    ]
+   ]
+  },
+  "expect": {
+   "refuse": "transport.gesture_required",
+   "method": "_acpmux/permission_respond",
+   "id": "69",
+   "spend": null
+  }
+ },
+ {
+  "name": "a ticketed allow with no click is refused and its ticket is spent",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":70,\"method\":\"_acpmux/permission_respond\",\"params\":{\"sessionId\":\"s1\",\"permissionId\":\"p1\",\"optionId\":\"o2\",\"_meta\":{\"cmuxGesture\":\"t7\"}}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "gesture": "key",
+   "sessions": [
+    "s1"
+   ],
+   "denies": [
+    [
+     "p1",
+     "o1"
+    ]
+   ]
+  },
+  "expect": {
+   "refuse": "transport.gesture_required",
+   "method": "_acpmux/permission_respond",
+   "id": "70",
+   "spend": "t7"
+  }
+ },
+ {
+  "name": "a preset approval on a key press is refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":71,\"method\":\"_acpmux/presets\",\"params\":{\"name\":\"night\",\"approveMode\":true,\"approveDigest\":\"sha256:ab\",\"sessionId\":\"s1\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "gesture": "key",
+   "sessions": [
+    "s1"
+   ],
+   "denies": [
+    [
+     "p1",
+     "o1"
+    ]
+   ]
+  },
+  "expect": {
+   "refuse": "transport.gesture_required",
+   "method": "_acpmux/presets",
+   "id": "71",
+   "spend": null
+  }
+ },
+ {
+  "name": "a plan build from a host that names no gesture is refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":72,\"method\":\"_acpmux/plan/build\",\"params\":{\"sessionId\":\"s1\",\"permissionId\":\"p1\",\"target\":\"compare\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": [
+    [
+     "p1",
+     "o1"
+    ]
+   ]
+  },
+  "expect": {
+   "refuse": "transport.gesture_required",
+   "method": "_acpmux/plan/build",
+   "id": "72",
+   "spend": null
+  }
+ },
+ {
+  "name": "a preset approval on a click passes and its facts say it needs a click",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":73,\"method\":\"_acpmux/presets\",\"params\":{\"name\":\"night\",\"approveMode\":true,\"approveDigest\":\"sha256:ab\",\"sessionId\":\"s1\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "gesture": "click",
+   "sessions": [
+    "s1"
+   ],
+   "denies": [
+    [
+     "p1",
+     "o1"
+    ]
+   ]
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 73,
+    "method": "_acpmux/presets",
+    "params": {
+     "name": "night",
+     "approveMode": true,
+     "approveDigest": "sha256:ab",
+     "sessionId": "s1"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/presets",
+    "page_id": "73",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": true,
+    "needs_click": true,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": false
+   }
   }
  }
 ]

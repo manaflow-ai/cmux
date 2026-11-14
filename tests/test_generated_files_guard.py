@@ -10,13 +10,22 @@ import json
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import generated_files_guard as guard  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 MANIFEST = {
     "conventions": ["**/*.generated.*", "**/generated/**"],
@@ -62,8 +71,10 @@ class Repo:
 
     def git(self, *args: str) -> str:
         return subprocess.run(
+            # gc.auto and maintenance.auto off: a detached auto-gc kept writing objects/pack while tearDown
+            # removed the directory ("Directory not empty: 'pack'", run 42355070552).
             ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "core.hooksPath=/dev/null",
-             "-c", "commit.gpgsign=false", *args],
+             "-c", "commit.gpgsign=false", "-c", "gc.auto=0", "-c", "maintenance.auto=false", *args],
             cwd=self.root, check=True, capture_output=True, text=True).stdout.strip()
 
     def write(self, files: dict[str, str | None]) -> None:
@@ -304,6 +315,117 @@ class GuardTests(unittest.TestCase):
                          {"out/a.json", "out/b.json"})
         self.assertEqual({p for pats, _ in guard.rules_at(repo.root, head + "~1").exports for p in pats},
                          {"out/a.json"})
+
+
+class CheckTimeoutTests(unittest.TestCase):
+    """A busy runner makes a generator's --check slower, never red on its own (cmux#41742's class).
+
+    The guard runs a check only for an output the change edits without touching the generator or its inputs; each
+    case here fakes a slow check with a generator that sleeps past the limits, patched down to a second.
+    """
+
+    SLOW = "import time\ntime.sleep(30)\n"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.marker = Path(self.tmp.name) / "slow-once"
+        limits = mock.patch.multiple(guard, CHECK_TIMEOUT_SECONDS=1, RETRY_CHECK_TIMEOUT_SECONDS=2, create=True)
+        limits.start()
+        self.addCleanup(limits.stop)
+
+    def slow_once(self) -> str:
+        """Sleeps past the limit on its first run only."""
+        return (f"from pathlib import Path\nimport time\nmarker = Path({str(self.marker)!r})\n"
+                "if not marker.exists():\n    marker.write_text('x')\n    time.sleep(30)\n")
+
+    def guard_of(self, prelude: str, head_output: str) -> tuple[list[str], list[str]]:
+        """A stale base (schemas/chats.json moved to {"a": 1} without a regeneration) whose generator runs PRELUDE
+        first, and a change that writes HEAD_OUTPUT to the output alone."""
+        repo = Repo(Path(self.tmp.name) / "repo")
+        repo.commit({guard.MANIFEST: with_check(), guard.BASELINE: "", "tools/gen-schema.py": prelude + SCHEMA_GENERATOR,
+                     "schemas/chats.json": "{}\n", SCHEMA_OUT: rendered({})})
+        base = repo.commit({"schemas/chats.json": "{\"a\": 1}\n"})
+        head = repo.commit({SCHEMA_OUT: head_output})
+        return guard.check(repo.root, base, head, [])
+
+    def test_a_check_that_times_out_twice_warns_naming_the_generator_and_does_not_fail(self):
+        errors, notes = self.guard_of(self.SLOW, rendered({"a": 1}))
+        self.assertEqual(errors, [])
+        self.assertTrue(any("timed out" in n and "schema" in n and SCHEMA_OUT in n for n in notes), notes)
+
+    def test_a_check_that_times_out_once_is_retried_with_a_longer_limit(self):
+        errors, notes = self.guard_of(self.slow_once(), rendered({"a": 1}))
+        self.assertEqual(errors, [])
+        self.assertFalse(any("timed out" in n for n in notes), notes)
+        self.assertTrue(self.marker.exists(), "the first run timed out")
+
+    def test_a_hand_edit_still_fails_when_the_retried_check_says_so(self):
+        errors, _ = self.guard_of(self.slow_once(), rendered({"a": 1}) + "let y = 2\n")
+        self.assertTrue(any(SCHEMA_OUT in e and "not a regeneration" in e and "exits 1" in e for e in errors), errors)
+
+
+
+OTHER_OUT = "app/Other+X.generated.swift"
+
+
+def step_limit_seconds(name: str = "cmux-next no new generated files") -> int:
+    """The workflow step's timeout-minutes, in seconds, read from cmux-next-guards.yml."""
+    lines = (ROOT / ".github/workflows/cmux-next-guards.yml").read_text(encoding="utf-8").splitlines()
+    start = next(i for i, line in enumerate(lines) if line.strip() == f"- name: {name}")
+    for line in lines[start + 1:]:
+        if line.strip().startswith("- name:"):
+            break
+        if line.strip().startswith("timeout-minutes:"):
+            return int(line.split(":", 1)[1]) * 60
+    raise AssertionError(f"the {name!r} step has no timeout-minutes")
+
+
+class SharedDeadlineTests(unittest.TestCase):
+    """The guard's checks share one deadline inside its workflow step's limit (cmux#41752 review F2).
+
+    Generator checks ran one after another, each with its own 120 s try and 240 s retry, so two slow ones used 720 s
+    against the step's 480 s; Actions then killed the guard before it printed its warnings, and the step was red.
+    """
+
+    SLOW = "import time\ntime.sleep(30)\n"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def two_slow_generators(self) -> tuple[Repo, str, str]:
+        data = json.loads(with_check())
+        data["generators"].append({"id": "other", "generator": "tools/gen-other.py", "outputs": [OTHER_OUT],
+                                   "inputs": ["other/**"], "status": "committed", "check": ["--check"]})
+        repo = Repo(Path(self.tmp.name) / "repo")
+        base = repo.commit({guard.MANIFEST: json.dumps(data), guard.BASELINE: "",
+                            "tools/gen-schema.py": self.SLOW + SCHEMA_GENERATOR, "tools/gen-other.py": self.SLOW,
+                            "schemas/chats.json": "{}\n", "other/in.txt": "x\n", SCHEMA_OUT: rendered({}),
+                            OTHER_OUT: "// GENERATED by tools/gen-other.py. Do not edit.\n"})
+        head = repo.commit({SCHEMA_OUT: rendered({}) + "// edited\n",
+                            OTHER_OUT: "// GENERATED by tools/gen-other.py. Do not edit.\n// edited\n"})
+        return repo, base, head
+
+    def test_two_slow_generators_end_with_warnings_inside_the_deadline(self):
+        repo, base, head = self.two_slow_generators()
+        with mock.patch.multiple(guard, CHECK_TIMEOUT_SECONDS=1, RETRY_CHECK_TIMEOUT_SECONDS=2, DEADLINE_SECONDS=2.5,
+                                 create=True):
+            started = time.monotonic()
+            errors, notes = guard.check(repo.root, base, head, [])
+            took = time.monotonic() - started
+        self.assertEqual(errors, [])
+        for path in (SCHEMA_OUT, OTHER_OUT):
+            self.assertTrue(any(n.startswith("timed out: ") and path in n for n in notes), (path, notes))
+        # Each check alone would take its 1 s try and 2 s retry: 6 s for the two.
+        self.assertLess(took, 4.5, notes)
+
+    def test_the_deadline_fits_inside_the_workflow_steps_limit(self):
+        limit = step_limit_seconds()
+        deadline = getattr(guard, "DEADLINE_SECONDS", None)
+        self.assertIsNotNone(deadline, "the guard has no deadline of its own")
+        # The step also checks out the base and reads the trees before the first check starts.
+        self.assertLessEqual(deadline + 60, limit, (deadline, limit))
 
 
 if __name__ == "__main__":

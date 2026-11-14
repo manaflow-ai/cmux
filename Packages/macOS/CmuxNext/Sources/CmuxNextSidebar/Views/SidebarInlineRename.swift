@@ -64,7 +64,7 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
         switch key {
         case let .workspace(id): original = list.workspaces[id]?.title ?? ""
         case let .group(id): original = list.groups[id]?.name ?? ""
-        case .section, .emptySection, .emptyGroup, .folder, .item, .block, .doneFold, .showMore, .status: return
+        case .section, .emptySection, .emptyGroup, .folder, .item, .block, .doneFold, .showMore, .status, .listHeader: return
         }
         if let row = list.displayed.row(for: key) { list.scrollToVisible(list.frame(for: row)) }
         list.realizeVisibleRows()
@@ -106,7 +106,7 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
         field.cell?.isScrollable = true
         field.delegate = self
         field.wantsLayer = true
-        field.layer?.cornerRadius = Metrics.space2
+        field.layer?.cornerRadius = Metrics.insetCornerRadius
         let height = ceil(field.intrinsicContentSize.height)
         let x = titleFrame.minX - Metrics.space1
         field.frame = NSRect(x: x, y: titleFrame.midY - height / 2, width: max(0, maxX - x), height: height)
@@ -192,7 +192,7 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
             switch session.key {
             case let .workspace(id): list.model.send(.rename(id, text))
             case let .group(id): list.model.send(.renameGroup(id, text))
-            case .section, .emptySection, .emptyGroup, .folder, .item, .block, .doneFold, .showMore, .status: break
+            case .section, .emptySection, .emptyGroup, .folder, .item, .block, .doneFold, .showMore, .status, .listHeader: break
             }
             list.reload(animated: false)
         }

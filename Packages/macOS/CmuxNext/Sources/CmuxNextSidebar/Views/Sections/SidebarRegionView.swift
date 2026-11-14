@@ -42,6 +42,9 @@ final class SidebarRegionView: NSView {
     /// The list this region draws one section in (the sidebar document's
     /// one renderer, `SidebarBlockRowView`): its item drags are the list's.
     weak var docList: SidebarListView?
+    /// The rect, in this region's coordinates, whose items get views (the list's realization rect, for a list block);
+    /// `.null` for none. Nil draws every item (a band, a region on its own).
+    var itemWindow: (() -> NSRect?)?
     /// The item whose press the list's drag holds (it stays in the window, hidden, until the release).
     var docPressedItem: LayoutItemID?
     /// A press the list's drag ended early (a cancel): it drags nothing more until its release.
@@ -147,12 +150,17 @@ final class SidebarRegionView: NSView {
     func update(_ content: Content, width: CGFloat) {
         // `layoutResult` is always the layout of the shown content at `width`
         // (`relayout` keeps it so), so the same inputs need no new layout.
-        if content == self.content && width == self.width { return }
+        if content == self.content && width == self.width {
+            // The same layout, but an app section's provider may hand a new view (its mount was made again).
+            if appViewsReplaced(content) { apply(displayed(content)) }
+            return
+        }
         SidebarPerfCounters.add(.bandUpdates)
         let shown = displayed(content)
         let result = Self.layout(shown, width: width)
         guard content != self.content || result != layoutResult else {
             self.width = width
+            if appViewsReplaced(content) { apply(shown) }
             return
         }
         self.content = content
@@ -216,6 +224,16 @@ final class SidebarRegionView: NSView {
         })
     }
 
+    /// Whether the provider now hands a different view for a shown app section than the band draws:
+    /// the section's old mount ended (its app left the list, or it failed and was mounted again).
+    private func appViewsReplaced(_ content: Content) -> Bool {
+        guard let appView else { return false }
+        return content.sections.contains { section in
+            guard section.content == .app, let drawn = appViews[section.id] else { return false }
+            return appView(section) !== drawn
+        }
+    }
+
     private func displayed(_ content: Content) -> Content {
         var shown = content
         if let reorderSections { shown.sections = reorderSections }
@@ -235,6 +253,11 @@ final class SidebarRegionView: NSView {
 
     private func apply(_ content: Content) {
         let sections = Dictionary(content.sections.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        indexItems(content)
+        // Only the items near what shows get a view (unvirtualized long lists): a block of 2,000 pinned items makes the
+        // screenful the list's realization rect holds, not 2,000. A view kept from before stays within the prune margin.
+        let realize = itemWindow?()
+        let keep = realize.map { $0.isNull ? $0 : $0.insetBy(dx: 0, dy: -SidebarStyle.pruneMargin) }
         var liveItems = Set<LayoutItemID>(), liveHeaders = Set<LayoutSectionID>(), liveApps = Set<LayoutSectionID>()
         for row in layoutResult.rows {
             switch row.kind {
@@ -248,7 +271,10 @@ final class SidebarRegionView: NSView {
                 view.setAccessibilityIdentifier("cmux.sidebar.region.\(id.rawValue)")
                 place(view, row.frame, new: new)
             case let .app(id):
-                guard let section = sections[id], let view = appViews[id] ?? appView?(section) else { continue }
+                // The provider's view now, not the first one drawn: a section mounted again gets a new
+                // view, and the old one is the dead mount's (its error, a "removed" app).
+                guard let section = sections[id], let view = appView?(section) ?? appViews[id] else { continue }
+                if let drawn = appViews[id], drawn !== view { drawn.removeFromSuperview() }
                 liveApps.insert(id)
                 let new = view.superview !== self
                 if view.superview !== self {
@@ -258,33 +284,9 @@ final class SidebarRegionView: NSView {
                 appViews[id] = view
                 place(view, row.frame, new: new)
             case let .item(id, sectionID), let .tile(id, sectionID), let .chip(id, sectionID):
-                guard let section = sections[sectionID], let item = section.items.first(where: { $0.id == id }) else { continue }
+                if let realize, let keep, !mustRealize(id), !row.frame.intersects(itemViews[id] == nil ? realize : keep) { continue }
+                guard let section = sections[sectionID], showItem(row, id, section, content) else { continue }
                 liveItems.insert(id)
-                let new = itemViews[id] == nil
-                let view = itemViews[id] ?? makeItem(id)
-                let style: SidebarItemRowView.Style = switch row.kind {
-                // An icon-only built-in item (the account, an icon-only Settings)
-                // has no fill until hover in every arrangement (Lawrence
-                // 2026-10-05: "account icon should not have bg unless i hover").
-                case .tile:
-                    switch SectionFlow.mode(section, look: content.look) {
-                    case .tiles?: .favorite
-                    case .grid?: item.ref.builtIn != nil ? .icon : .tile
-                    default: .icon
-                    }
-                case .chip: .chip
-                default: section.look == .builtIn ? .builtIn : .list
-                }
-                var info = activeInfo(content.infos[id] ?? .fallback(for: item), id)
-                info.leadingPin = !style.isIconOnly && style != .chip && sectionID == SidebarLayoutDocument.pinnedSectionID
-                    && item.ref.kind == LayoutItemRef.workspaceKind
-                view.configure(info, style: style)
-                view.setAccessibilityIdentifier("cmux.sidebar.item.\(id.rawValue)")
-                view.activatesOnPress = item.ref.activatesOnPress
-                view.isMovable = item.isMovable // Home's press never drags (`LayoutItem.isMovable`)
-                place(view, row.frame, new: new)
-                if id == SidebarListBlocks.gapID { view.alphaValue = 0 } // a drag's gap: the slot the others make way for
-                edit(view, id)
             }
         }
         // A dragged item's view owns the press (AppKit sends it the drags
@@ -325,7 +327,7 @@ final class SidebarRegionView: NSView {
             }
             let card = CALayer()
             card.cornerCurve = .continuous
-            card.cornerRadius = SidebarStyle.rowCornerRadius + Metrics.space1
+            card.cornerRadius = Metrics.cornerRadius(nestedIn: SidebarStyle.rowCornerRadius, inset: -Metrics.space1)
             layer?.insertSublayer(card, at: 0)
             card.frame = frame
             cardLayers[id] = card
@@ -352,6 +354,107 @@ final class SidebarRegionView: NSView {
         }
         CATransaction.commit()
         needsDisplay = true
+    }
+
+    // MARK: - Item realization (unvirtualized long lists)
+
+    /// Item `id`'s row in `layoutResult`, by index; set with the layout each apply draws.
+    private var itemRowIndex: [LayoutItemID: Int] = [:]
+    /// Every shown item by id, for the apply that drew `layoutResult` (a lookup per drawn item, not a scan of its section).
+    private var itemIndex: [LayoutItemID: (item: LayoutItem, section: LayoutSectionID)] = [:]
+    /// The tallest row in `layoutResult`: how far above a rect a row can start and still reach into it.
+    private var tallestRow: CGFloat = 0
+
+    private func indexItems(_ content: Content) {
+        itemIndex.removeAll(keepingCapacity: true)
+        for section in content.sections {
+            for item in section.items where itemIndex[item.id] == nil { itemIndex[item.id] = (item, section.id) }
+        }
+        itemRowIndex.removeAll(keepingCapacity: true)
+        tallestRow = 0
+        for (index, row) in layoutResult.rows.enumerated() {
+            tallestRow = max(tallestRow, row.frame.height)
+            switch row.kind {
+            case let .item(id, _), let .tile(id, _), let .chip(id, _): itemRowIndex[id] = index
+            default: break
+            }
+        }
+    }
+
+    /// An item that keeps its view wherever it is: a drag's gap, the item a press or a drag holds, and the pinned row
+    /// a rename is editing (as the list keeps a renamed row's view, `pruneOffscreen`).
+    private func mustRealize(_ id: LayoutItemID) -> Bool {
+        if id == SidebarListBlocks.gapID || id == docPressedItem { return true }
+        guard let view = itemViews[id] else { return false }
+        return reorder?.hidden.contains(where: { $0 === view }) == true || docList?.inlineRename.session?.pinnedRow === view
+    }
+
+    /// Makes or updates item `id`'s view at `row`; false when its section no longer holds it.
+    private func showItem(_ row: SidebarRegionRow, _ id: LayoutItemID, _ section: LayoutSection, _ content: Content) -> Bool {
+        guard let item = itemIndex[id]?.item else { return false }
+        let new = itemViews[id] == nil
+        let view = itemViews[id] ?? makeItem(id)
+        let style: SidebarItemRowView.Style = switch row.kind {
+        // An icon-only built-in item (the account, an icon-only Settings)
+        // has no fill until hover in every arrangement (Lawrence
+        // 2026-10-05: "account icon should not have bg unless i hover").
+        case .tile:
+            switch SectionFlow.mode(section, look: content.look) {
+            case .tiles?: .favorite
+            case .grid?: item.ref.builtIn != nil ? .icon : .tile
+            default: .icon
+            }
+        case .chip: .chip
+        default: section.look == .builtIn ? .builtIn : .list
+        }
+        var info = activeInfo(content.infos[id] ?? .fallback(for: item), id)
+        info.leadingPin = !style.isIconOnly && style != .chip && section.id == SidebarLayoutDocument.pinnedSectionID
+            && item.ref.kind == LayoutItemRef.workspaceKind
+        view.configure(info, style: style)
+        view.setAccessibilityIdentifier("cmux.sidebar.item.\(id.rawValue)")
+        view.activatesOnPress = item.ref.activatesOnPress
+        view.isMovable = item.isMovable // Home's press never drags (`LayoutItem.isMovable`)
+        place(view, row.frame, new: new)
+        if id == SidebarListBlocks.gapID { view.alphaValue = 0 } // a drag's gap: the slot the others make way for
+        edit(view, id)
+        return true
+    }
+
+    /// After a scroll: views for the items that came near the shown rect, and none for the ones far past it. Visits only
+    /// the rows the rect reaches (binary search by y) and the views made, so a scroll costs the same over 50 items as
+    /// over 2,000. A region that draws every item (`itemWindow` nil: a band, a region on its own) does nothing.
+    func realizeItems() {
+        guard let realize = itemWindow?(), let content else { return }
+        let shown = displayed(content)
+        let keep = realize.isNull ? realize : realize.insetBy(dx: 0, dy: -SidebarStyle.pruneMargin)
+        for (id, view) in itemViews where !mustRealize(id) {
+            guard let index = itemRowIndex[id], layoutResult.rows[index].frame.intersects(keep) else {
+                view.removeFromSuperview()
+                itemViews[id] = nil
+                continue
+            }
+        }
+        guard !realize.isNull else { return }
+        let rows = layoutResult.rows
+        var low = 0, high = rows.count
+        // Rows go down the region (each row's minY at or below the one before it): the first that can reach the rect.
+        let from = realize.minY - tallestRow
+        while low < high {
+            let mid = (low + high) / 2
+            if rows[mid].frame.minY < from { low = mid + 1 } else { high = mid }
+        }
+        let sections = Dictionary(shown.sections.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var index = low
+        while index < rows.count, rows[index].frame.minY <= realize.maxY {
+            defer { index += 1 }
+            let row = rows[index]
+            switch row.kind {
+            case let .item(id, sectionID), let .tile(id, sectionID), let .chip(id, sectionID):
+                guard itemViews[id] == nil, row.frame.intersects(realize), let section = sections[sectionID] else { continue }
+                _ = showItem(row, id, section, shown)
+            default: continue
+            }
+        }
     }
 
     private func makeItem(_ id: LayoutItemID) -> SidebarItemRowView {

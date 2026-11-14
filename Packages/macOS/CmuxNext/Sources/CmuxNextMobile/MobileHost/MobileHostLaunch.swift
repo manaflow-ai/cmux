@@ -146,8 +146,14 @@ public struct MobileHostLaunch: Sendable, Equatable {
     public static func devicesLine(_ devices: MobileHostPairedDevices) -> Data {
         anyLine([
             "type": "devices",
-            "devices": devices.hostdDevices.map {
-                ["id": $0.id, "identity_key": $0.identityKey, "approval_key": $0.approvalKey]
+            "devices": devices.hostdDevices.map { device -> [String: Any] in
+                var row: [String: Any] = ["id": device.id, "identity_key": device.identityKey, "approval_key": device.approvalKey]
+                // A machine's record says so: hostd admits a Mac only on a `mac` record (pairing.rs).
+                if device.kind != "phone" {
+                    row["kind"] = device.kind
+                    row["grants"] = device.grants
+                }
+                return row
             },
             "denied": devices.denied.map { ["id": $0.id, "identity_key": $0.identityKey] },
         ])

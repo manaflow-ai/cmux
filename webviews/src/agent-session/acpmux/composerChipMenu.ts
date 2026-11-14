@@ -5,13 +5,15 @@ import { openPicker } from "./pickerOpeners";
 /// folder and computer chips) opens that button's own menu, as a click does (cx-2lm4): wherever a
 /// control opens a menu, right-click shows the same menu. It runs in the capture phase, before the
 /// footer's Show Context Usage menu around the chips; a button with a right-click menu of its own
-/// (the context ring: the only menu button in its `ContextMenu`) keeps that menu.
+/// (the context ring: the only menu button in its `ContextMenu`; the model chip, marked
+/// `data-own-context-menu`, whose right-click customizes it) keeps that menu.
 export function openChipMenu(event: MouseEvent<HTMLElement>) {
   if (!(event.target instanceof Element)) return;
   const trigger = event.target.closest<HTMLButtonElement>("button[aria-haspopup]");
   if (!trigger || !event.currentTarget.contains(trigger)) return;
   const host = trigger.closest(".ui-context-menu-host");
   if (host && host.querySelectorAll("button[aria-haspopup]").length === 1) return;
+  if (trigger.closest("[data-own-context-menu]") && !trigger.closest(".acpmux-mp")) return;
   event.preventDefault();
   event.stopPropagation();
   if (trigger.disabled || trigger.getAttribute("aria-expanded") === "true") return;

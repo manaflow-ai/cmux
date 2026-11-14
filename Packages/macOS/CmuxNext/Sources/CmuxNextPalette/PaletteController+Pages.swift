@@ -4,7 +4,8 @@ extension PaletteController {
     // MARK: Pages
 
     /// Common intents and command families on the empty root; every catalog action plus
-    /// workspaces, tabs, directories, and settings once the user types.
+    /// workspaces (with their groups, panes and tabs, as Cmd-P lists them), directories, and settings
+    /// once the user types.
     public func commandsPage() -> PalettePageSpec {
         let registryProvider = makeRegistryProvider()
         registryProvider.curatesEmptyRoot = true
@@ -12,7 +13,13 @@ extension PaletteController {
         if let source = sources.workspaces {
             providers.append(WorkspacePaletteProvider(source: source, showsItemsForEmptyQuery: false))
         }
-        if let source = sources.tabs {
+        // The open items as Cmd-P and Search list them (one path): a tab that repeats its workspace's name
+        // is that workspace's row, and recent and higher-in-the-sidebar places rank first. The plain tab
+        // list gave such a tab a second row, which pushed a workspace found by a word of its title below
+        // the rows the panel shows (Lawrence 2026-11-09: "landing" did not find "cmux-next landing").
+        if let source = sources.navigation {
+            providers.append(NavigationPaletteProvider(source: source, showsItemsForEmptyQuery: false))
+        } else if let source = sources.tabs {
             providers.append(TabPaletteProvider(source: source, showsItemsForEmptyQuery: false))
         }
         if let source = sources.recentDirectories {
@@ -38,6 +45,8 @@ extension PaletteController {
         )
         page.mergesSectionsWhenTyping = true
         page.queryItems = goToRows()
+        page.noMatchItems = noMatchRows(NoMatchPaletteRows.Kind.allCases)
+        page.noMatchItemsTrailResults = true
         return previewingActions(page)
     }
 
@@ -119,7 +128,18 @@ extension PaletteController {
         )
         page.mergesSectionsWhenTyping = sources.navigation != nil
         page.queryItems = goToRows()
+        page.noMatchItems = noMatchRows([.newWorkspace, .askAgent])
+        page.noMatchItemsTrailResults = true
         return page
+    }
+
+    /// Rows for a typed query that matched nothing (`NoMatchPaletteRows`), of `kinds` in that order.
+    func noMatchRows(_ kinds: [NoMatchPaletteRows.Kind]) -> @MainActor (String) -> [PaletteItem] {
+        let rows = NoMatchPaletteRows(kinds: kinds)
+        return { [weak self] query in
+            guard let self else { return [] }
+            return rows.items(query, registry: self.registry, source: self.sources.goTo)
+        }
     }
 
     /// Open and Ask Agent rows for a typed path or web address, first in
@@ -173,6 +193,7 @@ extension PaletteController {
         provider.hiddenIDs.formUnion(hiddenActionIDs?() ?? [])
         if shortcutRecorder.editor != nil { provider.editShortcut = { [weak self] in self?.shortcutRecorder.begin($0) } }
         provider.targets = sources.targets
+        provider.targetCreators = sources.targetCreators
         provider.capturedTargets = capturedTargets
         provider.argumentPreview = sources.argumentPreview
         provider.argumentSwatches = sources.argumentSwatches

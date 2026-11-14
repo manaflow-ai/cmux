@@ -48,8 +48,10 @@ import Testing
     func makeHosting(enabled: @escaping () -> Bool = { true },
                      layerHost: @escaping (UInt32) -> CALayer? = { _ in CALayer() }) -> CEFLayerHosting {
         let turn = turn
+        // A pane deadline of its own (8 ms): with S5 on by default the tunable reads 0 (`CEFLayerHosting.waitMs`).
         let hosting = CEFLayerHosting(isEnabled: enabled, schedule: { turn.add($0) },
-                                      makePage: { CEFHostedPageView(frame: $0, makeLayerHost: layerHost) })
+                                      makePage: { CEFHostedPageView(frame: $0, makeLayerHost: layerHost) },
+                                      resizeDeadlineMs: { 8 })
         hosting.view = view
         return hosting
     }
@@ -218,12 +220,16 @@ import Testing
         #expect(page.contextID == 0)
     }
 
-    /// Resize sync (fork API 27): a hosted page holds the window's commit for its frame at a new
-    /// size up to the deadline, so it resizes in its pane's frame; a page back in its own window
-    /// never holds it (Chromium's 500 ms wait made every page resize stall a cmux frame).
+    /// Resize sync (fork API 27) with a deadline set (`browserResize.syncDeadline` above 0): a hosted page holds the
+    /// window's commit for its frame at a new size up to the deadline, so it resizes in its pane's frame; a page back
+    /// in its own window never holds it (Chromium's 500 ms wait made every page resize stall a cmux frame).
     @Test func aHostedPageWaitsForItsResizeFrameAndAnUnhostedOneNever() {
         var enabled = true
-        let hosting = makeHosting(enabled: { enabled })
+        let turn = turn
+        let hosting = CEFLayerHosting(isEnabled: { enabled }, schedule: { turn.add($0) },
+                                      makePage: { CEFHostedPageView(frame: $0, makeLayerHost: { _ in CALayer() }) },
+                                      resizeDeadlineMs: { 8 })
+        hosting.view = view
         hosting.pageWindowCreated(browser: 3, fork: fake.fork)
         turn.end()
         #expect(fake.syncs.map { $0.browser } == [3])
@@ -231,6 +237,23 @@ import Testing
         enabled = false
         hosting.pageShown(browser: 3)
         #expect(fake.syncs.last.map { $0.timeoutMs } == 0)
+    }
+
+    /// cmux-ad m18/m19: a pane never waits for a page, so the deadline is 0 by default. A page that waits for nothing
+    /// asks the fork for nothing: no resize-sync call when it is hosted, shown or given back its window.
+    @Test func aZeroDeadlineMakesNoForkCall() {
+        var enabled = true
+        let turn = turn
+        let hosting = CEFLayerHosting(isEnabled: { enabled }, schedule: { turn.add($0) },
+                                      makePage: { CEFHostedPageView(frame: $0, makeLayerHost: { _ in CALayer() }) },
+                                      resizeDeadlineMs: { 0 })
+        hosting.view = view
+        hosting.pageWindowCreated(browser: 3, fork: fake.fork)
+        turn.end()
+        #expect(hosting.page != nil)
+        enabled = false
+        hosting.pageShown(browser: 3)
+        #expect(fake.syncs.isEmpty, "a 0 deadline sent \(fake.syncs.count) resize-sync calls")
     }
 
     @Test func aRefusedPageNeverAsksToHoldTheCommit() {

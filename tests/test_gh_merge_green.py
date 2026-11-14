@@ -1,4 +1,5 @@
 """Fix-forward merging requires actual builds and same-base test evidence."""
+import atexit
 import copy
 from datetime import datetime, timedelta, timezone
 import base64
@@ -10,15 +11,26 @@ import subprocess
 import tempfile
 import os
 import shlex
+import shutil
 import signal
 import textwrap
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("merge_green", ROOT / "scripts/ci/main_fix_evidence.py")
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 # No helper run reaches the real repository: merged-head checks use a fixture clone.
-os.environ["GH_MERGE_GREEN_REPO_DIR"] = os.path.join(tempfile.gettempdir(), "gh-merge-green-no-repo")
+# A missing folder inside a private one: a fixed name in the shared temp folder could be planted with a repo.
+_NO_REPO_PARENT = tempfile.mkdtemp(prefix="gh-merge-green-")
+atexit.register(shutil.rmtree, _NO_REPO_PARENT, True)
+os.environ["GH_MERGE_GREEN_REPO_DIR"] = os.path.join(_NO_REPO_PARENT, "no-repo")
 # Under GH_MERGE_GREEN_TEST the freeze check reads GH_MERGE_GREEN_FREEZE_ISSUES and
 # GH_MERGE_GREEN_FREEZE_EVENTS, never the repository's issues. Every run gets empty
 # fixtures (no freezes); a test run without them refuses.
@@ -28,6 +40,7 @@ _NO_FREEZES.close()
 os.environ["GH_MERGE_GREEN_FREEZE_ISSUES"] = _NO_FREEZES.name
 os.environ["GH_MERGE_GREEN_FREEZE_EVENTS"] = _NO_FREEZES.name
 os.environ["GH_MERGE_GREEN_TEST"] = "1"
+os.environ["BASE_RED_EXCUSE_FIXTURE_SHA"] = "1"  # the fake gh answers for HEAD, a placeholder sha
 
 
 # Every gh-merge-green run is bounded: one that never ends (a fake gh whose list never ends, a check
@@ -576,6 +589,15 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists())
 
+    def test_a_startup_failure_cmux_next_run_is_no_result(self):
+        """A cmux-next run whose newest attempt ended in startup_failure ran nothing: no verdict, never green."""
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, cmux_next_runs=[("completed", "startup_failure", 3)])
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("startup_failure", result.stderr)
+
     def test_a_finished_cmux_next_run_merges(self):
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / "merged"
@@ -855,7 +877,7 @@ class WorkflowPresenceRegression(unittest.TestCase):
     """Repositories without the aggregate workflow use all exact-head verdicts."""
 
     def run_case(self, *, workflow=False, probe_status=404, checks=None, statuses=None, app_workflow=False, files=None, workflow_body=None,
-                 raw_content=None, app_workflow_body=None, extra_args=()):
+                 raw_content=None, app_workflow_body=None, extra_args=(), rest_checks_fail=False):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             marker = directory / "merged"
@@ -863,7 +885,8 @@ class WorkflowPresenceRegression(unittest.TestCase):
             payload = {"head": HEAD, "workflow": workflow, "probe_status": probe_status,
                        "checks": checks if checks is not None else [{"id": 1, "name": "tests", "status": "completed", "conclusion": "success"}],
                        "statuses": statuses or [], "app_workflow": app_workflow, "files": files or [],
-                       "workflow_body": workflow_body, "raw_content": raw_content, "app_workflow_body": app_workflow_body}
+                       "workflow_body": workflow_body, "raw_content": raw_content, "app_workflow_body": app_workflow_body,
+                       "rest_checks_fail": rest_checks_fail}
             fixture = directory / "fixture.json"
             fixture.write_text(__import__("json").dumps(payload))
             gh = directory / "gh"
@@ -896,7 +919,22 @@ class WorkflowPresenceRegression(unittest.TestCase):
                 elif a[0] == 'api' and '--paginate' in a:
                     sys.exit(3)
                 elif a[0] == 'api' and any('/check-runs' in arg for arg in a):
-                    print(json.dumps({'total_count': len(x['checks']), 'check_runs': x['checks']}))
+                    if x.get('rest_checks_fail'):
+                        sys.exit(1)
+                    every = any('filter=all' in arg for arg in a)
+                    shown = [{k: v for k, v in c.items() if k != 'hidden_by_latest'} for c in x['checks']
+                             if every or not c.get('hidden_by_latest')]
+                    print(json.dumps({'total_count': len(shown), 'check_runs': shown}))
+                elif a[:2] == ['api', 'graphql'] and x.get('rest_checks_fail'):
+                    query = next(arg for arg in a if arg.startswith('query='))
+                    every = 'checkType:ALL' in query.replace(' ', '')
+                    runs = [{'databaseId': c['id'], 'name': c['name'], 'status': c['status'].upper(),
+                             'conclusion': (c.get('conclusion') or '').upper() or None}
+                            for c in x['checks'] if every or not c.get('hidden_by_latest')]
+                    print(json.dumps({'data': {'repository': {'object': {'checkSuites': {
+                        'pageInfo': {'hasNextPage': False},
+                        'nodes': [{'id': 'S1', 'app': {'slug': 'github-actions'},
+                                   'checkRuns': {'nodes': runs, 'pageInfo': {'hasNextPage': False}}}]}}}}}))
                 elif a[0] == 'api' and any('/statuses' in arg for arg in a):
                     print(json.dumps(x['statuses']))
                 elif a[0] == 'api' and any('/files' in arg for arg in a):
@@ -954,6 +992,39 @@ class WorkflowPresenceRegression(unittest.TestCase):
             result, merged, _ = self.run_case(probe_status=code)
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(merged)
+
+    # cmux#35906 merged as 633d5e38 pinned at e1d1894a with its 'publish tree-addressed cmux-tui' red in run
+    # 41931705470 unexcused: two reruns ended in startup_failure with no jobs, and GitHub's default check-runs list
+    # (each suite's newest attempt only) dropped the red. An attempt that ran nothing is no result: a check reads as
+    # its last real attempt left it, over REST (filter=all) and over the GraphQL fallback (checkType:ALL) alike.
+    PUBLISH = "publish tree-addressed cmux-tui"
+
+    def test_a_red_under_startup_failure_reruns_still_refuses(self):
+        checks = [{"id": 1, "name": "tests", "status": "completed", "conclusion": "success"},
+                  {"id": 2, "name": self.PUBLISH, "status": "completed", "conclusion": "failure", "hidden_by_latest": True}]
+        for rest_checks_fail in (False, True):
+            with self.subTest(graphql=rest_checks_fail):
+                result, merged, _ = self.run_case(checks=checks, rest_checks_fail=rest_checks_fail)
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertFalse(merged)
+                self.assertIn(self.PUBLISH, result.stderr)
+
+    def test_a_red_then_a_real_green_rerun_merges(self):
+        checks = [{"id": 1, "name": "tests", "status": "completed", "conclusion": "success"},
+                  {"id": 2, "name": self.PUBLISH, "status": "completed", "conclusion": "failure", "hidden_by_latest": True},
+                  {"id": 3, "name": self.PUBLISH, "status": "completed", "conclusion": "success"}]
+        for rest_checks_fail in (False, True):
+            with self.subTest(graphql=rest_checks_fail):
+                result, merged, _ = self.run_case(checks=checks, rest_checks_fail=rest_checks_fail)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(merged)
+
+    def test_a_startup_failure_alone_is_no_result_not_green(self):
+        # Its only attempt ran no jobs, so it created no check run: nothing reported, never a green.
+        result, merged, _ = self.run_case(checks=[])
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(merged)
+        self.assertIn("no checks have reported", result.stderr)
 
     def test_present_ci_workflow_still_requires_ci_status(self):
         result, merged, _ = self.run_case(workflow=True)
@@ -1372,7 +1443,7 @@ class MergedHeadChecksRegression(unittest.TestCase):
         directory = Path(directory)
         origin = directory / "origin.git"
         work = directory / "work"
-        self.git("init", "-q", "--bare", str(origin), cwd=directory)
+        git_fixture_env.init_repo(origin, "--bare", cwd=directory)
         self.git("init", "-q", "-b", "feat-cmux-next", str(work), cwd=directory)
         for args in (("config", "user.email", "t@example.invalid"), ("config", "user.name", "t")):
             self.git(*args, cwd=work)

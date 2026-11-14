@@ -4201,127 +4201,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The cmux-tui there speaks link protocol %1$d; this app needs %2$d. Install cmux-tui to update it."
+            "value": "The cmux-tui there is a different version than this app uses (%1$d, not %2$d). Install cmux-tui to update it."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يستخدم cmux-tui هناك بروتوكول الربط %1$d؛ يحتاج هذا التطبيق إلى %2$d. ثبّت cmux-tui لتحديثه."
+            "value": "إصدار cmux-tui هناك مختلف عن الإصدار الذي يستخدمه هذا التطبيق (%1$d، وليس %2$d). ثبّت cmux-tui لتحديثه."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui tamo koristi protokol veze %1$d; ova aplikacija treba %2$d. Instalirajte cmux-tui da ga ažurirate."
+            "value": "cmux-tui tamo je drugačije verzije od one koju ova aplikacija koristi (%1$d, a ne %2$d). Instalirajte cmux-tui da ga ažurirate."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui der bruger linkprotokol %1$d; denne app kræver %2$d. Installér cmux-tui for at opdatere den."
+            "value": "cmux-tui derovre er en anden version end den, appen bruger (%1$d, ikke %2$d). Installer cmux-tui for at opdatere den."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Das cmux-tui dort spricht Link-Protokoll %1$d; diese App braucht %2$d. Installiere cmux-tui, um es zu aktualisieren."
+            "value": "Das cmux-tui dort ist eine andere Version, als diese App nutzt (%1$d statt %2$d). Installiere cmux-tui, um es zu aktualisieren."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "El cmux-tui de allí usa el protocolo de enlace %1$d; esta app necesita el %2$d. Instala cmux-tui para actualizarlo."
+            "value": "El cmux-tui de allí es una versión distinta de la que usa esta app (%1$d, no %2$d). Instala cmux-tui para actualizarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le cmux-tui présent parle le protocole de liaison %1$d ; cette app a besoin du %2$d. Installez cmux-tui pour le mettre à jour."
+            "value": "Le cmux-tui de cette machine n’est pas la version qu’utilise cette app (%1$d au lieu de %2$d). Installez cmux-tui pour le mettre à jour."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il cmux-tui lì usa il protocollo di collegamento %1$d; questa app richiede il %2$d. Installa cmux-tui per aggiornarlo."
+            "value": "Il cmux-tui lì è una versione diversa da quella usata da questa app (%1$d, non %2$d). Installa cmux-tui per aggiornarlo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "そこの cmux-tui はリンクプロトコル %1$d を使っています。このアプリには %2$d が必要です。更新するには cmux-tui をインストールしてください。"
+            "value": "そこの cmux-tui はこのアプリが使うバージョンと異なります（%1$d、必要なのは %2$d）。cmux-tui をインストールして更新してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui នៅទីនោះប្រើពិធីការតភ្ជាប់ %1$d ប៉ុន្តែកម្មវិធីនេះត្រូវការ %2$d។ ដំឡើង cmux-tui ដើម្បីធ្វើបច្ចុប្បន្នភាព។"
+            "value": "cmux-tui នៅទីនោះជាកំណែខុសពីកំណែដែលកម្មវិធីនេះប្រើ (%1$d មិនមែន %2$d)។ ដំឡើង cmux-tui ដើម្បីអាប់ដេតវា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "그곳의 cmux-tui는 링크 프로토콜 %1$d을(를) 사용합니다. 이 앱은 %2$d이(가) 필요합니다. 업데이트하려면 cmux-tui를 설치하세요."
+            "value": "그곳의 cmux-tui는 이 앱이 쓰는 버전과 다릅니다(%1$d, 필요한 버전 %2$d). cmux-tui를 설치해 업데이트하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui der bruker lenkeprotokoll %1$d; denne appen trenger %2$d. Installer cmux-tui for å oppdatere den."
+            "value": "cmux-tui der er en annen versjon enn den appen bruker (%1$d, ikke %2$d). Installer cmux-tui for å oppdatere den."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tamtejszy cmux-tui używa protokołu łącza %1$d; ta aplikacja wymaga %2$d. Zainstaluj cmux-tui, aby go zaktualizować."
+            "value": "cmux-tui tam ma inną wersję niż ta, której używa aplikacja (%1$d zamiast %2$d). Zainstaluj cmux-tui, aby go zaktualizować."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O cmux-tui lá usa o protocolo de link %1$d; este app precisa do %2$d. Instale o cmux-tui para atualizá-lo."
+            "value": "O cmux-tui lá é uma versão diferente da que este app usa (%1$d, não %2$d). Instale o cmux-tui para atualizá-lo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui там использует протокол связи %1$d; этому приложению нужен %2$d. Установите cmux-tui, чтобы обновить его."
+            "value": "cmux-tui там другой версии, чем использует это приложение (%1$d вместо %2$d). Установите cmux-tui, чтобы обновить его."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui ที่นั่นใช้โปรโตคอลลิงก์ %1$d แต่แอปนี้ต้องการ %2$d ติดตั้ง cmux-tui เพื่ออัปเดต"
+            "value": "cmux-tui ที่นั่นเป็นเวอร์ชันต่างจากที่แอปนี้ใช้ (%1$d ไม่ใช่ %2$d) ติดตั้ง cmux-tui เพื่ออัปเดต"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Oradaki cmux-tui %1$d bağlantı protokolünü kullanıyor; bu uygulama %2$d gerektiriyor. Güncellemek için cmux-tui kurun."
+            "value": "Oradaki cmux-tui, bu uygulamanın kullandığından farklı bir sürüm (%2$d değil, %1$d). Güncellemek için cmux-tui'yi yükleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui там використовує протокол зв’язку %1$d; цьому застосунку потрібен %2$d. Установіть cmux-tui, щоб оновити його."
+            "value": "cmux-tui там іншої версії, ніж використовує цей застосунок (%1$d замість %2$d). Установіть cmux-tui, щоб оновити його."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui ở đó dùng giao thức liên kết %1$d; ứng dụng này cần %2$d. Cài cmux-tui để cập nhật."
+            "value": "cmux-tui ở đó khác phiên bản ứng dụng này dùng (%1$d, không phải %2$d). Hãy cài cmux-tui để cập nhật."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "那里的 cmux-tui 使用链路协议 %1$d；此应用需要 %2$d。请安装 cmux-tui 进行更新。"
+            "value": "那里的 cmux-tui 与此应用使用的版本不同（%1$d，而非 %2$d）。请安装 cmux-tui 以更新。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "那裡的 cmux-tui 使用連結協定 %1$d；此 App 需要 %2$d。請安裝 cmux-tui 進行更新。"
+            "value": "那裡的 cmux-tui 與此 App 使用的版本不同（%1$d，而非 %2$d）。請安裝 cmux-tui 以更新。"
           }
         }
       }
@@ -5243,268 +5243,6 @@
         }
       }
     },
-    "remote.status.authFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH sign-in failed: %@ Check your key or agent, then choose Reconnect Machine."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "فشل تسجيل الدخول عبر SSH: %@ تحقّق من المفتاح أو الوكيل ثم اختر إعادة الاتصال بالجهاز."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH prijava nije uspjela: %@ Provjerite ključ ili agent, pa odaberite Ponovo poveži mašinu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH-login mislykkedes: %@ Tjek din nøgle eller agent, og vælg derefter Genforbind maskine."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH-Anmeldung fehlgeschlagen: %@ Prüfe deinen Schlüssel oder Agent und wähle dann „Maschine erneut verbinden“."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Falló el inicio de sesión SSH: %@ Revisa tu clave o agente y elige Reconectar máquina."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Échec de la connexion SSH : %@ Vérifiez votre clé ou votre agent, puis choisissez Reconnecter la machine."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Accesso SSH non riuscito: %@ Controlla la chiave o l’agente, poi scegli Riconnetti macchina."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH のサインインに失敗しました: %@ キーまたはエージェントを確認してから「マシンに再接続」を選んでください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការចូល SSH បានបរាជ័យ៖ %@ ពិនិត្យកូនសោ ឬ agent រួចជ្រើស ភ្ជាប់ម៉ាស៊ីនឡើងវិញ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH 로그인 실패: %@ 키 또는 에이전트를 확인한 뒤 머신 다시 연결을 선택하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH-pålogging mislyktes: %@ Sjekk nøkkelen eller agenten, og velg deretter Koble til maskin på nytt."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Logowanie SSH nie powiodło się: %@ Sprawdź klucz lub agenta, a potem wybierz Połącz ponownie z maszyną."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O login SSH falhou: %@ Verifique sua chave ou agente e escolha Reconectar máquina."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вход по SSH не удался: %@ Проверьте ключ или агент, затем выберите «Переподключить машину»."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ลงชื่อเข้าใช้ SSH ไม่สำเร็จ: %@ ตรวจคีย์หรือเอเจนต์ แล้วเลือก เชื่อมต่อเครื่องอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH oturum açma başarısız: %@ Anahtarınızı veya ajanınızı denetleyin, sonra Makineye yeniden bağlan’ı seçin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вхід через SSH не вдався: %@ Перевірте ключ або агент, потім виберіть «Перепід’єднати машину»."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Đăng nhập SSH thất bại: %@ Kiểm tra khóa hoặc agent rồi chọn Kết nối lại máy."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH 登录失败：%@ 请检查你的密钥或代理，然后选择“重新连接机器”。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH 登入失敗：%@ 請檢查你的金鑰或代理程式，然後選擇「重新連線機器」。"
-          }
-        }
-      }
-    },
-    "remote.status.hostKey": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The host key is not trusted: %1$@ Run ssh %2$@ in a terminal to check it. cmux never skips host key checks."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "مفتاح المضيف غير موثوق: %1$@ شغّل ssh %2$@ في طرفية للتحقق منه. لا يتخطى cmux فحص مفتاح المضيف أبدًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ključ hosta nije pouzdan: %1$@ Pokrenite ssh %2$@ u terminalu da ga provjerite. cmux nikad ne preskače provjeru ključa hosta."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Værtsnøglen er ikke betroet: %1$@ Kør ssh %2$@ i en terminal for at kontrollere den. cmux springer aldrig kontrol af værtsnøgler over."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dem Host-Schlüssel wird nicht vertraut: %1$@ Führe ssh %2$@ in einem Terminal aus, um ihn zu prüfen. cmux überspringt die Host-Schlüssel-Prüfung nie."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La clave del host no es de confianza: %1$@ Ejecuta ssh %2$@ en una terminal para comprobarla. cmux nunca omite la comprobación de claves de host."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La clé d’hôte n’est pas approuvée : %1$@ Exécutez ssh %2$@ dans un terminal pour la vérifier. cmux ne saute jamais la vérification des clés d’hôte."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La chiave dell’host non è attendibile: %1$@ Esegui ssh %2$@ in un terminale per verificarla. cmux non salta mai il controllo delle chiavi host."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ホストキーが信頼されていません: %1$@ ターミナルで ssh %2$@ を実行して確認してください。cmux がホストキーの確認を省くことはありません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កូនសោម៉ាស៊ីនមិនត្រូវបានទុកចិត្តទេ៖ %1$@ រត់ ssh %2$@ ក្នុង terminal ដើម្បីពិនិត្យវា។ cmux មិនដែលរំលងការពិនិត្យកូនសោម៉ាស៊ីនទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "호스트 키를 신뢰할 수 없습니다: %1$@ 터미널에서 ssh %2$@를 실행해 확인하세요. cmux는 호스트 키 확인을 건너뛰지 않습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vertsnøkkelen er ikke klarert: %1$@ Kjør ssh %2$@ i en terminal for å sjekke den. cmux hopper aldri over kontroll av vertsnøkler."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Klucz hosta nie jest zaufany: %1$@ Uruchom ssh %2$@ w terminalu, aby go sprawdzić. cmux nigdy nie pomija sprawdzania kluczy hosta."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "A chave do host não é confiável: %1$@ Rode ssh %2$@ em um terminal para conferi-la. O cmux nunca pula a verificação de chaves de host."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ключ хоста не доверенный: %1$@ Выполните ssh %2$@ в терминале, чтобы проверить его. cmux никогда не пропускает проверку ключей хоста."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่เชื่อถือคีย์โฮสต์: %1$@ เรียก ssh %2$@ ในเทอร์มินัลเพื่อตรวจสอบ cmux ไม่เคยข้ามการตรวจคีย์โฮสต์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ana makine anahtarına güvenilmiyor: %1$@ Denetlemek için bir terminalde ssh %2$@ çalıştırın. cmux ana makine anahtarı denetimini asla atlamaz."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ключ хоста не довірений: %1$@ Виконайте ssh %2$@ у терміналі, щоб перевірити його. cmux ніколи не пропускає перевірку ключів хоста."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Khóa máy chủ không được tin cậy: %1$@ Chạy ssh %2$@ trong terminal để kiểm tra. cmux không bao giờ bỏ qua kiểm tra khóa máy chủ."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "主机密钥不受信任：%1$@ 请在终端中运行 ssh %2$@ 进行核对。cmux 从不跳过主机密钥检查。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "主機金鑰不受信任：%1$@ 請在終端機中執行 ssh %2$@ 進行核對。cmux 從不略過主機金鑰檢查。"
-          }
-        }
-      }
-    },
     "remote.status.installing": {
       "extractionState": "manual",
       "localizations": {
@@ -5898,133 +5636,133 @@
         }
       }
     },
-    "remote.status.unreachable": {
+    "remote.status.staticInstallStaged": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cannot reach the machine: %@ cmux tries again when the network changes."
+            "value": "A newer cmux build is staged for ~/.cmux/bin/cmux on this machine. It is installed the next time its session server starts; nothing running there was stopped."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "تعذّر الوصول إلى الجهاز: %@ سيحاول cmux مجددًا عند تغيّر الشبكة."
+            "state": "translated",
+            "value": "تم تجهيز إصدار أحدث من cmux لـ ~/.cmux/bin/cmux على هذا الجهاز. سيُثبَّت عند بدء خادم الجلسة في المرة القادمة؛ لم يُوقَف أي شيء يعمل هناك."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mašina nije dostupna: %@ cmux pokušava ponovo kada se mreža promijeni."
+            "state": "translated",
+            "value": "Novija cmux verzija je pripremljena za ~/.cmux/bin/cmux na ovoj mašini. Instalira se pri sljedećem pokretanju njenog servera sesije; ništa što tamo radi nije zaustavljeno."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Maskinen kan ikke nås: %@ cmux prøver igen, når netværket ændres."
+            "state": "translated",
+            "value": "En nyere cmux-build er klar til ~/.cmux/bin/cmux på denne maskine. Den installeres næste gang dens sessionsserver starter; intet, der kører der, blev stoppet."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Die Maschine ist nicht erreichbar: %@ cmux versucht es erneut, wenn sich das Netzwerk ändert."
+            "state": "translated",
+            "value": "Ein neuerer cmux-Build ist für ~/.cmux/bin/cmux auf diesem Rechner bereitgestellt. Er wird beim nächsten Start seines Sitzungsservers installiert; nichts, was dort läuft, wurde beendet."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No se puede acceder a la máquina: %@ cmux lo reintenta cuando cambia la red."
+            "state": "translated",
+            "value": "Hay una compilación más reciente de cmux preparada para ~/.cmux/bin/cmux en esta máquina. Se instala la próxima vez que se inicie su servidor de sesión; no se detuvo nada de lo que se ejecuta allí."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Machine injoignable : %@ cmux réessaie quand le réseau change."
+            "state": "translated",
+            "value": "Une version plus récente de cmux est prête pour ~/.cmux/bin/cmux sur cette machine. Elle sera installée au prochain démarrage de son serveur de session ; rien de ce qui y tourne n’a été arrêté."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Impossibile raggiungere la macchina: %@ cmux riprova quando cambia la rete."
+            "state": "translated",
+            "value": "Una build più recente di cmux è pronta per ~/.cmux/bin/cmux su questa macchina. Viene installata al prossimo avvio del suo server di sessione; nulla di ciò che è in esecuzione è stato interrotto."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "マシンに到達できません: %@ ネットワークが変わると cmux が再試行します。"
+            "state": "translated",
+            "value": "このマシンの ~/.cmux/bin/cmux 用に新しい cmux ビルドが待機しています。次にセッションサーバーが起動するときにインストールされます。実行中のものは停止していません。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនអាចទៅដល់ម៉ាស៊ីនបានទេ៖ %@ cmux ព្យាយាមម្ដងទៀតនៅពេលបណ្ដាញផ្លាស់ប្ដូរ។"
+            "state": "translated",
+            "value": "កំណែ cmux ថ្មីជាងត្រូវបានរៀបចំសម្រាប់ ~/.cmux/bin/cmux នៅលើម៉ាស៊ីននេះ។ វានឹងត្រូវដំឡើងនៅពេលម៉ាស៊ីនមេវគ្គចាប់ផ្តើមលើកក្រោយ; គ្មានអ្វីដែលកំពុងដំណើរការត្រូវបានបញ្ឈប់ទេ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "머신에 연결할 수 없습니다: %@ 네트워크가 바뀌면 cmux가 다시 시도합니다."
+            "state": "translated",
+            "value": "이 머신의 ~/.cmux/bin/cmux에 새 cmux 빌드가 준비되어 있습니다. 다음에 세션 서버가 시작될 때 설치됩니다. 실행 중인 항목은 중지되지 않았습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Maskinen kan ikke nås: %@ cmux prøver igjen når nettverket endres."
+            "state": "translated",
+            "value": "En nyere cmux-versjon er klar for ~/.cmux/bin/cmux på denne maskinen. Den installeres neste gang sesjonsserveren starter; ingenting som kjører der, ble stoppet."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nie można połączyć się z maszyną: %@ cmux spróbuje ponownie po zmianie sieci."
+            "state": "translated",
+            "value": "Nowsza kompilacja cmux czeka na ~/.cmux/bin/cmux na tej maszynie. Zostanie zainstalowana przy następnym uruchomieniu serwera sesji; nic, co tam działa, nie zostało zatrzymane."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Não é possível alcançar a máquina: %@ O cmux tenta de novo quando a rede muda."
+            "state": "translated",
+            "value": "Uma versão mais nova do cmux está preparada para ~/.cmux/bin/cmux nesta máquina. Ela será instalada na próxima vez que o servidor de sessão iniciar; nada em execução lá foi interrompido."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Машина недоступна: %@ cmux повторит попытку при смене сети."
+            "state": "translated",
+            "value": "Для ~/.cmux/bin/cmux на этой машине подготовлена более новая сборка cmux. Она будет установлена при следующем запуске сервера сеанса; ничего из запущенного там не остановлено."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "เข้าถึงเครื่องไม่ได้: %@ cmux จะลองอีกครั้งเมื่อเครือข่ายเปลี่ยน"
+            "state": "translated",
+            "value": "มีบิลด์ cmux ที่ใหม่กว่าเตรียมไว้สำหรับ ~/.cmux/bin/cmux บนเครื่องนี้ ระบบจะติดตั้งเมื่อเซิร์ฟเวอร์เซสชันเริ่มทำงานครั้งถัดไป และไม่มีสิ่งใดที่ทำงานอยู่ถูกหยุด"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Makineye ulaşılamıyor: %@ cmux ağ değiştiğinde yeniden dener."
+            "state": "translated",
+            "value": "Bu makinede ~/.cmux/bin/cmux için daha yeni bir cmux derlemesi hazır. Oturum sunucusu bir sonraki başlatılışında yüklenir; orada çalışan hiçbir şey durdurulmadı."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Машина недоступна: %@ cmux спробує знову, коли зміниться мережа."
+            "state": "translated",
+            "value": "Для ~/.cmux/bin/cmux на цій машині підготовлено новішу збірку cmux. Її буде встановлено під час наступного запуску сервера сеансу; нічого з запущеного там не зупинено."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Không thể kết nối tới máy: %@ cmux sẽ thử lại khi mạng thay đổi."
+            "state": "translated",
+            "value": "Một bản dựng cmux mới hơn đã được chuẩn bị cho ~/.cmux/bin/cmux trên máy này. Bản này được cài đặt khi máy chủ phiên khởi động lần tới; không có gì đang chạy ở đó bị dừng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "无法访问该机器：%@ 网络变化时 cmux 会重试。"
+            "state": "translated",
+            "value": "此机器上已为 ~/.cmux/bin/cmux 暂存了更新的 cmux 版本。它会在会话服务器下次启动时安装；那里正在运行的内容均未停止。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "無法連到該機器：%@ 網路變化時 cmux 會重試。"
+            "state": "translated",
+            "value": "此機器上已為 ~/.cmux/bin/cmux 暫存了較新的 cmux 版本。它會在工作階段伺服器下次啟動時安裝；那裡正在執行的內容皆未停止。"
           }
         }
       }
@@ -9310,127 +9048,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui on %@ is too old for browser tabs. Update it, then try again."
+            "value": "cmux on %@ is too old for browser tabs. Update it, then try again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إصدار cmux-tui على %@ قديم جدًا لعلامات تبويب المتصفح. حدّثه ثم حاول مرة أخرى."
+            "value": "إصدار cmux على %@ قديم جدًا لعلامات تبويب المتصفح. حدّثه، ثم أعد المحاولة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui na %@ je prestar za kartice preglednika. Ažurirajte ga, pa pokušajte ponovo."
+            "value": "cmux na %@ je prestar za kartice preglednika. Ažurirajte ga, pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui på %@ er for gammel til browserfaner. Opdater den, og prøv igen."
+            "value": "cmux på %@ er for gammel til browserfaner. Opdater den, og prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui auf %@ ist zu alt für Browser-Tabs. Aktualisiere es und versuche es erneut."
+            "value": "cmux auf %@ ist zu alt für Browser-Tabs. Aktualisiere es und versuche es erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui en %@ es demasiado antiguo para las pestañas del navegador. Actualízalo y vuelve a intentarlo."
+            "value": "cmux en %@ es demasiado antiguo para pestañas del navegador. Actualízalo y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui sur %@ est trop ancien pour les onglets de navigateur. Mettez-le à jour, puis réessayez."
+            "value": "cmux sur %@ est trop ancien pour les onglets de navigateur. Mettez-le à jour, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui su %@ è troppo vecchio per le schede del browser. Aggiornalo, poi riprova."
+            "value": "cmux su %@ è troppo vecchio per le schede del browser. Aggiornalo, poi riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ の cmux-tui は古いため、ブラウザタブを使えません。更新してから、もう一度お試しください。"
+            "value": "%@ の cmux はブラウザタブには古すぎます。アップデートしてから再試行してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui នៅលើ %@ ចាស់ពេកសម្រាប់ផ្ទាំងកម្មវិធីរុករក។ សូមធ្វើបច្ចុប្បន្នភាព រួចព្យាយាមម្តងទៀត។"
+            "value": "cmux នៅលើ %@ ចាស់ពេកសម្រាប់ផ្ទាំងកម្មវិធីរុករក។ អាប់ដេតវា រួចព្យាយាមម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@의 cmux-tui가 너무 오래되어 브라우저 탭을 사용할 수 없습니다. 업데이트한 후 다시 시도하세요."
+            "value": "%@의 cmux는 브라우저 탭을 쓰기에 너무 오래되었습니다. 업데이트한 다음 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui på %@ er for gammel for nettleserfaner. Oppdater den, og prøv igjen."
+            "value": "cmux på %@ er for gammel for nettleserfaner. Oppdater den, og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui na %@ jest za stary na karty przeglądarki. Zaktualizuj go i spróbuj ponownie."
+            "value": "cmux na %@ jest za stary na karty przeglądarki. Zaktualizuj go, a potem spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O cmux-tui em %@ é antigo demais para abas do navegador. Atualize-o e tente novamente."
+            "value": "O cmux em %@ é antigo demais para abas do navegador. Atualize-o e tente de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui на %@ слишком старый для вкладок браузера. Обновите его и повторите попытку."
+            "value": "cmux на %@ слишком старый для вкладок браузера. Обновите его и повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui บน %@ เก่าเกินไปสำหรับแท็บเบราว์เซอร์ อัปเดตแล้วลองอีกครั้ง"
+            "value": "cmux บน %@ เก่าเกินไปสำหรับแท็บเบราว์เซอร์ อัปเดตแล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ üzerindeki cmux-tui, tarayıcı sekmeleri için çok eski. Güncelleyip yeniden deneyin."
+            "value": "%@ üzerindeki cmux tarayıcı sekmeleri için çok eski. Güncelleyin, sonra yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui на %@ застарий для вкладок браузера. Оновіть його та спробуйте ще раз."
+            "value": "cmux на %@ застарий для вкладок браузера. Оновіть його і спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui trên %@ quá cũ cho các thẻ trình duyệt. Hãy cập nhật rồi thử lại."
+            "value": "cmux trên %@ quá cũ cho thẻ trình duyệt. Hãy cập nhật rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ 上的 cmux-tui 版本过旧，无法使用浏览器标签页。请更新后重试。"
+            "value": "%@ 上的 cmux 太旧，无法使用浏览器标签页。请更新后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ 上的 cmux-tui 版本過舊，無法使用瀏覽器分頁。請更新後再試一次。"
+            "value": "%@ 上的 cmux 太舊，無法使用瀏覽器分頁。請更新後再試。"
           }
         }
       }
@@ -12968,6 +12706,399 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 上的 cmux 已停止。選擇「拷貝錯誤」以查看詳細資訊。"
+          }
+        }
+      }
+    },
+    "remote.status.authFailed.plain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH sign-in to %@ failed. Check your key or agent, then choose Reconnect Machine. Choose Copy Error for the details."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل تسجيل الدخول عبر SSH إلى %@. تحقّق من المفتاح أو الوكيل ثم اختر إعادة الاتصال بالجهاز. اختر «نسخ الخطأ» للاطلاع على التفاصيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH prijava na %@ nije uspjela. Provjerite ključ ili agent, pa odaberite Ponovo poveži mašinu. Odaberite Kopiraj grešku za detalje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-login på %@ mislykkedes. Tjek din nøgle eller agent, og vælg derefter Genforbind maskine. Vælg Kopiér fejl for detaljer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Anmeldung bei %@ ist fehlgeschlagen. Prüfe deinen Schlüssel oder Agent und wähle dann „Maschine erneut verbinden“. Wähle „Fehler kopieren“ für die Details."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falló el inicio de sesión SSH en %@. Revisa tu clave o agente y elige Reconectar máquina. Elige Copiar error para ver los detalles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de la connexion SSH à %@. Vérifiez votre clé ou votre agent, puis choisissez Reconnecter la machine. Choisissez Copier l’erreur pour les détails."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accesso SSH a %@ non riuscito. Controlla la chiave o l’agente, poi scegli Riconnetti macchina. Scegli Copia errore per i dettagli."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ への SSH サインインに失敗しました。キーまたはエージェントを確認してから「マシンに再接続」を選んでください。詳細は「エラーをコピー」を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចូល SSH ទៅ %@ បានបរាជ័យ។ ពិនិត្យកូនសោ ឬ agent រួចជ្រើស ភ្ជាប់ម៉ាស៊ីនឡើងវិញ។ ជ្រើស ចម្លងកំហុស ដើម្បីមើលព័ត៌មានលម្អិត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 SSH 로그인하지 못했습니다. 키 또는 에이전트를 확인한 뒤 머신 다시 연결을 선택하세요. 자세한 내용은 오류 복사를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-pålogging til %@ mislyktes. Sjekk nøkkelen eller agenten, og velg deretter Koble til maskin på nytt. Velg Kopier feil for detaljer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logowanie SSH do %@ nie powiodło się. Sprawdź klucz lub agenta, a potem wybierz Połącz ponownie z maszyną. Wybierz Kopiuj błąd, aby zobaczyć szczegóły."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O login SSH em %@ falhou. Verifique sua chave ou agente e escolha Reconectar máquina. Escolha Copiar erro para ver os detalhes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вход по SSH на %@ не удался. Проверьте ключ или агент, затем выберите «Переподключить машину». Выберите «Скопировать ошибку», чтобы увидеть подробности."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้ SSH ไปยัง %@ ไม่สำเร็จ ตรวจคีย์หรือเอเจนต์ แล้วเลือก เชื่อมต่อเครื่องอีกครั้ง เลือก คัดลอกข้อผิดพลาด เพื่อดูรายละเอียด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ için SSH oturum açma başarısız oldu. Anahtarınızı veya ajanınızı denetleyin, sonra Makineye yeniden bağlan’ı seçin. Ayrıntılar için Hatayı Kopyala'yı seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вхід через SSH на %@ не вдався. Перевірте ключ або агент, потім виберіть «Перепід’єднати машину». Виберіть «Скопіювати помилку», щоб побачити подробиці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đăng nhập SSH vào %@ thất bại. Kiểm tra khóa hoặc agent rồi chọn Kết nối lại máy. Chọn Sao chép lỗi để xem chi tiết."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 登录 %@ 失败。请检查你的密钥或代理，然后选择“重新连接机器”。选择“拷贝错误”以查看详细信息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 登入 %@ 失敗。請檢查你的金鑰或代理程式，然後選擇「重新連線機器」。選擇「拷貝錯誤」以查看詳細資訊。"
+          }
+        }
+      }
+    },
+    "remote.status.hostKey.plain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The host key of %1$@ is not trusted. Run ssh %2$@ in a terminal to check it. cmux never skips host key checks. Choose Copy Error for the details."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مفتاح المضيف لـ %1$@ غير موثوق. شغّل ssh %2$@ في طرفية للتحقق منه. لا يتخطى cmux فحص مفتاح المضيف أبدًا. اختر «نسخ الخطأ» للاطلاع على التفاصيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ključ hosta za %1$@ nije pouzdan. Pokrenite ssh %2$@ u terminalu da ga provjerite. cmux nikad ne preskače provjeru ključa hosta. Odaberite Kopiraj grešku za detalje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Værtsnøglen for %1$@ er ikke betroet. Kør ssh %2$@ i en terminal for at kontrollere den. cmux springer aldrig kontrol af værtsnøgler over. Vælg Kopiér fejl for detaljer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dem Host-Schlüssel von %1$@ wird nicht vertraut. Führe ssh %2$@ in einem Terminal aus, um ihn zu prüfen. cmux überspringt die Host-Schlüssel-Prüfung nie. Wähle „Fehler kopieren“ für die Details."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La clave del host de %1$@ no es de confianza. Ejecuta ssh %2$@ en una terminal para comprobarla. cmux nunca omite la comprobación de claves de host. Elige Copiar error para ver los detalles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La clé d’hôte de %1$@ n’est pas approuvée. Exécutez ssh %2$@ dans un terminal pour la vérifier. cmux ne saute jamais la vérification des clés d’hôte. Choisissez Copier l’erreur pour les détails."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La chiave host di %1$@ non è attendibile. Esegui ssh %2$@ in un terminale per verificarla. cmux non salta mai il controllo delle chiavi host. Scegli Copia errore per i dettagli."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ のホストキーが信頼されていません。ターミナルで ssh %2$@ を実行して確認してください。cmux がホストキーの確認を省くことはありません。詳細は「エラーをコピー」を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កូនសោម៉ាស៊ីនរបស់ %1$@ មិនត្រូវបានទុកចិត្តទេ។ រត់ ssh %2$@ ក្នុង terminal ដើម្បីពិនិត្យវា។ cmux មិនដែលរំលងការពិនិត្យកូនសោម៉ាស៊ីនទេ។ ជ្រើស ចម្លងកំហុស ដើម្បីមើលព័ត៌មានលម្អិត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@의 호스트 키를 신뢰할 수 없습니다. 터미널에서 ssh %2$@를 실행해 확인하세요. cmux는 호스트 키 확인을 건너뛰지 않습니다. 자세한 내용은 오류 복사를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertsnøkkelen til %1$@ er ikke klarert. Kjør ssh %2$@ i en terminal for å sjekke den. cmux hopper aldri over kontroll av vertsnøkler. Velg Kopier feil for detaljer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klucz hosta %1$@ nie jest zaufany. Uruchom ssh %2$@ w terminalu, aby go sprawdzić. cmux nigdy nie pomija sprawdzania kluczy hosta. Wybierz Kopiuj błąd, aby zobaczyć szczegóły."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A chave do host de %1$@ não é confiável. Rode ssh %2$@ em um terminal para conferi-la. O cmux nunca pula a verificação de chaves de host. Escolha Copiar erro para ver os detalhes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ключ хоста %1$@ не доверенный. Выполните ssh %2$@ в терминале, чтобы проверить его. cmux никогда не пропускает проверку ключей хоста. Выберите «Скопировать ошибку», чтобы увидеть подробности."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่เชื่อถือคีย์โฮสต์ของ %1$@ เรียก ssh %2$@ ในเทอร์มินัลเพื่อตรวจสอบ cmux ไม่เคยข้ามการตรวจคีย์โฮสต์ เลือก คัดลอกข้อผิดพลาด เพื่อดูรายละเอียด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ana makine anahtarına güvenilmiyor. Denetlemek için bir terminalde ssh %2$@ çalıştırın. cmux ana makine anahtarı denetimini asla atlamaz. Ayrıntılar için Hatayı Kopyala'yı seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ключ хоста %1$@ не довірений. Виконайте ssh %2$@ у терміналі, щоб перевірити його. cmux ніколи не пропускає перевірку ключів хоста. Виберіть «Скопіювати помилку», щоб побачити подробиці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khóa máy chủ của %1$@ không được tin cậy. Chạy ssh %2$@ trong terminal để kiểm tra. cmux không bao giờ bỏ qua kiểm tra khóa máy chủ. Chọn Sao chép lỗi để xem chi tiết."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 的主机密钥不受信任。请在终端中运行 ssh %2$@ 进行核对。cmux 从不跳过主机密钥检查。选择“拷贝错误”以查看详细信息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 的主機金鑰不受信任。請在終端機中執行 ssh %2$@ 進行核對。cmux 從不略過主機金鑰檢查。選擇「拷貝錯誤」以查看詳細資訊。"
+          }
+        }
+      }
+    },
+    "remote.status.unreachable.plain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux cannot reach %@. It tries again when the network changes. Choose Copy Error for the details."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يستطيع cmux الوصول إلى %@. سيحاول مجددًا عند تغيّر الشبكة. اختر «نسخ الخطأ» للاطلاع على التفاصيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne može doći do %@. Pokušava ponovo kada se mreža promijeni. Odaberite Kopiraj grešku za detalje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kan ikke nå %@. Den prøver igen, når netværket ændres. Vælg Kopiér fejl for detaljer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux erreicht %@ nicht. Es versucht es erneut, wenn sich das Netzwerk ändert. Wähle „Fehler kopieren“ für die Details."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no puede acceder a %@. Lo reintenta cuando cambia la red. Elige Copiar error para ver los detalles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne peut pas joindre %@. Il réessaie quand le réseau change. Choisissez Copier l’erreur pour les détails."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non riesce a raggiungere %@. Riprova quando cambia la rete. Scegli Copia errore per i dettagli."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は %@ に到達できません。ネットワークが変わると再試行します。詳細は「エラーをコピー」を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចទៅដល់ %@ បានទេ។ វាព្យាយាមម្ដងទៀតនៅពេលបណ្ដាញផ្លាស់ប្ដូរ។ ជ្រើស ចម្លងកំហុស ដើម្បីមើលព័ត៌មានលម្អិត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 %@에 연결할 수 없습니다. 네트워크가 바뀌면 다시 시도합니다. 자세한 내용은 오류 복사를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kan ikke nå %@. Den prøver igjen når nettverket endres. Velg Kopier feil for detaljer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie może połączyć się z %@. Spróbuje ponownie po zmianie sieci. Wybierz Kopiuj błąd, aby zobaczyć szczegóły."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não consegue alcançar %@. Ele tenta de novo quando a rede muda. Escolha Copiar erro para ver os detalhes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не может связаться с %@. Он повторит попытку при смене сети. Выберите «Скопировать ошибку», чтобы увидеть подробности."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux เข้าถึง %@ ไม่ได้ จะลองอีกครั้งเมื่อเครือข่ายเปลี่ยน เลือก คัดลอกข้อผิดพลาด เพื่อดูรายละเอียด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ makinesine ulaşamıyor. Ağ değiştiğinde yeniden dener. Ayrıntılar için Hatayı Kopyala'yı seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не може зв’язатися з %@. Він спробує знову, коли зміниться мережа. Виберіть «Скопіювати помилку», щоб побачити подробиці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux không thể kết nối tới %@. Nó sẽ thử lại khi mạng thay đổi. Chọn Sao chép lỗi để xem chi tiết."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法访问 %@。网络变化时会重试。选择“拷贝错误”以查看详细信息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法連到 %@。網路變化時會重試。選擇「拷貝錯誤」以查看詳細資訊。"
           }
         }
       }

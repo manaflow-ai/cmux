@@ -46,6 +46,11 @@ import Testing
 
     @Test(arguments: [false, true])
     func aGroupHeaderIsOneSolidBarInItsColor(minimal: Bool) throws {
+        // The solid bar (`sidebar.groupGlass` solid); the default glass pane is `GroupHeaderGlassTests`'.
+        try GroupHeaderGlassTests.onSolidBar { try solidBar(minimal: minimal) }
+    }
+
+    private func solidBar(minimal: Bool) throws {
         let sidebar = Self.sidebar(minimal: minimal)
         // Minimal Mode is on when asked: the header row is shorter than the standard one.
         let row = try #require(sidebar.list.displayed.row(for: .group(Self.group)))

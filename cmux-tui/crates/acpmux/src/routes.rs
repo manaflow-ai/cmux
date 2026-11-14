@@ -60,13 +60,33 @@ pub const NAME_KEY: &str = "ACPMUX_ROUTE_NAME";
 /// A route file named `cmux` replaces it; `find` resolves it, `load` does not list it.
 pub const CMUX_ROUTE_ID: &str = "cmux";
 
+/// The built-in route to the Codex CLI's own signed-in login (`~/.codex/auth.json`, or the chat's
+/// `CODEX_HOME`): no endpoint and no account home, so a chat on it runs on the login Settings shows
+/// as "ChatGPT / Codex". A codex chat whose route fails, and names no fallback of its own, moves
+/// onto it by itself (`hub/route_switch.rs`). A route file named `codex-login` replaces it; `find`
+/// resolves it, `load` does not list it (the Account menu already shows the CLI login).
+pub const CODEX_LOGIN_ROUTE_ID: &str = "codex-login";
+
+/// Whether the Codex CLI is signed in in `home` (its `CODEX_HOME`), else in `~/.codex`: an
+/// `auth.json` with tokens or an API key, never an empty or broken one.
+pub fn codex_signed_in(home: Option<&Path>) -> bool {
+    let dir = match home {
+        Some(home) => home.to_path_buf(),
+        None => match dirs::home_dir() {
+            Some(home) => home.join(".codex"),
+            None => return false,
+        },
+    };
+    crate::agent_login::signed_in_at(crate::agent_login::Agent::Codex, &dir)
+}
+
 fn builtin_routes() -> Vec<Route> {
-    vec![Route {
-        id: CMUX_ROUTE_ID.into(),
+    let codex_login = Route {
+        id: CODEX_LOGIN_ROUTE_ID.into(),
         file: RouteFile {
-            name: Some("cmux model router".into()),
-            kind: RouteKind::CmuxRouter,
-            families: vec![],
+            name: Some("ChatGPT (Codex CLI login)".into()),
+            kind: RouteKind::DirectSubscription,
+            families: vec!["codex".into()],
             anthropic_base_url: None,
             openai_base_url: None,
             auth: None,
@@ -75,11 +95,37 @@ fn builtin_routes() -> Vec<Route> {
             health_url: None,
             fallback: vec![],
             auto_fallback: false,
-            notes: Some("built in: open-source models through the cmux model router".into()),
+            notes: Some("built in: the Codex CLI's own signed-in login".into()),
             account_home: None,
+            shadow_of: None,
+            disabled: false,
         },
         path: PathBuf::new(),
-    }]
+    };
+    vec![
+        codex_login,
+        Route {
+            id: CMUX_ROUTE_ID.into(),
+            file: RouteFile {
+                name: Some("cmux model router".into()),
+                kind: RouteKind::CmuxRouter,
+                families: vec![],
+                anthropic_base_url: None,
+                openai_base_url: None,
+                auth: None,
+                secret: None,
+                headers: BTreeMap::new(),
+                health_url: None,
+                fallback: vec![],
+                auto_fallback: false,
+                notes: Some("built in: open-source models through the cmux model router".into()),
+                account_home: None,
+                shadow_of: None,
+                disabled: false,
+            },
+            path: PathBuf::new(),
+        },
+    ]
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -219,6 +265,14 @@ pub struct RouteFile {
     /// folder for one login (route_account.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_home: Option<String>,
+    /// A Codex account home that shares everything but its login with this
+    /// folder, the CLI's own home (route_shadow.rs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow_of: Option<String>,
+    /// Turned off: no chat moves onto it by itself, and the account list says
+    /// so. A chat bound to it still runs on it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub disabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -284,6 +338,8 @@ impl Route {
             "autoFallback": self.file.auto_fallback,
             "notes": self.file.notes,
             "accountHome": self.file.account_home,
+            "shadowOf": self.file.shadow_of,
+            "enabled": !self.file.disabled,
             "path": self.path,
         })
     }
@@ -568,6 +624,11 @@ pub fn file_from_json(params: &Value) -> Result<RouteFile, RouteError> {
         auto_fallback: params.get("autoFallback").and_then(Value::as_bool).unwrap_or(false),
         notes: text("notes"),
         account_home: crate::route_account::from_json(params)?,
+        shadow_of: crate::route_account::shadow_from_json(params)?,
+        disabled: match params.get("enabled").and_then(Value::as_bool) {
+            Some(enabled) => !enabled,
+            None => params.get("disabled").and_then(Value::as_bool).unwrap_or(false),
+        },
     };
     validate(&file)?;
     Ok(file)
@@ -576,12 +637,12 @@ pub fn file_from_json(params: &Value) -> Result<RouteFile, RouteError> {
 fn write_file(path: &Path, file: &RouteFile) -> Result<(), RouteError> {
     let text = toml::to_string_pretty(file).map_err(|e| RouteError::Failed(e.to_string()))?;
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| RouteError::Failed(e.to_string()))?;
+        crate::home_fs::create_dirs(parent).map_err(|e| RouteError::Failed(e.to_string()))?;
     }
     let tmp = path.with_extension("toml.tmp");
-    std::fs::write(&tmp, text).map_err(|e| RouteError::Failed(e.to_string()))?;
+    crate::home_fs::write(&tmp, text).map_err(|e| RouteError::Failed(e.to_string()))?;
     crate::router_socket::owner_only(&tmp);
-    std::fs::rename(&tmp, path).map_err(|e| RouteError::Failed(e.to_string()))
+    crate::home_fs::rename(&tmp, path).map_err(|e| RouteError::Failed(e.to_string()))
 }
 
 /// Write a new route (`replace`: over an existing one).
@@ -612,8 +673,11 @@ pub fn remove(dir: Option<&Path>, home: &Path, id: &str) -> Result<String, Route
     let route = find(dir, id)?;
     let backups = backups_dir(home);
     // Not under a lost home (`config::refuse_lost_home`): it may be another daemon's now.
+    // The backup goes through the folder this daemon holds (`home_fs`): a home replaced after the
+    // check never gets it.
     crate::config::refuse_lost_home(&backups).map_err(|e| RouteError::Failed(e.to_string()))?;
-    std::fs::create_dir_all(&backups).map_err(|e| RouteError::Failed(e.to_string()))?;
+    crate::home_fs::create_dir_all(&backups, 0o777)
+        .map_err(|e| RouteError::Failed(e.to_string()))?;
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
@@ -622,16 +686,25 @@ pub fn remove(dir: Option<&Path>, home: &Path, id: &str) -> Result<String, Route
     if id.starts_with(ONE_RUN_PREFIX) {
         // A one-run route (cmux-hand's gateway route) leaves no backup: it
         // names only a token file that is removed with it.
-        std::fs::remove_file(&route.path).map_err(|e| RouteError::Failed(e.to_string()))?;
+        crate::home_fs::remove_file(&route.path).map_err(|e| RouteError::Failed(e.to_string()))?;
     } else {
-        std::fs::rename(&route.path, backups.join(&name))
+        crate::home_fs::rename(&route.path, backups.join(&name))
             .map_err(|e| RouteError::Failed(e.to_string()))?;
     }
-    // Chats bound to it fall back to their inherited route, except a one-run
+    // Chats bound to it fall back to their inherited route, and a workspace,
+    // family or global default that named it is cleared, so new chats fall
+    // back too instead of failing on a route that is gone. Except a one-run
     // route's chat: it keeps the binding, so its next spawn fails ("route is
     // gone") instead of running on the owner's own provider without a word.
     if !id.starts_with(ONE_RUN_PREFIX) {
-        update_bindings(home, |b| b.chats.retain(|_, r| r != id))?;
+        update_bindings(home, |b| {
+            b.chats.retain(|_, r| r != id);
+            b.workspaces.retain(|_, r| r != id);
+            b.families.retain(|_, r| r != id);
+            if b.global.as_deref() == Some(id) {
+                b.global = None;
+            }
+        })?;
     }
     Ok(name)
 }
@@ -653,8 +726,8 @@ pub fn restore(dir: Option<&Path>, home: &Path, backup: &str) -> Result<Route, R
     if to.exists() {
         return Err(RouteError::Exists(format!("a route {id:?} exists again")));
     }
-    std::fs::create_dir_all(dir).map_err(|e| RouteError::Failed(e.to_string()))?;
-    std::fs::rename(&from, &to).map_err(|e| RouteError::Failed(e.to_string()))?;
+    crate::home_fs::create_dirs(dir).map_err(|e| RouteError::Failed(e.to_string()))?;
+    crate::home_fs::rename(&from, &to).map_err(|e| RouteError::Failed(e.to_string()))?;
     find(Some(dir), &id)
 }
 
@@ -692,13 +765,17 @@ pub fn update_bindings(
     let mut b = bindings(home);
     change(&mut b);
     let path = bindings_path(home);
+    // Not under a lost home (`config::refuse_lost_home`), and through the folder this daemon
+    // holds (`home_fs`): a home replaced after the check never gets the bindings.
+    let failed = |e: std::io::Error| RouteError::Failed(e.to_string());
+    crate::config::refuse_lost_home(&path).map_err(|e| RouteError::Failed(e.to_string()))?;
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| RouteError::Failed(e.to_string()))?;
+        crate::home_fs::create_dir_all(parent, 0o777).map_err(failed)?;
     }
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec_pretty(&b).unwrap_or_default())
-        .map_err(|e| RouteError::Failed(e.to_string()))?;
-    std::fs::rename(&tmp, &path).map_err(|e| RouteError::Failed(e.to_string()))?;
+    crate::home_fs::write_synced(&tmp, &serde_json::to_vec_pretty(&b).unwrap_or_default())
+        .map_err(failed)?;
+    crate::home_fs::rename(&tmp, &path).map_err(failed)?;
     Ok(b)
 }
 

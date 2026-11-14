@@ -57,6 +57,8 @@ final class LineTransport: Sendable {
         var sawShutdown = false
         /// The daemon refused this connection at its connection limit (`server.busy`).
         var sawBusyRefusal = false
+        /// The machine's link refused this stream (`link.refused`): its stated reason.
+        var linkRefusal: String?
         /// Events routed so far; responses capture it as their barrier.
         var eventCount: UInt64 = 0
         /// Lines read so far, every kind, in socket order: the daemon counts the lines it writes the same way.
@@ -132,15 +134,18 @@ final class LineTransport: Sendable {
     let path: String
     /// The daemon-request probe this transport records into; nil: none.
     private let latency: DaemonRequestLatency?
+    /// The slow request log this transport's requests are recorded in (``SlowRequestLog``); nil: none.
+    let slowLog: SlowRequestLog?
 
     /// The bridge child of this connection (``DaemonBridge``), killed and
     /// reaped when the connection closes.
     private let child: BridgeChild?
 
     /// - Parameter writerLimit: The most bytes the writer queues before it refuses a write (``SocketWriter``).
-    init(path: String, bridge: DaemonBridge? = nil, latency: DaemonRequestLatency? = nil,
+    init(path: String, bridge: DaemonBridge? = nil, latency: DaemonRequestLatency? = nil, slowLog: SlowRequestLog? = nil,
          writerLimit: Int = 64 << 20) throws(DaemonError) {
         self.latency = latency
+        self.slowLog = slowLog
         self.path = path
         let fd: Int32
         if let bridge {
@@ -237,20 +242,37 @@ final class LineTransport: Sendable {
     /// arrived in time fails the request with `DaemonError.timedOut`; the
     /// late reply is dropped when it comes (architecture.md 5a).
     func request(cmd: String, timeout: Duration?, _ body: (UInt64) throws -> Data) async throws -> Response {
-        // The daemon-request probe (`debug.daemon_requests`): send to reply, or to the failure.
-        guard let latency else { return try await exchange(cmd: cmd, timeout: timeout, body) }
-        let sent = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        // The daemon-request probe (`debug.daemon_requests`) and the slow request log: send to reply, or to the failure.
+        guard latency != nil || slowLog != nil else { return try await exchange(cmd: cmd, timeout: timeout, body) }
+        let sent = uptime()
+        // The line as sent, kept only for the ids a slow or failed request's record names (``SlowRequestLog/idKeys``).
+        var line: Data?
         do {
-            let response = try await exchange(cmd: cmd, timeout: timeout, body)
-            latency.record(nanoseconds: clock_gettime_nsec_np(CLOCK_UPTIME_RAW) &- sent, outcome: .reply)
+            let response = try await exchange(cmd: cmd, timeout: timeout) { id in
+                let encoded = try body(id)
+                if slowLog != nil, encoded.count <= SlowRequestLog.maxKeptLineBytes { line = encoded }
+                return encoded
+            }
+            let waited = uptime() &- sent
+            latency?.record(nanoseconds: waited, outcome: .reply)
+            if waited > SlowRequestLog.slowNanoseconds {
+                slowLog?.noteRequest(name: cmd, line: line, nanoseconds: waited, replyBytes: response.line.count, timeout: timeout, failure: nil)
+            }
             return response
         } catch {
-            let outcome: DaemonRequestLatency.Outcome
-            if case DaemonError.timedOut = error { outcome = .timedOut } else { outcome = .error }
-            latency.record(nanoseconds: clock_gettime_nsec_np(CLOCK_UPTIME_RAW) &- sent, outcome: outcome)
+            let waited = uptime() &- sent
+            if let latency {
+                let outcome: DaemonRequestLatency.Outcome
+                if case DaemonError.timedOut = error { outcome = .timedOut } else { outcome = .error }
+                latency.record(nanoseconds: waited, outcome: outcome)
+            }
+            slowLog?.noteRequest(name: cmd, line: line, nanoseconds: waited, replyBytes: nil, timeout: timeout, failure: error)
             throw error
         }
     }
+
+    /// The monotonic clock of the probe and of the slow request log (`CLOCK_UPTIME_RAW`, nanoseconds).
+    func uptime() -> UInt64 { slowLog?.uptime() ?? clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
 
     /// ``request(cmd:timeout:_:)`` without the probe.
     private func exchange(cmd: String, timeout: Duration?, _ body: (UInt64) throws -> Data) async throws -> Response {
@@ -382,8 +404,9 @@ final class LineTransport: Sendable {
     /// (`{"type":"refused","code":"server.busy"}`, then EOF): the daemon is alive and busy.
     static let busyRefusal = "refused: the session is at its connection limit (server.busy)"
 
-    /// The `code` of a `cmux.protocol/2` refusal line (`type: "refused"`).
-    private struct Refusal: Decodable { var code: String? }
+    /// The `code` of a `cmux.protocol/2` refusal line (`type: "refused"`); a machine's link
+    /// refusal (`link.refused`) adds its reason, failed check and detail.
+    private struct Refusal: Decodable { var code: String?; var reason: String?; var check: String?; var detail: String? }
 
     /// The daemon's busy refusal line is waiting unread at the front of `fd`'s receive buffer
     /// (`MSG_PEEK`, never blocks): the connection was refused, not broken.
@@ -451,7 +474,8 @@ final class LineTransport: Sendable {
         let reason: TransportCloseReason = state.withLock { state in
             if let closed = state.closed { return closed }
             if state.sawShutdown { return .daemonShutdown }
-            return .lost(state.sawBusyRefusal ? Self.busyRefusal : closeDetail)
+            if state.sawBusyRefusal { return .lost(Self.busyRefusal) }
+            return .lost(state.linkRefusal.map { "refused by the machine's link: \($0)" } ?? closeDetail)
         }
         failAll(reason)
         writer.close()
@@ -495,7 +519,13 @@ final class LineTransport: Sendable {
         }
         if envelope.type == "refused" {
             // The one line of a connection refused at the limit, then EOF: no request ran.
-            if (try? decoder.decode(Refusal.self, from: line))?.code == "server.busy" { state.withLock { $0.sawBusyRefusal = true } }
+            let refusal = try? decoder.decode(Refusal.self, from: line)
+            if refusal?.code == "server.busy" { state.withLock { $0.sawBusyRefusal = true } }
+            if let refusal, refusal.code == "link.refused" {
+                // The machine refused the stream before any daemon byte; the close names why, not a bare EOF.
+                let stated = [refusal.reason, refusal.check, refusal.detail].compactMap(\.self).joined(separator: ": ")
+                state.withLock { $0.linkRefusal = stated.isEmpty ? "link.refused" : stated }
+            }
             return
         }
         guard envelope.ok != nil || envelope.id != nil else { return }

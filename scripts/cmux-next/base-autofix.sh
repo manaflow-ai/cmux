@@ -23,7 +23,9 @@
 #   - the app-host generated files: cmux-tui/crates/cmux-app-host/generated
 #     (the typed cmux global, scopes and ops) from the operation catalogs, the
 #     action catalog export and the first-party apps' fragments
-#     (cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts; with --app-host);
+#     (cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts; with --app-host),
+#     then the copies the app bundles from them
+#     (scripts/cmux-next/sync-app-runtime.sh; with --app-host);
 #   - the defaults snapshot: schemas/defaults/cmux-next.json from the action
 #     and settings exports (scripts/ci/defaults_guard.py snapshot), after
 #     --generated copied the regenerated exports in;
@@ -48,7 +50,14 @@
 #   - the app FFI pin: reports a stale pin (Package.swift is frozen; the
 #     app-ffi-repin pull request carries it);
 #   - formatting: cargo fmt over the cmux-tui workspace and each OptChat crate
-#     (Native/OptChat; unless --no-fmt).
+#     (Native/OptChat; unless --no-fmt);
+#   - Cargo locks: every tracked Cargo.lock that no longer matches its
+#     workspace's manifests is rewritten with `cargo update --workspace` (only
+#     what the manifests now need; scripts/cmux-next/cargo-locks.py fix; with
+#     --locks). A manifest change in one workspace leaves another workspace's
+#     lock stale through a path dependency: eb4f3eb1d94 (a direct push) changed
+#     cmux-tui/Cargo.toml, and cmux-app-ffi's lock failed --locked on every pull
+#     request until #40883. Only Cargo.lock files are written.
 # Dependency order: the docs shortcuts and app-host files are rewritten from
 # action-surfaces.json, so they run after --generated copied the regenerated
 # exports in. With --unverified-exports (the exports' inputs changed but their
@@ -66,10 +75,10 @@
 # Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
 # repair left to a person ("left: ...").
 #
-# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO
+# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--no-fmt] REPO
 set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-generated="" package_dump="" sdk=0 capabilities=0 docs_shortcuts=0 app_host=0 app_host_committed=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" fmt=1
+generated="" package_dump="" sdk=0 capabilities=0 docs_shortcuts=0 app_host=0 app_host_committed=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" locks=0 fmt=1
 while (( $# > 1 )); do
   case "$1" in
     --generated) generated="$2"; shift 2 ;;
@@ -85,11 +94,12 @@ while (( $# > 1 )); do
     --ratchets) ratchets=1; shift ;;
     --cloud-clients) cloud_clients=1; shift ;;
     --webviews-fmt-patch) webviews_patch="$2"; shift 2 ;;
+    --locks) locks=1; shift ;;
     --no-fmt) fmt=0; shift ;;
-    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO" >&2; exit 2 ;;
+    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--no-fmt] REPO" >&2; exit 2 ;;
   esac
 done
-repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO}" && pwd)"
+repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--no-fmt] REPO}" && pwd)"
 frozen_list="$script_dir/base-autofix-frozen.txt"
 
 frozen() { # repository-relative path -> 0 when frozen; a "!" line exempts a path
@@ -212,6 +222,33 @@ if (( docs_shortcuts )) && [[ -f "$repo/web/scripts/export-next-docs.ts" ]]; the
   fi
 fi
 
+# 1e1'. The settings reference follows the settings schema alone, so it is made on every run whose
+# settings exports are current, like the defaults snapshot (1e3), and not only with --docs-shortcuts:
+# a settings-only change (971deafbe988, #41212) had its schema regenerated by 53139ac8c0cc while
+# web/data/next-docs/settings-reference.generated.json stayed stale and web tests went red on
+# feat-cmux-next. It reads only the committed (or just copied) schema, so a run is cheap and a
+# current reference is left as it is. The run has bun when this run regenerated exports
+# (cmux-next-base-autofix.yml's Setup Bun step).
+settings_reference=web/data/next-docs/settings-reference.generated.json
+if (( !docs_shortcuts )) && [[ -f "$repo/web/scripts/export-next-docs.ts" && -f "$repo/schemas/settings/settings-schema.json" ]]; then
+  if (( unverified_settings )); then
+    echo "left: $settings_reference (waits for the settings exports; their Mac job did not regenerate them)"
+  elif ! command -v bun >/dev/null 2>&1; then
+    echo "left: $settings_reference (no bun on this runner; bun web/scripts/export-next-docs.ts --settings)"
+  else
+    before="$(cksum < "$repo/$settings_reference" 2>/dev/null || true)"
+    (cd "$repo" && bun web/scripts/export-next-docs.ts --settings >/dev/null)
+    if [[ "$before" != "$(cksum < "$repo/$settings_reference")" ]]; then
+      if frozen "$settings_reference"; then
+        git -C "$repo" checkout --quiet -- "$settings_reference" 2>/dev/null || rm -f "$repo/$settings_reference"
+        echo "skipped (frozen): $settings_reference (stale; bun web/scripts/export-next-docs.ts --settings)"
+      else
+        echo "fixed: regenerated $settings_reference"
+      fi
+    fi
+  fi
+fi
+
 # 1e2. The app-host generated files, from the same export and the operation catalogs.
 app_host_gen=cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts
 if (( app_host )) && [[ -f "$repo/$app_host_gen" ]]; then
@@ -226,6 +263,23 @@ if (( app_host )) && [[ -f "$repo/$app_host_gen" ]]; then
         echo "fixed: regenerated $rel"
       fi
     done <<<"$changed"
+  fi
+  # The copies the app bundles (sync-app-runtime.sh): app platform checks them against generated/,
+  # and a regeneration without them left it red on base (f2a158b55281, f7fd559f9).
+  app_runtime=Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform
+  if [[ -f "$repo/scripts/cmux-next/sync-app-runtime.sh" ]]; then
+    (cd "$repo" && scripts/cmux-next/sync-app-runtime.sh >/dev/null)
+    changed="$(git -C "$repo" status --porcelain --untracked-files=all -- "$app_runtime" | cut -c4-)"
+    if [[ -n "$changed" ]]; then
+      while IFS= read -r rel; do
+        if frozen "$rel"; then
+          git -C "$repo" checkout --quiet -- "$rel" 2>/dev/null || rm -f "$repo/$rel"
+          echo "skipped (frozen): $rel (stale; scripts/cmux-next/sync-app-runtime.sh)"
+        else
+          echo "fixed: synced $rel"
+        fi
+      done <<<"$changed"
+    fi
   fi
 fi
 
@@ -250,6 +304,11 @@ elif [[ -f "$repo/scripts/ci/defaults_guard.py" ]]; then
     fi
   fi
 fi
+
+# 1e4. (The display suite list: derived from the suites' display skip traits wherever it is read
+# (scripts/ci/display_suites.py), never committed, so there is nothing to regenerate. A committed copy
+# went stale on every pull request that added a display test, since generated_files_guard.py refuses a
+# new committed generated file, and on base until this step ran: 8d01c87e13c, #38773, #39410, #41801.)
 
 # 1f. Stale namespace ratchet rows. The update only drops fixed or gone
 # entries, never adds one; the lint's other findings are left to their PRs.
@@ -383,5 +442,14 @@ if (( fmt )); then
     after="$(git -C "$repo" status --porcelain -- "$crate")"
     [[ "$before" == "$after" ]] || echo "fixed: cargo fmt in $crate"
   done
+fi
+
+# 5. Cargo locks (scripts/cmux-next/cargo-locks.py): a lock is never frozen, and the fixer writes only Cargo.lock files.
+if (( locks )); then
+  if command -v cargo >/dev/null 2>&1; then
+    python3 -I "$script_dir/cargo-locks.py" fix --repo "$repo" | grep -E '^(fixed|left): ' || true
+  else
+    echo "left: Cargo locks not checked (no cargo on PATH)"
+  fi
 fi
 exit 0

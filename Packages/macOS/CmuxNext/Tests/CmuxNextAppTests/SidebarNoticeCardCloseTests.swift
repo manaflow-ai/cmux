@@ -8,7 +8,7 @@ import Testing
 @MainActor @Suite(.serialized) struct SidebarNoticeCardCloseTests {
     private func laidOut(_ notice: SidebarNoticeCard) -> SidebarNoticeCardView {
         _ = NSApplication.shared
-        let card = SidebarNoticeCardView(frame: NSRect(x: 0, y: 0, width: 216, height: SidebarNoticeCardView.height(for: notice)))
+        let card = SidebarNoticeCardView(frame: NSRect(x: 0, y: 0, width: 216, height: SidebarNoticeCardView.height(for: notice, width: 216)))
         card.configure(notice)
         card.layoutSubtreeIfNeeded()
         return card

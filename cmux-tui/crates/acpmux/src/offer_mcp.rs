@@ -73,18 +73,28 @@ fn tools() -> Value {
 /// What the server tells the agent once, at `initialize` (MCP `instructions`).
 pub const INSTRUCTIONS: &str = "Work the user did not ask for: suggest it with offer_session (one task) \
 or suggest_tasks (a few at once) and let the user start it; start a session yourself only when the \
-user asked for one.";
+user asked for one. When you notice side work the user would likely want (a bug, a follow-up, a \
+cleanup) that does not belong in this task, offer it instead of doing it inline or only mentioning \
+it: the chat draws it as a card the user starts as a new chat, or has you do here.";
 
-/// Runs the server on stdin and stdout.
-pub async fn run() -> Result<()> {
-    crate::secret_mcp::serve(
+/// The server for the session in its env, its calls on `daemon`'s connection
+/// (`tools_mcp.rs`: one process serves it with acpmux's other servers).
+pub(crate) fn served(
+    daemon: &std::sync::Arc<crate::tools_mcp::Daemon>,
+) -> Result<crate::tools_mcp::Served> {
+    crate::tools_mcp::served(
         SERVER_NAME,
         SESSION_ENV,
         tools(),
         Some(INSTRUCTIONS.to_owned()),
+        daemon,
         |daemon, session, params| async move { call(&daemon, &session, &params).await },
     )
-    .await
+}
+
+/// Runs the server on stdin and stdout.
+pub async fn run() -> Result<()> {
+    crate::tools_mcp::serve_one(served).await
 }
 
 async fn call(daemon: &Client, session: &str, params: &Value) -> Value {

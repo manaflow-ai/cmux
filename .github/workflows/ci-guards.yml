@@ -36,7 +36,7 @@ jobs:
   workflow-guard-submodule-forward-only:
     name: workflow-guard-submodule-forward-only
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -66,6 +66,23 @@ jobs:
 
       - name: Test submodule forward-only guard
         run: python3 tests/test_submodule_forward_only.py
+
+      # No build fetches a Zig package from a third-party host: codeberg.org's
+      # outage on 2026-11-11 failed every cold libghostty-vt build (translate_c's
+      # aro is git+https://codeberg.org/ziglang/arocc). Every URL dependency of
+      # the Ghostty sources' trees, transitive ones included, is mirrored in
+      # scripts/ci/zig-packages.lock on a host we control. A change to the lock,
+      # a Ghostty gitlink or the detector also downloads every mirrored copy and
+      # checks its sha256 and its own dependencies.
+      - name: Validate no build fetches a Zig package from a third-party host
+        run: |
+          set -euo pipefail
+          git submodule update --init --depth 1 ghostty ghostty-next
+          args=()
+          if git diff --name-only HEAD^1 HEAD -- scripts/ci/zig-packages.lock scripts/ci/zig_package_mirror.py ghostty ghostty-next | grep -q .; then
+            args+=(--online)
+          fi
+          python3 scripts/ci/zig_package_mirror.py check ${args[@]+"${args[@]}"}
 
   workflow-guard-tests:
     if: ${{ inputs.linux_guard_tests == 'true' }}
@@ -162,6 +179,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fleet_rule_lints.py
 
+      # Noclobber is not exclusive creation: no set -C, and no guessable name in a shared temp folder, in scripts/
+      # and .github/ (an allowlist with reasons that only shrinks).
+      - name: Validate no guessable shared-temp names
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_noclobber_sweep.py
+
       - name: Validate the local and fast guard runner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py
@@ -170,6 +193,14 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_push_trigger_branches.py
 
+      - name: Validate no new check first runs after the merge
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_post_merge_checks.py
+
+      - name: Validate the step table and the pull request job budget
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_step_table.py
+
       - name: Validate the CI timing readout
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_timing_readout.py
@@ -177,6 +208,10 @@ jobs:
       - name: Validate the repository variable check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_check_repo_variables.py
+
+      - name: Validate the Cloud capture account provisioning
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cloud_capture_provision.py
 
       - name: Validate the cloud overflow switch
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -197,6 +232,14 @@ jobs:
       - name: Validate the classic API auto-deploy guard
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_classic_api_guard.py
+
+      - name: Validate the classic-frozen guard
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_classic_frozen_guard.py
+
+      - name: Validate the language-boundaries check
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_language_boundaries.py
 
       - name: Validate the PR capture check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -225,6 +268,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_classic_cloud_routes.py
 
+      # Every host NEXT's code names is listed in docs/privacy.md, and the list
+      # stays exact (a row whose host left the code fails too).
+      - name: Validate NEXT's outbound hosts are listed
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_outbound_hosts.py
+
       - name: Validate the PR perf section check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_perf_section_check.py
@@ -232,6 +281,10 @@ jobs:
       - name: Validate the PR design spec check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_design_spec_check.py
+
+      - name: Validate the PR body checks run each lint on its own events
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_pr_body_checks.py
 
       - name: Validate the PR cloud backend check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -344,6 +397,10 @@ jobs:
             status=$?
           fi
           [[ ! -f "$result_path" ]] || cat "$result_path"
+          # ci-guard.sh's per-command and per-test checks (run_ci_guards.py --results).
+          if [[ -n "${CMUX_GUARD_CHECK_RESULTS:-}" && -f "$state_root/guard-checks.tsv" ]]; then
+            cat "$state_root/guard-checks.tsv" >> "$CMUX_GUARD_CHECK_RESULTS"
+          fi
           exit "$status"
 
       - name: Validate tagged reload works without the shared dev backend
@@ -478,6 +535,10 @@ jobs:
             CMUX_TEST_REGISTRY_BASE_SHA="$(git rev-parse FETCH_HEAD)"
             args=(--base-sha "$CMUX_TEST_REGISTRY_BASE_SHA")
           fi
+          # A push only warns: the pull request that adds an unregistered test is the one that fails.
+          if [[ "${GITHUB_EVENT_NAME:-}" == push ]]; then
+            args+=(--warn-only)
+          fi
           python3 scripts/ci/validate_test_execution_registry.py "${args[@]+"${args[@]}"}"
 
       - name: Validate Python test execution registry blast radius
@@ -611,6 +672,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
         run: bun test scripts/cmux-next/machine-join-e2e.test.ts
 
+      # The deploy check's retries: a failed Cloud journey runs once more, and db-release waits out a
+      # full database (fake bun and fake connect; no network, no secret).
+      - name: Validate the Cloud journey and deploy gate retries
+        if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
+        run: bun test scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts
+
       # The machine vault E2E harness: cleanup, refusal, skip and leak paths (fake fetch and
       # fake CLIs; no network, no secret).
       - name: Validate the machine vault E2E harness
@@ -676,9 +743,11 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: ./tests/test_testbox_demo_cleanup.sh
 
+      # -x follows each `# shellcheck source=` (repo-root relative), so a test that sources
+      # scripts/cmux-next/tests/lib/git-fixture.sh lints with it instead of failing SC1091.
       - name: Lint the Testbox lane helpers
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: shellcheck scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/blacksmith-testbox-busy.sh tests/test_testbox_keepalive_busy.sh scripts/blacksmith-testbox-target-prune.sh scripts/blacksmith-testbox-release.sh tests/test_testbox_target_prune.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh tests/test_testbox_setup_identity.sh scripts/blacksmith-testbox-demo.sh scripts/blacksmith-testbox-approve.sh tests/test_testbox_approve.sh tests/test_testbox_demo_cleanup.sh
+        run: shellcheck -x scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/blacksmith-testbox-busy.sh tests/test_testbox_keepalive_busy.sh scripts/blacksmith-testbox-target-prune.sh scripts/blacksmith-testbox-release.sh tests/test_testbox_target_prune.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh tests/test_testbox_setup_identity.sh scripts/blacksmith-testbox-demo.sh scripts/blacksmith-testbox-approve.sh tests/test_testbox_approve.sh tests/test_testbox_demo_cleanup.sh
 
       - name: Test the actionlint downloader without a network outage
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -688,9 +757,17 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_actionlint_covers_every_workflow.py
 
+      - name: Check that every workflow file is under GitHub's 500 KB limit, with room
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_file_size.py
+
       - name: Check that push and pull_request path filters agree
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_path_filter_parity.py
+
+      - name: Check that path-filtered workflows start for their tests' inputs
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_paths_cover_inputs.py
 
       - name: Validate the backend migration flow (append-only plan, push-safe guards)
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -872,7 +949,10 @@ jobs:
 
       - name: Validate that no workflow polls the API with GITHUB_TOKEN
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_no_github_token_polling.py
+        # And that every HTTP call in scripts/ci ends by its deadline (deadline_http.py, no bare urlopen).
+        run: |
+          python3 tests/test_ci_no_github_token_polling.py
+          python3 tests/test_ci_no_bare_urlopen.py
 
       - name: Validate CI queue janitor policy
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -961,6 +1041,7 @@ jobs:
           python3 tests/test_nightly_linux_admission.py
           python3 tests/test_nightly_admission_receipt.py
           python3 tests/test_nightly_dedicated_mini.py
+          python3 tests/test_portable_jobs_bring_their_python.py
 
       - name: Validate the rescue's re-runs route alike for both bot identities
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1032,13 +1113,22 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ios_internal_builder.py
 
+      - name: Validate the App Store signing ensure step
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ios_appstore_ensure_signing.py
+
       - name: Validate the INTERNAL iOS archive never waits on the dedicated mini
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ios_internal_runner.py
 
+      # Every vars.NAME a runs-on reads should declare its fallback in .github/single-host-fallbacks.json, which the
+      # build-fleet runner label policy reads from here (cmux#40221 merged two undeclared names unseen). Advisory
+      # only (no new CI gate, Lawrence 2026-10-23): --advisory warns and exits 0; the pre-push hook enforces it.
       - name: Validate no runs-on waits on one machine through a variable's value
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_runs_on_values.py
+        run: |
+          python3 tests/test_ci_runs_on_values.py
+          python3 scripts/cmux-next/check-single-host-fallbacks.py --advisory
 
       - name: Validate the INTERNAL iOS builder What to Test notes
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1047,6 +1137,10 @@ jobs:
       - name: Validate the trusted web complexity workflow
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_web_complexity_trusted_workflow.py
+
+      - name: Validate the web performance gate keeps measurement and validation apart
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_web_perf_validation_boundary.py
 
       - name: Validate every workflow guard is wired
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1139,6 +1233,14 @@ jobs:
       - name: Validate rust-cache keeps self-hosted runners' ~/.cargo/bin
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_rust_cache_keeps_runner_bin.py
+
+      - name: Validate each shared-HOME runner gets its own CARGO_HOME
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: ./tests/test_setup_cmux_tui_rust_cargo_home.sh
+
+      - name: Validate every self-hosted rust-cache step cleans only its runner's CARGO_HOME
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_rust_cache_runner_cargo_home.py
 
       - name: Validate every job that can start acpmux gives it a home of the job's own
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1362,6 +1464,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_appstore_upload_marker.py
 
+      - name: Validate the App Review gate's lint and report
+        if: ${{ !cancelled() && matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_app_review_gate.py
+
       - name: Validate TestFlight upload argument expansion
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_upload_array_expansion.py
@@ -1446,6 +1552,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_seed_zig_package_archives.sh
 
+      - name: Validate the Zig package mirror detector and lock
+        if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
+        run: python3 tests/test_zig_package_mirror.py
+
       - name: Initialize Ghostty for Zig version guard
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         shell: bash
@@ -1466,6 +1576,10 @@ jobs:
       - name: Validate the cmux-tui tree hand-off cap
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_tree_handoff.py
+
+      - name: Validate that recovery jobs run after a timeout
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_ci_recovery_runs_after_a_timeout.py
 
       - name: Validate the cmux-tui pin duplicate skip
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1491,6 +1605,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_delivery_concurrency.py
 
+      - name: Validate an older nightly-next build yields its sign slot and the newest never does
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_sign_yield.py
+
       - name: Validate the nightly-next feed writers' R2 lease
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_r2_cas.py
@@ -1506,6 +1624,15 @@ jobs:
       - name: Validate the nightly-next tick re-runs a cancelled tip
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_cancelled_tip.py
+
+      # The rule reads main's scripts/ci/delivery_workflows.py, as the workflow does.
+      - name: Validate the nightly-next supersede drops an older run that holds the tip's group and never started
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin main
+          git show FETCH_HEAD:scripts/ci/delivery_workflows.py > "$RUNNER_TEMP/delivery_workflows.py"
+          NIGHTLY_RULES_PY="$RUNNER_TEMP/delivery_workflows.py" python3 tests/test_nightly_next_supersede.py
 
       - name: Validate the run artifact download waits through a refused GitHub call
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1639,6 +1766,10 @@ jobs:
           python3 tests/test_nightly_trusted_routing.py
           python3 tests/test_nightly_build_state.py
           python3 tests/test_ensure_setup_node.py
+
+      - name: Validate no nightly job can be routed to Blacksmith
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_never_blacksmith.py
 
       # .github/nightly-step-coverage.json: every step only the nightly runs
       # names its pull-request dry run here or elsewhere, or a reviewed reason.
@@ -1803,6 +1934,7 @@ jobs:
           python3 tests/test_ci_runs_on_fallback.py
           python3 tests/test_ci_warm_sources.py
           python3 tests/test_ci_checkout_lean.py
+          python3 tests/test_ci_sparse_checkout_imports.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
           python3 tests/test_ci_killpg_tolerates_eperm.py
 
@@ -1821,6 +1953,14 @@ jobs:
       - name: Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_owned_minis_only.py
+
+      - name: Validate the nightly runner preflight fails a run whose routing label has no online runner
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_runner_preflight.py
+
+      - name: Validate every App token step names only inputs the action declares, and some permission
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_app_token_steps.py
 
       - name: Validate nightly-next signs and publishes on cmux15 first
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1855,6 +1995,10 @@ jobs:
       - name: Validate the nightly-next pending notarization continuation
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_recovery.py
+
+      - name: Validate recovery app archives made on a Mac
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_recovery_app_archive.py
 
       - name: Validate asynchronous notarization status polling
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -2054,11 +2198,26 @@ jobs:
           python3 tests/test_lint_errno_in_test_assertions.py
           python3 scripts/lint-errno-in-test-assertions.py
 
+      - name: Validate no short fixed gates on Cloud and daemon slow paths
+        if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
+        run: |
+          python3 scripts/lint-short-gates.py --self-test
+          python3 scripts/lint-short-gates.py
+
+      # Warn-only for now (exit 0, ::warning annotations): a new connection opened without a deadline or a spawn
+      # nobody frees. --strict turns it red once the baseline is down (cmuxterm-hq docs/handbook/connections-and-lifetimes.md).
+      # In the `ci` group: every feat-cmux-next pull request and push runs it, whatever source the change touches.
+      - name: Warn on connections and lifetimes nobody bounds
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: |
+          python3 -m unittest tests/test_lint_connection_lifetimes.py
+          python3 scripts/lint-connection-lifetimes.py
+
       - name: Validate test determinism gate
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
         run: |
           python3 scripts/check-test-determinism.py --self-test
-          python3 scripts/check-test-determinism.py --strict
+          python3 scripts/check-test-determinism.py --strict --guard-checks
 
   workflow-guard-history:
     if: ${{ inputs.linux_guard_history == 'true' }}
@@ -2255,6 +2414,24 @@ jobs:
           import os
           import sys
 
+          def exit_with_verdict(results, what, may_skip=()):
+              """scripts/ci/needs_verdict.py PYTHON_RULE, copied verbatim (tests/test_needs_verdict.py)."""
+              def word(r):
+                  return (r or "").replace(":", " ").split(" ", 1)[0]
+              bad = {n: r for n, r in results.items() if word(r) != "success" and not (r == "skipped" and n in may_skip)}
+              if not bad:
+                  return
+              failed = {n: r for n, r in bad.items() if word(r) in ("failure", "invalid")}
+              for n, r in bad.items():
+                  print(f"{n}: {r or 'none'}", file=sys.stderr)
+              if failed:
+                  print(f"::error::summary red: {what}: " + "; ".join(f"{n}: {r}" for n, r in failed.items()))
+                  sys.exit(1)
+              named = ", ".join(f"{n} {r or 'none'}" for n, r in bad.items())
+              print(f"::error::no verdict: {what}: {named}; nothing it summarizes was judged: re-run the run")
+              sys.exit(3)
+
+
           inputs = json.loads(os.environ["GUARD_INPUTS"])
           needs = json.loads(os.environ["GUARD_NEEDS"])
           route_jobs = {
@@ -2264,16 +2441,15 @@ jobs:
               "linux_guard_cli": "workflow-guard-cli-scripts",
               "linux_guard_source": "workflow-guard-source-lints",
           }
-          bad = {}
+          results, may_skip = {}, set()
           for route, job in sorted(route_jobs.items()):
               if route == "submodule_forward_only":
-                  if needs[job]["result"] != "success":
-                      bad[job] = needs[job]["result"]
+                  results[job] = needs[job]["result"]
                   continue
               value = inputs.get(route)
               result = needs[job]["result"]
               if value not in {"true", "false"}:
-                  bad[route] = f"invalid route {route}={value!r}"
+                  results[route] = f"invalid route {route}={value!r}"
               elif value == "true":
                   # Pull requests run the `ci` group in the first-class
                   # `CI fast guards` job in ci.yml. The reusable matrix
@@ -2289,20 +2465,17 @@ jobs:
                       except (TypeError, ValueError):
                           groups = None
                       if not isinstance(groups, list) or not all(isinstance(group, str) for group in groups):
-                          bad[route] = f"invalid linux_guard_test_groups={raw_groups!r}"
+                          results[route] = f"invalid linux_guard_test_groups={raw_groups!r}"
                           continue
                       if groups and set(groups) == {"ci"}:
                           print("linux_guard_tests=authoritative CI fast guards job")
                           continue
-                  if result != "success":
-                      bad[job] = f"{result} (route {route}=true)"
-              elif result not in {"success", "skipped"}:
-                  bad[job] = result
+                  results[job] = f"{result} (route {route}=true)"
+              else:
+                  results[job] = result
+                  may_skip.add(job)
 
-          if bad:
-              for name, result in bad.items():
-                  print(f"{name}: {result}", file=sys.stderr)
-              sys.exit(1)
+          exit_with_verdict(results, "Guard status", may_skip)
 
           for route, job in sorted(route_jobs.items()):
               print(f"{route}={inputs.get(route)} {job}={needs[job]['result']}")

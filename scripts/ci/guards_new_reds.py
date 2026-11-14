@@ -4,6 +4,7 @@
     guards_new_reds.py [--label NAME] [--flaky FILE] [--head-rerun FILE] HEAD_RESULTS BASE_RESULTS
     guards_new_reds.py --new-files [--flaky FILE] HEAD_RESULTS BASE_RESULTS
     guards_new_reds.py [--label NAME] --tip HEAD_RESULTS
+    guards_new_reds.py --red-steps HEAD_RESULTS
 
 Each file is run_ci_guards.py --results output ({step name: passed}) from one runner: the head's
 checkout run on the head, then on the base (--root). A step red on the head that passed on the
@@ -30,6 +31,19 @@ retries a red file alone and counts its pass, but only while its retry budget la
 shard was never retried. #27710 (run 41525196343) went red on three gallery-frame timeouts its head shards had no
 budget left to retry; the base push after it merged passed all three. A file that fails again, or is missing from
 the re-run, stays the change's.
+
+A file-level red (`FILE: false`: the file timed out, or failed without naming a test) that the base has no
+file-level entry for is red on the base too when every test the head names red in that file is red on the base,
+and there is at least one. The base side is often per-test only (the history's known verdicts, or a replay whose
+file failed by name), so `FILE` alone reads as passed there. Then a file the base's own slow reds push past its hard
+limit was charged to the change: transcript-block-sideways-scrollbar.test.ts timed out on base and head alike, its
+four 60 s gallery waits all red on the base, and only the file's own line was called new (#41217, #41246, #41204).
+A base file-level pass (`FILE: true`) still makes the head's file red the change's.
+
+--red-steps prints, one a line, each step red on the head (a red "<step> :: <check>" names its step), and exits 0.
+cmux-next-guards.yml re-runs only those steps on the base (run_ci_guards.py --step): a step green on the head is never
+charged to the change whatever the base says, so running it there too bought nothing. With release-notary in the
+compare, the full base pass doubled the job (about 9 minutes a pass, run 42001286004).
 
 --tip judges a branch tip on its own (cmux-next-guards.yml, a push to feat-cmux-next that touches what the guards
 read): there is no base to compare with, so every red step fails. A push judged only against the previous tip stays
@@ -70,7 +84,37 @@ def red_step_line(label: str, kind: str, step: str) -> str:
     return f"{label.lower()} red step ({kind}): {step}"
 
 
+CHECK_SEPARATOR = " :: "  # run_ci_guards.py's "<step> :: <check>" entries
+
+
+def red_steps(head: dict[str, bool]) -> list[str]:
+    return sorted({step.split(CHECK_SEPARATOR, 1)[0] for step, ok in head.items() if not ok})
+
+
+def explained_files(head: dict[str, bool], base: dict[str, bool]) -> set[str]:
+    """Head file-level reds the base's own reds explain: the base has no file-level entry for the file, and every
+    test the head names red in it (at least one) is red on the base."""
+    named: dict[str, list[str]] = {}
+    for step, ok in head.items():
+        if not ok and " > " in step:
+            named.setdefault(test_file(step), []).append(step)
+    return {
+        step
+        for step, ok in head.items()
+        if not ok
+        and " > " not in step
+        and CHECK_SEPARATOR not in step
+        and step not in base
+        and named.get(step)
+        and all(base.get(name) is False for name in named[step])
+    }
+
+
 def main(argv: list[str]) -> int:
+    if len(argv) == 2 and argv[0] == "--red-steps":
+        for step in red_steps(load(argv[1]) or {}):
+            print(step)
+        return 0
     label, flaky, tip, new_files, rerun = "Guard", set(), False, False, None
     while argv and (argv[0] in ("--tip", "--new-files")
                     or (len(argv) > 2 and argv[0] in ("--label", "--flaky", "--head-rerun"))):
@@ -108,7 +152,8 @@ def main(argv: list[str]) -> int:
     if base is None:
         print(f"no base results in {argv[1]}: every red step counts as this change's")
         base = {}
-    red = sorted(step for step, ok in head.items() if not ok and base.get(step, True))
+    explained = explained_files(head, base)
+    red = sorted(step for step, ok in head.items() if not ok and base.get(step, True) and step not in explained)
     new = [step for step in red if step not in flaky]
     flaked = [step for step in red if step in flaky]
     if new_files:
@@ -128,7 +173,7 @@ def main(argv: list[str]) -> int:
     passed_again = [step for step in new if passed_in_rerun(step)]
     new = [step for step in new if step not in passed_again]
     flaked = sorted(flaked + passed_again)
-    old = sorted(step for step, ok in head.items() if not ok and base.get(step) is False)
+    old = sorted(step for step, ok in head.items() if not ok and (base.get(step) is False or step in explained))
     fixed = sorted(step for step, ok in head.items() if ok and base.get(step) is False)
     for step in old:
         print(f"::warning title={label} red on the base too::{step}")

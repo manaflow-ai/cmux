@@ -960,3 +960,14 @@ struct MacScreenRdHostRoutingTests {
         #expect(failures.signals.count == 1)
     }
 }
+
+/// Auto streams no wider than the pane shows (a Retina host's full size costs every stage).
+struct MacScreenRdWishTests {
+    @Test func autoFollowsThePaneWidthAndTheFixedPresetsDoNot() {
+        #expect(MacScreenRdDocument.wish(.auto, refresh: 60).maxWidth == nil, "no pane yet: the display's own")
+        #expect(MacScreenRdDocument.wish(.auto, refresh: 60, paneWidth: 2081).maxWidth == 2096, "rounded up to 16")
+        #expect(MacScreenRdDocument.wish(.auto, refresh: 60, paneWidth: 600).maxWidth == 1280, "never under 1280")
+        #expect(MacScreenRdDocument.wish(.high, refresh: 60, paneWidth: 1000).maxWidth == nil, "High keeps the full size")
+        #expect(MacScreenRdDocument.wish(.smooth, refresh: 120, paneWidth: 1000) == (1920, 120))
+    }
+}

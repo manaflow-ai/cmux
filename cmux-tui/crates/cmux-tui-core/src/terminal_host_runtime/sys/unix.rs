@@ -24,6 +24,8 @@ mod lease;
 mod listener;
 mod process;
 mod pty_readiness;
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+mod record_root_watch;
 mod spawned_host;
 mod waker;
 pub(crate) use crate::terminal_loss_log::remove_signals as remove_terminal_loss_signals;
@@ -34,8 +36,46 @@ pub(crate) use process::{
     kill_process_group, process_definitely_absent as process_definitely_gone,
 };
 pub(crate) use pty_readiness::wait_for_pty_readable_or_forced_drain;
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+pub(crate) use record_root_watch::follow_record_root_removal;
+
+/// Other Unix targets do not watch their record directory yet (#36625):
+/// their hosts keep the build's orphan grace only.
+#[cfg(not(any(target_vendor = "apple", target_os = "linux")))]
+pub(crate) fn follow_record_root_removal(
+    _dir: &std::path::Path,
+    _on_removed: impl FnOnce() + Send + 'static,
+) -> std::io::Result<()> {
+    Ok(())
+}
 pub(crate) use spawned_host::SpawnedHostProcess;
 pub(crate) use waker::AcceptWaker;
+
+/// Kernel send buffer of a host's client connection. macOS gives a Unix
+/// stream socket 8 KiB, and on macOS the sender's buffer alone bounds what a
+/// write may queue (a larger receive buffer at the daemon changes nothing), so
+/// a batch of queued Output frames took one write and one daemon wake per
+/// 8 KiB. 256 KiB holds one whole writer batch (`MAX_BATCH_BYTES`); the
+/// kernel holds it only while the daemon lags.
+pub(crate) const CLIENT_SEND_BUFFER_BYTES: libc::c_int = 256 * 1024;
+
+/// Sizes `stream`'s kernel send buffer ([`CLIENT_SEND_BUFFER_BYTES`]). Best
+/// effort: a socket that refuses keeps its default, which only costs more
+/// writes.
+pub(crate) fn size_client_send_buffer(stream: &HostStream) {
+    let size = CLIENT_SEND_BUFFER_BYTES;
+    // SAFETY: the descriptor is `stream`'s open socket for this call, and
+    // setsockopt reads one c_int from a live local of the given length.
+    unsafe {
+        libc::setsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_SNDBUF,
+            (&raw const size).cast(),
+            size_of::<libc::c_int>() as libc::socklen_t,
+        );
+    }
+}
 
 /// The host process's bootstrap streams: its private stdin and stdout pipes.
 pub(crate) fn host_bootstrap_streams(

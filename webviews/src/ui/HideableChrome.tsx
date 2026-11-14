@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ContextMenu } from "./ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 
 /**
  * A piece of optional chrome that hides the macOS way (like Hide Mini): right-click it for
@@ -24,12 +24,15 @@ export function HideableChrome({
   item,
   className,
   onHide,
+  menuItems = [],
   children,
 }: {
   item: HideableChromeItem;
   className?: string;
   /** Runs before the piece goes, such as ending a dictation session its button runs. */
   onHide?(): void;
+  /** The piece's own items, above Hide (the mic's dictation sources). */
+  menuItems?: readonly ContextMenuItem[];
   children: ReactNode;
 }) {
   if (!item.shown) return null;
@@ -37,10 +40,12 @@ export function HideableChrome({
     <ContextMenu
       className={className}
       items={[
+        ...menuItems,
         {
           id: `hide-${item.id}`,
           label: item.hideLabel,
           icon: item.icon,
+          separatorBefore: menuItems.length > 0,
           onSelect: () => {
             onHide?.();
             item.setShown(false);

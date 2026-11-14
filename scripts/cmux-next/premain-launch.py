@@ -215,7 +215,7 @@ def launch_once(path, label, extra_env=None, sample_to=None, logs=True):
               "spawn_to_main_observed_ms": observed,
               "reference_excess_ms": round(main_ms - observed, 1) if observed is not None and main_ms is not None else None,
               "first_window_frame_ms": marks.get("first_window_frame_committed"),
-              "first_terminal_frame_ms": marks.get(bs.FINAL_MARK), "agent_handshake_ms": marks.get(bs.AGENT_MARK),
+              "first_terminal_frame_ms": marks.get(bs.FINAL_MARK), "agent_painted_ms": marks.get(bs.AGENT_MARK),
               "app_cpu_s_at_main": at_main["app"]["cpu_s"] if at_main else None,
               "checker_cpu_s_delta": checker_delta(poller.samples, main_ms), "ps_samples": poller.samples[:120]}
     if logs and main_ms is not None:
@@ -264,7 +264,7 @@ def exec_floor(runs=5, limits=True):
     return times
 
 
-NIGHTLY_FEED = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
+NIGHTLY_FEED = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"  # the one feed since #36287
 
 
 def checker_cpu():
@@ -338,7 +338,7 @@ def launch_release(app, label, until_main=False):
     main_ms = marks.get("main_start")
     observed = round((main_seen - spawn_t) * 1000, 1) if main_seen else None
     record = {"label": label, "path": app, "main_start_ms": main_ms, "spawn_to_main_observed_ms": observed,
-              "first_terminal_frame_ms": marks.get(bs.FINAL_MARK), "agent_handshake_ms": marks.get(bs.AGENT_MARK),
+              "first_terminal_frame_ms": marks.get(bs.FINAL_MARK), "agent_painted_ms": marks.get(bs.AGENT_MARK),
               # a checker that started during the launch (XprotectService on a first exec) counts from 0 s
               "checker_cpu_s": {k: round(v - (before.get(k) or 0.0), 2) for k, v in (after or {}).items() if v is not None},
               "exit_status": proc.returncode}
@@ -467,7 +467,10 @@ def notarized_probe_body(root, adhoc_app, result):
     work = os.path.join(root, "N")
     os.makedirs(work, exist_ok=True)
     code, feed, err = run(["curl", "-fsSL", "--max-time", "30", NIGHTLY_FEED], timeout=60)
-    urls = re.findall(r'url="(https://files-next\.cmux\.com/nightly-next/next/[^"]+\.dmg)"', feed)
+    if code != 0:
+        result["error"] = f"the feed {NIGHTLY_FEED} is unreadable (curl exit {code}): {err.strip()[:200]}"
+        return
+    urls = re.findall(r'url="(https://files-next\.cmux\.com/nightly-next/[^"/]+\.dmg)"', feed)
     if not urls:
         result["error"] = f"no DMG in the feed ({err.strip()[:200] or code})"
         return

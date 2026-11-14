@@ -2,9 +2,10 @@ import { DurableObject } from "cloudflare:workers";
 import { base64Decode, isValidDeviceKey, keyFingerprint, lowSHex } from "./crypto";
 import { DEVICE_ID, REPLAY_WINDOW_MS, checkDeviceSignature, readDeviceHeaders } from "./deviceAuth";
 import { relayEntitlement } from "./billing";
-import { ORIGIN_HEADER, STACK_TOKEN_HEADER, USER_HEADER, type Env } from "./env";
+import { HOST_RELAY_HEADER, ORIGIN_HEADER, SCOPE_HEADER, SESSION_DEVICE_HEADER, STACK_TOKEN_HEADER, USER_HEADER, type Env } from "./env";
 import { ApiError, badRequest, errorResponse, json, notFound } from "./errors";
-import { type Scope, mintTicket } from "./tickets";
+import { internalCall, why } from "./internalCall";
+import { REATTACH_TTL_S, TICKET_TTL_S, type Scope, mintTicket } from "./tickets";
 import { type IceServer, mintTurn } from "./turn";
 
 /** Who is calling: the hub user, the public origin, and the Stack token for the billing lookup (never stored). */
@@ -12,7 +13,16 @@ interface CallContext {
   userId: string;
   origin: string;
   stackToken: string | null;
+  /** `host`: a device-key renewal session, which may only serve this device as a host. */
+  scope: "full" | "host";
+  /** A host session's cmux relay entitlement, as recorded at its last anchor. */
+  hostRelay: boolean;
 }
+
+/** How long an anchor lets a device renew its own host session (PROTOCOL.md, Device renewal). */
+export const ANCHOR_TTL_MS = 30 * 24 * 3600 * 1000;
+/** How long the billing answer recorded at an anchor stands for a host session's cmux relay. */
+export const ANCHOR_RELAY_TTL_MS = 24 * 3600 * 1000;
 
 export type PermissionScope = "none" | "ask" | "view" | "full";
 type SessionState = "pending" | "approved" | "live" | "ended";
@@ -64,11 +74,31 @@ export const OFFLINE_GRACE_MS = 30_000;
  * in the window wins. Env CLOSE_GRACE_MS overrides it.
  */
 export const CLOSE_GRACE_MS = 3_000;
+/**
+ * A device socket that sends nothing for this long is gone, FIN or not (a Mac
+ * that slept, a phone that lost signal, a killed app): it stops counting as
+ * online and is closed with SILENT_CLOSE. The apps ping every 30 s
+ * (DeviceHubSocket.pingInterval), so this is two missed pings plus 15 s.
+ */
+export const SILENT_MS = 75_000;
+/** Close code for a socket closed for silence. Not terminal: the app reconnects. */
+export const SILENT_CLOSE = 4004;
 const PERMISSION_SCOPES: PermissionScope[] = ["none", "ask", "view", "full"];
 const RELAY_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PING = JSON.stringify({ type: "ping" });
 const PONG = JSON.stringify({ type: "pong" });
+
+interface WireTicket {
+  sessionId: string;
+  ticket: string;
+  signalURL: string;
+  ice: IceServer[];
+  peer: { id: string; name: string; signingKey: string };
+  role: "viewer" | "host";
+  scope: Scope;
+  reattach?: boolean;
+}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS devices(
@@ -105,6 +135,7 @@ CREATE TABLE IF NOT EXISTS replay_msg(
   device_id TEXT NOT NULL, digest TEXT NOT NULL,
   expires_at INTEGER NOT NULL, PRIMARY KEY(device_id, digest));
 CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS anchors(device_id TEXT PRIMARY KEY, anchored_at INTEGER NOT NULL, relay_paid INTEGER NOT NULL DEFAULT 0);
 DROP TABLE IF EXISTS replay;
 `;
 
@@ -122,6 +153,16 @@ const ADDED_COLUMNS: [string, string, string][] = [
   ["audit", "owner_id", "TEXT NOT NULL DEFAULT ''"],
 ];
 const OWNED_TABLES = ["devices", "permissions", "sessions", "audit"];
+
+/** What a User DO socket carries across hibernation. */
+interface SocketState {
+  /** The server closed it (sign-out, removal, replacement, silence). */
+  closed?: boolean;
+  /** When it was accepted (ms). */
+  openedAt?: number;
+  /** When the device last sent a frame the auto-response did not answer (ms). */
+  heardAt?: number;
+}
 
 function rank(scope: string): number {
   return scope === "full" ? 2 : scope === "view" ? 1 : 0;
@@ -169,6 +210,9 @@ export class UserDO extends DurableObject<Env> {
     const owner = this.sql.exec("SELECT v FROM meta WHERE k = 'user_id'").toArray()[0];
     if (owner) this.setOwner(owner.v as string);
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
+    // Sockets restored from hibernation need the silence check armed: a socket
+    // accepted before this check existed has no clock until a sweep stamps it.
+    if (ctx.getWebSockets().length > 0) void ctx.blockConcurrencyWhile(() => this.scheduleAlarm());
   }
 
   // ---- owner (v1: always the user; team sharing later adds 'team' rows) ----
@@ -210,7 +254,26 @@ export class UserDO extends DurableObject<Env> {
    * frame, which an app that drops its socket never does.
    */
   private liveSockets(deviceId: string): WebSocket[] {
-    return this.ctx.getWebSockets(deviceId).filter((ws) => ws.readyState === WebSocket.OPEN && !(ws.deserializeAttachment() as { closed?: boolean } | null)?.closed);
+    const now = Date.now();
+    return this.ctx.getWebSockets(deviceId).filter((ws) => this.isLive(ws, now));
+  }
+
+  /** Open, not closed by the server, and heard from within SILENT_MS (a socket from before openedAt existed counts until the next sweep stamps it). */
+  private isLive(ws: WebSocket, now: number): boolean {
+    if (ws.readyState !== WebSocket.OPEN) return false;
+    const st = this.socketState(ws);
+    if (st.closed) return false;
+    return st.openedAt === undefined || this.lastHeard(ws, st) + SILENT_MS > now;
+  }
+
+  private socketState(ws: WebSocket): SocketState {
+    return (ws.deserializeAttachment() as SocketState | null) ?? {};
+  }
+
+  /** The last sign of life: the open, the last ping (answered by the auto-response without waking us), or any other frame. */
+  private lastHeard(ws: WebSocket, st = this.socketState(ws)): number {
+    const ping = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0;
+    return Math.max(st.openedAt ?? 0, st.heardAt ?? 0, ping);
   }
 
   private online(deviceId: string): boolean {
@@ -221,7 +284,7 @@ export class UserDO extends DurableObject<Env> {
   private closeSockets(deviceId: string, code: number, reason: string) {
     for (const ws of this.ctx.getWebSockets(deviceId)) {
       try {
-        ws.serializeAttachment({ closed: true });
+        ws.serializeAttachment({ ...this.socketState(ws), closed: true });
         ws.close(code, reason);
       } catch {
         // already closed
@@ -283,10 +346,18 @@ export class UserDO extends DurableObject<Env> {
       this.setOwner(userId);
       const origin = request.headers.get(ORIGIN_HEADER) ?? url.origin;
       const stackToken = request.headers.get(STACK_TOKEN_HEADER);
+      const scope = request.headers.get(SCOPE_HEADER) === "host" ? "host" : "full";
+      const hostRelay = request.headers.get(HOST_RELAY_HEADER) === "1";
       const body = new Uint8Array(await request.arrayBuffer());
       const now = Date.now();
       const h = readDeviceHeaders(request.headers, now);
+      // A host session is one device's: every request it carries is signed by that device.
+      if (scope === "host" && request.headers.get(SESSION_DEVICE_HEADER) !== h.id) {
+        throw new ApiError(403, "host_scope", "this session belongs to another device");
+      }
       if (request.method === "POST" && url.pathname === "/v1/devices") {
+        // A host session updates its own registration, never makes a device.
+        if (scope === "host" && !this.device(h.id)) throw new ApiError(403, "host_scope", "a host session cannot register a new device");
         return await this.register(request, url, body, h, now);
       }
       const existing = this.device(h.id);
@@ -296,7 +367,7 @@ export class UserDO extends DurableObject<Env> {
       this.burnSignature(h.id, h.ts, h.sig, now);
       this.sql.exec("UPDATE devices SET last_seen_at = ? WHERE id = ?", now, h.id);
       const me = { ...existing, last_seen_at: now };
-      return await this.dispatch(request, url, body, me, { userId, origin, stackToken });
+      return await this.dispatch(request, url, body, me, { userId, origin, stackToken, scope, hostRelay });
     } catch (err) {
       return errorResponse(err);
     }
@@ -367,12 +438,16 @@ export class UserDO extends DurableObject<Env> {
     const parts = url.pathname.split("/").filter(Boolean).slice(1); // drop "v1"
     const [a, b, d] = parts;
     const n = parts.length;
+    if (c.scope === "host" && !this.hostAllowed(m, parts, me, raw)) {
+      throw new ApiError(403, "host_scope", "a host session can only serve this Mac; open cmux for this change");
+    }
+    if (a === "auth" && b === "device" && d === "anchor" && n === 3 && m === "POST") return this.anchor(me, c);
 
     if (a === "me" && n === 1 && m === "GET") {
-      const plan = (await relayEntitlement(this.env, c.userId, c.stackToken)) === "paid" ? "paid" : "free";
+      const plan = (await this.entitlement(c)) === "paid" ? "paid" : "free";
       return json({ userId: c.userId, plan, device: publicDevice(me, this.online(me.id)) });
     }
-    if (a === "user" && b === "ws" && n === 2 && m === "GET") return this.openSocket(request, me);
+    if (a === "user" && b === "ws" && n === 2 && m === "GET") return await this.openSocket(request, me);
     if (a === "devices") {
       if (n === 1 && m === "GET") {
         const rows = this.sql.exec("SELECT * FROM devices WHERE removed_at IS NULL ORDER BY created_at").toArray() as unknown as DeviceRow[];
@@ -392,6 +467,7 @@ export class UserDO extends DurableObject<Env> {
       if (n === 3 && m === "POST") {
         if (!SESSION_ID.test(b!)) throw notFound("session not found");
         if (d === "decision") return this.decide(me, b!, this.parse(raw), c);
+        if (d === "reattach") return this.reattach(me, b!, c);
         if (d === "end") return this.endFromDevice(me, b!, raw.length ? this.parse(raw) : {});
         if (d === "ice") return this.ice(me, b!, c);
       }
@@ -407,19 +483,24 @@ export class UserDO extends DurableObject<Env> {
 
   // ---- devices ----
 
-  private openSocket(request: Request, me: DeviceRow): Response {
+  private async openSocket(request: Request, me: DeviceRow): Promise<Response> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") throw new ApiError(426, "bad_request", "expected a WebSocket upgrade");
     this.closeSockets(me.id, 4000, "replaced");
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1], [me.id]);
+    pair[1].serializeAttachment({ openedAt: Date.now() } satisfies SocketState);
     this.sql.exec("DELETE FROM offline WHERE device_id = ?", me.id);
     // Everyone refetches, including this device: its cached list may say it is offline.
     this.broadcast({ type: "devices.changed" });
+    // The silence check: a device that never pings after connecting goes offline at the bound.
+    await this.scheduleAlarm();
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
 
-  async webSocketMessage(_ws: WebSocket, _message: string | ArrayBuffer): Promise<void> {
-    // Devices only send pings, answered by the auto-response without waking us.
+  async webSocketMessage(ws: WebSocket, _message: string | ArrayBuffer): Promise<void> {
+    // Pings are answered by the auto-response without waking us; any other frame still says the device is there.
+    const st = this.socketState(ws);
+    if (!st.closed) ws.serializeAttachment({ ...st, heardAt: Date.now() } satisfies SocketState);
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
@@ -433,20 +514,66 @@ export class UserDO extends DurableObject<Env> {
     this.broadcast({ type: "devices.changed" }, deviceId);
   }
 
-  async webSocketError(ws: WebSocket): Promise<void> {
+  async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
     const [deviceId] = this.ctx.getTags(ws);
+    const reason = `error: ${why(error)}`;
+    console.warn(`device-hub: device ${deviceId ?? "?"}'s socket failed (${reason})`);
+    // A failed socket the runtime still lists as open must stop counting as online,
+    // or the offline alarm would see it live and drop the grace entry.
+    try {
+      ws.serializeAttachment({ ...this.socketState(ws), closed: true } satisfies SocketState);
+      ws.close(1011, reason.slice(0, 120));
+    } catch {
+      // already closed
+    }
     if (deviceId) await this.markOffline(deviceId, ws);
+    this.broadcast({ type: "devices.changed" }, deviceId);
   }
 
-  /** Starts the grace period for a device whose last socket went away. */
-  private async markOffline(deviceId: string, closing: WebSocket) {
+  /**
+   * Closes every socket silent for SILENT_MS: the device dropped without a FIN
+   * and the transport would not say so for minutes, or ever. Its offline grace
+   * counts from when it was last heard, so its sessions end in this same pass.
+   */
+  private async sweepSilent(now: number) {
+    const gone = new Set<string>();
+    for (const ws of this.ctx.getWebSockets()) {
+      if (ws.readyState !== WebSocket.OPEN) continue;
+      const st = this.socketState(ws);
+      if (st.closed) continue;
+      if (st.openedAt === undefined) {
+        // Accepted before sockets carried openedAt: start its clock now.
+        ws.serializeAttachment({ ...st, openedAt: now } satisfies SocketState);
+        continue;
+      }
+      const heard = this.lastHeard(ws, st);
+      if (heard + SILENT_MS > now) continue;
+      const [deviceId] = this.ctx.getTags(ws);
+      const silentS = Math.round((now - heard) / 1000);
+      const reason = `silent ${silentS} s: no ping within ${SILENT_MS / 1000} s`;
+      console.warn(`device-hub: closing device ${deviceId ?? "?"}'s socket (${reason})`);
+      try {
+        ws.serializeAttachment({ ...st, closed: true } satisfies SocketState);
+        ws.close(SILENT_CLOSE, reason);
+      } catch {
+        // already closed
+      }
+      if (!deviceId) continue;
+      await this.markOffline(deviceId, ws, heard);
+      gone.add(deviceId);
+    }
+    for (const deviceId of gone) this.broadcast({ type: "devices.changed" }, deviceId);
+  }
+
+  /** Starts the grace period for a device whose last socket went away (at `since`, default now). */
+  private async markOffline(deviceId: string, closing: WebSocket, since = Date.now()) {
     const others = this.liveSockets(deviceId).filter((w) => w !== closing);
     if (others.length > 0) return;
     const d = this.device(deviceId);
     if (!d || d.removed_at !== null) return;
     const open = this.sql.exec("SELECT 1 FROM sessions WHERE state != 'ended' AND (viewer_id = ? OR host_id = ?) LIMIT 1", deviceId, deviceId).toArray();
     if (open.length === 0) return;
-    this.sql.exec("INSERT INTO offline(device_id, since) VALUES (?, ?) ON CONFLICT(device_id) DO NOTHING", deviceId, Date.now());
+    this.sql.exec("INSERT INTO offline(device_id, since) VALUES (?, ?) ON CONFLICT(device_id) DO NOTHING", deviceId, since);
     await this.scheduleAlarm();
   }
 
@@ -455,7 +582,20 @@ export class UserDO extends DurableObject<Env> {
     return Number.isFinite(v) && v >= 0 && this.env.CLOSE_GRACE_MS ? v : CLOSE_GRACE_MS;
   }
 
-  /** One alarm serves both offline grace periods and provisional socket-close ends. */
+  /** The next time a live socket would pass SILENT_MS without a sign of life; null with no live socket. */
+  private nextSilence(now: number): number | null {
+    let next: number | null = null;
+    for (const ws of this.ctx.getWebSockets()) {
+      if (ws.readyState !== WebSocket.OPEN) continue;
+      const st = this.socketState(ws);
+      if (st.closed) continue;
+      const at = st.openedAt === undefined ? now : this.lastHeard(ws, st) + SILENT_MS;
+      if (next === null || at < next) next = at;
+    }
+    return next;
+  }
+
+  /** One alarm serves offline grace periods, provisional socket-close ends, pending expiry and socket silence. */
   private async scheduleAlarm() {
     const off = this.sql.exec("SELECT MIN(since) AS t FROM offline").one().t as number | null;
     const close = this.sql.exec("SELECT MIN(at) AS t FROM closing").one().t as number | null;
@@ -464,6 +604,7 @@ export class UserDO extends DurableObject<Env> {
       off === null ? null : off + OFFLINE_GRACE_MS,
       close === null ? null : close + this.closeGraceMs(),
       pending === null ? null : pending + PENDING_TTL_MS,
+      this.nextSilence(Date.now()),
     ].filter((t): t is number => t !== null);
     if (times.length === 0) return;
     const at = Math.min(...times);
@@ -474,6 +615,7 @@ export class UserDO extends DurableObject<Env> {
   /** Ends the sessions of devices that stayed offline past the grace period. */
   async alarm(): Promise<void> {
     const now = Date.now();
+    await this.sweepSilent(now);
     const closed = this.sql.exec("SELECT session_id, reason FROM closing WHERE at + ? <= ?", this.closeGraceMs(), now).toArray();
     for (const c of closed) {
       const s = this.session(c.session_id as string);
@@ -508,6 +650,7 @@ export class UserDO extends DurableObject<Env> {
   private async removeDevice(id: string): Promise<Response> {
     const target = this.liveDevice(id);
     this.sql.exec("UPDATE devices SET removed_at = ?, mac_screen_shared = 0 WHERE id = ?", Date.now(), id);
+    this.sql.exec("DELETE FROM anchors WHERE device_id = ?", id);
     // No permission outlives its device, as host or as viewer; the hosts that listed it hear so.
     const hosts = this.sql.exec("SELECT DISTINCT host_id FROM permissions WHERE viewer_id = ? AND host_id != ?", id, id).toArray().map((r) => r.host_id as string);
     this.sql.exec("DELETE FROM permissions WHERE host_id = ? OR viewer_id = ?", id, id);
@@ -529,6 +672,7 @@ export class UserDO extends DurableObject<Env> {
     const open = this.sql.exec("SELECT * FROM sessions WHERE state != 'ended' AND (viewer_id = ? OR host_id = ?)", id, id).toArray() as unknown as SessionRow[];
     for (const s of open) await this.endSession(s, "signed_out", "revoked", true);
     this.sql.exec("DELETE FROM offline WHERE device_id = ?", id);
+    this.sql.exec("DELETE FROM anchors WHERE device_id = ?", id);
     this.closeSockets(id, 4003, "signed out");
     this.broadcast({ type: "devices.changed" }, id);
     return json({});
@@ -545,6 +689,8 @@ export class UserDO extends DurableObject<Env> {
       this.sql.exec("UPDATE devices SET mac_screen_shared = ? WHERE id = ?", body.shared ? 1 : 0, id);
       this.audit(body.shared ? "shared" : "unshared", { hostId: id });
       if (!body.shared) {
+        // Nothing left to serve: the device no longer renews a host session until the app anchors it again.
+        this.sql.exec("DELETE FROM anchors WHERE device_id = ?", id);
         const open = this.sql.exec("SELECT * FROM sessions WHERE state != 'ended' AND host_id = ?", id).toArray() as unknown as SessionRow[];
         for (const s of open) await this.endSession(s, "sharing_off", "revoked", true);
       }
@@ -672,44 +818,61 @@ export class UserDO extends DurableObject<Env> {
     this.sql.exec("UPDATE sessions SET state = 'approved', scope = ? WHERE id = ? AND state != 'ended'", s.scope, s.id);
     if (!this.stillOpen(s.id)) return;
     // Ask billing now (in parallel with the Session DO init); fail closed.
-    const entitled = relayEntitlement(this.env, c.userId, c.stackToken).catch(() => "error" as const);
+    const entitled = this.entitlement(c).catch(() => "error" as const);
     const viewer = this.device(s.viewer_id)!;
     const host = this.device(s.host_id)!;
     const stub = this.env.SESSION_DO.get(this.env.SESSION_DO.idFromName(s.id));
-    const init = await stub.fetch("https://session.do/internal/init", {
-      method: "POST",
-      body: JSON.stringify({
+    const init = await internalCall(
+      stub,
+      "https://session.do/internal/init",
+      {
         sid: s.id,
         userId: c.userId,
         scope: s.scope,
         viewer: { id: viewer.id, key: viewer.signing_key },
         host: { id: host.id, key: host.signing_key },
-      }),
-    });
+      },
+      `session ${s.id} init`,
+    );
     // Ended during init: endSession closed the Session DO (a close that got there
     // first makes init refuse), so there is nothing to start.
     if (!this.stillOpen(s.id)) return;
     if (!init.ok) throw new Error(`session init ${init.status}`);
-    const ice: IceServer[] = (await entitled) === "paid" ? await mintTurn(this.env) : [];
-    if (!this.stillOpen(s.id)) return;
+    const tickets = await this.issueTickets(s, c, (await entitled) === "paid" ? await mintTurn(this.env) : [], TICKET_TTL_S, false);
+    if (!tickets) return;
+    for (const ticket of tickets) this.send(ticket.role === "viewer" ? viewer.id : host.id, { type: "session.ticket", ...ticket });
+  }
+
+  /** Mints fresh tickets for the same approved viewer/host pair. */
+  private async issueTickets(s: SessionRow, c: CallContext, ice: IceServer[], ttlS: number, reattach: boolean): Promise<[WireTicket, WireTicket] | null> {
+    if (!this.stillOpen(s.id)) return null;
+    const viewer = this.device(s.viewer_id);
+    const host = this.device(s.host_id);
+    if (!viewer || !host) return null;
     const signalURL = `${c.origin.replace(/^http/, "ws")}/v1/sessions/${s.id}/ws`;
-    for (const [self, peer, role] of [
-      [viewer, host, "viewer"],
-      [host, viewer, "host"],
-    ] as const) {
-      const ticket = await mintTicket(this.env, { sid: s.id, role, dev: self.id, peer: peer.id, peerKey: peer.signing_key, scope: s.scope });
-      if (!this.stillOpen(s.id)) return;
-      this.send(self.id, {
-        type: "session.ticket",
-        sessionId: s.id,
-        ticket,
-        signalURL,
-        ice,
-        peer: { id: peer.id, name: peer.name, signingKey: peer.signing_key },
-        role,
-        scope: s.scope,
-      });
+    const result: WireTicket[] = [];
+    for (const [self, peer, role] of [[viewer, host, "viewer"], [host, viewer, "host"]] as const) {
+      const ticket = await mintTicket(this.env, { sid: s.id, role, dev: self.id, peer: peer.id, peerKey: peer.signing_key, scope: s.scope, ...(reattach ? { reattach: true } : {}) }, Date.now(), ttlS);
+      if (!this.stillOpen(s.id)) return null;
+      result.push({ sessionId: s.id, ticket, signalURL, ice, peer: { id: peer.id, name: peer.name, signingKey: peer.signing_key }, role, scope: s.scope });
     }
+    return result as [WireTicket, WireTicket];
+  }
+
+  /** Re-admits only the original viewer for the still-open, same-device session. */
+  private async reattach(me: DeviceRow, id: string, c: CallContext): Promise<Response> {
+    const s = this.session(id);
+    if (!s || s.viewer_id !== me.id || (s.state !== "approved" && s.state !== "live")) throw new ApiError(409, "session_not_active", "session is not active");
+    const host = this.liveDevice(s.host_id);
+    if (host.mac_screen_shared !== 1) throw new ApiError(403, "not_shared", "the host does not share its screen");
+    if (!this.online(host.id)) throw new ApiError(409, "host_offline", "the host is not connected");
+    if (rank(this.permission(host.id, me.id)) < rank(s.scope)) throw new ApiError(403, "permission_none", "the host no longer allows this device");
+    const entitled = (await this.entitlement(c)) === "paid";
+    const tickets = await this.issueTickets(s, c, entitled ? await mintTurn(this.env) : [], REATTACH_TTL_S, true);
+    if (!tickets) throw new ApiError(409, "session_not_active", "session is not active");
+    for (const ticket of tickets) this.send(ticket.role === "viewer" ? me.id : host.id, { type: "session.ticket", ...ticket });
+    this.audit("reattached", { viewerId: me.id, hostId: host.id, scope: s.scope, sessionId: id, detail: "viewer" });
+    return json({ session: publicSession(s), ticket: tickets[0] });
   }
 
   private async decide(me: DeviceRow, id: string, body: Record<string, unknown>, c: CallContext): Promise<Response> {
@@ -767,7 +930,13 @@ export class UserDO extends DurableObject<Env> {
     this.send(s.host_id, msg);
     if (closeSignal && current.state !== "pending") {
       const stub = this.env.SESSION_DO.get(this.env.SESSION_DO.idFromName(s.id));
-      await stub.fetch("https://session.do/internal/close", { method: "POST", body: JSON.stringify({ reason }) });
+      // The session is ended here either way; a Session DO that does not answer keeps
+      // its sockets until the devices act on the push above.
+      try {
+        await internalCall(stub, "https://session.do/internal/close", { reason }, `session ${s.id} close (${reason})`);
+      } catch (err) {
+        console.error(`device-hub: ${why(err)}`);
+      }
     }
   }
 
@@ -775,7 +944,7 @@ export class UserDO extends DurableObject<Env> {
     const s = this.session(id);
     if (!s || (s.viewer_id !== me.id && s.host_id !== me.id)) throw notFound("session not found");
     if (s.state !== "approved" && s.state !== "live") throw new ApiError(409, "session_not_active", "session is not active");
-    const ice = (await relayEntitlement(this.env, c.userId, c.stackToken)) === "paid" ? await mintTurn(this.env) : [];
+    const ice = (await this.entitlement(c)) === "paid" ? await mintTurn(this.env) : [];
     return json({ ice });
   }
 
@@ -898,7 +1067,89 @@ export class UserDO extends DurableObject<Env> {
 
   // ---- calls from the Session DO ----
 
+  // ---- device renewal (PROTOCOL.md, Device renewal) ----
+
+  /** The cmux relay entitlement: billing for a full session, the anchor's record for a host session. */
+  private async entitlement(c: CallContext): Promise<"paid" | "free" | "error"> {
+    if (c.scope === "host") return c.hostRelay ? "paid" : "free";
+    return (await relayEntitlement(this.env, c.userId, c.stackToken)) as "paid" | "free" | "error";
+  }
+
+  /**
+   * What a host session may do: serve this device as a Mac Screen host. Its
+   * own socket and registration, reads, its sessions' decisions, ends and
+   * ICE, its own permissions, and sharing off. Not: another device, relay
+   * writes, a session as viewer, sharing on, anchoring.
+   */
+  private hostAllowed(m: string, parts: string[], me: DeviceRow, raw: Uint8Array): boolean {
+    const [a, b, d] = parts;
+    const n = parts.length;
+    if (m === "GET") return (a === "me" && n === 1) || (a === "user" && b === "ws" && n === 2) || (a === "devices" && n === 1) || (a === "permissions" && n === 1) || (a === "relays" && n === 1) || (a === "audit" && n === 1);
+    if (a === "devices" && n === 3 && d === "mac-screen" && m === "PUT" && b === me.id) {
+      try {
+        return (JSON.parse(new TextDecoder().decode(raw)) as { shared?: unknown }).shared === false;
+      } catch {
+        return false;
+      }
+    }
+    if (a === "permissions" && n === 3 && m === "PUT") {
+      // Only lower a viewer's access on this Mac: raising needs the signed-in app.
+      if (b !== me.id || !d) return false;
+      let scope: unknown;
+      try {
+        scope = (JSON.parse(new TextDecoder().decode(raw)) as { scope?: unknown }).scope;
+      } catch {
+        return false;
+      }
+      const order = PERMISSION_SCOPES as string[];
+      const wanted = order.indexOf(scope as string);
+      return wanted >= 0 && (scope === "none" || wanted < order.indexOf(this.permission(me.id, d)));
+    }
+    if (a === "sessions" && n === 3 && m === "POST" && (d === "decision" || d === "end" || d === "ice")) {
+      // Only this Mac's own sessions as their host.
+      return this.session(b!)?.host_id === me.id;
+    }
+    return false;
+  }
+
+  /** The signed-in app lets its Mac renew its own host session for 30 days. */
+  private async anchor(me: DeviceRow, c: CallContext): Promise<Response> {
+    if (me.platform !== "macos") throw new ApiError(403, "not_host", "only a Mac is anchored");
+    const paid = (await relayEntitlement(this.env, c.userId, c.stackToken).catch(() => "error")) === "paid";
+    const now = Date.now();
+    this.sql.exec(
+      "INSERT INTO anchors(device_id, anchored_at, relay_paid) VALUES (?, ?, ?) ON CONFLICT(device_id) DO UPDATE SET anchored_at = excluded.anchored_at, relay_paid = excluded.relay_paid",
+      me.id,
+      now,
+      paid ? 1 : 0,
+    );
+    return json({ anchoredUntil: now + ANCHOR_TTL_MS });
+  }
+
+  /** `POST /v1/auth/device` from the Worker: the device's signature, the replay window and its anchor. */
+  private async renewDevice(request: Request): Promise<Response> {
+    try {
+      const now = Date.now();
+      const h = readDeviceHeaders(request.headers, now);
+      const raw = new Uint8Array(await request.arrayBuffer());
+      const device = this.device(h.id);
+      if (!device) throw new ApiError(401, "bad_signature", "unknown device");
+      if (device.removed_at !== null) throw new ApiError(403, "device_removed", "this device was removed");
+      await checkDeviceSignature(device.signing_key, "POST", new URL("https://hub/v1/auth/device"), raw, h);
+      const anchor = this.sql.exec("SELECT anchored_at, relay_paid FROM anchors WHERE device_id = ?", h.id).toArray()[0];
+      if (!anchor || (anchor.anchored_at as number) + ANCHOR_TTL_MS <= now) {
+        throw new ApiError(403, "not_anchored", "open cmux on this Mac to let it renew its session");
+      }
+      this.burnSignature(h.id, h.ts, h.sig, now);
+      const relay = (anchor.relay_paid as number) === 1 && (anchor.anchored_at as number) + ANCHOR_RELAY_TTL_MS > now;
+      return json({ deviceId: h.id, relay });
+    } catch (err) {
+      return errorResponse(err);
+    }
+  }
+
   private async internal(path: string, request: Request): Promise<Response> {
+    if (path === "/internal/renew-device") return this.renewDevice(request);
     const body = (await request.json()) as { sid?: string; reason?: string; path?: string };
     const s = body.sid ? this.session(body.sid) : null;
     if (!s) return json({ ok: false }, 404);

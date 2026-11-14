@@ -4,17 +4,39 @@
 // accounting is also off pretty frequently", on "Thinking 1h 24m 7s" for a turn that had spent
 // nearly all of its 1.5 h waiting on its foreground subagents, and an "Opened 1 agent session" step
 // that read 1h 22m 31s for a 3.5 min call.
-import { expect, test } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
-import { WorkingCountsContext } from "../src/agent-session/acpmux/conversation/WorkingFor";
+import { SILENT_MS } from "../src/agent-session/acpmux/conversation/thinkingModel";
+import { WorkingCountsContext } from "../src/agent-session/acpmux/conversation/workingForModel";
 import { THINKING, trayWaitAgents, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
 import longWait from "../src/agent-session/acpmux/conversation/LongSubagentWait.gallery";
 import { GALLERY_NOW } from "../src/gallery/clock";
+
+import type { ReactNode } from "react";
+import { StatusVerbContext } from "../src/agent-session/acpmux/statusVerbs";
+
+// The clock on the live line (liveTurnClock.experiment.ts `line`), which this file times; with the
+// shipped `top` the line says only "Thinking" and "Working for" over the work holds the clock
+// (transcript-live-turn-clock.test.ts).
+const CLOCK_ON_LINE = { "live-turn-clock": "line" };
+beforeEach(() => {
+  // The thinking time beside Thinking is named apart from the turn's clock (`labelled`).
+  globalThis.cmuxExperiments = { ...CLOCK_ON_LINE, "live-line-times": "labelled" };
+});
+afterEach(() => {
+  delete globalThis.cmuxExperiments;
+});
+
+// These assertions cover turn state and time, independently of decorative verb rotation.
+const renderToStaticMarkup = (node: ReactNode) =>
+  renderMarkup(
+    <StatusVerbContext.Provider value={{ mode: "thinking", verbs: ["Thinking"] }}>{node}</StatusVerbContext.Provider>,
+  );
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -38,7 +60,7 @@ const agent = (id: string, state: string, extra: Partial<Subagent> = {}): Subage
   startedAt: at,
   ...extra,
 });
-const codex = (rows: AcpmuxRow[]) => turnView(rows, new Set(), { working: true, liveRuns: true, lineBelow: true });
+const codex = (rows: AcpmuxRow[]) => turnView(rows, new Set(), { working: true });
 const words = (html: string) =>
   html
     .replace(/<[^>]+>/g, " ")
@@ -57,7 +79,9 @@ const drawn = (line: AcpmuxRow, now: number) =>
         doneMs={line.doingForMs}
         liveState={line.liveState}
         liveAgents={line.liveAgents}
-        thoughtMs={line.thoughtMs}
+        phaseAt={line.phaseAt}
+        heardAt={line.heardAt}
+        heardKey={line.heardKey}
         turnTotal={line.turnTotal}
         untimed={line.untimed}
         quietKey={line.quietKey}
@@ -100,8 +124,6 @@ test("with the running tray the line still says it waits on the subagents the tr
   expect(trayWaitAgents(rows)).toBe(2);
   const line = turnView(shown as AcpmuxRow[], new Set(), {
     working: true,
-    liveRuns: true,
-    lineBelow: true,
     trayAgents: trayWaitAgents(rows),
   }).at(-1)!;
   expect(line).toMatchObject({ kind: THINKING, liveState: "subagents", liveAgents: 2 });
@@ -121,8 +143,6 @@ test("with the tray a shell call's agent counts once, and a queued prompt keeps 
   expect(trayWaitAgents(rows)).toBe(1);
   const line = turnView(withSubagentLines(rows) as AcpmuxRow[], new Set(), {
     working: true,
-    liveRuns: true,
-    lineBelow: true,
     trayAgents: trayWaitAgents(rows),
   }).find((shaped) => shaped.kind === THINKING)!;
   expect(line).toMatchObject({ liveState: "subagents", liveAgents: 2 });
@@ -153,7 +173,7 @@ test("a call in flight still names the call, over any subagent wait", () => {
   expect(line.liveState).toBeUndefined();
 });
 
-test("a finished step reads its own time, not the turn's", () => {
+test('a finished step gives the line back to Thinking, with the turn\'s clock beside it, never named "turn"', () => {
   const user = row("u", "user");
   const started = user.at + 4_950_000;
   const line = codex([
@@ -170,8 +190,9 @@ test("a finished step reads its own time, not the turn's", () => {
       ],
     }),
   ]).at(-1)!;
-  expect(line).toMatchObject({ doing: "Opened 1 agent session", doingDone: true, doingForMs: 207_000 });
-  expect(drawn(line, user.at + 4_951_000)).toBe("Opened 1 agent session 3m 27s · 1h 22m 31s");
+  // Leo, 2026-11-07: "Why don't we just immediately switch to the thinking?"
+  expect(line.doing).toBeUndefined();
+  expect(drawn(line, user.at + 4_951_000)).toBe("Thinking 1h 22m 31s");
 });
 
 test("an answer paused mid-stream reads Writing, not Thinking", () => {
@@ -191,7 +212,52 @@ test("an answer that paused long before the line mounted reads Thinking at once"
   const run = row("run", "activity", { items: [call("git log")] });
   const reply = row("a", "assistant", { text: "So" });
   const line = codex([user, run, reply]).at(-1)!;
-  expect(drawn(line, reply.at + 60_000)).toStartWith("Thinking");
+  // Past WRITING_MS, before a silence of SILENT_MS reads Waiting.
+  expect(drawn(line, reply.at + 7_000)).toStartWith("Thinking");
+  // Past SILENT_MS with nothing more, it waits (cmux#41871 review P2-F2).
+  expect(drawn(line, reply.at + SILENT_MS + 1_000)).toStartWith("Waiting");
+});
+
+// Leo, 2026-11-12: "the thinking timer is overstaying its welome after you just replied!" The reply
+// is in and the turn has not ended yet (its end comes after the harness's own wrap-up): the line no
+// longer ticks the turn's time under the reply, as if the agent still worked.
+test("once the reply has stopped, the line's clock and token count stop with it", () => {
+  const user = row("u", "user");
+  const reply = row("a", "assistant", { text: "Done: the PR merged." });
+  const line = codex([user, reply]).at(-1)!;
+  expect(line).toMatchObject({ kind: THINKING, liveState: "writing" });
+  // While it streams the line says Writing, with the turn's time.
+  expect(drawn(line, reply.at + 2_000)).toBe(`Writing ${(reply.at + 2_000 - user.at) / 1_000}s`);
+  // Past the pause it says only Thinking: no clock, however long the turn stays open.
+  const tokens = {
+    agents: 0,
+    commands: 0,
+    sessions: 0,
+    openAgents() {},
+    openCommands() {},
+    openSessions() {},
+    tokens: 4_200,
+  };
+  const counted = (now: number) =>
+    words(
+      renderToStaticMarkup(
+        <WorkingCountsContext.Provider value={tokens}>
+          <Thinking
+            since={line.at}
+            now={() => now}
+            liveState={line.liveState}
+            turnTotal={line.turnTotal}
+            quietKey={line.quietKey}
+            quietAt={line.quietAt}
+          />
+        </WorkingCountsContext.Provider>,
+      ),
+    );
+  expect(counted(reply.at + 6_000)).toBe("Thinking");
+  expect(counted(reply.at + 600_000)).toBe("Thinking");
+  // A step after the reply brings the turn's clock back.
+  const after = codex([user, reply, row("run", "activity", { items: [call("git status", "pending")] })]).at(-1)!;
+  expect(drawn(after, after.at + 20_000)).toMatch(/\d+s$/);
 });
 
 test("before the turn's first output it still reads Thinking with the turn's time", () => {
@@ -206,8 +272,9 @@ test("the long-wait gallery entry's live line names its subagents and the turn's
   const line = codex(rows).at(-1)!;
   expect(line).toMatchObject({ kind: THINKING, liveState: "subagents", liveAgents: 3 });
   expect(drawn(line, GALLERY_NOW)).toBe("Waiting on 3 subagents 1h 24m 7s");
+  // Its finished step ended 1m 33s before the gallery's now, with nothing heard since: Waiting.
   const step = codex(longWait.variants["finished-step"]!.snapshot.rows).at(-1)!;
-  expect(drawn(step, GALLERY_NOW)).toBe("Opened 1 agent session 3m 27s · 1h 24m 7s");
+  expect(drawn(step, GALLERY_NOW)).toBe("Waiting 1m 33s · turn 1h 24m 7s");
 });
 
 test("a running call reads the turn's clock as its total, never a clock that starts at the call", () => {
@@ -231,7 +298,7 @@ test("waiting on subagents, the line does not count them a second time", () => {
   expect(words(html)).toBe("Waiting on 2 subagents 1m · 1 command");
 });
 
-test("Thinking past the first step shows only the thoughts' streamed time, the waits go to the total", () => {
+test("Thinking past the first step times only this stretch of thinking, the waits go to the total", () => {
   // Leo's sample, 2026-11-03: "Thinking 7m 34s · ↓ 4.5K out ↑ 1.4M in", 7.5 min of "thinking" for
   // 4.5K output tokens. The calls, waits and queue time between thoughts are not thinking.
   const user = row("u", "user");
@@ -248,7 +315,11 @@ test("Thinking past the first step shows only the thoughts' streamed time, the w
       items: [{ kind: "thought", text: "The retry path is next.", startedAt: t0 + 449_000, endedAt: t0 + 454_000 }],
     }),
   ]).at(-1)!;
-  expect(line).toMatchObject({ kind: THINKING, thoughtMs: 8_000, turnTotal: true });
+  // The 49 s of nothing after the tests is no thinking: the stretch starts at the thought after it.
+  expect(line).toMatchObject({ kind: THINKING, phaseAt: t0 + 449_000, heardAt: t0 + 454_000, turnTotal: true });
   expect(line.doing).toBeUndefined();
-  expect(drawn(line, t0 + 454_000)).toBe("Thinking 8s · 7m 34s");
+  expect(drawn(line, t0 + 454_000)).toBe("Thinking 5s · turn 7m 34s");
+  // It keeps counting with no new event, then says it waits once nothing came for 10 s.
+  expect(drawn(line, t0 + 460_000)).toBe("Thinking 11s · turn 7m 40s");
+  expect(drawn(line, t0 + 470_000)).toBe("Waiting 16s · turn 7m 50s");
 });

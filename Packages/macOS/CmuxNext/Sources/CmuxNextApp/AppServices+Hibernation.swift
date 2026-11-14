@@ -2,6 +2,7 @@ public import CmuxNextWakeups
 public import CmuxNextHibernation
 import CmuxNextBridge
 import CmuxNextCompat
+import CmuxNextResources
 import CmuxNextSettings
 
 // Browser hibernation and the memory-budgeted warm sets
@@ -21,7 +22,9 @@ extension AppServices {
             guard let self else { return [:] }
             return await self.resources.sample(.everything).browserTabMemory()
         }
+        hibernation.workspaceTabs = { [weak self] workspace, window in self?.windows.controller(for: window)?.shownTabsIfSelected(workspace) ?? [] }
         hibernation.agentPages = AgentPageHibernation(services: self)
+        hibernation.agentPages?.pages.followDiscard { [weak settings] in settings?.snapshot.workspaceHibernation.hiddenChatDiscardSetting ?? .off }
         hibernation.follow(settings)
         hibernation.start()
     }
@@ -31,6 +34,9 @@ extension AppServices {
         cache.setWarmBudget(budget)
         // Critical keeps only what shows, the parked workspaces too.
         if level == .critical { windows.controllers.forEach { $0.releaseParked() } }
+        daemon.store.reservationPaused = level != .normal // the next Cmd-N's reservation goes until normal (views, store, page)
+        windows.controllers.forEach { level == .normal ? $0.reservedContent.fill() : $0.reservedContent.drop() }
+        if level != .normal { agentTabs.releaseReservedWorkspace(on: daemon.store, .pressure) }
         workspaceHibernation.pressureDidChange(level)
     }
 }
@@ -48,9 +54,9 @@ extension AppServices {
     }
 
     /// Unmounts workspace `id` in every window, then frees its tabs' surfaces and pages.
-    func hibernateWorkspace(_ id: String) {
+    func hibernateWorkspace(_ id: String, byPerson: Bool = false) {
         windows.releaseParked(id)
-        cache.hibernateTabs(machines.workspace(id: id)?.0.screens.flatMap(\.panes).flatMap(\.tabs).map(\.id) ?? [])
+        cache.hibernateTabs(machines.workspace(id: id)?.0.screens.flatMap(\.panes).flatMap(\.tabs).map(\.id) ?? [], byPerson: byPerson)
     }
 }
 

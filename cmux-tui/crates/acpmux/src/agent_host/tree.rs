@@ -40,12 +40,7 @@ fn process_table() -> Vec<Started> {
 /// itself or the system.
 pub fn descendants(roots: &[u32]) -> Vec<Started> {
     let table = process_table();
-    let mut spared = vec![0, 1];
-    let mut me = std::process::id();
-    while me > 1 && !spared.contains(&me) {
-        spared.push(me);
-        me = table.iter().find(|p| p.pid == me).map_or(0, |p| p.ppid);
-    }
+    let spared = spared(&table);
     let own = std::process::id();
     let mut frontier: Vec<u32> =
         roots.iter().copied().filter(|r| *r == own || !spared.contains(r)).collect();
@@ -61,8 +56,40 @@ pub fn descendants(roots: &[u32]) -> Vec<Started> {
     found
 }
 
+/// The pids never taken: 0, 1, this process and its ancestors.
+fn spared(table: &[Started]) -> Vec<u32> {
+    let mut spared = vec![0, 1];
+    let mut me = std::process::id();
+    while me > 1 && !spared.contains(&me) {
+        spared.push(me);
+        me = table.iter().find(|p| p.pid == me).map_or(0, |p| p.ppid);
+    }
+    spared
+}
+
+/// The processes started with `name=value` in their environment, as the kernel has it: what a
+/// host's harness and everything under it inherit (`HOST_MARK`), a setsid helper too, so they
+/// are found after the parent link is gone. A process whose environment cannot be read (another
+/// user's) is not taken, nor this process or its ancestors.
+pub fn marked(name: &str, value: &str) -> Vec<Started> {
+    let table = process_table();
+    let spared = spared(&table);
+    table
+        .into_iter()
+        .filter(|p| !spared.contains(&p.pid))
+        .filter(|p| {
+            environ(p.pid).is_some_and(|env| env.iter().any(|(k, v)| k == name && v == value))
+        })
+        .collect()
+}
+
 /// SIGKILL each of `procs` that still runs as the same process.
 pub fn kill_still_running(procs: &[Started]) {
+    signal_still_running(procs, libc::SIGKILL);
+}
+
+/// Send `signal` to each of `procs` that still runs as the same process (pid and start time).
+pub fn signal_still_running(procs: &[Started], signal: libc::c_int) {
     if procs.is_empty() {
         return;
     }
@@ -72,9 +99,31 @@ pub fn kill_still_running(procs: &[Started]) {
             continue;
         }
         let Ok(pid) = i32::try_from(p.pid) else { continue };
-        // SAFETY: the pid runs with the start time it had under the host.
-        unsafe { libc::kill(pid, libc::SIGKILL) };
+        // SAFETY: the pid runs with the start time it had when `procs` was read.
+        unsafe { libc::kill(pid, signal) };
     }
+}
+
+/// SIGTERM each of `procs` whose argv `pick` takes, if it still runs as the same process (pid
+/// and start time); returns the pid and argv of each one signalled (`hub/silent_listing.rs`).
+pub fn terminate_picked(
+    procs: &[Started],
+    pick: impl Fn(&[String]) -> bool,
+) -> Vec<(u32, Vec<String>)> {
+    let mut ended = Vec::new();
+    for p in procs {
+        let Some(args) = argv(p.pid).filter(|a| pick(a)) else { continue };
+        let table = process_table();
+        if !table.iter().any(|now| now.pid == p.pid && now.start == p.start) {
+            continue;
+        }
+        let Ok(pid) = i32::try_from(p.pid) else { continue };
+        // SAFETY: the pid runs with the start time it had when `procs` was read.
+        if unsafe { libc::kill(pid, libc::SIGTERM) } == 0 {
+            ended.push((p.pid, args));
+        }
+    }
+    ended
 }
 
 /// A live process running under a harness, for the idle census (`hub/idle_census.rs`).
@@ -413,19 +462,36 @@ mod census_tests {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn exe_still_names_a_program_whose_file_was_replaced() {
-        let dir = std::env::temp_dir().join(format!("acpmux-exe-replaced-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let program = dir.join("server");
-        std::fs::copy("/bin/sleep", &program).unwrap();
-        let mut child = std::process::Command::new(&program).arg("30").spawn().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("server");
+        // Copied by `cp`, never by this process: a test on another thread that starts a process
+        // copies every open descriptor into the child until its exec, and a write descriptor
+        // for `program` held then made its exec here fail with ETXTBSY ("Text file busy").
+        let copied = std::process::Command::new("cp").arg("/bin/cat").arg(&program).status();
+        assert!(copied.unwrap().success(), "cp /bin/cat {}", program.display());
+        let mut child = std::process::Command::new(&program)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        // `spawn` can return while the child is still mid-exec: Linux wakes a vfork parent before
+        // it moves the child to the new image, so `/proc/<pid>/exe` still named this test binary
+        // (7 of 60 runs). A line echoed back by `cat` is proof the child runs the copy.
+        {
+            use std::io::{BufRead, Write};
+            child.stdin.as_mut().unwrap().write_all(b"ready\n").unwrap();
+            let mut line = String::new();
+            let mut out = std::io::BufReader::new(child.stdout.as_mut().unwrap());
+            out.read_line(&mut line).unwrap();
+            assert_eq!(line, "ready\n", "the copied program never ran");
+        }
         let canonical = std::fs::canonicalize(&program).unwrap();
         // The update: the old file goes, a new one takes its path.
         std::fs::remove_file(&program).unwrap();
-        std::fs::copy("/bin/sleep", &program).unwrap();
+        std::fs::copy("/bin/cat", &program).unwrap();
         let seen = super::exe(child.id());
         let _ = child.kill();
         let _ = child.wait();
-        let _ = std::fs::remove_dir_all(&dir);
         let seen = seen.expect("a replaced program still has an executable");
         assert!(
             seen == program || seen == canonical,

@@ -198,11 +198,21 @@ pub(crate) fn open_read(path: &Path) -> io::Result<File> {
 /// Open or create a state file for read/write without following a reparse
 /// point, narrowing a wider DACL before it can be used as daemon.lock.
 pub(crate) fn open_rw(path: &Path) -> io::Result<File> {
+    open_rw_with(path, OPEN_ALWAYS)
+}
+
+/// [`open_rw`] of a state file that must exist already, never made here (a
+/// log segment the journal store writes in place).
+pub(crate) fn open_rw_existing(path: &Path) -> io::Result<File> {
+    open_rw_with(path, OPEN_EXISTING)
+}
+
+fn open_rw_with(path: &Path, disposition: u32) -> io::Result<File> {
     use std::os::windows::fs::MetadataExt;
 
     let file = open_owner_only(
         path,
-        OPEN_ALWAYS,
+        disposition,
         GENERIC_READ | GENERIC_WRITE | 0x80 | WRITE_SECURITY_ACCESS,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
     )?;
@@ -370,6 +380,36 @@ fn ensure_safe_parent(path: &Path) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// The volume serial and file index of `path` itself (a link is not followed): what stays the
+/// same for one folder however it is renamed, and differs for a new folder made at its path.
+pub(crate) fn file_id(path: &Path) -> io::Result<(u64, u64)> {
+    let name = wide(path);
+    // SAFETY: a NUL-terminated path; the handle is owned by File below.
+    let handle = unsafe {
+        CreateFileW(
+            name.as_ptr(),
+            0x80, // FILE_READ_ATTRIBUTES
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            null_mut(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: CreateFileW returned one owned handle.
+    let opened = unsafe { File::from_raw_handle(handle) };
+    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    // SAFETY: a valid handle and a zeroed out-parameter.
+    if unsafe { GetFileInformationByHandle(opened.as_raw_handle(), &mut info) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let index = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
+    Ok((u64::from(info.dwVolumeSerialNumber), index))
 }
 
 fn same_opened_object(left: &File, right: &File) -> io::Result<bool> {

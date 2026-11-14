@@ -3,6 +3,7 @@
 // stylesheets stop their loops under (static-status-loops.test.ts checks the rules).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = ["window", "document"].map((key) => [key, key in scope, scope[key]] as const);
@@ -11,11 +12,8 @@ beforeAll(() => {
   const { window } = new JSDOM("<!doctype html><html><body></body></html>");
   Object.assign(scope, { window, document: window.document });
 });
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 const theme = {
@@ -55,4 +53,22 @@ test("focus ring setting gates transcript response outlines and defaults off", a
   expect(root.dataset.focusRingEnabled).toBeUndefined();
   applyAgentTheme(theme as Parameters<typeof applyAgentTheme>[0]);
   expect(root.dataset.focusRingEnabled).toBeUndefined();
+});
+
+test("Reduce Motion's zero move duration marks the root, so the fold's chevron snaps (conversation.css)", async () => {
+  const { applyAgentTheme } = await import("../src/agent-session/shared/theme");
+  const root = document.documentElement;
+  const motion = { hover: 0.1, hoverOut: 0.1, focus: 0.1, fadeIn: 0.12, fadeOut: 0.12 };
+  applyAgentTheme({ ...theme, motion: { ...motion, move: 0 } } as never);
+  expect(root.dataset.agentMove).toBe("instant");
+  applyAgentTheme({ ...theme, motion: { ...motion, move: 0.18 } } as never);
+  expect(root.dataset.agentMove).toBeUndefined();
+  applyAgentTheme(theme as never);
+  expect(root.dataset.agentMove).toBeUndefined();
+  const css = await Bun.file(
+    new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
+  ).text();
+  expect(css).toMatch(
+    /:root:is\(\[data-agent-move="instant"\], \[data-agent-motion="off"\]\) \.cv-rotor \{\s*transition: none;/,
+  );
 });

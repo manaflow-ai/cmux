@@ -53,6 +53,17 @@ test("a wheel jump picks a visible row and preserves another selection already v
   checked(5000, newActive, view.scrollTop);
 });
 
+test("scaled menu rows keep long-list geometry aligned with the rendered row", () => {
+  const rowPx = 35;
+  const viewportPx = 296;
+  const top = slashScrollForActive(123, 5000, 0, viewportPx, rowPx);
+  const view = slashViewport(5000, top, viewportPx, rowPx);
+  expect(view.scrollTop).toBe((123 + 1) * rowPx - viewportPx);
+  expect(view.firstVisible).toBe(115);
+  expect(view.start).toBe(109);
+  expect(view.topSpace + (view.end - view.start) * rowPx + view.bottomSpace).toBe(5000 * rowPx);
+});
+
 test("empty, singleton and short menus have valid bounds and full logical selection", () => {
   for (const total of [0, 1, 40]) {
     const view = slashViewport(total);

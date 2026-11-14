@@ -1,10 +1,11 @@
 // A prompt whose connection went before acpmux took it (an acpmux restart, a reset socket, the
-// app's transport closing). The host's prompt journal (Swift `AgentPanePromptJournal`, on unless
-// Debug Settings agentPane.debug.lostPromptReplay is off) sends it again, once, on the pane's next
-// connection with the same promptId, and acpmux runs a promptId at most once. So the pane does not
-// ask the person to read the chat's saved state and press Enter again: the sender waits for the
+// app's transport closing). The host's prompt journal (Swift `AgentPanePromptJournal`) sends it
+// again, once, on the pane's next connection with the same promptId, and acpmux runs a promptId at
+// most once. So the pane does not ask the person to read the chat's saved state and press Enter again: the sender waits for the
 // next connection and for the prompt to show there, and says "Not sent" only when it never does.
 // Leo, 2026-10-21: "why does it say it's not responding?"
+
+import type { ComposerAttachment } from "./attachments";
 
 /// How long a sender waits for the pane's next connection.
 export const LOST_PROMPT_CONNECT_MS = 30_000;
@@ -91,6 +92,47 @@ export async function resentAfterLoss<Client extends ResendWaiter>(
   const lost = lostPrompt(error);
   if (!lost || !from) return false;
   return (await waitForResend(clients, from, lost, connectMs, showMs)) !== undefined;
+}
+
+/// A connection that draws a lost prompt as its own row meanwhile (`AcpmuxDirectClient`).
+export type LostRowHolder = ResendWaiter & {
+  awaitResent(
+    sessionId: string,
+    promptId: string,
+    timeoutMs: number,
+    draw?: { input: string; attachments: ComposerAttachment[] },
+  ): Promise<boolean>;
+  failLostPrompt(promptId: string, error: unknown): boolean;
+};
+
+/// Where a lost prompt ended up (`keepLostPrompt`): it showed as sent on a later connection; it
+/// stays there as a failed row with Retry; or no connection could hold it, so its sender keeps it.
+export type LostOutcome = "shown" | "failed" | "none";
+
+/// A started chat's prompt its connection lost before the pane heard acpmux take it (acpmux may
+/// well have it: Leo, 2026-11-11, every "Not sent yet" message had reached its chat). It stays
+/// in the chat, one row with one state: on the next connection it draws as its own row on its way
+/// until acpmux's record of it lands there, and only if that never comes does the row fail, with
+/// Retry under the same prompt id. Before, the prompt went back to the composer and a free line
+/// said "Not sent yet" under a bubble that, once the record came, already looked sent.
+export async function keepLostPrompt<Client extends LostRowHolder>(
+  error: unknown,
+  clients: { next(previous: Client, timeoutMs: number): Promise<Client | undefined> },
+  from: Client | undefined,
+  draw: { input: string; attachments: ComposerAttachment[] },
+  connectMs = LOST_PROMPT_CONNECT_MS,
+  showMs = LOST_PROMPT_SHOW_MS,
+): Promise<LostOutcome> {
+  const lost = lostPrompt(error);
+  if (!lost || !from) return "none";
+  let previous = from;
+  for (;;) {
+    const next = await clients.next(previous, connectMs);
+    if (!next) return "none";
+    if (await next.awaitResent(lost.sessionId, lost.promptId, showMs, draw)) return "shown";
+    if (!next.isClosed) return next.failLostPrompt(lost.promptId, error) ? "failed" : "none";
+    previous = next;
+  }
 }
 
 /// The prompts a connection lost, by chat. The host's journal may send one again once acpmux is

@@ -77,7 +77,7 @@ Validation per kind: `toggle`, `choice`, `choice_or_number`, `number` (range, fi
 against the value domain the app published (`settings.domains.publish`); with no published domain
 (headless host) they accept any non-empty string and the app reports a diagnostic on apply.
 
-Agent policy is explicit per key with no default (`SettingsSchema+AgentPolicy.swift`; the export
+Agent policy is explicit per key with no default (`schemas/settings/source/agent-policy.json`; the export
 test fails on a key in neither table). Refused today: `history.terminalCommands` and
 `feed.mirrorNotifications.*` (privacy), `browser.remoteLocalhost` (network), `app.quitBehavior`
 (destructive). `appearance.backgroundOpacity` and `appearance.backgroundBlur` are settable.
@@ -92,10 +92,13 @@ mutation carries an `idempotency_key`. Shapes follow settings-surfaces.md:
 - `settings.list {section?}` (read) -> rows with `value`, `default`, `customized`,
   `managed {source, reason}`.
 - `settings.get {key | path}` (read); `settings.snapshot {}` (read) -> `{revision, effective, file,
-  managed, policy, diagnostics, schema_hash, domains}`; `domains` holds the published
-  `themes`, `font_families`, `sounds` (`null` each when never published).
+  managed, policy, diagnostics, schema_hash, domains, path}`; `domains` holds the published
+  `themes`, `font_families`, `sounds` (`null` each when never published); `path` is the absolute
+  path of the settings file the owner reads and writes (the configured path, not a symlink's target).
 - `settings.set {key | path, value, if_revision?}`, `settings.reset {key | path}`,
   `settings.reset_all {}` (mutations).
+- `settings.edit {edits, if_revision?}` (mutation): several `set`, `set_unset`, `reset` and
+  `reset_unchanged` edits in one publish (section 7, items 2 and 3).
 - `settings.domains.publish {themes, font_families, sounds}` and `settings.team_policy.set {layer}`
   (mutations meant only for the hosting app). Coordinator decision 2026-10-04: the daemon REFUSES
   both for every caller (`operation.failed`, `required_authority: attested_hosting_app`). A
@@ -261,6 +264,84 @@ unreachable, Settings shows "Settings are read only until cmux reconnects" and r
 | d | Parity test over every descriptor: palette row + editor, `settings.list` row, CLI round trip, MCP tool, page row with an editor for its kind | one test fails per missing surface |
 | e | Default `settings.surface = web`; delete the native Settings views and `SettingsWindowModel` after one dogfood round | dogfood |
 | f | Schema authored in `config/settings/schema.json`; Swift descriptors, `web/data/cmux.schema.json` and TS types generated; `cmux-tui.json` overlapping keys fold into cmux.json | generator `--check` in CI |
+
+State before slice b (2026-11-10): the Swift writer still exists and no Swift caller sends
+`settings.set` yet. Until it does, `CmuxConfigFile` holds the owner's lock (`.cmux-next.json.lock`,
+the `flock` of `cmux-config` `lock_config`; Swift `SettingsFileLock`) from each read of the file to
+its publish, so an app write and a daemon write no longer replace each other's edit. Slice b needs
+these from the daemon first:
+
+1. The owner's settings file path on the wire (`settings.snapshot` or identify). The app reads its
+   file directly. The daemon picks its file from its own environment (`$HOME`,
+   `CMUX_NEXT_CONFIG_FILE` when it started) and outlives the app, so the app cannot tell today that
+   both use one file. A write sent to an owner of another file changes the wrong file, and the app
+   never sees it.
+   Decided (2026-11-10): the app passes its config path to the daemon at launch, and the daemon
+   reports its owner's path in `settings.snapshot`, so an app that joins a daemon that already
+   runs sees a mismatch and does not send its writes to the wrong file.
+   Daemon half, done: the launch input is `CMUX_NEXT_CONFIG_FILE` in the environment of
+   `server ensure` (the detached owner inherits it; no new flag, so the settings owner, the
+   keybindings owner and the daemon's other readers of the file stay on one path). A
+   `server restart` gives the next owner the old owner's value unless the restarting client sets
+   its own (an empty value is no value). The client that spawns the owner makes a relative value
+   absolute from its own directory, so a restart from another directory keeps the file.
+   `settings.snapshot` answers `path`. Test: `cmux-tui/crates/cmux-tui/tests/ensure_settings_file.rs`.
+   Open, to decide before the app sets the variable: terminal children inherit it from the owner.
+   A test daemon started in a cmux terminal with only `HOME` isolation would then write the
+   user's file, so the review asked to remove it from terminal children
+   (`shell_integration::keys_to_unset_in_child`). But the `cmux` CLI in a terminal finds the
+   owner's file only by that variable: `cmux mcp` and `cmux setup mcp` (`mcp.enabled`,
+   `cli/mcp.rs`), `cmux settings validate` without a file, the version report's cohort and the
+   update notice (`feature_flags::settings`), `remote.ultraMode`. Without it they read the
+   default file while `cmux settings set` writes the owner's file. Not removed yet. One way:
+   those readers ask the owner for `path` first, then the variable goes.
+   Swift half, to do (no Swift changed yet):
+   - Launch: `DaemonLauncher.forApp` gets `CMUX_NEXT_CONFIG_FILE = CmuxConfigFile.launchURL().path`
+     in `daemonEnvironment`, always, also for the default file. As read in
+     `TerminalEnvironment.terminal` (not run): the app's `CMUX_NEXT_*` keys are not forwarded
+     when the login environment was captured, so a tagged app with an override can start a
+     daemon on the user's file. Check that on a tagged build first.
+     With the variable set the owner does not read classic `cmux.json` as a seed; the app has
+     made the file before (`prepareLaunchFile`), so call that first.
+   - Join: after connect, read `settings.snapshot` and compare `path` with the app's own URL
+     (both absolute, symlinks not resolved; compare standardized paths). An answer without
+     `path` is an older daemon: treat it as a mismatch.
+   - Match: `SettingsController` setters send `settings.set` / `settings.reset`; delete the Swift
+     writer (`CmuxConfigFile` writes, `SettingsFileLock`) when items 2 to 5 below are also done.
+   - Mismatch: keep the Swift writer with the lock for this launch, send no settings write to
+     the daemon, and log both paths. Do not restart a daemon that has terminals only to move it.
+2. Several edits in one publish (Swift `CmuxConfigFile.apply`), or the rules that need them in the
+   owner's `settings.set`: a renamed row's old key goes with the write, the window background's
+   opacity and material change together, a built-in density ends the custom one.
+   Daemon half, done: `settings.edit {edits, if_revision?, origin?}` (capability
+   `settings-edit-v1`). Each edit is `{op, key | path, value?}`; the owner applies them in order
+   to the file text and publishes once, with one revision and one `settings-changed`. Each edit
+   passes the checks of `settings.set` (`op: set`) or `settings.reset` (`op: reset`): kind,
+   managed keys, agent policy, removed keys, the overlap rule. One refused edit refuses the op
+   and nothing is written. At most 1000 edits; apps never get it. The app computes the linked
+   edits (the window background pair needs the Ghostty material, a host fact) and sends them
+   in one op. Moving the portable rules (renamed key, density) into the owner's `settings.set`
+   stays open. Test: `cmux-tui/crates/cmux-config/tests/settings_edit.rs`.
+3. Conditional edits: set only when unset (`setUnset`) and remove only when unchanged
+   (`removeUnchanged`, the stored-defaults pass). `if_revision` covers the whole file only.
+   Daemon half, done: the `settings.edit` ops `set_unset` (sets only while the file has no value
+   at the path; JSON null is a value) and `reset_unchanged` (resets only while the file still
+   holds `value` there; `1` and `1.0` are one value; it removes like `settings.reset`, so a schema
+   key takes the objects it empties with it). A condition reads
+   the file as the edits before it in the same op left it, under the owner's lock, so no write
+   lands between the check and the publish. A skipped edit writes nothing and is not checked.
+   The result's `applied` lists the indexes of the edits that applied (Swift's returned paths).
+   Not in the op: `removeUnchanged`'s record beside the file (`recordBeside`, written before the
+   publish) and the text before it. They belong to the launch passes, so they move with item 4.
+4. The launch passes (`runLaunchMigrations`) in the daemon, because they run at launch with no
+   wait for a daemon connection: the quit behavior, workspace row and pane toolbar buttons
+   migrations, the classic imports (`ClassicSettingsMigration`, `ClassicShortcutImport`,
+   `ClassicPreferenceImport`) and the stored-defaults passes. The migrations and the classic
+   imports read the file and write in a later step, so a key the daemon sets in between can still
+   be overwritten; the lock does not close that. The stored-defaults passes check and write in one
+   step.
+5. A rule for a write to an object above schema rows: the app socket takes it after a confirmation,
+   the owner refuses it (`check_row_overlap`).
 
 Collections without a daemon owner yet (accounts: app Keychain; spaces and machines: their owners'
 catalog ops) render in the page through the catalog actions that already exist; where none exists,

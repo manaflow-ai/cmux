@@ -84,6 +84,20 @@ public enum TerminalConnectionState: Sendable, Equatable {
         }
     }
 
+    /// The quiet line by the composer once an outage has lasted
+    /// `QuietStatusGate.threshold` (nil: attached). Plain words, never a
+    /// transport error ("daemon channel closed").
+    public var quietLine: String? {
+        func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
+        switch self {
+        case .connecting(let mac): return "Connecting to \(named(mac))…"
+        case .reattaching(let mac): return "Reconnecting to \(named(mac))…"
+        case .offline: return label
+        case .failed: return "Can't reach this terminal"
+        case .attached: return nil
+        }
+    }
+
     /// A dropped tab (reattaching, or its Mac offline): a warm surface keeps
     /// its last frame live and readable under no overlay; the title pill says
     /// what is going on.
@@ -102,9 +116,12 @@ public enum TerminalConnectionState: Sendable, Equatable {
         return true
     }
 
-    /// Why the composer's Send did not go (nil: attached, it goes). The text
-    /// stays in the composer: a command must never run long after it was
-    /// typed (termfix-r13 D5, T-INPUT-17).
+    /// Why the composer's Send did not go (nil: it goes). The text stays in
+    /// the composer: a command must never run long after it was typed
+    /// (termfix-r13 D5, T-INPUT-17). A reattach (a blip) is not refused: the
+    /// send waits in the session's bounded hold (`inputHoldLimit`) and goes
+    /// once the terminal is back, or comes back to the composer if it never
+    /// comes (``TerminalSessionEvent/inputNotSent(bytes:)``).
     public var composerNotSentNotice: String? {
         func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
         switch self {
@@ -115,7 +132,7 @@ public enum TerminalConnectionState: Sendable, Equatable {
         // goes to the session, which holds it that long and says so if the
         // terminal never came (r13 review: a quick Send on a new tab was refused).
         case .connecting: return nil
-        case .reattaching(let mac): return "Not sent: reconnecting to \(named(mac)). Send again when it's back."
+        case .reattaching: return nil
         }
     }
 
@@ -137,6 +154,11 @@ public protocol TerminalSession: AnyObject {
     func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void)
     /// Bytes for the PTY (keys encoded by Ghostty, composer text, paste).
     func send(_ bytes: Data)
+    /// Bytes the terminal wrote by itself, not the person: Ghostty's replies
+    /// to terminal queries (cursor and device reports, focus and mouse
+    /// reports). A session that holds keys through an outage drops these
+    /// instead, and never reports them as ``TerminalSessionEvent/inputNotSent(bytes:)``.
+    func sendReply(_ bytes: Data)
     /// The screen's grid in cells: what a TUI should draw (rows between the
     /// toolbar and the composer with the keyboard down).
     func resize(columns: Int, rows: Int)
@@ -173,9 +195,22 @@ public protocol TerminalSession: AnyObject {
     /// Clear Screen and Scrollback where the terminal runs, so every view of it clears
     /// (the Mac's Cmd-K, `clear-history`). A full-screen app is left as it is.
     func clearHistory() async throws
+    /// The reader scrolled up to the oldest row the screen holds: a session
+    /// that attached with the latest screen first brings older rows (a Mac
+    /// terminal, `attach-replay-history-rows-v1`). Called as often as the page
+    /// scrolls there; the session decides. Others ignore it.
+    func loadOlderHistory()
+    /// The terminal's foreground program where it runs (the Mac's
+    /// `process-info` `foreground_executable`), nil when unknown or when the
+    /// session runs no program it can name. A drag on the alternate screen
+    /// pages a pager or an editor with it (``TerminalPanRoute``).
+    func foregroundProgram() async -> String?
 }
 
 extension TerminalSession {
+    /// Sessions that never hold keys send a reply as they send keys.
+    public func sendReply(_ bytes: Data) { send(bytes) }
+
     /// Rows of the remote screen this session mirrors, when it mirrors one
     /// (a terminal on the Mac). The screen then maps the remote primary
     /// screen onto the bottom of its taller surface (``TerminalRowShift``).
@@ -195,6 +230,10 @@ extension TerminalSession {
     public var clearsHistory: Bool { false }
 
     public func clearHistory() async throws {}
+
+    public func loadOlderHistory() {}
+
+    public func foregroundProgram() async -> String? { nil }
 
     public var hostGridOwnerName: String? { nil }
 }

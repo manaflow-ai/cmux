@@ -1,23 +1,14 @@
 import type { Principal } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import { fromBase64 } from "./home-avatars.ts"
-import type { AvatarAnswer, AvatarCall } from "./user-avatars.ts"
+import type { AvatarAnswer } from "./user-avatars.ts"
 
 /**
  * Worker side of participant avatars (home-avatars.ts). The bytes go to R2 through the account's
  * UserDO, outside its op ledger; a read goes to the account that keeps the picture (a person's
  * own, a Chief's owner's, found through the Chief's MuxDO).
  */
-interface AvatarUserStub {
-  avatar(call: AvatarCall): Promise<AvatarAnswer>
-}
-interface AvatarMuxStub {
-  ownerOf(agent: string): Promise<string | null>
-}
-const userStub = (env: Env, user: string) => env.USER_DO.get(env.USER_DO.idFromName(user)) as unknown as AvatarUserStub
-interface AvatarConversationStub {
-  sharesWith(entity: string, principal: Principal, participant: string): Promise<boolean>
-}
+const userStub = (env: Env, user: string) => env.USER_DO.get(env.USER_DO.idFromName(user))
 const PARTICIPANT = /^(user|agent)_[A-Za-z0-9_.-]{1,64}$/
 const CONVERSATION = /^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$/
 
@@ -51,7 +42,7 @@ export const avatarGetRoute = async (env: Env, principal: Principal, params: unk
   if (p.conversation !== undefined && (typeof p.conversation !== "string" || !CONVERSATION.test(p.conversation))) return { invalid: "conversation is a conversation id" }
   const owner = participant.startsWith("user_")
     ? participant
-    : await (env.MUX_DO.get(env.MUX_DO.idFromName(participant)) as unknown as AvatarMuxStub).ownerOf(participant)
+    : await env.MUX_DO.get(env.MUX_DO.idFromName(participant)).ownerOf(participant)
   const self = principal.user !== undefined && principal.user === owner && (participant === owner || principal.agent === undefined || principal.agent === participant)
   if (!self && !(typeof p.conversation === "string" && (await shared(env, principal, p.conversation, participant)))) return { hidden: true }
   if (!owner) return { value: { participant_id: participant, avatar: null } }
@@ -61,7 +52,7 @@ export const avatarGetRoute = async (env: Env, principal: Principal, params: unk
 
 /** Whether `principal` may read `conversation` and `participant` is in it (not left). */
 const shared = async (env: Env, principal: Principal, conversation: string, participant: string): Promise<boolean> => {
-  const stub = env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(conversation)) as unknown as AvatarConversationStub
+  const stub = env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(conversation))
   // A large group's head is a roster: the conversation checks its member rows (home-core large.ts).
   return stub.sharesWith(conversation, principal, participant)
 }

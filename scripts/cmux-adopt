@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+"""cmux-adopt: move a running terminal process into cmux without killing it.
+
+  cmux-adopt --list                 adoptable sessions (tmux, zellij, herdr)
+  cmux-adopt PID                    adopt the program with this pid
+  cmux-adopt tmux:SESSION[:W[.P]]   attach a tmux session/window/pane
+  cmux-adopt zellij:SESSION | herdr:SESSION
+
+Options: --detach-others (tmux: drop the old terminal's client so cmux sets the
+size), --tab (open in the focused cmux pane instead of a new workspace),
+--dry-run (print the command, open nothing).
+
+Routes, best first:
+  1. The process runs under a multiplexer (tmux, zellij, herdr): the
+     multiplexer owns the PTY master, so cmux opens a terminal that attaches
+     to it. Nothing is re-parented; the process never notices except SIGWINCH.
+  2. Linux, plain terminal: `reptyr -T PID` in a new cmux terminal steals the
+     old emulator's PTY master over ptrace. Session, controlling tty and job
+     control stay intact; the old emulator can be closed afterwards.
+  3. macOS, plain terminal: not possible with SIP on. task_for_pid needs root
+     plus SIP off (or a debugger entitlement and a non-hardened target); zsh,
+     bash and Ghostty are platform or hardened binaries. We say so and exit 2.
+"""
+import os, platform, re, shutil, subprocess, sys
+
+def run(*a):
+    try:
+        return subprocess.run(a, capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+def proc_table():
+    t = {}
+    for line in run("ps", "-axww", "-o", "pid=,ppid=,command=").splitlines():
+        m = re.match(r"\s*(\d+)\s+(\d+)\s+(.*)", line)
+        if m:
+            t[int(m[1])] = (int(m[2]), m[3])
+    return t
+
+def ancestors(pid, table):
+    chain = []
+    while pid in table and pid not in chain and pid > 1:
+        chain.append(pid)
+        pid = table[pid][0]
+    return chain
+
+def tmux_sockets():
+    socks = [None]
+    d = os.environ.get("TMUX_TMPDIR", "/tmp").rstrip("/") + f"/tmux-{os.getuid()}"
+    if os.path.isdir(d):
+        socks += [os.path.join(d, n) for n in sorted(os.listdir(d)) if n != "default"]
+    return socks
+
+def tmux(sock, *a):
+    return run("tmux", *(["-S", sock] if sock else []), *a)
+
+def tmux_panes():
+    for sock in tmux_sockets():
+        out = tmux(sock, "list-panes", "-a", "-F",
+                   "#{pane_pid}\t#{session_name}\t#{window_index}\t#{pane_index}\t#{pane_current_command}")
+        for line in out.splitlines():
+            p = line.split("\t")
+            if len(p) == 5:
+                yield sock, int(p[0]), p[1], p[2], p[3], p[4]
+
+def tmux_attach_argv(sock, session, win=None, pane=None, detach=False):
+    base = ["tmux"] + (["-S", sock] if sock else [])
+    argv = base + ["attach-session"] + (["-d"] if detach else []) + ["-t", session]
+    if win is not None:
+        argv += [";", "select-window", "-t", f"{session}:{win}"]
+        if pane is not None:
+            argv += [";", "select-pane", "-t", f"{session}:{win}.{pane}"]
+    return argv
+
+def find_route(pid, detach):
+    table = proc_table()
+    if pid not in table:
+        sys.exit(f"cmux-adopt: no process {pid}")
+    chain = ancestors(pid, table)
+    for sock, ppid, sess, win, pane, cmd in tmux_panes():
+        if ppid in chain:
+            return f"tmux {sess}:{win}.{pane} ({cmd})", tmux_attach_argv(sock, sess, win, pane, detach)
+    for a in chain:
+        cmd = table[a][1]
+        m = re.search(r"\bzellij\b.*--server\s+(\S+)", cmd)
+        if m:
+            s = os.path.basename(m[1])
+            return f"zellij {s}", ["zellij", "attach", s]
+        if re.search(r"(^|/)herdr server\b", cmd):
+            # The server's argv has no session name; its socket path does.
+            m = re.search(r"/sessions/([^/\n]+)/herdr\.sock", run("lsof", "-a", "-p", str(a), "-U", "-Fn"))
+            if m:
+                return f"herdr {m[1]}", ["herdr", "session", "attach", m[1]]
+            return "herdr default", ["herdr"]
+    if platform.system() == "Linux":
+        rep = shutil.which("reptyr")
+        if not rep:
+            sys.exit("cmux-adopt: not in a multiplexer and reptyr is not installed (apt install reptyr)")
+        return f"reptyr -T {pid}", [rep, "-T", str(pid)]
+    print(f"cmux-adopt: pid {pid} ({table[pid][1][:60]}) runs directly in a terminal emulator, not in a\n"
+          "multiplexer. On macOS that terminal holds the only PTY master and macOS gives no\n"
+          "way to take it: task_for_pid/ptrace need root with SIP off, and the shells and\n"
+          "emulators are platform or hardened binaries. Start long-lived programs under tmux\n"
+          "(or a cmux terminal, which survives app restarts) to make them movable.", file=sys.stderr)
+    sys.exit(2)
+
+def list_sessions():
+    rows = []
+    for sock in tmux_sockets():
+        for line in tmux(sock, "list-sessions", "-F", "#{session_name}\t#{session_windows}\t#{session_attached}").splitlines():
+            n, w, att = line.split("\t")
+            rows.append((f"tmux:{n}", f"{w} windows, {att} clients" + (f" (-S {sock})" if sock else "")))
+    for n in run("zellij", "list-sessions", "-n", "-s").split():
+        rows.append((f"zellij:{n}", ""))
+    for line in run("herdr", "session", "list").splitlines()[1:]:
+        p = line.split()
+        if len(p) >= 2 and p[1] == "running":
+            rows.append((f"herdr:{p[0]}", ""))
+    for name, info in rows:
+        print(f"{name:32} {info}")
+    if not rows:
+        print("no tmux, zellij or herdr sessions")
+
+def main():
+    args = sys.argv[1:]
+    flags = {a for a in args if a.startswith("--")}
+    pos = [a for a in args if not a.startswith("--")]
+    if "--help" in flags or "-h" in args or (not pos and "--list" not in flags):
+        print(__doc__.strip())
+        return
+    if "--list" in flags:
+        return list_sessions()
+    target, detach = pos[0], "--detach-others" in flags
+    if target.isdigit():
+        label, argv = find_route(int(target), detach)
+    elif target.startswith("tmux:"):
+        m = re.fullmatch(r"tmux:([^:]+)(?::(\w+)(?:\.(\d+))?)?", target) or sys.exit("bad tmux target")
+        label, argv = target, tmux_attach_argv(None, m[1], m[2], m[3], detach)
+    elif target.startswith("zellij:"):
+        label, argv = target, ["zellij", "attach", target[7:]]
+    elif target.startswith("herdr:"):
+        label, argv = target, ["herdr", "session", "attach", target[6:]]
+    else:
+        sys.exit(f"cmux-adopt: unknown target {target!r}")
+    cmux = os.environ.get("CMUX_CLI", "cmux")
+    name = f"adopted: {label.split(' (')[0]}"
+    if "--tab" in flags:
+        open_cmd = [cmux, "--json", "tab", "create", "terminal", "--name", name, "--"] + argv
+    else:
+        open_cmd = [cmux, "--json", "workspace", "create", "--name", name, "--"] + argv
+    print(f"route: {label}\nrun:   {' '.join(argv)}")
+    if "--dry-run" in flags:
+        print(f"open:  {' '.join(open_cmd)}")
+        return
+    r = subprocess.run(open_cmd, capture_output=True, text=True)
+    sys.stdout.write(r.stdout)
+    sys.stderr.write(r.stderr)
+    sys.exit(r.returncode)
+
+if __name__ == "__main__":
+    main()

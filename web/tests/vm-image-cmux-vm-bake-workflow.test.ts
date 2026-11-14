@@ -26,19 +26,20 @@ const step = (name: string) => {
   return found;
 };
 
-type Inputs = { mode: string; clones: string; keep_snapshot: boolean; probes: boolean; agent_tools: boolean; team_vm: boolean; dev_tree: boolean; dev_snapshot?: string; native_receiver?: boolean };
+type Inputs = { mode: string; clones: string; keep_snapshot: boolean; probes: boolean; agent_tools: boolean; team_vm: boolean; dev_tree: boolean; dev_snapshot?: string; layered?: boolean };
 const BASE: Inputs = { mode: "bake", clones: "2", keep_snapshot: true, probes: false, agent_tools: true, team_vm: false, dev_tree: false };
-const PROD_COPY: Inputs = { mode: "prod-copy", clones: "2", keep_snapshot: false, probes: false, agent_tools: false, team_vm: false, dev_tree: false, dev_snapshot: `sh-${"3".repeat(32)}` };
+const PROD_COPY: Inputs = { mode: "prod-copy", clones: "2", keep_snapshot: false, probes: false, agent_tools: true, team_vm: false, dev_tree: false, dev_snapshot: `sh-${"3".repeat(32)}` };
 
 /** Evaluates the expression forms this workflow uses in env values. */
 function evaluate(value: string, ctx: { inputs: Inputs; out: string; snapshot: string; key: string; plan: Record<string, string>; missing?: string }): string {
   return value.replace(/\$\{\{\s*(.+?)\s*\}\}/g, (_, expr: string) => {
-    if (expr === "(inputs.agent_tools || inputs.team_vm || inputs.dev_tree || inputs.probes) && 'set' || ''") return ctx.inputs.agent_tools || ctx.inputs.team_vm || ctx.inputs.dev_tree || ctx.inputs.probes ? "set" : "";
+    if (expr === "(inputs.team_vm || inputs.dev_tree || inputs.probes) && 'set' || ''") return ctx.inputs.team_vm || ctx.inputs.dev_tree || ctx.inputs.probes ? "set" : "";
     if (expr === "secrets.FREESTYLE_API_KEY != '' && 'yes' || ''") return ctx.key ? "yes" : "";
     const presence = expr.match(/^secrets\.(CMUX_UITEST_STACK_EMAIL|CMUX_UITEST_STACK_PASSWORD) != '' && 'yes' \|\| ''$/);
     if (presence) return ctx.missing === presence[1] ? "" : "yes";
     const plan = expr.match(/^steps\.plan\.outputs\.(\w+)$/);
     if (plan) return ctx.plan[plan[1]!] ?? "";
+    if (expr === "(inputs.layered && !inputs.dev_tree) && '60' || '120'") return ctx.inputs.layered && !ctx.inputs.dev_tree ? "60" : "120";
     const ternary = expr.match(/^inputs\.(\w+) && '([^']*)' \|\| '([^']*)'$/);
     if (ternary) return ctx.inputs[ternary[1] as keyof Inputs] ? ternary[2]! : ternary[3]!;
     const input = expr.match(/^inputs\.(\w+)$/);
@@ -85,33 +86,45 @@ afterAll(() => {
 });
 
 describe("cloud-vm-image-bake.yml", () => {
-  test("Native images opt in at bake and smoke, and cannot enter direct image promotion", async () => {
-    expect(workflow.on.workflow_dispatch.inputs.native_receiver).toMatchObject({ type: "boolean", default: false });
-    const argv = ["bun", "bake.ts", "--tag", "t"];
-    expect(bakeOptionsFromArgv(argv).nativeReceiver).toBe(false);
-    expect(bakeOptionsFromArgv([...argv, "--native-receiver"]).nativeReceiver).toBe(true);
-    for (const mode of ["--promotion", "--prod-copy"]) {
-      expect(() => bakeOptionsFromArgv([...argv, "--native-receiver", mode])).toThrow(/dedicated development VM API/);
-    }
-    const dir = mkdtempSync(path.join(tmpdir(), "cmux-native-image-"));
+  test("Cloud Native bakes require the desktop closure and default it on", () => {
+    expect(workflow.on.workflow_dispatch.inputs.agent_tools).toMatchObject({ type: "boolean", default: true });
+    expect((workflow.on as unknown as { workflow_call: { inputs: Record<string, { default: unknown }> } }).workflow_call.inputs.agent_tools).toMatchObject({ default: true });
+    const required = job.steps.find((s) => s.name === "Require the Cloud desktop closure");
+    expect(required?.if).toBe("inputs.mode != 'prod-copy' && !inputs.agent_tools");
+    expect(required?.run).toContain("agent_tools is required");
+  });
+
+  test("there is no Native receiver image: no input and no bake flag", () => {
+    expect(workflow.on.workflow_dispatch.inputs).not.toHaveProperty("native_receiver");
+    expect((workflow.on as unknown as { workflow_call: { inputs: Record<string, unknown> } }).workflow_call.inputs).not.toHaveProperty("native_receiver");
+    expect(bakeOptionsFromArgv(["bun", "bake.ts", "--tag", "t"])).not.toHaveProperty("nativeReceiver");
+  });
+
+  test("layered is the default; it defers the inventory to beside the smoke; a dev tree bake stays a full bake", async () => {
+    expect(workflow.on.workflow_dispatch.inputs.layered).toMatchObject({ type: "boolean", default: true });
+    const dir = mkdtempSync(path.join(tmpdir(), "cmux-layered-"));
     dirs.push(dir);
-    const inputs = { ...BASE, native_receiver: true };
+    const inputs = { ...BASE, layered: true };
     const bake = await runStep("Bake", inputs, dir);
     expect(bake.result.status).toBe(0);
-    expect(bake.argv.at(-1)).toContain("--native-receiver");
+    expect(bake.argv.at(-1)).toBe(`../images/cmux-vm/bake.ts --tag ci-4242-1 --out-dir ${bake.out} --agent-tools --layered --defer-inventory`);
+    writeFileSync(path.join(bake.out, "bake-x.json"), JSON.stringify({ name: "x", inventoryVmId: "vm-1" }));
     const smoke = await runStep("Smoke", inputs, dir);
     expect(smoke.result.status).toBe(0);
-    expect(smoke.argv.at(-1)).toContain("--native-receiver");
-    writeFileSync(path.join(bake.out, "bake-test.json"), JSON.stringify({ name: "native-test", lockSha256: "lock", nativeReceiver: true }));
-    writeFileSync(path.join(bake.out, "smoke-ci-4242-1.json"), JSON.stringify({ passed: true, checks: { root: { ok: true } } }));
-    expect((await runStep("Dev channel candidate", inputs, dir)).result.status).toBe(0);
-    const candidate = JSON.parse(readFileSync(path.join(bake.out, "native-image.json"), "utf8"));
-    expect(candidate).toMatchObject({ native_receiver: true, transport: "vm-api" });
-    expect(candidate).not.toHaveProperty("var");
-    expect(() => readFileSync(path.join(bake.out, "channel-dev.json"))).toThrow();
-    for (const mode of ["repro", "prod-copy"]) {
-      expect((await runStep("Validate the input lock", { ...inputs, mode }, dir)).result.status).not.toBe(0);
-    }
+    expect(smoke.argv.some((a) => a.startsWith("../images/cmux-vm/inventory.ts --out-dir"))).toBe(true);
+    expect(smoke.argv.some((a) => a.startsWith("../images/cmux-vm/smoke.ts") && a.includes("--idle-seconds 60 "))).toBe(true);
+    const dir2 = mkdtempSync(path.join(tmpdir(), "cmux-layered-devtree-"));
+    dirs.push(dir2);
+    const devTree = await runStep("Bake", { ...inputs, dev_tree: true }, dir2);
+    expect(devTree.argv.at(-1)).toBe(`../images/cmux-vm/bake.ts --tag ci-4242-1 --out-dir ${devTree.out} --agent-tools --dev-tree`);
+    const devTreeSmoke = await runStep("Smoke", { ...inputs, dev_tree: true }, dir2);
+    expect(devTreeSmoke.argv.some((a) => a.startsWith("../images/cmux-vm/smoke.ts") && a.includes("--idle-seconds 120 "))).toBe(true);
+  });
+
+  test("a first-session probe and an image roll's bake queue apart from the bakes; bakes keep one queue per ref", () => {
+    const group = String((workflow as unknown as { concurrency: { group: string } }).concurrency.group);
+    expect(group).toBe("cloud-vm-image-bake-${{ github.ref }}${{ inputs.mode == 'first-session' && '-probe' || '' }}${{ inputs.roll && '-roll' || '' }}");
+    expect((workflow as unknown as { concurrency: { "cancel-in-progress": boolean } }).concurrency["cancel-in-progress"]).toBe(false);
   });
 
   test("team_vm is a boolean input that defaults to off", () => {
@@ -142,7 +155,7 @@ describe("cloud-vm-image-bake.yml", () => {
     expect(JSON.parse(readFileSync(path.join(bake.out, "channel-dev.json"), "utf8")).bake).toBe("images/cmux-vm/bake.ts --agent-tools --dev-tree (CI run 4242)");
     // Both sides build the run's commit, and a dev tree snapshot is kept only when its first build passed (not skipped or cancelled).
     expect(workflowText).toContain('first-build.ts --mode before --snapshot "$snapshot" --tag "$TAG" --ref "$GITHUB_SHA"');
-    expect(workflowText).toContain("steps.smoke.outcome == 'success' && (!inputs.dev_tree || steps.first_build.outcome == 'success') && '--keep-snapshot'");
+    expect(workflowText).toContain("steps.smoke.outcome == 'success' && (!inputs.dev_tree || steps.first_build.outcome == 'success') && (!(inputs.agent_tools && inputs.probes) || steps.agent_tools_probe.outcome == 'success') && '--keep-snapshot'");
   });
 
   test("no run script interpolates an expression (inputs reach scripts through env only)", () => {
@@ -169,11 +182,11 @@ describe("cloud-vm-image-bake.yml", () => {
 
       const smoke = await runStep("Smoke", inputs, dir);
       expect(smoke.result.status).toBe(0);
-      expect(smoke.argv.at(-1)).toBe(`../images/cmux-vm/smoke.ts --snapshot sh-test --tag ${tag} --clones 2 --out-dir ${smoke.out}${teamVm ? " --team-vm" : ""}`);
+      expect(smoke.argv.at(-1)).toBe(`../images/cmux-vm/smoke.ts --snapshot sh-test --tag ${tag} --clones 2 --idle-seconds 120 --out-dir ${smoke.out}${teamVm ? " --team-vm" : ""}`);
 
       // What bake.ts and smoke.ts write into the out dir.
       const name = `cmuxnp-dev-vmimg-${tag}`;
-      writeFileSync(path.join(bake.out, `bake-${name}.json`), JSON.stringify({ name, lockSha256: "f".repeat(64), ...(teamVm ? { teamFilesRoot: "/srv/team root:cmux-ssh 2750" } : {}) }));
+      writeFileSync(path.join(bake.out, `bake-${name}.json`), JSON.stringify({ name, lockSha256: "f".repeat(64), desktop: { role: "desktop", program: "cmux-rd", version: "0.2.3", socketUnit: "cmux-agent-rd.socket", socket: "/run/cmux-rd/desktop.sock" }, ...(teamVm ? { teamFilesRoot: "/srv/team root:cmux-ssh 2750" } : {}) }));
       const smokeReport = path.join(bake.out, `smoke-${tag}.json`);
       writeFileSync(smokeReport, JSON.stringify({ passed: false, checks: { a: { ok: false } } }));
       const refused = await runStep("Dev channel candidate", inputs, dir);
@@ -191,6 +204,7 @@ describe("cloud-vm-image-bake.yml", () => {
         snapshot_id: "sh-test",
         source_sha: "abc123def456",
         run: 4242,
+        desktop: { role: "desktop", program: "cmux-rd", version: "0.2.3", socketUnit: "cmux-agent-rd.socket", socket: "/run/cmux-rd/desktop.sock" },
         bake: `images/cmux-vm/bake.ts --agent-tools${teamVm ? " --team-vm" : ""} (CI run 4242)`,
         smoke: { result: "PASSED", detail: `smoke.ts --clones 2${teamVm ? " --team-vm" : ""} (CI run 4242): 2 checks passed` },
       });
@@ -212,7 +226,6 @@ describe("cloud-vm-image-bake.yml mode prod-copy", () => {
     ["no test profile password", {}, { key: "s3cr3t-key", missing: "CMUX_UITEST_STACK_PASSWORD" }],
     ["a dispatch from another branch", {}, { key: "s3cr3t-key", ref: "refs/heads/main" }],
     ["a dev_snapshot that is not an id", { dev_snapshot: "cmuxnp-dev-vmimg-x" }, { key: "s3cr3t-key" }],
-    ["agent_tools set by hand", { agent_tools: true }, { key: "s3cr3t-key" }],
     ["probes (the dev API)", { probes: true }, { key: "s3cr3t-key" }],
     ["dev_tree", { dev_tree: true }, { key: "s3cr3t-key" }],
   ];
@@ -249,7 +262,7 @@ describe("cloud-vm-image-bake.yml mode prod-copy", () => {
     // account-check, bake and smoke each saw a 0600 key file and no key in their environment.
     expect(readFileSync(path.join(dir, "bun.env"), "utf8")).toBe("key-in-env=0 file-mode=600\n".repeat(3));
     const name = "cmuxnp-prod-vmimg-ci-4242-1";
-    writeFileSync(path.join(bake.out, `bake-${name}.json`), JSON.stringify({ name, lockSha256: "f".repeat(64), teamFilesRoot: "/srv/team root:cmux-ssh 2750" }));
+    writeFileSync(path.join(bake.out, `bake-${name}.json`), JSON.stringify({ name, lockSha256: "f".repeat(64), desktop: { role: "desktop", program: "cmux-rd", version: "0.2.3", socketUnit: "cmux-agent-rd.socket", socket: "/run/cmux-rd/desktop.sock" }, teamFilesRoot: "/srv/team root:cmux-ssh 2750" }));
     writeFileSync(path.join(bake.out, "smoke-ci-4242-1.json"), JSON.stringify({ passed: true, checks: { a: { ok: true } } }));
     const candidate = await runStep("Production copy candidate", PROD_COPY, dir, "sh-prod", { key: "s3cr3t-key", plan });
     expect(candidate.result.status).toBe(0);
@@ -261,6 +274,7 @@ describe("cloud-vm-image-bake.yml mode prod-copy", () => {
       snapshot: name,
       snapshot_id: "sh-prod",
       lock_sha256: "f".repeat(64),
+      desktop: { role: "desktop", program: "cmux-rd", version: "0.2.3", socketUnit: "cmux-agent-rd.socket", socket: "/run/cmux-rd/desktop.sock" },
       run: 4242,
       bake: "images/cmux-vm/bake.ts --prod-copy --agent-tools --team-vm (CI run 4242)",
       smoke: { result: "PASSED", detail: "smoke.ts --clones 2 --team-vm (CI run 4242): 1 checks passed" },

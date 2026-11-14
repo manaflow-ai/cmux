@@ -40,22 +40,23 @@ PATH="$(tail -n 1 "$out/bun-path"):$PATH"
 export PATH
 apps=()
 # Each arm's setup (worktree, submodules, GhosttyKit) takes about 2 GiB before reload.sh checks its 40 GiB floor
-# (CMUX_NEXT_MIN_FREE_GIB, tour-requirements.json), and only one build is on disk at a time (below). The floor is
-# kept; before each arm, a home volume with less than 43 GiB free stops the step there, before the arm's clone,
-# instead of four minutes into it (run 1, job b872d155: 40 GiB at start, 38 GiB at the first build). Arm 2 also
-# finds arm 1's app and the step's build caches still on disk. The mini scheduler admits this step at 48 GiB.
+# (CMUX_NEXT_MIN_FREE_GIB, tour-requirements.json), and only one build is on disk at a time (below). Before each
+# arm, a home volume with less than 43 GiB free is logged as a warning and the arm runs anyway: a busy machine
+# makes things slower, never makes them fail (run 1, job b872d155: 40 GiB at start, 38 GiB at the first build).
+# Arm 2 also finds arm 1's app and the step's build caches still on disk. The mini scheduler admits this step at
+# 48 GiB.
 need_gib=43
 check_free() {
-  local free
-  free="$(df -g "$HOME" | awk 'NR == 2 {print $4}')"
+  local free host
+  host="$(hostname -s 2>/dev/null || echo unknown)"
+  free="$(df -g "$HOME" 2>/dev/null | awk 'NR == 2 {print $4}')" || free=""
   if ! [[ "$free" =~ ^[0-9]+$ ]]; then
-    echo "devtools-calls: cannot read the free space of the home volume ($HOME): '$free'" >&2
-    exit 1
+    echo "devtools-calls: warning: cannot read the free space of the home volume ($HOME) on $host before $1: '$free'; running anyway" >&2
+    return 0
   fi
   echo "DEVTOOLS-CALLS-DISK free before $1: $free GiB"
   if [ "$free" -lt "$need_gib" ]; then
-    echo "devtools-calls: $free GiB free on the home volume before $1; this step needs $need_gib GiB (reload.sh's 40 GiB floor after the arm's ~2 GiB setup)" >&2
-    exit 1
+    echo "devtools-calls: warning: $free GiB free on the home volume of $host before $1, under the $need_gib GiB floor (reload.sh's 40 GiB floor after the arm's ~2 GiB setup); running anyway" >&2
   fi
 }
 IFS=',' read -r -a arm_list <<< "$arms"

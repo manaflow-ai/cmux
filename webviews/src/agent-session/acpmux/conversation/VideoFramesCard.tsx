@@ -4,21 +4,17 @@
 // A frame opens large in the pane's image viewer; the name plays the video in Quick Look, the same
 // viewer an attached video's tile opens (`video.quickLook`, which the host checks like any path).
 // Every frame draws in a box of the video's shape before it decodes, so the transcript never moves.
-// `layout` keeps the gallery's alternatives (VideoFramesCard.gallery.tsx); the transcript draws `strip`.
-import { createContext, useContext, type CSSProperties } from "react";
+// `layout` keeps the gallery's alternatives (VideoFramesCard.gallery.tsx); the transcript draws `strip`,
+// whose frames wrap down the pane in rows rather than scroll sideways.
+import { useContext, type CSSProperties } from "react";
 import { callChipHost } from "../chips/host";
-import { formatDuration } from "../chips/ReplyMedia";
+import { formatDuration } from "../chips/replyMediaModel";
 import { useT } from "../i18n";
 import { ImageViewerContext } from "./imageViewerContext";
 import { PlayTriangle } from "./icons";
 import { useTranscriptReadOnly } from "./readOnly";
 import { frameLabel, needsTenths, type VideoFrame, type VideoFrames } from "./videoFrames";
-
-export type VideoFramesLayout = "strip" | "grid" | "poster";
-
-/// The layout the transcript's cards take: `strip`, but for the gallery's comparison.
-export const VideoFramesLayoutContext = createContext<VideoFramesLayout>("strip");
-
+import { VideoFramesLayoutContext } from "./videoFramesCardModel";
 /// The shape a frame box takes: the video's, held between 9:16 and 21:9.
 function aspect(video: VideoFrames): number {
   const ratio = video.width && video.height ? video.width / video.height : 16 / 9;

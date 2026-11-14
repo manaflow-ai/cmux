@@ -17,6 +17,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 
 import owned_spm_scratch as scratch  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 WORKFLOW = ROOT / ".github/workflows/ci-macos.yml"
 NEXT_WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
@@ -614,6 +621,17 @@ class Scratch(unittest.TestCase):
         self.assertEqual(scratch.drop_resource_bundles(build), [own / "Own.bundle"])
         self.assertTrue((outside / "debug/Other.bundle").is_dir())
         self.assertTrue((outside / "triple/debug/Deep.bundle").is_dir())
+
+    def test_drop_bundles_clears_a_restored_build(self):
+        # A seed restored into the workspace (not a scratch link) loses its bundles the same way.
+        build = Path(self.tmp.name) / "restored/.build"
+        (build / "arm64-apple-macosx/debug/Stale.bundle").mkdir(parents=True)
+        (build / "arm64-apple-macosx/debug/description.json").write_text("{}")
+        (build / "arm64-apple-macosx/debug/Module.swiftmodule").mkdir()
+        self.assertEqual(scratch.main(["x", "drop-bundles", str(build)]), 0)
+        self.assertFalse((build / "arm64-apple-macosx/debug/Stale.bundle").exists())
+        self.assertTrue((build / "arm64-apple-macosx/debug/Module.swiftmodule").is_dir())
+        self.assertEqual(scratch.main(["x", "drop-bundles", str(build.parent / "absent")]), 0)
 
     def test_an_empty_store_with_no_room_above_the_reserve_makes_no_root(self):
         # No root measured yet: a new root still needs room for a whole build, not zero bytes.

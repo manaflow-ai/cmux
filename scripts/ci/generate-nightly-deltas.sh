@@ -6,7 +6,8 @@
 #
 # Environment: CHANNEL_RELEASE_TAG, CHANNEL_DMG_PREFIX, NIGHTLY_VARIANT,
 # NIGHTLY_BUILD, GH_TOKEN, the key variables scripts/ci/nightly-sparkle-key.sh
-# reads, and optionally SPARKLE_CHANNEL and GITHUB_REPOSITORY.
+# reads, and optionally SPARKLE_CHANNEL, GITHUB_REPOSITORY, SPARKLE_PREBUILT_DELTAS_DIR
+# and NIGHTLY_DELTAS_PREBUILD_ONLY (below).
 #
 # A Mac downloads a delta only when its installed build is a delta base; any
 # other Mac downloads the full DMG. Macs check hourly and nightly-next ships
@@ -52,6 +53,16 @@ python3 "$scripts_dir/ci/fetch-previous-nightly-dmgs.py" \
 if ! compgen -G "$previous/*.dmg" >/dev/null; then
   echo "No previous $NIGHTLY_VARIANT archive; retaining the full-only appcast"
   cp "$FULL_FEED" "$OUT_DIR/$feed"
+  exit 0
+fi
+# NIGHTLY_DELTAS_PREBUILD_ONLY=1 (build-nightly-deltas): only the delta files, with no key, into <out-dir>.
+# The keyed run (generate-nightly-deltas) reuses them through SPARKLE_PREBUILT_DELTAS_DIR, drops any whose
+# base it drops, and builds any that are missing.
+if [[ "${NIGHTLY_DELTAS_PREBUILD_ONLY:-}" == 1 ]]; then
+  SPARKLE_PREBUILD_ONLY_DIR="$OUT_DIR" \
+  SPARKLE_PREVIOUS_ARCHIVES_DIR="$previous" \
+  SPARKLE_MAXIMUM_DELTAS="$(find "$previous" -maxdepth 1 -name '*.dmg' | wc -l | tr -d ' ')" \
+    "$scripts_dir/sparkle_generate_appcast.sh" "$DMG" "$CHANNEL_RELEASE_TAG"
   exit 0
 fi
 SPARKLE_PRIVATE_KEY="$("$scripts_dir/ci/nightly-sparkle-key.sh")"

@@ -121,10 +121,10 @@ fn inline_nullable_numeric_aliases(value: &mut Value, aliases: &Map<String, Valu
             let Some(branches) = obj.get("allOf").and_then(Value::as_array) else {
                 return;
             };
-            if branches.len() != 1 {
+            let [only] = branches.as_slice() else {
                 return;
-            }
-            let Some(reference) = branches[0]
+            };
+            let Some(reference) = only
                 .as_object()
                 .filter(|branch| branch.len() == 1)
                 .and_then(|branch| branch.get("$ref"))
@@ -264,8 +264,15 @@ fn normalize_schema(schema: &mut Value, open_enums: bool) {
 
     for key in SCHEMA_MAPS {
         if let Some(map) = obj.get_mut(*key).and_then(Value::as_object_mut) {
-            map.values_mut()
-                .for_each(|v| normalize_schema(v, open_enums));
+            for v in map.values_mut() {
+                // A property that can only be null (cmux-platform's placement
+                // accounting fields, reserved for later) has no 3.0 type: it
+                // reads as any value, which accepts the null it always is.
+                if is_null_schema(v) {
+                    *v = Value::Object(Map::new());
+                }
+                normalize_schema(v, open_enums);
+            }
         }
     }
     for key in SCHEMA_VALUES {

@@ -9,7 +9,7 @@ final class HomeFirstRunIntro: NSView {
     private var scale: CGFloat = 1
 
     static let padding: CGFloat = 12
-    static let cornerRadius: CGFloat = 12
+    static var cornerRadius: CGFloat { Metrics.surfaceCornerRadius }
     /// How far the bubble rises into place, in points before the interface scale.
     static let rise: CGFloat = 8
 

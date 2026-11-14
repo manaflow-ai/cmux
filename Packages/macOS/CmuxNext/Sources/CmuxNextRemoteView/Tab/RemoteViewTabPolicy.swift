@@ -4,7 +4,9 @@ import Foundation
 /// remote-desktop.md 11.0). Pure, so tests cover every build's rules.
 /// Phase 1 (until the host verifies link tokens):
 /// - a record from a remote tree never opens, in every build;
-/// - builds without the pane show "not available";
+/// - builds without the pane show "not available", except for a Cloud
+///   machine's `cmux-rd` desktop over its Native link (`cloudRd`,
+///   `RemoteViewAvailability.isCloudRdAvailable`), which every build shows;
 /// - a development build connects only to a loopback host (`mock`, `local`,
 ///   `localhost`, `127.0.0.0/8`);
 /// - a record no person confirmed (agents, scripts, restore) asks first,
@@ -21,11 +23,12 @@ public struct RemoteViewTabPolicy {
     public func decide(
         record: RemoteViewTabRecord?,
         source: RemoteViewTabSource,
-        paneAvailable: Bool = RemoteViewAvailability().isAvailable
+        paneAvailable: Bool = RemoteViewAvailability().isAvailable,
+        cloudRdAvailable: Bool = RemoteViewAvailability().isCloudRdAvailable
     ) -> RemoteViewTabDecision {
         if source == .remoteTree { return .unavailable(.remoteRecord) }
         guard let record else { return .unavailable(.invalidAddress) }
-        guard paneAvailable else { return .unavailable(.notInThisBuild) }
+        guard paneAvailable || (record.cloudDesktop && record.cloudRd && cloudRdAvailable) else { return .unavailable(.notInThisBuild) }
         if record.cloudDesktop {
             // A Cloud machine's desktop goes only over the app's own Cloud tunnel to the machine
             // the signed-in account owns (its private address, the hub's client token), never to

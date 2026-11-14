@@ -210,7 +210,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     return page;
   };
 
-  test("a tool call opened at the end pins the bottom and moves the transcript as one stack", async () => {
+  test("a tool call opened at the end holds its line and grows down; a close at the end pins the bottom", async () => {
     const page = await open("no-preference");
     await show(page, [...done, ...live(1)]);
     await settle(page);
@@ -227,12 +227,12 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
 
     const opened = await clickAndWatch(page);
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
-    // The body plays its own height and the offset moves with it on each frame (Leo, 2026-11-04:
-    // "it's not a smooth eough/graceful enough/minimally shifting animation"): no thread transform.
+    // Codex parity: an open at the end never pins the bottom. The line and the rows over it stay
+    // where the reader clicked, the body plays its own height down under the composer (no thread
+    // transform), and the view stops following.
     expect(opened.folded).toBe(true);
-    expect(opened.bottomDrift).toBeLessThanOrEqual(2);
     expect(opened.threadAnimations).toBe(0);
-    expect(opened.moved).toBeGreaterThan(1);
+    expect(opened.moved).toBeLessThanOrEqual(1);
     await settle(page);
     const aboveAfter = await page
       .locator("[data-above-probe]")
@@ -240,11 +240,15 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     const earlierAfter = await page
       .locator("[data-earlier-probe]")
       .evaluate((node) => (node as HTMLElement).getBoundingClientRect().top);
-    expect(aboveAfter).toBeLessThan(aboveBefore - 1);
-    expect(earlierAfter).toBeLessThan(earlierBefore - 1);
-    expect(await atLatest(page)).toBe(true);
+    expect(Math.abs(aboveAfter - aboveBefore)).toBeLessThanOrEqual(1);
+    expect(Math.abs(earlierAfter - earlierBefore)).toBeLessThanOrEqual(1);
+    expect(await atLatest(page)).toBe(false);
 
     const expandedEnd = await scrollHeight(page);
+    // Back at the latest row, a close pins the bottom (below).
+    await page.mouse.wheel(0, 10_000);
+    await settle(page);
+    expect(await atLatest(page)).toBe(true);
     // Closing at the bottom keeps the bottom pinned too: the text above comes down by what closed,
     // and no blank room is left under the rows (Leo, 2026-11-03: "it's weird to collapse and get
     // all that empty space at the bottom"). This replaces #29703's kept room.
@@ -267,16 +271,16 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     expect(await scrollHeight(page)).toBe(closedEnd);
     expect(await atLatest(page)).toBe(true);
 
-    // Reopening at the bottom pushes the text up again, to the same end.
+    // Reopening at the bottom holds the line again and grows down, to the same end.
     await probe(page, `[data-row-id="live-run"] button.cv-tool.is-toggle[aria-expanded="false"]`);
     const reopened = await clickAndWatch(page);
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
-    expect(reopened.bottomDrift).toBeLessThanOrEqual(2);
+    expect(reopened.moved).toBeLessThanOrEqual(1);
     expect(reopened.threadAnimations).toBe(0);
     expect(reopened.folded).toBe(true);
     await settle(page);
     expect(await scrollHeight(page)).toBe(expandedEnd);
-    expect(await atLatest(page)).toBe(true);
+    expect(await atLatest(page)).toBe(false);
     await page.close();
   });
 
@@ -360,7 +364,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await page.close();
   });
 
-  test("a tool toggle just above the end reacquires bottom follow, and user scroll cancels its motion", async () => {
+  test("a tool toggle just above the end holds its line, and user scroll cancels its close", async () => {
     const page = await open("no-preference");
     await show(page, [...done, ...live(1)]);
     await settle(page);
@@ -372,9 +376,10 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await settle(page);
     await probe(page, '[data-row-id="live-run"] button.cv-tool.is-toggle[aria-expanded="false"]');
     const opened = await clickAndWatch(page);
-    expect(opened.bottomDrift).toBeLessThanOrEqual(3);
+    // Codex parity: it opens down from its line, and the view does not follow the end.
+    expect(opened.moved).toBeLessThanOrEqual(1);
     expect(opened.folded).toBe(true);
-    expect(await atLatest(page)).toBe(true);
+    expect(await atLatest(page)).toBe(false);
     // Dispatch the reversal and scroll in one task so the cancellation cannot miss a short animation.
     await page.evaluate(async () => {
       document.querySelector<HTMLElement>("[data-probe]")!.click();
@@ -392,7 +397,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await page.close();
   });
 
-  test("a finished turn's Worked for opened at the latest row pins the bottom", async () => {
+  test("a finished turn's Worked for opened at the latest row holds its line and grows down", async () => {
     const page = await open("no-preference");
     await show(page, done);
     await settle(page);
@@ -400,8 +405,9 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await probe(page, `[data-row-id="worked-t7-user"] button.cv-worked`);
     const opened = await clickAndWatch(page);
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
-    expect(opened.bottomDrift).toBeLessThanOrEqual(2);
-    expect(await atLatest(page)).toBe(true);
+    // Codex parity: the line stays where it was clicked; what it opens grows down past the end.
+    expect(opened.moved).toBeLessThanOrEqual(1);
+    expect(await atLatest(page)).toBe(false);
     expect(await page.locator('[data-row-id="t7-run"]').count()).toBe(1);
     await page.close();
   });
@@ -424,14 +430,14 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
       const fold = page.locator('[data-row-id="worked-spacing-user"] .cv-worked');
       if ((await fold.getAttribute("aria-expanded")) !== "true") await fold.click();
       await settle(page);
+      // The two runs draw as one line (turns.ts mergeShortNotes; Leo, 2026-11-12, ask-bc2af01f6e), with or
+      // without the invisible replies between them, so its height is the whole gap they could add.
       return page.evaluate(() => {
         const first = document.querySelector<HTMLElement>('[data-row-id="spacing-first"]');
-        const second = document.querySelector<HTMLElement>('[data-row-id="spacing-second"]');
-        if (!first || !second) throw new Error("tool groups were not mounted");
-        const a = first.getBoundingClientRect();
-        const b = second.getBoundingClientRect();
+        if (!first) throw new Error("tool groups were not mounted");
         return {
-          gap: b.top - a.bottom,
+          height: first.getBoundingClientRect().height,
+          second: document.querySelectorAll('[data-row-id="spacing-second"]').length,
           emptyRows: document.querySelectorAll('[data-row-id="spacing-empty"], [data-row-id="spacing-zero"]').length,
         };
       });
@@ -439,7 +445,8 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     const normal = await gapAfterOpenFold(false);
     const withInvisible = await gapAfterOpenFold(true);
     expect(withInvisible.emptyRows).toBe(0);
-    expect(Math.abs(withInvisible.gap - normal.gap)).toBeLessThanOrEqual(0.5);
+    expect([normal.second, withInvisible.second]).toEqual([0, 0]);
+    expect(Math.abs(withInvisible.height - normal.height)).toBeLessThanOrEqual(0.5);
     await page.close();
   });
 
@@ -522,8 +529,9 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     expect(await line.getAttribute("aria-expanded")).toBe("false");
     await probe(page, '[data-row-id="worked-completed-user"] .cv-worked');
     const opened = await clickAndWatch(page);
-    expect(opened.bottomDrift).toBeLessThanOrEqual(2);
-    expect(await atLatest(page)).toBe(true);
+    // Opened at the end, the line holds and the reports grow down (Codex parity).
+    expect(opened.moved).toBeLessThanOrEqual(1);
+    expect(await atLatest(page)).toBe(false);
     expect(await line.getAttribute("aria-expanded")).toBe("true");
     const position = await page.evaluate(() => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -565,7 +573,10 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await page.locator('[data-row-id="worked-loaded-steer"] .cv-worked').click();
     await show(page, rows);
     await settle(page);
-    const line = page.locator('[data-row-id="worked-older-prompt"] .cv-worked');
+    // The older prompt's stretch holds only the steer, so the work stays under the steer's own fold
+    // (turns.ts foldSegments `inOrder`): the fold opened at the page's edge is the one still drawn.
+    expect(await page.locator('[data-row-id="worked-older-prompt"]').count()).toBe(0);
+    const line = page.locator('[data-row-id="worked-loaded-steer"] .cv-worked');
     expect(await line.getAttribute("aria-expanded")).toBe("true");
     expect(await line.getAttribute("aria-controls")).toContain("loaded-tool");
     const phase = page.evaluate(
@@ -757,7 +768,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await page.close();
   });
 
-  test("under Reduce Motion a tool call opens at once and still pins the bottom", async () => {
+  test("under Reduce Motion a tool call opens at once and still holds its line", async () => {
     const page = await open("reduce");
     await show(page, [...done, ...live(1)]);
     await settle(page);
@@ -765,8 +776,8 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     const opened = await clickAndWatch(page, 250);
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
     expect(opened.folded).toBe(false);
-    expect(opened.bottomDrift).toBeLessThanOrEqual(2);
-    expect(await atLatest(page)).toBe(true);
+    expect(opened.moved).toBeLessThanOrEqual(1);
+    expect(await atLatest(page)).toBe(false);
     await page.close();
   });
 });

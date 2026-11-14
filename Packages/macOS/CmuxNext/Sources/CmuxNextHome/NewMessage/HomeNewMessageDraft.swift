@@ -1,4 +1,5 @@
 public import CmuxHomeCore
+public import CmuxNextHomeModel
 public import Foundation
 
 /// New Message as Messages has it (Lawrence 2026-10-19: no modal, a page):

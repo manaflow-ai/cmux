@@ -121,3 +121,110 @@ fn a_late_root_seed_stops_counting_its_echo_as_background_work() {
     tree.set_root("root-native");
     assert_eq!(tree.background_running(), 0, "the native root is not background work");
 }
+
+/// A background Claude agent that fails (an API error ends it) and runs again (the model
+/// resumes it with SendMessage) says `running` without the background mark. It is background
+/// work again: uncounted, the chat read as idle with no subagent running while the agent worked,
+/// and only the commands it ran kept its harness from hibernating under it. A daemon that adopts
+/// the host reads the same updates back from the log (`work_below.rs`), so it counts it too.
+#[test]
+fn a_background_subagent_that_runs_again_after_failing_is_background_work() {
+    let mut tree = SubagentTree::default();
+    tree.set_own(Some("s1"));
+    let state = |state: &str| json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "bg", "state": state, "agentId": "a1"});
+    annotate(
+        &mut tree,
+        json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "bg", "name": "Toast fix", "background": true}),
+        true,
+    );
+    assert_eq!(tree.background_running(), 1);
+    annotate(&mut tree, state("failed"), true);
+    assert_eq!(tree.background_running(), 0, "a failed agent no longer runs");
+    annotate(&mut tree, state("running"), false);
+    assert_eq!(tree.background_running(), 0, "a replay starts nothing");
+    annotate(&mut tree, state("running"), true);
+    assert_eq!(tree.background_running(), 1, "the resumed agent is background work again");
+    assert_eq!(tree.running_now(false), vec![("bg", Some("Toast fix"))], "it runs past the turn");
+    annotate(&mut tree, state("completed"), true);
+    assert_eq!(tree.background_running(), 0);
+}
+
+/// Only a background subagent's mark carries across its end: a foreground one that runs again
+/// stays foreground.
+#[test]
+fn a_foreground_subagent_that_runs_again_is_not_background_work() {
+    let mut tree = SubagentTree::default();
+    tree.set_own(Some("s1"));
+    for state in ["running", "failed", "running"] {
+        annotate(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "fg", "state": state}),
+            true,
+        );
+    }
+    assert_eq!(tree.background_running(), 0);
+}
+
+/// Leo, 2026-11-12, on "Waiting on 16 subagents 14m 24s" while every helper of the chat ran in
+/// the background: "this is taking a REALLY long time? shouldn't this have backgrounded?". Every
+/// event of background work says `background: true`, so a client never counts it as one the
+/// chat's turn waits on: a progress or end that repeats no mark (a page that starts after the
+/// spawn), and a subagent a background helper started itself, at any depth. A foreground
+/// subagent's own subagent stays foreground, and a replayed spawn's mark carries too.
+#[test]
+fn every_event_of_background_work_says_background() {
+    let mut tree = SubagentTree::default();
+    tree.set_own(Some("s1"));
+    let events = |tree: &mut SubagentTree, owner: &str, update: Value, live: bool| -> Vec<Value> {
+        let mut params = json!({"sessionId": owner, "update": update});
+        tree.annotate_live(&mut params, live);
+        params
+            .pointer("/_meta/acpmux/subagents")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+    };
+    let spawn = |id: &str, background: bool| json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": id, "background": background});
+    let progress = |id: &str| json!({"sessionUpdate": "subagent_progress", "subagentSessionId": id, "toolUses": 3});
+    let end = |id: &str| json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": id, "state": "completed"});
+    let background = |events: &[Value]| events.iter().all(|e| e["background"] == json!(true));
+
+    events(&mut tree, "s1", spawn("helper", true), true);
+    events(&mut tree, "s1", spawn("fg", false), true);
+    assert!(background(&events(&mut tree, "s1", progress("helper"), true)), "its progress");
+    assert!(
+        !background(&events(&mut tree, "s1", progress("fg"), true)),
+        "a foreground one's progress"
+    );
+
+    // The helper's own Agent call: a foreground subagent of the helper, background to the chat.
+    let nested = events(&mut tree, "helper", spawn("helper/review", false), true);
+    assert_eq!(nested[0]["parent"], json!("helper"));
+    assert!(background(&nested), "a background helper's own subagent");
+    let deeper = events(&mut tree, "helper/review", spawn("helper/review/grep", false), true);
+    assert!(background(&deeper), "any depth below it");
+    assert!(background(&events(&mut tree, "helper", progress("helper/review"), true)));
+    assert_eq!(tree.background_running(), 3, "the helper and both below it run past the turn");
+    tree.end_foreground();
+    assert_eq!(tree.running_now(false).len(), 3, "a turn's end leaves them running");
+
+    // A foreground subagent's own subagent ends with the chat's turn.
+    assert!(!background(&events(&mut tree, "fg", spawn("fg/child", false), true)));
+
+    // Its end says so too, and nothing below it is counted once it ended.
+    assert!(background(&events(&mut tree, "helper", end("helper/review"), true)));
+    events(&mut tree, "helper/review", end("helper/review/grep"), true);
+    events(&mut tree, "s1", end("helper"), true);
+    assert_eq!(tree.background_running(), 0);
+
+    // A replayed spawn's mark reaches the live events after it (a reconnect that loads history).
+    let mut fresh = SubagentTree::default();
+    fresh.set_own(Some("s1"));
+    events(&mut fresh, "s1", spawn("old", true), false);
+    assert!(background(&events(&mut fresh, "s1", progress("old"), true)));
+    assert_eq!(
+        fresh.background_running(),
+        1,
+        "a live progress of background work runs past the turn"
+    );
+}

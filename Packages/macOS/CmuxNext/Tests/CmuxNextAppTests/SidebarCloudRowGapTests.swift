@@ -6,7 +6,8 @@ import Testing
 
 /// In one list, this Mac's rows and a Cloud machine's rows follow each other by the row spacing: no band opens
 /// between the last local row and the first Cloud row (Leo 2026-11-01: "this strange dead zone gap that occurs
-/// between cloud and non-cloud workspaces"). Drawn through the real list, so the row views' frames are checked, not
+/// between cloud and non-cloud workspaces"). A Cloud machine's header (#28051) opens only the section spacing every
+/// group's header has. Drawn through the real list, so the row views' frames are checked, not
 /// only the layout's rows.
 @MainActor @Suite(.serialized) struct SidebarCloudRowGapTests {
     private static func machine(_ name: String, kind: SidebarMachine.Kind, status: SidebarMachine.Status = .connected,
@@ -16,7 +17,7 @@ import Testing
                               nodes: ids.map { .workspace(SidebarWorkspace(id: WorkspaceID($0), machineID: id, title: "workspace-\($0)")) })
     }
 
-    /// The drawn workspace rows, top to bottom, with their frames in the list.
+    /// The drawn workspace rows and section headers, top to bottom, with their frames in the list.
     private static func drawnRows(_ sections: [SidebarSection], selected: String? = nil) -> [(key: SidebarRowKey, frame: NSRect)] {
         let model = SidebarModel(sections: sections, activeWorkspaceID: selected.map { WorkspaceID($0) })
         let sidebar = SidebarView(model: model, design: DesignSettings())
@@ -25,13 +26,14 @@ import Testing
         sidebar.layoutSubtreeIfNeeded()
         sidebar.list.reload(animated: false)
         let rows = sidebar.list.rowViews.compactMap { key, view -> (key: SidebarRowKey, frame: NSRect)? in
-            guard case .workspace = key, !view.isHidden, view.alphaValue > 0 else { return nil }
+            guard key.isWorkspace || key.isSectionHeader, !view.isHidden, view.alphaValue > 0 else { return nil }
             return (key, view.frame)
         }
         return rows.sorted { $0.frame.minY < $1.frame.minY }
     }
 
-    /// Every drawn row starts the same distance under the one above it as the two local rows do.
+    /// Every drawn row starts the same distance under the one above it as the two local rows do; a Cloud machine's
+    /// header, as any group's header, the section spacing more (#28051).
     private static func expectEvenPitch(_ sections: [SidebarSection], selected: String? = nil, _ label: String,
                                         sourceLocation: SourceLocation = #_sourceLocation) {
         let rows = drawnRows(sections, selected: selected)
@@ -41,9 +43,10 @@ import Testing
             Issue.record("\(label): drew \(rows.count) rows", sourceLocation: sourceLocation)
             return
         }
-        let spacing = rows[1].frame.minY - rows[0].frame.maxY
+        let rowSpacing = rows[1].frame.minY - rows[0].frame.maxY
         for (above, below) in zip(rows, rows.dropFirst()) {
             let gap = below.frame.minY - above.frame.maxY
+            let spacing = rowSpacing + (below.key.isSectionHeader ? SidebarLayoutMetrics.standard.sectionSpacing : 0)
             #expect(abs(gap - spacing) < 0.5, "\(label): \(below.key) starts \(gap - spacing) pt late under \(above.key)",
                     sourceLocation: sourceLocation)
         }
@@ -88,4 +91,9 @@ import Testing
             Self.expectEvenPitch(sections, selected: "2", "a \(status) Cloud machine")
         }
     }
+}
+
+extension SidebarRowKey {
+    var isWorkspace: Bool { if case .workspace = self { true } else { false } }
+    var isSectionHeader: Bool { if case .section = self { true } else { false } }
 }

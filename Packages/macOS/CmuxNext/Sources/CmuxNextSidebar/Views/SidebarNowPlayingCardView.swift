@@ -184,7 +184,7 @@ final class SidebarNowPlayingCardView: NSView {
         super.layout()
         let b = bounds, pad = Self.padding
         surface.frame = b
-        surface.cornerRadius = Metrics.space3
+        surface.cornerRadius = Metrics.surfaceCornerRadius
         siteLabel.font = Typography.caption
         titleLabel.font = Typography.bodyEmphasized
         artistLabel.font = Typography.caption
@@ -356,7 +356,7 @@ final class SidebarNowPlayingScrubber: NSView {
         fill.bounds = CGRect(x: 0, y: 0, width: width * position / duration, height: bar)
         guard dragged == nil, nowPlaying.isPlaying, nowPlaying.rate > 0, window != nil, width > 0, position < duration else { return }
         let remaining = (duration - position) / nowPlaying.rate
-        let glides = reduceMotionOverride.map { !$0 } ?? Motion.overlays.animatesMovement
+        let glides = reduceMotionOverride.map { !$0 } ?? Motion.overlays.animatesMovement(in: window)
         fill.add(Self.progress(from: fill.bounds.width, to: width, over: remaining, glides: glides), forKey: Self.progressKey)
     }
 

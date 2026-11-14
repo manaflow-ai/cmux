@@ -24,10 +24,13 @@
 //! - [`run_roles`]: `cmux host run` without a bind agent (macOS).
 //! - [`status`]: `cmux host status`.
 //! - [`cloud`]: the Cloud machine agent role (bind, status reports, events).
+//! - [`updater`]: the Cloud machine's self-update from the signed channel.
 //! - [`team_ssh`]: sshd trust files, fail-closed principals and revoked-session reaping.
 //! - [`cli`]: the verbs; also the standalone `cmux-host` binary.
 //! - `github_cli`: `cmux github credential|gh|setup` (git and gh with
 //!   tokens the Cloud agent gets for this machine).
+//! - `gitlab_cli`: `cmux gitlab credential` (git for GitLab and other
+//!   hosts with the token sealed to this machine).
 //! - `linux`: the Linux platform (descriptors, spawn, identity, `/proc`).
 //!
 //! Known limits (security review notes):
@@ -41,14 +44,25 @@
 
 pub mod agent;
 pub mod announce;
+pub mod carrier_entry;
 pub mod cli;
 pub mod cloud;
 pub mod config;
 pub mod daemon_spec;
 #[cfg(unix)]
 pub mod github_cli;
+/// How to connect GitHub, on every platform (`github_cli` is unix-only; acpmux's errors use it
+/// everywhere).
+pub mod github_connect {
+    /// How to connect GitHub, in the words every surface uses: the app's action (Settings,
+    /// Accounts, GitHub, or the command palette) and the CLI command that runs the same action.
+    pub const CONNECT_GITHUB: &str = "in cmux choose Connect GitHub (Settings > Accounts > GitHub, \
+or the command palette), or run `cmux accounts github-connect` on your Mac";
+}
 #[cfg(unix)]
 pub mod github_cli_identity;
+#[cfg(unix)]
+pub mod gitlab_cli;
 pub mod identity;
 mod json;
 #[cfg(target_os = "linux")]
@@ -64,3 +78,4 @@ pub mod status;
 pub mod team_ssh;
 #[cfg(unix)]
 pub mod turn_scope;
+pub mod updater;

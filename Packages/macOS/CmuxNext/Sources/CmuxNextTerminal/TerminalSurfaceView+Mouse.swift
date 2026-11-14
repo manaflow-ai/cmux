@@ -1,12 +1,31 @@
 public import AppKit
+public import CmuxNextDesign
 import GhosttyNextKit
 
 // Mouse, scroll, pressure, and cursor shape. Ghostty turns these into
 // selection or, when the program enabled a mouse mode, into mouse reports
 // that come back through `io_write_cb` (ghostty.h:1643-1655).
 extension TerminalSurfaceView {
+    /// Its own tracking area only where no layout screen serves it (``PanePointerFollowing``): in a pane, the screen's one
+    /// area delivers its moves and sets its cursor, so a pane that moves costs AppKit no cursor-rect or tracking-area work
+    /// (RESIZE MAIN BUDGET: 4.5 cursor-rect invalidations per terminal per key-resize frame, PaneMotionPointerAreasTests).
     public override func updateTrackingAreas() {
+        syncPointerTracking()
+        super.updateTrackingAreas()
+    }
+
+    public override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        syncPointerTracking()
+    }
+
+    /// Installs or removes its own tracking area as its place says (in a window and in a layout screen, or not).
+    func syncPointerTracking() {
+        let served = isServedByPanePointerArea
+        if served, trackingArea == nil { return }
         if let trackingArea { removeTrackingArea(trackingArea) }
+        trackingArea = nil
+        guard !served else { return }
         let area = NSTrackingArea(
             rect: .zero,
             options: [.mouseEnteredAndExited, .mouseMoved, .inVisibleRect, .activeAlways, .cursorUpdate],
@@ -14,7 +33,6 @@ extension TerminalSurfaceView {
         )
         addTrackingArea(area)
         trackingArea = area
-        super.updateTrackingAreas()
     }
 
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -31,6 +49,7 @@ extension TerminalSurfaceView {
         previousPressureStage = 0
         defer {
             linkPressInCapture = false
+            selectionHint.released()
             if let surface { ghostty_surface_mouse_pressure(surface, 0, 0) }
         }
         if linkPointer.mouseUp(event) { return }
@@ -61,7 +80,10 @@ extension TerminalSurfaceView {
         linkPointer.movedWithoutButton()
         sendPosition(event)
     }
-    public override func mouseDragged(with event: NSEvent) { sendPosition(event, phase: .followingPress) }
+    public override func mouseDragged(with event: NSEvent) {
+        selectionHint.dragged()
+        sendPosition(event, phase: .followingPress)
+    }
     public override func rightMouseDragged(with event: NSEvent) { sendPosition(event) }
     public override func otherMouseDragged(with event: NSEvent) { sendPosition(event) }
     public override func mouseEntered(with event: NSEvent) { sendPosition(event) }
@@ -126,14 +148,15 @@ extension TerminalSurfaceView {
         cursor.set()
     }
 
+    /// A cursor rect only where no layout screen serves it: there the screen sets ``cursor`` from its hit test.
     public override func resetCursorRects() {
-        addCursorRect(bounds, cursor: cursor)
+        if !isServedByPanePointerArea { addCursorRect(bounds, cursor: cursor) }
     }
 
     func setCursor(_ newCursor: NSCursor) {
         guard newCursor != cursor else { return }
         cursor = newCursor
-        window?.invalidateCursorRects(for: self)
+        if !isServedByPanePointerArea { window?.invalidateCursorRects(for: self) }
         // The pointer's own location: a key event or a late link-filter answer carries none.
         if let window, isShown, window.isVisible, bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) {
             newCursor.set()
@@ -167,11 +190,13 @@ extension TerminalSurfaceView {
 
     /// A left press: the move first, with the keys that let Ghostty find a link under it while
     /// the program has the mouse, then the press, as a link click when it found one
-    /// (``TerminalPointerMods``).
+    /// (``TerminalPointerMods``) or as a selection with Option held (``TerminalSelectionHint``).
     private func sendLeftPress(_ event: NSEvent) {
         sendPosition(event)
         let mods = pointerMods(event.modifierFlags)
         linkPressInCapture = mods.linkGesture(event.modifierFlags, phase: .press) || mods.chordGesture(event.modifierFlags, phase: .press)
+        let captured = mods.captured || (selectionHint.pressAsksCapture(event.modifierFlags) && programCapturesMouse)
+        selectionHint.pressed(event.modifierFlags, captured: captured)
         sendButton(event, state: GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_LEFT, phase: .press, position: false)
     }
 
@@ -180,7 +205,7 @@ extension TerminalSurfaceView {
                             phase: TerminalPointerMods.Phase? = nil, position: Bool = true) -> Bool {
         guard let surface else { return false }
         if position { sendPosition(event, phase: phase ?? .move) }
-        let flags = phase.map { pointerMods(event.modifierFlags).flags(event.modifierFlags, phase: $0) } ?? event.modifierFlags
+        let flags = phase.map { pointerFlags(event.modifierFlags, phase: $0) } ?? event.modifierFlags
         return clipboardRequests.asUserClipboardWrite {
             ghostty_surface_mouse_button(surface, state, button, GhosttyInput.mods(flags))
         }
@@ -202,9 +227,11 @@ extension TerminalSurfaceView {
         return TerminalPointerMods(captured: captured, overLink: session?.model.hoveredLink != nil, linkPress: linkPressInCapture)
     }
 
-    /// `flags` as Ghostty gets them with a pointer event in `phase` (``TerminalPointerMods``).
+    /// `flags` as Ghostty gets them with a pointer event in `phase`: an Option selection's
+    /// (``TerminalSelectionHint``), else ``TerminalPointerMods``'.
     func pointerFlags(_ flags: NSEvent.ModifierFlags, phase: TerminalPointerMods.Phase = .move) -> NSEvent.ModifierFlags {
-        pointerMods(flags).flags(flags, phase: phase)
+        if phase != .move, selectionHint.selecting { return selectionHint.following(flags) }
+        return pointerMods(flags).flags(flags, phase: phase)
     }
 
     private static func button(for number: Int) -> ghostty_input_mouse_button_e {
@@ -238,4 +265,13 @@ extension TerminalSurfaceView {
         }
         return ghostty_input_scroll_mods_t((precise ? 1 : 0) | (Int32(momentum.rawValue) << 1))
     }
+}
+
+/// In a pane the layout screen's one tracking area hit-tests the pointer and calls these (``PanePointerFollowing``),
+/// as its own tracking area called the overrides above.
+extension TerminalSurfaceView: PanePointerFollowing {
+    public func panePointerCursor(at point: NSPoint) -> NSCursor? { cursor }
+    public func panePointerEntered(with event: NSEvent) { mouseEntered(with: event) }
+    public func panePointerMoved(with event: NSEvent) { mouseMoved(with: event) }
+    public func panePointerExited(with event: NSEvent) { mouseExited(with: event) }
 }

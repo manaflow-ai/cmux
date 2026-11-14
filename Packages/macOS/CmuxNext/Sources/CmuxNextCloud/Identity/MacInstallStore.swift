@@ -1,6 +1,5 @@
 public import CmuxInstallAuthCore
 public import CmuxNextCompat
-import CryptoKit
 public import Foundation
 
 /// Where the Mac app keeps its install keys and records (cx-wb5.64), one
@@ -36,10 +35,14 @@ public struct MacInstallStore: Sendable {
         isDebugBuild && team == nil ? .files(directory: directory) : .enclave(service: service, directory: directory, loginKeychain: loginKeychain)
     }
 
-    /// The key of `user`: `install-key-<first 16 hex of SHA-256(user)>`.
+    /// The key of `user` (Rust's `identity::install_key_account`: `install-key-<first 16 hex of SHA-256(user)>`). An
+    /// FFI that does not answer throws at the key's first use, never shares another user's key.
     func signer(for user: String) -> any InstallSigner {
-        let digest = SHA256.hash(data: Data(user.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
-        return makeSigner("install-key-\(digest)")
+        struct Reply: Decodable { var account: String }
+        guard let account = CloudStartCore().call("cloud_identity_install_key", ["user": user], as: Reply.self)?.account else {
+            return UnnamedInstallSigner()
+        }
+        return makeSigner(account)
     }
 
     func record(for user: String) -> InstallRecord? {
@@ -54,6 +57,14 @@ public struct MacInstallStore: Sendable {
         guard let data = try? JSONEncoder().encode(all) else { return }
         try? OwnerOnlyFile.write(data, to: records)
     }
+}
+
+/// The signer of a key whose name could not be made: every call fails.
+private struct UnnamedInstallSigner: InstallSigner {
+    struct Unnamed: Error {}
+    func publicKeyX963() async throws -> Data { throw Unnamed() }
+    func sign(_ message: Data) async throws -> Data { throw Unnamed() }
+    func rotate() async throws {}
 }
 
 /// 0600 files in a 0700 directory: written to a unique temporary file

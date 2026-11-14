@@ -7,14 +7,52 @@ import {
   cloudFolderGrants,
   cloudPageRefusal,
   cloudRunsHere,
+  cloudSendAfterCheck,
+  heldPromptShown,
+  composerAgentLocal,
   cloudStartFolder,
   cloudStartKeys,
-  cloudStartToasted,
+  cloudStartSaid,
   grantedCloudStart,
+  makeCloudSignInRetry,
   newTabProjectPick,
   oneCloudStart,
   startCloudChat,
 } from "./cloudRun";
+
+test("sign-in recovery can be reused after its card resets", async () => {
+  let starts = 0;
+  const retry = makeCloudSignInRetry(async () => {
+    starts += 1;
+    return { ok: true };
+  });
+  await expect(retry()).resolves.toBe(true);
+  await expect(retry()).resolves.toBe(false);
+  retry.reset();
+  await expect(retry()).resolves.toBe(true);
+  expect(starts).toBe(2);
+});
+
+test("a reset while a sign-in is out leaves the next card its own retry", async () => {
+  const pending: ((answer: { ok: true }) => void)[] = [];
+  const retry = makeCloudSignInRetry(
+    () =>
+      new Promise((resolve) => {
+        pending.push(resolve);
+      }),
+  );
+  const stale = retry();
+  retry.reset();
+  const fresh = retry();
+  expect(fresh).not.toBe(stale);
+  expect(pending).toHaveLength(2);
+  // The old card's sign-in comes back first: it counts for nothing and leaves the new one out.
+  pending[0]!({ ok: true });
+  await expect(stale).resolves.toBe(false);
+  expect(retry()).toBe(fresh);
+  pending[1]!({ ok: true });
+  await expect(fresh).resolves.toBe(true);
+});
 
 test("a Cloud start sends the prompt, folder, agent and model with a key, and answers ok", async () => {
   const calls: [string, Record<string, unknown>][] = [];
@@ -44,9 +82,10 @@ test("a refusal keeps its code and the host's words; only a start the host ran w
     { task: "t" },
   );
   expect(failed).toEqual({ ok: false, code: "cloud_start_failed", message: "Could not copy the folder." });
-  expect(cloudStartToasted(failed)).toBe(true);
+  expect(cloudStartSaid(failed)).toBe(true);
+  expect(cloudStartSaid({ ok: false, code: "cloud_plan_required" })).toBe(true);
   const off = await startCloudChat(async () => Promise.reject({ code: "not_signed_in" }), { task: "t" });
-  expect(cloudStartToasted(off)).toBe(false);
+  expect(cloudStartSaid(off)).toBe(false);
   const lost = await startCloudChat(async () => Promise.reject(new Error("bridge gone")), { task: "t" });
   expect(lost.ok).toBe(false);
 });
@@ -55,7 +94,7 @@ test("Run on This Mac from the cap card is no toasted failure: the page sends th
   const here = await startCloudChat(async () => Promise.reject({ code: "run_on_this_mac" }), { task: "t" });
   expect(here).toMatchObject({ ok: false, code: "run_on_this_mac" });
   expect(cloudRunsHere(here)).toBe(true);
-  expect(cloudStartToasted(here)).toBe(false);
+  expect(cloudStartSaid(here)).toBe(false);
   const failed = await startCloudChat(async () => Promise.reject({ code: "cloud_start_failed" }), { task: "t" });
   expect(cloudRunsHere(failed)).toBe(false);
   expect(cloudRunsHere({ ok: true })).toBe(false);
@@ -147,11 +186,72 @@ test("an attachment-only Cloud send preserves its empty task and image bytes", a
   expect(promptBlocks("", attachments)).toEqual([
     { type: "image", mimeType: "image/png", data: "AQID", name: "image.png" },
   ]);
-  expect(cloudPageRefusal(true)).toBeUndefined();
+  expect(cloudPageRefusal({ offerable: true, checked: true })).toBeUndefined();
 });
 
-test("Cloud picked but no longer offered refuses the send, never sending it as a chat here", () => {
-  expect(cloudPageRefusal(false)).toBe("cloud_not_now");
+test("Cloud picked while a chat starts in this tab refuses the send with that reason, never sending it as a chat here", () => {
+  expect(cloudPageRefusal({ offerable: false, checked: true })).toBe("cloud_chat_starting");
+  expect(cloudPageRefusal({ offerable: false, checked: false })).toBe("cloud_chat_starting");
+});
+
+// Leo 2026-11-10: "then i picked bypass permissions and personal and then it said this". The tab's
+// check (sandbox.state) hadn't answered on a busy Mac, so the first Return was refused with
+// "Cloud isn't available for this chat" for every folder and team, and the next one started.
+test("a Cloud send before the tab's check answers waits for it and then goes once, never refused", () => {
+  expect(cloudPageRefusal({ offerable: true, checked: false })).toBe("cloud_checking");
+  const after = cloudSendAfterCheck();
+  const sent: string[] = [];
+  after.hold(() => sent.push("first"));
+  after.hold(() => sent.push("hey"));
+  expect(after.waiting()).toBe(true);
+  expect(sent).toEqual([]);
+  expect(after.offered()).toBe(true);
+  expect(sent).toEqual(["hey"]);
+  expect(after.offered()).toBe(false);
+  expect(sent).toEqual(["hey"]);
+});
+
+// Review of #40915: a held send that went left its prompt in the chat composer, so a second
+// Return could send it again; and a check that answered "a chat is starting here" left
+// "Checking this tab" up with nothing to do.
+test("a held send's start takes its prompt out of the composer only while the composer still shows it", () => {
+  const chip = { id: "a" };
+  expect(heldPromptShown({ text: "hey", attachments: [chip] }, { text: "hey", attachments: [chip] })).toBe(true);
+  expect(heldPromptShown({ text: "hey there", attachments: [chip] }, { text: "hey", attachments: [chip] })).toBe(false);
+  expect(heldPromptShown({ text: "hey", attachments: [] }, { text: "hey", attachments: [chip] })).toBe(false);
+  expect(heldPromptShown({ text: "hey", attachments: [{ id: "b" }] }, { text: "hey", attachments: [chip] })).toBe(
+    false,
+  );
+  expect(heldPromptShown(undefined, { text: "hey", attachments: [] })).toBe(false);
+  expect(heldPromptShown({ text: "hey", attachments: [] }, undefined)).toBe(false);
+});
+
+test("a held send compares the composer with its own text as held, not the send's trimmed text", () => {
+  // Codex #40942 F2: an untouched "hey " failed against the sent "hey" and stayed for a second send.
+  const held = { text: "hey ", attachments: [] };
+  expect(heldPromptShown({ text: "hey ", attachments: [] }, held)).toBe(true);
+  expect(heldPromptShown({ text: "hey there", attachments: [] }, held)).toBe(false);
+});
+
+test("a held send the check refuses is dropped and gives back its prompt and folder for New Cloud chat", () => {
+  const after = cloudSendAfterCheck();
+  const sent: string[] = [];
+  after.hold(() => sent.push("hey"), { prompt: "hey", cwd: "/Users/leo/hey" });
+  expect(after.take()).toEqual({ prompt: "hey", cwd: "/Users/leo/hey" });
+  expect(after.waiting()).toBe(false);
+  expect(after.offered()).toBe(false);
+  expect(after.take()).toBeUndefined();
+  expect(sent).toEqual([]);
+});
+
+test("a held Cloud send is dropped when the person leaves Cloud before the check answers", () => {
+  const after = cloudSendAfterCheck();
+  const sent: string[] = [];
+  after.hold(() => sent.push("hey"));
+  after.drop();
+  expect(after.waiting()).toBe(false);
+  expect(after.offered()).toBe(false);
+  expect(sent).toEqual([]);
 });
 
 test("a second Return while a start waits on the host starts nothing; after the answer one may start again", async () => {
@@ -300,6 +400,17 @@ test("the cap card's Run on This Mac ends the start; a changed prompt, folder or
   expect(keys.keyFor(start)).not.toBe(first);
 });
 
+test("a refused plan keeps the retry key until the person chooses Run Here inline", () => {
+  const keys = cloudStartKeys(memoryStore(), () => 1_000, counter());
+  const start = { task: "fix it", home: true };
+  const first = keys.keyFor(start);
+  keys.ended(start, { ok: false, code: "cloud_plan_required" });
+  expect(keys.keyFor(start)).toBe(first);
+  // The inline action must send the same explicit local-choice answer as the native cap card.
+  keys.ended(start, { ok: false, code: "run_on_this_mac" });
+  expect(keys.keyFor(start)).not.toBe(first);
+});
+
 test("a kept key expires after a day, and a store that refuses writes still dedupes this page's retries", () => {
   let now = 1_000;
   const store = memoryStore();
@@ -425,9 +536,20 @@ test("the pane builds its Cloud start from grantedCloudStart and hands every Clo
   const source = readFileSync(join(import.meta.dir, "App.tsx"), "utf8");
   expect(source).toMatch(/const \[cloudFolderGrant\] = useState\(\(\) => cloudFolderGrants\(\)\);/);
   expect(source).toMatch(
-    /const \[startCloud\] = useState\(\(\) => grantedCloudStart\(callNative, cloudFolderGrant\)\);/,
+    /const \[startCloud\] = useState\(\(\) =>\s*grantedCloudStart\(reservedCloudCall\(callNative, cloudReservation\), cloudFolderGrant\),?\s*\);/,
   );
   expect(source).toMatch(/cloudFolderGrant\.granting\(\s*folder\.cwd,\s*pickFolder\(callNative, folder\.cwd/);
   expect(source).toMatch(/newTabProjectPick\(callNative, sandboxOfferable, cloudFolderGrant\.granting\)/);
   expect(source).not.toMatch(/oneCloudStart\(/);
+});
+
+test("a new chat with Cloud picked reads no sign-in of this Mac's agent; every other local chat does", () => {
+  // Run 42953585969: the runner's composer named UniiChat, signed out, and every Cloud send was kept.
+  expect(composerAgentLocal(true, "cloud", undefined)).toBe(false);
+  expect(composerAgentLocal(true, "persistent", undefined)).toBe(true);
+  expect(composerAgentLocal(true, "sandboxed", undefined)).toBe(true);
+  expect(composerAgentLocal(true, undefined, undefined)).toBe(true);
+  // A chat that started is wherever it runs: Cloud picked for it no longer moves its agent.
+  expect(composerAgentLocal(true, "cloud", "s1")).toBe(true);
+  expect(composerAgentLocal(false, "persistent", undefined)).toBe(false);
 });

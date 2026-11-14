@@ -2,8 +2,12 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextFeedClient
 import CmuxNextHome
+import CmuxNextHomeModel
+import CmuxNextPages
 import CmuxNextSettings
 
 /// `home-chief`: Home in the capture window, showing the Chief conversation
@@ -155,6 +159,66 @@ extension CaptureSceneRegistry {
         terminal.pane.daemon.send("showcase agent \(state.rawValue)") { connection in
             _ = try await connection.request(ReportAgentRequest(surface: surface, state: state))
         }
+    }
+}
+
+/// `permission-feed-peer(-resolved)`: the real feed bridge against HomeNeedsYouCapture's acpmux and feed stub, in
+/// Chief Home's pinned Needs you; resolved: acpmux reports the prompt answered elsewhere, an error if it stays.
+extension CaptureSceneRegistry {
+    func renderPermissionFeedPeer(_ params: [String: CmuxNextSettings.JSONValue], scene: String, windowID: String) async -> CmuxNextSettings.JSONValue {
+        let (services, daemon) = (services, services.machines.local.connection)
+        _ = await Self.feedOp(daemon, "feed.withdraw", HomeNeedsYouCapture.withdrawParams)
+        func failed(_ why: String) -> CmuxNextSettings.JSONValue { .object(["error": .string(why), "scene": .string(scene)]) }
+        guard let controller = services.windows.controller(for: windowID) else { return failed("capture window is gone") }
+        frames.start()
+        let home = await frames.settled(until: { TopHomePageView.chief(services.home) != nil }, start: .now, window: 0, deadline: 10_000)
+        _ = frames.stop()
+        guard home != nil, let chief = TopHomePageView.chief(services.home) else { return failed("no Chief conversation: \(services.home.unavailableMessage)") }
+        do { try await services.settings?.set(.bool(true), at: HomeNeedsYouSetting.configPath) } catch { return failed("feed.needsYouInChief: \(error)") }
+        guard var environment = await AcpmuxEnvironment.resolvedApp(build: services.environment.build, mock: false), let executable = Bundle.main.executableURL?.resolvingSymlinksInPath() else { return failed("no acpmux environment (resolved as if not --showcase, which mocks it)") }
+        guard let capture = try? HomeNeedsYouCapture(send: { op, data in await Self.feedOp(daemon, op, data) }) else { return failed("in-app acpmux did not listen") }
+        defer { capture.stop() }
+        (environment.executable, environment.socketPath) = (executable, capture.socket) // the in-app acpmux, which this app serves
+        _ = AppActions.showHome(services) // docked Home (the home workspace, its Chief tab), or classic Home's top page
+        (controller.topPages.views[.home] as? TopHomePageView)?.show(ConversationID(chief))
+        let bridge = AcpmuxPermissionFeedBridge(
+            environment: environment,
+            owner: { _, body in capture.owner(body) }, isSignedIn: { true }, ownInstall: { "inst_capture_mac" },
+            presenceKeys: { throw CancellationError() })
+        bridge.start()
+        let section = { controller.window?.contentView.flatMap(HomePageTab.transcript(in:))?.pinnedSection as? FeedNeedsYouSection }
+        frames.start()
+        let shown = await frames.settled(until: { (section()?.waiting ?? 0) > 0 }, start: .now, window: 100, deadline: 8_000)
+        var report: [String: CmuxNextSettings.JSONValue] = ["shown_frames": frames.stop(), "connected": .bool(capture.connected)]
+        let page = section()?.subviews.first as? PageWebView
+        let rowDeadline = ContinuousClock.now + .seconds(6) // timeout: the row's 6 s, as before; the section's page is new (a DOM wait before its document loads watches the blank first one), so its load shares them and a page that never loads fails the scene
+        if let page, await !page.waitUntilLoaded(within: rowDeadline - .now) { return .object(report.merging(["error": .string("the Needs you page did not load within 6 s"), "scene": .string(scene)]) { $1 }) }
+        let row = await page?.debugWait(selector: ".feed-needs-row", timeoutMilliseconds: max(Int((rowDeadline - .now) / .milliseconds(1)), 1))
+        report["row"] = row ?? .null
+        if scene.hasSuffix("-resolved"), shown != nil {
+            capture.notifyPending()
+            capture.resolve()
+            frames.start()
+            report["withdrawn"] = .bool(await frames.settled(until: { section() == nil }, start: .now, window: 300, deadline: 5_000) != nil)
+            report["resolved_frames"] = frames.stop()
+        } else if shown != nil {
+            capture.notifyPending()
+        }
+        report["acpmux_and_feed"] = .array((capture.infoReads + capture.ops).map { .string($0) })
+        report["view"] = .string((try? await services.feed.daemon.view(.needsYou)).map { "transcript \(controller.window?.contentView.flatMap(HomePageTab.transcript(in:)) != nil) pinned \(services.settings?.snapshot.homeNeedsYouInChief ?? false) settled \($0.isSettled) \($0.connection?.state ?? "-") \($0.connection?.reason ?? "-") needs_you \($0.items(in: "needs_you").count)" } ?? "unread")
+        guard shown != nil, case .object(let drawn)? = row, drawn["matched"]?.boolValue == true else {
+            return .object(report.merging(["error": .string("Needs you never drew the prompt"), "scene": .string(scene)]) { $1 })
+        }
+        guard case .object(var result) = await DebugWindowSnapshot.captureAsync(params.merging(["window": .string(windowID)]) { $1 }, services: services) else { return failed("no snapshot") }
+        withExtendedLifetime(bridge) {}
+        result.merge(["scene": .string(scene), "scene_action": .object(report)]) { $1 }
+        return .object(report["withdrawn"] == .bool(false) ? result.merging(["error": .string("the bridge kept the answered prompt in Needs you")]) { $1 } : result)
+    }
+
+    /// One `feed.*` op (params: a JSON object) on the app's local daemon connection, and what it answered.
+    nonisolated static func feedOp(_ connection: DaemonConnection?, _ operation: String, _ params: Data) async -> String {
+        guard let connection, let value = try? JSONDecoder().decode([String: CmuxNextDaemon.JSONValue].self, from: params) else { return "\(operation): no daemon connection" }
+        do { return "\(operation): \(try await ResourceRelayClient(connection: connection).send(operation: operation, params: value, idempotencyKey: "capture-\(UUID().uuidString)"))" } catch { return "\(operation): \(error)" }
     }
 }
 #endif

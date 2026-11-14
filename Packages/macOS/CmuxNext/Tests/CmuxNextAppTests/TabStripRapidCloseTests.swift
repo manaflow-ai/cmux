@@ -163,4 +163,55 @@ import CmuxNextTestSupport
         #expect(harness.closed.map(\.rawValue) == ["tab1", "tab2", "tab3"], "one close per click, each the tab arriving under the pointer")
         #expect(harness.selects == 0, "a click meant for a close button selected a tab")
     }
+
+    /// Codex review of #36837: a hovered untitled tab with a status draws its x in its icon's centered slot,
+    /// its neighbor without one at the trailing edge. Closing mode's next-close hit follows each tab's own x,
+    /// never the last press's offset from the trailing edge: the press at the status tab's x closes it, the
+    /// point the plain tab's offset would give it closes nothing.
+    @Test func theNextCloseFollowsEachTabsOwnCloseSlot() throws {
+        let model = TabStripModel(tabs: [
+            TabItem(id: TabID("tab0"), title: "Tab 0"),
+            TabItem(id: TabID("plain"), title: "Plain"),
+            TabItem(id: TabID("waiting"), title: "Waiting", status: .needsInput),
+            TabItem(id: TabID("tab3"), title: "Tab 3"),
+        ], selectedID: TabID("tab0"))
+        let strip = TabStripView(model: model)
+        var metrics = TabStripMetrics.standard
+        // Every tab as narrow as a favicon and an x: no title, so a status draws on the icon.
+        metrics.maxTabWidth = metrics.faviconCloseWidth
+        metrics.minActiveTabWidth = metrics.faviconCloseWidth
+        metrics.minInactiveTabWidth = metrics.faviconCloseWidth
+        strip.customMetrics = metrics
+        strip.dragsWindowFromEmptySpace = false
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 40), styleMask: [.borderless], backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
+        strip.frame = NSRect(x: 0, y: 0, width: 700, height: TabStripView.preferredHeight)
+        window.contentView = strip
+        window.orderFrontRegardless()
+        strip.layoutSubtreeIfNeeded()
+        strip.sync(fromModel: true)
+
+        /// Tab `id`'s drawn x while the pointer is on it, in the clip.
+        func hoveredClose(_ id: TabID) throws -> CGRect {
+            let cell = try #require(strip.cells[id])
+            TabStripDebug.pointerMoved(in: strip, to: strip.convert(CGPoint(x: cell.frame.midX, y: cell.frame.midY), from: strip.tabsClip))
+            let rect = try #require(cell.closeButtonRect, "tab \(id.rawValue) shows no close button under the pointer")
+            return rect.offsetBy(dx: cell.frame.minX, dy: cell.frame.minY)
+        }
+        let plain = try hoveredClose(TabID("plain"))
+        let waiting = try hoveredClose(TabID("waiting"))
+        let plainCell = try #require(strip.cells[TabID("plain")]), waitingCell = try #require(strip.cells[TabID("waiting")])
+        // The fixture is what the review describes: the two x's sit at different offsets in their tabs.
+        try #require(abs((plainCell.frame.maxX - plain.midX) - (waitingCell.frame.maxX - waiting.midX)) > 4,
+                     "both tabs draw their x at the same offset: \(plain) \(waiting)")
+
+        strip.closingHit.closePressed(at: CGPoint(x: plain.midX, y: plain.midY))
+        // Where the waiting tab's x really is: a press there closes it.
+        #expect(strip.closingHit.tab(at: CGPoint(x: waiting.midX, y: waiting.midY), in: strip) == TabID("waiting"))
+        // The plain tab's trailing offset, carried onto the waiting tab: no x is there.
+        let carried = CGPoint(x: waitingCell.frame.maxX - (plainCell.frame.maxX - plain.midX), y: plain.midY)
+        #expect(strip.closingHit.tab(at: carried, in: strip) == nil, "a press where the waiting tab draws no x closed it")
+        // And the plain tab still takes a press at its own x.
+        #expect(strip.closingHit.tab(at: CGPoint(x: plain.midX, y: plain.midY), in: strip) == TabID("plain"))
+    }
 }

@@ -163,14 +163,14 @@ fn parse(args: &[String]) -> Option<Request> {
 /// older, as `cmux_remote::update_need` counts a remote without facts. A
 /// client that does not know its own time orders nothing. The same time is
 /// the same source tree: not older.
-fn machine_is_older(remote: Option<u64>, local: u64) -> bool {
+pub(super) fn machine_is_older(remote: Option<u64>, local: u64) -> bool {
     local != 0 && remote.is_none_or(|remote| remote == 0 || remote < local)
 }
 
 fn update(request: &Request) -> Result<Value, Failed> {
     let socket = request.socket.as_path();
-    let before = machine_gate::identify(socket)
-        .ok_or_else(|| Failed::new("machine_unreachable", "the machine daemon did not answer"))?;
+    let before = machine_gate::reach(socket)
+        .map_err(|unreached| Failed::new("machine_unreachable", unreached.to_string()))?;
     let previous = machine_gate::build_id(&before).map(str::to_owned);
     let current = if request.to_bundled {
         previous.as_deref() == Some(cmux_build_identity::BUILD_IDENTITY)

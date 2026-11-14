@@ -44,16 +44,34 @@ pub struct FsGate;
 
 impl RemoteGate for FsGate {
     fn admit(&self, _peer: &RemotePeer, frame: &str) -> bool {
-        frame_command(frame).is_some()
-            || crate::git_seed::frame_command(frame).is_some()
-            || crate::blob_fetch::frame_command(frame).is_some()
-            || crate::cloud_repos::frame_command(frame).is_some_and(|cmd| {
-                !matches!(cmd.as_str(), "cloud.repo.local" | "cloud.repo.remember")
-            })
+        data_frame(frame)
     }
 
     fn admit_native_owner(&self, frame: &str) -> bool {
         super::native_owner::admits(frame)
+    }
+}
+
+/// Whether `frame` is one of the file, seed, blob or `cloud.repo.*` frames [`FsGate`] admits.
+pub(super) fn data_frame(frame: &str) -> bool {
+    frame_command(frame).is_some()
+        || crate::git_seed::frame_command(frame).is_some()
+        || crate::blob_fetch::frame_command(frame).is_some()
+        || crate::cloud_repos::frame_command(frame)
+            .is_some_and(|cmd| !matches!(cmd.as_str(), "cloud.repo.local" | "cloud.repo.remember"))
+}
+
+/// Whether a dial stamped with a Native link token of `vm_kind` may send `frame`: a data frame
+/// ([`data_frame`]) reads and writes the machine owner's files, so on a Native dial only the
+/// owner's (`vm_kind` owner) may send one; a team or unverified Native dial is refused it. Every
+/// other frame, and every classic (non-Native) dial (`None`), keeps the gate's own answer.
+pub(super) fn native_dial_admits(
+    vm_kind: Option<Option<cmux_link::token::VmKind>>,
+    frame: &str,
+) -> bool {
+    match vm_kind {
+        Some(Some(cmux_link::token::VmKind::Owner)) | None => true,
+        Some(_) => !data_frame(frame),
     }
 }
 
@@ -139,7 +157,9 @@ pub(super) fn answer_line(
             Err(FsError::ParamsInvalid("a byte stream needs a link dial of its own".into())),
         );
     }
-    stream::answer(&id, service.call(owner, cmd, Value::Object(request)))
+    crate::git_seed::held_op(crate::git_seed::installed(), &id, request, |request| {
+        service.call(owner, cmd, Value::Object(request))
+    })
 }
 
 /// How long a remote dial may take to send its whole first line.
@@ -166,6 +186,7 @@ impl EntryFs {
 /// line is an admitted `fs.*` stream request is registered as a remote
 /// client, served here, and `None` is returned; any other dial comes back
 /// unchanged (that line first) for the line connection.
+#[cfg(test)]
 pub(super) fn route_first_line(
     mux: &Arc<Mux>,
     stream: UnixStream,
@@ -173,10 +194,24 @@ pub(super) fn route_first_line(
     peer: &RemotePeer,
     entry: EntryFs,
 ) -> Option<Box<dyn transport::Stream>> {
+    route_first_line_of(mux, stream, gate, peer, entry, None)
+}
+
+/// [`route_first_line`] for a dial whose stamp carried `native_vm_kind` (`None`: a classic
+/// dial): a Native dial that is not the owner's never opens a byte stream
+/// ([`native_dial_admits`]).
+pub(super) fn route_first_line_of(
+    mux: &Arc<Mux>,
+    stream: UnixStream,
+    gate: &dyn RemoteGate,
+    peer: &RemotePeer,
+    entry: EntryFs,
+    native_vm_kind: Option<Option<cmux_link::token::VmKind>>,
+) -> Option<Box<dyn transport::Stream>> {
     let (first, rest) = read_first_line(&stream, entry.first_line_deadline)?;
     let request = std::str::from_utf8(&first)
         .ok()
-        .filter(|line| gate.admit(peer, line))
+        .filter(|line| gate.admit(peer, line) && native_dial_admits(native_vm_kind, line))
         .and_then(StreamRequest::parse);
     let Some(request) = request else {
         let mut prefix = first;
@@ -232,12 +267,12 @@ fn serve_stream(
     stream: UnixStream,
 ) {
     let (Ok(control), Ok(closer)) = (stream.try_clone(), stream.try_clone()) else { return };
+    // The sink's descriptor closes when this stream ends, also while a clone
+    // of `writer` lives on elsewhere (bounded_outbound.rs, SinkControl).
+    let control = SinkControl::unix(Box::new(control));
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new_with_render_service(
-        QueuedSink {
-            outbound: outbound.clone(),
-            control: Some(SinkControl::Unix(Box::new(control))),
-        },
+        QueuedSink { outbound: outbound.clone(), control: Some(control.clone()) },
         Arc::new(RenderService::new()),
     );
     // Closing the client (a kick, a handoff, the entry's shutdown, or the
@@ -279,6 +314,7 @@ fn serve_stream(
     mux.unbind_conversation_principal(client);
     writer.close();
     let _ = stream.shutdown(std::net::Shutdown::Both);
+    control.close();
 }
 
 /// Closes every remote client (line dials and byte streams): the entry is
@@ -348,6 +384,20 @@ impl transport::Stream for Prefixed {
     fn shutdown(&self, how: std::net::Shutdown) -> std::io::Result<()> {
         self.inner.shutdown(how)
     }
+
+    /// The replayed bytes are readable at once; then the socket's wait.
+    fn wait_readable(&self, waiter: &mut transport::ReadWaiter) -> std::io::Result<()> {
+        if self.at < self.prefix.len() {
+            return Ok(());
+        }
+        transport::Stream::wait_readable(&self.inner, waiter)
+    }
+}
+
+/// Tests: the remote entry's stream, `prefix` replayed before `inner`.
+#[cfg(test)]
+pub(super) fn prefixed_for_test(prefix: Vec<u8>, inner: UnixStream) -> Box<dyn transport::Stream> {
+    Box::new(Prefixed { prefix, at: 0, inner })
 }
 
 #[cfg(test)]

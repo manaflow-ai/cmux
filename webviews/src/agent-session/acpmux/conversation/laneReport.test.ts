@@ -33,3 +33,34 @@ test("inbox notice strips the harness wrapper and keeps each delivery preview", 
   // expands the notice into message rows.
   expect(parsed.body).toContain("inbox_read");
 });
+
+// Review of #37653: an older acpmux's suffix, "(self-declared, unauthenticated)", holds a comma, so
+// a line's senders are read whole before they are split.
+test("an older inbox line's unverified suffix is read before its senders are split", () => {
+  const notice = (from: string) => {
+    const text = `New messages from other agents in 1 thread.\n- 1 new in #5 from ${from}: hi (thread pr:5)`;
+    const parsed = laneNotice({ name: "inbox", text, raw: `[inbox] ${text}` });
+    return parsed?.kind === "inbox" ? parsed.threads?.[0] : undefined;
+  };
+  const last = notice("lane-b, lane-a (self-declared, unauthenticated)");
+  expect(last).toMatchObject({ sender: "lane-a", unverified: true });
+  expect(last?.messages).toEqual([{ sender: "lane-a", text: "hi", unverified: true }]);
+  const first = notice("lane-a (self-declared, unauthenticated), lane-b");
+  expect(first?.sender).toBe("lane-b");
+  expect(first?.unverified).toBeUndefined();
+});
+
+// A thread acpmux named (`noticeThreads`) keeps its sender: the text's line repeats it for older
+// clients, and a name read back from that line never replaces it.
+test("a structured notice thread keeps its sender over the text's", () => {
+  const text = "New messages from other agents in 1 thread.\n- 1 new in #5 from lane-a: hi (thread pr:5)";
+  const parsed = laneNotice({
+    name: "inbox",
+    text,
+    raw: `[inbox] ${text}`,
+    noticeThreads: [{ id: "pr:5", sender: "vm-1/lane-a" }],
+  });
+  if (parsed?.kind !== "inbox") throw new Error("not an inbox notice");
+  expect(parsed.threads?.[0]?.sender).toBe("vm-1/lane-a");
+  expect(parsed.preview).toBe("vm-1/lane-a");
+});

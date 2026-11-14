@@ -3,14 +3,18 @@ import CmuxHomeCore
 import CmuxHomeRender
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextChiefMemory
 import CmuxNextChiefPetWiring
 import CmuxNextDesign
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
+import CmuxNextLayout
+import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextSidebar
 import CmuxNextWakeups
@@ -23,7 +27,7 @@ import ImageIO
 @MainActor
 final class HomeHostView: NSView {
     let transcript: HomeNativeTranscriptView
-    private let message = ChromeLabel(labelWithString: "")
+    private let message = HomeUnavailableLabel.make(HomeStrings.unavailable)
     private var availability: Task<Void, Never>?
     /// The Chief's settings, a popover under the header's name pill, which
     /// toggles it (Chief conversation only).
@@ -31,11 +35,14 @@ final class HomeHostView: NSView {
     private var settingsView: HomeChiefSettingsView { settings.content }
     /// The Chief pet's rows in the popover's Appearance section.
     private let petRows: ChiefPetSettingsRows
-    private(set) var isChief = false { didSet { if isChief != oldValue { watchHeaderPanels(); watchNeedsYou() } } }
+    private(set) var isChief = false { didSet { if isChief != oldValue { watchHeaderPanels(); watchNeedsYou(); watchSetupCard() } } }
     /// The header's top-right panel toggles follow their panels (HomeHostView+HeaderPanels.swift).
     var headerPanelsWatch: Task<Void, Never>?
     /// A Chief's pinned Needs you section follows the Feed's open requests (HomeHostView+NeedsYou.swift).
     var needsYouWatch: Task<Void, Never>?
+    /// A Chief's Set Up cmux card at first run follows ``FirstRunSetup`` (HomeHostView+SetupCard.swift).
+    var setupCardWatch: Task<Void, Never>?
+    var setupCard: SetupCardHost?
     private var engineWatch: Task<Void, Never>?
     /// Each Chief's avatar beside this conversation's group bubbles, as its Home row draws it.
     private var avatarsWatch: Task<Void, Never>?
@@ -57,7 +64,8 @@ final class HomeHostView: NSView {
     private var showsCloud = false
     private var showsHosted = false
     private var isWorking = false
-    lazy var turnActions = HomeChiefTurnActions(transcript: transcript)
+    /// The Chief is answering (Esc stops it; the floating Chief panel hides on Esc only when it is not).
+    lazy var turnActions = control.services.home.chiefHomes.turnActions(for: transcript)
     /// Where this Chief runs and its other host, for the settings card (no floating switch over the chat).
     private var hostWatch: Task<Void, Never>?
     /// The header's location chip and the card's Runs On row, on the Chief that `cmux chief move` moves.
@@ -73,8 +81,8 @@ final class HomeHostView: NSView {
     init(services: AppServices, conversation: String) {
         let service = services.home
         let id = ConversationID(conversation)
-        transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id,
-                                              diagrams: service.diagrams, openPanel: services.openPanel)
+        transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id, diagrams: service.diagrams,
+                                              openPanel: services.openPanel)
         let approvals = ChiefApprovalDecider(home: service.chief.home, app: QuitAgents.environment(services),
                                              work: services.work, environment: ChiefHomeAcpmux.environment)
         transcript.approvals = approvals
@@ -99,7 +107,7 @@ final class HomeHostView: NSView {
                                            invocation: ActionInvocation(arguments: ["conversation": .string(conversation)], origin: .user))
         }
         loadAvatar()
-        // The header's top-right toggles (Memory, Right Sidebar): each runs its panel's action.
+        // The header's top-right toggles (Share Screen, Memory): each runs its panel's action.
         transcript.onHeaderPanel = { [weak self] id in
             if let self { HomeHeaderPanels.toggle(id, headerPanelContext) }
         }
@@ -161,16 +169,19 @@ final class HomeHostView: NSView {
         }
         // The stop button (HomeHostView+StopAll): a click, Esc and Cmd-. stop the Chief; Option-click stops all agents.
         let registry = services.registry
-        wireStopButton(registry)
+        wireStopButton()
         // A cmux app link (a workspace, pane, tab, chat or Chief subagent): opened here, through link.open.
         // An attachment or a path link opens in cmux on the right of Home, never in Finder (a
         // folder in a Files tab); right-click has Open With (HomeFileActions).
         let fileActions = HomeFileActions(services: services)
         self.fileActions = fileActions
         transcript.fileHost = fileActions
-        transcript.onAppLink = { [weak services, weak fileActions] url in
+        transcript.onAppLink = { [weak self, weak services, weak fileActions] url in
             if url.isFileURL, url.path.hasPrefix("/") { fileActions?.open(URL(fileURLWithPath: url.path)); return }
-            if let services { CmuxAppLinks.open(url, services: services) }
+            guard let services else { return }
+            // A link to elsewhere shows it beside the docked Chief, whose view stays as it is.
+            WindowDockActions(host: services).chiefLinkWillOpen(in: self?.window.flatMap(services.windows.owner(of:)))
+            CmuxAppLinks.open(url, services: services, click: .init(source: self.flatMap(LinkRouter.shared.sourceTab)))
         }
         // A link chip's hover card: the app's one coordinator, the target's live facts.
         transcript.enableLinkPreviews(coordinator: services.hoverCards, previewer: HomeLinkPreviewProvider(services: services))
@@ -352,18 +363,10 @@ final class HomeHostView: NSView {
             guard let self, !Task.isCancelled else { return }
             transcript.holdsFirstRun = false
             // A launch holds a Home still being made until here (WorkspaceContentController).
-            reveal.markReady(.home)
+            reveal.markReady(.home); DebugTimings.markLaunch("home.first_page")
         }
         wantsLayer = true
         clipsToBounds = true
-        message.alignment = .center
-        // A long reason (a migration notice) wraps in a narrow pane instead of clipping.
-        message.maximumNumberOfLines = 0
-        message.lineBreakMode = .byWordWrapping
-        message.wraps = true
-        message.stringValue = HomeStrings.unavailable
-        // Hidden until the owner answers: a daemon still connecting is not one too old (the launch's fill shows).
-        message.isHidden = true
         addSubview(transcript)
         addSubview(message)
         // task-owner: lives as long as this view; event-driven (Observation)
@@ -400,13 +403,14 @@ final class HomeHostView: NSView {
     // the app's claim registry and cancels its wake on the app's timer (both outlive this view). A guard that
     // returned off main skipped all of it.
     nonisolated deinit {
-        for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, spellCheckingWatch, headerPanelsWatch, needsYouWatch, firstPage, memoryOfferWatch, chiefIntroWatch] {
+        for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, spellCheckingWatch, headerPanelsWatch, needsYouWatch, setupCardWatch, firstPage, memoryOfferWatch, chiefIntroWatch] {
             task?.cancel()
         }
-        let settings = settings, transcript = transcript
+        let settings = settings, transcript = transcript, setupCard = setupCard
         // task-owner: the main-actor half of this view's release; one call each, then it ends
         Task { @MainActor in
             settings.close()
+            setupCard?.close()
             transcript.stop()
         }
     }
@@ -424,11 +428,7 @@ final class HomeHostView: NSView {
     override func layout() {
         super.layout()
         transcript.frame = bounds
-        let inset: CGFloat = 24
-        let width = max(0, bounds.width - 2 * inset)
-        message.preferredMaxLayoutWidth = width
-        let height = ceil(message.size(forWidth: width).height)
-        message.frame = NSRect(x: inset, y: (bounds.height - height) / 2, width: width, height: height)
+        message.place(in: bounds)
     }
 
     /// The name pill's click (or `home.toggleChiefSettings`): the Chief's settings open under the pill, or
@@ -533,6 +533,8 @@ final class HomeHostView: NSView {
         loadAvatar()
         return await settingsView.debugEditPicture(source, zoom: zoom, save: save)
     }
+    /// `debug.home.drive` chief_name: the settings open with the keyboard in the name field (`close`: they close, as a click outside).
+    func debugEditChiefName(close: Bool) -> Bool { if close { settings.close(); return true }; return toggleChiefSettings(openOnly: true) && settingsView.beginEditingName() }
     /// `debug.home.drive` chief_control: the named Chief this view's controls name (nil: the default).
     var debugNamedChief: String? { control.named }
     #endif
@@ -541,9 +543,9 @@ final class HomeHostView: NSView {
     var headerHeight: CGFloat { transcript.headerHeight }
 
     /// The view that takes the keyboard when the tab's pane is focused.
-    /// Home's primary input: the message box itself. Focusing the transcript
-    /// view would leave it the responder after it forwards to the box.
-    var focusTarget: NSView { transcript.primaryInput }
+    /// Home's message box (focusing the transcript would leave it the responder
+    /// after it forwards), or the picture viewer while it is open over the chat.
+    var focusTarget: NSView { transcript.keyboardTarget }
 
     /// The person opened this conversation from Home (a click, Return, a switch key): the message
     /// box takes the keyboard, at once or once its first page installs it.
@@ -588,3 +590,4 @@ extension HomeHostView: PrimaryInputTarget {
         focusTargetShouldTakeKeyboard(from: responder)
     }
 }
+extension HomeHostView: ChiefPanelContent { var chiefIsAnswering: Bool { isWorking }; var chiefShowsThrough: Bool { get { transcript.clearsBackground } set { transcript.clearsBackground = newValue } }; var chiefHeaderHeight: CGFloat { headerHeight } }

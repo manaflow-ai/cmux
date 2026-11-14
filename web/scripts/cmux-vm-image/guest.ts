@@ -6,6 +6,7 @@
 import { appendFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { Freestyle } from "freestyle";
+import { guestShellProblems } from "./shell-check";
 
 export const BUILD_ENV = {
   PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
@@ -182,6 +183,13 @@ export class StepLog {
     appendFileSync(this.logFile, `${line}\n`);
   }
   async step(vm: Vm, label: string, command: string, timeoutMs = STEP_TIMEOUT_MS): Promise<string> {
+    // The guest runs it with /bin/sh (dash): refuse here, in a second, what would fail there after the layers before it.
+    const shellCheck = guestShellProblems(command);
+    for (const s of shellCheck.suspect) this.log(`WARN [${label}] ${s}`);
+    if (shellCheck.refused.length > 0) {
+      this.log(`STEP FAILED [${label}] before it ran: the guest's /bin/sh refuses it:\n${shellCheck.refused.join("\n")}`);
+      throw new Error(`step ${label} failed: not /bin/sh`);
+    }
     const r = await run(vm, command, timeoutMs);
     const secs = r.ms / 1000;
     this.steps.push({ label, secs });

@@ -34,7 +34,7 @@ await requireBrowserLane("composer-plus-menu-polish.browser.test.ts", async () =
     picker: {
       entry: "agent-pane.composer",
       variant: "add-menu",
-      popup: ".acpmux-composer-plus .acpmux-menu",
+      popup: ".acpmux-composer-plus.acpmux-menu",
       width: 400,
     },
   } as const;
@@ -142,13 +142,15 @@ await requireBrowserLane("composer-plus-menu-polish.browser.test.ts", async () =
           const scrolls = (node: Element) => node.scrollHeight > node.clientHeight + 1;
           // Whichever box scrolls the rows: the list under the search field, or the popup itself.
           const list = popup.querySelector<HTMLElement>("[role=listbox]");
-          const scroller = list && scrolls(list) ? list : popup;
+          // The popup's own rows scroll in its glass shell's inner viewport (ui/Menu.tsx).
+          const viewport = popup.querySelector<HTMLElement>(":scope > .ui-popup-scroll") ?? popup;
+          const scroller = list && scrolls(list) ? list : viewport;
           scroller.setAttribute("data-test-scroller", "");
           const input = popup.querySelector("input");
           const masked = (node: Element | null): boolean =>
             !!node && (getComputedStyle(node).maskImage !== "none" || masked(node.parentElement));
           return {
-            scroller: scroller === popup ? "popup" : "list",
+            scroller: scroller === list ? "list" : "popup",
             scrolls: scrolls(scroller),
             top: scroller.hasAttribute("data-fade-top"),
             bottom: scroller.hasAttribute("data-fade-bottom"),

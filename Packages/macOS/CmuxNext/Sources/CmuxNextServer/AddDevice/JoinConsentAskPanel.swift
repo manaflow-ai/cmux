@@ -26,7 +26,7 @@ public final class JoinConsentAskPanel: NSPanel {
     public init(model: JoinConsentModel) {
         self.model = model
         content = JoinConsentAskView(model: model)
-        let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: 14)
+        let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: Metrics.surfaceCornerRadius)
         super.init(contentRect: NSRect(origin: .zero, size: NSSize(width: JoinConsentAskView.width, height: 160)),
                    styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView], backing: .buffered, defer: true)
         ThemeScope.app.adopt(self)

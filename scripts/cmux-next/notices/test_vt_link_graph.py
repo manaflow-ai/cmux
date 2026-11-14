@@ -44,6 +44,17 @@ class AttributeTest(unittest.TestCase):
         self.assertEqual(result["zig_lib"], {"compiler_rt": 1, "libc": 1, "std": 1})
         self.assertEqual(result["unattributed"], ["/usr/include/elsewhere.h"])
 
+    def test_a_windows_relative_generated_path_is_generated(self) -> None:
+        # Zig 0.17.0's CodeView records generated files relative to the build
+        # root with backslashes; they are generated files, not unattributed.
+        result = graph.attribute([
+            ".zig-cache\\o\\d87431268936e492a56af94267838893\\generated.zig",
+            "src\\terminal\\Parser.zig",
+        ], SRC, CACHE, LIB)
+        self.assertEqual(result["unattributed"], [])
+        self.assertEqual(result["generated_files"], 1)
+        self.assertEqual(result["ghostty_files"], 1)
+
     def test_zig_env_is_read_as_json_or_zon(self) -> None:
         self.assertEqual(graph.zig_env_fields('{"lib_dir": "/a", "version": "0.15.2"}')["lib_dir"], "/a")
         self.assertEqual(graph.zig_env_fields('.{\n    .lib_dir = "/b",\n    .version = "0.16.0",\n}\n')["lib_dir"], "/b")

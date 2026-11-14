@@ -9,18 +9,25 @@ mod clear_history_tests;
 #[cfg(unix)]
 mod clipboard_read;
 mod colors;
+#[cfg(unix)]
+mod host_frames_spawn;
 mod hosted;
 mod input;
+#[cfg(unix)]
+mod input_port_inline;
 mod lifecycle;
 #[cfg(unix)]
 mod local_resize_order;
 mod lock_order;
+#[cfg(unix)]
+mod output_publications;
 mod render_geometry;
 #[cfg(unix)]
 mod resize_audit;
 #[cfg(unix)]
 mod resize_conformance;
 mod stream_progress;
+mod unviewed_frames;
 use base64::Engine as _;
 use std::sync::mpsc::sync_channel;
 

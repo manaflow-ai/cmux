@@ -12,6 +12,7 @@ import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
 import { openEffort } from "./support/effortDropdown";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -83,11 +84,7 @@ afterEach(() => {
 afterAll(async () => {
   // A checkbox indicator's last update lands a task after the final test: let it run on this window.
   await settle();
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 /// Claude Code's model list as Leo's chat reported it: its aliases named as the releases they run,
@@ -189,7 +186,10 @@ async function mount({
       <ComposerPickers
         snapshot={snapshot}
         pickerCatalog={picker.catalog}
-        onModel={(next) => setState((current) => ({ ...current, model: next }))}
+        onModel={(next) => {
+          sent.push({ id: "model", value: next });
+          setState((current) => ({ ...current, model: next }));
+        }}
         onMode={() => undefined}
         onEffort={(id, value) => {
           sent.push({ id, value });
@@ -228,6 +228,25 @@ async function open() {
   await act(async () => chipButton().click());
   await settle();
 }
+
+test("Fable uses its reported 1M option under one plain model name", async () => {
+  const { sent } = await mount({ harness: "claude", family: "claude" });
+  await open();
+  const fable = modelRows().filter((row) => label(row).includes("Fable 5.1"));
+  expect(fable.map(label)).toEqual(["Fable 5.1"]);
+  await act(async () => fable[0]!.click());
+  expect(sent).toContainEqual({ id: "model", value: "claude-fable-5-1[1m]" });
+});
+
+for (const model of ["claude-fable-5-1", "claude-fable-5-1[1m]"])
+  test(`a chat already on ${model} keeps its checked Fable row without changing the session`, async () => {
+    const { sent } = await mount({ harness: "claude", family: "claude", model });
+    await open();
+    const fable = modelRows().filter((row) => label(row).includes("Fable 5.1"));
+    expect(fable.map(label)).toEqual(["Fable 5.1"]);
+    expect(fable[0]!.getAttribute("aria-checked")).toBe("true");
+    expect(sent).toEqual([]);
+  });
 
 for (const state of ["expired", "signedOut"] as const) {
   test(`full picker offers Sign in again for ${state} auth before send`, async () => {
@@ -345,17 +364,15 @@ for (const harnessFixed of [false, true]) {
     await open();
     const top = choices.slice(0, 6).map((choice) => choice.name);
     if (!harnessFixed) {
-      // A rail's menu is the columns menu: the top models, then the harness's other models under
-      // the "Legacy models" caption in the same column.
+      // A rail's menu is the columns menu: the top models, then the harness's other models in the
+      // same column, with no caption between them (#41212).
       const list = [...doc().querySelector('.acpmux-cols [role="listbox"]')!.children];
-      const caption = list.findIndex((item) => item.textContent === "Legacy models");
-      const names = (items: Element[]) =>
-        items
-          .filter((item) => item.getAttribute("role") === "option")
-          .map((item) => item.querySelector(".acpmux-cols-name")?.textContent ?? "");
-      expect(caption, list.map((item) => item.textContent).join(", ")).toBeGreaterThan(0);
-      expect(names(list.slice(0, caption))).toEqual(top);
-      expect(names(list.slice(caption + 1)).sort()).toEqual(["Choice 6", "Choice 7"]);
+      expect(list.some((item) => item.textContent === "Legacy models")).toBe(false);
+      const names = list
+        .filter((item) => item.getAttribute("role") === "option")
+        .map((item) => item.querySelector(".acpmux-cols-name")?.textContent ?? "");
+      expect(names.slice(0, top.length)).toEqual(top);
+      expect(names.slice(top.length).sort()).toEqual(["Choice 6", "Choice 7"]);
       return;
     }
     expect(modelRows().map(label)).toEqual(top);

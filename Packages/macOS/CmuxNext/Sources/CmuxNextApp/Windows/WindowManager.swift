@@ -11,6 +11,7 @@ import CmuxNextDaemon
 import CmuxNextLayout
 import CmuxNextWakeups
 import Observation
+import CmuxNextCloudUI
 
 /// Opens, restores, closes, and persists windows.
 ///
@@ -116,6 +117,7 @@ final class WindowManager {
     private(set) var isTerminating = false
     /// False in tests: windows are created but never ordered on screen.
     var ordersWindowsIn = true
+    var reopenCreating = false // a reopen with no window is making one (`reopenOrCreateWindow`): another reopen meanwhile makes none
     /// Restore finished: windows saved in full screen may enter it.
     var fullScreenRestoreReady = false
     /// A restored window is entering full screen (one at a time).
@@ -202,7 +204,7 @@ final class WindowManager {
     /// The window's state, created on first use.
     func state(for windowID: String) -> WindowState {
         if let state = states[windowID] { return state }
-        let state = WindowState(id: windowID)
+        let state = registry.closeSelection.watch(WindowState(id: windowID, focusInput: services.focusInput), gesture: ActionRunScope.isPersonsAction)
         states[windowID] = state
         return state
     }
@@ -272,7 +274,7 @@ final class WindowManager {
         if adopted == nil { placeLaunchWindow(document) }
         // The closed launch window stood for the saved window it would have become.
         if closedLaunchWindowID != nil, let front = adoptableFront(restoredRegistry) { restoreClosed.closed(front) }
-        for record in document.windows where states[record.id] == nil { states[record.id] = WindowState(record: record) }
+        for record in document.windows where states[record.id] == nil { states[record.id] = registry.closeSelection.watch(WindowState(record: record, focusInput: services.focusInput), gesture: ActionRunScope.isPersonsAction) }
         rememberMachines(of: document)
         if !restoredRegistry.windows.isEmpty {
             registry.apply { registry in
@@ -317,7 +319,11 @@ final class WindowManager {
         let onboarding = AppOnboardingServices(owner: services.onboarding)
         Task {
             await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace)
-            services.onboarding.showHistoryAtFirstRun(isFirstRun: firstWorkspace != nil && document.windows.isEmpty)
+            let isFirstRun = firstWorkspace != nil && document.windows.isEmpty
+            // One step at a time: Agents, then Bring your history once its window closed.
+            await services.onboarding.showFirstRunSteps(isFirstRun: isFirstRun)
+            // Then, once per channel: `cmux` in Terminal that would not run this app.
+            await CLIInstallHandlers.offerAtLaunch(skipsOnboarding: services.environment.skipsOnboarding)
         }
         savedWindowsUnread = false
         recordSaver.scheduleSave()
@@ -377,6 +383,8 @@ final class WindowManager {
         restored.recency.first { id in restored.window(id).map { $0.isOpen && hasMirroredWorkspace($0) } == true }
     }
 
+    func restoresSession(_ id: String) -> Bool { registry.restoresSession(id, launchWindow: launchWindowID, saved: previousLaunch?.windowIDs) }
+
     // MARK: Controllers
 
     /// Creates the controller of registered window `id`.
@@ -390,7 +398,7 @@ final class WindowManager {
             placedWindows += 1
         }
         let controller = WindowController(state: state, services: services, frame: frame)
-        controller.window?.animationBehavior = Motion.panes.windowOpenBehavior(restoring: registry.isLaunching || !restored) // REOPEN-F2: a restore shows in place, never AppKit's zoom
+        controller.window?.animationBehavior = Motion.panes.windowOpenBehavior(restoring: restoresSession(window.id)) // REOPEN-F2: a restore shows in place; a new window opens like one (#38128)
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
         services.dragSession.installWorkspaceHandoff(on: controller)
@@ -402,7 +410,7 @@ final class WindowManager {
         // A window none of whose workspaces is mirrored yet stays off screen
         // until `contentDidAppear` (never an empty frame). The launch window
         // (no workspaces) shows the connecting state at once.
-        if controller.content != nil || controller.root.content is CloudMachineProgressView || hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty {
+        if controller.content != nil || controller.root.content is CloudProgressHost || hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty {
             present(controller)
         } else {
             awaitingContent[window.id] = false

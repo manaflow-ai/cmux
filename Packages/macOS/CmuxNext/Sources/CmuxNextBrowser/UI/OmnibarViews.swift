@@ -93,7 +93,7 @@ final class OmnibarPillView: NSView {
             if let glass {
                 glass.style = style
             } else {
-                let panel = GlassPanelView(style: style, cornerRadius: 0)
+                let panel = GlassPanelView(style: style, cornerRadius: 0) // glass-level-allow: the omnibar's material and tint are the browser.omnibar look setting (OmnibarGlass), not a fixed level
                 panel.translatesAutoresizingMaskIntoConstraints = false
                 addSubview(panel, positioned: .below, relativeTo: nil)
                 NSLayoutConstraint.activate([

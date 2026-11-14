@@ -275,7 +275,7 @@ import CmuxNextTestSupport
     /// The snapshot store keeps its budget: the least recently used picture goes first.
     @Test func theSnapshotStoreDropsTheLeastRecentlyUsedPicturePastItsBudget() async throws {
         let one = try #require(await HibernationSnapshots.compress(Self.noise(seed: 1)))
-        let size = try #require(one.data?.count)
+        let size = one.data.count
         let store = HibernationSnapshots(capacityBytes: size * 5 / 2)
         store.insert(one, for: "a")
         store.insert(try #require(await HibernationSnapshots.compress(Self.noise(seed: 2))), for: "b")

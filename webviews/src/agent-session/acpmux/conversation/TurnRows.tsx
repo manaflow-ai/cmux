@@ -4,42 +4,40 @@
 import { FindReveal, isRevealRow } from "./chatFind";
 import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AcpmuxRow } from "../model";
-import { copyTextResult } from "./clipboard";
+import { ErrorDetails } from "./ErrorDetails";
 import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
+import { WhoElseCard } from "./WhoElseCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
-import { AcpmuxSendLine, SentMessageGroup, sendKey } from "./SentMessageLine";
+import { AgentCallCard } from "./AgentCallCard";
+import { AcpmuxSendLine, SentMessageGroup } from "./SentMessageLine";
+import { sendKey } from "./sentMessageLineModel";
 import { mcpNames, McpNamesContext } from "./mcpCalls";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
 import { ToolRun } from "./ToolRun";
+import { toolRunSummary } from "./toolRunSummary";
+import { ToolRunSteps } from "./ToolRunSteps";
+import { KeepOpenedLine } from "./KeepOpenedLine";
+import { visibleToolItems } from "./mcpPresentation";
 import { ThoughtRow } from "./ThoughtRow";
-import { groupId, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
+import { groupId, runStretches, stretchStart, toolGroups, type RunStretch, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
 import { TurnActionsContext } from "./turnActions";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
-import { footerLabel, isEmptyFooter, isStopped, workedLabel } from "./turns";
+import { isEmptyFooter, isStopped, offersRetry, workedCallsText, workedLabel, workedMessagesText } from "./turns";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
-import { hasTokens, TimedLabel, tokensText, TurnTokens } from "./TurnTokens";
-import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
-import {
-  ForkButton,
-  forkWithFeedback,
-  MessageCopy,
-  MessageFooterRow,
-  MessageMore,
-  PinButton,
-  ReadAloudButton,
-  ReplyTime,
-  ROW_ICON,
-} from "./MessageActions";
+import { TimedLabel } from "./TurnTokens";
+import { AlertCircle, ChevronRight, Retry } from "./icons";
+import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
+import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
-import type { CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
-import { usePaneLanguage, useT } from "../i18n";
+import { offersGateway, type CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
+import { useT } from "../i18n";
 import {
   failureCopy,
   failureKind,
@@ -51,22 +49,43 @@ import {
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
-import { CodeRouterAction, useCodeRouterChoice } from "./CodeRouterOffer";
+import { CodeRouterAction } from "./CodeRouterOffer";
+import { useCodeRouterChoice } from "./codeRouterOfferModel";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
-import { PresentationContext } from "./PresentationContext";
-
-/// Where a folded run splits (toolGroups.ts), which the row estimate (model.ts) reads too.
-export { runStretches, type RunStretch } from "./toolGroups";
+import { PresentationContext } from "./presentationContextModel";
+import { useTurnWaterfall } from "./useTurnWaterfall";
+import { FinishCheck } from "../finish/FinishCheck";
+import { useFinishedTurn } from "../finish/finishMoments";
+import { groupDisclosureKey, runDisclosureKey, runShape, thoughtIds } from "./turnRowsModel";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
   const t = useT();
-  if (row.previous !== undefined || row.durationMs === undefined) return workedLabel(t, row);
-  const key = row.status === "cancelled" ? "turn.stopped" : "turn.worked";
-  return <TimedLabel text={(time) => t(key, { time })} time={row.durationMs} />;
+  // The `header` arm of turnFoldSteered names the work the line holds after its time.
+  const runs = row.workedRuns;
+  const work = useMemo(() => (runs?.length ? toolRunSummary(t, runs) : undefined), [t, runs]);
+  let label: ReactNode;
+  if (row.previous !== undefined || row.durationMs === undefined) label = workedLabel(t, row);
+  else {
+    const key = row.status === "cancelled" || row.status === "interrupted" ? "turn.stopped" : "turn.worked";
+    // A line that names its runs' work leaves their count to it.
+    const after = (work ? "" : workedCallsText(t, row)) + workedMessagesText(t, row);
+    label = <TimedLabel text={(time) => t(key, { time }) + after} time={row.durationMs} />;
+  }
+  if (!work) return label;
+  return (
+    <>
+      {label}
+      <span className="cv-worked__work">{` · ${work}`}</span>
+    </>
+  );
 }
 
-/// The "Worked for 15s" line; it opens the turn's commentary and tool calls.
+/// The turn ends that are no success: stopped (`turns.ts` isStopped) or failed.
+const UNFINISHED = new Set(["cancelled", "interrupted", "failed", "error"]);
+
+/// The "Worked for 15s" line; it opens the turn's commentary and tool calls. It says the time alone,
+/// as Codex does (Lucas, 2026-11-06): the turn's tokens stay on the running line (WorkingFor.tsx).
 export function WorkedFor({
   row,
   expanded,
@@ -78,10 +97,15 @@ export function WorkedFor({
   controls?: string;
   onToggle: () => void;
 }) {
+  // A long turn that just ended shows its short done state here (finish/finishMoments.ts); a turn
+  // that was stopped or failed did not succeed, so it gets none.
+  const ended = useFinishedTurn(row.at, row.durationMs === undefined ? undefined : row.at + row.durationMs);
+  const finished = ended && !UNFINISHED.has(row.status ?? "");
   return (
     <button
       type="button"
       className="cv-worked has-divider is-toggle"
+      data-finish={finished ? "turn" : undefined}
       aria-expanded={expanded}
       aria-controls={expanded ? controls : undefined}
       onClick={onToggle}
@@ -89,15 +113,8 @@ export function WorkedFor({
       <span className="cv-worked__label">
         <WorkedLabel row={row} />
       </span>
-      {hasTokens(row.tokens) && (
-        <span className="cv-worked__count">
-          <span className="cv-worked__sep" aria-hidden="true">
-            ·
-          </span>
-          <TurnTokens split={row.tokens} />
-        </span>
-      )}
       <ChevronRight size={14} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
+      {finished && <FinishCheck />}
     </button>
   );
 }
@@ -115,6 +132,7 @@ function groupNode(
   live: boolean,
   folded = false,
   thoughts = 0,
+  runLine?: readonly string[],
 ): ReactNode {
   switch (group.type) {
     case "group":
@@ -124,7 +142,11 @@ function groupNode(
           kind={group.kind}
           items={group.items}
           folded={folded}
-          disclosureKey={`group:${group.kind}:${groupId(group.items) || `${rowId}:${index}`}`}
+          disclosureKey={groupDisclosureKey(group, index, rowId)!}
+          // An edits group keeps its own state: closed, each file's diff one click away, whatever the
+          // run's line around it was (it draws inside the opened run's line as its own line too).
+          inherits={group.kind === "edits" ? undefined : runLine}
+          closedBy={group.kind === "edits" ? undefined : runLine}
           thoughtId={(n) => `${rowId}:thought:${thoughts + n}`}
         />
       );
@@ -133,7 +155,7 @@ function groupNode(
         <McpCallRows
           key={group.items[0]!.tool!.id || index}
           items={group.items}
-          disclosureKey={`group:mcp:${group.items[0]!.tool!.id || `${rowId}:${index}`}`}
+          disclosureKey={groupDisclosureKey(group, index, rowId)!}
         />
       );
     case "message":
@@ -147,6 +169,8 @@ function groupNode(
       );
     case "dispatch":
       return <DispatchCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
+    case "whoElse":
+      return <WhoElseCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
     case "send":
       return (
         <AcpmuxSendLine
@@ -183,6 +207,8 @@ function groupNode(
           group={group.calls.map((call, i) => ({ call, tool: group.items[i]!.tool! }))}
         />
       );
+    case "agentCall":
+      return <AgentCallCard key={group.item.tool!.id || index} call={group.call} tool={group.item.tool!} />;
     case "item":
       // A short interim note folded into the run (turns.ts mergeShortNotes).
       if (group.item.kind === "note")
@@ -204,70 +230,95 @@ function groupNode(
   }
 }
 
-/// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). The
-/// Codex-style runs (Debug toggle `agentPane.debug.codexToolRuns`, on by default) fold a finished
-/// run (`foldRun`) of two or more entries under one summary line (toolRunSummary.ts: "Read 6 files,
-/// ran 4 commands"), and a run that is one group under that group's closed line ("Ran 3 commands"),
-/// so finished work is one click away between the paragraphs; coordination cards stay in sight
-/// between such lines (`runStretches`). Off, each group and call keeps its own line.
-/// Whether the whole run folds under one summary line.
-export function shouldFoldToolRun(row: AcpmuxRow, groups: readonly ToolGroup[]): boolean {
-  const stretches = runStretches(row, groups);
-  return stretches.length === 1 && stretches[0]!.fold;
-}
-
-/// How many thoughts come before each entry of a run. A thought keeps its number as calls arrive
-/// (a run only grows at its end, and grouping keeps the order), so its open state stays with it when
-/// a call that finished joins it to a group (Codex review of #24075).
-export function thoughtIds(groups: readonly ToolGroup[]): number[] {
-  let thoughts = 0;
-  return groups.map((group) => {
-    const before = thoughts;
-    const items = "items" in group ? group.items : [group.item];
-    thoughts += items.filter((item) => !item.tool && item.kind !== "note").length;
-    return before;
+/// How a folded stretch's line follows the group lines it grew from and splits back into
+/// (`useTranscriptDisclosure` links): any of them the reader opened opens it (`inherits`); its own
+/// choice passes down to those they set, but never to an edits group, which keeps its own state as it
+/// draws inside the opened line (`passesDown`); and closing every group that drew open while the turn
+/// ran, one by one, closes it (`closedBy`).
+function runLinks(stretch: RunStretch, rowId: string) {
+  const inherits: string[] = [];
+  const passesDown: string[] = [];
+  const closedBy: string[] = [];
+  stretch.groups.forEach((group, offset) => {
+    const key = groupDisclosureKey(group, stretch.from + offset, rowId);
+    if (!key) return;
+    inherits.push(key);
+    if (group.type === "group" && group.kind === "edits") return;
+    passesDown.push(key);
+    if (group.type === "group") closedBy.push(key);
   });
+  return { inherits, passesDown, closedBy };
 }
 
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {
-  const items = row.items;
+  const reveal = useContext(FindReveal);
+  // Keep the original transcript for copy/export and reveal discovery calls when Find names them.
+  const revealing = reveal && isRevealRow(row, reveal);
+  const items = useMemo(() => visibleToolItems(row.items, Boolean(revealing)), [row.items, revealing]);
   const groups = useMemo(() => toolGroups(items ?? []), [items]);
-  const stretches = useMemo(() => runStretches(row, groups), [row, groups]);
+  const foldRun = row.foldRun;
+  const stretches = useMemo(() => runStretches({ foldRun }, groups), [foldRun, groups]);
   const thoughts = useMemo(() => thoughtIds(groups), [groups]);
+  // The row's groups and runs, in a word: when a new call changes it, the line the reader opened is
+  // kept where it is on screen (KeepOpenedLine.tsx).
+  const shape = useMemo(() => runShape(stretches), [stretches]);
   const nodes = stretches.map((stretch) => {
-    const drawn = stretch.groups.map((group, offset) => {
-      const at = stretch.from + offset;
-      return groupNode(
-        group,
-        at,
-        row.id,
-        row.at,
-        row.live === true && at === groups.length - 1,
-        row.foldRun === true && !stretch.fold,
-        thoughts[at],
-      );
-    });
+    // A stretch's line and its groups' lines take each other's place as calls arrive (one group
+    // grows into a run of two kinds; a run loses its line when a call in it runs again): each opens
+    // where the reader opened the other, so a line the reader opened never closes on its own.
+    const key = runDisclosureKey(stretch, row.id);
+    // model.ts estimates the stretch from the same start (toolGroups.ts `stretchStart`).
+    const start = stretchStart(row, stretch);
+    const drawn =
+      !stretch.fold &&
+      stretch.groups.map((group, offset) => {
+        const at = stretch.from + offset;
+        return groupNode(
+          group,
+          at,
+          row.id,
+          row.at,
+          row.live === true && at === groups.length - 1,
+          // A run line open from the start (`runOpen`) opens the groups it holds too.
+          start.groupsClosed,
+          thoughts[at],
+          [key],
+        );
+      });
     if (!stretch.fold) return drawn;
-    // The first stretch keeps the run's own key, so a run that grew a card keeps its open state.
-    const first = stretch.items.find((item) => item.tool)?.tool?.id;
-    const key = stretch.from === 0 ? `run:${row.id}` : `run:${row.id}:${first || stretch.from}`;
+    const links = runLinks(stretch, row.id);
+    // Its thoughts' ids, as ToolRunSteps numbers them from the row's earlier thoughts.
+    const before = thoughts[stretch.from] ?? 0;
+    const runThoughts = stretch.items
+      .filter((item) => !item.tool && item.kind !== "note")
+      .map((_, at) => `${row.id}:thought:${before + at}`);
     return (
-      <ToolRun key={key} disclosureKey={key} items={stretch.items}>
-        {drawn}
+      <ToolRun
+        key={key}
+        disclosureKey={key}
+        inherits={links.inherits}
+        passesDown={links.passesDown}
+        closedBy={links.closedBy}
+        thoughts={runThoughts}
+        items={stretch.items}
+        defaultOpen={start.lineOpen}
+      >
+        <ToolRunSteps items={stretch.items} rowId={row.id} thoughtsBefore={thoughts[stretch.from] ?? 0} />
       </ToolRun>
     );
   });
   // Find opens what holds its current match in this row only (chatFind.ts).
-  const reveal = useContext(FindReveal);
   // Ids an MCP call names, to the titles the run's other calls give them ("Read Coordination hub").
   const names = useMemo(() => mcpNames(items), [items]);
+  // Leave no child in RowFrame: its empty-row rule removes padding as well as content height.
+  if (row.items?.length && !items?.length) return null;
   return (
     <TranscriptDisclosureProvider sessionId={sessionId}>
       <McpNamesContext.Provider value={names}>
         <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
           {/* No verb column: each row reads icon, verb, then its subject one space after, as Claude Code
               lists them (Leo, 2026-10-31: "why are these indented for no reason"). */}
-          <div className="cv-tools">{nodes}</div>
+          <KeepOpenedLine shape={shape}>{nodes}</KeepOpenedLine>
         </FindReveal.Provider>
       </McpNamesContext.Provider>
     </TranscriptDisclosureProvider>
@@ -276,22 +327,23 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 
 /// The quiet row under an answer, as ChatGPT's: its buttons first, the first glyph's ink on the
 /// prose's left edge whatever the turn did (Copy, Fork from here when acpmux serves forks, Pin, Read
-/// aloud, More), then Continue for a stopped last turn, then the answer's exact time, shown on hover.
+/// aloud, More), then the answer's exact time, shown on hover.
 /// Leo, 2026-11-02: "this should not be placed in front of the copy/whatever buttons. those buttons
 /// should always just be there left aligned". A turn without a "Worked for" line (a Claude turn,
 /// #30176; history paged in mid-turn) keeps its time and tokens in the time's tooltip, never in the
-/// row. Retry is the prompt's (UserBubble.tsx), and also here when the turn failed, whose row always
-/// shows; so does the footer that ends the chat (#31503), so a finished reply's Copy is in sight.
+/// row. Successful replies offer Send prompt again and model choices through More. Failed replies
+/// retain their inline Retry and recovery controls; stopped replies resume from the empty composer.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
-  const language = usePaneLanguage();
   const messages = useContext(PresentationContext) === "messages";
   const {
     fork,
     forkSeq,
     forkAny,
+    tryAnotherApproach,
     retry,
     retryFailed,
+    canSendPromptAgain,
     retryWith,
     reauthenticate,
     transferCloudCredentials,
@@ -303,6 +355,8 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     switchModel,
   } = useContext(TurnActionsContext);
   const text = row.text;
+  // The turn's Timeline (TurnWaterfall.tsx): a clock button, closed until the reader opens it.
+  const timeline = useTurnWaterfall(row);
   // Copy copies the whole turn, its replies and tool lines (turnCopy.ts), as Claude Code desktop's;
   // a turn of tool calls alone draws no Copy and no Read aloud.
   const turnCopy = row.turnCopy;
@@ -316,15 +370,13 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // A team Cloud machine refuses a personal login transfer: no Set up credentials, and no automatic one.
   const teamMachine = route?.hostKind === "cloud" && route.teamMachine === true;
   const authenticationFailed = (kind === "subscription-login" || kind === "auth") && !teamMachine;
-  const label = footerLabel(t, row);
-  // The turn's time and tokens, for the time's tooltip: "Worked for 13s · ↓ 359 out ↑ 328.8K in".
-  // A Stop acpmux had to force (the agent never answered it) says so here only, never in the
-  // transcript's text (Leo, 2026-11-03: "idk if it should be showing things like that").
+  // The turn's time and tokens, for the time's tooltip: "Worked for 13s", then one token count per
+  // row (turnTokensModel.ts `replyTimeDetail`). A Stop acpmux had to force (the agent never answered it)
+  // says so here only, never in the transcript's text (Leo, 2026-11-03: "idk if it should be showing
+  // things like that").
   const forced = row.stopForced ? t("stop.forced") : undefined;
-  const detail =
-    [label, hasTokens(row.tokens) ? tokensText(t, language, row.tokens) : undefined, forced]
-      .filter(Boolean)
-      .join(" · ") || undefined;
+  // No time at the row's end: the Codex app shows none (Lawrence, 2026-11-11 standup: "when I hover,
+  // the time shows up on the right, which I don't think is good").
   // A stopped turn says so in one muted word, whoever ended it (stoppedTurn.experiment.ts).
   const stoppedLook = isStopped(row) ? experimentArm(stoppedTurnLook) : "none";
   const stoppedWord = stoppedLook !== "none" && (
@@ -332,17 +384,38 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       {t("turn.stoppedMark")}
     </span>
   );
-  // The last turn, stopped and not yet followed by a prompt, offers Continue (Codex's): it sends the
-  // continue prompt as the composer would, and the button goes once that prompt shows (turns.ts).
-  const resumable = row.resumable === true && resume !== undefined;
-  // One click sends one prompt: the button stays disabled while the send is in flight (its pending
-  // prompt row takes the button away first). A chat without the action (View Only, disconnected)
-  // draws no Continue, so its footer is empty or not as it would be without one.
-  const [resuming, setResuming] = useState(false);
   // A failed turn's Retry (card and footer) asks acpmux's turn retry where the chat has one
   // (turnRetry.ts): one at a time, and a refusal leaves its note on the card.
   const [retrying, setRetrying] = useState(false);
   const [retryNote, setRetryNote] = useState<RetryNote>();
+  // The card says Retrying… from the click until the retried attempt reaches the transcript and
+  // changes this row (it stops offering Retry, or a new attempt draws below it), and only while this
+  // row is still the version that was clicked (cmux#34369). Without it the card came back at once
+  // looking untouched, and a retry that failed again as fast (a gateway outage) read as a click that
+  // did nothing. The button waits only while the request is in flight (acpmux's answer, or a fallback
+  // send until acpmux took it): a second click is acpmux's to refuse (Busy, try again shortly), so a
+  // row that never changes cannot leave it stuck. Its label is the click's: the attempt can reach the
+  // chat (and change what the row offers) before acpmux answers.
+  const [retryAt, setRetryAt] = useState<number>();
+  const [retryWent, setRetryWent] = useState(false);
+  const [retryLabel, setRetryLabel] = useState<ErrorRecovery["label"]>("retry");
+  const retryProgress = retryAt !== undefined && retryAt === row.version && (retrying || retryWent);
+  const runRetry = (run: () => Promise<RetryNote | undefined>, label: ErrorRecovery["label"]) => {
+    setRetryAt(row.version);
+    setRetryWent(false);
+    setRetryLabel(label);
+    setRetrying(true);
+    setRetryNote(undefined);
+    void run()
+      .then(
+        (note) => {
+          setRetryNote(note);
+          setRetryWent(note === undefined);
+        },
+        () => setRetryNote("retry.failed"),
+      )
+      .finally(() => setRetrying(false));
+  };
   const automaticRecoveryAttempted = useRef<string | undefined>(undefined);
   const automaticRecoveryRow =
     failed &&
@@ -370,15 +443,26 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     ? undefined
     : retryFailed && row.retryable
       ? () => {
-          setRetrying(true);
-          setRetryNote(undefined);
-          void retryFailed(row.retryRowId, prompt)
-            .then(setRetryNote, () => setRetryNote("retry.failed"))
-            .finally(() => setRetrying(false));
+          if (retrying) return;
+          runRetry(() => retryFailed(row.retryRowId, prompt), row.continuable ? "continue" : "retry");
         }
-      : retry && prompt && row.retryRowId
-        ? () => retry(row.retryRowId!, prompt)
+      : retry && prompt !== undefined && row.retryRowId
+        ? () => {
+            // A chat without acpmux's retry sends the prompt again; a send that did not go says so.
+            if (retrying) return;
+            const rowId = row.retryRowId!;
+            runRetry(async () => ((await retry(rowId, prompt)) === false ? "retry.failed" : undefined), "retry");
+          }
         : undefined;
+  const menuRetry =
+    canSendPromptAgain === true &&
+    !failed &&
+    (row.status === undefined || row.status === "completed" || isStopped(row)) &&
+    offersRetry(row) &&
+    !isEmptyFooter(row);
+  const footerRetry = failedRetry;
+  const retryTitle = row.changedFiles ? t("turn.retryChangedFiles") : t("turn.retryLabel");
+  const retryModels = failed && prompt && retry && retryWith && retryWith.models.length > 1 ? retryWith : undefined;
   // The card's lead (errorRecovery.ts): Continue when the turn had done work, Retry when nothing
   // ran; it shares the footer Retry's one-at-a-time state and refusal note. A sign-in failure's comes
   // only after its Sign in again, so only the card offers it (signInRetry), never the native command.
@@ -388,13 +472,10 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     recovery &&
     (() => {
       if (retrying) return;
-      setRetrying(true);
-      setRetryNote(undefined);
-      void recovery
-        .run()
-        .then(setRetryNote, () => setRetryNote("retry.failed"))
-        .finally(() => setRetrying(false));
+      runRetry(recovery.run, recovery.label);
     });
+  const promptOnly = row.toolCount === 0 && !text && !copy && !row.turnWork?.length && !row.changedFiles;
+  if (!failed && promptOnly && !stoppedWord) return null;
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
   // into it (Codex, Claude desktop). The row is one quiet line under the answer's left edge; it
   // shows on hover or keyboard focus, and always for a failed turn (VirtualTranscript marks the
@@ -417,6 +498,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           goOn={goOn}
           goOnLabel={recovery?.label}
           retrying={retrying}
+          retryProgress={retryProgress}
+          retryLabel={retryLabel}
+          failedAgain={row.failedAgain === true}
           retryNote={retryNote}
         />
       )}
@@ -424,41 +508,49 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         className={
           failed
             ? "cv-turn-actions cv-turn-actions--failed"
-            : resumable
-              ? "cv-turn-actions cv-turn-actions--resumable"
-              : isEmptyFooter(row.resumable ? { ...row, resumable: undefined } : row)
-                ? "cv-turn-actions cv-turn-actions--empty"
-                : "cv-turn-actions"
+            : isEmptyFooter(row.resumable ? { ...row, resumable: undefined } : row)
+              ? "cv-turn-actions cv-turn-actions--empty"
+              : "cv-turn-actions"
         }
       >
         <MessageFooterRow className="cv-turn-footer-row">
           <span className="cv-turn-action-group">
             {!messages && copy && <MessageCopy text={copy} />}
-            {failedRetry && (
-              <button
-                type="button"
-                className="cv-iconbtn cv-iconbtn--compact"
-                aria-label={t("turn.retry")}
-                title={t("turn.retryLabel")}
-                disabled={retrying}
-                onClick={failedRetry}
-              >
-                <Retry size={ROW_ICON} />
-              </button>
-            )}
-            {failed && retry && prompt && retryWith && retryWith.models.length > 1 && (
-              <RetryModelMenu
-                retryWith={retryWith}
-                onPick={(model) => retryWith.retry(row.retryRowId ?? "", prompt, model)}
-              />
+            {(footerRetry || retryModels) && (
+              // Retry and its model switch read as one split control: Retry's square, then a narrow
+              // chevron tight against it (conversation.css .cv-turn-retry).
+              <span className="cv-turn-retry">
+                {footerRetry && (
+                  <button
+                    type="button"
+                    className="cv-iconbtn cv-iconbtn--compact"
+                    aria-label={t("turn.retry")}
+                    title={retryTitle}
+                    disabled={retrying}
+                    onClick={footerRetry}
+                  >
+                    <Retry size={ROW_ICON} />
+                  </button>
+                )}
+                {retryModels && prompt !== undefined && (
+                  <RetryModelMenu
+                    retryWith={retryModels}
+                    onPick={(model) => retryModels.retry(row.retryRowId ?? "", prompt, model)}
+                  />
+                )}
+              </span>
             )}
             {!messages && fork && seq !== undefined && (forkAny || seq === forkSeq) && (
               <ForkButton throughSeq={seq} onFork={() => forkWithFeedback(seq, () => fork(seq))} />
             )}
+            {tryAnotherApproach && seq !== undefined && seq === forkSeq && (
+              <TryAnotherApproachButton onTry={() => tryAnotherApproach(seq)} />
+            )}
             {!messages && <PinButton rowId={row.id} />}
+            {!messages && timeline.toggle}
             {!messages && text && <ReadAloudButton id={row.id} text={text} />}
             {!messages && text && <RowReplyButton text={text} />}
-            {!messages && text && row.answerId && <MessageMore rowId={row.answerId} />}
+            {!messages && ((text && row.answerId) || menuRetry) && <MessageMore rowId={row.answerId ?? row.id} />}
             {authenticationFailed && transferCloudCredentials && row.retryRowId && prompt && (
               <button
                 type="button"
@@ -474,25 +566,10 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             )}
           </span>
           {stoppedLook === "word" && stoppedWord}
-          {resumable && (
-            <button
-              type="button"
-              className="cv-iconbtn cv-turn-continue"
-              title={t("turn.continueHelp")}
-              disabled={resuming}
-              onClick={() => {
-                setResuming(true);
-                void resume().finally(() => setResuming(false));
-              }}
-            >
-              {t("turn.continue")}
-              <ArrowRight size={ROW_ICON} aria-hidden="true" />
-            </button>
-          )}
           {stoppedLook === "trailing" && stoppedWord}
-          {!messages && <ReplyTime at={row.at} detail={detail} />}
         </MessageFooterRow>
       </div>
+      {!messages && timeline.panel}
     </>
   );
 }
@@ -518,6 +595,9 @@ function TurnFailure({
   goOn,
   goOnLabel,
   retrying = false,
+  retryProgress = false,
+  retryLabel = "retry",
+  failedAgain = false,
   retryNote,
 }: {
   message: string | undefined;
@@ -542,14 +622,20 @@ function TurnFailure({
   goOn?: () => void;
   /// What the lead says: Continue when the turn had done work, Retry when nothing ran.
   goOnLabel?: ErrorRecovery["label"];
-  /// A Continue or Retry is in flight: its button waits.
+  /// A Continue or Retry is in flight: its button waits, and the note says Retrying….
   retrying?: boolean;
+  /// The note says Retrying… (or Continuing…): from the click, while this row is still the version
+  /// that was clicked and the retry is in flight or acpmux took it (cmux#34369).
+  retryProgress?: boolean;
+  /// What the click under way was: the note says Continuing… or Retrying….
+  retryLabel?: ErrorRecovery["label"];
+  /// This turn was a retry of a failed one and failed too (turns.ts `failedAgain`).
+  failedAgain?: boolean;
   /// Why acpmux refused the last Continue or Retry (turnRetry.ts), shown beside the actions.
   retryNote?: RetryNote;
 }) {
   const t = useT();
-  const [copied, setCopied] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(false);
+  const actionsRef = useRef<HTMLSpanElement>(null);
   const { access } = useContext(TurnActionsContext);
   // One click sends one /compact: the button stays disabled until that send settles.
   const [compacting, setCompacting] = useState(false);
@@ -568,6 +654,9 @@ function TurnFailure({
       "subscription-login",
       "auth",
       "needs-credits",
+      "team-cap",
+      "no-credit",
+      "cloud-auth-expired",
     ].includes(kind);
   // The cmux model router refused the turn: no paid plan and no credits, or credits that do not cover
   // the call (accessOffer.ts; Leo 2026-10-26: "we offer them to add credits or add their own api key").
@@ -662,7 +751,7 @@ function TurnFailure({
           )}
         </span>
       </span>
-      <span className="cv-turn-error__actions">
+      <span className="cv-turn-error__actions" ref={actionsRef}>
         {accessButtons}
         {offerLeads && (
           <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-auth-action cv-turn-error__primary" />
@@ -682,7 +771,14 @@ function TurnFailure({
           </button>
         )}
         {(cloudSignInLeads || (teamMachine && cloudSignIn)) && (
-          <CloudSignIn signIn={cloudSignIn} rowId={retryRowId} prompt={prompt} keyOnly={teamMachine} />
+          <CloudSignIn
+            signIn={cloudSignIn}
+            rowId={retryRowId}
+            prompt={prompt}
+            keyOnly={teamMachine}
+            gateway={offersGateway(message)}
+            actionsRef={actionsRef}
+          />
         )}
         {signInFirst && (
           <button
@@ -693,7 +789,9 @@ function TurnFailure({
             {t("turn.signInAgain")}
           </button>
         )}
-        {localKey && <CloudSignIn signIn={localKey} rowId={retryRowId} prompt={prompt} keyOnly />}
+        {localKey && (
+          <CloudSignIn signIn={localKey} rowId={retryRowId} prompt={prompt} keyOnly actionsRef={actionsRef} />
+        )}
         {offersRetry && (
           <button
             type="button"
@@ -714,32 +812,54 @@ function TurnFailure({
             className={`cv-turn-auth-action${offerFilled ? " cv-turn-error__primary" : ""}`}
           />
         )}
-        {retryNote && <output className="cv-turn-error__note text-detail text-dim">{t(retryNote)}</output>}
-        {message && (
-          <details className="cv-turn-error__details" onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
-            {/* The chat's chevron, as on Worked for, not the browser's triangle. */}
-            <summary className="cv-turn-note__summary">
-              {t("turn.failure.details")}
-              <ChevronRight size={12} aria-hidden="true" className={`cv-rotor${detailsOpen ? " is-open" : ""}`} />
-            </summary>
-            <span className="cv-turn-error__raw">
-              <span className="block font-mono text-detail whitespace-pre-wrap text-dim select-text">{message}</span>
-              <button
-                type="button"
-                className="cv-turn-auth-action"
-                onClick={() =>
-                  void copyTextResult(message).then(
-                    (accepted) => setCopied(accepted),
-                    () => setCopied(false),
-                  )
-                }
-              >
-                {copied ? t("turn.copied") : t("turn.failure.copyError")}
-              </button>
-            </span>
-          </details>
+        {retryNote ? (
+          <output className="cv-turn-error__note text-detail text-dim">{t(retryNote)}</output>
+        ) : retryProgress ? (
+          // The click went (cmux#34369): said from the click until the retried attempt shows.
+          <output className="cv-turn-error__note text-detail text-dim">
+            {t(retryLabel === "continue" ? "turn.continuing" : "turn.retrying")}
+          </output>
+        ) : (
+          // A retried attempt that failed too says so, so the new card is not read as the old one.
+          failedAgain && <output className="cv-turn-error__note text-detail text-dim">{t("turn.failedAgain")}</output>
         )}
+        {message && <ErrorDetails text={message} />}
       </span>
     </div>
+  );
+}
+
+/// Cloud's Try another approach, labelled. A machine snapshot takes a while, so the button says it
+/// is working; a refused click or a Cloud error says the fork failed (the Fork button's copy) and a
+/// second click tries again.
+function TryAnotherApproachButton({ onTry }: { onTry(): Promise<unknown> }) {
+  const t = useT();
+  const [state, setState] = useState<"idle" | "pending" | "failed">("idle");
+  const label =
+    state === "pending"
+      ? `${t("turn.tryAnotherApproach")}…`
+      : state === "failed"
+        ? t("notice.forkFailed")
+        : t("turn.tryAnotherApproach");
+  return (
+    <button
+      type="button"
+      className="cv-iconbtn cv-iconbtn--compact cv-turn-try-another"
+      aria-label={label}
+      title={label}
+      aria-busy={state === "pending"}
+      data-try-state={state}
+      disabled={state === "pending"}
+      onClick={() => {
+        setState("pending");
+        onTry().then(
+          () => setState("idle"),
+          () => setState("failed"),
+        );
+      }}
+    >
+      {state === "failed" && <AlertCircle size={ROW_ICON} />}
+      {label}
+    </button>
   );
 }

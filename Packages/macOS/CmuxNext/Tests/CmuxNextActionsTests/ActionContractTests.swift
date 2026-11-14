@@ -11,12 +11,16 @@ import Testing
     /// noun-verb form (e.g. `remote open`) when its owner next touches it.
     static let topLevelVerbs: [ActionID: String] = ["remote.openRemote": "open-remote"]
 
+    /// Nested groups (noun, group, verb): `chat channel create` is the path the
+    /// backend protocol declares (`ops-home-inbox.ts`, chief-channels-DESIGN.md).
+    static let nestedNames: [ActionID: String] = ["home.createChannel": "chat channel create"]
+
     @Test func everyActionHasAUniqueNounVerbCLIName() {
         var seen: [String: ActionID] = [:]
         for descriptor in catalog {
             let parts = descriptor.cliName.split(separator: " ")
-            if let verb = Self.topLevelVerbs[descriptor.id] {
-                #expect(descriptor.cliName == verb, "\(descriptor.id): \(descriptor.cliName)")
+            if let name = Self.topLevelVerbs[descriptor.id] ?? Self.nestedNames[descriptor.id] {
+                #expect(descriptor.cliName == name, "\(descriptor.id): \(descriptor.cliName)")
             } else {
                 #expect(parts.count == 2, "\(descriptor.id): \(descriptor.cliName)")
             }
@@ -41,7 +45,8 @@ import Testing
     /// Any App and Message the Chief from Any App are the system-wide keys of Start Agent and Message the
     /// Chief, whose rows they are; the sidebar's Compact
     /// and Comfortable rows are the app density's "Density: Compact/Comfortable" rows; Mute Tab and
-    /// Unmute Tab list in place of the right-click menu's Mute/Unmute Tab toggle).
+    /// Unmute Tab list in place of the right-click menu's Mute/Unmute Tab toggle; Open Feed Item and
+    /// Run a Feed Item's GitHub Action act on a row of the Feed page, which passes the item).
     @Test func everyActionIsInThePaletteUnlessExempt() {
         for descriptor in catalog where !descriptor.isPaletteVisible {
             let reason = descriptor.surfacePlan.palette.exemption
@@ -51,7 +56,7 @@ import Testing
         #expect(catalog.filter { !$0.isPaletteVisible }.map(\.id.rawValue).sorted()
             == (["agent.openSessionTab", "agent.openSessionWorkspace", "agent.share.kick", "agent.share.list", "agent.share.revoke", "agent.share.uninvite", "browser.findPrevious", "browser.image.copy", "browser.image.copyAddress", "browser.image.saveAs", "browser.link.copy",
                 "browser.link.copyText", "browser.link.saveAs", "browser.selection.copy", "browser.selection.lookUp",
-                "chief.openSubagent", "commandPaletteNext", "commandPalettePrevious", "history.goTo", "home.archiveChief", "home.deleteChief", "home.messageAbout", "home.messageChiefFromAnyApp", "home.openConversation", "home.sendSelectionTo", "home.setPrimaryChief",
+                "chief.openSubagent", "commandPaletteNext", "commandPalettePrevious", "feed.githubAction", "feed.openItem", "history.goTo", "home.messageAbout", "home.messageChiefFromAnyApp", "home.openConversation", "home.sendSelectionTo", "home.showHideChiefFromAnyApp",
                 "home.sendSelectionToChief", "list.next", "list.previous",
                 "import.card", "import.list", "import.suggest",
                 "machine.joined.check", "machine.joined.revoke", "machine.joined.rotate",

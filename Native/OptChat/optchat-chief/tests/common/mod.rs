@@ -2,7 +2,7 @@
 //! In-process fakes of the two owners (the conversation owner and acpmux) and
 //! a compactor model, so the brain runs end to end without a daemon.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::Path;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex};
@@ -556,6 +556,12 @@ pub fn update(kind: &str, mut update: Value) -> Value {
 #[derive(Default)]
 pub struct Agents {
     pub specs: Vec<SessionSpec>,
+    /// Session names acpmux holds: `new_session` with one is refused as taken, and
+    /// `end_session` / `find` see a session by that name (acpmux's `is taken`).
+    pub taken: BTreeSet<String>,
+    /// `end_session` fails with this error while set, and ends nothing (acpmux refusing a
+    /// purge: an unreadable chat "may be a fork").
+    pub end_error: Option<String>,
     /// Each session's system prompt when it started: the text its preset
     /// carried (acpmux `systemPrompt`), None without one.
     pub systems: Vec<Option<String>>,
@@ -613,6 +619,9 @@ pub struct Agents {
     /// `new_session` of a session whose name contains the text takes this
     /// long (a Claude Code process that starts slowly).
     pub slow_session: Option<(String, Duration)>,
+    /// `new_session_watching` never answers: its wait runs, 10 s of it a call, until the watch
+    /// ends it (a harness still working on a loaded machine).
+    pub hold_starts: bool,
     /// `new_session` on this harness profile fails with the text.
     pub session_errors: BTreeMap<String, String>,
     /// The next `new_session` calls fail with these texts, one each, in order.
@@ -842,7 +851,31 @@ impl AgentPort for FakeAgents {
         Ok(())
     }
 
+    fn new_session_watching(
+        &self,
+        spec: &SessionSpec,
+        keep_waiting: &mut dyn FnMut(Duration) -> bool,
+    ) -> Result<String, String> {
+        if !self.inner.lock().unwrap().hold_starts {
+            return self.new_session(spec);
+        }
+        let mut waited = Duration::ZERO;
+        loop {
+            waited += Duration::from_secs(10);
+            if !keep_waiting(waited) {
+                return Err("session/new: stopped waiting".to_owned());
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {
+        if self.inner.lock().unwrap().taken.contains(&spec.name) {
+            return Err(format!(
+                "session/new: session name {:?} is taken",
+                spec.name
+            ));
+        }
         if let Some(e) = self.inner.lock().unwrap().session_errors.get(&spec.harness) {
             return Err(e.clone());
         }
@@ -961,14 +994,21 @@ impl AgentPort for FakeAgents {
 
     fn end_session(&self, session: &str) -> Result<(), String> {
         let mut inner = self.inner.lock().unwrap();
+        if let Some(e) = inner.end_error.clone() {
+            inner.calls.push(format!("end failed {session}"));
+            return Err(e);
+        }
+        inner.taken.remove(session);
         inner.ended.push(session.to_owned());
         inner.calls.push(format!("end {session}"));
         Ok(())
     }
 
     fn find(&self, name: &str) -> Result<Option<String>, String> {
-        self.inner.lock().unwrap().finds.push(name.to_owned());
-        Ok(None)
+        let mut inner = self.inner.lock().unwrap();
+        inner.finds.push(name.to_owned());
+        // A taken name is found as itself: the fake's ids for those are their names.
+        Ok(inner.taken.contains(name).then(|| name.to_owned()))
     }
 
     fn probe_models(&self, harness: &str) -> Result<(), String> {
@@ -1406,6 +1446,19 @@ impl Harness {
     pub fn step(&mut self) {
         let input = self.rx.recv_timeout(WAIT).expect("the brain got no input");
         self.brain.step(input);
+    }
+
+    /// Steps the brain's inputs until `n` prompts were sent. A turn sends
+    /// other inputs before `Settled` (the compactor's stuck-line state, a
+    /// progress note), so one `step` does not reach its prompt.
+    pub fn step_to_prompts(&mut self, n: usize) {
+        let deadline = std::time::Instant::now() + WAIT;
+        while self.agents.inner.lock().unwrap().prompts.len() < n {
+            assert!(std::time::Instant::now() < deadline, "no prompt {n}");
+            if let Ok(input) = self.rx.recv_timeout(std::time::Duration::from_millis(20)) {
+                self.brain.step(input);
+            }
+        }
     }
 
     /// The whole memory log: (kind, text).

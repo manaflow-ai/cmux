@@ -1,18 +1,22 @@
 import CmuxNextSettings
 import Testing
 
-/// Cmd-N puts the new workspace at the top by default (Lawrence 2026-10-20: "Always make it at the
-/// top with a single state change, a single render, and have zero jank";
-/// plans/cmux-next/sidebar-ordering-DESIGN.md). The daemon places every new workspace by the same
-/// setting in its create, and its default is `top`: an app default of `afterCurrent` (#23014) made the
-/// app move each new workspace after the daemon placed it, a second state change. `afterCurrent` and
-/// `bottom` stay choices.
+/// Every new workspace goes to the top of the sidebar by default, below Pinned and Home (Lawrence
+/// 2026-11-12: "by default all new workspaces should go to the top", after users saw new workspaces
+/// still spawn at the bottom; it was `afterCurrent` from 2026-11-06, `top` from 2026-10-20). The
+/// daemon's and the Chief's default is the same, and the new row shows at its slot from the press
+/// (`PendingWorkspaceRows`). `afterCurrent` and `bottom` stay choices.
 struct NewWorkspacePlacementDefaultTests {
     @Test func anEmptyConfigPlacesNewWorkspacesAtTheTop() {
-        #expect(CmuxConfigSnapshot.newWorkspacePlacementFallback == .top)
+        #expect(CmuxConfigSnapshot.newWorkspacePlacementDefault == .top)
         let snapshot = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
         #expect(snapshot.newWorkspacePlacement == .top, "an empty cmux-next.json reads with the top rule")
         #expect(SettingsSchema.descriptor(for: ["workspaces", "newPlacement"])?.defaultValue == .string("top"))
+    }
+
+    @Test func aValueTheAppDoesNotKnowFallsBackToTheTop() {
+        let root = JSONValue.object(["workspaces": .object(["newPlacement": .string("sideways")])])
+        #expect(CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: []).newWorkspacePlacement == .top)
     }
 
     @Test(arguments: [NewWorkspacePlacement.afterCurrent, .bottom, .top])

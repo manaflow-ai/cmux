@@ -125,7 +125,10 @@ async function connect(daemon: ReturnType<typeof fakeDaemon>) {
 }
 const texts = (rows: AcpmuxRow[]) => rows.filter((row) => row.text).map((row) => `${row.kind}:${row.text}`);
 
-test("a reply without message ids after a steer draws below the steer", async () => {
+// An agent reads a steer at its next step (design mid-turn-messages.md): text without message ids
+// before that step is the reply that streamed, which stays whole above the steer (Leo, 2026-11-05:
+// "If your text is streaming, I shouldn't be able to interrupt it"); the answer after it draws last.
+test("a reply without message ids after a steer and the agent's next step draws below the steer", async () => {
   const daemon = fakeDaemon(
     record([
       ["mux", "user_message", { text: "first" }],
@@ -138,12 +141,19 @@ test("a reply without message ids after a steer draws below the steer", async ()
     record(
       [
         ["mux", "user_message", { text: "steer", steer: true }],
+        ["in", "agent_message_chunk", say(" on")],
+        ["in", "tool_call", call("t-1")],
         ["in", "agent_message_chunk", say("newest")],
       ],
       4,
     ),
   );
-  expect(texts(rows()).at(-1)).toBe("assistant:newest");
+  expect(texts(rows()).filter((text) => !text.startsWith("activity:"))).toEqual([
+    "user:first",
+    "assistant:working on",
+    "user:steer",
+    "assistant:newest",
+  ]);
 });
 
 test("a reply that keeps its message id after a steer still ends on the newest message once a new one starts", async () => {

@@ -110,7 +110,7 @@ public final class TabBarPlaygroundView: NSView {
             caption.textColor = Palette.textSecondary
             let content = variant.make(tabCount)
             content.translatesAutoresizingMaskIntoConstraints = false
-            let height = content is TabBarPlaygroundTrailingRows ? TabBarPlaygroundTrailingRows.preferredHeight : TabStripView.preferredHeight
+            let height = Self.rowHeight(for: content)
             stack.addArrangedSubview(caption)
             stack.addArrangedSubview(content)
             NSLayoutConstraint.activate([
@@ -119,6 +119,13 @@ public final class TabBarPlaygroundView: NSView {
             ])
             stack.setCustomSpacing(Metrics.space2, after: caption)
         }
+    }
+}
+
+extension TabBarPlaygroundView {
+    /// A row's height on the page: its own preferred height (``TabBarPlaygroundRow``), else the tab strip's.
+    static func rowHeight(for content: NSView) -> CGFloat {
+        (content as? any TabBarPlaygroundRow).map { type(of: $0).preferredHeight } ?? TabStripView.preferredHeight
     }
 }
 

@@ -241,7 +241,7 @@ impl Api {
         self.put_brain(chief, &json!({"model": model}), "brain model")
     }
 
-    fn put_brain(&self, chief: &str, body: &Value, what: &str) -> Result<(), String> {
+    pub(crate) fn put_brain(&self, chief: &str, body: &Value, what: &str) -> Result<(), String> {
         let (status, value) = self.call("PUT", &format!("/v1/chiefs/{chief}/brain"), Some(body))?;
         if (200..300).contains(&status) && value["ok"] != false {
             return Ok(());

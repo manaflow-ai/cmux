@@ -90,6 +90,11 @@ public struct RemoteInstallPlan: Hashable, Sendable {
     /// The `build_identity` the automatic update was decided for (cx-3r9mt): the script refuses
     /// when the machine's binary changed since (another Mac installed meanwhile). Nil: no check.
     public var expectedRemoteIdentity: String?
+    /// Stage instead of replace (a binary the person runs by hand, `SSHHost.staticInstallBinary`):
+    /// the checked build goes to `<binary>.staged`, never over a binary a session server runs.
+    /// cmux-tui swaps it in at its next session-server start (cmux-tui `staged_update.rs`); the
+    /// script swaps it in itself only when no session server runs the binary.
+    public var stageOnly = false
 
     public init(commit: String, platform: RemotePlatform, manifest: CmuxTUIManifest, remoteBinary: String,
                 base: URL = RemoteInstallPlan.base, lockToken: String = RemoteInstallPlan.newLockToken()) throws(RemoteInstallError) {
@@ -189,16 +194,48 @@ public struct RemoteInstallPlan: Hashable, Sendable {
           echo "cmux-install-unrunnable $out" >&2
           exit \(RemoteInstallError.Code.unrunnable)
         fi
-        mv -f "$stage" "$dest"
-        echo "cmux-install-ok \(commit)"
+        \(stageOnly ? Self.stageAndSwapWhenIdle : "mv -f \"$stage\" \"$dest\"\n")echo "cmux-install-ok \(commit)"
 
         """
     }
+
+    /// The end of a stage-only install: the checked build becomes `$dest.staged`; it replaces
+    /// `$dest` (kept as `$dest.prev`) only when no session server (`--headless`) runs `$dest`.
+    /// A running server, its terminal hosts and its shells are never signalled. Without a way to
+    /// see processes (no /proc, no lsof) the build stays staged.
+    static let stageAndSwapWhenIdle = """
+        mv -f "$stage" "$dest.staged"
+        busy=""
+        if [ -e "$dest" ]; then
+          abs="$(cd "$dir" && pwd -P)/$(basename "$dest")"
+          if [ -r /proc/self/exe ]; then
+            for p in /proc/[0-9]*; do
+              [ "$(readlink "$p/exe" 2>/dev/null)" = "$abs" ] || continue
+              case " $(tr '\\000' ' ' < "$p/cmdline" 2>/dev/null) " in *" --headless "*) busy=1; break ;; esac
+            done
+          elif command -v lsof >/dev/null 2>&1; then
+            for p in $(lsof -t -- "$abs" 2>/dev/null); do
+              case " $(ps -o args= -p "$p" 2>/dev/null) " in *" --headless "*) busy=1; break ;; esac
+            done
+          else
+            busy=1
+          fi
+        fi
+        if [ -z "$busy" ]; then
+          [ -e "$dest" ] && { rm -f "$dest.prev"; ln -f "$dest" "$dest.prev" 2>/dev/null || cp -p "$dest" "$dest.prev"; }
+          mv -f "$dest.staged" "$dest"
+          echo "cmux-install-swapped"
+        else
+          echo "cmux-install-staged"
+        fi
+
+        """
 
     /// Fetches on the machine, resuming a partial file.
     public var fetchScript: String {
         prelude + """
         url='\(url.absoluteString)'
+        \(stageOnly ? "[ -f \"$dest.staged\" ] && [ \"$(digest \"$dest.staged\")\" = \"$want\" ] && mv -f \"$dest.staged\" \"$stage\"" : ":")
         if [ -f "$stage" ] && [ "$(digest "$stage")" = "$want" ]; then :; else
           if command -v curl >/dev/null 2>&1; then fetch() { curl --http1.1 -fsSL --proto '=https' --connect-timeout 20 --speed-limit 1024 --speed-time 60 -C - -o "$stage" "$url"; }
           elif command -v wget >/dev/null 2>&1; then fetch() { wget -c -q -T 60 -O "$stage" "$url"; }

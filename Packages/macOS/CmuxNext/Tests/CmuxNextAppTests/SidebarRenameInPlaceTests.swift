@@ -31,7 +31,6 @@ import Testing
         func close() {
             sidebar.list.inlineRename.end(commit: false)
             sidebar.list.groupEditor.hide()
-            sidebar.list.groupEditor.bubble?.close()
             window.close()
         }
 

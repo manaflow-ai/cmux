@@ -7,6 +7,12 @@
 #
 #   Prototypes/ViewShell/inject.sh --live ~/.cache/cmux-view-shell/live Sources/ViewShell/Badge.swift
 #
+# The patch also takes, with no need to name them, every Swift file of the module the running
+# build did not compile (a new file: its types and functions live only in the patch, and the
+# edited files that use them link against them there) and every file changed since that build
+# (an earlier patch's file, so each patch holds all of the new code and none of it goes stale).
+# The build is the package's Debug build (`.build/debug`); CMUX_VIEW_SHELL_BUILD names another.
+#
 # CMUX_LIVE_CODE_SIGN_IDENTITY signs with that identity (a Developer ID for a signed host);
 # the default is ad hoc, which an unsigned Debug shell accepts.
 set -euo pipefail
@@ -35,9 +41,28 @@ started=$(python3 -c 'import time; print(f"{time.time():.3f}")')
 all=("$sources"/*.swift)
 (cd "$work" && xcrun swiftc -c "${all[@]}" -module-name ViewShell -target "$target" \
   -Onone -g -enable-testing -DDEBUG -DSWIFT_PACKAGE -swift-version 6)
+# What the running build compiled (an object per file in `ViewShell.build`) and when: a file with
+# no object is new, and one newer than the executable changed since.
+build="${CMUX_VIEW_SHELL_BUILD:-$package/.build/debug}"
+compiled="$build/ViewShell.build"
+executable="$build/cmux-view-shell"
+names=()
+for file in "${files[@]}"; do names+=("$(basename "$file" .swift)"); done
+if [[ -d "$compiled" && -f "$executable" ]]; then
+  for file in "${all[@]}"; do
+    name="$(basename "$file" .swift)"
+    why=""
+    if [[ ! -f "$compiled/$name.swift.o" ]]; then why="new since the build"
+    elif [[ "$file" -nt "$executable" ]]; then why="changed since the build"; fi
+    [[ -n "$why" && " ${names[*]} " != *" $name "* ]] || continue
+    names+=("$name")
+    echo "inject.sh: also $name.swift ($why)"
+  done
+else
+  echo "inject.sh: no Debug build at $build; the patch holds only the files named" >&2
+fi
 objects=()
-for file in "${files[@]}"; do
-  name="$(basename "$file" .swift)"
+for name in "${names[@]}"; do
   [[ "$name" == main || "$name" == LiveCode ]] && { echo "inject.sh: $name.swift holds the shell's own loop; rebuild for it" >&2; exit 65; }
   objects+=("$work/$name.o")
 done

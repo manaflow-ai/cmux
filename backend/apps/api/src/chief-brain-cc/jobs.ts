@@ -1,12 +1,13 @@
 import { rememberJobDestination, resolveJobDestination, validSlackDestination } from "./job-destination.ts"
 import type { SlackDestination } from "../chief-slack.ts"
 import type { Automation, Body } from "@cmux/protocol"
-import type { OwnerFrame, Principal } from "@cmux/ownership"
+import type { Principal } from "@cmux/ownership"
 import type { ChiefBrainDO } from "../chief-brain/brain-do.ts"
 import { personalTeamIdFor } from "../domains/user.ts"
 import type { Env } from "../env.ts"
 import { planLink, PRICING_URL } from "../plan-checkout.ts"
 import { EVENT_PROVIDERS, type JobView, type LegacyJobs, upstashAuto, upstashConfig } from "./jobs-upstash.ts"
+import { declared } from "../do-stub.ts"
 
 /**
  * A Chief's scheduled and triggered jobs (plans/cmux-next/chief-automations-DESIGN.md). Lawrence,
@@ -87,11 +88,6 @@ export const chiefJobWake = async (b: ChiefBrainDO, j: ChiefJob): Promise<JobDel
 
 // ------------------------------------------------------------------ chief-auto (the Chief's own client)
 
-type SchedulerStub = {
-  submit(entity: string, principal: Principal, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin?: string }): Promise<{ frames: ReadonlyArray<OwnerFrame> }>
-  readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<{ ok: true; value: unknown } | { ok: false; code: string; message: string }>
-}
-
 /** The Chief acting for its owner on the owner's personal team's scheduler (classes it needs for its jobs). */
 export const chiefJobPrincipal = (agent: string, owner: string): Principal => ({
   kind: "agent",
@@ -102,7 +98,7 @@ export const chiefJobPrincipal = (agent: string, owner: string): Principal => ({
   grant_classes: ["read", "execute", "mutate-shared", "destructive"]
 })
 
-const scheduler = (env: Env, team: string) => env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(team)) as unknown as SchedulerStub
+const scheduler = (env: Env, team: string) => declared(env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(team)))
 
 const mutate = async (env: Env, p: Principal, op: string, params: unknown, key: string): Promise<{ ok: true; value: any } | { ok: false; code: string; message: string; details?: unknown }> => {
   const res = await scheduler(env, p.team!).submit(p.team!, p, { t: "op", op, params, idempotency_key: key, origin: "script" })
@@ -129,11 +125,11 @@ const ownJobs = async (env: Env, p: Principal, conversation: string | null): Pro
 /** Does the owner have a paid plan? `unknown` when it cannot be read (the job goes through). */
 export const ownerPaid = async (env: Env, owner: string): Promise<"paid" | "free" | "unknown"> => {
   try {
-    const user = env.USER_DO.get(env.USER_DO.idFromName(owner)) as unknown as { stackUserOf(entity: string): Promise<string | null> }
+    const user = env.USER_DO.get(env.USER_DO.idFromName(owner))
     const stackUser = await user.stackUserOf(owner)
     if (!stackUser) return "unknown"
     const team = personalTeamIdFor(owner)
-    const plan = (await (env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as { inferencePlan(e: string, u: string, s?: string): Promise<{ ok: boolean; paid?: boolean }> }).inferencePlan(team, owner, stackUser)) as { ok: boolean; paid?: boolean }
+    const plan = (await env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).inferencePlan(team, owner, stackUser)) as { ok: boolean; paid?: boolean }
     return plan.ok ? (plan.paid ? "paid" : "free") : "unknown"
   } catch {
     return "unknown"

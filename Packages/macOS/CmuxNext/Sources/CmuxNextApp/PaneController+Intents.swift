@@ -17,9 +17,9 @@ extension PaneController {
         switch intent {
         case .select(let id): select(id)
         case .close(let id, _): CloseUndoToasts.close(in: self, [id])
-        case .closeOthers(let keep): CloseUndoToasts.close(in: self, stripModel.closedByCloseOthers(keeping: keep))
+        case .closeOthers(let keep): CloseUndoToasts.close(in: self, stripModel.closedByCloseOthers(keeping: keep), selecting: stripModel.selectionKeeping(keep))
         // Pinned tabs after `id` stay, as in Chrome.
-        case .closeToRight(let id): CloseUndoToasts.close(in: self, stripModel.closedByCloseToRight(of: id))
+        case .closeToRight(let id): CloseUndoToasts.close(in: self, stripModel.closedByCloseToRight(of: id), selecting: stripModel.selectionKeeping(id))
         case .reorder(let id, _, let to): StripOrder.reorder(id, to: to, in: self)
         case .reorderTabs(let order): StripOrder.reorder(toward: order, in: self)
         case .newTab(_, let opensWorkspace, let sameKind):
@@ -67,6 +67,7 @@ extension PaneController {
         // A user's tab switch may end link-tab opener relations (Chrome's rule).
         if source.isUserIntent, stripModel.selectedID != id {
             services.cache.pageRequests.openers.userActivated(from: selectedTab?.surface, to: tab(id)?.surface)
+            if source != .cli, ActionRunScope.isPersonsAction() { state?.selection.closeRule.personSelects(id.rawValue, in: paneKey) } // a click, a shortcut, the palette: not a script
         }
         guard let workspace else {
             guard ActionRunScope.viewChangeAllowed() else { return }
@@ -130,7 +131,7 @@ extension PaneController {
         let agent = cwd == nil && fromSelectedTab && !daemonResolvesCwd ? selectedAgentView : nil
         // A selected agent chat's exact folder at once (NewTerminalStart.folder); the page's own
         // answer above still wins when it comes.
-        let cwd = daemonResolvesCwd ? cwd : cwd ?? (fromSelectedTab ? NewTerminalStart.inherited(besides: selectedTab, in: pane, services: services) : nil) ?? selectedTab?.cwd
+        let cwd = daemonResolvesCwd ? cwd : cwd ?? (fromSelectedTab ? (daemon.isLocal ? nil : selectedTab.flatMap { services.agentTabs.terminalFolder(of: $0.id, on: daemon) }) ?? NewTerminalStart.inherited(besides: selectedTab, in: pane, services: services) : nil) ?? selectedTab?.cwd
         // From another machine's terminal (an SSH tab in a mixed pane), a terminal on that machine (cx-2s5t).
         if fromSelectedTab, text == nil, page == nil,
            services.remoteTerminals.openTerminal(besides: selectedTab, in: pane, home: daemon, cwd: cwd) {
@@ -146,17 +147,17 @@ extension PaneController {
         // The window's keys wait until the new terminal has the keyboard (cx-wb5.76); a creation
         // that types its own text first keeps the keys where they are.
         let window = self.workspace == nil || text != nil || page != nil ? nil : view.window
-        let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent)
         // The PTY starts at the grid this pane's view will fit, so the first frame is final (NewTerminalGrid).
         let size = newTerminalSize
         let command = NewTerminalTabCommand(pane: handle, options: SpawnOptions(cwd: cwd, size: size, workspace: workspace, keep: keep))
         if text == nil, page == nil, command.isOptimistic(on: daemon) {
-            return newTerminalTabNow(command, agent: agent, intent: intent, keys: keys, window: window,
+            return newTerminalTabNow(command, agent: agent, intent: intent, window: window,
                                      selectHere: selectHere, homePlacement: homePlacement, then: then)
         }
-        services.registry.track(Task { [services] in
-            var landed = false
-            defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
+        let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, machine: daemon.machineID, newTerminal: true)
+        services.registry.track(Task { [services, daemon] in
+            var made: SurfaceID? // nil: refused, and the keys typed for the tab go with it
+            defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: made != nil, in: window, madeTab: { [made] in made.flatMap { daemon.store.locatedTab(surface: $0)?.tab.id } }, madeSurface: made?.rawValue) } // a read that hears the tab list: the hold's wake-up
             do {
                 var start = cwd
                 if let agent, let agentCwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(agentCwd) { start = agentCwd }
@@ -169,7 +170,7 @@ extension PaneController {
                     selectWhenReported(surface: created.surface)
                     self.workspace?.expectFocus(on: created.surface, generation: intent)
                 }
-                landed = true
+                made = created.surface
                 then?(created.surface)
                 return nil
             } catch {
@@ -184,9 +185,9 @@ extension PaneController {
     /// waits for nothing (Ctrl-`, ctrl-backtick-instant): the stand-in tab is in the store, selected
     /// and shown in this turn, so it draws in the key's frame; `new-tab` runs behind it, and the
     /// daemon's tab takes its place (``NewTerminalTabCommand``). The keys typed meanwhile wait for
-    /// the daemon's terminal, as before.
+    /// the daemon's terminal and go only into it: the stand-in's tab is their lane (`NewTerminalKeys`).
     private func newTerminalTabNow(_ command: NewTerminalTabCommand, agent: AgentPaneView?, intent: UInt64?, // perf-hot: 10ms new-tab (the terminal stand-in shows in the key's turn)
-                                   keys: CreationInputBuffer.Ticket?, window: NSWindow?, selectHere: Bool,
+                                   window: NSWindow?, selectHere: Bool,
                                    homePlacement: Bool, then: (@MainActor (SurfaceID) -> Void)?) {
         // task-owner: the selected agent's cwd, read while the stand-in shows (#16620)
         let agentCwd = agent.map { agent in
@@ -196,29 +197,28 @@ extension PaneController {
             }
         }
         let pending = BenchSpans.measure("newTerminal.intend") { command.intendNow(on: daemon, cwd: agentCwd) }
+        let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, tab: pending.tab, machine: daemon.machineID, newTerminal: true, standInSends: daemon.queuesCreatingInput)
         if selectHere { selectWhenReported(surface: pending.surface) }
         // After the workspace's create before it (a Ctrl-` on a split still in flight names that split's pane once the
         // daemon made it), as Cmd-D, New Column and New Row go (`WorkspaceContentController.pendingCreate`).
         let previous = self.workspace?.pendingCreate
-        let work: ActionWork = Task { [services] in
-            var landed = false
-            defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
+        let work: ActionWork = Task { [services, daemon] in
+            var made: SurfaceID?
+            defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: made != nil, in: window, madeTab: { [made] in made.flatMap { daemon.store.locatedTab(surface: $0)?.tab.id } }, madeSurface: made?.rawValue) } // a read that hears the tab list: the hold's wake-up
             await previous?.value
             do {
                 let created = try await pending.send(); BenchSpans.mark("daemon.newTab.returned")
-                // The swap moved the selection already (NewTabSuccession); a pane still on the stand-in follows it.
+                // The swap moved the selection already (NewTabSuccession); a pane still on the stand-in follows it (its `successor`'s).
                 if selectHere {
-                    if stripModel.selectedID?.rawValue == pending.tab { selectWhenReported(surface: created.surface) }
+                    if (successor ?? self).stripModel.selectedID?.rawValue == pending.tab { selectWhenReported(surface: created.surface) }
                     self.workspace?.expectFocus(on: created.surface, generation: intent)
                 }
-                landed = true
+                made = created.surface
                 then?(created.surface)
                 return nil
-            } catch is NewTerminalTabCancelled {
-                if homePlacement { HomeDockOpens.cancel(self.pane, services: services) }
-                return nil // the person closed the stand-in first
             } catch {
                 if homePlacement { HomeDockOpens.cancel(self.pane, services: services) }
+                if error is NewTerminalTabCancelled { return nil } // the person closed the stand-in first
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
                 return .create("new-tab", error)
             }
@@ -270,7 +270,6 @@ extension PaneController {
     /// and then calls its `finish`.
     func prepareClose(_ ids: [StripTabID]) -> PreparedTabClose? {
         guard !ids.isEmpty else { return nil }
-        for id in ids { services.closedTabs?.undoToasts.hiddenPages.lift(id.rawValue) } // a tab hidden while its page decided: this close's intent takes it out now
         var commands: [DaemonService.CloseRun] = []
         var surfaces: [SurfaceID] = []
         var keys: [String] = []
@@ -286,7 +285,7 @@ extension PaneController {
                 continue
             }
             if BenchSpans.measure("closeLocalTab", { services.closeLocalTab(id.rawValue) }) { continue }
-            if daemon.cancelCreation(tab: id.rawValue) { services.keyRouter.creationInputCoordinator.drop(tab: id.rawValue, in: view.window); services.keyRouter.newTabInputCoordinator.drop(tab: id.rawValue, in: view.window); continue }
+            if daemon.cancelCreation(tab: id.rawValue) { services.keyRouter.creationInputCoordinator.drop(tab: id.rawValue, in: view.window); continue }
             guard let tab = tab(id) else { continue }
             surfaces.append(tab.surface)
             keys.append(tab.id)
@@ -336,7 +335,7 @@ extension PaneController {
         // Focus follows only a move this client's user started (CLI and
         // agents never change this client's focus unless they ask).
         if target !== self, ActionRunScope.viewChangeAllowed() { workspace?.focus.followMovedTab(tab.id, from: paneKey) }
-        TabMoves.move(tab, to: target.pane, index: index, services: services) { [weak self, weak target] ok in
+        TabMoves.move(tab, to: target.pane, index: index, services: services, from: self) { [weak self, weak target] ok in
             guard !ok else { return StripOrder.settle([self, target]) }
             self?.resyncStrip()
             target?.resyncStrip()

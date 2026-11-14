@@ -93,7 +93,7 @@ struct WorkspaceHoverCardContent: Equatable {
     }
 
     /// The card for `workspace` as `options` lay it out (u3320), with its `timeline` (newest first).
-    /// `looked`: when the person last looked at it (`sidebar.sinceLooked`), for the line that says
+    /// `looked`: when the person last looked at it (`SidebarLookedStore`), for the line that says
     /// what its agents did since. `pullRequests`: the row's pull request badge
     /// (`SidebarSessionTree.pullRequests`), for the repository and the state; `home`: this Mac's
     /// home folder, which is no fact.
@@ -246,6 +246,10 @@ struct WorkspaceHoverCardContent: Equatable {
         // What its agents run below their turns now: how many subagents and commands, and which
         // (Leo 2026-11-01: "being able to see the # of associated subagents and whatnot").
         facts += WorkspaceHoverCardWork.facts(detail)
+        // Terminals the freeing tier ended at their prompt; showing the workspace starts them again.
+        if case let freed = workspace.tabs.filter(\.isFreed).count, freed > 0 {
+            facts.append(Fact(icon: .actionSnooze, text: Strings.freedTerminals(freed), lines: 2, kind: "freed"))
+        }
         for presence in workspace.presence.prefix(2) {
             facts.append(Fact(icon: toolIcon(presence.activity), text: Strings.presenceLine(presence), kind: "presence"))
         }

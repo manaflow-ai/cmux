@@ -119,7 +119,12 @@ final class PhoneAdmission {
                       phones.generation == selectedAccountGeneration, phones.current?.userID == user else { return false }
                 switch answer {
                 case .unavailable: return false
-                case .deny: denied[phone.phoneDeviceID] = now(); return false
+                case .deny:
+                    denied[phone.phoneDeviceID] = now()
+                    // While the seal is refused the list lives in memory: a Don't Allow for a phone the stored
+                    // list may still hold is written (fail closed), so the next launch does not trust it again.
+                    if phones.isMemoryOnly { phones.forget(id: phone.phoneDeviceID, transport: .iroh) }
+                    return false
                 case .allow: break
                 }
                 do {

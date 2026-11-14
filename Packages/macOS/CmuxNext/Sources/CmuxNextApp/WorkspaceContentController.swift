@@ -21,14 +21,14 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     let daemon: DaemonService
     let layoutModel = LayoutModel()
     // Built in init in this order (lazy because they hold self; no IUOs).
-    // A Command scroll over a Chromium page asks the page first (layout.pagesHandleCommandScroll).
+    // A Command scroll over a Chromium page asks the page first (layout.pagesHandleCommandScroll); hidden screens mount at idle.
     private(set) lazy var layoutView = LayoutRootView(model: layoutModel, contentProvider: self,
-                                                      pageCommandScroll: services.cache.cef)
+                                                      pageCommandScroll: services.cache.cef, hiddenScreens: FrameBatchQueue(owner: "HiddenScreens", budgeted: .background, on: services.mainWork))
     /// Layout plus the bottom screen bar; what the window shows.
     private(set) lazy var contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
     private(set) var emptyView: EmptyWorkspaceView?
-    /// The next stand-in pane's views (New Column, New Row, Cmd-D), made ahead out of every window while this workspace shows and its layout is still.
-    private(set) lazy var paneSpare = IdleSpare(owner: "PaneSpare", on: services.mainWork) { [weak self] in self.map { PaneController.Spare(services: $0.services) } }
+    /// The next stand-in pane's views (New Column, New Row, Cmd-D), made while this workspace shows and its layout is still, parked hidden in its layout.
+    private(set) lazy var paneSpare = IdleSpare(owner: "PaneSpare", on: services.mainWork) { [weak self] in self.map { $0.layoutView.parkingSpare(PaneController.Spare(services: $0.services), view: \.view) } }
     private var paneSpareMotion: LayoutOverlaySyncObservation?
     private(set) lazy var screenBar = ScreenBarController(content: self)
     /// The workspace theme: only this content area, under the window's
@@ -38,6 +38,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     let state: WindowState  // strong: queued content work can run after WindowController.teardown let the state go (#34062)
     private(set) var handles = LayoutHandleMap()
     private(set) var panes: [LayoutPaneID: PaneController] = [:]
+    /// Alone on its screen while its page has the whole screen (`LayoutMapping.Result.presenting`, view-only).
+    var presentedPane: LayoutPaneID? { didSet { if presentedPane != oldValue { applyCurrent() } } }
     private var retiredPanes: [LayoutPaneID: PaneController] = [:] // closed, kept for their teardown (retainContentView)
     private var observation: Task<Void, Never>?
     private var connectionObservation: Task<Void, Never>?
@@ -90,8 +92,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         isOffScreen = true
         attentionObservation?.cancel()
         setDrawsNothing(true)
-        paneSpare.isWanted = false
-        paneSpare.drop()
+        paneSpare.isWanted = false // a spare made stays hidden in this hidden workspace: a switch moves no view out of the window
     }
 
     /// Shows this parked content again, in this frame: the tree changes it skipped while off screen
@@ -175,10 +176,16 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         contentView.backgroundMenu = { [weak services, weak self] in
             self.flatMap { services?.registry.makeContextMenu(for: .windowBackground, target: ActionTargetRef(kind: .workspace, id: $0.workspace.id)).themeRows(in: $0.themeScope.fullStrength) }
         }
+        layoutView.dividerMenu = { [weak services, weak self] split in // the catalog's divider rows (DividerActions), on the split
+            self.flatMap { services?.registry.makeContextMenu(for: .divider, target: ActionTargetRef(kind: .workspace, id: $0.workspace.id), arguments: ["split": .string(split.rawValue)], machineID: $0.daemon.machineID).themeRows(in: $0.themeScope.fullStrength) }
+        }
         contentView.showsBar = screenBar.isVisible
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
         // Observation applies the first snapshot synchronously, including the empty-state view.
         observe()
+        for pane in panes.values {
+            if case .agent(let view)? = pane.currentContent, view.model.newTab != nil, view.pageDrawsOverCovers { view.placeMovedChromiumPage(requiringFrame: true) }
+        }
         // A Home with no pane yet is still being made (its dock, then the Chief conversation, over
         // several daemon replies): it stays clear until its conversation is in, never in pieces.
         if workspace.kind == "home", layoutModel.screens.allSatisfy({ $0.layout.panes.isEmpty }) {
@@ -266,6 +273,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     func applyLayoutIfChanged() { apply(LayoutMapping.shared.map(workspace)) }
 
     private func apply(_ result: LayoutMapping.Result, force: Bool = false, _ file: StaticString = #fileID, _ line: UInt = #line) {
+        let result = presentedPane.map { result.presenting($0) } ?? result
         // Commands translate through the current handles even when the tree is unchanged (the
         // daemon's echo of an optimistic split renumbers only the new pane): no apply then.
         let topologyMoved = adoptHandles(result.handles)
@@ -395,7 +403,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     // MARK: LayoutPaneContentProvider
 
     func makeContentView(for pane: LayoutPaneID) -> NSView {
-        guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) else { return NSView() }
+        guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) ?? workspace.pane(handle) else { return NSView() } // its own model: a reserved one is in no index
         let spare = ProvisionalPane.isStandIn(handle) ? paneSpare.take() : nil // a stand-in pane (a key's create) adopts the views made ahead
         let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state, workspace: self, spare: spare)
         AfterFrameCommit().run { [weak self] in self?.refillPaneSpare() } // after the key's frame; a motion that started refills when it lands

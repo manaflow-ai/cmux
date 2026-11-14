@@ -301,36 +301,7 @@ describe("OIDC sign-in (workerd)", { timeout: 30_000 }, () => {
     expect((await read(daemonToken, "install.list")).status).toBe(200)
   })
 
-  it("a VM of an SSO-bound user's machine mints its token and calls a VM op under enforced SSO", async () => {
-    const s = await setup()
-    await ssoSignIn(s, "vera", "idp-vera")
-    const vera = await stackSession("stack_1", `vera@${DOMAIN}`, "rtid-stack_1")
-    const ensured = await op(vera, "user.ensure", {})
-    expect(ensured.ok).toBe(true)
-    const on = await op(s.admin, "team.policy.update", { changes: [{ key: "sso.enforce", value: { value: true, mode: "enforced" } }], expected_version: 0, reason: "test" })
-    expect(on.error).toBeUndefined()
-    clearSignInRules()
-    const created = await op(vera, "cloud.machine.create", { size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } })
-    expect(created.ok, JSON.stringify(created)).toBe(true)
-    const machine = created.value.machine.id as string
-    const team = ensured.value.personal_team as string
-    const { json } = await bindFile(cloudStub(team), machine)
-    const key = await vmKey()
-    const post = async (path: string, body: unknown, token?: string) => {
-      const res = await worker.fetch(`https://api.test${path}`, { method: "POST", headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) })
-      return { status: res.status, body: (await res.json()) as any }
-    }
-    const bound = await post("/v1/cloud/bind", { team, machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: key.jwk })
-    expect(bound.body.ok, JSON.stringify(bound.body)).toBe(true)
-    const install = bound.body.value.install as { id: string; user: string }
-    const ch = await post("/v1/auth/challenge", { user: install.user, install: install.id })
-    const sig = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key.pair.privateKey, new TextEncoder().encode(`${ch.body.message_prefix}${ch.body.nonce}`)))
-    const tok = await post("/v1/auth/token", { user: install.user, install: install.id, nonce: ch.body.nonce, signature: b64u(sig) })
-    expect(tok.status, JSON.stringify(tok.body)).toBe(200)
-    const self = await post("/v1/read", { op: "cloud.vm.self.get", params: { machine } }, tok.body.access_token)
-    expect(self.status, JSON.stringify(self.body)).toBe(200)
-  })
-
+  // A VM install under enforced SSO needs a bound Cloud machine; CloudDO and its binds are cmux-platform's.
   it("lowering sso.sessionMaxAgeHours shortens the session records that already exist", async () => {
     const s = await setup()
     await ssoSignIn(s, "max", "idp-max")

@@ -75,7 +75,7 @@ final class CloudMoveAsks {
             // An ask already open or moving stays as it is, shown again (its chat's page may be a new one).
             if asks[tabID] != nil { return services.cloud.toolCards.reshow(tab: tabID) ? nil : ActionWorkFailure(CloudMoveAskStrings.noPage) }
             asks[tabID] = Ask(folder: folder.root, always: false, scope: requestedScope)
-            let delegated = services.settings?.cloudAgentsSkipAsking ?? CloudAgentStartSetting.defaultValue
+            let delegated = services.settings?.cloudAgentsSkipAsking ?? CloudAgentStartSetting.fallback
             if delegated || grants.contains(folder.root, scope: requestedScope, defaults: defaults()) {
                 asks[tabID]?.always = !delegated
                 start(tabID, services: services)
@@ -122,6 +122,10 @@ final class CloudMoveAsks {
         let text = ask.always ? CloudMoveAskStrings.movingAlways(Self.name(ask.folder)) : CloudMoveStrings.moving
         show(tab, .working, text, ask.always ? [.askFirst] : [], services: services)
     }
+
+    /// Whether chat tab `tab` has this move's card: the card then says the move's progress and its
+    /// failure, and the move shows no toast for them (one message, in one place).
+    func hasCard(_ tab: String) -> Bool { asks[tab] != nil }
 
     /// The move of chat tab `tab` ended: its card goes when it moved, and says why when it stopped.
     func moveEnded(_ tab: String, failure: String?, services: AppServices) {
@@ -191,8 +195,9 @@ final class CloudMoveAsks {
     /// The local chat tab of agent session `session`, with its pane.
     private static func chat(_ session: String, services: AppServices) -> (TabModel, PaneModel)? {
         let tabs = services.agentTabs
+        let machine = services.daemon.machineID
         for pane in services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes) {
-            if let tab = pane.tabs.first(where: { (tabs.sessions[tabs.resolve($0.id)] ?? $0.agentSession?.session) == session }) { return (tab, pane) }
+            if let tab = pane.tabs.first(where: { (tabs.sessions[tabs.tabKey($0.id, machine: machine)] ?? $0.agentSession?.session) == session }) { return (tab, pane) }
         }
         return nil
     }

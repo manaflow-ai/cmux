@@ -19,7 +19,19 @@ from unittest.mock import patch
 
 import yaml
 
-import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+# tests/workflow_jobs.py, imported by name, never loaded by path: scripts/ci imports it by name too, and a load
+# by path makes a second module object for the one file (tests/test_script_module_loads.py). `python3 -I` puts
+# no script folder on sys.path, so this file adds its own folder.
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
@@ -62,34 +74,19 @@ MACOS_JOBS = (
     "release-build",
 )
 
-spec = importlib.util.spec_from_file_location("detect_ci_change_areas", HELPER)
-assert spec and spec.loader
-module = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = module
-spec.loader.exec_module(module)
-
-WEB_SUBAREAS_HELPER = ROOT / "scripts" / "ci" / "web_subareas.py"
-web_subareas_spec = importlib.util.spec_from_file_location("web_subareas", WEB_SUBAREAS_HELPER)
-assert web_subareas_spec and web_subareas_spec.loader
-web_subareas = importlib.util.module_from_spec(web_subareas_spec)
-sys.modules[web_subareas_spec.name] = web_subareas
-web_subareas_spec.loader.exec_module(web_subareas)
-
-SELECT_PACKAGE_TESTS_HELPER = ROOT / "scripts" / "ci" / "select_package_tests.py"
-select_package_tests_spec = importlib.util.spec_from_file_location(
-    "select_package_tests", SELECT_PACKAGE_TESTS_HELPER
-)
-assert select_package_tests_spec and select_package_tests_spec.loader
-select_package_tests = importlib.util.module_from_spec(select_package_tests_spec)
-sys.modules[select_package_tests_spec.name] = select_package_tests
-select_package_tests_spec.loader.exec_module(select_package_tests)
+# Imported by name, never loaded by path: one module object per file, so a test that patches it
+# patches what every other test reads (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import detect_ci_change_areas as module  # noqa: E402
+import web_subareas  # noqa: E402
+import select_package_tests  # noqa: E402
 
 TEST_EXECUTION_VALIDATOR = ROOT / "scripts" / "ci" / "validate_test_execution_registry.py"
-validator_spec = importlib.util.spec_from_file_location("validate_test_execution_registry", TEST_EXECUTION_VALIDATOR)
-assert validator_spec and validator_spec.loader
-test_execution_validator = importlib.util.module_from_spec(validator_spec)
-sys.modules[validator_spec.name] = test_execution_validator
-validator_spec.loader.exec_module(test_execution_validator)
+# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import validate_test_execution_registry as test_execution_validator  # noqa: E402
 
 
 def test_execution_registry_lane_discovery_ignores_yaml_comments() -> None:
@@ -205,7 +202,11 @@ def test_linux_guard_only_scripts_reach_no_other_runner() -> None:
             if referrer == ".github/workflows/ci-guards.yml":
                 for job_name, job in guard_jobs.items():
                     if name in yaml.safe_dump(job):
-                        assert module.is_plainly_linux_runner(str(job.get("runs-on", ""))), (path, job_name)
+                        cells = workflow_jobs.runs_on_cells(job)
+                        assert cells is not None or workflow_jobs.audited_matrix(GUARD_WORKFLOW.name, job_name), \
+                            (path, job_name, "runs-on matrix does not resolve")
+                        # No runs-on (a reusable call) is not plainly Linux.
+                        assert all(module.is_plainly_linux_runner(cell) for cell in cells or [""]), (path, job_name)
                 continue
             if referrer.startswith("tests/"):
                 assert module.is_guard_only_test(referrer, references), (path, referrer)
@@ -642,7 +643,6 @@ def test_every_web_bundle_input_outside_webviews_runs_the_web_checks() -> None:
         "schemas/settings/settings-schema.json",
         "web/data/model-catalog/snapshot.json",
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
     ):
         assert want in outside, want
     assert any(path.startswith("release-notes/next/highlights/") for path in outside)
@@ -664,7 +664,7 @@ def test_swift_and_unread_catalog_edits_do_not_run_the_web_checks() -> None:
     ]
     assert unread, "every CmuxNext catalog is read by a web page; pick another unread path"
     for path in (
-        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsPageLayout.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsPageLayout+Categories.swift",
         unread[0],
     ):
         assert module.classify_files([path]).web is False, path
@@ -840,7 +840,9 @@ def test_remote_daemon_rejects_stale_heads_before_allocating_macos() -> None:
     jobs = yaml.safe_load(REMOTE_DAEMON_WORKFLOW.read_text())["jobs"]
     admission = jobs["remote-daemon-admission"]
     # Secretless Linux jobs read the runner pool (#30878), not a fixed size.
-    assert "fromJSON(vars.RUNNER_POOLS).linux" in admission["runs-on"]
+    cells = workflow_jobs.runs_on_cells(admission)
+    assert cells is not None, "remote-daemon-admission: runs-on matrix does not resolve"
+    assert "fromJSON(vars.RUNNER_POOLS).linux" in "\n".join(cells)
     assert jobs["remote-daemon-macos-tests"]["needs"] == "remote-daemon-admission"
     script = admission["steps"][0]["run"]
     with tempfile.TemporaryDirectory() as directory:
@@ -1402,6 +1404,19 @@ def test_linux_registry_changes_skip_native_but_preserve_native_changes() -> Non
     assert module.test_registry_change_is_linux_only(base, base + guard)
     assert module.test_registry_change_is_linux_only(base + guard, base)
     assert module.test_registry_change_is_linux_only(base, base + '\n# comment\n')
+    # The split into area fragments re-ordered the entries; order alone is no native change.
+    two = base + '\n[[test]]\npath = "tests/native2.py"\nlane = "macos-shell"\n'
+    swapped = 'version = 1\n[[test]]\npath = "tests/native2.py"\nlane = "macos-shell"\n' + base.removeprefix('version = 1\n')
+    assert module.test_registry_change_is_linux_only(two, swapped)
+    # The registry has serial entries; one is no reason to treat every edit as native.
+    serial_native = base + 'serial = true\n'
+    assert module.test_registry_change_is_linux_only(serial_native, serial_native + guard)
+    assert module.test_registry_change_is_linux_only(base, base + guard + 'serial = true\n')
+    assert not module.test_registry_change_is_linux_only(base, serial_native), "a native entry's serial is native"
+    # An unchanged guard entry with requirements (the registry's fish one) does not make every edit native.
+    fish_guard = '\n[[test]]\npath = "tests/fish.py"\nlane = "linux-guard"\nrequirements = ["fish"]\n'
+    assert module.test_registry_change_is_linux_only(base + fish_guard, base + fish_guard + guard)
+    assert not module.test_registry_change_is_linux_only(base, base + fish_guard), "adding one still needs fish"
     for candidate in (
         base.replace('macos-shell', 'linux-guard'),
         base.replace('native.py', 'other.py'),
@@ -1412,6 +1427,22 @@ def test_linux_registry_changes_skip_native_but_preserve_native_changes() -> Non
     ):
         assert not module.test_registry_change_is_linux_only(base, candidate), candidate
     assert not module.test_registry_change_is_linux_only('invalid TOML', base)
+
+
+def test_workflow_registry_fragment_diff_reaches_normal_and_trusted_router() -> None:
+    """The registry split into tests/test-execution.d/<area>.toml: a fragment edit is judged the same way."""
+    fragment = "tests/test-execution.d/other.toml"
+    base = '[[test]]\npath = "tests/native.py"\nlane = "macos-shell"\n'
+    guard = '\n[[test]]\npath = "tests/guard.py"\nlane = "linux-guard"\n'
+    for policy_change in ([], ["scripts/ci/detect_ci_change_areas.py"]):
+        for candidate, expected in ((base + guard, "false"),
+                                    (base.replace("native.py", "other.py"), "true")):
+            result, outputs = run_detect_step_for_paths(
+                [fragment, *policy_change],
+                base_files={fragment: base}, head_files={fragment: candidate},
+            )
+            assert f"macos={expected}" in outputs, (result.stdout, result.stderr)
+            assert f"release_build={expected}" in outputs, outputs
 
 
 def test_registry_cli_uses_base_and_keeps_mixed_product_changes() -> None:
@@ -2577,6 +2608,16 @@ def test_trusted_base_router_copy_applies_the_registry_lane_rule() -> None:
                 sys.modules["test_execution_registry"] = saved_registry
 
 
+def test_helper_a_toml_or_yaml_comment_names_runs_nothing() -> None:
+    # A Cargo.toml note about the release strip named its script (#42338).
+    for relative in ("server/Cargo.toml", "config/settings.yml"):
+        assert helper_areas({relative: "# scripts/ci/helper.py strips this later\nname = 1\n"}) == areas(), relative
+        why: list[str] = []
+        head = _helper_repo({**ROUTED_TREE, relative: 'run = "scripts/ci/helper.py"\n'})
+        assert module.ci_helper_areas("scripts/ci/helper.py", head, GUARD_ONLY_REFERENCES, why=why) is None, relative
+        assert why == [f"{relative} names helper"], why
+
+
 def test_helper_nothing_names_is_unknown_and_fails_open() -> None:
     tree = {k: v for k, v in ROUTED_TREE.items() if not k.startswith("tests/")}
     why: list[str] = []
@@ -2590,17 +2631,27 @@ def test_repository_helpers_route_by_where_they_run() -> None:
     def route(path: str):
         return module.ci_helper_areas(path, ROOT, references, base_root=ROOT)
 
+    def assert_routes(path: str, expected) -> None:
+        # A file that names the helper and fails the walk open is named here,
+        # so the next data file or prose mention says which file to classify.
+        why: list[str] = []
+        actual = module.ci_helper_areas(path, ROOT, references, base_root=ROOT, why=why)
+        assert actual == expected, f"{path}: {actual} != {expected}; {'; '.join(why)}"
+
     # Runs only in reload-build.yml and the Iroh release gate, which no area gates.
-    assert route("scripts/ci/xcodebuild_noninteractive.py") == areas()
+    assert_routes("scripts/ci/xcodebuild_noninteractive.py", areas())
     # Runs only in its own dispatched workflow; pr_runner_pool.py names it
-    # in a docstring, which is not a call.
-    assert route("scripts/ci/owned_pool_rescue.py") == areas()
-    # compile admission runs it (and seed_derived_data.py, which imports
-    # e2e_warm_derived_data.py): macOS.
-    assert route("scripts/ci/owned_build_state.py") == areas(macos=True)
-    assert route("scripts/ci/e2e_warm_derived_data.py") == areas(macos=True)
+    # in a docstring and .github/single-host-fallbacks.json in a fallback's
+    # prose, neither of which is a call.
+    assert_routes("scripts/ci/owned_pool_rescue.py", areas())
+    # compile admission runs it: macOS.
+    assert_routes("scripts/ci/owned_build_state.py", areas(macos=True))
+    # job_input_fingerprint.py lists it as a Mac job input (the seed replay in
+    # cmux-next.yml), and a nightly test that runs off the Linux guards names
+    # that script, so the walk fails open, as for owned_spm_scratch.py.
+    assert route("scripts/ci/e2e_warm_derived_data.py") is None
     # Only the Release lane runs it.
-    assert route("scripts/ci/reuse_release_product.py") == areas(macos=True, release_build=True)
+    assert_routes("scripts/ci/reuse_release_product.py", areas(macos=True, release_build=True))
     # run_python_test_lane.py imports it, and ci.yml's routing job runs that.
     assert route("scripts/ci/test_execution_registry.py") is None
 
@@ -3082,11 +3133,11 @@ def test_cmux_next_does_not_run_full_suite_for_unrelated_packages() -> None:
     workflow = (ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8")
     pull = workflow[workflow.index("  pull_request:"):workflow.index("  push:")]
     assert "      - Packages/macOS/CmuxNext/**" in pull
-    spec = importlib.util.spec_from_file_location("cmux_next_route", ROOT / "scripts/ci/cmux_next_route.py")
-    assert spec is not None and spec.loader is not None
-    router = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = router
-    spec.loader.exec_module(router)
+    # The module every other test imports, not a second copy in sys.modules: a copy here made
+    # test_cmux_next_route.py's LinuxLaneTests patch it while route() read the first one.
+    if str(ROOT / "scripts/ci") not in sys.path:
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+    import cmux_next_route as router
     for path in (
         "Packages/macOS/CmuxPhonePush/Sources/CmuxPhonePush/PhonePushPayload.swift",
         "Packages/iOS/CmuxMobilePairedMac/Package.swift",
@@ -3305,7 +3356,13 @@ def _job_runs_only_on_linux(job: dict) -> bool:
     if uses:
         called = yaml.safe_load((ROOT / uses.removeprefix("./")).read_text(encoding="utf-8"))
         return all(_job_runs_only_on_linux(inner) for inner in called["jobs"].values())
-    runs_on = str(job.get("runs-on", ""))
+    cells = workflow_jobs.runs_on_cells(job)
+    if not cells:  # a matrix nothing resolves, or no runs-on: not shown to be Linux-only
+        return False
+    return all(_runs_on_is_linux(runs_on) for runs_on in cells)
+
+
+def _runs_on_is_linux(runs_on: str) -> bool:
     # A job on the runner capability map (.github/runners.json) names its key.
     capabilities = re.findall(r"outputs\.map\)\.([a-z0-9_]+)", runs_on)
     if capabilities:
@@ -4295,8 +4352,9 @@ def product_consumer_route_violations(workflow: dict) -> list[str]:
     """
     producer = workflow["jobs"]["macos-compile-admission"]
     violations = []
-    if (producer["env"].get("CMUX_PRODUCT_RUNNER") or "").replace(WARM_ADMISSION_FIRST, WARM_ADMISSION) \
-            .replace(OVERFLOW_ADMISSION_FIRST, OVERFLOW_ADMISSION) != producer["runs-on"]:
+    restated = (workflow_jobs.effective_env(workflow, producer).get("CMUX_PRODUCT_RUNNER") or "") \
+        .replace(WARM_ADMISSION_FIRST, WARM_ADMISSION).replace(OVERFLOW_ADMISSION_FIRST, OVERFLOW_ADMISSION)
+    if [restated] != workflow_jobs.runs_on_cells(producer):
         violations.append("macos-compile-admission: CMUX_PRODUCT_RUNNER does not restate runs-on")
     outputs = producer.get("outputs", {})
     if outputs.get("runner") != "${{ env.CMUX_PRODUCT_RUNNER }}":
@@ -4304,9 +4362,10 @@ def product_consumer_route_violations(workflow: dict) -> list[str]:
     if outputs.get("xcode_app") != "${{ env.CMUX_CI_XCODE_APP }}":
         violations.append("macos-compile-admission: missing xcode_app output")
     for name, job in app_host_product_consumers(workflow).items():
-        runs_on = late_placement_route(workflow, name, job.get("runs-on", ""))
-        xcode = (job.get("env") or {}).get("CMUX_CI_XCODE_APP")
-        if name in PRODUCT_RUNNER_KEYS and runs_on == product_runner_output(PRODUCT_RUNNER_KEYS[name]) \
+        cells = workflow_jobs.runs_on_cells(job)
+        runs_on = None if cells is None else [late_placement_route(workflow, name, cell) for cell in cells]
+        xcode = workflow_jobs.effective_env(workflow, job).get("CMUX_CI_XCODE_APP")
+        if name in PRODUCT_RUNNER_KEYS and runs_on == [product_runner_output(PRODUCT_RUNNER_KEYS[name])] \
                 and xcode == PRODUCT_XCODE_OUTPUT:
             continue
         violations.append(f"{name}: runs-on {runs_on}; CMUX_CI_XCODE_APP {xcode}")
@@ -4327,8 +4386,10 @@ def test_app_host_product_consumers_run_on_the_producers_pool_and_xcode() -> Non
     # The shell regressions read the outputs, so a route added to the admission moves
     # it without an edit here.
     cli = workflow["jobs"]["cli-product-tests"]
-    assert late_placement_route(workflow, "cli-product-tests", cli["runs-on"]) == PRODUCT_RUNNER_OUTPUT
-    assert cli["env"]["CMUX_CI_XCODE_APP"] == PRODUCT_XCODE_OUTPUT
+    cells = workflow_jobs.runs_on_cells(cli)
+    assert cells is not None, "cli-product-tests: runs-on matrix does not resolve"
+    assert [late_placement_route(workflow, "cli-product-tests", cell) for cell in cells] == [PRODUCT_RUNNER_OUTPUT]
+    assert workflow_jobs.effective_env(workflow, cli)["CMUX_CI_XCODE_APP"] == PRODUCT_XCODE_OUTPUT
 
 
 def test_late_placement_must_keep_the_admissions_xcode() -> None:
@@ -4351,15 +4412,21 @@ def test_product_consumer_guard_follows_a_new_admission_route() -> None:
     producer = workflow["jobs"]["macos-compile-admission"]
     pull_request = "github.event_name == 'pull_request'"
     new_route = "(github.event_name == 'pull_request' || github.event_name == 'merge_group')"
+    # The jobs' own env (resolve on a plain load reads no workflow env), edited and written back.
+    producer_env = workflow_jobs.resolve(producer).env
     for key in ("CMUX_PRODUCT_RUNNER", "CMUX_CI_XCODE_APP"):
-        assert pull_request in producer["env"][key], key
-        producer["env"][key] = producer["env"][key].replace(pull_request, new_route, 1)
-    producer["runs-on"] = producer["env"]["CMUX_PRODUCT_RUNNER"].replace(WARM_ADMISSION_FIRST, WARM_ADMISSION) \
+        assert pull_request in producer_env[key], key
+        producer_env[key] = producer_env[key].replace(pull_request, new_route, 1)
+    producer["env"] = producer_env
+    producer_route = producer_env["CMUX_PRODUCT_RUNNER"].replace(WARM_ADMISSION_FIRST, WARM_ADMISSION) \
         .replace(OVERFLOW_ADMISSION_FIRST, OVERFLOW_ADMISSION)
+    producer["runs-on"] = producer_route
     assert product_consumer_route_violations(workflow) == []
     consumer = workflow["jobs"]["cli-product-tests"]
-    consumer["runs-on"] = admission_route(producer["runs-on"])
-    consumer["env"]["CMUX_CI_XCODE_APP"] = producer["env"]["CMUX_CI_XCODE_APP"]
+    consumer["runs-on"] = admission_route(producer_route)
+    consumer_env = workflow_jobs.resolve(consumer).env
+    consumer_env["CMUX_CI_XCODE_APP"] = producer_env["CMUX_CI_XCODE_APP"]
+    consumer["env"] = consumer_env
     violations = product_consumer_route_violations(workflow)
     assert [line.split(":", 1)[0] for line in violations] == ["cli-product-tests"], violations
 
@@ -4469,7 +4536,13 @@ exit 65
                 fixture.write_text(content)
                 fixture.chmod(0o755)
             (root / "cmux-compile-admission.txt").write_text("unable to open dependencies file\n")
+            # The step sources the fleet-cache retry and the CAS classifier; no fleet socket here, so local cache.
+            for relative in ("scripts/ci/lib/fleet-cache-fallback.sh", "scripts/ci/fleet-compilation-cache.sh",
+                             "scripts/cmux-next/lib/compilation-cache.sh"):
+                (root / relative).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / relative, root / relative)
             env = dict(os.environ, PATH=f"{root / 'bin'}:{os.environ['PATH']}",
+                       CMUX_FLEET_CAS_SOCKET=str(root / "absent.sock"),
                        RUNNER_TEMP=str(root), GITHUB_OUTPUT=str(root / "outputs"),
                        CMUX_COMPILE_ADMISSION_DERIVED_DATA=str(root / "dd"),
                        CMUX_COMPILE_ADMISSION_CAS=str(root / "cas"),
@@ -4847,6 +4920,14 @@ def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
         ) == expected, (paths, actual)
 
 
+
+def test_docs_reference_inputs_run_web_unit_tests() -> None:
+    # web/tests/next-docs.test.ts reads these outside web/; a change to them that
+    # skipped Web tests left the generated palette reference stale on base (#38631).
+    for path in ("plans/cmux-next/action-surfaces.json", "schemas/settings/settings-schema.json"):
+        assert web_subareas.classify_paths([path]).unit_tests, path
+        assert module.is_web_change(path), path
+
 def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
     result = run_web_status(
         results={
@@ -4876,6 +4957,30 @@ def test_web_status_rejects_selected_skip_failure_or_cancellation() -> None:
         for outcome in ("skipped", "failure", "cancelled"):
             result = run_web_status(results={web_job: outcome})
             assert result.returncode != 0, (web_job, outcome)
+
+
+def test_web_status_rejects_a_scope_that_succeeded_with_no_subareas() -> None:
+    # cmux#40171 review: web=true, the scope green with outputs={} and every child skipped must stay a red, as on base.
+    result = run_web_status(
+        inputs={"web": "true", "macos": "false", "agent_session_web": "false"},
+        results={job: "skipped" for job in WEB_JOBS if job != "web-subarea-scope"},
+        subareas={},
+    )
+    assert result.returncode == 1, (result.returncode, result.stdout, result.stderr)
+    assert "summary red: Web status:" in result.stdout, result.stdout
+
+
+def test_web_status_with_partial_subarea_outputs_still_names_its_failed_child() -> None:
+    # cmux#40171 review (fe389ab5): partial scope outputs ({"db": "true"}), the scope abandoned and web-tests failed
+    # raised KeyError on subareas["typecheck"], so no summary red: line and no failed child came out.
+    result = run_web_status(
+        inputs={"web": "true", "macos": "false", "agent_session_web": "false"},
+        results={**{job: "skipped" for job in WEB_JOBS}, "web-subarea-scope": "abandoned", "web-tests": "failure"},
+        subareas={"db": "true"},
+    )
+    assert result.returncode == 1, (result.returncode, result.stdout, result.stderr)
+    assert "summary red: Web status:" in result.stdout and "web-tests: failure" in result.stdout, result.stdout
+    assert "Traceback" not in result.stderr, result.stderr
 
 
 def test_web_status_allows_unrouted_skips() -> None:
@@ -5006,10 +5111,13 @@ def test_package_lane_fleet_step_is_opt_in_and_restates_its_runner() -> None:
         "github.event_name == 'pull_request' && "
         "!(inputs.full_suite == 'true' && inputs.release_build == 'true')"
     )
-    assert "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository" in job["runs-on"]
-    assert "!contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-15'" in job["runs-on"]
-    assert via_step + " && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY" in job["runs-on"]
-    assert job["env"]["PACKAGE_TESTS_VIA_STEP"] == (
+    cells = workflow_jobs.runs_on_cells(job)
+    assert cells is not None, "swift-package-tests: runs-on matrix does not resolve"
+    runs_on = "\n".join(cells)
+    assert "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository" in runs_on
+    assert "!contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-15'" in runs_on
+    assert via_step + " && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY" in runs_on
+    assert workflow_jobs.resolve(job).env["PACKAGE_TESTS_VIA_STEP"] == (
         "${{ github.repository_owner == 'manaflow-ai' && "
         "(github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)) && "
         "vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY != '' && " + via_step + " && '1' || '0' }}"
@@ -5514,6 +5622,14 @@ def _main() -> int:
                 failures.append((name, error))
     for name, error in sorted(failures):
         print(f"FAIL: {name}\n{error}", file=sys.stderr)
+    # One check per red test for the guard runner (scripts/ci/run_ci_guards.py), so a
+    # test red on the base excuses only itself, never another red the change adds.
+    # A test green here writes nothing: the base's missing entry charges a new red.
+    check_results = os.environ.get("CMUX_GUARD_CHECK_RESULTS")
+    if check_results and failures:
+        with open(check_results, "a", encoding="utf-8") as handle:
+            for name, _ in sorted(failures):
+                handle.write(f"0\ttests/test_ci_change_areas.py::{name}\n")
     if failures:
         print(f"{len(failures)} of {len(names)} tests failed", file=sys.stderr)
         return 1

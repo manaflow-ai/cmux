@@ -22,7 +22,27 @@ import UniformTypeIdentifiers
 /// by the previous frame until then.
 @MainActor
 final class TerminalSurfaceView: UIView {
+    /// Every write Ghostty encodes for the remote: what the person typed,
+    /// pressed or pasted, and Ghostty's own replies (terminal queries, mouse
+    /// and focus reports).
     var onInput: ((Data) -> Void)?
+    /// Whether the write `onInput` just took goes out to the remote now (the
+    /// session is attached and did not refuse it). Prediction records only
+    /// input that goes: a refused or held key never echoes.
+    var inputGoesOut: () -> Bool = { true }
+    /// Set while `perform` hands Ghostty something the person typed, pressed
+    /// or pasted. Ghostty writes its encoding to `io_write_cb` on this thread
+    /// before it returns (D6), so a write delivered while this is set is
+    /// theirs; any other write is Ghostty's own, which prediction never sees.
+    var isEncodingUserInput = false
+    /// Set for the whole of `perform` (key releases and preedit too): a
+    /// write delivered while this is clear is Ghostty's reply to a terminal
+    /// query (a cursor, device, focus or mouse report), not a key.
+    var isPerformingInput = false
+    /// The terminal's foreground program on the Mac (`process-info`), nil
+    /// while not known: whether a drag on the alternate screen pages it with
+    /// cursor keys (``TerminalPanRoute``).
+    var foregroundProgram: String?
     /// The person typed, pressed a key or pasted (before the bytes go out).
     var onUserInput: (() -> Void)?
     var onEvent: ((TerminalSurfaceEvent) -> Void)?
@@ -49,10 +69,24 @@ final class TerminalSurfaceView: UIView {
     /// The font size the surface was built with or last set to (Settings → Terminal).
     private var fontSize = CmuxMobilePreferences.terminalFontSize()
     private var defaultsObserver: (any NSObjectProtocol)?
+    /// Predictive local echo (`TerminalSurfacePrediction`), made with the surface.
+    private(set) var prediction: TerminalSurfacePrediction?
+    /// The Mac the session runs on: the surface shows that Mac's terminal theme
+    /// (``CmuxMobileTerminalThemes``), live, and none of the phone's own colors.
+    var themeMacID: String? {
+        didSet { if themeMacID != oldValue { applyHostTheme() } }
+    }
+    /// The terminal theme shown now; nil until a Mac ever sent one.
+    private(set) var hostTheme: CmuxMobileTerminalTheme?
+    /// The theme given to Ghostty last (the surface may not exist when ``hostTheme`` changes).
+    private var surfaceTheme: CmuxMobileTerminalTheme?
+    /// The shown theme changed: the page around the surface repaints with it.
+    var onHostTheme: ((CmuxMobileTerminalTheme) -> Void)?
+    private var themeObserver: (any NSObjectProtocol)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = CmuxMobileGhosttyApp.background
+        backgroundColor = CmuxMobileTerminalThemes.shared.theme(for: nil)?.backgroundColor ?? CmuxMobileGhosttyApp.background
         isOpaque = true
         isAccessibilityElement = true
         accessibilityLabel = "Terminal"
@@ -65,6 +99,7 @@ final class TerminalSurfaceView: UIView {
     isolated deinit {
         if let commitObserver { CFRunLoopObserverInvalidate(commitObserver) }
         if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
+        if let themeObserver { NotificationCenter.default.removeObserver(themeObserver) }
         for observer in appStateObservers { NotificationCenter.default.removeObserver(observer) }
         guard let surface else { return }
         let ref = SurfaceRef(surface)
@@ -91,7 +126,19 @@ final class TerminalSurfaceView: UIView {
         guard let app = try? CmuxMobileGhosttyApp.shared() else { return }
         self.app = app
         let box = InputBox()
-        box.deliver = { [weak self] data in self?.onInput?(data) }
+        box.deliver = { [weak self] data in
+            guard let self else { return }
+            let typed = isEncodingUserInput
+            onInput?(data)
+            // Only the person's own input, once the session took it: a
+            // terminal reply or a mouse report is no keystroke and would
+            // withdraw what is drawn, and a refused key would stand there
+            // until it timed out. Ghostty also writes a mouse report while
+            // it holds the renderer lock, so redrawing for one (which reads
+            // its grid metrics) froze the screen.
+            guard typed, inputGoesOut() else { return }
+            prediction?.sent(data)
+        }
         box.view = self
         inputBox = box
         var config = ghostty_surface_config_new()
@@ -104,7 +151,7 @@ final class TerminalSurfaceView: UIView {
         config.io_mode = GHOSTTY_SURFACE_IO_MANUAL_MIRROR
         config.io_write_userdata = Unmanaged.passUnretained(box).toOpaque()
         config.io_write_cb = { userdata, bytes, length in
-            guard let userdata, let bytes, length > 0 else { return }
+            guard let userdata, length > 0 else { return }
             let data = Data(bytes: bytes, count: Int(length))
             let box = Unmanaged<InputBox>.fromOpaque(userdata).takeUnretainedValue()
             if Thread.isMainThread {
@@ -115,6 +162,12 @@ final class TerminalSurfaceView: UIView {
         }
         surface = ghostty_surface_new(app.app, &config)
         guard let surface else { return }
+        prediction = TerminalSurfacePrediction(view: self, alternateScreen: showsAlternateScreen)
+        if let hostTheme { prediction?.setColors(background: hostTheme.backgroundColor, foreground: hostTheme.foregroundColor) }
+        // Before any output reaches the queue: the first frame already has the Mac's colors.
+        surfaceTheme = nil
+        applyHostTheme()
+        observeHostThemes()
         // Ghostty draws only while the surface can be seen (`updateOcclusion`).
         observeAppState()
         updateOcclusion()
@@ -172,10 +225,51 @@ final class TerminalSurfaceView: UIView {
     /// Settings → Terminal → Font size applies to open terminals at once:
     /// Ghostty re-measures its cells and reports the new cell size, and the
     /// screen re-fits the grid from it.
+    // MARK: The host's terminal theme
+
+    /// Repaints when the Mac this terminal runs on sends a new terminal theme.
+    private func observeHostThemes() {
+        guard themeObserver == nil else { return }
+        themeObserver = NotificationCenter.default.addObserver(
+            forName: CmuxMobileTerminalThemes.didChange, object: nil, queue: .main
+        ) { [weak self] note in
+            let macID = note.userInfo?[CmuxMobileTerminalThemes.macIDKey] as? String
+            MainActor.assumeIsolated {
+                guard let self, macID == self.themeMacID || self.themeMacID == nil else { return }
+                self.applyHostTheme()
+            }
+        }
+    }
+
+    /// Gives the surface its Mac's terminal theme: the app config with every theme key reset and
+    /// the Mac's lines over it, applied on the output queue (Ghostty's manual-IO surfaces take a
+    /// config change in order with the output they parse).
+    func applyHostTheme() {
+        guard let theme = CmuxMobileTerminalThemes.shared.theme(for: themeMacID) else { return }
+        if theme != hostTheme {
+            hostTheme = theme
+            backgroundColor = theme.backgroundColor
+            prediction?.setColors(background: theme.backgroundColor, foreground: theme.foregroundColor)
+            onHostTheme?(theme)
+        }
+        guard theme != surfaceTheme, let surface, let app,
+              let config = app.themedConfig(theme, fontSize: Double(fontSize)) else { return }
+        surfaceTheme = theme
+        let ref = SurfaceRef(surface)
+        let themed = ConfigRef(config)
+        outputQueue.async {
+            ghostty_surface_update_config(ref.surface, themed.config)
+            ghostty_config_free(themed.config)
+        }
+    }
+
     private func observeFontSize() {
         guard defaultsObserver == nil else { return }
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.applyFontSize() }
+            MainActor.assumeIsolated {
+                self?.applyFontSize()
+                self?.prediction?.applySetting()
+            }
         }
     }
 
@@ -184,9 +278,15 @@ final class TerminalSurfaceView: UIView {
         guard let surface, size != fontSize else { return }
         fontSize = size
         viewportEpoch += 1
+        prediction?.gridChanged()
         let action = "set_font_size:\(size)"
         _ = action.withCString { ghostty_surface_binding_action(surface, $0, UInt(strlen($0))) }
         ghostty_surface_refresh(surface)
+        // A theme update still queued carries the old size: queue one with the new size after it.
+        if hostTheme != nil {
+            surfaceTheme = nil
+            applyHostTheme()
+        }
     }
 
     override func layoutSubviews() {
@@ -223,6 +323,7 @@ final class TerminalSurfaceView: UIView {
         guard size.0 > 0, size.1 > 0, size != lastPixelSize || scale != lastScale else { return }
         lastPixelSize = size
         viewportEpoch += 1
+        prediction?.gridChanged()
         if scale != lastScale { ghostty_surface_set_content_scale(surface, scale, scale) }
         lastScale = scale
         ghostty_surface_set_size(surface, size.0, size.1)
@@ -427,8 +528,11 @@ final class TerminalSurfaceView: UIView {
         }
         let ref = SurfaceRef(surface)
         let done = completion.map(MainCallback.init)
+        let predictor = prediction?.engine
         outputQueue.async {
             let bytes = transform?(data) ?? data
+            // What the remote sent (not the row shift), before Ghostty parses it.
+            let predictionChanged = predictor?.output(bytes: data, nowUs: TerminalSurfacePrediction.now()) ?? false
             bytes.withUnsafeBytes { raw in
                 guard let base = raw.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
                 ghostty_surface_process_output(ref.surface, base, UInt(raw.count))
@@ -437,6 +541,7 @@ final class TerminalSurfaceView: UIView {
                 // Ghostty also renders on its own after parsing, but later:
                 // without this request a keystroke echo waited ~3x longer.
                 self?.setNeedsTerminalDraw()
+                self?.prediction?.parsed(changed: predictionChanged)
                 done?.run()
             } }
         }
@@ -650,6 +755,7 @@ final class TerminalSurfaceView: UIView {
             MainActor.assumeIsolated {
                 guard let self, self.presentPending else { return }
                 self.presentPending = false
+                self.prediction?.presented()
                 self.onPresent?()
             }
         }
@@ -793,6 +899,12 @@ private struct MainCallback: @unchecked Sendable {
 struct SurfaceRef: @unchecked Sendable {
     let surface: ghostty_surface_t
     init(_ surface: ghostty_surface_t) { self.surface = surface }
+}
+
+/// A config handed to the output queue, which frees it after the surface took it.
+struct ConfigRef: @unchecked Sendable {
+    let config: ghostty_config_t
+    init(_ config: ghostty_config_t) { self.config = config }
 }
 
 @MainActor

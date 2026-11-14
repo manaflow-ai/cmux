@@ -34,46 +34,82 @@ import Testing
         }
     }
 
-    @Test func aGroupedCreateNeverDrawsLoose() {
+    /// One pass as the sidebar runs it: what it draws, and the joins it sends after drawing (claimed, as `takeDue`).
+    static func pass(_ hold: inout GroupJoinHold, _ sections: [SidebarSection], catchingUp: Bool = false) -> (drawn: [SidebarSection], sent: [String]) {
+        let (hidden, due) = hold.pass(over: sections, catchingUp: catchingUp)
+        return (SidebarEdits.removing(hidden, from: sections), due.filter { hold.claim($0.id) }.map(\.id))
+    }
+
+    /// The pass that first lists the create leaves it out and sends its join; the document's move (its optimistic look)
+    /// lists it in its group on the next pass. No pass draws it loose, and nothing waits on a clock.
+    @Test func aGroupedCreateJoinsInItsFirstPassAndNeverDrawsLoose() {
         var hold = GroupJoinHold()
-        hold.hold("n")
-        let start = ContinuousClock.now
-        var drawn: [[SidebarSection]] = []
-        // Every pass the bridge produces, the create's and the join's, with a few passes between them.
-        for (offset, sections) in [(0, Self.created), (50, Self.created), (300, Self.created), (400, Self.joined), (500, Self.joined)] {
-            let hidden = hold.hiding(in: sections, now: start + .milliseconds(offset))
-            drawn.append(SidebarEdits.removing(hidden, from: sections))
-        }
-        for pass in drawn { #expect(!Self.loose(pass).contains("n"), "n drew loose before its group") }
-        #expect(drawn.suffix(2).allSatisfy { SidebarEdits.workspace(WorkspaceID("n"), in: $0) != nil }, "n draws in its group")
-        #expect(Self.loose(drawn[0]) == ["b"], "no other row is left out")
+        hold.hold("n", group: "lanes")
+        let first = Self.pass(&hold, Self.created)
+        #expect(first.sent == ["n"], "the first pass that lists it sends its join")
+        #expect(!Self.loose(first.drawn).contains("n"), "n drew loose before its group")
+        #expect(Self.loose(first.drawn) == ["b"], "no other row is left out")
+        // The document applied the move and shows it a hop later: still out, no second join.
+        let lagging = Self.pass(&hold, Self.created, catchingUp: true)
+        #expect(lagging.sent.isEmpty && !Self.loose(lagging.drawn).contains("n"))
+        let joined = Self.pass(&hold, Self.joined)
+        #expect(SidebarEdits.workspace(WorkspaceID("n"), in: joined.drawn) != nil, "n draws in its group")
         #expect(hold.isEmpty, "listing in its group releases it")
     }
 
-    @Test func aJoinThatNeverLandsShowsTheRowOnceTheLimitPasses() {
+    /// A join the document did not take (refused): once the document shows its own state, the row shows where it lists.
+    @Test func aRefusedJoinShowsTheRowWithNoTimer() {
         var hold = GroupJoinHold()
-        hold.hold("n")
-        let start = ContinuousClock.now
-        #expect(hold.hiding(in: Self.created, now: start) == ["n"])
-        #expect(hold.hiding(in: Self.created, now: start + GroupJoinHold.limit - .milliseconds(1)) == ["n"])
-        // The limit counts from the first loose pass, not from the hold: a slow create still gets the full window.
-        #expect(hold.hiding(in: Self.created, now: start + GroupJoinHold.limit).isEmpty)
+        hold.hold("n", group: "lanes")
+        #expect(Self.pass(&hold, Self.created).sent == ["n"])
+        let after = Self.pass(&hold, Self.created, catchingUp: false)
+        #expect(Self.loose(after.drawn).contains("n"), "a refused join hid the row")
+        #expect(after.sent.isEmpty, "a refused join is not sent again")
         #expect(hold.isEmpty)
     }
 
-    @Test func aSlowCreateIsHeldFromItsFirstListing() {
+    /// The create's placement may send the join before any pass lists the row: the pass sends none again.
+    @Test func aJoinIsSentOnce() {
         var hold = GroupJoinHold()
-        hold.hold("n")
-        let start = ContinuousClock.now
-        #expect(hold.hiding(in: Self.joined.map { var s = $0; s.nodes.removeFirst(); return s }, now: start).isEmpty)
-        #expect(hold.hiding(in: Self.created, now: start + .seconds(5)) == ["n"], "not listed yet: no time spent")
+        hold.hold("n", group: "lanes")
+        let placed = hold.claim("n")
+        #expect(placed, "the placement sends it")
+        let first = Self.pass(&hold, Self.created, catchingUp: true)
+        #expect(first.sent.isEmpty && !Self.loose(first.drawn).contains("n"))
+        let again = hold.claim("n")
+        #expect(!again)
+        var empty = GroupJoinHold()
+        let loose = empty.claim("x")
+        #expect(loose, "a workspace not held joins as before")
+    }
+
+    @Test func aSlowCreateIsHeldUntilItLists() {
+        var hold = GroupJoinHold()
+        hold.hold("n", group: "lanes")
+        let unlisted = Self.joined.map { var s = $0; s.nodes.removeFirst(); return s }
+        #expect(Self.pass(&hold, unlisted).sent.isEmpty, "not listed yet: nothing to join")
+        #expect(hold.holds("n"))
+        #expect(Self.pass(&hold, Self.created).sent == ["n"])
     }
 
     @Test func aReleasedCreateIsNotHeld() {
         var hold = GroupJoinHold()
-        hold.hold("n")
+        hold.hold("n", group: "lanes")
         hold.release("n")
-        #expect(hold.hiding(in: Self.created, now: .now).isEmpty)
+        let pass = Self.pass(&hold, Self.created)
+        #expect(pass.sent.isEmpty && Self.loose(pass.drawn).contains("n"))
+    }
+
+    /// A held grouped create draws no stand-in row: a stand-in has no group slot and would draw loose for a frame.
+    @MainActor @Test func aHeldGroupedCreateDrawsNoStandIn() {
+        let rows = PendingWorkspaceRows.shared
+        rows.add(creating: "held-n", window: "w-hold", machine: .local, name: "n", opensPage: true, slot: nil, byDefault: nil, unpinned: true)
+        defer { rows.remove("held-n"); rows.groupJoins.release("held-n") }
+        #expect(rows.rows(in: "w-hold").map(\.id) == ["held-n"])
+        rows.groupJoins.hold("held-n", group: "lanes")
+        #expect(rows.rows(in: "w-hold").isEmpty, "a held grouped create drew its stand-in")
+        rows.groupJoins.release("held-n")
+        #expect(rows.rows(in: "w-hold").map(\.id) == ["held-n"])
     }
 
     /// The join reads the window's rows, which leave the held row out: the named group takes it by its machine.

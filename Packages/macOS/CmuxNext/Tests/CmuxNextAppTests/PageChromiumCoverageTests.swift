@@ -1,7 +1,12 @@
 import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextBookmarks
 import CmuxNextBrowser
+import CmuxNextHome
 import CmuxNextPages
+import CmuxNextServer
+import CmuxNextSidebar
+import CmuxNextTaskManagerPage
 import Foundation
 import Testing
 
@@ -16,15 +21,20 @@ import Testing
     private static let surfaces: [(page: PageDescriptor, options: PageEngineOptions)] = [
         (.agent, PageEngineOptions(chromiumAgentChat: AgentPaneTunables.chromium.value)), (.history, .standard), (.cloud, .standard), (.apps, .standard), (.settings, PageFactory.settingsEngineOptions),
         (.keybindings, .standard), (.diff, DiffPageService.engineOptions), (.markdown, FilePageService.engineOptions),
-        (.editor, FilePageService.engineOptions), (.iconPicker, IconPickerService.engineOptions), (.passwords, .standard),
+        (.editor, FilePageService.engineOptions), (.iconPicker, IconPickerService.engineOptions),
+        (.groupEditor, GroupEditorService.engineOptions), (.passwords, .standard),
         (.chiefInspector, .standard), (.debugSettings, .standard), (.homeChannels, PageFactory.homeChannelsEngineOptions),
+        (.homeMessages, PageFactory.homeChannelsEngineOptions),
         (.changelog, .standard), (.coderouter, .standard), (.files, .standard), (.stats, .standard),
-        (.chiefUsage, .standard), (.mobilePairing, .standard), (.agentActivity, .standard),
+        (.chiefUsage, .standard), (.mobilePairing, .standard), (.agentActivity, .standard), (.github, .standard), (.bookmarks, .standard), (.taskManager, .standard),
+        (.serverCards, WebCardPanel.engineOptions),
     ]
 
     /// The pages that still show in WebKit, and why (webviews-chromium-AUDIT.md).
     private static let stillOnWebKit: [String: PageWebKitReason] = [
         PageDescriptor.iconPicker.id: .transparentOverlay,
+        PageDescriptor.serverCards.id: .transparentOverlay,
+        PageDescriptor.groupEditor.id: .transparentOverlay,
     ]
 
     /// A bundle with a resource folder for every shipped page, and the table Chromium gets for it.
@@ -46,8 +56,8 @@ import Testing
         for (page, _) in Self.surfaces {
             let entry = try #require(entries[page.id], "Chromium does not serve \(page.id)")
             #expect(entry.csp == page.csp.header, "\(page.id) gets another CSP in Chromium")
-            // Chromium asks the page host for exactly the page's generated paths.
-            #expect(entry.dynamicPrefixes == page.dynamicPrefixes, "\(page.id) dynamic prefixes")
+            // Shared chunks also pass through the common adapter, including outside the live loop.
+            #expect(entry.dynamicPrefixes == page.dynamicPrefixes.union(["__shared"]), "\(page.id) dynamic prefixes")
         }
     }
 

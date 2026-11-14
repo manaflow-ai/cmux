@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDesign
 import Foundation
 import GhosttyNextKit
 import UIKit
@@ -18,8 +19,16 @@ final class CmuxMobileGhosttyApp {
     private static var current: CmuxMobileGhosttyApp?
     nonisolated static let wakeupGate = WakeupGate()
 
-    /// Terminal theme: true black like the app chrome, the cmux-next ANSI palette.
-    static let background = UIColor(red: 0, green: 0, blue: 0, alpha: 1)
+    /// Terminal theme: true black like the app chrome, the cmux-next ANSI palette; with Match Mac
+    /// theme, the colors of the Mac's terminal theme as last sent (ask-87d30da8e5). Read once:
+    /// the terminal engine takes its colors at launch, so a new Mac theme reaches it on the next.
+    static let macTheme: CmuxMobileMacPalette? = CmuxMobileMacTheme.shared.palette
+    static let background = macTheme.map { CmuxMobileRGBA(hex: $0.terminalBackground).uiColor }
+        ?? UIColor(red: 0, green: 0, blue: 0, alpha: 1)
+    static let foreground = macTheme.map { CmuxMobileRGBA(hex: $0.terminalForeground).uiColor }
+        ?? UIColor(red: 0xE6 / 255, green: 0xE6 / 255, blue: 0xE6 / 255, alpha: 1)
+    /// The look of the terminal page's own chrome (keys, glass, keyboard): the theme's.
+    static let interfaceStyle: UIUserInterfaceStyle = macTheme.map { $0.isDark ? .dark : .light } ?? .dark
 
     static func shared() throws -> CmuxMobileGhosttyApp {
         if let current { return current }
@@ -28,27 +37,21 @@ final class CmuxMobileGhosttyApp {
         return made
     }
 
-    private init() throws {
-        let status = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
-        guard status == GHOSTTY_SUCCESS else { throw Failure.initFailed(status) }
-        guard let config = ghostty_config_new() else { throw Failure.appCreationFailed }
-        Self.loadProductConfig(config)
-        ghostty_config_finalize(config)
-        var runtime = ghostty_runtime_config_s()
-        runtime.userdata = nil
-        runtime.supports_selection_clipboard = false
+    /// Ghostty's runtime callbacks, nonisolated: Ghostty calls them from its
+    /// renderer and IO threads.
+    nonisolated private static func runtimeConfig() -> ghostty_runtime_config_s {
         // One hop to the main queue: actions (the scrollbar) must reach the
         // screen before the frames that follow them (see TerminalViewController).
         // Wakeups arrive from Ghostty's threads, as often as output is
         // parsed; one tick is queued at a time.
-        runtime.wakeup_cb = { _ in
+        let wakeup: ghostty_runtime_wakeup_cb = { _ in
             guard CmuxMobileGhosttyApp.wakeupGate.claim() else { return }
             DispatchQueue.main.async {
                 CmuxMobileGhosttyApp.wakeupGate.release()
                 MainActor.assumeIsolated { CmuxMobileGhosttyApp.current?.tick() }
             }
         }
-        runtime.action_cb = { _, target, action in
+        let actionCallback: ghostty_runtime_action_cb = { _, target, action in
             guard target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface else { return false }
             let event: TerminalSurfaceEvent?
             switch action.tag {
@@ -75,14 +78,34 @@ final class CmuxMobileGhosttyApp {
             }
             return true
         }
-        runtime.read_clipboard_cb = { _, _, _, _, _, _ in GHOSTTY_CLIPBOARD_READ_UNAVAILABLE }
-        runtime.confirm_read_clipboard_cb = { _, _, _, _ in }
-        runtime.write_clipboard_cb = { _, _, content, count, _ in
-            guard let content, count > 0, let data = content.pointee.data else { return }
-            let text = String(decoding: UnsafeRawBufferPointer(start: data, count: content.pointee.len), as: UTF8.self)
+        let writeClipboard: ghostty_runtime_write_clipboard_cb = { _, _, content, count, _ in
+            guard count > 0 else { return }
+            let item = content.pointee
+            let text = String(decoding: UnsafeRawBufferPointer(start: item.data, count: item.len), as: UTF8.self)
             DispatchQueue.main.async { UIPasteboard.general.string = text }
         }
-        runtime.close_surface_cb = { _, _ in }
+        return ghostty_runtime_config_s(
+            userdata: nil,
+            supports_selection_clipboard: false,
+            wakeup_cb: wakeup,
+            action_cb: actionCallback,
+            read_clipboard_cb: { _, _, _, _, _, _ in GHOSTTY_CLIPBOARD_READ_UNAVAILABLE },
+            confirm_read_clipboard_cb: { _, _, _, _ in },
+            write_clipboard_cb: writeClipboard,
+            close_surface_cb: { _, _ in }
+        )
+    }
+
+    private init() throws {
+        let status = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
+        guard status == GHOSTTY_SUCCESS else { throw Failure.initFailed(status) }
+        guard let config = ghostty_config_new() else { throw Failure.appCreationFailed }
+        Self.loadProductConfig(config)
+        ghostty_config_finalize(config)
+        // Built outside the main actor: Ghostty calls these from its own
+        // threads, and a closure formed in this @MainActor init would carry
+        // main-actor isolation (Swift traps when the renderer thread calls it).
+        var runtime = Self.runtimeConfig()
         guard let app = ghostty_app_new(&runtime, config) else {
             ghostty_config_free(config)
             throw Failure.appCreationFailed
@@ -91,17 +114,34 @@ final class CmuxMobileGhosttyApp {
         self.config = config
     }
 
+    /// A config for one surface: the app's, with `theme` over every terminal theme key (none of
+    /// the phone's own colors survive), at `fontSize` so the update keeps the surface's size.
+    /// The caller frees it after `ghostty_surface_update_config` (Ghostty copies what it uses).
+    func themedConfig(_ theme: CmuxMobileTerminalTheme, fontSize: Double) -> ghostty_config_t? {
+        Self.themedConfig(theme, fontSize: fontSize, base: config)
+    }
+
+    /// `base` with `theme` over every terminal theme key, at `fontSize`.
+    static func themedConfig(_ theme: CmuxMobileTerminalTheme, fontSize: Double, base: ghostty_config_t) -> ghostty_config_t? {
+        guard let themed = ghostty_config_clone(base) else { return nil }
+        let text = theme.configText + "font-size = \(fontSize)\n"
+        text.withCString { ghostty_config_load_string(themed, $0, UInt(text.utf8.count), "cmux-mac-terminal-theme") }
+        ghostty_config_finalize(themed)
+        return themed
+    }
+
     /// Product settings: no padding (rows land on exact multiples of the cell
     /// height, which native scrolling relies on), the app's black, the
     /// scrollback cap, and no auto-scroll: the screen owns the viewport.
     private static func loadProductConfig(_ config: ghostty_config_t) {
+        let colorLines = (macTheme?.terminalConfigLines ?? ["background = #000000", "foreground = #E6E6E6"])
+            .joined(separator: "\n")
         let text = """
         scrollback-limit-bytes = \(8 * 1024 * 1024)
         window-padding-x = 0
         window-padding-y = 0
         window-padding-balance = false
-        background = #000000
-        foreground = #E6E6E6
+        \(colorLines)
         cursor-style = block
         cursor-style-blink = false
         scroll-to-bottom = no-keystroke,no-output

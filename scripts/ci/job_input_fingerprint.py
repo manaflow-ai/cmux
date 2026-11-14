@@ -77,6 +77,7 @@ MAC_COMMON = (
     WORKFLOW, ".github/actions", "scripts/cmux-next", "scripts/select-ci-xcode.sh",
     "scripts/ci/xcode-pins.txt", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py",
     "scripts/ci/reset-stale-submodules.sh", "scripts/ci/owned_spm_scratch.py",
+    "scripts/ci/e2e_warm_derived_data.py",
     "scripts/ci/swiftpm_build_metrics.py", "scripts/ci/build_metrics.py",
     "scripts/ci/run-xcodebuild-with-diagnostics.sh", "scripts/ci/job_input_fingerprint.py",
     "scripts/ci/job_reuse.py", "schemas", "plans/cmux-next",

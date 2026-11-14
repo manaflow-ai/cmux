@@ -2,8 +2,18 @@
 # nightly.yml build-nightly-app: "Build nightly app (Release)". Moved out of the workflow to keep nightly.yml under
 # its size budget (tests/test_workflow_file_size.py); the step's env: still sets every input.
 set -euo pipefail
+# The asset catalog compile leaves Xcode's ibtoold running, detached, with this job's environment, for about a
+# minute after xcodebuild returns; nightly-next-one's check before the signing secrets then counted two of them
+# (run 43431310245). This step ends the build daemons it started however it exits (refuse_stray_processes.py).
+end_build_daemons_script="$PWD/scripts/ci/refuse_stray_processes.py"
+end_build_daemons() {
+  if [[ -n "${RUNNER_TRACKING_ID:-}" && -f "$end_build_daemons_script" ]]; then
+    python3 "$end_build_daemons_script" --end-build-daemons || true
+  fi
+}
+trap end_build_daemons EXIT
 # cx-f58x: compile out browser-import code as `decide` chose (the
-# notary tests, and every nightly-next build while
+# notary tests, and every nightly-next build when nightly.yml sets
 # NIGHTLY_NEXT_BROWSER_DATA_IMPORT=compiled-out).
 echo "browser import variant: $IMPORT_VARIANT (flags: ${SWIFT_IMPORT_FLAGS:-none}, empty browser-sources.json: $EMPTY_BROWSER_SOURCES)"
 notary_test_flags=(build)
@@ -23,11 +33,37 @@ if [[ "${BUILD_TRACK:-}" == nightly-next ]]; then
   source scripts/cmux-next/lib/nightly-swift-defines.sh
   swift_defines="${swift_defines:+$swift_defines }$CMUX_NIGHTLY_NEXT_SWIFT_DEFINES"
 fi
+# The live code variant (app-build-live-code.sh): every CmuxNext target unoptimized, testable and a
+# file at a time, linked with its symbols exported (and, on the relink, the listed ones interposable).
+# Its Swift defines join the nightly's in the one OTHER_SWIFT_FLAGS, so the -DCMUX_NO_* defines stay.
+live_code_args=()
+if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == 1 ]]; then
+  # shellcheck source=scripts/live-code/lib/xcodebuild-args.sh
+  source scripts/live-code/lib/xcodebuild-args.sh
+  live_flags="$(live_code_swift_flags)"
+  swift_defines="${swift_defines:+$swift_defines }$live_flags"
+  while IFS= read -r setting; do
+    case "$setting" in
+      OTHER_SWIFT_FLAGS=*) ;;
+      ?*) live_code_args+=("$setting") ;;
+    esac
+  done < <(live_code_xcodebuild_args Release "${CMUX_LIVE_CODE_INTERPOSABLE_LIST:-}")
+  echo "live code variant: ${#live_code_args[@]} xcodebuild settings${CMUX_LIVE_CODE_INTERPOSABLE_LIST:+, interposable as listed in $CMUX_LIVE_CODE_INTERPOSABLE_LIST}"
+fi
 if [[ -n "$swift_defines" ]]; then
   echo "OTHER_SWIFT_FLAGS defines: $swift_defines"
   # shellcheck disable=SC2016 # $(inherited) is an Xcode build setting, not a shell expansion
   notary_test_flags=("OTHER_SWIFT_FLAGS=\$(inherited) $swift_defines" build)
 fi
+# cmux NEXT Nightly's Release Swift for size, hot targets at -O (scripts/cmux-next/lib/swift-size-opt.sh).
+# The classic tracks keep their optimization, and the live code variant sets its own.
+size_opt_args=()
+if [[ "${BUILD_TRACK:-}" == nightly-next && "${CMUX_LIVE_CODE_BUILD:-0}" != 1 ]]; then
+  # shellcheck source=scripts/cmux-next/lib/swift-size-opt.sh
+  source scripts/cmux-next/lib/swift-size-opt.sh
+  while IFS= read -r setting; do size_opt_args+=("$setting"); done < <(swift_size_opt_xcodebuild_args)
+fi
+notary_test_flags=(${size_opt_args[@]+"${size_opt_args[@]}"} ${live_code_args[@]+"${live_code_args[@]}"} "${notary_test_flags[@]}")
 if [[ "$NIGHTLY_COMPILE_ARCHS" == "arm64" ]]; then
   archs="arm64"
   only_active="YES"
@@ -59,6 +95,14 @@ while IFS= read -r setting; do
     *) local_cache_settings+=("$setting") ;;
   esac
 done < <(CMUX_CI_DISABLE_COMPILATION_CACHE="${DECIDE_COLD_CACHE_DISABLE}" bash scripts/ci/fleet-compilation-cache.sh)
+# Which cache the first build uses, for the job summary (release-build-summary.sh).
+if [[ "${DECIDE_COLD_CACHE_DISABLE:-}" == 1 ]]; then
+  build_cache=cold
+elif [[ " ${fleet_cache_settings[*]} " == *" COMPILATION_CACHE_REMOTE_SERVICE_PATH="* ]]; then
+  build_cache=fleet
+else
+  build_cache=unavailable
+fi
 # Keep retry classification identical to the other Release compile
 # paths: only compiler diagnostics that identify the CAS/cache as
 # failing may fall back to a local cache.
@@ -83,6 +127,18 @@ echo "compilation cache limit: $cas_limit_bytes bytes (${cas_free_kib:-unknown} 
 # One build root per nightly Mac when this slot keeps build state (app-host-build-root.sh).
 # shellcheck source=scripts/ci/nightly-steps/app-host-build-root.sh
 source scripts/ci/nightly-steps/app-host-build-root.sh
+# Every binary artifact (Iroh, Sentry-Dynamic, WebRTC, CCmuxAppFFI) is in this tree's own SourcePackages before the
+# build: one missing or recorded in another tree drops the artifact state and resolves again
+# (spm_artifact_preflight.py). The project's local packages are read from cmux.xcodeproj, since the seeded tree
+# has no workspace-state.json to name them.
+(
+  cd "$build_root"
+  python3 scripts/ci/spm_artifact_preflight.py .spm-cache --xcodeproj cmux.xcodeproj \
+    --resolved cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved -- \
+    xcodebuild -resolvePackageDependencies -scheme cmux \
+    -clonedSourcePackagesDirPath .spm-cache \
+    -packageCachePath "$PWD/.spm-cache/.package-cache"
+) >&2
 run_release_build() (
   local disable_fleet_cache="${1:-0}"
   local settings=()
@@ -110,22 +166,50 @@ run_release_build() (
     CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME="$CHANNEL_ICON_NAME" \
     "${notary_test_flags[@]}"
 )
+# The job summary's build lines (LOG CACHE). They never fail the build, and a tree without the helper (a test
+# harness that copies only the helpers it knows) skips them.
+summarize_release_build() {
+  [[ -f scripts/ci/nightly-steps/release-build-summary.sh ]] && bash scripts/ci/nightly-steps/release-build-summary.sh "$@" || true
+}
 # The host root's products go to this workspace while the lock is still held.
 finish_host_build() {
   [[ -z "$host_root" ]] || python3 scripts/ci/nightly_build_state.py finish-host "$host_root"
 }
-# A live CAS failure is recoverable: preserve the build's incremental inputs,
-# then retry once with Xcode's local cache. Other compile failures remain red.
+# A build xcodebuild ended with a failure (status 65) lets the next one build on what it finished, once
+# (nightly_build_state.py fail_host); any other status leaves the build unfinished, so the next one is clean.
+fail_host_build() {
+  [[ -z "$host_root" ]] || python3 scripts/ci/nightly_build_state.py fail-host "$host_root" "$1" || true
+}
+# A build on the fleet cache that fails for any reason retries once with Xcode's local cache, keeping the
+# build's incremental inputs. The fleet cache has failed in one form after another (a corrupt object, a missing
+# module key, a precompile's "CAS operation failed", a compiler crash reading the CAS; runs 42100189059,
+# 42524304475, 42527779911, 42535989825), and matching each error's text lost to the next form. A real
+# compile error fails the retry the same way, so it costs at most one extra build, on a nightly that is red
+# anyway. A build without the fleet cache retries only on a runtime CAS diagnostic, as before.
 set +e
 run_release_build 0 2>&1 | tee "$RUNNER_TEMP/nightly-release-build.log"
 release_status=${PIPESTATUS[0]}
 set -e
-if [[ "$release_status" -ne 0 ]] && cmux_next_runtime_cas_failed "$RUNNER_TEMP/nightly-release-build.log"; then
-  echo "::warning::managed fleet compilation cache failed; retrying the Release build with the local cache"
-  run_release_build 1
+release_retry=""
+if [[ "$release_status" -ne 0 && "$build_cache" == fleet ]]; then
+  release_retry="the Release build failed on the managed fleet compilation cache"
+elif [[ "$release_status" -ne 0 ]] && cmux_next_runtime_cas_failed "$RUNNER_TEMP/nightly-release-build.log"; then
+  release_retry="the compilation cache failed"
+fi
+if [[ -n "$release_retry" ]]; then
+  echo "::warning::$release_retry (status $release_status); retrying the Release build once with the local cache"
+  # The one retry. Its failure ends the step red; there is no third build.
+  set +e
+  run_release_build 1 2>&1 | tee "$RUNNER_TEMP/nightly-release-build-retry.log"
+  retry_status=${PIPESTATUS[0]}
+  set -e
+  [[ "$retry_status" -eq 0 ]] || { fail_host_build "$retry_status"; exit "$retry_status"; }
+  summarize_release_build "$RUNNER_TEMP/nightly-release-build-retry.log" "$([[ $build_cache == fleet ]] && echo fallback || echo "$build_cache")"
   finish_host_build
 elif [[ "$release_status" -eq 0 ]]; then
+  summarize_release_build "$RUNNER_TEMP/nightly-release-build.log" "$build_cache"
   finish_host_build
 else
+  fail_host_build "$release_status"
   exit "$release_status"
 fi

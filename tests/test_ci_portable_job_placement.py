@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Portable jobs: fleet Linux first, then a free mini with no nightly waiting, Blacksmith last.
 
-scripts/ci/portable_job_placement.py places the cmux-next checks, the CI guard group, the
+scripts/ci/portable_job_placement.py places the cmux-next checks, the
 release-notary guards, the tooling tests and the cmux-tui macOS targets (Leo, 2026-10-31: "i mean
 the linux things cant our minis just run them"). These cases pin its order and its refusals, and
 the workflows' wiring of its outputs.
@@ -16,6 +16,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -24,6 +25,9 @@ from unittest import mock
 from pathlib import Path
 
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from workflow_jobs import runs_on_cells, secret_names, single_runs_on  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/portable_job_placement.py"
@@ -35,11 +39,12 @@ JOBS = "ci-guard-group tooling-tests release-notary"
 
 
 def load():
-    spec = importlib.util.spec_from_file_location("portable_job_placement", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["portable_job_placement"] = module
-    spec.loader.exec_module(module)
-    return module
+    # Imported by name, never loaded by path: one module object per file, so a test that patches it
+    # patches what every other test reads (tests/test_script_module_loads.py).
+    if str(SCRIPT.parent) not in sys.path:
+        sys.path.insert(0, str(SCRIPT.parent))
+    import portable_job_placement
+    return portable_job_placement
 
 
 placement = load()
@@ -523,6 +528,14 @@ def jobs(name: str) -> dict:
     return yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))["jobs"]
 
 
+def routes(job: dict, name: str) -> list[str]:
+    """The job's runs-on per matrix cell; a matrix nothing resolves, or no runs-on, fails the guard."""
+    cells = runs_on_cells(job)
+    if not cells:
+        raise AssertionError(f"{name}: runs-on {'matrix does not resolve' if cells is None else 'is missing'}")
+    return cells
+
+
 class SharedWait(unittest.TestCase):
     def test_wait_uses_document_once_then_observes_idle_capacity_live(self):
         idle_row = dict(runner("synthetic-glaeda"), id=1, os="macOS")
@@ -589,7 +602,7 @@ class OrganizationFallback(unittest.TestCase):
 class Wiring(unittest.TestCase):
     def test_next_portable_bootstrap_needs_no_private_app_credentials(self):
         bootstrap = jobs("cmux-next.yml")["portable-placement"]
-        self.assertNotIn("secrets.", yaml.safe_dump(bootstrap))
+        self.assertEqual(secret_names(bootstrap), set())
         self.assertNotIn("environment", bootstrap)
         self.assertFalse(any("actions/create-github-app-token@" in step.get("uses", "")
                              for step in bootstrap["steps"]))
@@ -651,18 +664,19 @@ class Wiring(unittest.TestCase):
                 self.assertIn("portable-placement", needs)
                 self.assertIn("always()", job["if"])
                 self.assertIn("!cancelled()", job["if"])
+                route = "\n".join(routes(job, name))
                 self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)",
-                              job["runs-on"])
-                self.assertIn(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')", job["runs-on"])
+                              route)
+                self.assertIn(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')", route)
                 self.assertEqual(bootstrap["permissions"], {"contents": "read"})
-                self.assertNotIn("secrets.", yaml.safe_dump(bootstrap))
+                self.assertEqual(secret_names(bootstrap), set())
                 self.assertIn("CI_PORTABLE_LIGHT_JOBS_OFF != '1'", bootstrap["if"])
                 offered += len(placed.mini_jobs)
         print(f"status reports offered an idle mini: {offered}/2")
         self.assertEqual(offered, 2)
 
     PLACED = {"cmux-next.yml": {"checks": "linux_16"},
-              "cmux-next-guards.yml": {"ci-guard-group": "linux_8", "tooling-tests": "linux_4"}}
+              "cmux-next-guards.yml": {"tooling-tests": "linux_4"}}
 
     def test_each_placed_job_reads_fleet_linux_then_its_mini_then_blacksmith(self):
         for workflow, expected_pools in self.PLACED.items():
@@ -675,23 +689,23 @@ class Wiring(unittest.TestCase):
                     self.assertIn(name, listed)
                     self.assertEqual(job["needs"], ["portable-placement"])
                     self.assertTrue(str(job["if"]).startswith("${{ !cancelled()"))
-                    runs_on = job["runs-on"]
-                    linux = runs_on.index(f"contains(needs.portable-placement.outputs.linux_jobs, ' {name} ')")
-                    mini = runs_on.index(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')")
-                    blacksmith = runs_on.rindex(f"fromJSON(vars.RUNNER_POOLS).{pool}")
-                    self.assertLess(linux, mini)
-                    self.assertLess(mini, blacksmith)
-                    self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)",
-                                  runs_on)
+                    for runs_on in routes(job, name):
+                        linux = runs_on.index(f"contains(needs.portable-placement.outputs.linux_jobs, ' {name} ')")
+                        mini = runs_on.index(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')")
+                        blacksmith = runs_on.rindex(f"fromJSON(vars.RUNNER_POOLS).{pool}")
+                        self.assertLess(linux, mini)
+                        self.assertLess(mini, blacksmith)
+                        self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)",
+                                      runs_on)
 
     def test_release_notary_takes_the_placement_through_ci_guards(self):
         guards = jobs("cmux-next-guards.yml")
         self.assertIn("release-notary", guards["portable-placement"]["steps"][-1]["env"]["JOBS"].split())
         runner = guards["nightly-guards"]["with"]["guard_tests_runner"]
         self.assertIn("contains(needs.portable-placement.outputs.mini_jobs, ' release-notary ')", runner)
-        tests = jobs("ci-guards.yml")["workflow-guard-tests"]["runs-on"]
-        self.assertIn("inputs.guard_tests_runner != '' && inputs.guard_tests_runner", tests)
-        self.assertLess(tests.index("head.repo.full_name != github.repository"), tests.index("inputs.guard_tests_runner"))
+        for tests in routes(jobs("ci-guards.yml")["workflow-guard-tests"], "workflow-guard-tests"):
+            self.assertIn("inputs.guard_tests_runner != '' && inputs.guard_tests_runner", tests)
+            self.assertLess(tests.index("head.repo.full_name != github.repository"), tests.index("inputs.guard_tests_runner"))
 
     def test_the_cmux_tui_macos_targets_take_a_free_mini_before_the_linux_cross_build(self):
         preflight = jobs("cmux-tui-artifacts.yml")["tree-preflight"]
@@ -710,7 +724,7 @@ class Wiring(unittest.TestCase):
         picker = next(step for step in preflight["steps"] if step.get("id") == "linux-placement")
         self.assertEqual(picker["env"]["FLEET_LINUX"], "cmux-fleet-linux-x64")
         self.assertEqual(picker["env"]["REQUIRE_LIVE_CAPACITY"], "1")
-        daemon = workflow["cmux-next-daemon-tests"]["runs-on"]
+        daemon = single_runs_on(workflow["cmux-next-daemon-tests"])
         live = daemon.index("needs.tree-preflight.outputs.linux_runner")
         fallback = daemon.index("fromJSON(vars.RUNNER_POOLS).linux_8")
         self.assertLess(live, fallback)
@@ -749,14 +763,14 @@ class Wiring(unittest.TestCase):
             with self.subTest(job=name):
                 job = nightly[name]
                 self.assertIn("build-nightly-app", job["needs"])
-                runs_on = job["runs-on"]
-                mini = runs_on.index(f"contains(needs.build-nightly-app.outputs.light_mini_jobs, ' {name} ')")
-                self.assertTrue(runs_on.endswith(fallback), runs_on)
-                self.assertLess(mini, runs_on.rindex(fallback))
-                self.assertNotIn("blacksmith", runs_on)
-                self.assertNotIn("RUNNER_POOLS", runs_on)
-                self.assertIn("needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt)",
-                              runs_on)
+                for runs_on in routes(job, name):
+                    mini = runs_on.index(f"contains(needs.build-nightly-app.outputs.light_mini_jobs, ' {name} ')")
+                    self.assertTrue(runs_on.endswith(fallback), runs_on)
+                    self.assertLess(mini, runs_on.rindex(fallback))
+                    self.assertNotIn("blacksmith", runs_on)
+                    self.assertNotIn("RUNNER_POOLS", runs_on)
+                    self.assertIn("needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt)",
+                                  runs_on)
 
 
     def test_new_light_workflows_place_status_jobs_before_hosted_overflow(self):
@@ -774,7 +788,7 @@ class Wiring(unittest.TestCase):
                     job = workflow_jobs[name]
                     needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
                     self.assertIn("portable-placement", needs)
-                    route = job["runs-on"]
+                    route = "\n".join(routes(job, name))
                     self.assertIn(f"contains(needs.portable-placement.outputs.linux_jobs, ' {name} ')", route)
                     self.assertIn(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')", route)
                     self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)", route)
@@ -791,7 +805,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(changes["needs"], ["portable-placement"])
         self.assertIn("always()", changes["if"])
         self.assertIn("!cancelled()", changes["if"])
-        changes_route = changes["runs-on"]
+        changes_route = single_runs_on(changes)
         live_linux = changes_route.index("contains(needs.portable-placement.outputs.linux_jobs, ' changes ')")
         hosted = changes_route.index("github.run_attempt == 1 && 'ubuntu-24.04'")
         paid = changes_route.rindex("fromJSON(vars.RUNNER_POOLS).linux_8")
@@ -807,7 +821,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(path_route["needs"], ["portable-placement"])
         self.assertIn("always()", path_route["if"])
         self.assertIn("!cancelled()", path_route["if"])
-        route = path_route["runs-on"]
+        route = single_runs_on(path_route)
         live_linux = route.index("contains(needs.portable-placement.outputs.linux_jobs, ' path_route ')")
         live_mini = route.index("contains(needs.portable-placement.outputs.mini_jobs, ' path_route ')")
         hosted = route.index("github.run_attempt == 1 && 'ubuntu-24.04'")
@@ -830,7 +844,7 @@ class Wiring(unittest.TestCase):
                 self.assertIn("CI_PORTABLE_LIGHT_JOBS_OFF != '1'", placement_if)
                 if workflow == "web-validation.yml":
                     self.assertIn("github.event_name != 'merge_group'", placement_if)
-                route = placement_job["runs-on"]
+                route = "\n".join(routes(placement_job, "portable-placement"))
                 self.assertIn("github.run_attempt == 1 && 'ubuntu-24.04'", route)
                 self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", route)
                 self.assertNotIn("vars.CI_LIGHT_LANE_RUNNER", route)
@@ -882,6 +896,78 @@ class Wiring(unittest.TestCase):
             with self.subTest(workflow=workflow):
                 checkout = jobs(workflow)["portable-placement"]["steps"][0]
                 self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha || github.sha }}")
+
+
+class SkippedPlacementKeepsRouting(unittest.TestCase):
+    """A skipped portable-placement never skips the jobs it only places.
+
+    The bootstrap skips on a re-run (attempt 3, or a person's attempt 2), on a fork and under
+    CI_PORTABLE_LIGHT_JOBS_OFF. A job whose if calls no status function gets GitHub's implicit
+    success(), which reads every ancestor, not just its needs: so after `changes` (always())
+    routed web=true, run 41892308895's whole-run attempt 3 skipped `web`, its shards and the webview
+    verdict, and the verdict could not be refreshed without a new commit. Each descendant says
+    !cancelled() (or always()) and checks the result of each job it needs instead.
+    """
+
+    WORKFLOWS = ("ci.yml", "cmux-next.yml", "cmux-next-guards.yml")
+    STATUS = re.compile(r"\b(always|cancelled|failure)\(\)")
+    # Push-only and gated on its needs' results already; its 'skipped' generated-files branch would
+    # start running on a first attempt with a status function, so it keeps the implicit success().
+    EXEMPT = {("cmux-next.yml", "swift-exports-cache")}
+    # The jobs this guard was added for: each checks every need's result, so a failed or skipped
+    # router still skips them as the implicit success() did on a first attempt.
+    RESULT_CHECKED = {"ci.yml": ("guards", "ghosttykit-release-check", "browser", "remote-daemon", "web",
+                                 "dogfood-build"),
+                      "cmux-next.yml": ("web-bundles", "request-nightly-next")}
+
+    @staticmethod
+    def needs(job: dict) -> list[str]:
+        value = job.get("needs") or []
+        return [value] if isinstance(value, str) else list(value)
+
+    def descendants(self, workflow_jobs: dict, root: str) -> set[str]:
+        found: set[str] = set()
+        changed = True
+        while changed:
+            changed = False
+            for name, job in workflow_jobs.items():
+                if name not in found and any(need == root or need in found for need in self.needs(job or {})):
+                    found.add(name)
+                    changed = True
+        return found
+
+    def test_no_job_skips_because_the_placement_bootstrap_skipped(self):
+        checked = 0
+        for workflow in self.WORKFLOWS:
+            workflow_jobs = jobs(workflow)
+            self.assertIn("portable-placement", workflow_jobs, workflow)
+            for name in sorted(self.descendants(workflow_jobs, "portable-placement")):
+                if (workflow, name) in self.EXEMPT:
+                    continue
+                with self.subTest(job=f"{workflow}#{name}"):
+                    condition = str(workflow_jobs[name].get("if") or "")
+                    self.assertRegex(condition, self.STATUS,
+                                     "a skipped portable-placement skips this job through the implicit success()")
+                    checked += 1
+        self.assertGreater(checked, 20)
+
+    def test_web_and_the_other_routed_jobs_still_skip_on_a_failed_need(self):
+        for workflow, names in self.RESULT_CHECKED.items():
+            workflow_jobs = jobs(workflow)
+            for name in names:
+                with self.subTest(job=f"{workflow}#{name}"):
+                    job = workflow_jobs[name]
+                    condition = " ".join(str(job["if"]).split())
+                    self.assertIn("!cancelled()", condition)
+                    for need in self.needs(job):
+                        self.assertIn(f"needs.{need}.result == 'success'", condition)
+
+    def test_the_skip_is_what_a_rerun_or_a_fork_gets(self):
+        bootstrap = str(jobs("ci.yml")["portable-placement"]["if"])
+        self.assertIn("github.run_attempt == 1", bootstrap)
+        self.assertIn("head.repo.full_name == github.repository", bootstrap)
+        changes = str(jobs("ci.yml")["changes"]["if"])
+        self.assertIn("always()", changes)
 
 
 if __name__ == "__main__":

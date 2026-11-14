@@ -194,6 +194,21 @@
         "webviews/src/agent-session/acpmux/chatMinimap/"
       ]
     },
+    "notifications": {
+      "spec": "leo-workspace design/notifications.md",
+      "aliases": ["toast", "notice", "warning", "banner", "ask card", "error card", "snackbar"],
+      "paths": [
+        "webviews/src/ui/Notice.tsx",
+        "webviews/src/ui/NoticeStack.tsx",
+        "webviews/src/ui/notice.css",
+        "webviews/src/agent-session/acpmux/NoticeSlot.tsx",
+        "webviews/src/agent-session/acpmux/toolCards/",
+        "webviews/src/agent-session/acpmux/HostError.tsx",
+        "webviews/src/pages/cloud/Notices.tsx",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneToolCard.swift"
+      ]
+    },
     "feature-tips": {
       "spec": "leo-workspace design/feature-tips.md",
       "aliases": [
@@ -244,6 +259,9 @@
         "cmux_exec"
       ],
       "paths": [
+        "webviews/src/agent-session/acpmux/PermissionCard.tsx",
+        "webviews/src/agent-session/acpmux/permissions/cardHeight.ts",
+        "webviews/src/agent-session/acpmux/question/QuestionCard.tsx",
         "webviews/src/agent-session/acpmux/conversation/McpCallRows.tsx",
         "webviews/src/agent-session/acpmux/conversation/mcpCalls.ts",
         "webviews/src/agent-session/acpmux/conversation/cmuxExec.ts",
@@ -340,7 +358,8 @@
         "home inbox"
       ],
       "paths": [
-        "webviews/src/pages/home-channels/"
+        "webviews/src/pages/home-channels/",
+        "webviews/src/pages/home-messages/"
       ]
     },
     "diff-viewer": {
@@ -403,7 +422,9 @@
         "Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/Share/AgentShareInviteCard.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/Share/AgentShareInviteRowView.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/AgentShareInviteSheetModel.swift",
-        "webviews/src/agent-session/guest/"
+        "webviews/src/agent-session/guest/",
+        "webviews/src/agent-session/acpmux/share/ShareNudge.tsx",
+        "webviews/src/agent-session/acpmux/share/shareNudgeModel.ts"
       ]
     },
     "icons": {
@@ -417,6 +438,30 @@
         "design/icons/source/",
         "webviews/src/agent-session/acpmux/icons/",
         "webviews/src/agent-session/acpmux/conversation/icons.tsx"
+      ]
+    },
+    "markdown-viewer": {
+      "spec": "leo-workspace design/markdown-viewer.md",
+      "aliases": ["markdown", "markdown viewer", "reading settings", "markdown page"],
+      "paths": [
+        "webviews/src/pages/markdown/"
+      ]
+    },
+    "ios-connectivity": {
+      "spec": "leo-workspace design/ios.md",
+      "aliases": ["ios connectivity", "ios reconnect", "ios reliability", "ios reliability matrix", "phone link", "mobile link", "iphone connection"],
+      "paths": [
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/LinkMachine.swift",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/LinkController.swift",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/LiveCoordinator+Links.swift",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/LinkPairing.swift",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/PresenceListener.swift",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTransport/",
+        "cmux-next-ios/rust/crates/cmux-mobile-link/src/",
+        "cmux-next-ios/rust/crates/cmux-mobile-host/src/link_socket.rs",
+        "cmux-next-ios/rust/crates/cmux-mobile-host/src/host.rs",
+        "cmux-next-ios/rust/crates/cmux-mobile-host/src/pairing.rs",
+        "cmux-next-ios/reliability-matrix/"
       ]
     }
   }

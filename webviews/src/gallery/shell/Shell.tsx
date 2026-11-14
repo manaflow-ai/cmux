@@ -74,6 +74,9 @@ function GalleryLinks({ address }: { address: Address }) {
   };
   return (
     <div className="gallery-header-links" aria-label="Gallery links">
+      <a href="app.html" title="One whole cmux window around the live agent pane">
+        Whole app
+      </a>
       <a href={permalink} title="Open this exact gallery state">
         Permalink
       </a>

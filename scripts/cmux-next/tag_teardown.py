@@ -60,11 +60,21 @@ def fnv1a(data):
     return value
 
 
+def path_identity(path):
+    """build_identity::path_identity: a path under `Application Support/cmux-next/{tags,builds}` named as it was before
+    NEXT's folder move (`Application Support/cmux/...`); every other path is its own name."""
+    parts = path.split("/")
+    for at in range(len(parts) - 2):
+        if parts[at] == "Application Support" and parts[at + 1] == "cmux-next" and parts[at + 2] in ("tags", "builds"):
+            return "/".join(parts[: at + 1] + ["cmux"] + parts[at + 2 :])
+    return path
+
+
 def holder_socket(host_root, uid=None):
-    """The socket of a host root's holder: `/tmp/cmux-hd-<uid>/<fnv1a of the root's bytes>.sock` (service.rs
+    """The socket of a host root's holder: `/tmp/cmux-hd-<uid>/<fnv1a of the root's path identity>.sock` (service.rs
     socket_path)."""
     uid = os.getuid() if uid is None else uid
-    return f"/tmp/cmux-hd-{uid}/{fnv1a(os.fsencode(host_root)):016x}.sock"
+    return f"/tmp/cmux-hd-{uid}/{fnv1a(os.fsencode(path_identity(host_root))):016x}.sock"
 
 
 def host_records(state_roots, uid=None):

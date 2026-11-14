@@ -1,0 +1,14 @@
+[package]
+name = "rust-change-class"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Sorts a cmux-tui Rust change by what it needs compiled, from a syntax diff (scripts/cmux-next/ci_apply.py)"
+
+# Its own workspace: a tool, not a cmux-tui crate, so cmux-tui's Cargo.lock never changes for it.
+[workspace]
+
+[dependencies]
+proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
+quote = "1.0.47"
+syn = { version = "2.0.119", features = ["full", "visit", "visit-mut"] }

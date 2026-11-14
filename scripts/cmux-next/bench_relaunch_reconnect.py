@@ -15,10 +15,10 @@ shown chat gets a live event (one that arrives within LIVE_EVENT_LAG_MS of when 
 webviews perf.ts). Modes:
 
   warm     the daemon keeps running (its streaming turn keeps it), same build: a plain relaunch.
-  update   the bundle is replaced in place while the app is gone, as an update does (renamed aside,
-           a copy put back, the old one deleted), so the running daemon's executable is gone: the
-           relaunched app hands it off (AcpmuxVersionHandoff) and starts the bundled one, which
-           adopts the streaming agent.
+  update   the bundle is replaced in place while the app is gone, as Sparkle's installer does (a copy
+           staged beside it, swapped in atomically, the old one deleted), so the running daemon's
+           executable is gone: the relaunched app hands it off (AcpmuxVersionHandoff) and starts
+           the bundled one, which adopts the streaming agent.
   cold     the daemon is stopped (SIGTERM) after the quit: the relaunched app starts one.
 
 Each round's phases, in ms since the relaunched app's process started (debug.timings' launch marks,
@@ -45,6 +45,7 @@ macOS only, on a fleet Mac (it launches the app with a scratch HOME).
 from __future__ import annotations
 
 import argparse
+import ctypes
 import glob
 import json
 import os
@@ -127,6 +128,9 @@ def daemon_log(home: str, since: float) -> tuple[dict, list[str]]:
     return found, kept
 
 
+RENAME_SWAP = 0x2  # <stdio.h>: renamex_np swaps the two paths
+
+
 def quit_app(sock: str, bundle: str):
     """The Quit action, as a person's Cmd-Q; SIGTERM (also a normal quit) when the app is still up after 20 s."""
     binary_dir = os.path.join(bundle, "Contents/MacOS")
@@ -144,12 +148,23 @@ def daemon_pids(bundle: str) -> set[int]:
 
 
 def replace_bundle(bundle: str):
-    """An update's swap: the bundle renamed aside, a copy (an APFS clone) put back, the old one deleted."""
-    aside = bundle.rstrip("/") + ".replaced"
-    shutil.rmtree(aside, ignore_errors=True)
-    os.rename(bundle, aside)
-    subprocess.run(["cp", "-cR", aside, bundle], check=True, timeout=600)
-    shutil.rmtree(aside, ignore_errors=True)
+    """An update's swap, as Sparkle's installer does it (SUPlainInstaller): the new copy (an APFS
+    clone) staged in a temporary folder on the bundle's volume, swapped with the installed bundle
+    in one `renamex_np(RENAME_SWAP)`, so the bundle's path never goes missing, then the old bundle
+    deleted. Sparkle deletes it right after it asks for the relaunch, seconds before the new app
+    looks at its daemon; deleting it before the relaunch keeps that order every round, so the
+    running daemon's executable is gone and the relaunched app hands it off
+    (AcpmuxVersionHandoff.replaced) as it does after a real update."""
+    bundle = bundle.rstrip("/")
+    staged = tempfile.mkdtemp(prefix=".bench-update-", dir=os.path.dirname(bundle))
+    try:
+        new = os.path.join(staged, os.path.basename(bundle))
+        subprocess.run(["cp", "-cR", bundle, new], check=True, timeout=600)
+        libc = ctypes.CDLL(None, use_errno=True)
+        if libc.renamex_np(new.encode(), bundle.encode(), RENAME_SWAP) != 0:
+            raise OSError(ctypes.get_errno(), "renamex_np(RENAME_SWAP) failed", bundle)
+    finally:
+        shutil.rmtree(staged, ignore_errors=True)
 
 
 def wait_live(sock: str, seconds: float) -> dict:

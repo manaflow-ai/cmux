@@ -34,11 +34,16 @@ fn params_of(file: &routes::RouteFile) -> Value {
         ("health_url", "healthUrl"),
         ("auto_fallback", "autoFallback"),
         ("account_home", "accountHome"),
+        ("shadow_of", "shadowOf"),
     ] {
         if let Some(x) = obj.remove(from) {
             obj.insert(to.into(), x);
         }
     }
+    // The file says `disabled` (left out when false); the RPC says `enabled`, so an edit that
+    // clears it (`enabled: null`) gets the default back.
+    let disabled = obj.remove("disabled").and_then(|d| d.as_bool()).unwrap_or(false);
+    obj.insert("enabled".into(), json!(!disabled));
     v
 }
 
@@ -172,7 +177,13 @@ pub(super) async fn handle(
             }
             let route = text("routeId").map(str::to_owned);
             if let Some(id) = &route {
-                routes::find(dir.as_deref(), id).map_err(|e| route_error(&e))?;
+                let found = routes::find(dir.as_deref(), id).map_err(|e| route_error(&e))?;
+                // A route turned off is no default: new chats would keep running on it.
+                if found.file.disabled {
+                    return Err(RpcError::invalid_params(format!(
+                        "{id} is turned off: turn it on before making it a default"
+                    )));
+                }
             }
             let bindings = routes::set_binding(&state, &scope, route.as_deref())
                 .map_err(|e| route_error(&e))?;

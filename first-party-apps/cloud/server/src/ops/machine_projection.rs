@@ -10,12 +10,17 @@
 //! older than what the projection holds (or than the removal it saw) is
 //! dropped, so a late event never undoes a newer answer.
 
-use crate::api::models::{Machine, Revision};
+use crate::api::models::{Machine, Revision, order};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// Removals kept to refuse older upserts of a removed machine.
 const TOMBSTONES: usize = 1024;
+/// Machines marked pushed at most (one per machine the app shows).
+const PUSHED_MAX: usize = 4096;
+/// Machines removed for good kept at most (a pushed removal; ids are never
+/// reused). Its own set, so evicting ordinary tombstones never revives one.
+const GONE_MAX: usize = 65_536;
 
 /// One `cloud.machine.watch` event. Events of one projection change share
 /// its revision; revisions only grow.
@@ -57,9 +62,26 @@ pub struct Projection {
     tombstones: BTreeMap<String, Revision>,
     tombstone_order: VecDeque<String>,
     sweep: Option<Sweep>,
+    /// Machines whose state the host pushes (`cloud.machine.state`): a parked
+    /// op on one of them waits for the push, and reads only as a fallback.
+    pushed: BTreeSet<String>,
+    /// Machines a pushed removal ended: no record of theirs comes back.
+    gone: BTreeSet<String>,
+    gone_order: VecDeque<String>,
 }
 
 impl Projection {
+    /// Whether the host pushes `id`'s state (a `cloud.machine.state` came).
+    pub fn is_pushed(&self, id: &str) -> bool {
+        self.pushed.contains(id)
+    }
+
+    pub(crate) fn mark_pushed(&mut self, id: &str) {
+        if self.pushed.len() < PUSHED_MAX || self.pushed.contains(id) {
+            self.pushed.insert(id.to_owned());
+        }
+    }
+
     pub fn revision(&self) -> u64 {
         self.revision
     }
@@ -89,9 +111,12 @@ impl Projection {
     /// holds for its id, and newer than any removal it saw (a record at the
     /// removal's revision is the one that was removed).
     fn current(&self, machine: &Machine) -> bool {
-        let known = self.machines.get(&machine.id).is_none_or(|m| machine.revision >= m.revision);
-        let removed = self.tombstones.get(&machine.id).is_none_or(|r| machine.revision > *r);
-        known && removed
+        let id = machine.id();
+        let known =
+            self.machines.get(id).is_none_or(|m| order(machine.revision(), m.revision()).is_ge());
+        let removed =
+            self.tombstones.get(id).is_none_or(|r| order(machine.revision(), r.as_str()).is_gt());
+        known && removed && !self.gone.contains(id)
     }
 
     /// Records a removal at `revision`; an older one never lowers it.
@@ -119,7 +144,7 @@ impl Projection {
             removed.into_iter().filter(|id| self.machines.contains_key(id)).collect();
         let upserts: Vec<Machine> = upserts
             .into_iter()
-            .filter(|m| self.current(m) && self.machines.get(&m.id) != Some(m))
+            .filter(|m| self.current(m) && self.machines.get(m.id()) != Some(m))
             .collect();
         if removed.is_empty() && upserts.is_empty() {
             return;
@@ -128,13 +153,13 @@ impl Projection {
         let revision = self.revision;
         for id in removed {
             if let Some(gone) = self.machines.remove(&id) {
-                self.tombstone(&id, gone.revision);
+                self.tombstone(&id, gone.revision_key());
             }
             self.events.push(WatchEvent::Removed { revision, id });
         }
         for machine in upserts {
-            self.tombstones.remove(&machine.id);
-            self.machines.insert(machine.id.clone(), machine.clone());
+            self.tombstones.remove(machine.id());
+            self.machines.insert(machine.record.id.clone(), machine.clone());
             self.events.push(WatchEvent::Upsert { revision, machine: Box::new(machine) });
         }
     }
@@ -157,7 +182,7 @@ impl Projection {
             _ => None,
         };
         if let Some(s) = sweep.as_mut() {
-            s.seen.extend(machines.iter().map(|m| m.id.clone()));
+            s.seen.extend(machines.iter().map(|m| m.record.id.clone()));
         }
         let removed = match (next_cursor, sweep) {
             (Some(next), Some(mut s)) => {
@@ -168,9 +193,9 @@ impl Projection {
             (None, Some(s)) => self
                 .machines
                 .values()
-                .filter(|m| !s.seen.contains(&m.id))
-                .filter(|m| s.at.as_ref().is_none_or(|at| m.revision <= *at))
-                .map(|m| m.id.clone())
+                .filter(|m| !s.seen.contains(m.id()))
+                .filter(|m| s.at.as_ref().is_none_or(|at| order(m.revision(), at.as_str()).is_le()))
+                .map(|m| m.record.id.clone())
                 .collect(),
             (_, None) => Vec::new(),
         };
@@ -184,6 +209,8 @@ impl Projection {
         self.apply(removed, Vec::new());
         self.tombstones.clear();
         self.tombstone_order.clear();
+        self.gone.clear();
+        self.gone_order.clear();
     }
 
     /// Writes one record unless it is older than the projection's.
@@ -197,10 +224,24 @@ impl Projection {
         self.apply(vec![id.to_owned()], Vec::new());
     }
 
+    /// A pushed removal (`cloud.machine.state` `removed`): the machine is
+    /// gone for good, so no stale record or read brings it back.
+    pub(crate) fn remove_final(&mut self, id: &str) {
+        if self.gone.insert(id.to_owned()) {
+            self.gone_order.push_back(id.to_owned());
+            if self.gone_order.len() > GONE_MAX
+                && let Some(oldest) = self.gone_order.pop_front()
+            {
+                self.gone.remove(&oldest);
+            }
+        }
+        self.apply(vec![id.to_owned()], Vec::new());
+    }
+
     /// `cloud.machine.removed {machine, revision}`: removes the machine
     /// unless the projection holds a newer record.
     pub(crate) fn remove_at(&mut self, id: &str, revision: Revision) {
-        if self.machines.get(id).is_some_and(|m| m.revision > revision) {
+        if self.machines.get(id).is_some_and(|m| order(m.revision(), revision.as_str()).is_gt()) {
             return;
         }
         self.tombstone(id, revision);

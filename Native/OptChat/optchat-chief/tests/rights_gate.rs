@@ -196,8 +196,7 @@ fn a_teammate_is_refused_then_allowed_after_a_grant_and_audit_shows_both() {
     let mut h = harness(Some(commercial()), held());
     h.agents.hold(true);
     say(&mut h, TEAMMATE, "@Chief what's in the workspace?");
-    h.step();
-    h.agents.wait_prompts(1);
+    h.step_to_prompts(1);
     wait_turn(&mut h);
     assert_eq!(h.agents.inner.lock().unwrap().specs[0].policy, "ask");
     let status = json!({"command": "ls -la"});
@@ -382,8 +381,7 @@ fn another_persons_chief_is_held_to_its_grants_and_may_be_answered() {
     h.brain.step(Input::PeerChiefNote {
         text: "[chief:ben-chief] what is the build status?".into(),
     });
-    h.step();
-    h.agents.wait_prompts(1);
+    h.step_to_prompts(1);
     wait_turn(&mut h);
     assert_eq!(h.agents.inner.lock().unwrap().specs[0].policy, "ask");
     let prompt = format!("{:?}", h.agents.inner.lock().unwrap().prompts);
@@ -513,8 +511,7 @@ fn a_hook_denial_asked_for_again_and_again_stops_the_turn() {
     let mut h = harness(Some(commercial()), held());
     h.agents.hold(true);
     say(&mut h, TEAMMATE, "@Chief look around");
-    h.step();
-    h.agents.wait_prompts(1);
+    h.step_to_prompts(1);
     wait_turn(&mut h);
     for _ in 0..4 {
         assert_eq!(

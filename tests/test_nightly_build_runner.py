@@ -20,6 +20,7 @@ import datetime as dt
 import gzip
 import io
 import json
+import re
 import os
 import itertools
 import sys
@@ -35,6 +36,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 import nightly_build_runner as picker  # noqa: E402
 from test_ci_fork_runner_routing import parse_expression  # noqa: E402
 from test_nightly_trusted_routing import DOC, evaluate  # noqa: E402
+import workflow_jobs  # noqa: E402
+
+
+def runs_on_text(job: dict, name: str) -> str:
+    """The job's runs-on as its one cell; a matrix nothing resolves, or more than one cell, fails."""
+    cells = workflow_jobs.runs_on_cells(job)
+    if cells is None or len(cells) != 1:
+        raise AssertionError(f"{name}: runs-on does not resolve to one value: {cells!r}")
+    return cells[0]
 
 NOW = dt.datetime(2026, 10, 27, 6, 0, tzinfo=dt.timezone.utc)
 SIDE = "glaeda-side-std-xcode-26.6"
@@ -749,7 +759,7 @@ class Workflow(unittest.TestCase):
     def test_no_guarded_job_reads_a_single_label_variable(self) -> None:
         for job in GUARDED:
             with self.subTest(job=job):
-                runs_on = DOC["jobs"][job]["runs-on"]
+                runs_on = runs_on_text(DOC["jobs"][job], job)
                 self.assertNotIn("CI_NIGHTLY_NEXT_BUILD_RUNNER", runs_on)
                 self.assertIn(f"needs.{GUARDED[job]}.outputs.owned", runs_on)
                 self.assertNotIn(f"needs.{GUARDED[job]}.outputs.blacksmith", runs_on)
@@ -759,7 +769,7 @@ class Workflow(unittest.TestCase):
         # failed jobs that kept an earlier attempt's pick included) is our plain nightly-only pool,
         # never Blacksmith (nightlies never use Blacksmith), whatever vars.MACOS_RUNNER_26 holds.
         for job, pick in GUARDED.items():
-            source = DOC["jobs"][job]["runs-on"].removeprefix("${{").removesuffix("}}")
+            source = runs_on_text(DOC["jobs"][job], job).removeprefix("${{").removesuffix("}}")
             for event, attempt, picked_for, owned, blacksmith, owned_on, variable in itertools.product(
                     ("push", "workflow_dispatch"), (1, 2, 3), ("1", "2", ""), ("", SIDE), ("", SMALL), ("1", "0"),
                     ("macos-26", "macos-15", SIDE, LARGE, "")):
@@ -783,7 +793,7 @@ class Workflow(unittest.TestCase):
         # builder's hook admits only build-nightly-app, so the helper never takes it.
         job = DOC["jobs"]["build-nightly-ghostty-cli-helper"]
         self.assertIn("pick-nightly-build-runner", job["needs"])
-        source = job["runs-on"].removeprefix("${{").removesuffix("}}")
+        source = runs_on_text(job, "build-nightly-ghostty-cli-helper").removeprefix("${{").removesuffix("}}")
         pick = "pick-nightly-build-runner"
         for event, attempt, picked_for, helper, dedicated, blacksmith in itertools.product(
                 ("push", "workflow_dispatch"), (1, 2), ("1", "2"), ("", SIDE, DEDICATED), ("", DEDICATED), ("", LARGE)):
@@ -826,7 +836,11 @@ class Workflow(unittest.TestCase):
                 self.assertEqual(step["env"]["DEDICATED_LABEL"], "${{ vars.CI_NIGHTLY_NEXT_DEDICATED_LABEL }}")
                 # The wait for a busy dedicated builder fits in the step and the job.
                 self.assertGreaterEqual(step["timeout-minutes"] * 60, picker.DEDICATED_WAIT_SECONDS + 120)
-                self.assertGreater(definition["timeout-minutes"], step["timeout-minutes"] + 2)
+                # One-mini mode adds room for glaeda's capacity wait (tests/test_nightly_mini_gate_timeouts.py):
+                # the smaller limit, the mode off, is the one that must hold.
+                limit = definition["timeout-minutes"]
+                limit = min(int(n) for n in re.findall(r"\b\d+\b", limit)) if isinstance(limit, str) else limit
+                self.assertGreater(limit, step["timeout-minutes"] + 2)
                 self.assertIn("steps.pick.outputs.owned", definition["outputs"]["owned"])
                 self.assertEqual(definition["outputs"]["blacksmith"], "${{ steps.pick.outputs.blacksmith }}")
                 # The helper's pick stands on the same terms as `owned`.
@@ -880,7 +894,7 @@ class Workflow(unittest.TestCase):
                                "github.event_name": event, "github.ref": "refs/heads/nightly-next",
                                "github.run_attempt": attempt, "vars.CI_PR_POOL_OWNED": "1",
                                **{f"needs.{pick}.outputs.{key}": value for key, value in out.items()}}
-                    source = DOC["jobs"][job]["runs-on"].removeprefix("${{").removesuffix("}}")
+                    source = runs_on_text(DOC["jobs"][job], job).removeprefix("${{").removesuffix("}}")
                     self.assertEqual(evaluate(parse_nightly_expression(source), context), SIDE)
                     # A re-run of failed jobs that kept the previous attempt's pick takes our nightly-only
                     # pool (never the warm builder label), so a refused owned label is never taken again, and never Blacksmith.

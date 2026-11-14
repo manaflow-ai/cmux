@@ -19,7 +19,7 @@ public nonisolated struct SidebarPullRequestBadge: Hashable, Sendable {
 
     public var count: Int
     public var status: Status
-    /// Each pull request, newest first, for the badge's hover card (`sidebar.pullRequestCard`);
+    /// Each pull request, newest first, for the badge's hover card (`SidebarPullRequestCard`);
     /// closed ones too, though the count and color leave them out.
     public var items: [SidebarPullRequestItem]
 
@@ -163,7 +163,7 @@ public final class SidebarSessionTree {
     public static let shared = SidebarSessionTree()
 
     public var state: SidebarSessionTreeState?
-    /// Every row's pull request badge (`sidebar.pullRequestBadges`), with the tree on or off.
+    /// Every row's pull request badge, with the tree on or off.
     public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
     /// The parents the user folded (a chevron on the row), kept across launches.
     public private(set) var collapsed: Set<WorkspaceID>

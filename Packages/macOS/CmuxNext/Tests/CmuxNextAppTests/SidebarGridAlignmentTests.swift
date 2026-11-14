@@ -7,10 +7,9 @@ import Testing
 /// capture is needed: the first test pins the existing layout adapters, and the second lays out each real row view.
 /// Keep the expected numbers independent of LayoutGrid so changing a token cannot bless drift.
 ///
-/// One number differs from grid.md: compact `lead` is 12, not 16. grid.md puts the highlight 8 from the edge and
-/// lead 8 inside it; the highlight keeps base's list inset (6 compact, 8 comfortable), and an iconless title starts
-/// `horizontalInset` inside its row (SidebarLookContractTests.titlesStartAsFarLeftAsTheRowAllows). Compact lead is
-/// therefore 6 + 6 = 12, the nearest grid line both allow; text stays lead + icon box + 8 (36 compact, 44 comfortable).
+/// `lead` differs from grid.md: grid.md puts the highlight 8 from the edge and lead 8 inside it; the highlight keeps
+/// base's list inset (6 compact, 8 comfortable), and an iconless title starts the row's content inset inside it, the
+/// room its text has above and below (Lawrence 2026-11-09, `SidebarStyle.contentInset`); text stays lead + icon box + 8.
 @MainActor @Suite(.serialized) struct SidebarGridAlignmentTests {
     nonisolated enum Kind: String, CaseIterable, Sendable {
         case workspace, item, app, link, sectionHeader, done, showMore, group
@@ -45,12 +44,15 @@ import Testing
     }
 
     /// grid.md `lead` from the sidebar edge, and `text` after a 16 / 20 icon box and an 8 gap.
-    nonisolated static func lead(_ comfortable: Bool) -> CGFloat { comfortable ? 16 : 12 }
-    nonisolated static func text(_ comfortable: Bool) -> CGFloat { comfortable ? 44 : 36 }
-    /// Trailing column `index`'s center in a 304 pt row: a status mark's half plus the row inset (13 compact, 15
-    /// comfortable; plus 20 a column) in from the row's end (Leo 2026-11-04: "too much of a gutter on the right").
+    /// Lawrence 2026-11-09 (even padding on all four sides): lead is the row's gap (6 / 8) plus its content inset, the
+    /// room its title has above its capitals (`SidebarStyle.contentInset`, from the title font), not the gap again.
+    static func lead(_ comfortable: Bool) -> CGFloat { (comfortable ? 8 : 6) + SidebarStyle.contentInset }
+    static func text(_ comfortable: Bool) -> CGFloat { lead(comfortable) + (comfortable ? 20 : 16) + 8 }
+    /// Trailing column `index`'s center in a 304 pt row: half the 10 pt status glyph plus the row inset (11 compact, 13
+    /// comfortable; plus 20 a column) in from the row's end (Lawrence 2026-11-05: "padding on left/right of every
+    /// workspace needs to be even").
     static func column304(_ index: Int) -> CGFloat {
-        304 - (SidebarStyle.horizontalInset + 7) - CGFloat(index) * 20
+        304 - (SidebarStyle.contentInset + 5) - CGFloat(index) * 20
     }
 
     /// Existing APIs only: this test compiles on the pre-fix stack and fails on its old insets,
@@ -74,12 +76,14 @@ import Testing
             let expectedText = c.kind == .sectionHeader ? Self.lead(c.comfortable) : Self.text(c.comfortable)
             #expect(abs(origin + lead - Self.lead(c.comfortable) - CGFloat(c.depth * 7)) <= 0.5)
             #expect(abs(origin + text - expectedText - CGFloat(c.depth * 7)) <= 0.5)
-            // A control's size never changes its center: 19 / 23 pt from the edge (Leo 2026-11-04). A second column is one 20 pt pitch in.
+            // A control's size never changes its center (Lawrence 2026-11-05): the trailing column, the row's even content
+            // inset plus half a status glyph inside the fill (Lawrence 2026-11-09, padding even on every side). A second
+            // column is one 20 pt pitch in.
             for index in 0..<c.marks {
                 let side: CGFloat = index == 0 ? 16 : 12
                 let mark = SidebarStyle.trailingColumnFrame(rowWidth: width - CGFloat(index) * 20,
                                                            centerY: height / 2, side: side)
-                #expect(abs(origin + mark.midX - (320 - (c.comfortable ? 23 : 19) - CGFloat(index) * 20)) <= 0.5)
+                #expect(abs(origin + mark.midX - (320 - SidebarStyle.trailingCenterFromEdge - CGFloat(index) * 20)) <= 0.5)
                 #expect(abs(mark.midY - height / 2) <= 0.5)
             }
         }
@@ -300,7 +304,7 @@ extension SidebarGridAlignmentTests {
                 #expect(abs(frame.maxX - (320 - SidebarStyle.rowEdgeGap)) <= 0.5)
                 let columns = SidebarStyle.columns(rowWidth: frame.width, leadingOffset: reach)
                 #expect(abs(frame.minX + columns.lead - Self.lead(comfortable) - CGFloat(depth * 7)) <= 0.5)
-                #expect(abs(frame.minX + columns.trailingCenter() - (320 - SidebarStyle.rowEdgeGap - SidebarStyle.horizontalInset - 7)) <= 0.5)
+                #expect(abs(frame.minX + columns.trailingCenter() - (320 - SidebarStyle.rowEdgeGap - SidebarStyle.contentInset - 5)) <= 0.5)
             }
         }
     }
@@ -338,7 +342,8 @@ extension SidebarGridAlignmentTests {
             let group = try #require(Self.view(groupCase, width: 312, height: height) as? GroupHeaderRowView)
             group.onAdd = {}
             group.layout()
-            #expect(group.titleFont.pointSize == (comfortable ? 12 : 11))
+            // The rows' own title size, semibold (Leo 2026-11-05, on the 11 pt header name: "it just looks sad").
+            #expect(group.titleFont.pointSize == SidebarStyle.titleFont.pointSize)
             #expect(group.moreButton.frame.size == CGSize(width: SidebarStyle.controlSize, height: SidebarStyle.controlSize))
             #expect(group.addButton.frame.size == CGSize(width: SidebarStyle.controlSize, height: SidebarStyle.controlSize))
             let chevron = try #require(group.subviews.first { $0 is DisclosureChevronView })
@@ -421,6 +426,8 @@ extension SidebarGridAlignmentTests {
             let ink = try #require(item.glyphInkFrame)
             // Band rows own their outer inset: the row starts at the sidebar edge less the rail inset (0 here).
             let lead = Self.lead(comfortable) - origin + SidebarStyle.horizontalInset
+            // A band row's glyph starts its ink on the icon column's leading edge, where text-only titles start
+            // (https://github.com/manaflow-ai/cmux/issues/38061; Lawrence 2026-11-09, "not left aligned").
             #expect(abs(ink.minX - lead) <= 0.5)
             #expect(abs(item.titleFrame.minX - (lead + box) - 8) <= 0.5)
         }

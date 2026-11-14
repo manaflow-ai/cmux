@@ -21,10 +21,12 @@ same controls.
   the window when the menu opens (`sideAwayFromChat`), never from which page it is. A composer
   whose middle is in the lower half of the window has the chat above it: its menus open down. One
   in the upper half (New Tab, with the chats under it) opens them up.
-- **When that side is short of room:** the menu keeps its side and slides along it to stay in the
-  window, over its own composer (`flip: "shift"`, `ui/openSide.ts`), so it never opens onto the
-  chat. It may cover its own control while open. The side is chosen once, on open, and holds
-  while the list filters or refreshes.
+- **When that side is short of room:** the list shrinks to the room there, down to two rows. When
+  even that does not fit (a new chat's composer at the window's foot), the menu opens on the other
+  side. A menu never covers its own control (Lucas 2026-11-07): the control stays visible and a
+  second press on it closes the menu, and the menu still grows from its control. The side is
+  chosen once, on open, and holds while the list filters or refreshes (`locationMenuSide`,
+  `locationPopover.ts`).
 - **Outside a composer** (a gallery stage, any host without one) the menus keep the shared rule:
   below when the full menu fits, else the side with more room.
 - Menus open on the click, in one frame, with no fade-in (rulebook); closing may fade.
@@ -54,7 +56,7 @@ same controls.
 ## Gallery
 
 `agent-pane.composer-context-away`: both composer positions with each menu open (the plays fail on
-a menu that opens toward the chat), and the strip's surface variants. Picked: plain text over the
+a menu that opens on the wrong side or covers its control), and the strip's surface variants. Picked: plain text over the
 box. The bump, the tray and the plus-edge alignment stay Debug choices
 (`agentPane.debug.topStripStyle`).
 

@@ -39,6 +39,11 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         didSet { if usesStatusColors != oldValue { needsDisplay = true } }
     }
 
+    /// Optional host-resolved identity ink. Changes only the spinner, never status colours.
+    public var spinnerColor: NSColor? {
+        didSet { if spinnerColor != oldValue { needsDisplay = true } }
+    }
+
     /// The diameter a dot glyph paints, centered in the view whatever its size
     /// (``StatusIndicatorLayer/dotDiameter``); nil paints it at its share of the view.
     public var dotDiameter: CGFloat? {
@@ -78,6 +83,16 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         self.state = state
         styleHint = style
         refresh()
+    }
+
+    /// Plays the one-shot settle on the glyph just shown (``StatusIndicatorLayer/playSettle()``):
+    /// the host calls it on a state transition only (a row's work finished). Nothing plays while
+    /// the view is out of a window, hidden (its own flag or an ancestor's) or its window is not
+    /// visible (occluded, minimized, another Space): the glyph is already in its end state, so a
+    /// skipped settle leaves nothing to catch up.
+    public func settle() {
+        guard let window, window.occlusionState.contains(.visible), !isHiddenOrHasHiddenAncestor else { return }
+        indicator.playSettle()
     }
 
     /// Whether `state` would draw anything with the current config (hosts
@@ -169,7 +184,9 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     public override func updateLayer() {
         performWithTheme {
             let loading = StatusIndicatorAppearance.shared.config.settings.color
-            indicator.colors = usesStatusColors ? .status(loading: loading) : .current(loading: loading)
+            var colors: StatusIndicatorLayer.Colors = usesStatusColors ? .status(loading: loading) : .current(loading: loading)
+            if let spinnerColor { colors.spinner = spinnerColor.cgColor }
+            indicator.colors = colors
         }
     }
 

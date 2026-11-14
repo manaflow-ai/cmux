@@ -1,11 +1,13 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextBridge
 import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextWorkspaceRepair
 import Foundation
 
 /// Move to Cloud (cmuxterm-hq#1874 slice 3): the one action behind the palette's
@@ -13,10 +15,10 @@ import Foundation
 /// For a chat tab of this Mac it reuses a Cloud machine (the named one, else a
 /// connected one, else any, else a new one), copies the chat's folder there
 /// (`cmux link seed push`), moves the chat (`cmux link agent move`), and shows
-/// it on that machine: a Cloud workspace whose terminal runs in the synced
-/// folder and whose chat tab is bound to the moved session through the
-/// machine's store, so the tab attaches through that machine and carries its
-/// badge. This Mac's tab, whose chat the move closed, closes.
+/// it on that machine: a Cloud workspace whose only tab is the chat, bound to
+/// the moved session through the machine's store, so the tab attaches through
+/// that machine and carries its badge, in place of this Mac's tab (``open``),
+/// which closes with its chat.
 ///
 /// The chat keeps its session, history, draft and queue, not its tab id: a tab
 /// lives in exactly one machine's store, which mints its ids, and a chat on a
@@ -50,32 +52,71 @@ struct CloudMove {
         return back
     }
 
+    /// Why the invocation's tab cannot move (its menu rows disabled with it, every run refused); nil when a Retry only reopens it.
+    func refusal(_ invocation: ActionInvocation, context: AppActionContext) -> String? {
+        // An agent's run names its own chat, not the focused tab: its ask checks that chat (``CloudMoveAsks``).
+        guard !CloudMoveAsks.isAgent(invocation), let (tab, _) = context.daemonTab(invocation), let reason = Self.refusal(tab, services) else { return nil }
+        if case .show = services.cloud.moveRetries[tab.id] { return nil } // read only on a refusal: a defaults read per menu validation
+        return reason
+    }
+
+    private static func refusal(_ tab: TabModel, _ services: AppServices) -> String? {
+        guard let record = tab.agentSession else { return CloudMoveStrings.notAChat }
+        guard services.machines.daemon(forTab: tab).isLocal, !record.host.hasPrefix(ChiefHomeAcpmux.hostPrefix),
+              !record.host.hasPrefix(MachineRegistry.registryHostPrefix) else { return CloudMoveStrings.alreadyRemote }
+        return session(tab, services) == nil ? CloudMoveStrings.noSession : nil
+    }
+
+    private static func session(_ tab: TabModel, _ services: AppServices) -> String? {
+        services.agentTabs.sessions[services.agentTabs.tabKey(tab.id, machine: services.machines.daemon(forTab: tab).machineID)] ?? tab.agentSession?.session
+    }
+
     /// Starts the move of the invocation's chat tab. Throws, before anything
     /// moves, when the tab is not a chat of this Mac with a session.
     func start(_ invocation: ActionInvocation, context: AppActionContext) throws {
         guard let (tab, pane) = context.daemonTab(invocation) else { return }
         let retries = services.cloud.moveRetries
         var left = retries[tab.id]
-        // Kept across launches: a pin to a machine that no longer exists would refuse every move of
-        // this tab, so it goes, and so does a retry kept for a tab that is no chat.
-        if case .move(let machineID) = left, services.cloud.hasLoadedMachines, services.machines.session(machineID) == nil { left = nil }
+        // Kept across launches: any uncommitted rerun's pin (move, ask first, Update Machine) to a machine gone from
+        // the signed-in account's list would refuse every move of this tab, so it goes, as does a retry of a non-chat.
+        if let machineID = left?.machineID, services.cloud.hasLoadedCurrentMachines, services.machines.session(machineID) == nil { left = nil }
         if tab.agentSession == nil { left = nil }
         if left != retries[tab.id] { retries[tab.id] = left }
         if case .show(let shown) = left { return perform(tab: tab, invocation: invocation) { try await reshow(shown, tab: tab, invocation: invocation) } }
-        guard let record = tab.agentSession else { throw ActionFailure(message: CloudMoveStrings.notAChat) }
-        let tabs = services.agentTabs
-        guard services.machines.daemon(forTab: tab).isLocal, !record.host.hasPrefix(ChiefHomeAcpmux.hostPrefix),
-              !record.host.hasPrefix(MachineRegistry.registryHostPrefix) else {
-            throw ActionFailure(message: CloudMoveStrings.alreadyRemote)
-        }
-        guard let session = tabs.sessions[tabs.resolve(tab.id)] ?? record.session else { throw ActionFailure(message: CloudMoveStrings.noSession) }
+        if let reason = Self.refusal(tab, services) { throw ActionFailure(message: reason) }
+        guard let record = tab.agentSession, let session = Self.session(tab, services) else { return }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         var invocation = invocation
+        // A person's Retry pinned to a machine since deleted drops the pin, as a kept pin does above.
+        if invocation.origin == .user, services.cloud.hasLoadedCurrentMachines, let pinned = invocation["machine"]?.stringValue,
+           services.machines.session(pinned) == nil {
+            invocation.arguments["machine"] = nil
+        }
         // An unresolved move finishes on the machine it started on.
         if let machineID = left?.machineID, invocation["machine"] == nil { invocation.arguments["machine"] = .string(machineID) }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
         perform(tab: tab, invocation: invocation) { [invocation] in
-            try await run(tab: tab, in: pane, record: record, session: session, cli: cli, invocation: invocation)
+            try await Self.updatingFirst(invocation) { invocation in
+                try await run(tab: tab, in: pane, record: record, session: session, cli: cli, invocation: invocation)
+            }
+        }
+    }
+
+    /// Runs `body` with `invocation`. When the person started it in this app and it stopped on a
+    /// machine whose cmux is too old (a stop whose Retry is "Update Machine"), it runs once more as
+    /// that button would: the machine is updated first (``CloudMachineUpdate``), then the chat moves,
+    /// with no stop for the person to clear. A run from the CLI, MCP, a script or an agent never
+    /// updates a machine: it stops with the button, as before.
+    static func updatingFirst(_ invocation: ActionInvocation, _ body: (ActionInvocation) async throws -> String) async throws -> String {
+        do {
+            return try await body(invocation)
+        } catch let failure as Failure {
+            guard invocation.origin == .user, !CloudMachineUpdate.requested(invocation),
+                  case .update(let machineID)? = failure.retry else { throw failure }
+            var again = invocation
+            again.arguments[CloudMachineUpdate.argument] = .bool(true)
+            again.arguments["machine"] = .string(machineID)
+            return try await body(again)
         }
     }
 
@@ -85,9 +126,13 @@ struct CloudMove {
         let toastID = "cloud-move-" + tab.id
         let tabID = tab.id
         let retries = services.cloud.moveRetries
-        toast(toastID, CloudMoveStrings.moving, duration: Self.working)
-        // An agent's ask in the chat shows the move too (``CloudMoveAsks``).
+        // An agent's ask in the chat shows the move on its card (``CloudMoveAsks``): then the card
+        // alone says its progress and failure, never a toast as well. Success still toasts, since
+        // the card goes when the chat moved.
         let asks = services.cloud.moveAsks
+        let carded = asks.hasCard(tabID)
+        // A failure toast an earlier move without a card left up (with its Retry) goes too.
+        if carded { CmuxToastCenter.shared.close(id: toastID) } else { toast(toastID, CloudMoveStrings.moving, duration: Self.working) }
         asks.moveStarted(tabID, services: services)
         let work: ActionWork = Task { @MainActor in
             do {
@@ -97,7 +142,7 @@ struct CloudMove {
                 asks.moveEnded(tabID, failure: nil, services: services)
                 return nil
             } catch {
-                let failure = stopped(error, tab: tabID, toast: toastID, invocation: invocation)
+                let failure = stopped(error, tab: tabID, toast: carded ? nil : toastID, invocation: invocation)
                 asks.moveEnded(tabID, failure: failure.message, services: services)
                 return failure
             }
@@ -105,8 +150,9 @@ struct CloudMove {
         services.registry.track(work)
     }
 
-    /// A stop: records what Retry does for tab `tabID` and offers it on the toast.
-    private func stopped(_ error: any Error, tab tabID: String, toast toastID: String, invocation: ActionInvocation) -> ActionWorkFailure {
+    /// A stop: records what Retry does for tab `tabID` and offers it on the toast (none when
+    /// `toastID` is nil: the chat's card says it, and any move toast still up closes).
+    private func stopped(_ error: any Error, tab tabID: String, toast toastID: String?, invocation: ActionInvocation) -> ActionWorkFailure {
         // Any other error keeps the Retry a stop saved before (a move pinned to its machine).
         let failure = (error as? Failure) ?? Failure(message: (error as? ActionFailure)?.message ?? CloudMoveStrings.moveFailed(CloudStrings.errorText(error)),
                                                      retry: services.cloud.moveRetries[tabID])
@@ -121,10 +167,15 @@ struct CloudMove {
             let registry = services.registry
             let again = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tabID), arguments: arguments, origin: .user)
             retry = { _ = registry.perform(Self.action, invocation: again) }
+        } else if !(error is Failure), !(error is ActionFailure) { // an unexpected error (no network): Retry runs the move again
+            let registry = services.registry, again = ActionInvocation(target: invocation.target, arguments: invocation.arguments, origin: .user)
+            retry = { _ = registry.perform(Self.action, invocation: again) }
         }
         var title = CloudMoveStrings.retry
         if case .update = failure.retry { title = CloudMachineUpdateStrings.button }
-        Self.toast(services, toastID, failure.message, duration: .seconds(retry == nil ? 12 : 60), retry: retry, retryTitle: title)
+        if let toastID { Self.toast(services, toastID, failure.message, duration: .seconds(retry == nil ? 12 : 60), retry: retry, retryTitle: title) }
+        // The card says the failure: a toast the move's machine update left up goes.
+        else { CmuxToastCenter.shared.close(id: "cloud-move-" + tabID) }
         return ActionWorkFailure(failure.message)
     }
 
@@ -144,11 +195,16 @@ struct CloudMove {
               let localSocket = await services.daemon.connection?.endpoint?.socketPath else {
             throw Failure(message: CloudMoveStrings.notConnected(name), retry: again)
         }
-        // Only the person's "Update Machine" updates the machine first.
+        // Only the person's move updates the machine first: their "Update Machine", or their move that
+        // found the machine too old (``updatingFirst(_:_:)``).
         if CloudMachineUpdate.requested(invocation) {
-            try await CloudMachineUpdate.run(services, name: name, socket: machineSocket, cli: cli, toast: "cloud-move-" + tab.id,
+            // The chat's card says the move (``perform``): then no update toast, and any toast up goes.
+            let carded = services.cloud.moveAsks.hasCard(tab.id)
+            try await CloudMachineUpdate.run(services, name: name, socket: machineSocket, cli: cli, toast: carded ? nil : "cloud-move-" + tab.id,
                                              retry: .update(machineID: machine.machineID))
-            toast("cloud-move-" + tab.id, CloudMoveStrings.moving, duration: Self.working)
+            if carded { CmuxToastCenter.shared.close(id: "cloud-move-" + tab.id) } else {
+                toast("cloud-move-" + tab.id, CloudMoveStrings.moving, duration: Self.working)
+            }
         }
         let remote = try await sync(folder, to: machineSocket, machine: name, cli: cli, retry: again)
         let owner = await Self.ownerAnswer(machine)
@@ -163,18 +219,18 @@ struct CloudMove {
             services.cloud.logger.error("cloud move: link agent move: \(String(describing: error), privacy: .public)")
             throw Failure(message: CloudMoveStrings.unresolved, retry: again)
         }
-        guard moved.ok, let movedSession = moved.sessionID else { throw Self.failure(moving: moved, machine: name, retry: again) }
+        guard moved.ok, let movedSession = moved.sessionID else { throw CloudMoveFailure.moving(moved, machine: name, retry: again) }
         // Bring Back Local merges into this folder, and offers itself only for chats recorded here.
         if let host = AgentTabStore.registryHost(of: machine.daemon) {
             let local = folder.subpath.isEmpty ? folder.root : folder.root + "/" + folder.subpath
             services.cloud.movedChats.record(CloudMovedChats.Entry(machineID: machine.machineID, host: host, session: movedSession, harness: record.harness,
                                                                    localRoot: folder.root, localChat: local, remoteFolder: remote.folder,
-                                                                   remoteChat: remote.chat, name: workspace?.name))
+                                                                   remoteChat: remote.chat, name: Self.movedName(workspace, folder: chat)))
             services.cloud.accessAsks.start(services: services)
         }
         // The move committed: from here Retry only opens the chat's tab on the machine.
         let shown = CloudMoveRetries.Shown(session: movedSession, harness: record.harness, machineID: machine.machineID, folder: remote.chat,
-                                           name: workspace?.name, key: moved.transferID ?? movedSession)
+                                           name: Self.movedName(workspace, folder: chat), key: moved.transferID ?? movedSession)
         // A quit or a crash before the tab opens leaves the relaunched app only opening it.
         services.cloud.moveRetries[tab.id] = .show(shown)
         try await finish(shown, on: machine, tab: tab)
@@ -185,6 +241,8 @@ struct CloudMove {
     private func reshow(_ shown: CloudMoveRetries.Shown, tab: TabModel, invocation: ActionInvocation) async throws -> String {
         let retry = CloudMoveRetries.Retry.show(shown)
         guard let session = services.machines.session(shown.machineID) else {
+            // Gone from the loaded machine list: deleted, so a Retry could never reach it and none is kept.
+            if services.cloud.hasLoadedCurrentMachines { throw Failure(message: CloudMoveStrings.machineDeleted) }
             throw Failure(message: CloudMoveStrings.noSuchMachine(shown.machineID), retry: retry)
         }
         let machine: CloudMachineSession
@@ -200,7 +258,8 @@ struct CloudMove {
     /// Opens the moved chat's tab on `machine`, then closes this Mac's tab, whose chat closed with the move.
     private func finish(_ shown: CloudMoveRetries.Shown, on machine: CloudMachineSession, tab: TabModel) async throws {
         do {
-            try await show(shown.session, harness: shown.harness, on: machine, in: shown.folder, name: shown.name, key: shown.key)
+            try await Self.open(shown, host: AgentTabStore.registryHost(of: machine.daemon), hostName: machine.machine.title, on: machine.daemon,
+                                repair: machine.emptyWorkspaces, mutation: "cloud-move-", leaving: tab, services: services)
         } catch {
             throw Failure(message: CloudMoveStrings.tabFailed(machine.machine.title, CloudStrings.errorText(error)), retry: .show(shown))
         }
@@ -212,12 +271,14 @@ struct CloudMove {
         }
     }
 
-    /// Syncs `folder` under the first of the machine's work roots it can write.
-    private func sync(_ folder: CloudMoveFolder, to socket: String, machine: String, cli: CloudMoveCLI,
-                      retry: CloudMoveRetries.Retry) async throws -> (folder: String, chat: String) {
+    /// Syncs `folder` under the first of the machine's work roots it can write, its folder name ending in `suffix`
+    /// (Move to Another Machine's machine id: this Mac keeps one push record per local and machine folder, so two
+    /// machines' copies at one path would overwrite each other's).
+    func sync(_ folder: CloudMoveFolder, to socket: String, machine: String, cli: CloudMoveCLI, retry: CloudMoveRetries.Retry,
+              suffix: String = "") async throws -> (folder: String, chat: String) {
         var last = CloudMoveCLI.Answer(ok: false)
         for root in services.cloud.move.workRoots {
-            let remote = folder.remote(under: root)
+            let remote = Self.remote(folder, under: root, suffix: suffix)
             do {
                 last = try await cli.seedPush(socket: socket, local: folder.root, remote: remote.folder)
             } catch {
@@ -228,13 +289,14 @@ struct CloudMove {
             // Not this machine's home (an image without the work user): the next root.
             guard last.errorCode == "fs.permission_denied" else { break }
         }
-        throw Self.failure(syncing: last, machine: machine, retry: retry)
+        throw CloudMoveFailure.syncing(last, machine: machine, retry: retry)
     }
 
-    /// A failed copy's failure: an outdated machine's Retry updates it first.
-    static func failure(syncing answer: CloudMoveCLI.Answer, machine: String, retry: CloudMoveRetries.Retry) -> Failure {
-        if answer.errorCode == CloudMoveStrings.outdatedCode { return Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating) }
-        return Failure(message: CloudMoveStrings.syncFailed(machine, answer.error ?? answer.errorCode ?? ""), retry: retry)
+    /// `folder`'s place under `root` on a machine, its folder name ending in `suffix` (``sync``).
+    static func remote(_ folder: CloudMoveFolder, under root: String, suffix: String) -> (folder: String, chat: String) {
+        let remote = folder.remote(under: root)
+        guard !suffix.isEmpty else { return remote }
+        return (remote.folder + suffix, remote.folder + suffix + String(remote.chat.dropFirst(remote.folder.count)))
     }
 
     /// The chat's folder on this Mac: the `path` argument (the CLI makes a
@@ -255,16 +317,17 @@ struct CloudMove {
         return (chats + tabs).lazy.compactMap(\.cwd).first { $0.hasPrefix("/") }
     }
 
-    /// The machine the chat moves to, connected; a new one is sized for the chat (`pick`).
-    func machine(_ invocation: ActionInvocation, pick: () async -> CloudWorkPick?) async throws -> CloudMachineSession {
-        let machines = services.machines
+    /// The machine the chat moves to, connected, never `except` (the one it leaves); a new one is sized for the chat (`pick`).
+    func machine(_ invocation: ActionInvocation, except: String? = nil, pick: () async -> CloudWorkPick?) async throws -> CloudMachineSession {
+        let machines = services.machines, others = machines.cloud.filter { $0.machineID != except }
         let named = invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue
-        if let named {
+        // The machine a chat leaves is never its target (an update of it names it as the machine to rerun on).
+        if let named, (named.hasPrefix("machine:") ? String(named.dropFirst("machine:".count)) : named) != except {
             let id = named.hasPrefix("machine:") ? String(named.dropFirst("machine:".count)) : named
             guard let session = machines.session(id) else { throw Failure(message: CloudMoveStrings.noSuchMachine(id), retry: .move(machineID: id)) }
             return try await Self.connected(session, invocation)
         }
-        if let live = machines.cloud.first(where: { $0.daemon.connection != nil }) ?? machines.cloud.first {
+        if let live = others.first(where: { $0.daemon.connection != nil }) ?? others.first {
             return try await Self.connected(live, invocation)
         }
         let created = try await services.cloud.createMachine(name: nil, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession,
@@ -272,94 +335,60 @@ struct CloudMove {
         return try await Self.connected(created, invocation)
     }
 
-    /// The Cloud API's answer on the link in use, read now and never kept: the machine takes the chat only on
-    /// `owner`. The legacy link's is bound to its link process (`toPID`); the app link's carrier has none.
+    /// The Cloud API's answer on the link, read now and never kept: the machine takes the chat only on
+    /// `owner`. The app link's carrier has no link process (`toPID`).
     static func ownerAnswer(_ session: CloudMachineSession) async -> (vmKind: String, toPID: Int32?) {
-        if let appLink = session.appLink { return (await appLink.ownerLink == nil ? "none" : "owner", nil) }
-        return await session.link?.ownerPID.map { ("owner", $0) } ?? ("none", nil)
+        (await session.appLink.ownerLink == nil ? "none" : "owner", nil)
     }
 
     static func connected(_ session: CloudMachineSession, _ invocation: ActionInvocation) async throws -> CloudMachineSession {
         // A paused machine (idle auto-pause) resumes on this attach; a live one connects. A
         // record that may be stale (paused behind the app) is read again first.
         try CloudHandlers.requireAttachableState(session)
-        // Every first send from a workspace waits here for its new machine (Leo, 2026-11-04: "why is it taking so long to start a chat
-        // \"in cloud\"?"): read 1 s apart for the first 20 reads, then 3 s (80 reads, about 3 min), and a pause ends
-        // as soon as another read shows it running.
-        await session.untilRunning(pause: { attempt in
-            _ = await CloudWait.holds(within: .seconds(attempt <= 20 ? 1 : 3)) { session.machine.status == .running }
-            try Task.checkCancellation()
-        })
+        // A new machine that still binds: the app link's connect waits in the Cloud app server until it runs
+        // (cloud.machine.upsert or its own read of that machine), never a list read from here.
         if session.daemon.connection == nil {
             await session.refreshIfMaybePaused()
             try CloudHandlers.requireAttachableState(session)
             if session.machine.status == .paused { session.attach(origin: CloudHandlers.connectOrigin(for: invocation)) } else { session.connect(origin: CloudHandlers.connectOrigin(for: invocation)) }
         }
-        session.beginLegacyAttempt()
-        let daemon = session.daemon
-        // A failed resume ends the wait at once, with its reason, and so does a legacy link start that no
-        // retry can help (a refusal: signed out, a plan, the server's 4xx). Within the wait a link that
-        // ended is dialed again every 30 s: an app link's connect, or a legacy link's backoff woken now.
-        guard await CloudWait.holds(tries: 6, each: .seconds(30), redial: {
-            if session.appLink != nil, session.linkEnded != nil, session.machine.status == .running { session.retryNow() }
-            if session.link != nil, session.legacyLinkFailure != nil, session.machine.status.isLive { session.retryNow() }
-        }, until: {
-            session.resumeFailure != nil || session.legacyLinkFailure?.definitive == true
-                || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
-        }) else {
-            throw Failure(message: notConnected(session), retry: .move(machineID: session.machineID))
-        }
+        let up = await session.linkUp(within: CloudStartSession.connectWait)
         if let failure = session.resumeFailure { throw Failure(message: failure, retry: .move(machineID: session.machineID)) }
-        if daemon.connection == nil || AgentTabStore.registryHost(of: daemon) == nil {
+        guard up, session.daemon.connection != nil, AgentTabStore.registryHost(of: session.daemon) != nil else {
             throw Failure(message: notConnected(session), retry: .move(machineID: session.machineID))
         }
         return session
     }
 
-    /// Why `session` did not connect, in the person's words: the legacy link's step that failed and its
-    /// reason when one is known, else the plain "didn't connect".
+    /// Why `session` did not connect, in the person's words.
     static func notConnected(_ session: CloudMachineSession) -> String {
-        guard let failure = session.legacyLinkFailure else { return CloudMoveStrings.notConnected(session.machine.title) }
-        return CloudMoveStrings.notConnected(session.machine.title, step: failure.step, reason: failure.reason)
+        CloudMoveStrings.notConnected(session.machine.title)
     }
 
-    /// Shows the moved chat on `machine`: a new Cloud workspace with a terminal
-    /// in `folder`, then the chat's tab bound to `session` through the
-    /// machine's store, selected; filed into the window, and shown when the run
-    /// may change the view. `key` makes the chat tab's creation idempotent.
-    private func show(_ session: String, harness: String?, on machine: CloudMachineSession, in folder: String, name: String?, key: String) async throws {
-        let daemon = machine.daemon
-        guard let connection = daemon.connection, let host = AgentTabStore.registryHost(of: daemon) else { throw DaemonError.notConnected }
-        let record = AgentSessionRef(host: host, hostName: machine.machine.title, session: session, harness: harness)
-        let workspace = WorkspaceKey.generate()
-        let created = try await WorkspaceCreation.createWithFirstTab(workspace, name: name, on: connection, repair: machine.emptyWorkspaces) { result in
-            try await connection.createTerminal(in: result.key, cwd: folder)
-            return try await connection.request(NewConversationTabRequest(agentSession: record, workspace: result.workspace,
-                                                                          origin: AgentTabStore.createOrigin, mutationID: "cloud-move-" + key))
+    /// Opens a moved chat (Move to Cloud's, Bring Back Local's) on `daemon`, bound to `shown.session` through `host`: a workspace placed
+    /// like Cmd-N whose only tab is the chat's (made once: `mutation` + `shown.key`), selected. No terminal first: as the first tab it took
+    /// the window and `--focus` (capture baf4f76ab502); a new terminal beside the chat starts in its folder. Each window that
+    /// showed `tab`, the tab the chat leaves, shows it there even for a run with no `--focus`, as focus follows a moved tab.
+    static func open(_ shown: CloudMoveRetries.Shown, host: String?, hostName: String?, on daemon: DaemonService, repair: EmptyWorkspaceRepair,
+                     mutation: String, leaving tab: TabModel, services: AppServices) async throws {
+        guard let connection = daemon.connection, let host else { throw DaemonError.notConnected }
+        let record = AgentSessionRef(host: host, hostName: hostName, session: shown.session, harness: shown.harness)
+        let workspace = NewWorkspacePlacements.placedKey(in: services.windows)
+        let created = try await WorkspaceCreation.createWithFirstTab(workspace, name: shown.name, on: connection, repair: repair) { result in
+            try await connection.request(NewConversationTabRequest(agentSession: record, workspace: result.workspace,
+                                                                   origin: AgentTabStore.createOrigin, mutationID: mutation + shown.key))
         }
-        services.windows.reveal(workspaceID: workspace.rawValue)
-        let tab = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)"
-        if let pane = await daemon.store.firstPane(mirroring: workspace) {
-            for window in services.windows.controllers { window.state.selection.select(tab, in: pane.id) }
-        }
+        let pane = services.locateTab(model: tab)?.1
+        let keeping = services.windows.controllers.filter { window in pane.map { window.showsOnScreen(tab.id, in: $0) } == true }.map(\.state.id)
+        if keeping.isEmpty { services.windows.reveal(workspaceID: workspace.rawValue) }
+        ActionRunScope.carrying(ActionRunScope(origin: ActionRunScope.current?.origin ?? .user, allowsViewChange: true)) { keeping.forEach { services.windows.show(workspaceID: workspace.rawValue, inWindow: $0) } }
+        let opened = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)", first = await daemon.store.firstPane(mirroring: workspace)
+        for window in services.windows.controllers { if let first { window.state.selection.select(opened, in: first.id) } }
     }
 
-    /// The failure of a `cmux link agent move` answer, in plain words. `retry`
-    /// runs the move again on its machine; a garbage answer (a crash) may come
-    /// after the commit, so it is unresolved, never failed.
-    static func failure(moving answer: CloudMoveCLI.Answer, machine: String, retry: CloudMoveRetries.Retry) -> Failure {
-        switch answer.errorCode {
-        case "move_unresolved", CloudMoveCLI.badAnswer: Failure(message: CloudMoveStrings.unresolved, retry: retry)
-        case "move_in_progress": Failure(message: CloudMoveStrings.inProgress, retry: retry)
-        case "agent_session.team_vm_blocked": Failure(message: CloudMoveStrings.teamMachine(machine))
-        case "agent_session.host_unverified": Failure(message: CloudMoveStrings.unknownMachine(machine))
-        // This Mac's own daemon (the source) is never the machine to update.
-        case CloudMoveStrings.outdatedCode where answer.side != "source":
-            Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating)
-        case "source_unreachable", "target_unreachable": Failure(message: CloudMoveStrings.unreachable(machine), retry: retry)
-        // A machine with no acpmux up yet (cmux#31198), too busy or too slow gave the chat back: the same move may work again.
-        default: Failure(message: CloudMoveStrings.moveFailed(answer.error ?? answer.errorCode ?? ""), retry: answer.errorCode.map { ["agent_transfer.unavailable", "agent_transfer.limit", "agent_transfer.timeout"].contains($0) } == true ? retry : nil)
-        }
+    /// A moved chat's workspace name: its workspace's here, but never Home's (a machine's "Home" hid the chat): its folder's.
+    static func movedName(_ workspace: WorkspaceModel?, folder: String) -> String? {
+        workspace?.kind == SidebarMapping.homeKind ? URL(fileURLWithPath: folder).lastPathComponent : workspace?.name
     }
 
     private func toast(_ id: String, _ message: String, duration: Duration, retry: (@MainActor () -> Void)? = nil) { Self.toast(services, id, message, duration: duration, retry: retry) }

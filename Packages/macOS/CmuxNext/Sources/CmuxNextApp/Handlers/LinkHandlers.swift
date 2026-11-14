@@ -25,7 +25,7 @@ enum LinkHandlers {
             guard let url = URL(string: trimmed), let parsed = DeepLink.read(url, scheme: services.linkScheme) else {
                 throw ActionFailure(message: RefusalStrings.linkNotRecognized(text))
             }
-            try DeepLinkNavigator(services: services).open(parsed.link, background: background)
+            try DeepLinkNavigator(services: services).open(parsed.link, background: background, beside: invocation["source"]?.stringValue)
             // A parameter cmux does not use never costs an agent link its chat: it opens, and a
             // toast names what was left out, so a stray `?cwd=…` is visible instead of silent.
             // Only this kind, and only after it opened: the older kinds have always ignored
@@ -61,6 +61,8 @@ enum LinkHandlers {
             guard let (tab, _) = context.daemonTab(invocation) else { return }
             context.copy(try services.link(tab: tab))
         })
+        // A new chat has no link until its first message: its row says so instead of an enabled row that refuses.
+        context.setTargetReason("palette.copySurfaceLink") { agentTab($0, services: services).flatMap { services.agentTabs.session(of: $0) == nil ? RefusalStrings.agentTabHasNoSession : nil } }
     }
 
     /// The agent tab an invocation names: an explicit agent chat tab

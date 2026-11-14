@@ -27,7 +27,7 @@ public struct VerticalTabListMetrics: Equatable, Sendable {
 
     public init(rowHeight: CGFloat = 28, rowSpacing: CGFloat = 1, padding: CGFloat = 6, verticalPadding: CGFloat = 6, iconSize: CGFloat = 16,
                 headerHeight: CGFloat = 24, iconsOnlyHeaderHeight: CGFloat = 8, separatorHeight: CGFloat = 9, groupIndent: CGFloat = 8,
-                groupLineWidth: CGFloat = 2, tileSize: CGFloat = 32, tileSpacing: CGFloat = 4, cornerRadius: CGFloat = 6) {
+                groupLineWidth: CGFloat = 2, tileSize: CGFloat = 32, tileSpacing: CGFloat = 4, cornerRadius: CGFloat? = nil) {
         self.rowHeight = rowHeight
         self.rowSpacing = rowSpacing
         self.padding = padding
@@ -40,7 +40,7 @@ public struct VerticalTabListMetrics: Equatable, Sendable {
         self.groupLineWidth = groupLineWidth
         self.tileSize = tileSize
         self.tileSpacing = tileSpacing
-        self.cornerRadius = cornerRadius
+        self.cornerRadius = cornerRadius ?? Metrics.tabCornerRadius // nil: a tab bar tab's corner
     }
 
     /// The live tokens: rows as tall as the strip's tabs, tiles as wide as the collapsed list allows.
@@ -52,7 +52,7 @@ public struct VerticalTabListMetrics: Equatable, Sendable {
             iconSize: Metrics.iconSize, headerHeight: max(Metrics.space6, rowHeight - Metrics.space1), iconsOnlyHeaderHeight: Metrics.space3,
             separatorHeight: Metrics.space3, groupIndent: Metrics.space3, groupLineWidth: VerticalTabTunables.groupLineWidth.value,
             tileSize: max(Metrics.iconSize + Metrics.space2, min(rowHeight + Metrics.space1, VerticalTabTunables.collapsedWidth.value - 2 * padding)),
-            tileSpacing: Metrics.space1, cornerRadius: Metrics.itemCornerRadius
+            tileSpacing: Metrics.space1, cornerRadius: Metrics.tabCornerRadius
         )
     }
 }
@@ -102,6 +102,9 @@ public struct VerticalTabListLayout: Equatable {
     public let metrics: VerticalTabListMetrics
     public private(set) var rows: [Row] = []
     public private(set) var groupLines: [GroupLine] = []
+    /// Each group's whole extent, its header through its last shown member (the header alone when collapsed). A
+    /// group with no color draws its pane here instead of a line, so it still reads as one group.
+    public private(set) var groupPanes: [GroupLine] = []
     public private(set) var contentHeight: CGFloat = 0
     /// Columns of the pinned grid.
     public private(set) var pinnedColumns = 1
@@ -156,9 +159,14 @@ public struct VerticalTabListLayout: Equatable {
         var current: TabGroupID?
         var lineStart: (group: TabGroupID, y: CGFloat)?
         var lines: [GroupLine] = []
+        var panes: [GroupLine] = []
+        var paneStart: (group: TabGroupID, y: CGFloat)?
         var lastBottom = y
         func endLine() {
-            defer { lineStart = nil }
+            defer { lineStart = nil; paneStart = nil }
+            if let start = paneStart {
+                panes.append(GroupLine(group: start.group, frame: CGRect(x: m.padding, y: start.y, width: rowWidth, height: lastBottom - start.y)))
+            }
             guard let start = lineStart, lastBottom > start.y else { return }
             let x = iconsOnly ? 1 : m.padding + (m.groupIndent - m.groupLineWidth) / 2
             lines.append(GroupLine(group: start.group, frame: CGRect(x: x, y: start.y, width: m.groupLineWidth, height: lastBottom - start.y)))
@@ -172,6 +180,8 @@ public struct VerticalTabListLayout: Equatable {
                 if let owner {
                     let height = iconsOnly ? m.iconsOnlyHeaderHeight : m.headerHeight
                     rows.append(Row(kind: .groupHeader(owner.id), frame: CGRect(x: m.padding, y: y, width: rowWidth, height: height), group: owner.id))
+                    paneStart = (owner.id, y)
+                    lastBottom = y + height
                     y += height + m.rowSpacing
                     if !owner.isCollapsed { lineStart = (owner.id, y) }
                 }
@@ -185,6 +195,7 @@ public struct VerticalTabListLayout: Equatable {
         }
         endLine()
         groupLines = lines
+        groupPanes = panes
         return y
     }
 

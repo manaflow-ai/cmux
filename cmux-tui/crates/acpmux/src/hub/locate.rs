@@ -77,6 +77,16 @@ impl Hub {
                     let exact_all = by_key_exact(&summaries, query, &own);
                     if !exact_all.is_empty() {
                         (None, exact_all)
+                    } else if names_hosts
+                        && (!crate::beads::is_bead_id(query)
+                            || by_bead(&summaries, query).is_empty())
+                        && let Some(route) = self.key_route(query)?.filter(|route| route != query)
+                    {
+                        // No exact name or id, and no session carries it as a bead (`by_key`
+                        // reads those first): the one session every other command finds for it
+                        // (`hub/key_route.rs`: another case before a prefix, a prefix here before
+                        // a name without separators); several are refused, never picked.
+                        return self.locate(&route, false, names_hosts);
                     } else {
                         (None, by_key(&summaries, query, &own))
                     }
@@ -191,7 +201,11 @@ impl Hub {
                 .as_str()
                 .is_some_and(|session| hosts.iter().any(|h| key.id(h, family_of(s), session) == id))
         };
-        let keep = |r: &RemoteSession| hashes(&r.summary, &[r.peer.as_str()]);
+        let keep = |r: &RemoteSession| {
+            r.summary.agent_session_id().is_some_and(|session| {
+                key.id(r.peer.as_str(), r.summary.family().unwrap_or_default(), session) == id
+            })
+        };
         let here: Vec<&str> = here.iter().map(String::as_str).collect();
         for all in [false, true] {
             let summaries = self.located_summaries(&keep, all);
@@ -218,8 +232,7 @@ impl Hub {
         } else {
             self.indexed_live_sessions().iter().map(|s| self.session_summary(s)).collect()
         };
-        let open =
-            |r: &RemoteSession| r.summary.get("status").and_then(Value::as_str) != Some("closed");
+        let open = |r: &RemoteSession| !r.summary.closed();
         self.visit_remote_sessions(|r| (closed || open(r)) && keep(r), |row| v.push(row));
         super::session_pages::sort_session_summaries(&mut v);
         v
@@ -432,17 +445,34 @@ fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
     by_short_name(summaries.iter().collect(), key)
 }
 
+/// The sessions `key` names exactly: an id first, then a whole name on any host before
+/// `HOST/NAME` is read as a host and a name on it, as `by_key` reads them (a local `coord/lane`
+/// is never peer `coord`'s `lane-extra`, which the loose `key_route` would find next, and a
+/// session named `hb/ID` never hides peer `hb`'s session `ID`).
 fn by_key_exact<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
     if let Some((host, rest)) = key.split_once('/') {
+        let ids: Vec<&Value> = summaries
+            .iter()
+            .filter(|s| {
+                s["qualifiedSessionId"].as_str() == Some(key)
+                    || (s["sessionId"].as_str() == Some(rest)
+                        && host_of(s, own).eq_ignore_ascii_case(host))
+            })
+            .collect();
+        if !ids.is_empty() {
+            return ids;
+        }
+        let whole: Vec<&Value> = summaries
+            .iter()
+            .filter(|s| s["name"].as_str() == Some(key) || bare_name(s) == key)
+            .collect();
+        if !whole.is_empty() {
+            return whole;
+        }
         return summaries
             .iter()
             .filter(|s| host_of(s, own).eq_ignore_ascii_case(host))
-            .filter(|s| {
-                s["sessionId"].as_str() == Some(rest)
-                    || s["qualifiedSessionId"].as_str() == Some(key)
-                    || bare_name(s) == rest
-                    || s["name"].as_str() == Some(key)
-            })
+            .filter(|s| bare_name(s) == rest || s["name"].as_str() == Some(key))
             .collect();
     }
     summaries
@@ -483,16 +513,18 @@ impl<'q> Names<'q> {
     /// row costs a few compares; the matchers then decide on the rows it took.
     fn may_name(&self, r: &RemoteSession) -> bool {
         let s = &r.summary;
-        let bead = || self.bead.as_ref().is_some_and(|tag| s["tags"].get(tag).is_some());
+        // Its tags are parsed only for a bead's lookup.
+        let bead =
+            || self.bead.as_ref().is_some_and(|tag| s.tags().is_some_and(|t| t.get(tag).is_some()));
         if self.bead_only {
             return bead();
         }
         if let Some(link) = self.link {
-            return s["agentSessionId"].as_str() == Some(link.session.as_str());
+            return s.agent_session_id() == Some(link.session.as_str());
         }
         let q = self.query;
         let mux = r.receipt.mux_session_id.as_str();
-        let name = s["name"].as_str().unwrap_or_default();
+        let name = s.name().unwrap_or_default();
         let bare =
             name.strip_prefix(r.peer.as_str()).and_then(|n| n.strip_prefix('/')).unwrap_or(name);
         mux.starts_with(q)
@@ -501,7 +533,7 @@ impl<'q> Names<'q> {
             || crate::session_name::ends_with_segments(bare, q)
             || self.host.is_some_and(|host| r.peer.eq_ignore_ascii_case(host))
             || q.strip_prefix(r.peer.as_str()).and_then(|q| q.strip_prefix('/')) == Some(mux)
-            || s["agentSessionId"].as_str() == Some(q)
+            || s.agent_session_id() == Some(q)
             || bead()
     }
 }

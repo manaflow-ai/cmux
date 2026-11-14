@@ -17,6 +17,11 @@ use super::{Mux, MuxEvent};
 /// The daemon serves `settings.*` and emits `settings-changed`.
 pub const SETTINGS_CAPABILITY: &str = "settings-v1";
 
+/// The daemon serves `settings.edit`: several edits in one publish, and the
+/// conditional `set_unset` and `reset_unchanged` edits
+/// (plans/cmux-next/settings-react.md section 7, items 2 and 3).
+pub const SETTINGS_EDIT_CAPABILITY: &str = "settings-edit-v1";
+
 #[derive(Default)]
 pub(crate) struct SettingsSlot(OnceLock<SettingsOwner>);
 
@@ -50,7 +55,10 @@ impl Mux {
 
     /// Starts the owner on `CMUX_NEXT_CONFIG_FILE` or
     /// `~/.config/cmux/cmux-next.json`, with this session's state directory
-    /// for the cache.
+    /// for the cache. The variable is the launch input for the settings
+    /// file: the Mac app sets it on the `server ensure` that starts its
+    /// daemon, the detached owner inherits it, and a `server restart`
+    /// carries it to the next owner (`CarriedLaunch` in cmux-tui).
     pub fn start_default_settings_owner(self: &Arc<Self>) -> bool {
         self.start_settings_owner(self.default_settings_paths())
     }
@@ -90,6 +98,7 @@ impl Mux {
         let mut store = self.settings_store().lock().unwrap_or_else(|poison| poison.into_inner());
         let applied = store.apply(op);
         let host_policy = host_policy_after(&store, &applied.changes);
+        adopt_freeing(self, &store, &applied.changes);
         emit_changes(self, applied.changes);
         drop(store);
         if let Some((policy, revision)) = host_policy {
@@ -103,6 +112,11 @@ impl Mux {
         let store = self.settings_store().lock().unwrap_or_else(|poison| poison.into_inner());
         read(store.state())
     }
+
+    /// The `settings.snapshot` answer, with the owner's settings file path.
+    pub(crate) fn settings_snapshot(self: &Arc<Self>) -> serde_json::Value {
+        self.settings_store().lock().unwrap_or_else(|poison| poison.into_inner()).snapshot_json()
+    }
 }
 
 /// The host sizing policy the store now holds, when `changes` touched it.
@@ -112,6 +126,26 @@ fn host_policy_after(store: &ConfigStore, changes: &[Change]) -> Option<(HostSiz
         .iter()
         .any(|change| touches_host_policy(&change.keys))
         .then(|| (host_policy_from_state(store.state()), store.state().revision()))
+}
+
+/// The app setting that frees idle terminals; while on, each terminal keeps
+/// its last command for its parked tab (`shell_history::Recording`).
+const FREEING_ENABLED_SETTING: &str = "workspaces.freeing.enabled";
+
+fn freeing_enabled(state: &State) -> bool {
+    state
+        .get(&cmux_config::Target::Key(FREEING_ENABLED_SETTING.to_string()))
+        .row
+        .and_then(|row| row.value)
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+}
+
+/// Adopts `workspaces.freeing.enabled` when `changes` touched it.
+fn adopt_freeing(mux: &Mux, store: &ConfigStore, changes: &[Change]) {
+    if changes.iter().any(|change| change.keys.iter().any(|key| key == FREEING_ENABLED_SETTING)) {
+        mux.set_terminal_last_command(freeing_enabled(store.state()));
+    }
 }
 
 fn emit_changes(mux: &Mux, changes: impl IntoIterator<Item = Change>) {
@@ -149,6 +183,9 @@ fn open_owner(mux: &Arc<Mux>, paths: SettingsPaths) -> SettingsOwner {
     if let Some((policy, revision)) = host_policy {
         mux.adopt_host_size_policy(policy, revision);
     }
+    if let Ok(store) = store.lock() {
+        mux.set_terminal_last_command(freeing_enabled(store.state()));
+    }
     SettingsOwner { store, _watcher: watcher }
 }
 
@@ -161,6 +198,7 @@ fn start_watcher(mux: Weak<Mux>, store: &Arc<Mutex<ConfigStore>>) -> Option<Watc
         let mut store = store.lock().unwrap_or_else(|poison| poison.into_inner());
         let change: Vec<Change> = store.reload().into_iter().collect();
         let host_policy = host_policy_after(&store, &change);
+        adopt_freeing(&mux, &store, &change);
         emit_changes(&mux, change);
         drop(store);
         if let Some((policy, revision)) = host_policy {

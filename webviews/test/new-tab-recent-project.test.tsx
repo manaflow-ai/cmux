@@ -11,6 +11,7 @@ import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
 import { mostRecentProject } from "../src/agent-session/acpmux/sessionList";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { teardownDom } from "./support/domTeardown";
 
 const HOME = "/Users/you";
 const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/ws-1";
@@ -85,12 +86,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const noop = () => {};
@@ -201,7 +199,7 @@ test("a tab with a project folder, or a start folder from the host, keeps it", a
 // Leo 2026-10-18 (ChatGPT and Claude Code screenshots): the project menu offers "Do not work in a
 // project". Picking it stops the most-recent-project start, and the chat starts in no project
 // (`chat.new` with `noProject`): the host's private folder, never the tab's or the start folder.
-test("Do not work in a project starts the chat in no project", async () => {
+test("No folder starts the chat in no folder", async () => {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   act(() => root?.unmount());
@@ -228,11 +226,11 @@ test("Do not work in a project starts the chat in no project", async () => {
   );
   await act(async () => host.querySelector<HTMLButtonElement>(".nt-location .acpmux-location-button")!.click());
   const option = [...window.document.querySelectorAll<HTMLElement>('[role="option"]')].find(
-    (row) => row.textContent === "Do not work in a project",
+    (row) => row.textContent === "No folder",
   );
   expect(option).toBeDefined();
   await act(async () => option!.click());
-  expect(host.querySelector(".nt-location")?.textContent).toContain("No project");
+  expect(host.querySelector(".nt-location")?.textContent).toContain("No folder");
   const editor = await typePrompt("sketch a name for the app");
   await pressReturn(editor);
   expect(calls[0]?.[2]).toBeUndefined();
@@ -366,7 +364,6 @@ test("enabled recent chats show placeholders until the first session list settle
       snapshot={noChat(list)}
       omnibar={EMPTY_OMNIBAR}
       template="threads"
-      pageWidgets={new Set(["chats"])}
       chatsPending={pending}
       lastAgent="claude"
       onAsk={noop}

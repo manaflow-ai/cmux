@@ -30,7 +30,7 @@ class ComposeTest(unittest.TestCase):
         self.assertIn((pn.NOTICES / "texts/musl-1.2.5/COPYRIGHT").read_text(), text)
         self.assertIn("rustc 1.95.0", text)
         self.assertIn("COPYRIGHT-library.html", text)
-        self.assertIn("Zig 0.16.0", text)
+        self.assertIn(f"Zig {self.inputs.toolchains.zig_for('ghostty-next').version}", text)
         self.assertIn("Copyright (c) Zig contributors", text)
         for name in ("highway", "wuffs", "uucode", "simdutf"):
             self.assertIn(name, text)
@@ -57,6 +57,21 @@ class ComposeTest(unittest.TestCase):
                     self.assertIn("Copyright (c) 2017 Ryan Caloras and contributors", text)
                     self.assertIn("based on Kitty", text)
 
+    def test_unix_notices_cover_the_agent_screen_detection_plugin(self) -> None:
+        # npm and wheel packages for macOS and Linux ship bin/cmux-agent-screen-detection
+        # (GPL-3.0-or-later AND Apache-2.0); the herdr Apache-2.0 text must ship with it.
+        apache = pn.SCREEN_DETECTION_APACHE.read_text(encoding="utf-8")
+        for target in ("aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"):
+            with self.subTest(target=target):
+                text = pn.compose("cmux-tui", target, CRATES, self.inputs)
+                self.assertIn("bin/cmux-agent-screen-detection", text.splitlines()[0])
+                self.assertIn("herdr agent-detection material", text)
+                self.assertIn(apache.rstrip("\n"), text)
+        for kind, target in (("cmux-tui", "x86_64-pc-windows-gnu"), ("relay", "aarch64-unknown-linux-musl")):
+            with self.subTest(kind=kind, target=target):
+                text = pn.compose(kind, target, CRATES, self.inputs)
+                self.assertNotIn("cmux-agent-screen-detection", text)
+
     def test_relay_notice_names_its_binaries(self) -> None:
         text = pn.compose("relay", "aarch64-unknown-linux-musl", CRATES, self.inputs)
         self.assertIn("bin/chatmux-relay", text)
@@ -79,7 +94,7 @@ class ComposeTest(unittest.TestCase):
         self.assertIn("Version 3.1, 31 March 2009", text)
         self.assertIn("musl as a whole is licensed under the following standard MIT license", text)
         self.assertIn("rustc 1.95.0", text)
-        self.assertIn("Zig 0.16.0", text)
+        self.assertIn(f"Zig {self.inputs.toolchains.zig_for('ghostty-next').version}", text)
         for name in ("highway", "wuffs", "uucode", "simdutf"):
             self.assertIn(name, text)
         self.assertNotIn("musl libc 1.2.5", text)  # no musl libc on Windows, only musl-derived math
@@ -196,9 +211,9 @@ class DarwinBinaryTest(unittest.TestCase):
 
     def test_the_review_records_the_real_package_evidence(self) -> None:
         darwin = self.inputs.data["darwin"]
-        self.assertEqual(darwin["zig"], "0.16.0")
-        self.assertIn("37295065948", darwin["review"]["artifact"])
-        self.assertEqual(sorted(darwin["compiler_rt_modules"]), ["floattidf", "floatuntidf", "powiXf2", "ssp", "udivmod"])
+        self.assertEqual(darwin["zig"], self.inputs.toolchains.zig_for("ghostty-next").version)
+        self.assertIn("41861545663", darwin["review"]["artifact"])
+        self.assertEqual(sorted(darwin["compiler_rt_modules"]), ["float_from_int", "powiXf2", "ssp", "udivmod"])
 
     def test_a_binary_without_zig_code_passes(self) -> None:
         self.assertEqual(self.problems([("_main", True), ("_pow", False)]), [])
@@ -236,10 +251,16 @@ class DarwinBinaryTest(unittest.TestCase):
 
     def test_a_new_zig_needs_a_new_review(self) -> None:
         inputs = pn.load_inputs()
-        inputs.data = copy.deepcopy(inputs.data)
-        inputs.data["darwin"]["zig"] = "0.15.2"
-        problems = pn.data_problems(inputs)
-        self.assertTrue(any("darwin" in p and "0.16.0" in p for p in problems), problems)
+        shipped = inputs.toolchains.zig_for("ghostty-next").version
+        # Another reviewed Zig (one CI may install, whose LICENSE is bundled) is not
+        # the Zig libghostty-vt builds with, so its Darwin review does not count.
+        others = [z.version for z in inputs.toolchains.zig if z.version != shipped]
+        for version in [*others, "0.15.2"]:
+            with self.subTest(version=version):
+                inputs.data = copy.deepcopy(inputs.data)
+                inputs.data["darwin"]["zig"] = version
+                problems = pn.data_problems(inputs)
+                self.assertTrue(any("darwin" in p and shipped in p for p in problems), problems)
 
 
 class PublishProvenanceTest(unittest.TestCase):

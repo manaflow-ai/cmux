@@ -40,11 +40,11 @@ final class WorkspaceTabHoverCardRow: NSView {
         }
     }
     var isKeyboardSelected = false { didSet { paint() } }
-    var onRelease: (() -> Void)?
+    /// Focuses this row's tab: run on the press (u2819), as a pane tab and a sidebar row do, and by VoiceOver's press.
+    var onActivate: (() -> Void)?
     /// The ✕ was pressed: close this row's tab (the card stays open).
     var onClose: (() -> Void)? { didSet { updateCloseButton() } }
     private var pressed = false
-    private var pressedTabID: TabID?
     private(set) var reportedLine = ""
     private var currentTabID: TabID?
     private var state: StatusIndicatorState = .idle
@@ -57,8 +57,8 @@ final class WorkspaceTabHoverCardRow: NSView {
         self.style = style
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = Metrics.itemCornerRadius
-        layer?.cornerCurve = .continuous
+        layer?.cornerRadius = SidebarDensityTokens.rowCornerRadius
+        layer?.cornerCurve = Metrics.tabCornerCurve // one curve with the rows and tabs (`TabCornerCurve`)
         icon.imageScaling = .scaleProportionallyDown
         title.lineBreakMode = .byTruncatingTail
         // The line fits itself (`WorkspaceTabHoverCardLine.detail(fitting:font:)`): the place shortens first, and
@@ -88,7 +88,6 @@ final class WorkspaceTabHoverCardRow: NSView {
         // nothing on the row redraws.
         if !sameTab {
             pressed = false
-            pressedTabID = nil
             isHovered = false
         }
         // The card's text at the sidebar's density and text size, taken again on every configure (the rows are reused).
@@ -99,6 +98,8 @@ final class WorkspaceTabHoverCardRow: NSView {
         let side = WorkspaceHoverCardView.iconSize
         favicon = tab.favicon
         icon.image = tab.favicon.map(faviconImage)
+            // A cmux page's own icon (a Cloud desktop's cloud), as its workspace row draws it (`WorkspaceIcon.page`).
+            ?? tab.pageIcon.map { NSImage.icon($0, size: side) }
             // A site with no favicon (yet): the workspace rows' placeholder globe (`WorkspaceIcon.pagePlaceholder`).
             ?? (tab.host != nil ? NSImage.icon(symbol: WorkspaceIcon.pagePlaceholderSymbol, size: side) : nil)
             ?? tab.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: side) }
@@ -124,6 +125,9 @@ final class WorkspaceTabHoverCardRow: NSView {
         applyColors()
         needsLayout = true
     }
+
+    /// The row shows a detail line under (or after) its title; a two-line row without one is one row tall.
+    var hasDetail: Bool { !detail.isHidden }
 
     /// The title's font and the icon's frame, as drawn (tests).
     var titleFont: NSFont? { title.font }
@@ -154,6 +158,9 @@ final class WorkspaceTabHoverCardRow: NSView {
 
     override func layout() {
         super.layout()
+        // The sidebar workspace row's corners (Lawrence 2026-11-09: "roundness needs to match roundness of the
+        // workspace row itself"), read here so a density change follows.
+        layer?.cornerRadius = SidebarDensityTokens.rowCornerRadius
         let outset = Self.fillOutset
         let side = WorkspaceHoverCardView.iconSize
         let mark = Metrics.smallIconSize
@@ -257,10 +264,12 @@ final class WorkspaceTabHoverCardRow: NSView {
         unreadDot.alphaValue = closeButton.isHidden ? 1 : 0
     }
     override func mouseExited(with event: NSEvent) { isHovered = false }
+    /// The press focuses the tab at once (Lawrence u2819: "why is mouse-down tab focus unimplemented?");
+    /// the pressed fill stays until the release, which acts on nothing.
     override func mouseDown(with event: NSEvent) {
         pressed = true
-        pressedTabID = currentTabID
         paint()
+        onActivate?()
     }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -268,11 +277,10 @@ final class WorkspaceTabHoverCardRow: NSView {
         // The ✕ takes its own click; anywhere else the row is one button.
         return hit === closeButton || hit.isDescendant(of: closeButton) ? hit : self
     }
-    override func accessibilityPerformPress() -> Bool { onRelease?(); return onRelease != nil }
+    override func accessibilityPerformPress() -> Bool { onActivate?(); return onActivate != nil }
     override func mouseUp(with event: NSEvent) {
-        defer { pressed = false; paint() }
-        guard pressed, bounds.contains(convert(event.locationInWindow, from: nil)), pressedTabID == currentTabID else { return }
-        onRelease?()
+        pressed = false
+        paint()
     }
 
     private func addTrackingArea() {

@@ -30,7 +30,7 @@ public final class AgentPaneActAsMeCard: NSPanel {
     public init(grant: AgentPaneActAsMe) {
         self.grant = grant
         content = AgentPaneActAsMeCardView(grant: grant)
-        let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: 14)
+        let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: Metrics.surfaceCornerRadius)
         super.init(contentRect: NSRect(origin: .zero, size: NSSize(width: AgentPaneActAsMeCardView.width, height: 180)),
                    styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView], backing: .buffered, defer: true)
         ThemeScope.app.adopt(self)
@@ -211,7 +211,7 @@ public final class AgentPaneActAsMeCardView: NSView {
 @MainActor
 final class AgentPaneActAsMeBadge: NSView {
     let grant: AgentPaneActAsMe
-    private let text = NSTextField(labelWithString: "")
+    private let text = ThemedLabel(labelWithString: "")
     private var following: Task<Void, Never>?
     private var row: NSStackView?
     private var width: NSLayoutConstraint?
@@ -226,7 +226,8 @@ final class AgentPaneActAsMeBadge: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         setAccessibilityIdentifier("cmux.agentPane.actAsMe")
         text.font = Typography.caption
-        text.textColor = Palette.textPrimary
+        // Fitted to the toast glass it draws on, in the theme's tint, again on every theme change.
+        text.themeColor = { Palette.toastText(.primary) }
         let turnOff = NSButton(title: AgentPaneActAsMeStrings.turnOff, target: self, action: #selector(turnOffPressed))
         turnOff.bezelStyle = .inline
         turnOff.controlSize = .small
@@ -235,7 +236,7 @@ final class AgentPaneActAsMeBadge: NSView {
         row.orientation = .horizontal
         row.spacing = Metrics.space2
         row.edgeInsets = NSEdgeInsets(top: Metrics.space1, left: Metrics.space3, bottom: Metrics.space1, right: Metrics.space2)
-        let glass = Glass.makeSurface(.toast, content: row, cornerRadius: 10)
+        let glass = Glass.makeSurface(.toast, content: row, cornerRadius: Metrics.surfaceCornerRadius)
         addSubview(glass)
         NSLayoutConstraint.activate([
             glass.leadingAnchor.constraint(equalTo: leadingAnchor), glass.trailingAnchor.constraint(equalTo: trailingAnchor),

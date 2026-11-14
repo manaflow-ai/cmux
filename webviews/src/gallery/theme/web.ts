@@ -7,12 +7,15 @@
 // gallery's background axis puts a picture behind it (`seeThrough`): then, as over the user's
 // picture in the app, the page background is clear and the window's tint over the picture shows
 // through (frame/background.ts paints both). Borders draw lines (appearance.borders lines), as by
-// default.
+// default. The title area tone (appearance.titleAreaTone) is One Color unless the env says Subtle
+// Tone, on the default flush-corner frame at a title area contrast of 1.
 import type { DiffViewerAppearance, DiffViewerTheme } from "../../appearance";
 import type { GhosttyTheme } from "./ghostty";
 import { appThemeVariables, type AppAccent, type AppTheme } from "../../theme/appTheme";
 import { cardMaterial, OPAQUE_OVERLAY_LIFT, scrim, tooltipSurface } from "./overlays";
+import type { TitleAreaToneName } from "../env";
 import {
+  BLACK,
   css,
   deriveTokens,
   GHOSTTY_DEFAULT,
@@ -48,6 +51,24 @@ export function themeInput(theme: GhosttyTheme, accent: AppAccent = "neutral"): 
 export const themeTokens = (theme: GhosttyTheme, accent: AppAccent = "neutral"): ThemeTokens =>
   deriveTokens(themeInput(theme, accent));
 
+/** ChromeTunables.dividerStrength's default: the chrome's divider is the separator's alpha times this. */
+export const CHROME_DIVIDER_STRENGTH = 1.75;
+/** ChromeTunables.mainPaneShadeLight / Dark's defaults: the flush corner's frame shade (black's alpha). */
+export const FLUSH_CORNER_SHADE = { light: 0.045, dark: 0.28 } as const;
+/** TitleAreaTone.subtleShare: Subtle Tone's share of the flush corner's shade at a title area contrast of 1. */
+export const SUBTLE_TONE_SHARE = 0.5;
+/** Metrics.folderTabMinimumShade: under this chrome shade the selected tab keeps the selection fill. */
+export const FOLDER_TAB_MINIMUM_SHADE = 0.011;
+
+/** Metrics.mainPaneChromeShade on the default flush corner: 0 under One Color, half the corner's
+ * shade under Subtle Tone. */
+export const chromeShade = (tokens: ThemeTokens, tone: TitleAreaToneName = "one-color"): number =>
+  tone === "subtle-tone" ? (tokens.isDark ? FLUSH_CORNER_SHADE.dark : FLUSH_CORNER_SHADE.light) * SUBTLE_TONE_SHARE : 0;
+
+/** Palette.chromeDivider: the separator with its alpha scaled by the divider strength, at most 1. */
+export const chromeDivider = (tokens: ThemeTokens) =>
+  withAlpha(tokens.separator, Math.min(1, tokens.separator.alpha * CHROME_DIVIDER_STRENGTH));
+
 /** WebTheme(tokens).payload: `{variables, colorScheme, scrollers, terminal, transition, motion, glass,
  * ...}`; with `app`, also the app
  * theme's `--cmux-app-*` tokens (WebTheme sends them from CmuxTheme's AppTheme, the same contract).
@@ -63,6 +84,9 @@ export function webThemePayload(
   const lines = (options.borders ?? "lines") === "lines";
   const tooltip = tooltipSurface(tokens);
   const card = cardMaterial(tokens);
+  const divider = lines ? css(chromeDivider(tokens)) : "transparent";
+  const shade = chromeShade(tokens, options.titleAreaTone);
+  const toned = shade >= FOLDER_TAB_MINIMUM_SHADE;
   return {
     variables: {
       "--cmux-surface-background": css(seeThrough ? withAlpha(page, 0) : page),
@@ -83,6 +107,20 @@ export function webThemePayload(
       "--cmux-text-secondary": css(tokens.textSecondary),
       "--cmux-text-tertiary": css(tokens.textTertiary),
       "--cmux-separator": lines ? css(tokens.separator) : "transparent",
+      // The chrome's one divider (Palette.chromeDivider): the sidebar's edge line, the split lines
+      // and the tab row's divider. The window sidebar's edge line is the same value (the app's split
+      // divider override wins there; the gallery has none).
+      "--cmux-chrome-divider": divider,
+      "--cmux-sidebar-line": divider,
+      // The title area tone: 1 when the chrome is a shade apart from the content (Subtle Tone), and
+      // then the folder tab's fill, the content's own surface (Palette.folderTabFill: the page
+      // colour in an opaque window, clear over a picture), else clear.
+      "--cmux-chrome-tone": toned ? "1" : "0",
+      "--cmux-folder-fill": toned ? css(seeThrough ? withAlpha(page, 0) : page) : "transparent",
+      // The window sidebar's own fill: the chrome's shade (black at Metrics.mainPaneChromeShade),
+      // none under One Color (the sidebar is the window's color, parted by its line); the gallery has
+      // no sidebar color.
+      "--cmux-sidebar-surface": shade > 0 ? css(withAlpha(BLACK, shade)) : "transparent",
       "--cmux-hover": css(tokens.hoverFill),
       "--cmux-selection": css(tokens.selectionFill),
       // The gallery has no Ghostty cursor color: the text color. Selected text is the app's one
@@ -114,9 +152,11 @@ export function webThemePayload(
 }
 
 /** The knobs WebTheme.swift reads besides the tokens: `appearance.borders`, Reduce Motion (the web
- * motion policy), the web glass mode (`GlassLensMode`) and the terminal's font family. */
+ * motion policy), the web glass mode (`GlassLensMode`), the terminal's font family and
+ * `appearance.titleAreaTone`. */
 export type WebThemeOptions = {
   borders?: "lines" | "none";
+  titleAreaTone?: TitleAreaToneName;
   reducedMotion?: boolean;
   glass?: "plain" | "lens" | "spectrum";
   fontFamily?: string | null;
@@ -140,6 +180,8 @@ export type WebThemePayload = {
   workingLook: string;
   motion: "full" | "reduced" | "off";
   glass: "plain" | "lens" | "spectrum";
+  /** The filled personality slots (ThemeDecorations.swift), sent only while one is filled. */
+  decorations?: Record<string, string>;
 };
 
 /** The pane's fade durations in seconds (MotionTunables.swift); under Reduce Motion each is at

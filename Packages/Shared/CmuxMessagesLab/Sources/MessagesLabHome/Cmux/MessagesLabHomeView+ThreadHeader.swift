@@ -25,6 +25,14 @@ extension MessagesLabHomeView {
                   let run = item.action else { return ["ok": "0", "error": "no Copy Link"] }
             NSApp.sendAction(run, to: item.target, from: item)
             return ["ok": "1", "link": NSPasteboard.general.string(forType: .string) ?? ""]
+        case "picture":
+            // {index, compare, mark} as "1"/"": the newest table's picture in the large picture viewer; `style` (side,
+            // flip, slider) and `show` (before, after) set the comparison as its style control and B / A keys do.
+            let style: HomePictureCompare.Style? = switch args["style"] { case "side": .sideBySide; case "flip": .flip; case "slider": .slider; default: nil }
+            let show: HomePictureViewer.Key? = switch args["show"] { case "before": .before; case "after": .after; default: nil }
+            let ok = debugOpenTablePicture(index: Int(args["index"] ?? "0", radix: 10) ?? 0, compare: args["compare"] == "1", mark: args["mark"] == "1",
+                                           style: style, show: show)
+            return ["ok": ok ? "1" : "0"]
         default:
             return nil
         }

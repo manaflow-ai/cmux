@@ -69,6 +69,40 @@ public nonisolated struct ComputerUsePreviewPointer: Equatable, Sendable {
     }
 }
 
+/// A telepointer on the card: a pointer over the window the card shows, as a fraction of it (0...1
+/// from the top left), sent as metadata beside the frame and never drawn into it. The agent's and
+/// the person's each travel as one.
+public nonisolated struct ComputerUsePreviewTelepointer: Equatable, Sendable {
+    public var x: Double
+    public var y: Double
+    /// Inside the window: outside, the page hides it (the point is clamped to the window's edge).
+    public var visible: Bool
+    /// When it last moved, showed or hid; nil when unknown (a pixel click's point).
+    public var movedAt: Date?
+    /// It has stayed still for ``ComputerUseLiveCapture/personIdle``: the page dims it. Part of the
+    /// value, so the change pushes once although the point did not move.
+    public var idle: Bool
+
+    public init(x: Double, y: Double, visible: Bool, movedAt: Date? = nil, idle: Bool = false) {
+        self.x = min(max(x, 0), 1)
+        self.y = min(max(y, 0), 1)
+        self.visible = visible
+        self.movedAt = movedAt
+        self.idle = idle
+    }
+}
+
+/// The card's telepointers: the agent's cursor and the person's pointer, each when known.
+public nonisolated struct ComputerUsePreviewTelepointers: Equatable, Sendable {
+    public var agent: ComputerUsePreviewTelepointer?
+    public var person: ComputerUsePreviewTelepointer?
+
+    public init(agent: ComputerUsePreviewTelepointer? = nil, person: ComputerUsePreviewTelepointer? = nil) {
+        self.agent = agent
+        self.person = person
+    }
+}
+
 /// What a live preview source pushes.
 public nonisolated enum ComputerUseLivePreviewUpdate: Sendable {
     /// Every session the driver knows now (replaces the last list).

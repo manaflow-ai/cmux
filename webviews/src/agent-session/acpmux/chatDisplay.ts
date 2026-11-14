@@ -11,9 +11,21 @@
 // own defaults, and an upgrade must not move anyone's chat. Code follows the terminal font
 // (`--cmux-diff-code-font-family`) unless a code font is set.
 import { useSyncExternalStore } from "react";
+import { configureSenderIconLook } from "./subagents/senderIconLook";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
 import { isArm } from "../../experiments/experiment";
 import { threadMinimapLayout } from "./threadMinimap/layout.experiment";
+import {
+  CHAT_UI_FONT_KEY,
+  chatUiFontVariables,
+  chatUiMeasureStack,
+  DEFAULT_CHAT_UI_FONT,
+  isChatUiFont,
+  loadChatUiFont,
+  type ChatUiFont,
+} from "./chatUiFont";
+import { configureStatusVerbs } from "./statusVerbs";
+import { isUnreadBannerMode, type UnreadBannerMode } from "./conversation/unreadState";
 
 /// An arm of the thread minimap experiment (`off`, `full`, `compact`, whatever its definition lists).
 export type ThreadMinimapArm = keyof typeof threadMinimapLayout.arms;
@@ -34,6 +46,8 @@ export interface ChatDisplay {
   width: number;
   fullWidth: boolean;
   font: ChatFontPreset;
+  /// The face of the whole chat (chatUiFont.ts): `--font-ui`, which the System preset's text follows.
+  uiFont: ChatUiFont;
   fontSize: number;
   /// Unitless, times `fontSize`.
   lineHeight: number;
@@ -82,6 +96,20 @@ export const PINNED_PLAN_KEY = "agentPane.display.pinnedPlan";
 /// collapse that one line?"). The hat's own chevron, the palette, the CLI and MCP write the same key.
 /// Not part of ChatDisplay: switching it measures no transcript row again.
 export const TRAY_TUCKED_KEY = "agentPane.display.trayTucked";
+/// Settings > Agent Chat > Running Tray Handle, the middle by default: where along the composer's top
+/// edge the hat's tuck chevron and, tucked, its pull tab sit (subagents/TrayPullTab.tsx; Leo,
+/// 2026-11-04: "I also wonder if we'd want the grabber/dogear/whatever design thing on maybe the left…
+/// or the right…"). Not part of ChatDisplay: switching it measures no transcript row again.
+export const TRAY_HANDLE_KEY = "agentPane.display.trayHandle";
+export type TrayHandleSide = "left" | "middle" | "right";
+/// Settings > Agent Chat > Unread Banner, off by default (Lawrence, 2026-11-11 standup: the "where
+/// you left off" arrow "I don't think that's good", match Codex): the floating "3 new turns since 3:42"
+/// banner at the transcript's top start while the "New" line is off screen
+/// (conversation/SinceDivider.tsx UnreadBanner; Leo, 2026-11-10: "you can have the collapsed view.
+/// You can have the expanded view. You can have, like, right click to just hide it completely").
+/// The banner's chevron and both right-click menus write it. Not part of ChatDisplay: switching it
+/// measures no transcript row again.
+export const UNREAD_BANNER_KEY = "agentPane.display.unreadBanner";
 /// Settings > Agent Chat > Chat Minimap (Swift AgentPaneDisplaySettingsSchema has the same row).
 export const MINIMAP_KEY = "agentPane.display.minimap";
 /// Settings > Updates > Show Feature Tips (featureTips.tsx), on unless set false. The host sends it
@@ -90,6 +118,11 @@ export const FEATURE_TIPS_KEY = "updates.showFeatureTips";
 /// cmux-next.json only: the command rules and presets the running tray names background commands
 /// with (session-info/commandLabelSettings.ts; Swift CommandLabelsSetting). Not part of ChatDisplay.
 export const COMMAND_LABELS_KEY = "agentPane.display.commandLabels";
+/// Settings > Agent Chat > Prompt Coach, on unless set false: after a chat that took several
+/// corrections, a card shows how its first prompt could have said it all at once
+/// (conversation/PromptCoachCard.tsx). Off, the page asks acpmux for no rewrite and draws no card.
+/// Not part of ChatDisplay.
+export const PROMPT_COACH_KEY = "agentPane.display.promptCoach";
 
 /// Settings > Agent Chat > Transcript View (conversation/transcriptView.ts): how much of each turn a
 /// chat without a view of its own shows. Not part of ChatDisplay: a switch measures no row again by
@@ -107,6 +140,11 @@ export const PRESENTATION_KEY = "agentPane.display.presentation";
 export type Presentation = "transcript" | "messages";
 export const PRESENTATIONS: readonly Presentation[] = ["transcript", "messages"];
 export const isPresentation = (value: unknown): value is Presentation => value === "transcript" || value === "messages";
+
+/// Settings > Agent Chat > Working Status Verbs. The mode is `thinking` by default; `rotate` opts
+/// into the per-turn -ing verbs and `custom` reads the comma-separated list in `STATUS_VERB_CUSTOM_KEY`.
+export const STATUS_VERB_MODE_KEY = "agentPane.display.statusVerbs.mode";
+export const STATUS_VERB_CUSTOM_KEY = "agentPane.display.statusVerbs.custom";
 
 /// Each option: its cmux.json key, its range and default. The Swift schema has the same rows
 /// (AgentPaneDisplaySettingsSchema).
@@ -134,6 +172,7 @@ export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
   width: CHAT_DISPLAY.width.fallback,
   fullWidth: false,
   font: "system",
+  uiFont: DEFAULT_CHAT_UI_FONT,
   fontSize: CHAT_DISPLAY.fontSize.fallback,
   lineHeight: CHAT_DISPLAY.lineHeight.fallback,
   codeFamily: null,
@@ -152,7 +191,7 @@ const FONT_STACKS: Record<ChatFontPreset, string> = {
 };
 /// What the estimator's canvas measures each preset as (a canvas can't read CSS variables).
 const MEASURE_STACKS: Record<ChatFontPreset, string> = {
-  system: '"Inter", system-ui, sans-serif',
+  system: "-apple-system, BlinkMacSystemFont, system-ui, sans-serif",
   serif: '"New York", Georgia, serif',
   mono: '"SF Mono", Menlo, monospace',
 };
@@ -197,6 +236,7 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
     width: number(values[CHAT_DISPLAY.width.key], CHAT_DISPLAY.width) ?? DEFAULT_CHAT_DISPLAY.width,
     fullWidth: values[CHAT_DISPLAY.fullWidth.key] === true,
     font,
+    uiFont: isChatUiFont(values[CHAT_UI_FONT_KEY]) ? values[CHAT_UI_FONT_KEY] : DEFAULT_CHAT_UI_FONT,
     fontSize: number(values[CHAT_DISPLAY.fontSize.key], CHAT_DISPLAY.fontSize) ?? DEFAULT_CHAT_DISPLAY.fontSize,
     lineHeight: number(values[CHAT_DISPLAY.lineHeight.key], CHAT_DISPLAY.lineHeight) ?? DEFAULT_CHAT_DISPLAY.lineHeight,
     codeFamily: family(values[CHAT_DISPLAY.codeFamily.key]) ?? family(values[MARKDOWN_FOLLOWED.codeFamily]),
@@ -227,13 +267,31 @@ export interface ChatMetrics {
 
 const round = (value: number) => Math.round(value * 100) / 100;
 
-export function chatMetrics(display: ChatDisplay): ChatMetrics {
-  const scale = display.fontSize / DEFAULT_CHAT_DISPLAY.fontSize;
-  const inline = display.codeScale === null ? 13 * scale : display.fontSize * display.codeScale;
-  const block = display.codeScale === null ? 12 * scale : display.fontSize * display.codeScale;
+/// The density's text scale (the host's `--cmux-density-text-scale`, the chrome body size over Default's): the chat's
+/// text grows and shrinks with the density (Lucas 2026-11-13: chats kept their size at every density). A page without
+/// the host's value (the gallery, a test) draws at 1. The person's own font size is kept as stored and drawn at it.
+const readDensityTextScale = (): number => {
+  if (typeof document === "undefined") return 1;
+  const parsed = Number.parseFloat(
+    document.documentElement?.style?.getPropertyValue?.("--cmux-density-text-scale") ?? "",
+  );
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+};
+let densityTextScale = readDensityTextScale();
+
+/// The chat's drawn font size: the person's, at the density's text scale, in quarter pixels.
+export const drawnFontSize = (display: ChatDisplay, scale: number = densityTextScale): number =>
+  Math.round(display.fontSize * scale * 4) / 4;
+
+export function chatMetrics(display: ChatDisplay, density: number = densityTextScale): ChatMetrics {
+  const fontSize = drawnFontSize(display, density);
+  const scale = fontSize / DEFAULT_CHAT_DISPLAY.fontSize;
+  const inline = display.codeScale === null ? 13 * scale : fontSize * display.codeScale;
+  const block = display.codeScale === null ? 12 * scale : fontSize * display.codeScale;
   return {
-    measureFont: `${display.fontSize}px ${MEASURE_STACKS[display.font]}`,
-    lineHeight: round(display.fontSize * display.lineHeight),
+    // The System preset's text is the interface font, whichever it is.
+    measureFont: `${fontSize}px ${display.font === "system" ? chatUiMeasureStack(display.uiFont) : MEASURE_STACKS[display.font]}`,
+    lineHeight: round(fontSize * display.lineHeight),
     inlineCodeSize: round(inline),
     blockCodeSize: round(block),
     codeLineHeight: round((block * 20) / 12),
@@ -241,27 +299,32 @@ export function chatMetrics(display: ChatDisplay): ChatMetrics {
   };
 }
 
-/// Whether the column differs from the default one (then Debug Settings' chat width stops applying).
-export const ownsColumn = (display: ChatDisplay) => display.fullWidth || display.width !== DEFAULT_CHAT_DISPLAY.width;
-
 /// The CSS variables for `display`; a null value removes the variable (the stylesheet's default).
-export function chatDisplayVariables(display: ChatDisplay): Record<string, string | null> {
-  const metrics = chatMetrics(display);
-  const isDefault = (key: keyof ChatDisplay) => display[key] === DEFAULT_CHAT_DISPLAY[key];
+export function chatDisplayVariables(
+  display: ChatDisplay,
+  density: number = densityTextScale,
+): Record<string, string | null> {
+  const metrics = chatMetrics(display, density);
+  const fontSize = drawnFontSize(display, density);
+  const isDefault = (key: keyof ChatDisplay) =>
+    key === "fontSize" ? fontSize === DEFAULT_CHAT_DISPLAY.fontSize : display[key] === DEFAULT_CHAT_DISPLAY[key];
   const codeFont = display.codeFamily ? `${quoteFamily(display.codeFamily)}, var(--cv-mono-default)` : null;
   return {
+    ...chatUiFontVariables(display.uiFont),
     "--cv-font": isDefault("font") ? null : FONT_STACKS[display.font],
-    "--cv-font-size": isDefault("fontSize") ? null : `${display.fontSize}px`,
+    "--cv-font-size": isDefault("fontSize") ? null : `${fontSize}px`,
     "--cv-line-height": isDefault("fontSize") && isDefault("lineHeight") ? null : `${metrics.lineHeight}px`,
     "--cv-code-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.inlineCodeSize}px`,
     "--cv-codeblock-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.blockCodeSize}px`,
     "--cv-codeblock-line-height":
       isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.codeLineHeight}px`,
     "--cv-mono": codeFont,
-    "--cv-column": !ownsColumn(display)
-      ? null
-      : display.fullWidth
-        ? "100%"
+    // The stylesheet's default is the default width's column, so only another width or Full Width
+    // sets it; chatWidth.ts displayColumn mirrors both for the row estimator.
+    "--cv-column": display.fullWidth
+      ? "100%"
+      : isDefault("width")
+        ? null
         : `clamp(calc(${Math.min(720, display.width)}px / var(--cmux-ui-scale, 1)), 100%, calc(${display.width}px / var(--cmux-ui-scale, 1)))`,
   };
 }
@@ -274,11 +337,14 @@ let raw: Values = {};
 let minimapOn = false;
 let pinnedPlanOn = false;
 let trayTuckedOn = false;
+let trayHandle: TrayHandleSide = "middle";
+let unreadBanner: UnreadBannerMode = "off";
 let threadMinimapArm: ThreadMinimapArm | null = null;
 let transcriptView: TranscriptView = "normal";
 let presentation: Presentation = "transcript";
 let featureTipsOn = true;
 let commandLabels = "null";
+let promptCoachOn = true;
 const listeners = new Set<() => void>();
 
 /// Sets the variables on `root` (the document's root in the page).
@@ -292,10 +358,15 @@ export function applyChatDisplay(root: HTMLElement, display: ChatDisplay): void 
 /// The host's `display` event: the page follows at once.
 export function setChatDisplay(value: unknown): void {
   raw = (value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Values) } : {}) as Values;
+  configureStatusVerbs(raw);
+  configureSenderIconLook(raw);
   const next = resolveChatDisplay(raw);
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
+  const storedBanner = raw[UNREAD_BANNER_KEY];
+  const banner: UnreadBannerMode = isUnreadBannerMode(storedBanner) ? storedBanner : "off";
+  const handle = raw[TRAY_HANDLE_KEY] === "left" || raw[TRAY_HANDLE_KEY] === "right" ? raw[TRAY_HANDLE_KEY] : "middle";
   const threadMinimap = resolveThreadMinimapArm(raw);
   const stored = raw[TRANSCRIPT_VIEW_KEY];
   const view = isTranscriptView(stored) ? stored : "normal";
@@ -303,23 +374,30 @@ export function setChatDisplay(value: unknown): void {
   const nextPresentation = isPresentation(storedPresentation) ? storedPresentation : "transcript";
   const tips = raw[FEATURE_TIPS_KEY] !== false;
   const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
+  const coach = raw[PROMPT_COACH_KEY] !== false;
   const same = JSON.stringify(next) === JSON.stringify(current);
   if (
     same &&
     minimap === minimapOn &&
     pinnedPlan === pinnedPlanOn &&
     trayTucked === trayTuckedOn &&
+    handle === trayHandle &&
+    banner === unreadBanner &&
     threadMinimap === threadMinimapArm &&
     view === transcriptView &&
     nextPresentation === presentation &&
     tips === featureTipsOn &&
-    labels === commandLabels
+    labels === commandLabels &&
+    coach === promptCoachOn
   )
     return;
   commandLabels = labels;
+  promptCoachOn = coach;
   minimapOn = minimap;
   pinnedPlanOn = pinnedPlan;
   trayTuckedOn = trayTucked;
+  trayHandle = handle;
+  unreadBanner = banner;
   threadMinimapArm = threadMinimap;
   transcriptView = view;
   presentation = nextPresentation;
@@ -329,6 +407,15 @@ export function setChatDisplay(value: unknown): void {
     return;
   }
   current = next;
+  // A bundled face loads after this event: once it has, the estimate measures it (its measure
+  // stack changes), and a new look (the same values) makes the transcript measure every row again,
+  // offscreen ones too, as a new font does (App.tsx `measuredLook`).
+  const uiFont = next.uiFont;
+  loadChatUiFont(uiFont, () => {
+    if (current.uiFont !== uiFont) return;
+    current = { ...current };
+    for (const listener of listeners) listener();
+  });
   if (typeof document !== "undefined") applyChatDisplay(document.documentElement, next);
   for (const listener of listeners) listener();
 }
@@ -369,12 +456,31 @@ export function changeChatDisplay(key: string, value: unknown): void {
 /// Removes every chat key, so the chat shows its default look (and follows the Markdown viewer).
 export function resetChatDisplay(): void {
   for (const option of Object.values(CHAT_DISPLAY)) changeChatDisplay(option.key, null);
+  changeChatDisplay(CHAT_UI_FONT_KEY, null);
 }
 
 /// The chat's keys the page set, as the host last sent them (the popover shows which follow the viewer).
 export const chatDisplayValues = (): Readonly<Values> => raw;
 export const chatDisplay = (): ChatDisplay => current;
 export const currentChatMetrics = (): ChatMetrics => chatMetrics(current);
+/// The density's text scale the chat draws at now (`drawnFontSize`); the bubble's padding follows it too.
+export const chatDensityTextScale = (): number => densityTextScale;
+
+/// The host changed the density (its scale script ends with `cmux-ui-scale-change`): the chat draws its text at the
+/// new size, and a new look (the same values) makes the transcript measure every row again, as a new font does.
+if (typeof window !== "undefined") {
+  // The host can set the scale before this module runs, and a chat on the default look never writes its variables
+  // (setChatDisplay returns while the look is unchanged): draw the density's size from the start.
+  if (densityTextScale !== 1 && typeof document !== "undefined") applyChatDisplay(document.documentElement, current);
+  window.addEventListener("cmux-ui-scale-change", () => {
+    const next = readDensityTextScale();
+    if (next === densityTextScale) return;
+    densityTextScale = next;
+    current = { ...current };
+    if (typeof document !== "undefined") applyChatDisplay(document.documentElement, current);
+    for (const listener of listeners) listener();
+  });
+}
 
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
@@ -394,6 +500,12 @@ export const defaultPresentation = (): Presentation => presentation;
 export const useDefaultPresentation = (): Presentation =>
   useSyncExternalStore(subscribe, presentationSnapshot, presentationSnapshot);
 const featureTipsSnapshot = () => featureTipsOn;
+/// Whether the prompt coach is on (PROMPT_COACH_KEY): the client reads it before it asks for or
+/// draws a rewrite (direct.ts), and a card already drawn hides when it goes off (rows/PromptCoachRow.tsx).
+export const promptCoachEnabled = (): boolean => promptCoachOn;
+const promptCoachSnapshot = () => promptCoachOn;
+export const usePromptCoachOn = (): boolean =>
+  useSyncExternalStore(subscribe, promptCoachSnapshot, promptCoachSnapshot);
 const pinnedPlanSnapshot = () => pinnedPlanOn;
 /// Whether the running turn's todo list is pinned in the transcript (PINNED_PLAN_KEY) instead of the hat.
 export const useChatPinnedPlan = (): boolean => useSyncExternalStore(subscribe, pinnedPlanSnapshot, pinnedPlanSnapshot);
@@ -402,6 +514,18 @@ const trayTuckedSnapshot = () => trayTuckedOn;
 export const useTrayTucked = (): boolean => useSyncExternalStore(subscribe, trayTuckedSnapshot, trayTuckedSnapshot);
 /// Tucks the hat away or brings it back, at once in the page; the host writes the setting.
 export const setTrayTucked = (tucked: boolean): void => changeChatDisplay(TRAY_TUCKED_KEY, tucked || null);
+const unreadBannerSnapshot = () => unreadBanner;
+/// How the unread banner shows (UNREAD_BANNER_KEY): expanded, collapsed, or off.
+export const useUnreadBannerMode = (): UnreadBannerMode =>
+  useSyncExternalStore(subscribe, unreadBannerSnapshot, unreadBannerSnapshot);
+/// Expands, collapses or turns off the unread banner, at once in the page; the host writes the
+/// setting. Off, the default, removes the key.
+export const setUnreadBannerMode = (mode: UnreadBannerMode): void =>
+  changeChatDisplay(UNREAD_BANNER_KEY, mode === "off" ? null : mode);
+const trayHandleSnapshot = () => trayHandle;
+/// Where the hat's tuck chevron and pull tab sit along the composer's top edge (TRAY_HANDLE_KEY).
+export const useTrayHandle = (): TrayHandleSide =>
+  useSyncExternalStore(subscribe, trayHandleSnapshot, trayHandleSnapshot);
 /// Whether the chat minimap is on (CHAT_MINIMAP_KEY).
 export const useChatMinimap = (): boolean => useSyncExternalStore(subscribe, minimapSnapshot, minimapSnapshot);
 /// The rail's arm, separate from the measured chat look so switching it remeasures no transcript row.

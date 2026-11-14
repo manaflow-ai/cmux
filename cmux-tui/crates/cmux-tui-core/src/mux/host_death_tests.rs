@@ -359,6 +359,57 @@ fn kept_tab_survives_a_real_exit_and_a_restart() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// The parked-snapshot trim asks which terminals are parked: a kept tab and
+/// no running shell. That read takes the registry, the connection and state
+/// in rank order (`lock_rank` panics on a wrong order in test builds), both
+/// with the exited surface still in the catalog and after a restart.
+#[cfg(unix)]
+#[test]
+fn an_exited_kept_terminal_is_parked_and_read_in_lock_order() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-parked-lock-order-{}", crate::workspace_registry::new_uuid_v4()));
+    let session = "parked-lock-order";
+    let options = SurfaceOptions {
+        terminal_host_root: Some(crate::terminal_host_runtime::terminal_host_root(&root, session)),
+        ..SurfaceOptions::default()
+    };
+    let mux = Mux::open_persistent(session, options.clone(), &root).unwrap();
+    let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+    let (id, incarnation) = (terminal_hex("00", 1), terminal_hex("10", 1));
+    let surface = mux
+        .seed_running_terminal_with_on_exit_for_test(
+            &id,
+            &incarnation,
+            &workspace.key,
+            TerminalOnExit::Close,
+        )
+        .unwrap();
+    let public_id =
+        mux.workspace_registry.lock().unwrap().terminal_resource_id(&id).unwrap().unwrap();
+    let running = mux.parked_terminal_ids([public_id.clone()]);
+    assert!(running.is_empty(), "a running shell is not parked");
+    let tabs = tabs_of(&topology(&mux))
+        .into_iter()
+        .map(|tab_id| crate::state::kept_tab_store::KeptTab { tab_id, ..Default::default() })
+        .collect::<Vec<_>>();
+    mux.commit_kept_tabs(&tabs).unwrap();
+    mux.surface(surface).unwrap().record_process_end_for_test(TerminalExit::now(
+        TerminalExitOutcome::Signal { signal: libc::SIGTERM, core_dumped: false },
+    ));
+    mux.surface_exited(surface);
+    let parked = mux.parked_terminal_ids([public_id.clone()]);
+    assert!(parked.contains(&public_id), "an exited kept terminal is parked");
+    mux.shutdown();
+    drop(mux);
+
+    let reopened = Mux::open_persistent(session, options, &root).unwrap();
+    let parked = reopened.parked_terminal_ids([public_id.clone()]);
+    assert!(parked.contains(&public_id), "a kept terminal stays parked after a restart");
+    reopened.shutdown();
+    drop(reopened);
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// Logout race (`session-shutdown`, ownership.md section 3.2): logout
 /// signals every process of the session at once, so a shell's signal exit
 /// can reach the owner before the owner records its own shutdown start. A
@@ -448,4 +499,112 @@ fn session_shutdown_settles_a_live_signal_exit_after_the_lead() {
     reopened.shutdown();
     drop(reopened);
     let _ = std::fs::remove_dir_all(root);
+}
+
+/// A macOS restart (2026-11-12): loginwindow sends SIGTERM to the owner, the
+/// hosts survive it, and some seconds later every shell of the session ends
+/// with an exit status (zsh exits 1 when it loses its terminal), not a
+/// signal. Those ends are part of the shutdown: a host loss, so the tab stays
+/// dead and the next owner brings it back. Before the fix, 103 shells ended
+/// with status 1 during one restart, and each closed its tab (and six
+/// workspaces whose last tab it was). Outside a shutdown a status exit is
+/// still a real end, and its tab goes at once, with no lead to wait out.
+#[cfg(unix)]
+#[test]
+fn session_shutdown_keeps_the_tab_of_a_status_exit() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-shutdown-status-exit-{}", crate::workspace_registry::new_uuid_v4()));
+    let session = "shutdown-status-exit";
+    let options = SurfaceOptions {
+        terminal_host_root: Some(crate::terminal_host_runtime::terminal_host_root(&root, session)),
+        ..SurfaceOptions::default()
+    };
+    let mux = Mux::open_persistent(session, options.clone(), &root).unwrap();
+    let base = crate::session_shutdown::unix_now_ms() - 60_000;
+    mux.set_session_clock_now_for_test(base);
+    let seed = |index: usize| {
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let before = tabs_of(&topology(&mux));
+        let surface = mux
+            .seed_running_terminal_with_on_exit_for_test(
+                &terminal_hex("00", index),
+                &terminal_hex("10", index),
+                &workspace.key,
+                TerminalOnExit::Close,
+            )
+            .unwrap();
+        let tabs = tabs_of(&topology(&mux)).difference(&before).cloned().collect::<BTreeSet<_>>();
+        (surface, tabs)
+    };
+    let (normal, normal_tabs) = seed(1);
+    let (restart, _) = seed(2);
+    let status = |exited_at_ms| TerminalExit {
+        outcome: TerminalExitOutcome::Exit { code: 1 },
+        exited_at_ms,
+    };
+    let full = topology(&mux);
+
+    // While the owner runs normally, a status exit is a real end: its tab
+    // goes now.
+    mux.surface(normal).unwrap().record_process_end_for_test(status(base));
+    mux.surface_exited(normal);
+    let after_normal = topology(&mux);
+    assert_eq!(
+        tabs_of(&after_normal),
+        tabs_of(&full).difference(&normal_tabs).cloned().collect::<BTreeSet<_>>(),
+        "a status exit outside a shutdown kept its tab"
+    );
+
+    // The restart begins, and 17 s later the shell ends with status 1.
+    let at = base + 10_000;
+    mux.set_session_clock_now_for_test(at);
+    mux.begin_session_shutdown();
+    mux.set_session_clock_now_for_test(at + 17_000);
+    mux.surface(restart).unwrap().record_process_end_for_test(status(at + 17_000));
+    mux.surface_exited(restart);
+    let resolved = mux.resolve_terminal(&terminal_hex("00", 2)).unwrap().unwrap();
+    assert_eq!(resolved.terminal.lifecycle, TerminalLifecycle::Exited);
+    assert_eq!(topology(&mux), after_normal, "a status exit during a shutdown removed its tab");
+    mux.shutdown();
+    drop(mux);
+
+    // The next owner still shows the tab.
+    let reopened = Mux::open_persistent(session, options, &root).unwrap();
+    assert_eq!(topology(&reopened), after_normal, "a restart removed a shutdown status-exit tab");
+    reopened.shutdown();
+    drop(reopened);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Run Last Command Again (`terminal-last-command`): a live shell reports the
+/// newest command it finished, with its exit status, while recording is on,
+/// and nothing once recording is off.
+#[test]
+fn a_live_shell_reports_its_last_command() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-last-command-{}", crate::workspace_registry::new_uuid_v4()));
+    let session = "live-last-command";
+    let options = SurfaceOptions {
+        terminal_host_root: Some(crate::terminal_host_runtime::terminal_host_root(&root, session)),
+        ..SurfaceOptions::default()
+    };
+    let mux = Mux::open_persistent(session, options, &root).unwrap();
+    let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+    let (id, incarnation) = (terminal_hex("00", 7), terminal_hex("10", 7));
+    let surface = mux
+        .seed_running_terminal_with_on_exit_for_test(
+            &id,
+            &incarnation,
+            &workspace.key,
+            TerminalOnExit::Close,
+        )
+        .unwrap();
+    mux.set_terminal_last_command(true);
+    assert_eq!(mux.terminal_last_command(&id), None, "no command finished yet");
+    mux.surface(surface).unwrap().finish_command_for_test("make test", 2);
+    let last = mux.terminal_last_command(&id).expect("the finished command is reported");
+    assert_eq!((last.command.as_str(), last.exit_code), ("make test", Some(2)));
+    assert_eq!((last.started_at_ms, last.ended_at_ms), (1_000, 3_000));
+    mux.set_terminal_last_command(false);
+    assert_eq!(mux.terminal_last_command(&id), None, "recording off reports nothing");
 }

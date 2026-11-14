@@ -15,6 +15,7 @@ import { createWatchTable, nextWatchAt, recordStopFailure, watchOf } from "./int
 import { onDisconnect, onGmailPush, runWatchWork, startWatchSafely, stopWatchWith, watchSoon, type GooglePush, type WatchHost } from "./integrations/google-watches.ts"
 import { createRevocationTable, drainRevocations, nextRevocationAt, takeCredentialForRevocation } from "./integrations/revocations.ts"
 import * as ghTokens from "./integrations/github-tokens.ts"
+import { githubConnectTarget, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import { ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
@@ -195,6 +196,17 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const result = frames.find((f) => f.t === "result")
     const c = result && result.t === "result" ? (result.value as Connection) : undefined
     if (!c || c.status !== "revoked") return
+    if (c.provider === "github") {
+      // Mark the revoked connection's issued tokens before returning; the alarm
+      // completes provider DELETE even if this isolate stops during the first try.
+      const marked = ghTokens.markConnectionTokensRevoked(this.ledger(), c.id, Date.now())
+      if (marked > 0) {
+        this.scheduleAlarm()
+        void ghTokens.drainTokenRevocations(this.ledger(), Date.now()).catch((e) =>
+          console.error(JSON.stringify({ msg: "github disconnect token revoke failed", error: e instanceof Error ? e.name : "unknown" })),
+        )
+      }
+    }
     // Gmail: users.stop runs with the credential before the revoke (google-watches.ts onDisconnect).
     const stopAlias = watchOf(this.ctx.storage.sql, c.id)?.alias ?? null
     const taken = takeCredentialForRevocation(this.ctx.storage.sql, c, providers[c.provider], Date.now(), stopAlias)
@@ -222,6 +234,12 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     return ghTokens.githubStatus(this.env, this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial(), principal)
   }
 
+  /** integration.connect with a repo: which GitHub page to open (github-connect.ts), asked with this object's injectable HTTP. */
+  async githubConnectTarget(entity: string, principal: Principal, repo: string): Promise<GithubConnectTarget> {
+    if (principal.team !== entity) return { kind: "install" }
+    return githubConnectTarget(this.env, this.http, repo)
+  }
+
   async githubRepos(entity: string, principal: Principal, query: { readonly query?: string; readonly cursor?: string }) {
     if (principal.team !== entity) return { ok: false as const, status: 403, code: "auth.forbidden", message: "not this team's connections" }
     if (!this.boundTo(entity)) return { ok: false as const, status: 404, code: "integration.not_found", message: "this team has no GitHub connection" }
@@ -244,7 +262,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     return {
       sql: this.ctx.storage.sql, env: this.env, http: this.http, team, buckets: this.ghBuckets, inflight: this.ghInflight, revokes: this.ghRevokes,
       // UserDO's socket registry calls closeInstall here on a revoke (socket-registry.ts); false when the install is no longer active.
-      register: (p, at) => (this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user!)) as unknown as Users).registerSocket(p.user!, p.install!, p.grant, "ConnectionDO", team, at),
+      register: (p, at) => this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user!)).registerSocket(p.user!, p.install!, p.grant, "ConnectionDO", team, at),
       audit: (record) => void this.runSystem("integration.github.token_minted", record, `ghtok:${String(record.token_id)}`),
       needsReauth: this.markNeedsReauth,
       installActive: this.installActive
@@ -254,7 +272,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   private installActive = async (p: Principal) => {
     type Users = { installGrant(e: string, install: string, grant: string): Promise<{ ok: boolean }> }
     if (!p.user || !p.install || !p.grant) return false
-    return (await (this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user)) as unknown as Users).installGrant(p.user, p.install, p.grant)).ok
+    return (await this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user)).installGrant(p.user, p.install, p.grant)).ok
   }
 
   private markNeedsReauth = (c: Connection, detail: string) => void this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail }, `status:${c.id}:needs_reauth:${Date.now()}`)

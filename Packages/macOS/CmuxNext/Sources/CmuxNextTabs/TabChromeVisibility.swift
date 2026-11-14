@@ -19,12 +19,20 @@ public import CoreGraphics
 /// fit; the icon stays put when both fit (nxdog9, Lawrence 2026-10-20).
 /// A selected tab keeps its existing close once it is narrower than Chromium's
 /// close-button threshold, where the x costs no title text.
+/// A hovered tab that shows a status (its spinner, a status mark or the unread dot) shows only the x,
+/// in the status's slot: never the status and the x side by side, as the sidebar's workspace rows
+/// (Leo 2026-11-05: "the button replaces the spinner on the top when you hover over it, like just like
+/// the sidebar with the workspaces"). A titled tab hides its trailing status marks under the x
+/// (`closeReplacesStatus`); a tab without a title gives the x its icon's centered slot.
 public struct TabChromeVisibility: Hashable, Sendable {
     public var showsIcon: Bool
     public var showsTitle: Bool
     public var showsClose: Bool
     /// Icon (or the close button when it replaces the icon) is centered.
     public var centersContent: Bool
+    /// The x stands in for the tab's status (spinner, status mark, unread dot) in the status's slot:
+    /// the status hides while the x shows. Only on hover; an x shown at rest keeps the status beside it.
+    public var closeReplacesStatus = false
 
     static let hidden = TabChromeVisibility(showsIcon: false, showsTitle: false, showsClose: false, centersContent: true)
 
@@ -34,6 +42,7 @@ public struct TabChromeVisibility: Hashable, Sendable {
         isSelected: Bool,
         isHovered: Bool,
         isClosable: Bool = true,
+        hasStatus: Bool = false,
         style: TabStripStyle,
         metrics: TabStripMetrics = .standard
     ) -> TabChromeVisibility {
@@ -64,7 +73,24 @@ public struct TabChromeVisibility: Hashable, Sendable {
         let showsIcon = iconFits || !showsClose
         let titleWidth = available - metrics.iconSize - metrics.iconTitleSpacing
         let showsTitle = iconFits && titleWidth >= metrics.titleMinVisibleWidth
+        // An x the tab shows at rest (a narrow selected tab) already sits beside the status: hover keeps that
+        // form, so the status stays (the x only replaces a status where hover brings the x).
+        let closeAtRest = style == .chrome && isSelected && !roomy && isClosable
         return TabChromeVisibility(showsIcon: showsIcon, showsTitle: showsTitle, showsClose: showsClose, centersContent: !showsTitle)
+            .yieldingStatus(isHovered && hasStatus && !closeAtRest)
+    }
+
+    /// This form with the x standing in for a status when `replaces` and the x shows: a tab without a
+    /// title draws its status on its icon, so the x takes the icon's centered slot instead.
+    func yieldingStatus(_ replaces: Bool) -> TabChromeVisibility {
+        guard replaces, showsClose else { return self }
+        var form = self
+        form.closeReplacesStatus = true
+        if !showsTitle {
+            form.showsIcon = false
+            form.centersContent = true
+        }
+        return form
     }
 
     /// One close-button origin for the painted layer and the pre-hover AX target.
@@ -92,16 +118,17 @@ public struct TabChromeVisibility: Hashable, Sendable {
         isSelected: Bool,
         isHovered: Bool,
         isClosable: Bool = true,
+        hasStatus: Bool = false,
         style: TabStripStyle,
         metrics m: TabStripMetrics = .standard
     ) -> [TabChromeVisibility] {
         let rest = widths.map {
             resolve(width: $0, isPinned: isPinned, isSelected: isSelected, isHovered: isHovered, isClosable: isClosable,
-                    style: style, metrics: m)
+                    hasStatus: hasStatus, style: style, metrics: m)
         }
         guard !isPinned, let end = rest.last else { return rest }
         let contents = widths.map { $0 - m.contentLeadingInset - m.contentTrailingInset }
-        let shows = rest.map { $0 != .hidden }
+        let shows = rest.map { !$0.isHidden }
         func available(_ index: Int, close: Bool) -> CGFloat {
             contents[index] - (close ? m.closeButtonSize + m.titleCloseSpacing : 0)
         }
@@ -119,8 +146,12 @@ public struct TabChromeVisibility: Hashable, Sendable {
         }, from: start.showsTitle)
         return rest.indices.map { index in
             TabChromeVisibility(showsIcon: icon[index], showsTitle: title[index], showsClose: close[index], centersContent: !title[index])
+                .yieldingStatus(rest[index].closeReplacesStatus)
         }
     }
+
+    /// Nothing shows (a tab narrower than an icon-only tab).
+    var isHidden: Bool { !showsIcon && !showsTitle && !showsClose }
 
     /// `wanted` (one value per sample) changed at most once from `start`: the end value from the first
     /// sample after the last one that wants otherwise.

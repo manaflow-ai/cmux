@@ -1,9 +1,8 @@
 public import AppKit
 import CmuxNextDesign
 
-// Development builds only: the pane is not exposed in Release until the
-// overlay link token authenticates hello claims (RemoteViewAvailability).
-#if DEBUG
+// Every build: Release shows it only for a Cloud machine's desktop over its Native link
+// (RemoteViewAvailability).
 /// The remote desktop pane: video, input surface and chrome variant A.
 /// AppKit, manual layout. It renders a `RemotePaneState` and reports the
 /// viewer's choices through closures; `RemoteDesktopPane` owns the state.
@@ -18,6 +17,8 @@ public final class RemoteDesktopPaneView: NSView {
     private var state: RemotePaneState?
     private var settings = RemoteDesktopSettings()
     private var shownOverlay: RemotePaneOverlay?
+    /// The connecting reason the card shows (``RemoteViewStatus/connectingReason``).
+    private var shownReason: String?
     private var isHovering = false
 
     static let toolbarInset: CGFloat = 8
@@ -32,7 +33,6 @@ public final class RemoteDesktopPaneView: NSView {
             addSubview(view)
         }
         toolbar.alphaValue = 0
-        toolbar.isHidden = true
         banner.isHidden = true
         card.isHidden = true
         upstreamIndicator.isHidden = true
@@ -56,12 +56,14 @@ public final class RemoteDesktopPaneView: NSView {
         banner.isHidden = !state.showsLatencyBanner
         if state.showsLatencyBanner { banner.update(state: state, colors: colors) }
         upstreamIndicator.update(kinds: state.upstreamIndicator, colors: colors)
-        if state.overlay != shownOverlay || state.overlay == nil {
+        let reason = state.status?.connectingReason
+        if state.overlay != shownOverlay || state.overlay == nil || reason != shownReason {
             shownOverlay = state.overlay
+            shownReason = reason
             card.isHidden = state.overlay == nil
             if let overlay = state.overlay {
                 card.configure(overlay: overlay, host: state.hostName, viaCloudTunnel: state.viaCloudTunnel, reconnecting: state.reconnecting,
-                               colors: colors)
+                               reason: reason, colors: colors)
             }
         }
         setAccessibilityLabel(RemoteViewStrings.accessibilityPane(state.hostName))
@@ -113,18 +115,17 @@ public final class RemoteDesktopPaneView: NSView {
     private func updateToolbarVisibility(animated: Bool) {
         let visible = isHovering || (state?.pinsToolbar ?? true)
         let target: CGFloat = visible ? 1 : 0
-        guard toolbar.alphaValue != target || toolbar.isHidden == visible else { return }
-        // A transparent toolbar must not take clicks meant for the host.
-        if visible { toolbar.isHidden = false }
+        // A transparent toolbar must not take clicks meant for the host, but it is never hidden:
+        // a hidden view leaves the Accessibility tree, and VoiceOver could not reach Take over.
+        // A faded toolbar's controls refuse focus; one that holds it (a Take over click) hands it to the capture view.
+        if !visible, toolbar.holdsFocus { window?.makeFirstResponder(capture) }
+        toolbar.isRevealed = visible
+        guard toolbar.alphaValue != target else { return }
         guard animated else {
             toolbar.alphaValue = target
-            toolbar.isHidden = !visible
             return
         }
-        Motion.overlays.animate(visible ? .fadeIn : .fadeOut, in: self, { toolbar.animator().alphaValue = target }, completion: { [weak self] in
-            guard let self, !self.isHovering, self.state?.pinsToolbar == false else { return }
-            self.toolbar.isHidden = true
-        })
+        Motion.overlays.animate(visible ? .fadeIn : .fadeOut, in: self, { toolbar.animator().alphaValue = target })
     }
 
     // MARK: Layout
@@ -155,4 +156,3 @@ public final class RemoteDesktopPaneView: NSView {
             width: max(cardWidth, 0), height: cardSize.height)
     }
 }
-#endif

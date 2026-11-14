@@ -6,7 +6,6 @@ import { callOp, callRead, makeTenant, succeeded, type Tenant } from "./setup/te
  * read at the same instant, many rounds; every list holds only its own canary. Two tenants send the SAME
  * idempotency key and client message id together: neither gets the other's cached result.
  */
-const SIZE = { cpu: 2, memory_mb: 4096, disk_mb: 16384 }
 const TENANTS = 12
 const ROUNDS = 4
 
@@ -24,12 +23,11 @@ describe("concurrent tenants", { timeout: 300_000 }, () => {
           const writes = await Promise.all([
             callOp(t.session, "group.create", { name: `${t.canary} group ${round}` }),
             callOp(t.session, "feed.post", { type: "notice", kind: "notice", title: `${t.canary} feed ${round}` }),
-            callOp(t.session, "cloud.machine.create", { size: SIZE, name: `${t.canary} m${round}` }),
             callOp(t.installToken, "host.enroll", { name: `${t.canary} host ${round}`, platform: "macos" })
           ])
-          for (const w of writes) if (!succeeded(w) && w.code !== "cloud.quota.exceeded" && w.code !== "cloud.limit") violations.push(`${t.tag} write failed: ${w.raw.slice(0, 160)}`)
+          for (const w of writes) if (!succeeded(w)) violations.push(`${t.tag} write failed: ${w.raw.slice(0, 160)}`)
           const reads = await Promise.all(
-            ["group.list", "feed.list", "cloud.machine.list", "team.hosts.list", "team.directory", "inbox.list", "install.list", "chief.list", "usage.summary"].map(async (op) => [op, await callRead(t.session, op, op === "inbox.list" ? { limit: 50 } : {})] as const)
+            ["group.list", "feed.list", "team.hosts.list", "team.directory", "inbox.list", "install.list", "chief.list", "usage.summary"].map(async (op) => [op, await callRead(t.session, op, op === "inbox.list" ? { limit: 50 } : {})] as const)
           )
           for (const [op, r] of reads) scan(t, `${op} round ${round}`, r.raw)
           // The scan can fail: a tenant's own lists carry its own canary.
@@ -68,11 +66,9 @@ describe("concurrent tenants", { timeout: 300_000 }, () => {
     expect(intruder.raw).not.toContain(x.canary)
   })
 
-  it("8 simultaneous probes per stranger of A's conversation, machine and snapshot by 6 strangers return only refusals and leave A unchanged", async () => {
+  it("8 simultaneous probes per stranger of A's conversation by 6 strangers return only refusals and leave A unchanged", async () => {
     const a = await makeTenant("a")
     const strangers = await Promise.all(["b", "c", "d", "e", "f", "g"].map((t) => makeTenant(t)))
-    const created = await callOp(a.session, "cloud.machine.create", { size: SIZE, name: `${a.canary} target` })
-    const machine = created.body.value.machine.id as string
     const dm = await callOp(a.session, "dm.open", { peer: { email: `p-${a.sub}@tenant.test` } })
     const conv = dm.body.value.conversation.id as string
     const k = crypto.randomUUID()
@@ -81,8 +77,6 @@ describe("concurrent tenants", { timeout: 300_000 }, () => {
       Array.from({ length: 8 }, (_, i) => async () => {
         const rs = [
           await callRead(s.session, "conversation.history", { conversation: conv, limit: 50 }),
-          await callRead(s.session, "cloud.machine.get", { machine }),
-          await callOp(s.session, "cloud.machine.delete", { machine }),
           await callOp(s.session, "title.set", { conversation: conv, title: `hijack ${i}` })
         ]
         return rs.map((r) => ({ ok: succeeded(r), leaked: r.raw.includes(a.canary) }))
@@ -90,8 +84,6 @@ describe("concurrent tenants", { timeout: 300_000 }, () => {
     )
     const out = (await Promise.all(probes.map((p) => p()))).flat()
     expect(out.filter((r) => r.ok || r.leaked)).toEqual([])
-    const view = await callRead(a.session, "cloud.machine.get", { machine })
-    expect(view.raw).toContain(`${a.canary} target`)
     expect((await callRead(a.session, "conversation.history", { conversation: conv, limit: 50 })).raw).toContain(`${a.canary} private`)
   })
 })

@@ -72,7 +72,7 @@ extension FeedItem {
             ? FeedSwipeAction(id: "unread", title: "Unread", systemImage: "envelope.badge", tint: FeedSwipeTint.read) { store.markUnread(id) }
             : FeedSwipeAction(id: "read", title: "Read", systemImage: "envelope.open", tint: FeedSwipeTint.read) { store.markRead(id) }
         let done = FeedSwipeAction(id: "done", title: "Done", systemImage: "checkmark", tint: FeedSwipeTint.archive, removesRow: true) {
-            withAnimation(.cmuxMobileSmooth) { store.markDone(id) }
+            withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.markDone(id) }
         }
         guard resolution == nil else { return [done, read] }
         switch kind {
@@ -83,20 +83,20 @@ extension FeedItem {
             var actions: [FeedSwipeAction] = []
             if let deny {
                 actions.append(FeedSwipeAction(id: "deny", title: "Deny", systemImage: "xmark.shield", tint: FeedSwipeTint.destructive) {
-                    withAnimation(.cmuxMobileSmooth) { store.respond(id, option: deny) }
+                    withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.respond(id, option: deny) }
                 })
             }
             if let allow {
-                // The allow asks for Face ID before it is sent (verify/phone-approvals.md).
-                actions.append(FeedSwipeAction(id: "allow", title: "Allow", systemImage: "faceid", tint: FeedSwipeTint.approve) {
-                    withAnimation(.cmuxMobileSmooth) { store.respond(id, option: allow) }
+                // The allow is signed with the approval key, no prompt (verify/phone-approvals.md).
+                actions.append(FeedSwipeAction(id: "allow", title: "Allow", systemImage: "checkmark.shield", tint: FeedSwipeTint.approve) {
+                    withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.respond(id, option: allow) }
                 })
             }
             return actions
         case .question(let question) where question.isPending:
             let answer = FeedSwipeAction(id: "answer", title: "Answer", systemImage: "arrowshape.turn.up.left", tint: FeedSwipeTint.read, action: open)
             let decline = FeedSwipeAction(id: "decline", title: "Decline", systemImage: "xmark", tint: FeedSwipeTint.destructive) {
-                withAnimation(.cmuxMobileSmooth) { store.decline(id) }
+                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.decline(id) }
             }
             return [decline, answer]
         case .needsInput:

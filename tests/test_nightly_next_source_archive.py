@@ -55,6 +55,8 @@ def step(name: str) -> str:
 def steps(name: str) -> list[str]:
     """The text of every step called `name` (dash line through the next step)."""
     text = write_out_step_aliases(expand(WORKFLOW.read_text(encoding="utf-8")))
+    # nightly-next-one runs these same steps as YAML aliases of the split jobs' (tests/test_nightly_next_one_job.py).
+    text = re.sub(r"^  nightly-next-one:\n.*?(?=^  [A-Za-z0-9_-]+:\n)", "", text, count=1, flags=re.MULTILINE | re.DOTALL)
     starts = [m.start() for m in re.finditer(r"^      - name: ", text, re.MULTILINE)]
     blocks = []
     for index, start in enumerate(starts):
@@ -96,9 +98,12 @@ def test_source_archive_step_blocks() -> None:
 
 
 def test_upload_and_inject_do_not_depend_on_a_soft_outcome() -> None:
+    # The first try may fail softly: its retry (tests/test_nightly_artifact_uploads_retry.py) fails the job.
     upload = step("Upload the cmux-next source archive")
-    assert field(upload, "continue-on-error") is None
     assert field(upload, "if") == NEXT_FRESH_FULL_BUILD, field(upload, "if")
+    retry = step("Upload the cmux-next source archive (retry)")
+    assert field(retry, "continue-on-error") is None, "a failed retry must stop the helper job"
+    assert f"({NEXT_FRESH_FULL_BUILD})" in field(retry, "if"), field(retry, "if")
     for download in prepare_steps("Download the Ghostty dependency license trees (cmux-next)"):
         assert field(download, "continue-on-error") is None, "a missing license tree must stop the sign job"
         assert prepare_if(download) == NEXT_FULL_BUILD, field(download, "if")

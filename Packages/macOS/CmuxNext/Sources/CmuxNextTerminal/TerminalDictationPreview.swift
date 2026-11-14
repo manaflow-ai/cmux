@@ -5,13 +5,14 @@ import CmuxNextDesign
 /// deliberately click-through so the terminal remains the input target.
 public final class TerminalDictationPreview: NSView {
     private let label = ThemedLabel(labelWithString: "")
-    private let glass = Glass.makeSurface(.toast, cornerRadius: 8, interactive: false)
+    private let glass = Glass.makeSurface(.toast, cornerRadius: Metrics.surfaceCornerRadius, interactive: false)
 
     public init() {
         super.init(frame: .zero)
         glass.translatesAutoresizingMaskIntoConstraints = false
         label.font = .systemFont(ofSize: TypeScale.detail, weight: TypeScale.emphasis)
-        label.ink = .secondary
+        // Fitted to the toast glass it draws on, in the theme's tint.
+        label.themeColor = { Palette.toastText(.secondary) }
         label.lineBreakMode = .byTruncatingTail
         label.maximumNumberOfLines = 1
         label.translatesAutoresizingMaskIntoConstraints = false

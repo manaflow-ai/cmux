@@ -6,10 +6,23 @@ fuzz.py, and it reuses fuzz.py's guest connection: every app call goes through t
 bundled `cmux app call` over SSH, every screenshot is a VNC frame of the guest display. The
 guest needs no python3 and no Accessibility grant.
 
+Onboarding is off by default (2026-11-09); with CMUX_NEXT_ONBOARDING=1 the first run shows its steps one at a time (#37241): the "Sign In to Your Agents" tool window when
+the acpmux harness read lists an agent, then, once that window closed, the Bring your history page
+over the main window. The smoke goes through them first, right after the window step, as a person
+does before using the app: it closes the Agents window through its close button (debug.onboarding
+close) and waits for the history page to show; New Tab then leaves the page as on a person's first
+run. Closed only before design_on, the Agents window let the history page cover the scripts tab
+there, and design_on, design_off and page_info failed (2026-11-06, os-matrix step b1a7e127). It
+keeps the first run otherwise as a person sees it: CMUX_NEXT_SKIP_ONBOARDING=1 also drops the Bring
+your history page, and New Tab then left Home in front (step fbaf56c6). Before design_on it still
+closes a tool window that holds the key window, and waits for the main window to be key.
+
 Steps (each one ok/FAIL in result.json, with a screenshot shot-<step>.png):
   launch     the app starts and answers a ping
   window     a main window exists (debug.windows)
-  terminal   a New Tab opens a live terminal (debug.surfaces)
+  terminal   a New Tab opens a live terminal (debug.surfaces). A script's New Tab stays a sidebar row while
+             Home's message box has the keyboard (#31865): the smoke then shows it (workspace.selectLast)
+             and says so in result.json, home_text_input_had_keys
   echo       keys typed into it (debug.key) run `echo cmux-matrix-$((6*7))` in the shell and
              the terminal shows the output line cmux-matrix-42 (debug.surfaces text)
   split      Split Right makes a second pane (debug.focus topology)
@@ -24,7 +37,8 @@ Steps (each one ok/FAIL in result.json, with a screenshot shot-<step>.png):
   type_waits browser.page.insert_text answers only after the page handled the text (its
              gesture-free round trip): the page's input handler holds the page for 1.2 s, so the
              call takes 0.9 s or more, and the field holds the text
-  design_on  with Debug Settings' UI pointer picker on (browserPage.uiPointer, off by default),
+  design_on  with Debug Settings' UI pointer picker on (browserPage.uiPointer, off by default; the
+             tunable store is turned on first, as a Release build with bench hooks starts with it off),
              Ctrl-Opt-Cmd-D (VNC keys, the person's) turns design mode on: its overlay host is in
              the page (enableDesignMode runs in an isolated world without a gesture)
   design_off the same keys turn it off: the overlay host is gone
@@ -79,6 +93,8 @@ TYPED = "cmux42"
 # deadline (ControlRouter requestDeadline): a 2000 ms hold raced it, and on macOS 26 a 2081 ms call
 # answered "timeout" (exit 1) after the text was typed (run of 2026-10-24, build 419d8048).
 HOLD_MS = 1200
+HISTORY_PAGE = "cmux.import-history"  # the first-run Bring your history page (debug.page id)
+FIRST_RUN_DEADLINE = 60  # s: the Agents step waits for the acpmux harness read before it opens or not
 REQUIRED_STEPS = ("launch", "window", "terminal", "echo", "split", "chromium", "webkit",
                   "favicon", "type_waits", "design_on", "design_off", "page_info", "settings", "alive", "quit")
 
@@ -138,6 +154,30 @@ class Smoke:
     def windows(self) -> list:
         return self.call("debug.windows").get("windows") or []
 
+    def key_window(self) -> dict | None:
+        """The app's key window (debug.window_list), None when no window of the app is key."""
+        for w in self.call("debug.window_list").get("windows") or []:
+            if w.get("key"):
+                return {k: w.get(k) for k in ("id", "kind", "class", "title")}
+        return None
+
+    def first_run(self) -> dict:
+        """Goes through the first-run steps as a person does before using the app: closes the
+        Agents tool window (its close button) when it opens, then waits for the step after it,
+        the Bring your history page, to show. What it saw, for result.json."""
+        seen: dict = {"closed_tool_window": None}
+
+        def history_shown():
+            tool = self.call("debug.onboarding", {"action": "state"})
+            if tool.get("open"):
+                seen["closed_tool_window"] = tool.get("step")
+                self.call("debug.onboarding", {"action": "close"})
+                return None
+            page = self.call("debug.page", {"page": HISTORY_PAGE, "action": "state"})
+            return "error" not in page and page.get("in_window") is True and page.get("view_hidden") is False
+        seen["history_shown"] = bool(self.wait(history_shown, FIRST_RUN_DEADLINE))
+        return seen
+
     def terminals(self) -> int:
         return int(self.call("debug.surfaces").get("live_terminals") or 0)
 
@@ -145,6 +185,29 @@ class Smoke:
         windows = self.call("debug.focus").get("windows") or []
         window = next((w for w in windows if w.get("is_key")), windows[0] if windows else {})
         return len(window.get("topology") or [])
+
+    def key_focus(self) -> dict:
+        """The key window's entry of debug.focus (else the first window's): shown workspace, first responder."""
+        windows = self.call("debug.focus").get("windows") or []
+        return next((w for w in windows if w.get("is_key")), windows[0] if windows else {})
+
+    def show_made_workspace(self, opened: dict) -> None:
+        """A script's newTab with focus is listed, not shown, while a text input has the person's keyboard
+        (AppActions+Workspaces.swift newWorkspace, #31865; HomePendingTerminalFocusTests). A fresh Home's
+        message box has the keyboard from launch, so in the VM the new workspace stays a sidebar row.
+        Then the smoke shows it as a script may, and records why in result.json; a workspace shown at
+        once runs no extra step. No app action shows a workspace by its id from a script (the daemon's
+        workspace.focus does not move a window's selection), so it is workspace.selectLast: on a fresh
+        run the made workspace is the only workspace row (Home is the sidebar's Home item, not a row)."""
+        made = next((c for c in opened.get("created") or [] if str(c).startswith("ws_")), None)
+        if made is None or self.wait(lambda: self.key_focus().get("workspace") == made, 5):
+            return
+        focus = self.key_focus()
+        record = {"workspace": made, "shown_instead": focus.get("workspace"),
+                  "first_responder": (focus.get("appkit") or {}).get("first_responder"), "is_key": focus.get("is_key")}
+        record["select"] = self.call("action.run", {"action": "workspace.selectLast", "focus": True})
+        record["shown_after_select"] = bool(self.wait(lambda: self.key_focus().get("workspace") == made, 30))
+        self.result["home_text_input_had_keys"] = record
 
     def engines(self) -> list[str]:
         """Engines of the pages shown in the app's panes (debug.layers): "cef" or "webkit"."""
@@ -168,12 +231,23 @@ class Smoke:
         if "error" in self.call("system.identify"):
             self.step("debug_build", False, "the app refused `cmux app call`: the smoke needs a DEV build")
             return
+        # A plain Release build (reload.sh --release of a tag that is not in release_bench_tags of
+        # scripts/cmux-next/cmux-next.dogfood.conf) answers system.identify but has no debug.* methods,
+        # so every read below is empty: say that, instead of "window FAIL {windows: 0}".
+        probe = str(self.call("debug.windows").get("error", ""))
+        if "method_not_found" in probe or "Unknown method debug.windows" in probe:
+            self.step("debug_build", False, "the app has no debug.* methods (a plain Release build): the smoke needs "
+                      "a Debug build or a bench Release (a release_bench_tags tag, e.g. chrome-parity-*)")
+            return
         windows = self.wait(self.windows, 30)
         if not self.step("window", bool(windows), {"windows": len(windows or [])}):
             return
+        # Onboarding is off unless the app runs with CMUX_NEXT_ONBOARDING=1 (2026-11-09): no step to wait for.
+        self.result["first_run"] = self.first_run() if os.environ.get("CMUX_NEXT_ONBOARDING") == "1" else {"skipped": "onboarding off"}
 
         before = self.terminals()
         opened = self.call("action.run", {"action": "newTab", "focus": True, "wait": True})
+        self.show_made_workspace(opened)
         grown = self.wait(lambda: self.terminals() > before, STEP_DEADLINE)
         self.step("terminal", bool(grown) and "error" not in opened, {"run": opened, "before": before})
 
@@ -286,10 +360,25 @@ class Smoke:
 
         overlay = "!!document.querySelector('[data-cmux-design-mode=\"overlay\"]')"
         # Design mode is behind a Debug Settings toggle (off by default): on for these two steps.
+        # A Release build with bench hooks (the fleet's dev-release builds) launches with the tunable
+        # store off and keeps every default, so a set changes nothing there: turn the store on for this
+        # launch first (in memory only; a no-op where launch already turned it on).
+        store = self.call("debug.tunables", {"action": "activate"})
         picker = self.call("debug.tunables", {"action": "set", "key": "browserPage.uiPointer", "value": True})
+        picker["store_active"] = store.get("active")
+        # VNC keys go to the key window: close a first-run tool window that holds it (its close
+        # button's path), then wait for the main window to be key. A FAIL names the key window.
+        tool = self.call("debug.onboarding", {"action": "state"})
+        if tool.get("open"):
+            self.call("debug.onboarding", {"action": "close"})
+            self.wait(lambda: self.call("debug.onboarding", {"action": "state"}).get("open") is False, 15)
+        key_window = self.wait(lambda: (lambda w: w if w and w.get("kind") == "main" else None)(self.key_window()), 15) \
+            or self.key_window()
+        if tool.get("open"):
+            key_window = {**(key_window or {}), "closed_tool_window": tool.get("step")}
         self.vnc.chord("ctrl+opt+cmd+d")
         on = self.wait(lambda: self.page_eval(overlay) is True, 15)
-        self.step("design_on", bool(on), {"overlay": self.page_eval(overlay)})
+        self.step("design_on", bool(on), {"overlay": self.page_eval(overlay), "key_window": key_window})
         self.vnc.chord("ctrl+opt+cmd+d")
         off = self.wait(lambda: self.page_eval(overlay) is False, 15)
         self.step("design_off", bool(on) and bool(off), {"overlay": self.page_eval(overlay), "picker": picker})

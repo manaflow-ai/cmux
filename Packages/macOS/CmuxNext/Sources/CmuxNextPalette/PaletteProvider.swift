@@ -45,8 +45,24 @@ public final class StaticPaletteProvider: PaletteProvider {
     // need a main-actor hop (RegistryPaletteProvider, #17590).
     nonisolated deinit {}
 
-    public var immediateItems: [PaletteItem]? { itemsList }
-    public func items() async -> [PaletteItem] { itemsList }
+    public var immediateItems: [PaletteItem]? { live(itemsList) }
+    public func items() async -> [PaletteItem] { live(itemsList) }
+
+    /// `items` with each on/off row's state read now (``PaletteItem/readsToggleState``).
+    private func live(_ items: [PaletteItem]) -> [PaletteItem] {
+        guard items.contains(where: { $0.readsToggleState != nil }) else { return items }
+        return items.map { item in
+            guard let read = item.readsToggleState else { return item }
+            var item = item
+            let isOn = read()
+            guard isOn != item.toggleState else { return item }
+            item.toggleState = isOn
+            if let base = item.toggleBase {
+                (item.title, item.symbol) = PaletteTunables.toggleStyle.value.apply(title: base.title, symbol: base.symbol, isOn: isOn)
+            }
+            return item
+        }
+    }
 }
 
 /// A provider backed by an async closure (daemon queries, file system scans).
@@ -72,6 +88,46 @@ public final class AsyncPaletteProvider: PaletteProvider {
                                  updates: @escaping @MainActor () -> AsyncStream<[PaletteItem]>) -> AsyncPaletteProvider {
         AsyncPaletteProvider(id: id, showsItemsForEmptyQuery: showsItemsForEmptyQuery, immediateItems: immediateItems,
                              streaming: updates)
+    }
+
+    /// A provider whose source can say that more is to come (a list its owner has not finished building): it
+    /// shows each read's list and reads again by itself after `wait` returns, until a read is complete or the
+    /// page that reads it goes away. `items()` is one read, so a headless caller never waits for the rest.
+    ///
+    /// - Parameters:
+    ///   - read: One read: its rows, and whether more is to come. Nil ends the reads (the source is gone).
+    ///   - wait: Suspends before the read that follows `reads` reads (a clock sleep that backs off); it throws when cancelled.
+    public static func rereading(id: String, showsItemsForEmptyQuery: Bool = true,
+                                 read: @escaping @MainActor () async -> (items: [PaletteItem], moreToCome: Bool)?,
+                                 wait: @escaping @MainActor (_ reads: Int) async throws -> Void) -> AsyncPaletteProvider {
+        AsyncPaletteProvider(id: id, showsItemsForEmptyQuery: showsItemsForEmptyQuery, once: { await read()?.items ?? [] }, updates: {
+            let (stream, continuation) = AsyncStream.makeStream(of: [PaletteItem].self, bufferingPolicy: .bufferingNewest(1))
+            // task-owner: one open's reads of a list that is not complete; ends at a complete read or with the stream's consumer
+            // main-hop-allow: not an action's work: it awaits a read and then a clock wait, which no frame queue can; its main-actor work is `read`'s own (History: the rows of one read, at most 500) and one yield, one time per wait
+            let task = Task { @MainActor in
+                var reads = 0
+                // wakeup-allow: each pass awaits one read and then `wait` (History: a Backoff sleep of 1 s to 8 s, because the daemon sends no event when a list becomes complete); a complete read, a source that is gone or the end of the consumer ends it, and the palette ends the consumer when the page goes and when the palette hides (PaletteModel.didHide), so it runs only while the palette shows
+                while !Task.isCancelled, let list = await read() {
+                    reads += 1
+                    // A consumer that is gone ends the reads, also one that went with no cancel of this task.
+                    if case .terminated = continuation.yield(list.items) { break }
+                    guard list.moreToCome else { break }
+                    do { try await wait(reads) } catch { break }
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+            return stream
+        })
+    }
+
+    private init(id: String, showsItemsForEmptyQuery: Bool, once load: @escaping @MainActor () async -> [PaletteItem],
+                 updates: @escaping @MainActor () -> AsyncStream<[PaletteItem]>) {
+        self.id = id
+        self.showsItemsForEmptyQuery = showsItemsForEmptyQuery
+        immediateItems = nil
+        self.load = load
+        self.updates = updates
     }
 
     private init(id: String, showsItemsForEmptyQuery: Bool, immediateItems: [PaletteItem]?,

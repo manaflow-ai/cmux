@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextWindowRules
 
 /// Workspace groups when the home session serves personal state
 /// (plans/cmux-next/data-model.md 1.2c): groups and membership are personal
@@ -16,7 +17,7 @@ extension AppActionContext {
     /// by the sidebar document item the sidebar shows it as (`itm_g_<id>`:
     /// a header's +, its editor and its menu), or by its own id.
     func personalGroup(_ invocation: ActionInvocation) throws -> WorkspaceGroupModel {
-        let explicit = [invocation.target, invocation["group"]?.targetValue].compactMap { $0 }.first { $0.kind == .workspaceGroup }
+        let explicit = Self.explicitTarget([invocation.target, invocation["group"]?.targetValue], kinds: [.workspaceGroup])
         if let explicit {
             guard let group = personal.group(.init(rawValue: explicit.id)) ?? personal.group(.init(rawValue: SidebarDocStore.personalGroupID(item: explicit.id))) else {
                 throw ActionFailure.notFound(RefusalStrings.noWorkspaceGroup(explicit.id))
@@ -27,6 +28,17 @@ extension AppActionContext {
             throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInGroup)
         }
         return group
+    }
+
+    /// The targeted group as the active sidebar shows it, also one not in the personal store yet (Leo: "I can't ungroup").
+    func shownGroup(_ invocation: ActionInvocation) throws -> (id: CmuxNextSidebar.GroupID, personalID: String, name: String, sidebar: SidebarBridge) {
+        let sidebar = try sidebar(), target = Self.explicitTarget([invocation.target, invocation["group"]?.targetValue], kinds: [.workspaceGroup])
+        if let target, (try? group(invocation)) == nil,
+           let shown = sidebar.model.shownGroup(target: target.id, created: { sidebar.groupEditor.created[.init(rawValue: $0)]?.rawValue }) {
+            return (shown.group.id, shown.personalID, shown.group.name, sidebar)
+        }
+        let group = try group(invocation) // a group nobody shows is refused as before
+        return (sidebar.model.groupID(personal: group.id.rawValue), group.id.rawValue, group.name, sidebar)
     }
 
     /// A workspace's personal group, if any.
@@ -58,13 +70,12 @@ extension AppActionContext {
             membership = personal.workspace(session: session, key: workspace.key?.rawValue ?? workspace.id)?.group
             break
         }
-        var groups: [NotificationSoundScope.Group] = [], next = membership
-        // Depth-bounded: a malformed parent loop cannot spin here.
-        while let id = next, groups.count < 16, let group = personal.group(id) {
-            groups.append(.init(id: id.rawValue, name: group.name))
-            next = group.parent
-        }
-        return groups
+        guard let membership else { return [] }
+        // Out through each group's parent, depth-bounded so a malformed loop cannot spin (`workspaces::group_chain`).
+        let known = personal.groups
+        let parents = Dictionary(known.map { ($0.id.rawValue, $0.parent?.rawValue) }, uniquingKeysWith: { first, _ in first })
+        let names = Dictionary(known.map { ($0.id.rawValue, $0.name) }, uniquingKeysWith: { first, _ in first })
+        return WindowRules().groupChain(from: membership.rawValue, parents: parents).map { .init(id: $0, name: names[$0] ?? "") }
     }
 
     /// The agent names of this Mac's tabs (chat harnesses, hook-reported agents), for per-agent sounds.

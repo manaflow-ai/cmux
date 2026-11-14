@@ -46,9 +46,11 @@ pub struct SessionCfg {
     pub upstream_record: Option<std::path::PathBuf>,
     /// Most bytes one session records (`--upstream-record-max-mb`, default 1024).
     pub upstream_record_max_bytes: u64,
-    /// Frames the engine may have unacknowledged (1 on the development carriers; a hub
-    /// session sizes it to its path's round trip).
+    /// Frames the engine may have unacknowledged before a hybrid path reports its RTT.
     pub frames_in_flight: u32,
+    /// After injected input, frames skip the frame-rate cap for a short window
+    /// (`--input-frame-now 1`; the engine's `input_frame_now`).
+    pub input_frame_now: bool,
     /// macOS: stream at most this many pixels wide (`--max-width`; the display's aspect is
     /// kept). Encode time grows with the pixel count (remote-desktop-mac-host.md section 6).
     #[cfg_attr(target_os = "linux", allow(dead_code))]
@@ -59,6 +61,7 @@ pub struct MediaSession {
     desktop: Box<dyn Desktop>,
     au: Vec<u8>,
     engine: MediaEngine,
+    max_fps: u32,
     /// Upstream media the viewer opened (rd change C4).
     upstreams: Upstreams<Box<dyn UpstreamSink>>,
     deferred_error: Option<String>,
@@ -68,10 +71,56 @@ pub struct MediaSession {
     stats_every_ns: u64,
     cpu_last: (f64, u64),
     settle_ns: u64,
+    /// Per-frame times for the screen stream eval, when `CMUX_RD_TIMING_LOG` names a file.
+    timing: Option<Timing>,
 }
 
-/// No feedback for this long ends the session.
-const LIVENESS_NS: u64 = 3_000_000_000;
+/// Where each encoded frame's time went, one JSON line a frame (measurement only; the eval's
+/// `scripts/measure/screen-stream-eval` reads it): `input_us`, the last viewer input injected before
+/// this frame, once; `shown_us`, when the display showed the frame (ScreenCaptureKit's display time);
+/// `arrived_us`, when the capture handed it over; `damage_us`, when the session first saw damage
+/// since the last frame; `release_us`, when the gate let the encode start; `encoded_us`, when the
+/// encode ended. All on the protocol clock in µs.
+struct Timing {
+    out: std::fs::File,
+    input_us: Option<u64>,
+    damage_us: Option<u64>,
+}
+
+impl Timing {
+    fn from_env() -> Option<Self> {
+        let path = std::env::var_os("CMUX_RD_TIMING_LOG")?;
+        match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            Ok(out) => Some(Self { out, input_us: None, damage_us: None }),
+            Err(e) => {
+                eprintln!("cmux-rd host: CMUX_RD_TIMING_LOG {}: {e}", path.to_string_lossy());
+                None
+            }
+        }
+    }
+
+    fn frame(&mut self, shown: Option<(u64, u64)>, release_us: u64, encoded_us: u64) {
+        use std::io::Write;
+        let line = serde_json::json!({
+            "input_us": self.input_us.take(),
+            "shown_us": shown.map(|t| t.0),
+            "arrived_us": shown.map(|t| t.1),
+            "damage_us": self.damage_us.take(),
+            "release_us": release_us,
+            "encoded_us": encoded_us,
+        });
+        let _ = writeln!(self.out, "{line}");
+    }
+}
+
+/// Keep the ticket and session alive while a viewer reattaches after a network
+/// drop. The viewer's reconnect path can take longer than a short transport
+/// blip, including a phone waking from sleep; the session is still bounded.
+const REATTACH_GRACE_NS: u64 = 90_000_000_000;
+
+fn viewer_silent_too_long(silent_us: u64) -> bool {
+    silent_us > REATTACH_GRACE_NS / 1000
+}
 
 fn now_us() -> u64 {
     now_ns() / 1000
@@ -114,6 +163,7 @@ impl MediaSession {
                 max_datagram,
                 path: PathKind::ViaCloudRegion,
                 frames_in_flight: cfg.frames_in_flight,
+                input_frame_now: cfg.input_frame_now,
                 ..EngineConfig::default()
             },
             now_us(),
@@ -122,6 +172,7 @@ impl MediaSession {
             desktop,
             au: Vec::new(),
             engine,
+            max_fps: cfg.max_fps,
             upstreams: Upstreams::new(sink, negotiated_caps),
             deferred_error: None,
             stats_frames_sent: 0,
@@ -130,6 +181,7 @@ impl MediaSession {
             stats_every_ns: cfg.stats_every_ms * 1_000_000,
             cpu_last: (process_cpu_s(), now_ns()),
             settle_ns: cfg.settle_us * 1000,
+            timing: Timing::from_env(),
         })
     }
 
@@ -152,6 +204,7 @@ impl MediaSession {
     ) -> String {
         let mut damage = Vec::new();
         let mut incoming = Vec::new();
+        let mut had_control = table.may_inject_input(session, viewer);
         // The first frame covers the whole screen (an IDR).
         if let Some(req) = self.engine.start(now_us()) {
             if let Err(e) = self.encode(carrier, &req) {
@@ -165,9 +218,10 @@ impl MediaSession {
             if let Some(e) = self.deferred_error.take() {
                 return format!("encode/send failed: {e}");
             }
-            // The viewer sends feedback at least every second; silence means it is gone.
-            if self.engine.silent_for_us(now_us()) > LIVENESS_NS / 1000 {
-                return "viewer silent for 3 s".into();
+            // The viewer sends feedback at least every second. Keep the ticket
+            // alive through a full network drop so the viewer can reattach.
+            if viewer_silent_too_long(self.engine.silent_for_us(now_us())) {
+                return "viewer silent for 90 s".into();
             }
             let now = now_us();
             if let Some(req) = self.engine.poll(now) {
@@ -178,7 +232,19 @@ impl MediaSession {
             let timeout = self.engine.next_deadline_us().map(|t| t.saturating_sub(now_us()) * 1000);
             let stats_in = self.next_stats_ns.saturating_sub(now_ns());
             // The engine's deadline covers held frames and input held behind a gap.
-            let timeout = timeout.map_or(stats_in, |t| t.min(stats_in)).min(LIVENESS_NS);
+            let timeout = timeout.map_or(stats_in, |t| t.min(stats_in)).min(REATTACH_GRACE_NS);
+            // Timed input work: a press waiting behind the agent's held button, the person
+            // master going idle.
+            let wake = if table.may_inject_input(session, viewer) {
+                self.desktop.pump().unwrap_or_else(|e| {
+                    eprintln!("inject failed: {e}");
+                    None
+                })
+            } else {
+                None
+            };
+            let timeout = wake
+                .map_or(timeout, |d| timeout.min(u64::try_from(d.as_nanos()).unwrap_or(u64::MAX)));
             let timeout = Some(timeout.max(1_000_000));
             let mut fds = carrier.fds();
             fds.push(self.desktop.fd());
@@ -188,6 +254,11 @@ impl MediaSession {
             incoming.clear();
             if let Err(reason) = carrier.receive(&mut incoming) {
                 return reason;
+            }
+            if let Some(rtt_us) = carrier.take_path_rtt_us() {
+                let frames_in_flight =
+                    cmux_rd_engine::frames_in_flight_for(rtt_us, self.max_fps).max(2);
+                self.engine.set_frames_in_flight(frames_in_flight);
             }
             for item in incoming.drain(..) {
                 match item {
@@ -214,6 +285,9 @@ impl MediaSession {
             }
             // One gate decision for everything that settled together.
             let merged = damage.iter().copied().reduce(Rect::union);
+            if let (Some(_), Some(timing)) = (merged, self.timing.as_mut()) {
+                timing.damage_us.get_or_insert(now_us());
+            }
             if let Some(r) = merged {
                 let req = self.engine.damage(0, r, now_us());
                 trace(&format!("damage {r:?} -> {req:?}"));
@@ -224,6 +298,11 @@ impl MediaSession {
                 }
             }
             let may_inject = table.may_inject_input(session, viewer);
+            if had_control && !may_inject {
+                // Control just ended: release what the viewer holds and drop queued input.
+                self.release_input();
+            }
+            had_control = may_inject;
             if !may_inject {
                 // Control ended: the viewer's microphone and camera stop with it.
                 for closed in self.upstreams.close_all(&mut self.engine) {
@@ -267,6 +346,9 @@ impl MediaSession {
         self.desktop.set_bitrate(req.target_kbps);
         let t0 = now_ns();
         let idr = self.desktop.encode(req.force_idr, t_capture_us as i64, &mut self.au)?;
+        if let Some(timing) = self.timing.as_mut() {
+            timing.frame(self.desktop.picked_times(), t_capture_us, now_us());
+        }
         self.encode_ms.push_back((now_ns() - t0) as f64 / 1e6);
         if self.encode_ms.len() > 120 {
             self.encode_ms.pop_front();
@@ -340,6 +422,9 @@ impl MediaSession {
         if let Err(e) = self.desktop.inject(event) {
             eprintln!("inject failed: {e}");
         }
+        if let Some(timing) = self.timing.as_mut() {
+            timing.input_us = Some(now_us());
+        }
     }
 
     /// Ends every upstream stream (called on every end of a session).
@@ -379,5 +464,16 @@ impl MediaSession {
             loss_pct: stats.loss * 100.0,
         };
         let _ = carrier.send_control(&stats);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::viewer_silent_too_long;
+
+    #[test]
+    fn viewer_silence_allows_the_ninety_second_reattach_window() {
+        assert!(!viewer_silent_too_long(90_000_000));
+        assert!(viewer_silent_too_long(90_000_001));
     }
 }

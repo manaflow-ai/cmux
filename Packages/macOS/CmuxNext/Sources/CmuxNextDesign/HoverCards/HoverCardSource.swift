@@ -25,9 +25,12 @@ public struct HoverCardBody {
     /// that hangs from its target with no gap takes the target's shape (a tab's card, the tab's
     /// `Metrics.tabCornerRadius`).
     public var cornerRadius: CGFloat?
+    /// How the card's first show plays.
+    public var entrance: HoverCardEntrance
     public init(view: NSView, placement: HoverCardPlacement, themeAnchor: NSView?, interactive: Bool = false,
-                cornerRadius: CGFloat? = nil,
+                cornerRadius: CGFloat? = nil, entrance: HoverCardEntrance = .slide,
                 applyTheme: @escaping () -> Void) {
+        self.entrance = entrance
         self.view = view
         self.placement = placement
         self.themeAnchor = themeAnchor
@@ -79,9 +82,12 @@ public protocol HoverCardSource: AnyObject {
     /// sidebar, `HoverCardEscapeGeometry.rowBand`): the room between it and the card keeps the
     /// card only for a pointer heading into the card. Nil when the anchor is the target itself.
     func hoverCardTargetFrame(for id: HoverTargetID) -> CGRect?
+    /// The sources this one shares its card window with (``HoverCardGroup``); nil: none.
+    var hoverCardGroup: HoverCardGroup? { get }
 }
 
 public extension HoverCardSource {
     func hoverCardBridges(at screenPoint: CGPoint) -> Bool { false }
     func hoverCardTargetFrame(for id: HoverTargetID) -> CGRect? { nil }
+    var hoverCardGroup: HoverCardGroup? { nil }
 }

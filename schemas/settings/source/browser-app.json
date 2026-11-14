@@ -1,0 +1,391 @@
+{
+  "$comment": "HAND-EDITED source of the cmux-browser-only rows (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants from it (its docstring is the full row format, tabs.json's $comment a summary); schemas/settings/settings-schema.json is still exported from Swift and must not change when rows move here. These keys are only read by cmux-browser (the separate Chromium-based app that shares cmux.json): they are in the export, validation and docs like every key, but consumers keeps them off the cmux-next Settings page and palette. Defaults are cmux-browser's (cmux_layout_config.h).",
+  "lists": [
+    {
+      "name": "toolbar",
+      "section": "browser",
+      "group": {
+        "key": "settings.group.toolbar",
+        "text": "Toolbar"
+      },
+      "rows": [
+        {
+          "key": "browser.toolbar.back",
+          "title": {
+            "key": "settings.browser.toolbar.back",
+            "text": "Back Button"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "toolbar",
+            "button",
+            "back"
+          ],
+          "consumers": [
+            "cmux-browser"
+          ]
+        },
+        {
+          "key": "browser.toolbar.forward",
+          "title": {
+            "key": "settings.browser.toolbar.forward",
+            "text": "Forward Button"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "toolbar",
+            "button",
+            "forward"
+          ],
+          "consumers": [
+            "cmux-browser"
+          ]
+        },
+        {
+          "key": "browser.toolbar.reload",
+          "title": {
+            "key": "settings.browser.toolbar.reload",
+            "text": "Reload Button"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "toolbar",
+            "button",
+            "reload"
+          ],
+          "consumers": [
+            "cmux-browser"
+          ]
+        },
+        {
+          "key": "browser.toolbar.home",
+          "title": {
+            "key": "settings.browser.toolbar.home",
+            "text": "Home Button"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "toolbar",
+            "button",
+            "home"
+          ],
+          "consumers": [
+            "cmux-browser"
+          ]
+        },
+        {
+          "key": "browser.toolbar.extensions",
+          "title": {
+            "key": "settings.browser.toolbar.extensions",
+            "text": "Extensions Button"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "toolbar",
+            "button",
+            "extensions"
+          ],
+          "consumers": [
+            "cmux-browser"
+          ]
+        },
+        {
+          "key": "browser.toolbar.downloads",
+          "title": {
+            "key": "settings.browser.toolbar.downloads",
+            "text": "Downloads Button"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "toolbar",
+            "button",
+            "downloads"
+          ],
+          "consumers": [
+            "cmux-browser"
+          ]
+        },
+        {
+          "key": "browser.toolbar.media",
+          "title": {
+            "key": "settings.browser.toolbar.media",
+            "text": "Media Controls Button"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "toolbar",
+            "button",
+            "media"
+          ],
+          "consumers": [
+            "cmux-browser"
+          ]
+        },
+        {
+          "key": "browser.toolbar.profile",
+          "title": {
+            "key": "settings.browser.toolbar.profile",
+            "text": "Profile Button"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "toolbar",
+            "button",
+            "profile"
+          ],
+          "consumers": [
+            "cmux-browser"
+          ]
+        },
+        {
+          "key": "browser.toolbar.menu",
+          "title": {
+            "key": "settings.browser.toolbar.menu",
+            "text": "Menu Button"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "toolbar",
+            "button",
+            "menu"
+          ],
+          "consumers": [
+            "cmux-browser"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "addressBar",
+      "section": "browser",
+      "group": {
+        "key": "settings.group.addressBar",
+        "text": "Address Bar"
+      },
+      "rows": [
+        {
+          "key": "browser.omnibox.color",
+          "name": "omniboxColor",
+          "title": {
+            "key": "settings.browser.omnibox.color",
+            "text": "Address Bar Color"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.theme",
+            "text": "Theme"
+          },
+          "keywords": [
+            "omnibox",
+            "address bar",
+            "url bar",
+            "color"
+          ],
+          "consumers": [
+            "cmux-browser"
+          ]
+        },
+        {
+          "key": "browser.omnibox.popupColor",
+          "name": "omniboxPopupColor",
+          "title": {
+            "key": "settings.browser.omnibox.popupColor",
+            "text": "Suggestions Color"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.theme",
+            "text": "Theme"
+          },
+          "keywords": [
+            "omnibox",
+            "suggestions",
+            "popup",
+            "color"
+          ],
+          "consumers": [
+            "cmux-browser"
+          ]
+        },
+        {
+          "key": "browser.omnibox.popupHoverColor",
+          "name": "omniboxPopupHoverColor",
+          "title": {
+            "key": "settings.browser.omnibox.popupHoverColor",
+            "text": "Highlighted Suggestion Color"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.theme",
+            "text": "Theme"
+          },
+          "keywords": [
+            "omnibox",
+            "suggestions",
+            "hover",
+            "highlight",
+            "color"
+          ],
+          "consumers": [
+            "cmux-browser"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "columns",
+      "section": "general",
+      "group": {
+        "key": "settings.group.columns",
+        "text": "Columns"
+      },
+      "rows": [
+        {
+          "key": "layout.stripMargin",
+          "title": {
+            "key": "settings.layout.stripMargin",
+            "text": "Strip Margin"
+          },
+          "help": {
+            "key": "settings.layout.stripMargin.help",
+            "text": "Space between the window edge and the columns."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 40,
+            "step": 1,
+            "unit": "points"
+          },
+          "default": 0,
+          "keywords": [
+            "margin",
+            "inset",
+            "columns",
+            "strip"
+          ],
+          "consumers": [
+            "cmux-browser"
+          ]
+        },
+        {
+          "key": "layout.columnWidthPresets",
+          "title": {
+            "key": "settings.layout.columnWidthPresets",
+            "text": "Column Width Presets"
+          },
+          "help": {
+            "key": "settings.layout.columnWidthPresets.help",
+            "text": "Widths a column cycles through, as fractions of the visible strip width."
+          },
+          "kind": "number_list",
+          "range": {
+            "min": 0.1,
+            "max": 2,
+            "step": 0.0001,
+            "unit": "fraction"
+          },
+          "default": [
+            1,
+            0.6667,
+            0.5,
+            0.3333
+          ],
+          "keywords": [
+            "column",
+            "width",
+            "presets",
+            "cycle",
+            "niri"
+          ],
+          "consumers": [
+            "cmux-browser"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "window",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.window",
+        "text": "Window"
+      },
+      "rows": [
+        {
+          "key": "window.trafficLightClearance",
+          "title": {
+            "key": "settings.window.trafficLightClearance",
+            "text": "Traffic Light Clearance"
+          },
+          "help": {
+            "key": "settings.window.trafficLightClearance.help",
+            "text": "Space kept free for the window's close, minimize and zoom buttons."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 160,
+            "step": 1,
+            "unit": "points"
+          },
+          "default": 72,
+          "keywords": [
+            "traffic lights",
+            "window buttons",
+            "rail",
+            "clearance"
+          ],
+          "consumers": [
+            "cmux-browser"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sidebar",
+      "section": "general",
+      "group": {
+        "key": "settings.group.sidebar",
+        "text": "Sidebar"
+      },
+      "rows": [
+        {
+          "key": "sidebar.workspaceIcons",
+          "title": {
+            "key": "settings.sidebar.workspaceIcons",
+            "text": "Workspace Icons"
+          },
+          "help": {
+            "key": "settings.sidebar.workspaceIcons.help",
+            "text": "An icon for each workspace title. \"*\" sets the icon of every other workspace; an empty icon hides it."
+          },
+          "kind": "string_map",
+          "default": {},
+          "keywords": [
+            "workspace",
+            "icon",
+            "glyph",
+            "emoji",
+            "rail"
+          ],
+          "consumers": [
+            "cmux-browser"
+          ]
+        }
+      ]
+    }
+  ]
+}

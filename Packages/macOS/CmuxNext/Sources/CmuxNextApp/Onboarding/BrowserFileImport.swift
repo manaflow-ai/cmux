@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowserImport
+import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 import UniformTypeIdentifiers
 
@@ -82,9 +84,22 @@ struct BrowserFileImport {
 
     private static var scope: CmuxDialogScope { (NSApp.keyWindow ?? NSApp.mainWindow).map { .window($0) } ?? .app }
 
+    /// The bundled browser-export-steps.json rows (Package.swift is frozen: the file stays an App resource).
+    nonisolated static func exportRows() -> [BrowserExportSource] {
+        let url = Bundle.module.url(forResource: "browser-export-steps", withExtension: "json")
+        return url.flatMap { try? Data(blockingContentsOf: $0) }.map(BrowserExportSource.rows(in:)) ?? []
+    }
+
     private static func chooseBrowser() async -> BrowserExportSource? {
-        let sources = BrowserExportSource.all
-        guard let first = sources.first else { return nil }
+        // This Mac's browsers first, the default web browser chosen (Launch Services only).
+        let menu = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) {
+            let ws = NSWorkspace.shared, https = URL(string: "https://example.com")
+            let defaultID = https.flatMap { ws.urlForApplication(toOpen: $0) }.flatMap { Bundle(url: $0)?.bundleIdentifier }
+            return BrowserExportMenu(rows: exportRows(), isInstalled: { ws.urlForApplication(withBundleIdentifier: $0) != nil },
+                                     defaultBrowserBundleID: defaultID)
+        }.value
+        let sources = menu.rows
+        guard let first = menu.selected else { return nil }
         let spec = CmuxDialogSpec(
             title: BrowserFileImportStrings.title, lines: [BrowserFileImportStrings.message],
             fields: [.choice(id: browserField, label: BrowserFileImportStrings.browserLabel,

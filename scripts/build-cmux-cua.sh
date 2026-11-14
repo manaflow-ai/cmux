@@ -19,6 +19,7 @@ CMUX_CUA_PATCH_RELATIVE_PATHS=(
   "scripts/cmux-cua-codex-delivery-mode.patch"
   "scripts/cmux-cua-machine-consent.patch"
   "scripts/cmux-cua-display-still.patch"
+  "scripts/cmux-cua-single-post.patch"
 )
 CMUX_CUA_SOURCE_OWNER_FILE=".cmux-cua-managed-source"
 CMUX_CUA_SOURCE_OWNER_VALUE="cmux-cua-cache-v2 $CMUX_CUA_PINNED_SHA"
@@ -31,7 +32,7 @@ for patch_relative_path in "${CMUX_CUA_PATCH_RELATIVE_PATHS[@]}"; do
 done
 # One digest over the series, in order: the build-source cache key changes when
 # any patch is added, removed, reordered or edited.
-CMUX_CUA_PATCH_DIGEST="$(cat "${CMUX_CUA_PATCH_FILES[@]}" | shasum -a 256 | awk '{print $1}')"
+CMUX_CUA_PATCH_DIGEST="$(cat ${CMUX_CUA_PATCH_FILES[@]+"${CMUX_CUA_PATCH_FILES[@]}"} | shasum -a 256 | awk '{print $1}')"
 # The build that ships inside cmux.app takes machine consent only from the
 # verified cmux host, never from files a caller could redirect
 # (cmux-cua-machine-consent.patch). Released cmux-cua builds leave it off.
@@ -418,7 +419,7 @@ TMPDIR_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/cmux-cua-build.XXXXXX")"
 
 # Apply the small, reviewed cmux-side patches (CMUX_CUA_PATCH_RELATIVE_PATHS)
 # after the SHA gate while the source lock still protects the shared checkout.
-for patch_file in "${CMUX_CUA_PATCH_FILES[@]}"; do
+for patch_file in ${CMUX_CUA_PATCH_FILES[@]+"${CMUX_CUA_PATCH_FILES[@]}"}; do
   "$REPO_ROOT/scripts/apply-cmux-cua-patch.sh" "$SRC_ROOT" "$patch_file"
 done
 
@@ -550,7 +551,7 @@ done
 if ((${#BUILT[@]} == 1)); then
   cp "${BUILT[0]}" "$OUTPUT"
 else
-  /usr/bin/lipo -create "${BUILT[@]}" -output "$OUTPUT"
+  /usr/bin/lipo -create ${BUILT[@]+"${BUILT[@]}"} -output "$OUTPUT"
 fi
 chmod 0755 "$OUTPUT"
 

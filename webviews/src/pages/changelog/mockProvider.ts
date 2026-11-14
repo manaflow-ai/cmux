@@ -55,6 +55,7 @@ export class MockChangelogProvider implements PageClient {
           shortVersion: n.shortVersion,
           date: n.date,
           highlights: n.highlights.length,
+          ...(n.head ? { head: n.head } : {}),
         })),
       };
       return result as R;
@@ -69,6 +70,9 @@ export class MockChangelogProvider implements PageClient {
       const found = this.notes.find((n) => n.build === p.build) as (ReleaseNotes & { reel?: string }) | undefined;
       return { url: found?.reel ?? null } as R;
     }
+    // Install this version: listed, and an install stays at "Checking…" (the app would restart).
+    if (op === ChangelogOps.installable) return { installs: true } as R;
+    if (op === ChangelogOps.install) return new Promise<R>(() => undefined);
     if (op === ACTION_RUN) {
       this.ran.push(String(p.action));
       return {} as R;

@@ -50,7 +50,6 @@ function AppSections({ look = "plain" }: Props) {
           <SessionInfoSectionList
             more={more}
             onMoreChange={setMore}
-            titles={{ changes: "Changes" }}
             sections={{
               environment: (
                 <SessionInfoSection id="environment" title="Environment" open bare>

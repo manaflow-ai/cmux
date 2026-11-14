@@ -39,7 +39,7 @@ public struct StreamedBrowserPage: View {
                     status(reason)
                 }
             } else if model.phase == .connecting {
-                status("Opening on your Mac…")
+                status(String(localized: "Loading browser session…"))
             } else if let notice = model.notice {
                 refusal(notice)
             }

@@ -2,9 +2,9 @@ public import CmuxNextActions
 public import CmuxNextDesign
 import CoreGraphics
 
-/// The palette's on/off pane chrome actions: Toggle Pane Borders (`layout.paneBorder`), Toggle Pane
-/// Padding (`layout.panePadding`), Toggle Rounded Pane Corners (`layout.paneCornerRadius`) and Toggle
-/// Thick Pane Borders (`layout.paneBorderWidth`).
+/// The palette's on/off pane chrome actions: Pane Borders (`layout.paneBorder`), Pane Padding
+/// (`layout.panePadding`), Rounded Pane Corners (`layout.paneCornerRadius`) and Thick Pane Borders
+/// (`layout.paneBorderWidth`).
 ///
 /// Each action applies its change to ``DesignSettings`` at once after `save` accepted the cmux.json
 /// write (a managed key refuses and changes nothing; the default removes the key). Each palette row
@@ -41,11 +41,10 @@ import CoreGraphics
             chrome.padding = $0 ? Self.unsetOrExplicit(\.padding, in: chrome, design: design, metric: { Metrics.panePadding }, explicit: Metrics.densityPanePadding) : 0
             return (chrome, chrome.padding.map { JSONValue.number(Double($0)) })
         }
-        bindToggle("appearance.paneCorners.toggle", path: "paneCornerRadius", into: registry, isOn: { Metrics.paneCornerRadius > 0 }) {
-            // Off is square (0); on is the default radius, written explicitly where the default is square
-            // (no padding and no border).
+        bindToggle("appearance.paneCorners.toggle", path: "paneCornerRadius", into: registry, isOn: { Metrics.cornerRadius > 0 }) {
+            // Off is square (0) for panes, the main pane and tabs alike (one radius); on is the default radius.
             var chrome = design.paneChrome
-            chrome.cornerRadius = $0 ? Self.unsetOrExplicit(\.cornerRadius, in: chrome, design: design, metric: { Metrics.paneCornerRadius },
+            chrome.cornerRadius = $0 ? Self.unsetOrExplicit(\.cornerRadius, in: chrome, design: design, metric: { Metrics.cornerRadius },
                                                             explicit: Metrics.densityPaneCornerRadius) : 0
             return (chrome, chrome.cornerRadius.map { JSONValue.number(Double($0)) })
         }
@@ -71,7 +70,7 @@ import CoreGraphics
             design.setPaneChrome(chrome)
             return .done
         }
-        ActionTargetTitles.setPaletteState(id, in: registry, isOn)
+        ActionTargetTitles.setPaletteSettingState(id, in: registry, isOn)
     }
 
     /// Nil (the default) when the default shows `metric` above 0, else `explicit`. The probe applies

@@ -20,6 +20,7 @@ import unittest
 
 import yaml
 from nightly_workflow_text import nightly_text
+import workflow_jobs
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -300,14 +301,16 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn("needs.decide.outputs.no_publish != 'true'", condition, name)
         self.assertIn("needs.find-nightly-next-recovery.outputs.found == 'true'", jobs["recover-nightly-next-notarization"]["if"])
         # The Sparkle and notary secrets come from release-next on nightly-next.
-        self.assertEqual(jobs["recover-nightly-next-notarization"]["environment"], "${{ needs.decide.outputs.environment }}")
+        self.assertEqual(workflow_jobs.resolve(jobs["recover-nightly-next-notarization"]).environment,
+                         {"name": "${{ needs.decide.outputs.environment }}"})
         # The finder only reads the routing App key for its owned pick (ci-routing-agent), no release secret.
-        self.assertEqual(jobs["find-nightly-next-recovery"]["environment"], "ci-routing-agent")
-        self.assertEqual(set(re.findall(r"secrets\.(\w+)", json.dumps(jobs["find-nightly-next-recovery"]))),
-                         {"GLAEDA_ROUTE_APP_KEY"})
+        self.assertEqual(workflow_jobs.resolve(jobs["find-nightly-next-recovery"]).environment,
+                         {"name": "ci-routing-agent", "deployment": False})
+        self.assertEqual(workflow_jobs.secret_names(jobs["find-nightly-next-recovery"]), {"GLAEDA_ROUTE_APP_KEY"})
         recover_text = json.dumps(jobs["recover-nightly-next-notarization"])
-        for secret in ("CF_R2_", "secrets.SPARKLE_PRIVATE_KEY", "secrets.NIGHTLY_SPARKLE_PRIVATE_KEY"):
-            self.assertNotIn(secret, recover_text)
+        self.assertNotIn("CF_R2_", recover_text)
+        self.assertFalse(workflow_jobs.reads_secret(jobs["recover-nightly-next-notarization"],
+                                                    "SPARKLE_PRIVATE_KEY", "NIGHTLY_SPARKLE_PRIVATE_KEY"))
         self.assertIn("nightly-next-guard.py appcast", recover_text)
         self.assertIn("CMUX_NOTARY_CONTINUE_STATE", recover_text)
 
@@ -322,7 +325,7 @@ class WorkflowTests(unittest.TestCase):
         helper_index = job["steps"].index(step(job, "Claim the whole Mac for signing"))
         self.assertGreater(helper_index, job["steps"].index(step(job, "Checkout publication tooling at the workflow commit")))
         credential_indices = [index for index, item in enumerate(job["steps"])
-                              if "secrets." in json.dumps(item)]
+                              if workflow_jobs.secret_names(item)]
         self.assertTrue(credential_indices, "publication must have a credentialed step to guard")
         self.assertLess(gate_index, min(credential_indices))
         self.assertLess(helper_index, min(credential_indices))
@@ -338,7 +341,7 @@ class WorkflowTests(unittest.TestCase):
         ):
             occurrences = [line for line in text.splitlines() if stale in line and "OWN_" not in line]
             self.assertEqual(occurrences, [], stale)
-        self.assertNotIn("NIGHTLY_BUILD", job["env"])
+        self.assertNotIn("NIGHTLY_BUILD", workflow_jobs.resolve(job).env)
         self.assertIn("NOTES_HEAD: ${{ steps.source.outputs.build_sha }}", text)
         # A recovered build can predate this workflow's script arguments (run
         # 38855116561), so the tooling comes from the workflow's own commit.
@@ -411,7 +414,7 @@ class WorkflowTests(unittest.TestCase):
     def test_recovered_publication_skips_deltas_and_note_signing(self):
         jobs = workflow()["jobs"]
         for name in ("generate-nightly-deltas", "sign-release-notes"):
-            self.assertIn("needs.publish-nightly.outputs.source != 'recovered'", jobs[name]["if"], name)
+            self.assertIn("needs.published-build.outputs.publish_source != 'recovered'", jobs[name]["if"], name)
 
     def test_an_ordinary_publication_publishes_its_release_notes(self):
         # Without a status function in its `if`, GitHub skips a job when any job
@@ -430,7 +433,7 @@ class WorkflowTests(unittest.TestCase):
         for name in ("sign-release-notes", "publish-release-notes"):
             self.assertIn("recover-nightly-next-notarization", ancestors(name), name)
             self.assertTrue(jobs[name]["if"].startswith("!cancelled() && "), jobs[name]["if"])
-            self.assertIn("needs.publish-nightly.result == 'success'", jobs[name]["if"], name)
+            self.assertIn("needs.published-build.outputs.publish_result == 'success'", jobs[name]["if"], name)
 
     def test_recovery_artifact_carries_what_publication_needs(self):
         job = workflow()["jobs"]["build-sign-notarize-nightly"]
@@ -464,20 +467,63 @@ class FailureIssueTests(unittest.TestCase):
 
     OUTPUTS = {"decide": {"should_publish": "true", "track": "nightly-next"}, "publish-nightly": {"tag_status": "updated"}}
 
+    # The loop run builds, signs and publishes the feed and the GitHub release, then dispatch-published-in asks for
+    # a run-scoped run of the rest of the tail (nightly_next_post_publish), which reads the published build from
+    # published-build (cross_run, run_tail). Each run has its own report and close jobs: the issue opens if either
+    # reports and closes if either closes.
+    PUSH_JOBS = ("decide", "build-nightly-ghostty-cli-helper", "build-nightly-app", "build-nightly-remote-daemon",
+                 "resolve-nightly-cmux-tui-client", "prepare-nightly-variant", "build-sign-notarize-nightly",
+                 "verify-signed-nightly", "verify-final-dmg-nightly", "verify-recovered-nightly-next",
+                 "republish-nightly-next", "publish-nightly", "publish-nightly-next-github", "dispatch-published-in")
+    TAIL_JOBS = ("published-build", "generate-nightly-deltas", "republish-nightly-deltas", "sign-release-notes",
+                 "publish-release-notes")
+
     def publication(self, source, **results):
-        jobs = ("decide", "build-nightly-ghostty-cli-helper", "build-nightly-app", "build-nightly-remote-daemon", "resolve-nightly-cmux-tui-client",
-                "prepare-nightly-variant", "build-sign-notarize-nightly", "verify-signed-nightly", "verify-final-dmg-nightly",
-                "verify-recovered-nightly-next", "republish-nightly-next", "publish-nightly", "generate-nightly-deltas",
-                "republish-nightly-deltas", "sign-release-notes", "publish-release-notes")
-        outcome = dict.fromkeys(jobs, "success")
+        outcome = dict.fromkeys(self.PUSH_JOBS + self.TAIL_JOBS, "success")
         outcome["republish-nightly-next"] = "skipped"
         if source == "own":
             outcome["verify-recovered-nightly-next"] = "skipped"
         if source == "recovered":
             outcome.update({"generate-nightly-deltas": "skipped", "sign-release-notes": "skipped", "publish-release-notes": "skipped"})
         outcome.update(results)
-        outputs = dict(self.OUTPUTS, **{"publish-nightly": dict(self.OUTPUTS["publish-nightly"], source=source)})
-        return job_runs("report-nightly-failure", outcome, outputs), job_runs("close-nightly-failure-issue", outcome, outputs)
+        decide = self.OUTPUTS["decide"]
+        published = dict(self.OUTPUTS["publish-nightly"], source=source)
+        publish_outputs = {f"publish_{key}": value for key, value in published.items()}
+        # The loop run: published-build passes its own jobs through (run_tail false), and the rest of the tail skips.
+        push = {name: outcome[name] for name in self.PUSH_JOBS}
+        # The run that signs and publishes (a sign run, or a run that signs in-run) dispatches no sign run.
+        push["dispatch-nightly-next-sign"] = "skipped"
+        push["nightly-next-one"] = "skipped"  # NIGHTLY_NEXT_ONE_JOB unset
+        push.update(dict.fromkeys(self.TAIL_JOBS, "skipped"))
+        if decide.get("should_publish") == "true" and push["publish-nightly"] == "success":
+            push["published-build"] = outcome["published-build"]
+        own = dict(decide, cross_run="", run_tail="false", publish_result=push["publish-nightly"], **publish_outputs) \
+            if push["published-build"] == "success" else {}
+        push_outputs = {"decide": decide, "publish-nightly": published, "published-build": own}
+        if not own:
+            push["publish-nightly-next-github"] = "skipped"
+        if not job_runs("dispatch-published-in", push, push_outputs):
+            push["dispatch-published-in"] = "skipped"
+        reports = job_runs("report-nightly-failure", push, push_outputs)
+        closes = job_runs("close-nightly-failure-issue", push, push_outputs)
+        if push["dispatch-published-in"] == "success":
+            dispatch_needs = workflow()["jobs"]["dispatch-published-in"]["needs"]
+            record = dict(decide, cross_run="true", run_tail="true", publish_result=push["publish-nightly"],
+                          push_clean="false" if any(push[n] in ("failure", "cancelled") for n in dispatch_needs) else "true",
+                          **publish_outputs)
+            tail = dict.fromkeys((*self.PUSH_JOBS, "dispatch-nightly-next-sign", "nightly-next-one"), "skipped")
+            tail.update({name: outcome[name] for name in self.TAIL_JOBS})
+            reports |= job_runs("report-nightly-failure", tail, {"published-build": record})
+            closes |= job_runs("close-nightly-failure-issue", tail, {"published-build": record})
+        return reports, closes
+
+    def test_a_loop_run_dispatches_its_tail_and_closes_only_there(self):
+        # The loop run never closes the issue itself: its notes and deltas run in the dispatched run.
+        self.assertIn("dispatch-published-in", workflow()["jobs"]["report-nightly-failure"]["needs"])
+        self.assertEqual(self.publication("own"), (False, True))
+        self.assertEqual(self.publication("own", **{"dispatch-published-in": "failure"}), (True, False))
+        # A failed GitHub release in the loop run keeps the tail run from closing the issue (push_clean).
+        self.assertEqual(self.publication("own", **{"publish-nightly-next-github": "failure"})[1], False)
 
     def test_a_recovered_publication_closes_the_issue(self):
         self.assertEqual(self.publication("recovered"), (False, True))
@@ -588,7 +634,8 @@ class RecheckTests(unittest.TestCase):
         # signing/notarization while another run published build 49901. Builds run
         # side by side and publication is latest-wins, so that is a quiet no-op,
         # never a publication and never a failure (run 40825878411).
-        for feeds in (((49901,), (), ()), ((), (49901,), ())):
+        # The one feed (cmux NIGHTLY's, hq#7156); the retired NEXT-identity feed is not read.
+        for feeds in (((49901,), (), ()),):
             with self.subTest(feeds=feeds):
                 result = run_recheck(49801, *feeds, source="own")
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -652,7 +699,7 @@ class RecheckTests(unittest.TestCase):
         self.assertIn("already published", result.stdout)
 
     def test_a_nightly_next_build_below_a_feed_is_superseded_not_a_failure(self):
-        for feeds in (((49901,), (), ()), ((49801,), (49901,), (49601,)), ((49801, 49901), (), ())):
+        for feeds in (((49901,), (), ()), ((49901,), (), (49601,)), ((49801, 49901), (), ())):
             with self.subTest(feeds=feeds):
                 result = run_recheck(49801, *feeds)
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -696,10 +743,13 @@ class RecheckTests(unittest.TestCase):
         for name in ("sign-release-notes", "publish-release-notes"):
             with self.subTest(job=name):
                 outcome = dict.fromkeys(workflow()["jobs"][name]["needs"], "success")
-                outputs = {"decide": {"should_publish": "true", "track": "nightly-next"},
-                           "publish-nightly": {"source": "own", "already_published": "true"}}
+                # The notes jobs read the published build from published-build (scripts/ci/nightly_published_build.py).
+                outputs = {"published-build": {"should_publish": "true", "track": "nightly-next", "publish_result": "success",
+                                               "publish_source": "own", "publish_already_published": "true",
+                                               "run_tail": "true"},
+                           "sign-release-notes": {}}
                 self.assertFalse(job_runs(name, outcome, outputs))
-                outputs["publish-nightly"]["already_published"] = ""
+                outputs["published-build"]["publish_already_published"] = ""
                 self.assertTrue(job_runs(name, outcome, outputs))
 
     def test_the_recheck_holds_the_release_tag_publication_lock(self):
@@ -970,11 +1020,11 @@ def republisher():
 
 
 def decide_harness():
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("nightly_decide_tests", ROOT / "tests/test_ci_nightly_push_throttle.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    # Imported by name: the test module pytest (and test_nightly_next_arm64_only.py) already holds.
+    if str(ROOT / "tests") not in sys.path:
+        sys.path.insert(0, str(ROOT / "tests"))
+    import test_ci_nightly_push_throttle
+    return test_ci_nightly_push_throttle
 
 
 class RepublishSourceTests(unittest.TestCase):
@@ -1177,7 +1227,7 @@ class RepublishWorkflowTests(unittest.TestCase):
     def test_the_fetch_job_holds_no_secret_and_runs_only_for_a_republish(self):
         job = workflow()["jobs"]["republish-nightly-next"]
         self.assertNotIn("environment", job)
-        self.assertNotIn("secrets.", json.dumps(job))
+        self.assertEqual(workflow_jobs.secret_names(job), set())
         self.assertEqual(job["permissions"], {"actions": "read", "contents": "read"})
         for clause in ("needs.decide.outputs.republish_run != ''", "needs.decide.outputs.track == 'nightly-next'",
                        "needs.decide.outputs.should_publish == 'true'", "needs.decide.outputs.no_publish != 'true'"):
@@ -1254,7 +1304,7 @@ class RepublishWorkflowTests(unittest.TestCase):
         github = workflow()["jobs"]["publish-nightly-next-github"]
         for name in ("Download the cmux-next source archive", "Take the recovered build's source archive",
                      "Publish the cmux-next source archive"):
-            self.assertIn("needs.publish-nightly.outputs.source_archive == 'true'", step(github, name)["if"])
+            self.assertIn("needs.published-build.outputs.publish_source_archive == 'true'", step(github, name)["if"])
             self.assertNotIn("CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE", step(github, name)["if"])
         self.assertEqual(workflow()["jobs"]["republish-nightly-next"]["outputs"]["source_archive"],
                          "${{ steps.fetch.outputs.source_archive }}")

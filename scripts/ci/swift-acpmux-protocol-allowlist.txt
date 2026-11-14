@@ -1,0 +1,9 @@
+# Names the Swift app writes in an acpmux method's shape that are not protocol methods
+# (scripts/ci/check-swift-acpmux-protocol.py). One per line: the name, then why. A `METHOD#param`
+# entry is a param key the agent pane's knownParams lets through that the method's typed params
+# lack. The check fails on a listed name that is no longer used or that the protocol now defines.
+acp.trust.peer-v1 an initialize extension name acpmux advertises in _meta.acpmux.extensions (AcpmuxPaneSocket), not a method
+_meta.acpmux#noProject the pane's own key (Do not work in a project): AcpmuxPathPolicy reads and strips it before the request reaches acpmux
+_meta.acpmux#ownerCloud a reply key: RemoteAcpmuxWire answers initialize as the remote daemon, and acpmux's own initialize reply carries it too
+_meta.acpmux#features a reply key: RemoteAcpmuxWire answers initialize as the remote daemon (agent_login), as acpmux's own initialize reply does
+_acpmux/side_chat a remote chat's page method that RemoteAcpmuxWire serves itself through the machine's daemon (agent-session-side); no acpmux serves it, and this Mac's acpmux answers it Method not found

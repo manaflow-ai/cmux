@@ -1,0 +1,36 @@
+import type { Principal } from "@cmux/ownership"
+import type { MachineExecReply } from "./automation-machine.ts"
+import type { ReadResult, SubmitResult } from "./owner-do.ts"
+
+/**
+ * The typed client of cmux-platform's CloudDO. NEXT Cloud's machine record lives in cmux-platform; this Worker's
+ * CLOUD_DO binding names that class (`script_name: cmux-platform-<env>` in wrangler.jsonc), and these are the
+ * only RPCs this Worker calls on it. The class, its drivers and its routes are not in this Worker.
+ */
+export type CloudReply = { ok: true; value: unknown } | { ok: false; code: string; message: string; details?: unknown }
+
+export interface PlatformCloud {
+  /** An op of the Cloud catalog (cloud.*), as every owner takes it. */
+  submit(entity: string, principal: Principal, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin?: string; expected_revision?: string }): Promise<SubmitResult>
+  readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult>
+  /** `cloud.link_token`: a link token for one of the caller's machines (never keyed, never replayed). */
+  mintLinkToken(entity: string, principal: Principal, params: unknown, request: string): Promise<CloudReply>
+  /** A VM install's own-machine ops (cloud.vm.*). */
+  vmOp(entity: string, principal: Principal, op: string, params: unknown): Promise<CloudReply>
+  /** A command on one of the team's machines for an automation run or a Chief hand. */
+  automationExec(entity: string, user: string | null, machine: string, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<MachineExecReply>
+  /** Operator: clear a machine whose provider VM is gone (cloud-admin.ts). */
+  clearAbandoned(entity: string, machine: string, who: { user: string; email: string | null }, reason: string): Promise<{ ok: boolean; code?: string; message?: string; audit?: unknown }>
+}
+
+/** The refusal every RPC gets on a deployment with no CLOUD_DO binding (the local env): a retryable outage, never a TypeError. */
+export const CLOUD_UNBOUND = "owner.unreachable: this deployment has no CLOUD_DO binding (Cloud is served by cmux-platform)"
+
+const unbound: PlatformCloud = new Proxy({} as PlatformCloud, {
+  // Not a thenable: an awaited client must not hang.
+  get: (_target, name) => (name === "then" ? undefined : () => Promise.reject(new Error(CLOUD_UNBOUND))),
+})
+
+/** The platform's CloudDO for one team; with no binding, a client whose every call rejects with CLOUD_UNBOUND. */
+export const platformCloud = (ns: DurableObjectNamespace | undefined, team: string): PlatformCloud =>
+  ns ? (ns.get(ns.idFromName(team)) as unknown as PlatformCloud) : unbound

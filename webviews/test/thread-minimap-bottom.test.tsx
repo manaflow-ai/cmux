@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { teardownDom } from "./support/domTeardown";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 // Each test renders the whole transcript once per scroll step; jsdom takes about 5 s for that.
 setDefaultTimeout(60_000);
@@ -19,6 +20,7 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   pretendToBeVisual: true,
   virtualConsole: new VirtualConsole(),
 });
+
 const scope = globalThis as Record<string, unknown>;
 const replacements: Record<string, unknown> = {
   window: dom.window,
@@ -57,14 +59,24 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { config
 // Wide enough for the minimap's pane-edge rail in these layout tests.
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1040 });
 const offsets = new WeakMap<object, number>();
-/// The rail's list clamps its offset as a browser does: rows are 10 px, the list as tall as the rail.
+// Read the pitch the mounted rail gives CSS; jsdom does not lay out its rows.
+const railPitch = () =>
+  Number.parseFloat(
+    dom.window.document
+      .querySelector<HTMLElement>(".acpmux-minimap__list")!
+      .style.getPropertyValue("--acpmux-minimap-pitch"),
+  );
+/// The rail's list clamps its offset as a browser does: rows use the mounted pitch, the list as tall as the rail.
 const listRoom = (node: HTMLElement) =>
   Math.max(
     0,
     // A spacer stands for the rows the list does not draw, as tall as its style says (tickWindow.ts).
     [...node.children].reduce(
       (sum, child) =>
-        sum + (child.querySelector("[data-tick]") ? 10 : Number.parseFloat((child as HTMLElement).style.height) || 0),
+        sum +
+        (child.querySelector("[data-tick]")
+          ? railPitch()
+          : Number.parseFloat((child as HTMLElement).style.height) || 0),
       0,
     ) - Number.parseFloat(node.parentElement?.style.height ?? "0"),
   );
@@ -82,16 +94,18 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
 });
 
 const { act } = await import("react");
+// The minimap places its band in the frame after a scroll event, as a browser runs it.
+const scrolledFrame = (target: EventTarget) =>
+  act(async () => {
+    target.dispatchEvent(new dom.window.Event("scroll"));
+    await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
+  });
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { TRANSCRIPT_FADE_BOTTOM, TRANSCRIPT_FADE_TOP } = await import("../src/agent-session/acpmux/threadMinimap/model");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
   delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
 });
 
@@ -130,7 +144,7 @@ test("the band shows whole while the reader scrolls down, and reaches the rail's
     expect(rail()).not.toBeNull();
     const height = Number.parseFloat(rail().style.height);
     // The rail's rows scroll: there are more than it has room for.
-    expect(TURNS * 10).toBeGreaterThan(height);
+    expect(TURNS * railPitch()).toBeGreaterThan(height);
     /// Where each lit tick draws in the rail, checked to be inside it and clear of any fade.
     const check = (at: number) => {
       const node = list();
@@ -141,8 +155,8 @@ test("the band shows whole while the reader scrolls down, and reaches the rail's
       const top = node.hasAttribute("data-fade-top") ? FADE : 0;
       const end = height - (node.hasAttribute("data-fade-bottom") ? FADE : 0);
       for (const index of current) {
-        const y = index * 10 - node.scrollTop;
-        if (y < top || y + 10 > end)
+        const y = index * railPitch() - node.scrollTop;
+        if (y < top || y + railPitch() > end)
           throw new Error(
             `at ${at} px the lit tick ${index} draws at ${y} px, outside ${top} to ${end} px of the rail`,
           );
@@ -151,7 +165,7 @@ test("the band shows whole while the reader scrolls down, and reaches the rail's
     };
     const scrollTo = async (top: number) => {
       scroller.scrollTop = top;
-      await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+      await scrolledFrame(scroller);
     };
     // Up to the top, then down in wheel-sized steps to the bottom, as a reader goes back down a chat.
     await scrollTo(0);
@@ -166,7 +180,7 @@ test("the band shows whole while the reader scrolls down, and reaches the rail's
     await scrollTo(bottom);
     // At the bottom the last prompt is lit, the list is at its own end, and no fade is over it.
     expect(check(bottom).at(-1)).toBe(TURNS - 1);
-    expect(list().scrollTop + height).toBe(TURNS * 10);
+    expect(list().scrollTop + height).toBe(TURNS * railPitch());
     expect(list().hasAttribute("data-fade-bottom")).toBe(false);
   } finally {
     await act(async () => root.unmount());
@@ -200,7 +214,7 @@ for (const how of ["hover", "focus"] as const)
       const bottom = scroller.scrollTop;
       const scrollTo = async (top: number) => {
         scroller.scrollTop = top;
-        await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+        await scrolledFrame(scroller);
       };
       await scrollTo(0);
       // A tick near the top of the rail, held while the chat scrolls down to its end.
@@ -222,8 +236,8 @@ for (const how of ["hover", "focus"] as const)
         const from = node.hasAttribute("data-fade-top") ? fade : 0;
         const to = height - (node.hasAttribute("data-fade-bottom") ? fade : 0);
         for (const lit of node.querySelectorAll<HTMLElement>('[data-tick][aria-current="true"]')) {
-          const y = Number(lit.dataset.tick) * 10 - node.scrollTop;
-          if (y < from || y + 10 > to)
+          const y = Number(lit.dataset.tick) * railPitch() - node.scrollTop;
+          if (y < from || y + railPitch() > to)
             outside.push(`at ${top} px tick ${lit.dataset.tick} at ${y} px, outside ${from} to ${to}`);
         }
         if (outside.length > 5) break;
@@ -278,11 +292,11 @@ async function pointerOnRail(sessionId: string) {
   const bottom = scroller.scrollTop;
   const scrollTo = async (top: number) => {
     scroller.scrollTop = top;
-    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    await scrolledFrame(scroller);
   };
   await scrollTo(0);
   placeList(list());
-  const y = LIST_TOP + 35;
+  const y = LIST_TOP + 3.5 * railPitch();
   const Event = (dom.window as unknown as { PointerEvent?: typeof MouseEvent }).PointerEvent ?? dom.window.MouseEvent;
   await act(async () => {
     list()
@@ -292,7 +306,7 @@ async function pointerOnRail(sessionId: string) {
   /// The magnified tick and the one under the pointer, as the list now sits.
   const read = () => ({
     active: list().querySelector('[data-tone="active"]')?.getAttribute("data-tick"),
-    under: String(Math.floor((y - LIST_TOP + list().scrollTop) / 10)),
+    under: String(Math.floor((y - LIST_TOP + list().scrollTop) / railPitch())),
   });
   const close = async () => {
     await act(async () => root.unmount());
@@ -337,8 +351,9 @@ test("a key that focuses a tick off the list, with the pointer still on the rail
     const list = this.closest<HTMLElement>(".acpmux-minimap__list");
     if (!list || options?.preventScroll) return;
     const room = Number.parseFloat(list.parentElement?.style.height ?? "0");
-    const at = Number(this.dataset.tick) * 10;
-    const top = at < list.scrollTop ? at : at + 10 > list.scrollTop + room ? at + 10 - room : list.scrollTop;
+    const at = Number(this.dataset.tick) * railPitch();
+    const top =
+      at < list.scrollTop ? at : at + railPitch() > list.scrollTop + room ? at + railPitch() - room : list.scrollTop;
     if (top === list.scrollTop) return;
     list.scrollTop = top;
     list.dispatchEvent(new dom.window.Event("scroll"));
@@ -428,7 +443,7 @@ test("in a short pane every lit tick stays clear of the transcript's faded edges
     const offsets = [...Array.from({ length: Math.floor(end / 37) + 1 }, (_, step) => step * 37), end - 1, end];
     for (const at of offsets) {
       scroller.scrollTop = at;
-      await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+      await scrolledFrame(scroller);
       const rail = host.querySelector<HTMLElement>(".acpmux-minimap__rail")!;
       const list = host.querySelector<HTMLElement>(".acpmux-minimap__list")!;
       // The mask's opaque band at this offset, from the scroller's own fade state.
@@ -437,8 +452,8 @@ test("in a short pane every lit tick stays clear of the transcript's faded edges
       const to = viewport - (scroller.hasAttribute("data-fade-bottom") ? band : 0);
       const railTop = Number.parseFloat(rail.style.top);
       for (const tick of list.querySelectorAll<HTMLElement>('[data-tick][aria-current="true"]')) {
-        const y = railTop + Number(tick.dataset.tick) * 10 - list.scrollTop;
-        if (y < from || y + 10 > to)
+        const y = railTop + Number(tick.dataset.tick) * railPitch() - list.scrollTop;
+        if (y < from || y + railPitch() > to)
           clipped.push(`at ${at} px tick ${tick.dataset.tick} draws at ${y} px, outside ${from} to ${to} px`);
       }
     }

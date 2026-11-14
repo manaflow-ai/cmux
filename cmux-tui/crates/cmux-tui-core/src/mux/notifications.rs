@@ -36,39 +36,6 @@ impl Mux {
         self.surface_notifications_in_state(&state)
     }
 
-    pub(super) fn surface_notifications_in_state(
-        &self,
-        state: &State,
-    ) -> HashMap<SurfaceId, SurfaceNotification> {
-        let placement_notifications = self.placement_notifications.lock().unwrap();
-        let terminal_notifications = self.terminal_notifications.lock().unwrap();
-        let mut result = HashMap::new();
-        for (surface_id, surface) in &state.surfaces {
-            let notification = match surface.terminal_public_id() {
-                Some(terminal_id) => terminal_notifications.get(terminal_id),
-                None => placement_notifications.get(surface_id),
-            };
-            if let Some(notification) = notification {
-                result.insert(*surface_id, *notification);
-            }
-        }
-        // A terminal tab with no runtime surface yet (its host still adopts
-        // after a restart, 81577dcd4b3) keeps its terminal's marker through
-        // the tab's content binding, which exists before the adoption: the
-        // ring and the workspace's unread count never blink out.
-        for (surface_id, content) in &state.resource_indexes.content_ids {
-            if state.surfaces.contains_key(surface_id) {
-                continue;
-            }
-            if let ContentPublicId::Terminal(terminal_id) = content
-                && let Some(notification) = terminal_notifications.get(terminal_id)
-            {
-                result.insert(*surface_id, *notification);
-            }
-        }
-        result
-    }
-
     /// Post a notification from the legacy `notify` verb. This is the same
     /// durable path as `notification.create`, under a fresh key, so remote
     /// subscribers of the resource feed and a restarted daemon see it too.
@@ -106,8 +73,11 @@ impl Mux {
     }
 
     /// Post what a program in `surface`'s terminal asked for with OSC 9,
-    /// OSC 777 or OSC 99, or an OSC 7501 record's alert. Called by the terminal's output reader after it
-    /// released the terminal lock; the reader already applied the rate limit.
+    /// OSC 777 or OSC 99, or an OSC 7501 record's alert. The terminal
+    /// publisher calls this for what an output reader queued
+    /// (`mux/terminal_publisher.rs`); the reader already applied the rate
+    /// limit. Adoption and a terminal's first view post a record's alerts
+    /// directly (`Surface::publish_pending_progress`).
     pub(crate) fn post_terminal_notifications(
         &self,
         surface: SurfaceId,
@@ -179,11 +149,11 @@ impl Mux {
         let id = self.next_notification_id();
         // Who holds the terminal now: a reply typed into it later must reach this same program.
         let poster = surface.and_then(|surface| self.surface(surface)).and_then(|surface| {
-            let pid = surface.process_id()?;
-            Some(NotificationPoster {
-                pid: crate::platform::foreground_leader(pid)?,
-                executable: crate::platform::foreground_process_name(pid)?,
-            })
+            NotificationPoster::of_terminal(
+                surface.process_id()?,
+                crate::platform::foreground_leader,
+                crate::platform::process_executable,
+            )
         });
         self.notification_posts
             .lock()
@@ -524,6 +494,11 @@ impl Mux {
             &notification,
             numeric_id,
         ) {
+            self.report_resource_effect_indeterminate(
+                idempotency_key,
+                OPERATION,
+                &format!("the outcome commit failed: {error:#}"),
+            );
             let _ = self.mark_resource_effect_indeterminate(idempotency_key);
             return Err(error.context("notification effect commit failed"));
         }
@@ -792,6 +767,14 @@ impl Mux {
                 let mut reads = self.notification_reads.lock().unwrap();
                 for id in &cleared {
                     reads.remove(id);
+                }
+            }
+            {
+                // A cleared row is never evicted, so its post goes here or never.
+                let mut posts =
+                    self.notification_posts.lock().unwrap_or_else(PoisonError::into_inner);
+                for id in &cleared {
+                    posts.remove(id);
                 }
             }
             let unread = feed.items().iter().filter(|item| item.is_unread()).collect::<Vec<_>>();

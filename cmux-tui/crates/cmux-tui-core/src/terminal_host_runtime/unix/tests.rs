@@ -3,12 +3,17 @@
 
 mod attach_protocol;
 mod clipboard_read;
+mod closed_host_termination;
+mod ended_host_termination;
 mod host_fixture;
 mod input_records;
 mod kitty_file_media;
 mod launch_codec;
+mod output_path;
 mod parser_failure;
 mod parser_order;
+mod parser_queue_memory;
+mod pty_reader_stack;
 mod smart_viewer_exit;
 mod terminal_queries;
 use super::super::shared::control_responses::ControlResponseWaiter;
@@ -315,6 +320,7 @@ pub(crate) fn input_ack_surface_fixture() -> (HostAttachment, UnixStream) {
         launch_activation_pending: false,
         pty_custody: None,
         input_order: None,
+        input_room: Default::default(),
     };
     (attachment, host)
 }

@@ -25,10 +25,18 @@ nonisolated enum ChromiumPageWindowMain {
         return true
     }
 
-    /// Installs the override on `CefNSWindow` once CEF's classes exist.
+    /// Installs every page window rule on `pageClass`. Safe to call again.
+    @discardableResult
+    static func installPageRules(on pageClass: AnyClass) -> Bool {
+        let main = keepOutOfMain(pageClass)
+        let occlusion = ChromiumPageWindowOcclusion.keepOutOfOcclusionChecks(pageClass)
+        return main && occlusion
+    }
+
+    /// Installs the page window rules on `CefNSWindow` once CEF's classes exist.
     @discardableResult
     static func install() -> Bool {
         guard let pageClass = NSClassFromString("CefNSWindow") else { return false }
-        return keepOutOfMain(pageClass)
+        return installPageRules(on: pageClass)
     }
 }

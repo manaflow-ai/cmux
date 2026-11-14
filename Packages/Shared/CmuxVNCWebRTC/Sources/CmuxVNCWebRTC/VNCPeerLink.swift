@@ -22,6 +22,7 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     // libwebrtc's factory is thread-safe and owns its threads; one per process.
     // crash-allow: a `let` made once (lazy static init is atomic); libwebrtc's factory is thread-safe.
     nonisolated(unsafe) private static let factory: RTCPeerConnectionFactory = {
+        WebRTCFieldTrials.prepare()
         RTCInitializeSSL()
         // Hardware H.264 (VideoToolbox) first, then VP8/VP9/AV1 software; H.264 without a level frame rate cap.
         return RTCPeerConnectionFactory(encoderFactory: ScreenEncoderFactory(), decoderFactory: ScreenDecoderFactory())
@@ -288,6 +289,25 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
         finish()
     }
 
+    /// One text message on the ordered channel, waiting first while its
+    /// buffer is full (a long run of messages, such as a pasted image's
+    /// chunks, never overflows it).
+    func sendTextPaced(_ text: String) async throws {
+        guard let channel = lock.withLock({ channel }), channel.readyState == .open else { throw VNCWebRTCError.closed }
+        while channel.bufferedAmount > Self.highWater {
+            await withCheckedContinuation { continuation in
+                let resumeNow = lock.withLock { () -> Bool in
+                    if ended || channel.bufferedAmount <= Self.highWater { return true }
+                    drained.append(continuation)
+                    return false
+                }
+                if resumeNow { continuation.resume() }
+            }
+            if lock.withLock({ ended }) { throw VNCWebRTCError.closed }
+        }
+        guard channel.sendData(RTCDataBuffer(data: Data(text.utf8), isBinary: false)) else { throw VNCWebRTCError.closed }
+    }
+
     /// Text messages on the data channel (screen stream control and input).
     func sendText(_ text: String, on label: String? = nil) -> Bool {
         let target = lock.withLock { label.flatMap { extras[$0] } ?? channel }
@@ -436,6 +456,11 @@ extension VNCPeerLink {
     /// Receive codec names, in the factory's order (diagnostics).
     static func receiveCodecNames() -> [String] { factory.rtpReceiverCapabilities(forKind: "video").codecs.map(\.name) }
 
+    /// A screencast source: libwebrtc encodes it as screen content (its
+    /// outbound stats say `contentType` "screenshare"), which is what the
+    /// track content hint "detail" or "text" selects (`VideoRtpSender::SetSend`
+    /// maps both to `is_screencast`; Petal sets `ContentHint::Detailed`). The
+    /// Objective-C SDK has no content hint, so this source is how we set it.
     static func makeScreenSource() -> RTCVideoSource { factory.videoSource(forScreenCast: true) }
 }
 
@@ -505,7 +530,7 @@ extension VNCPeerLink {
                     let encodeMs = (v["totalEncodeTime"] as? NSNumber).flatMap { total in
                         (v["framesEncoded"] as? NSNumber).map { $0.doubleValue > 0 ? total.doubleValue / $0.doubleValue * 1000 : 0 }
                     }.map { String(format: "%.2f", $0) } ?? "?"
-                    out = "codec \(codec) encoder \(f("encoderImplementation")) powerEfficient \(f("powerEfficientEncoder")) \(f("frameWidth"))x\(f("frameHeight")) source fps \(sourceFps) fps \(f("framesPerSecond")) encoded \(f("framesEncoded")) sent \(f("framesSent")) encode \(encodeMs) ms limited-by \(f("qualityLimitationReason")) target \(f("targetBitrate")) bps sent-bytes \(f("bytesSent")) rtt \(rtt) ms"
+                    out = "codec \(codec) encoder \(f("encoderImplementation")) powerEfficient \(f("powerEfficientEncoder")) content \(f("contentType")) \(f("frameWidth"))x\(f("frameHeight")) source fps \(sourceFps) fps \(f("framesPerSecond")) encoded \(f("framesEncoded")) sent \(f("framesSent")) encode \(encodeMs) ms limited-by \(f("qualityLimitationReason")) target \(f("targetBitrate")) bps sent-bytes \(f("bytesSent")) rtt \(rtt) ms"
                 }
                 continuation.resume(returning: out)
             }

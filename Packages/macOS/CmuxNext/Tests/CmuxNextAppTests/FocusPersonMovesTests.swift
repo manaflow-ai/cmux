@@ -77,4 +77,21 @@ struct FocusPersonMovesTests {
         _ = machine.send(.selectTab(pane: "a", tab: "a-tab", source: source), into: &state)
         #expect(state.personMoveSeq == 1, "a \(source) move counted: \(state.personMoveSeq)")
     }
+
+    /// Inside a run the person chose from a menu (``FocusMachine/send(_:into:menuPick:)``) a focus choice counts whatever
+    /// source it carries (AppKit runs a chosen item's action outside any input event's dispatch, so its events carry the
+    /// CLI's or the app's source), except a responder report a key's dispatch made: a held key run again inside the run's
+    /// task is no focus choice of the person's (round 10 of #35275; review of #35874, finding 2).
+    @Test func aMenuPicksChoicesCountButAKeysResponderReportDoesNot() {
+        let (machine, initial) = twoTerminals()
+        var state = initial
+        _ = machine.send(.responder(.textField, source: .programmatic), into: &state)
+        #expect(state.personMoveSeq == 0, "an app responder report counted outside a menu pick")
+        _ = machine.send(.responder(.textField, source: .programmatic), into: &state, menuPick: true)
+        #expect(state.personMoveSeq == 1, "a responder report of a menu pick did not count")
+        _ = machine.send(.focusPane("b", source: .cli), into: &state, menuPick: true)
+        #expect(state.personMoveSeq == 2, "a focus move of a menu pick did not count")
+        _ = machine.send(.responder(.content(pane: "a"), source: .keyboard), into: &state, menuPick: true)
+        #expect(state.personMoveSeq == 2, "a key's responder report inside a menu pick counted as the person's choice")
+    }
 }

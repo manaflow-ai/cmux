@@ -25,13 +25,17 @@ nonisolated public enum UpdateFlowEvent: Equatable, Sendable {
     case sparkle(UpdateIndicatorPhase)
     /// The user asked to check (palette, menu, CLI).
     case checkRequested
+    /// Attempt Update with nothing found yet (palette, `cmux update install`): a check the user asked
+    /// for whose update downloads and installs at once, its progress shown.
+    case attemptRequested
     /// A click on the footer pill or the Update Ready card's Restart to Update, the palette's
     /// Install Available Update, or `cmux update install`: install and relaunch once staged.
     case installRequested
     /// Update on the Update Available step (the found update's notice card or the titlebar's
     /// Update Available button) while `updates.downloadAutomatically` is off: download the found
     /// update, then ask before relaunching (the Update Ready card's Restart to Update). Nothing
-    /// relaunches by itself (``UpdateQuitAction`` says what a quit does with it).
+    /// relaunches by itself (``UpdateQuitAction`` says what a quit does with it), unless
+    /// `updates.oneClickInstall` is on: then the click also installs and relaunches once staged.
     case downloadRequested
     case quitRequested
     /// A note's display time ended.

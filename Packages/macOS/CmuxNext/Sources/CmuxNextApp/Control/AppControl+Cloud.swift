@@ -21,7 +21,10 @@ extension AppControl {
                     "user": user.map { .object(["id": .string($0.id), "email": $0.primaryEmail.map(JSONValue.string) ?? .null]) } ?? .null,
                     "user_id": user.map { .string($0.id) } ?? .null,
                     "team_id": cloud.auth.teamID.map(JSONValue.string) ?? .null,
-                    "backend": .string(cloud.configuration.apiBaseURL.absoluteString),
+                    "backend": .string(cloud.configuration.ownerAPIBaseURL().absoluteString),
+                    "cloud_environment": cloud.configuration.runtimeSelection.map { .string($0.name) } ?? .null,
+                    "client_config_source": cloud.configuration.runtimeSelection?.configSource.map(JSONValue.string) ?? .null,
+                    "client_config_version": cloud.configuration.runtimeSelection?.clientConfigVersion.map { .number(Double($0)) } ?? .null,
                     "cloud_unavailable": cloud.unavailableReason.map(JSONValue.string) ?? .null,
                 ]))
             },
@@ -30,17 +33,17 @@ extension AppControl {
                 let rows: [JSONValue] = services.machines.cloud.map { .object(Self.cloudMachineRow($0, services.machines)) }
                 return .value(.object(["machines": .array(rows), "loaded": .bool(services.cloud.hasLoadedCurrentMachines),
                                        "creations": .array(services.cloud.creations.controlRows),
-                                       "link_route": .string(services.cloud.linkRoute()),
                                        "last_error": services.cloud.lastError.map(JSONValue.string) ?? .null]))
             },
-            // `cmux automation --target cloud`: one Cloud automation op as the signed-in user (CloudAutomationRelay).
-            .async("cloud.automation") { [relay = CloudAutomationRelay.signedIn(services.cloud.auth), registry = services.registry] call in
+            // `cmux automation --target cloud`: one Cloud automation op as the signed-in user (`cmux cloud automation-relay`).
+            .async("cloud.automation") { [forward = CloudCLICall(cli: services.bundledCLI).automationRelay(signedIn: services.cloud.auth), registry = services.registry] call in
                 if let refusal = await MainActor.run(body: { ControlError.policyRefusal("cloud.automation", disabled: registry.disabledFeatures) }) { throw refusal }
-                let reply = await relay.forward(try JSONSerialization.data(withJSONObject: JSONValue.object(call.params).foundationObject))
+                let reply = await forward(try JSONSerialization.data(withJSONObject: JSONValue.object(call.params).foundationObject))
                 return JSONValue(foundation: try JSONSerialization.jsonObject(with: reply)) ?? .null
             }.withDeadline(.fixed(.seconds(30))),
         ])
         registerRunMethods(services)
+        registerCloudEnvironmentMethods(services)
         registerVMAgentKeyMethods(services)
         // `cmux auth token` (cmux-platform#111): the method lives in CmuxNextControl, the mint in CmuxNextCloud.
         let identity = services.cloud.installIdentity, origin = services.cloud.configuration.ownerAPIBaseURL(), auth = services.cloud.auth
@@ -48,9 +51,9 @@ extension AppControl {
             disabledFeatures: { services.registry.disabledFeatures }, isSignedIn: { services.cloud.isSignedIn },
             mint: { asked in
                 do {
-                    let token = try await identity.accessToken(team: try await auth.accessTokenTeam(requested: asked))
+                    let token = try await auth.accessToken(requested: asked, identity: identity)
                     return AuthTokenGrant(accessToken: token.accessToken, team: token.team, user: token.user, expiresAt: token.expiresAt, apiOrigin: origin)
-                } catch let failure as CloudAccessToken.Failure { throw AuthTokenRefusal(code: failure.code, detail: failure.detail) }
+                } catch let refused as CloudAccessToken.Refusal { throw AuthTokenRefusal(code: refused.failure.code, detail: refused.failure.detail, team: refused.team) }
             }),
         ])
         // Tagged DEV builds only (debug.* methods; a release build registers
@@ -142,7 +145,7 @@ extension AppControl {
 
 // `runs.sandbox.create|runs.wait|runs.cancel`: the methods `cmux run --sandboxed` sends
 // (hq#3367). The app holds the Stack session, so the CLI never sees a token: it asks the
-// app, the app asks cmux.com's Run API (messages in Resources/Runs.xcstrings), and the answer (the Run's view and its receipt,
+// app, the app asks the cmux daemon's `cloud.runs.*` (messages in Resources/Runs.xcstrings), and the answer (the Run's view and its receipt,
 // which hold no secrets or provider handles) passes through as JSON. Not behind Labs
 // (Leo, 2026-10-30): signed in and Cloud allowed by policy.
 extension AppControl {
@@ -181,17 +184,17 @@ extension AppControl {
         return id
     }
 
-    /// The signed-in Cloud client. The Cloud policy gates only a new sandboxed run (`newRun`):
+    /// The signed-in Cloud client whose bundled cmux runs the daemon's `cloud.runs.*` (never classic Cloud). The Cloud policy gates only a new sandboxed run (`newRun`):
     /// waiting on or cancelling one that exists stays open, so turning it off mid-run never strands
     /// a billable VM without its receipt or its cancel. Not behind Labs (Leo, 2026-10-30): the CLI's
-    /// `cmux run --sandboxed` is the person's explicit ask for the run.
+    /// `cmux run --sandboxed` is the person's explicit ask for the run; a new one goes under the account signed in now (`runningAs`).
     nonisolated private static func runsAPI(_ services: AppServices, newRun: Bool) async throws -> CloudAPIClient {
         try await MainActor.run {
             if newRun, let refusal = ControlError.policyRefusal("runs.sandbox.create", disabled: services.registry.disabledFeatures) { throw refusal }
             // A managed team missing or a local-only backend: no new run asks the server (mayCallCloud).
             guard !newRun || services.cloud.mayCallCloud else { throw ControlError(code: "cloud_disabled", message: String(localized: "runs.error.cloudUnavailable", defaultValue: "cmux Cloud is not available for this account or team.", table: "Runs", bundle: .module)) }
             guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app.", table: "Runs", bundle: .module)) }
-            return services.cloud.api
+            return newRun ? services.cloud.machineAPI.runningAs(services.cloud.auth.runAccount) : services.cloud.machineAPI.drainingClassic(services.cloud.api)
         }
     }
 
@@ -207,7 +210,7 @@ extension AppControl {
         // else) says nothing about the run: `bad_response`, which the CLI treats as "the run may
         // exist" on a create, waits through on a wait, and as no answer on a cancel.
         guard let answer = try? JSONValue.parse(data), case .object = answer else {
-            throw ControlError(code: "bad_response", message: String(localized: "runs.error.badResponse", defaultValue: "cmux.com sent an answer the app couldn't read.", table: "Runs", bundle: .module))
+            throw ControlError(code: "bad_response", message: String(localized: "runs.error.badResponse", defaultValue: "The cmux daemon sent an answer the app couldn't read.", table: "Runs", bundle: .module))
         }
         return answer
     }
@@ -217,7 +220,7 @@ extension AppControl {
         let notSignedIn = String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app.", table: "Runs", bundle: .module)
         switch error {
         case .notSignedIn: return ControlError(code: "not_signed_in", message: notSignedIn)
-        case .timedOut: return ControlError(code: "timeout", message: String(localized: "runs.error.timeout", defaultValue: "cmux.com didn't answer in time.", table: "Runs", bundle: .module))
+        case .timedOut: return ControlError(code: "timeout", message: String(localized: "runs.error.timeout", defaultValue: "The cmux daemon didn't answer in time.", table: "Runs", bundle: .module))
         // An expired or revoked session: sign in again (the CLI's exit 3), not a failed run.
         case .http(401, _, _, _, _): return ControlError(code: "not_signed_in", message: notSignedIn)
         case .http(_, "run_sandbox_unavailable", _, _, _): return ControlError(code: "run_sandbox_unavailable", message: String(localized: "runs.error.sandboxUnavailable", defaultValue: "Sandboxed runs are not enabled for this cmux Cloud account yet.", table: "Runs", bundle: .module))
@@ -238,5 +241,41 @@ extension AppControl {
         // A refusal a paid plan lifts: the CLI tells the person which plan, nothing ran.
         case let .planRequired(_, _, plan): return ControlError(code: "plan_required", message: CloudStrings.apiErrorText(error), data: .object(["plan": .string(plan)]))
         }
+    }
+}
+
+extension AppControl {
+    /// The CLI has persisted Rust's validated selection; this only tears down native resources and relaunches.
+    func registerCloudEnvironmentMethods(_ services: AppServices) {
+        service?.router.register([
+            .mainActor("cloud.environment.apply") { call in
+                guard call.connection != .inProcess else {
+                    throw ControlError.invalidParams("Apply a saved Cloud backend through the bundled CLI.")
+                }
+                guard let selected = services.cloud.configuration.runtimeSelection, selected.mutable,
+                      call.params["bundle_id"]?.stringValue == Bundle.main.bundleIdentifier,
+                      call.params["bundle_id"]?.stringValue == selected.bundleId,
+                      let name = call.params["name"]?.stringValue,
+                      let namespace = call.params["auth_namespace"]?.stringValue else {
+                    throw ControlError.invalidParams("The Cloud environment does not belong to this mutable app bundle.")
+                }
+                let task = try services.cloudEnvironmentSwitch.apply(selected: selected, name: name, namespace: namespace,
+                    bootstrap: CloudEnvironmentBootstrap(work: services.work), signOut: { await services.cloud.signOut() },
+                    stopServices: { services.cloud.stop(); services.feed.stop(); services.iphone.stop() },
+                    stopDaemon: { try await services.daemon.stopKeepingHosts() })
+                // The CLI reads the acknowledgement then closes its connection. Quit only after
+                // that EOF, so even a fast teardown cannot drop restart_scheduled's response.
+                _ = ControlConnectionClosures.shared.add(call.connection) {
+                    Task { @MainActor in
+                        if (try? await task.value) == true { services.quit.requestQuit(.signal) }
+                    }
+                }
+                return .followUp { [task] in
+                    let scheduled = try await task.value
+                    return .object(["restart_scheduled": .bool(scheduled), "name": .string(name)])
+                }
+            // timeout: remote sign-out/revocation may hang; report a saved selection that needs restart.
+            }.withDeadline(.fixed(.seconds(120))),
+        ])
     }
 }

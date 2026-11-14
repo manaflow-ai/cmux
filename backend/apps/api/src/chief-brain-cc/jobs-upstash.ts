@@ -71,7 +71,7 @@ export const upstashSender = (env: Env): Sender | null => {
 }
 
 type Store = { cjStore(team: string, o: StoreOp): Promise<unknown> }
-const storeOf = (env: Env, team: string) => env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(jobsStoreName(team))) as unknown as Store
+const storeOf = (env: Env, team: string) => env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(jobsStoreName(team)))
 const store = <T>(env: Env, team: string, o: StoreOp) => storeOf(env, team).cjStore(team, o) as Promise<T>
 
 /** Removes a schedule; one QStash no longer has is already removed. */

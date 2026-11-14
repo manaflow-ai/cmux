@@ -28,6 +28,9 @@
 //! - `{"type":"needs_you","items":[{"id","title","body","kind","source","url","created_at_ms"}]}`:
 //!   the open requests of the app's own Feed (held PRs, sign-ins, consent cards), the whole set
 //!   each time it changes. hostd serves them to phones and pushes each once (`needs_you.rs`).
+//! - `{"type":"appearance","theme":{"background","foreground","palette",...},
+//!   "wallpaper":{"path","tint_opacity"}}`: the colors the app's chrome derives from and the
+//!   picture its windows show, the whole state each time it changes (`appearance.rs`).
 //!
 //! End of stdin means the app is gone: the process exits.
 //!
@@ -302,6 +305,8 @@ pub enum Inbound {
     NeedsYou {
         items: Vec<crate::needs_you::Request>,
     },
+    /// The app's theme and wallpaper, the whole state (`appearance.rs`).
+    Appearance(crate::appearance::FromApp),
     /// The app's Cloud links for `need_cloud_links` `request`. `paid` (absent from an
     /// older app: false) says the account pays for cmux Cloud; `desktops` (absent: false) that
     /// the person lets phones view their Cloud machine's screen (`phone.cloudDesktop`).
@@ -383,6 +388,10 @@ pub enum Event {
         /// signature (the app checks and burns it; hostd only forwards it). Absent without one.
         #[serde(skip_serializing_if = "Option::is_none")]
         pair_token: Option<String>,
+        /// What asks: `phone` (omitted, as before) or a machine (`mac`, `linux`), which the
+        /// app approves with grants (docs/multi-machine-sessions.md).
+        #[serde(skip_serializing_if = "is_phone")]
+        kind: crate::peer::PeerKind,
     },
     /// A paired phone signed out and asks the Mac to forget it.
     Unpaired {
@@ -547,6 +556,10 @@ pub fn spawn_stdin_reader() -> Supplied {
                     }
                 }
                 Some(Inbound::NeedsYou { items }) => crate::needs_you::set(items),
+                // Read off this loop: a wallpaper read never holds a token or a device line.
+                Some(Inbound::Appearance(appearance)) => {
+                    tokio::spawn(crate::appearance::set(appearance));
+                }
                 Some(Inbound::CloudLinks { request, paid, desktops, links }) => {
                     resolve_cloud_links(request, paid, desktops, links);
                 }
@@ -590,6 +603,10 @@ pub fn path_name(path: cmux_mobile_link::dial::LinkPath) -> &'static str {
         cmux_mobile_link::dial::LinkPath::TurnTls => "turn-tls",
         cmux_mobile_link::dial::LinkPath::NoPath => "none",
     }
+}
+
+fn is_phone(kind: &crate::peer::PeerKind) -> bool {
+    *kind == crate::peer::PeerKind::Phone
 }
 
 #[cfg(test)]
@@ -689,7 +706,8 @@ mod tests {
                 devices: vec![crate::pairing::TrustedDevice {
                     id: "p".into(),
                     identity_key: "04".into(),
-                    approval_key: "04".into()
+                    approval_key: "04".into(),
+                    ..Default::default()
                 }],
                 denied: vec![crate::pairing::DeniedDevice { id: "q".into(), identity_key: "04".into() }],
             }))
@@ -727,7 +745,9 @@ mod tests {
             })
         );
         assert_eq!(
-            Inbound::parse(r#"{"type":"needs_you","items":[{"id":"fi_a","title":"Held","url":"https://x"}]}"#),
+            Inbound::parse(
+                r#"{"type":"needs_you","items":[{"id":"fi_a","title":"Held","url":"https://x"}]}"#
+            ),
             Some(Inbound::NeedsYou {
                 items: vec![crate::needs_you::Request {
                     id: "fi_a".into(),
@@ -740,6 +760,12 @@ mod tests {
                 }]
             })
         );
+        let appearance = Inbound::parse(
+            r##"{"type":"appearance","theme":{"background":"#000000","foreground":"#ffffff","palette":["#000000","#111111","#222222","#333333","#444444","#555555","#666666","#777777"],"accent":"blue"},"wallpaper":{"path":"/tmp/w.jpg","tint_opacity":0.6}}"##,
+        );
+        let Some(Inbound::Appearance(appearance)) = appearance else { panic!("appearance did not parse") };
+        assert_eq!(appearance.theme.accent, "blue");
+        assert_eq!(appearance.wallpaper.map(|w| w.path), Some("/tmp/w.jpg".to_owned()));
         assert_eq!(Inbound::parse(r#"{"type":"nope"}"#), None);
         assert_eq!(Inbound::parse("not json"), None);
     }
@@ -814,6 +840,7 @@ mod tests {
             approval_key: "04".into(),
             registered_at_ms,
             pair_token,
+            kind: crate::peer::PeerKind::Phone,
         };
         let request = |registered_at_ms| request_with(registered_at_ms, None);
         assert_eq!(

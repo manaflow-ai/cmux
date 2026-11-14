@@ -4,6 +4,7 @@
 // the same <img> with the same src: no second read, no placeholder in between.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -86,8 +87,10 @@ try {
     await flush();
     const image = host.querySelector<HTMLImageElement>(".cv-user__images img")!;
     expect(image.getAttribute("src")).toBe(src);
-    // 120px tall at 1.5:1, from the image's header, while no load event has fired.
-    expect(image.style.width).toBe("180px");
+    // Its own 150×100 from the image's header, while no load event has fired: never drawn larger than
+    // the image (UserBubble.tsx sentImageSize), its height from its aspect ratio.
+    expect(image.style.width).toBe("150px");
+    expect(image.style.getPropertyValue("aspect-ratio")).toBe("150 / 100");
   });
 
   test("re-rendering a sent prompt keeps its <img> and src: no second read, no placeholder", async () => {
@@ -119,12 +122,8 @@ try {
     expect(reads).toEqual(["rerender-1"]);
   });
 } finally {
-  afterAll(() => {
+  afterAll(async () => {
     act(() => root.unmount());
-    dom.window.close();
-    for (const [key, had, value] of saved) {
-      if (had) scope[key] = value;
-      else delete scope[key];
-    }
+    await teardownDom(saved, { window: dom.window, scope });
   });
 }

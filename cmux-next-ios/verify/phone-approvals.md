@@ -1,4 +1,22 @@
-# Phone pairing and Face ID approvals
+# Phone pairing and signed approvals
+
+> **2026-11-04: no Face ID on approvals.** At the user's request ("remove the
+> need for Face ID around the cmux next iOS app, it's unnecessary friction"),
+> an Allow or an answer no longer asks for Face ID or the passcode. The
+> approval key is a Secure Enclave key with `.privateKeyUsage` only, readable
+> after the first unlock (`approval-np`), so a signature still proves this
+> phone, made from the unlocked app or an unlock-gated notification button.
+> An older enclave `approval` key (made with `.userPresence`) is deleted on
+> first use and replaced, so each Mac asks once to allow the phone again.
+> The opt-in Settings → Require Face ID app lock (off by default) is unchanged.
+> What this gives up: the person no longer confirms each signature, so code
+> running in the app (a foreground task, a background reconnect) could sign an
+> Allow without a tap. What still holds: the key never leaves this phone's
+> enclave, notification Allow and option buttons open the app and need the
+> phone unlocked, and the Mac checks the one-use nonce, the 5-minute expiry
+> and that the key is one it allowed.
+> Sections below that describe a Face ID prompt per Allow are the earlier
+> design and its verification record.
 
 Branch `feat-cnx-ios-approvals`. Production audit items B2 (device trust),
 B5 (Allow and answers from the phone) and B11 (Require Face ID).
@@ -42,7 +60,7 @@ them. Only the enclave's encrypted blobs are stored, in the Keychain with
 | Key | Access control | Used for |
 | --- | --- | --- |
 | identity | `.privateKeyUsage`, after first unlock | Each link's pairing challenge, with no prompt. |
-| approval | `.privateKeyUsage` + `.userPresence`, when unlocked | Each Allow or answer: Face ID, with the device passcode as the fallback. |
+| approval | `.privateKeyUsage`, after first unlock (`approval-np`; before 2026-11-04 `.userPresence`, when unlocked) | Each Allow or answer, with no prompt. |
 
 Two keys, not one: a link is set up on every launch, foreground and network
 change, and must not prompt; an approval must always prompt.
@@ -138,8 +156,18 @@ the expiry is at most 300 s ahead, and the nonce was not spent; then strips
 - One dialog per phone at a time; a repeated request while it is open is
   dropped.
 - `MobileHostPairedDevices` keeps the list per signed-in user in a 0600 file in the
-  app's cmux-mobile-host state folder. Another user starts empty, and signing out of
-  the Mac clears it.
+  app's cmux-mobile-host state folder. Another user starts empty, and the person's
+  own sign-out of the Mac clears it. A session that ends by itself (a refused refresh
+  token, a Keychain that would not hand back the tokens) keeps it, as the phone keeps its
+  keys, so signing in again asks about no phone (2026-11-04).
+- The list counts only while its seal (a digest in the app's Keychain) matches. A seal
+  the Keychain refuses to read (a launch right after an update was refused for minutes on
+  2026-11-03, and every phone had to be allowed again) is not a mismatch: the app reads
+  again for about 30 s, trusting and asking about no phone; then it asks, and keeps that
+  run's allows in memory only, so the stored list and its seal count again at the next
+  launch whose Keychain answers (and the allows join it then). A Don't Allow, a phone's new
+  keys or a removal in that state is still written (fail closed): the stored list then no
+  longer matches its seal, so the next launch asks about every phone once.
 - The list goes to hostd as the `devices` control line (at start and on every
   change), and to acpmux as approvers (`_acpmux/approvers_set`), on the app's
   own person-proven unix connection (`MobileHostApproverSync`). That connection stays

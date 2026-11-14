@@ -3,26 +3,34 @@
 
 Enforcement is scoped to the pull request that causes the problem.
 
-A test file with no registry entry is a hard failure only when this pull
-request is the one that added it (compared against the merge base). A test
-that was already unregistered on the base branch is reported as a warning:
-it is somebody else's oversight, and failing here would turn every open pull
-request red for a reason its author cannot fix.
+A test that does not run -- a file with no registry entry, an entry on a
+lane no workflow runs, or (with --pr-lanes) a test no pull request runs --
+only ever warns, even in the pull request that added it. Leo, 2026-11-05:
+"There is no way that, like, the notion of not adding tests should block CI."
+The warning says whether this change added the file and prints the [[test]]
+block to paste.
 
-Everything a pull request can only break by editing the registry itself --
-malformed entries, unknown fields, entries pointing at files that no longer
-exist, lanes no workflow runs -- stays a hard failure.
+What the runner cannot read -- malformed entries, unknown fields, entries
+pointing at files that no longer exist -- is judged against the base: with
+--base-sha, a finding the base's tree already has warns (a direct push to the
+base made it, and no later pull request can fix it), and only a finding this
+change adds fails. A test this change renames counts as one it adds.
+
+Each warning about a test file names the commit that added the file, when the
+checkout's history has it. `--warn-only` (a push to the branch) turns every
+finding into a warning, so base-red-watch reads it from the run's annotations
+and the push stays green.
 
 `--write` registers every unregistered test whose lane can be derived (a
 workflow already runs the file) and leaves the rest for a person to place.
 The pre-commit hook runs it, so wiring a new test into ci-guards.yml is
 enough to register it.
 
-`--pr-lanes BRANCH` also fails on a test no pull request into BRANCH runs
+`--pr-lanes BRANCH` also warns on a test no pull request into BRANCH runs
 (scripts/ci/pr_test_lanes.py reads the workflows as that event runs them),
-unless tests/pr-lane-exemptions.json lists it with a reason. With --base-sha
-only what this change adds fails; what the base already has warns. cmux-next
-guards / tooling-tests runs it for feat-cmux-next. It needs PyYAML, so the
+unless tests/pr-lane-exemptions.json lists it with a reason. A broken
+exemption list fails, with --base-sha only when this change broke it.
+cmux-next guards / tooling-tests runs it for feat-cmux-next. It needs PyYAML, so the
 pre-commit hook's copy never takes this path.
 
 Duplicate registrations sit between the two. Two pull requests that each
@@ -51,12 +59,23 @@ from pathlib import Path
 # to sys.path the way running it as a script does.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from test_execution_registry import load_registry, parse_registry  # noqa: E402
+from test_execution_registry import (  # noqa: E402
+    FRAGMENTS, LEGACY, Fragments, layout_findings, load_tree, load_tree_at, registry_sources,
+)
 import workload_entrypoints  # noqa: E402
+
+try:
+    from yaml import YAMLError as BaseYAMLError
+except ImportError:  # no YAML parser here: a workflow is never parsed, so none can fail to
+    BaseYAMLError = ValueError
+
+# A base whose workflow does not parse (feat-cmux-next dd8b867f7: a colon-space in nightly.yml's
+# plain scalar) cannot be judged, so its findings warn; the pull request that fixes it is never
+# turned red by the base it fixes.
+BASE_UNREADABLE = (OSError, ValueError, ImportError, tarfile.TarError, subprocess.CalledProcessError, BaseYAMLError)
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MANIFEST = ROOT / "tests" / "test-execution.toml"
 WORKFLOWS = ROOT / ".github" / "workflows"
 CI_GUARDS = WORKFLOWS / "ci-guards.yml"
 # One invocation may run several lanes (`--lane a --lane b`), in any flag order.
@@ -80,6 +99,8 @@ RECIPE_STEP_NAME_RE = re.compile(r"\s*(-\s+)?name:")
 RECIPE_VALUE_OPTIONS = {"--only", "--timeout", "--receipt", "--jobs"}
 # The reviewed list of tests no pull request lane runs on purpose (--pr-lanes).
 PR_LANE_EXEMPTIONS = Path("tests") / "pr-lane-exemptions.json"
+# The pull request lane finding for a test nothing runs; pr_lane_findings warns on it.
+UNRUN_ON_PULL_REQUESTS = "no job a pull request into"
 # What validate_pr_lanes reads, extracted from the base to judge it there too.
 PR_LANE_BASE_PATHS = (".github", "tests", "scripts/ci", "scripts/verify-local.py")
 
@@ -226,12 +247,22 @@ def registration_hint(path: str, workflows: Path = WORKFLOWS, live_lanes: set[st
         )
     return (
         "\n      Run python3 scripts/ci/validate_test_execution_registry.py --write, or paste into\n"
-        "      tests/test-execution.toml:\n\n"
+        f"      {registry_file_hint(path, workflows.parents[1])} (entries sorted by path):\n\n"
         "          [[test]]\n"
         f'          path = "{path}"\n'
         f'          lane = "{lane}"\n\n'
         f"      {rationale}"
     )
+
+
+def registry_file_hint(path: str, root: Path = ROOT) -> str:
+    """The registry file a test's entry goes in: its area's fragment, or the old single file."""
+    if not (root / FRAGMENTS).is_dir():
+        return LEGACY
+    from test_execution_registry import fragment_for  # noqa: PLC0415
+
+    areas = {fragment.name.removesuffix(".toml") for fragment in (root / FRAGMENTS).glob("*.toml")}
+    return f"{FRAGMENTS}/{fragment_for(path, areas)}"
 
 
 def merge_base(base_sha: str, root: Path = ROOT) -> str | None:
@@ -264,15 +295,21 @@ def register_derivable(root: Path = ROOT, only: set[str] | None = None) -> list[
     """Append an entry for each unregistered test a workflow already runs; return their paths.
     With `only`, consider just those repository-relative paths: the pre-commit hook passes the
     commit's own tests, so it never writes the base's unregistered ones into a pull request."""
-    manifest = root / "tests" / "test-execution.toml"
     workflows = root / ".github" / "workflows"
-    registered = {entry.get("path") for entry in load_registry(manifest)}
+    registered = {entry.get("path") for entry in load_tree(root)}
     discovered = sorted(
         path.relative_to(root).as_posix() for path in (root / "tests").glob("test_*.py") if path.is_file()
     )
     added = [path for path in discovered
              if path not in registered and (only is None or path in only) and workflow_running(path, workflows)]
-    if added:
+    if added and (root / FRAGMENTS).is_dir():
+        # Each entry goes in its area's fragment, at its sorted place.
+        fragments = Fragments(root)
+        for path in added:
+            fragments.put(path, f'[[test]]\npath = "{path}"\nlane = "{DIRECT_RUN_LANE}"')
+        fragments.write()
+    elif added:
+        manifest = root / LEGACY
         text = manifest.read_text(encoding="utf-8")
         blocks = "".join(f'\n[[test]]\npath = "{path}"\nlane = "{DIRECT_RUN_LANE}"\n' for path in added)
         manifest.write_text(text.rstrip("\n") + "\n" + blocks, encoding="utf-8")
@@ -280,13 +317,14 @@ def register_derivable(root: Path = ROOT, only: set[str] | None = None) -> list[
 
 
 def newly_added_tests(base_sha: str, root: Path = ROOT) -> set[str]:
-    """Test files this branch adds, relative to the merge base with `base_sha`."""
+    """Test files this branch adds or renames, relative to the merge base with `base_sha`."""
     output = subprocess.check_output(
         [
             "git",
             "diff",
             "--name-only",
-            "--diff-filter=A",
+            "--diff-filter=AR",
+            "-M",
             comparison_point(base_sha, root),
             "HEAD",
             "--",
@@ -313,13 +351,7 @@ def base_duplicated_paths(base_sha: str, root: Path = ROOT) -> set[str]:
     this branch's failure. `tests/test_sync_test_wiring.py` reached main this
     way through #13738 and #13739.
     """
-    point = comparison_point(base_sha, root)
-    text = subprocess.check_output(
-        ["git", "show", f"{point}:tests/test-execution.toml"],
-        cwd=root,
-        text=True,
-    )
-    return duplicated_paths(parse_registry(text, f"{point}:tests/test-execution.toml"))
+    return duplicated_paths(load_tree_at(root, comparison_point(base_sha, root)))
 
 
 def validate(
@@ -329,13 +361,13 @@ def validate(
     base_duplicates: set[str] | None = None,
 ) -> tuple[list[str], list[str], Counter[str]]:
     """Return (hard errors, warnings, lane counts) for the registry under `root`."""
-    manifest = root / "tests" / "test-execution.toml"
     workflows = root / ".github" / "workflows"
 
     errors: list[str] = []
-    warnings: list[str] = []
+    # Where an entry sits never changes what runs, so a misplaced or unsorted one only warns.
+    warnings: list[str] = layout_findings(root)
 
-    entries = load_registry(manifest)
+    entries = load_tree(root)
 
     discovered = {
         path.relative_to(root).as_posix()
@@ -389,7 +421,7 @@ def validate(
             warnings.append(
                 f"{path}: registered more than once. The duplicate is already on the base "
                 "branch, so this is a warning and does not fail the build. Delete one of "
-                "its [[test]] blocks in tests/test-execution.toml."
+                "its [[test]] blocks in the registry (tests/test-execution.d/)."
             )
         else:
             errors.append(f"{path}: registered more than once")
@@ -405,17 +437,17 @@ def validate(
         try:
             added = newly_added_tests(base_sha, root)
         except (OSError, subprocess.CalledProcessError) as error:
-            # Losing the comparison is an infrastructure problem, not something
-            # this pull request did. Warn instead of reddening it.
-            warnings.append(
-                f"could not compare new tests against {base_sha}: {error}; "
-                "unregistered tests are reported as warnings only"
-            )
+            warnings.append(f"could not compare new tests against {base_sha}: {error}")
 
+    # A test that does not run warns whoever added it: a missing entry or a
+    # dead lane leaves one test unrun, which is not worth a red build.
     for path in sorted(discovered - set(paths)):
         hint = registration_hint(path, workflows, live_runner_lanes)
         if added is not None and path in added:
-            errors.append(f"{path}: added by this pull request with no execution registry entry.{hint}")
+            warnings.append(
+                f"{path}: added by this pull request with no execution registry entry. "
+                f"This is a warning and does not fail the build.{hint}"
+            )
         else:
             warnings.append(
                 f"{path}: test exists but has no execution registry entry. "
@@ -430,9 +462,9 @@ def validate(
             continue
         if lane == DIRECT_RUN_LANE:
             if path not in guard_text:
-                errors.append(f"{path}: linux-guard lane is not run by any workflow")
+                warnings.append(f"{path}: linux-guard lane is not run by any workflow")
         elif lane not in live_runner_lanes:
-            errors.append(f"{path}: lane {lane!r} has no workflow invocation")
+            warnings.append(f"{path}: lane {lane!r} has no workflow invocation")
 
     if added is not None:
         for path in sorted(added):
@@ -507,7 +539,7 @@ def validate_pr_lanes(root: Path, branch: str) -> list[str]:
     """
     exempt, errors = pr_lane_exemptions(root)
     text, lanes = pr_lane_tests(root, branch)
-    lane_of = {str(entry.get("path")): entry.get("lane") for entry in load_registry(root / "tests" / "test-execution.toml")}
+    lane_of = {str(entry.get("path")): entry.get("lane") for entry in load_tree(root)}
     discovered = sorted(
         path.relative_to(root).as_posix() for path in (root / "tests").glob("test_*.py") if path.is_file()
     )
@@ -522,7 +554,7 @@ def validate_pr_lanes(root: Path, branch: str) -> list[str]:
             )
         elif not runs and path not in exempt and lane != "manual":
             errors.append(
-                f"{path}: no job a pull request into {branch} runs executes it, so a change that breaks it "
+                f"{path}: {UNRUN_ON_PULL_REQUESTS} {branch} runs executes it, so a change that breaks it "
                 "lands green. Run it from a step of a job that runs on those pull requests (routed by the "
                 "paths of the code it tests), or list it in "
                 f"{PR_LANE_EXEMPTIONS} with the reason it cannot run there."
@@ -530,8 +562,8 @@ def validate_pr_lanes(root: Path, branch: str) -> list[str]:
     return errors
 
 
-def base_pr_lane_errors(root: Path, branch: str, base_sha: str) -> set[str]:
-    """validate_pr_lanes on the base's tree (this checkout's code, the base's workflows and tests)."""
+def base_tree_findings(root: Path, base_sha: str, judge) -> set[str]:
+    """`judge(tree)` on the base's tree (this checkout's code, the base's workflows and tests)."""
     point = comparison_point(base_sha, root)
     present = [
         path for path in PR_LANE_BASE_PATHS
@@ -541,38 +573,106 @@ def base_pr_lane_errors(root: Path, branch: str, base_sha: str) -> set[str]:
         return set()
     archive = subprocess.run(["git", "archive", "--format=tar", point, "--", *present],
                              cwd=root, capture_output=True, check=True).stdout
-    with tempfile.TemporaryDirectory(prefix="pr-lanes-base-") as directory:
+    with tempfile.TemporaryDirectory(prefix="registry-base-") as directory:
         with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
             try:
                 tar.extractall(directory, filter="data")
             except TypeError:  # Python without extraction filters
                 tar.extractall(directory)  # noqa: S202 - our own repository's archive
         base = Path(directory)
-        if not (base / "tests" / "test-execution.toml").is_file():
+        try:
+            registry_sources(base)
+        except OSError:
             return set()
-        return set(validate_pr_lanes(base, branch))
+        return set(judge(base))
+
+
+def base_pr_lane_errors(root: Path, branch: str, base_sha: str) -> set[str]:
+    """validate_pr_lanes on the base's tree."""
+    return base_tree_findings(root, base_sha, lambda base: validate_pr_lanes(base, branch))
+
+
+def registry_findings(root: Path, base_sha: str = "") -> tuple[list[str], list[str], Counter[str]]:
+    """(errors, warnings, lane counts) of the registry, judged against the base.
+
+    A finding the base's tree already has warns; only one this change adds fails. An unregistered
+    test is judged by `validate` itself (added or renamed here, or not), so the base's own copy of
+    the check runs with nothing added.
+    """
+    errors, warnings, lane_counts = validate(root, base_sha)
+    if not base_sha or not errors:
+        return errors, warnings, lane_counts
+    try:
+        on_base = base_tree_findings(
+            root, base_sha, lambda base: validate(base, added=set(), base_duplicates=set())[0])
+    except BASE_UNREADABLE as error:
+        note = (f"could not judge the registry at the base {base_sha}: {error}; "
+                "every finding below is a warning")
+        return [], [note, *warnings, *errors], lane_counts
+    return (
+        [error for error in errors if error not in on_base],
+        [*warnings, *(f"{error} (already so on the base, so this warns)" for error in errors if error in on_base)],
+        lane_counts,
+    )
+
+
+def shallow_boundary(root: Path) -> set[str]:
+    """The commits a shallow clone cut its history at: each looks as if it added every file."""
+    try:
+        name = subprocess.check_output(["git", "rev-parse", "--git-path", "shallow"], cwd=root, text=True).strip()
+        return set((root / name).read_text(encoding="utf-8").split())
+    except (OSError, subprocess.CalledProcessError):
+        return set()
+
+
+def added_by(path: str, root: Path, boundary: set[str]) -> str | None:
+    """`<sha> (<subject>)` of the commit that added `path`, or None when the history here lacks it."""
+    try:
+        line = subprocess.check_output(
+            ["git", "log", "-1", "--diff-filter=A", "--format=%H%x09%s", "HEAD", "--", path],
+            cwd=root, text=True, stderr=subprocess.DEVNULL).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    sha, _, subject = line.partition("\t")
+    if not sha or sha in boundary:
+        return None
+    return f"{sha[:12]} ({subject})"
+
+
+def attribute(warnings: list[str], root: Path) -> list[str]:
+    """Each warning about a test file, with the commit that added the file in its first line."""
+    boundary = shallow_boundary(root)
+    out = []
+    for warning in warnings:
+        headline, newline, rest = warning.partition("\n")
+        path = headline.split(":", 1)[0]
+        commit = added_by(path, root, boundary) if TEST_PATH_RE.fullmatch(path) else None
+        out.append(f"{headline} Added by {commit}.{newline}{rest}" if commit else warning)
+    return out
 
 
 def pr_lane_findings(root: Path, branch: str, base_sha: str = "") -> tuple[list[str], list[str]]:
     """(errors, warnings) of the pull request lane check, judged against the base.
 
-    feat-cmux-next takes direct-pushed main syncs and safe-push commits that skip pull request
-    checks. A test such a push left unrun, or an exemption it made stale, is in the base's
-    findings too: it warns, so it does not turn every later pull request red. Only a finding
-    this change adds fails. With no base every finding fails.
+    A test no pull request runs always warns: it is unrun, not broken. The exemption list's own
+    findings are judged against the base: feat-cmux-next takes direct-pushed main syncs and
+    safe-push commits that skip pull request checks, so an exemption such a push made stale is in
+    the base's findings too and warns. Only one this change adds fails. With no base they fail.
     """
-    errors = validate_pr_lanes(root, branch)
-    if not base_sha:
-        return errors, []
+    findings = validate_pr_lanes(root, branch)
+    unrun = [finding for finding in findings if UNRUN_ON_PULL_REQUESTS in finding.split("\n", 1)[0]]
+    errors = [finding for finding in findings if finding not in unrun]
+    if not base_sha or not errors:
+        return errors, unrun
     try:
         on_base = base_pr_lane_errors(root, branch, base_sha)
-    except (OSError, ValueError, ImportError, tarfile.TarError, subprocess.CalledProcessError) as error:
+    except BASE_UNREADABLE as error:
         note = (f"could not judge the pull request lanes at the base {base_sha}: {error}; "
                 "every finding below is a warning")
-        return [], [note, *errors]
+        return [], [*unrun, note, *errors]
     return (
         [error for error in errors if error not in on_base],
-        [f"{error} (already so on the base, so this warns)" for error in errors if error in on_base],
+        [*unrun, *(f"{error} (already so on the base, so this warns)" for error in errors if error in on_base)],
     )
 
 
@@ -601,8 +701,9 @@ def report_warnings(warnings: list[str]) -> None:
     lines.extend(
         [
             "",
-            "These were already so on the base, so they do not fail this pull request. "
-            "Register unregistered tests in `tests/test-execution.toml`; route or exempt "
+            "These do not fail this run: a test that does not run only warns, and the rest were "
+            "already so on the base, or this is a push (--warn-only). "
+            "Register unregistered tests in `tests/test-execution.d/` (--write); route or exempt "
             "(`tests/pr-lane-exemptions.json`) tests no pull request runs.",
             "",
         ]
@@ -628,7 +729,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--only", action="append", default=None, metavar="PATH",
                         help="with --write, register only these tests (repeatable)")
     parser.add_argument("--pr-lanes", metavar="BRANCH", default="",
-                        help="also fail on a test no pull request into BRANCH runs (needs PyYAML)")
+                        help="also warn on a test no pull request into BRANCH runs (needs PyYAML)")
+    parser.add_argument("--warn-only", action="store_true",
+                        help="report every finding as a warning and exit 0 (a push to the branch)")
     args = parser.parse_args(argv)
     root = args.repo_root.resolve()
 
@@ -641,7 +744,7 @@ def main(argv: list[str]) -> int:
             return 1
 
     try:
-        errors, warnings, lane_counts = validate(root, args.base_sha)
+        errors, warnings, lane_counts = registry_findings(root, args.base_sha)
     except (OSError, ValueError) as error:
         print(error, file=sys.stderr)
         return 1
@@ -654,7 +757,9 @@ def main(argv: list[str]) -> int:
         except (OSError, ValueError, ImportError) as error:
             errors.append(f"could not read the pull request lanes into {args.pr_lanes}: {error}")
 
-    report_warnings(warnings)
+    if args.warn_only:
+        warnings, errors = [*warnings, *errors], []
+    report_warnings(attribute(warnings, root))
 
     if errors:
         print("Python test execution registry validation failed:", file=sys.stderr)

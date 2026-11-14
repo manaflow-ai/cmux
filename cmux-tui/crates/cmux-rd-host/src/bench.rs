@@ -544,7 +544,8 @@ pub fn run(opts: &Opts) -> Res<()> {
     let addr: SocketAddr = opts.str_or("addr", "127.0.0.1:4103").parse()?;
     let samples: usize = opts.num_or("samples", 300)?;
     let carrier = opts.str_or("carrier", "udp");
-    // key (default) | click | scroll: which input moves the marker (cloud browser page).
+    // key (default) | click | scroll: which input moves the marker (cloud browser page);
+    // none: a passive window (`run_passive`).
     let input = opts.str_or("input", "key");
     let (io, udp_port) = if opts.get("link").is_some() {
         #[cfg(feature = "link")]
@@ -645,7 +646,13 @@ pub fn run(opts: &Opts) -> Res<()> {
         key: format!("bench-{pid}-{}", now_ns()),
         mode: "control".into(),
     })?;
-    // Wait for the first decoded marker (the first frame is an IDR).
+    // `--input none` (a passive window): no marker on screen, so wait for the first frame.
+    if input == "none" {
+        return run_passive(opts, &mut v, addr, &carrier);
+    }
+    // Wait for the first decoded marker (the first frame is an IDR). With `--link` the
+    // clock starts when the viewer has the host's answer, so it covers the link's
+    // handshake, hello and start, the first keyframe's encode, transfer and decode.
     let start = now_ns();
     while v.marker.is_none() {
         v.pump(5_000_000)?;
@@ -678,7 +685,12 @@ pub fn run(opts: &Opts) -> Res<()> {
         }
         None => None,
     };
+    let first_frame_ms = (v.marker_at_ns.saturating_sub(start)) as f64 / 1e6;
     let (b0, f0, c0, t_begin) = (v.bytes, v.frames, cpu_s(), now_ns());
+    // A stall is a run of lost samples: from the first lost key press to the next one
+    // that showed. A link blip shows up here as its length plus the recovery time.
+    let mut stall_from: Option<u64> = None;
+    let mut stalls_ms = Vec::new();
     let mut rng = Rng::new(u64::from(pid) ^ now_ns());
     let mut g2g = Vec::new();
     // Same-machine runs share CLOCK_MONOTONIC, so these split the sample at the host capture.
@@ -710,6 +722,9 @@ pub fn run(opts: &Opts) -> Res<()> {
         loop {
             v.pump(2_000_000)?;
             if v.marker == Some(expected) {
+                if let Some(from) = stall_from.take() {
+                    stalls_ms.push((v.marker_at_ns - from) as f64 / 1e6);
+                }
                 g2g.push((v.marker_at_ns - t0) as f64 / 1e6);
                 to_capture.push((v.marker_capture_us as f64 * 1000.0 - t0 as f64) / 1e6);
                 capture_to_decoded
@@ -718,6 +733,7 @@ pub fn run(opts: &Opts) -> Res<()> {
             }
             if now_ns() - t0 > 1_000_000_000 {
                 lost += 1;
+                stall_from.get_or_insert(t0);
                 break;
             }
         }
@@ -732,6 +748,8 @@ pub fn run(opts: &Opts) -> Res<()> {
         "carrier": carrier,
         "input": input,
         "welcome": v.welcome,
+        "first_frame_ms": first_frame_ms,
+        "stalls_ms": stalls_ms,
         "g2g_ms": pct(&mut g2g),
         "lost": lost,
         "same_clock_input_to_capture_ms": pct(&mut to_capture),
@@ -747,6 +765,65 @@ pub fn run(opts: &Opts) -> Res<()> {
     });
     println!("{report}");
     write_snapshot(opts, &v)?;
+    let _ = v.io.send_control(&Control::Stop);
+    Ok(())
+}
+
+/// `--input none --duration-s N`: sends no input and only receives for N seconds, reporting
+/// the bytes, frames and newest host stats of every second against the wall clock (Unix ms),
+/// so a script can cut the run into the phases a workload on the host logged on the same clock
+/// (scripts/measure/screen-stream-g0.sh). `--snapshot` writes the last decoded frame.
+fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> Res<()> {
+    let duration_ns = opts.num_or("duration-s", 30u64)? * 1_000_000_000;
+    let start = now_ns();
+    while v.frames == 0 {
+        v.pump(5_000_000)?;
+        if let Some(e) = &v.ended {
+            return Err(format!("ended before the first frame: {e}").into());
+        }
+        if now_ns() - start > 15_000_000_000 {
+            return Err(format!("no frame within 15 s (bytes {})", v.bytes).into());
+        }
+    }
+    eprintln!("passive: first frame");
+    let unix_ms = || {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64)
+    };
+    let (c0, t_begin) = (cpu_s(), now_ns());
+    let mut series = Vec::new();
+    let (mut bytes, mut frames, mut decode_from) = (v.bytes, v.frames, v.decode_ms.len());
+    let mut next = t_begin + 1_000_000_000;
+    while now_ns() - t_begin < duration_ns && v.ended.is_none() {
+        v.pump(next.saturating_sub(now_ns()).max(1_000_000))?;
+        if now_ns() < next {
+            continue;
+        }
+        next += 1_000_000_000;
+        series.push(json!({
+            "unix_ms": unix_ms(),
+            "bytes": v.bytes - bytes,
+            "frames": v.frames - frames,
+            "decode_ms": pct(&mut v.decode_ms[decode_from..].to_vec()),
+            "host_stats": v.stats.last(),
+        }));
+        (bytes, frames, decode_from) = (v.bytes, v.frames, v.decode_ms.len());
+    }
+    let secs = (now_ns() - t_begin) as f64 / 1e9;
+    let report = json!({
+        "addr": addr.to_string(),
+        "carrier": carrier,
+        "input": "none",
+        "welcome": v.welcome,
+        "seconds": secs,
+        "series": series,
+        "decode_errors": v.decode_errors,
+        "client_cpu_pct": (cpu_s() - c0) / secs * 100.0,
+        "ended": v.ended,
+    });
+    println!("{report}");
+    write_snapshot(opts, v)?;
     let _ = v.io.send_control(&Control::Stop);
     Ok(())
 }

@@ -5,14 +5,19 @@ import { act, startTransition, useCallback, useLayoutEffect, useRef, useState } 
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { LayeredMap } from "../src/agent-session/acpmux/conversation/layeredMap";
+import { settleReact } from "./support/domTeardown";
 
 // Exercise the production callback with React's real priority queues, without mounting the
 // whole agent pane. In particular, an updater is not interchangeable with its eager result.
 const source = readFileSync(
-  process.env.CMUX_TEST_DRAWN_SOURCE ?? new URL("../src/agent-session/acpmux/App.tsx", import.meta.url),
+  process.env.CMUX_TEST_DRAWN_SOURCE ?? new URL("../src/agent-session/acpmux/VirtualTranscript.tsx", import.meta.url),
   "utf8",
 );
-const comparison = source.slice(source.indexOf("function sameDrawn("), source.indexOf("/// RowFrame redraws"));
+// sameDrawn and changesDrawn, up to the end of changesDrawn's body.
+const comparisonStart = source.indexOf("function sameDrawn(");
+const comparisonEnd = source.indexOf("\n}\n", source.indexOf("function changesDrawn(")) + 3;
+const comparison = source.slice(comparisonStart, comparisonEnd);
 // flushDrawn alone, up to its own `}, []);`: other callbacks (reportRow, placeRowNow) sit between it and
 // the observer and need the pane's other refs.
 const flushStart = source.indexOf("  const flushDrawn = useCallback(");
@@ -35,17 +40,21 @@ type Height = {
   status?: string;
 };
 type Heights = Map<string, Height>;
+/// The drawn heights as the transcript keeps them (conversation/layeredMap.ts).
+type Drawn = LayeredMap<Height>;
 type Ref<T> = { current: T };
 type Inputs = {
-  drawnRef: Ref<Heights>;
+  drawnRef: Ref<Drawn>;
   pendingDrawn: Ref<Heights>;
   changedDrawn: Ref<Set<string>>;
-  setDrawn: (update: (current: Heights) => Heights) => void;
+  setDrawn: (update: (current: Drawn) => Drawn) => void;
+  /// The transcript's fold ride (conversation/foldRide.ts), let go before rows are placed; none rides here.
+  foldRide: Ref<{ release(): void } | undefined>;
 };
 const useFlush = compileFunction(
   new Bun.Transpiler({ loader: "ts" }).transformSync(`
 ${comparison}
-function useFlush({ drawnRef, pendingDrawn, changedDrawn, setDrawn }) {
+function useFlush({ drawnRef, pendingDrawn, changedDrawn, setDrawn, foldRide }) {
 ${callback}
 return flushDrawn;
 }`) + "\nreturn useFlush;",
@@ -59,6 +68,7 @@ const saved = new Map<string, unknown>();
 afterEach(async () => {
   await act(async () => root?.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -91,12 +101,13 @@ async function setup() {
   };
   function Probe() {
     control.renders += 1;
-    const [drawn, setDrawn] = useState<Heights>(
-      () =>
+    const [drawn, setDrawn] = useState<Drawn>(() =>
+      LayeredMap.empty<Height>().with(
         new Map([
           ["row", h1],
           ["unchanged", h1],
         ]),
+      ),
     );
     const [, setTick] = useState(0);
     const drawnRef = useRef(drawn);
@@ -107,6 +118,7 @@ async function setup() {
       drawnRef,
       pendingDrawn,
       changedDrawn,
+      foldRide: { current: undefined },
       setDrawn: (update) => {
         control.calls += 1;
         setDrawn(update);

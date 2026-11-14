@@ -16,7 +16,14 @@
 //! daemon does not, such as the workspaces of the current space in sidebar
 //! order. Pinned tabs, screens and workspaces are skipped by every selector but `this`
 //! and `selection`, unless `include_pinned`. The home workspace anchors a
-//! selector but never closes; an object with no tab has nothing to close.
+//! selector but never closes. A tab, pane or screen with no tab has nothing
+//! to close; a workspace with no tab still closes, in the same commit and
+//! group (`layout-bulk-bare-v1`: one call closes every chosen workspace, so a
+//! client never falls back to one request per empty workspace). A
+//! `selection` id that is already gone counts as closed (`gone_ids`), and a
+//! chosen tab that leaves before the commit is skipped: a close asks for the
+//! objects to be gone, so neither refuses the rest (Lawrence 2026-11-05, 919
+//! workspaces "all suddenly came back" after one stale tab failed the call).
 //! A call with nothing to close commits nothing, writes no group and keeps
 //! no idempotency receipt (a retry chooses again).
 
@@ -31,6 +38,11 @@ use cmux_json::JsonSet as _;
 
 /// The daemon serves `layout.bulk`.
 pub(crate) const CAPABILITY: &str = "layout-bulk-v1";
+
+/// A workspace-level `layout.bulk` closes the chosen workspaces with no tab
+/// too, reports already-gone selection ids as `gone_ids`, and skips a chosen
+/// tab that left before the commit.
+pub(crate) const BARE_CAPABILITY: &str = "layout-bulk-bare-v1";
 
 /// The most tabs one call closes, as for `close-tabs`.
 const MAX_BULK_TABS: usize = 4096;
@@ -110,6 +122,8 @@ impl BulkRequest {
 /// `pinned-dock-v1`); a preset skips it, an explicit choice is refused.
 struct Item {
     id: String,
+    /// The workspace, for a workspace-level item (it closes when it has no tab).
+    workspace: Option<WorkspaceId>,
     container: u64,
     tabs: Vec<SurfaceId>,
     pinned: bool,
@@ -137,6 +151,7 @@ fn items(state: &State, presentation: &PresentationSnapshot, level: BulkLevel) -
         if level == BulkLevel::Workspace {
             items.push(Item {
                 id: workspace.public_id.to_string(),
+                workspace: Some(workspace.id),
                 container: 0,
                 tabs: workspace
                     .screens
@@ -158,6 +173,7 @@ fn items(state: &State, presentation: &PresentationSnapshot, level: BulkLevel) -
                 let tabs = screen_tabs(state, screen);
                 items.push(Item {
                     id: screen.public_id.to_string(),
+                    workspace: None,
                     container: workspace.id,
                     dock_pinned: dock_pinned(&tabs),
                     tabs,
@@ -174,6 +190,7 @@ fn items(state: &State, presentation: &PresentationSnapshot, level: BulkLevel) -
                     let tabs = pane_tabs(state, pane);
                     items.push(Item {
                         id: public.to_string(),
+                        workspace: None,
                         container: screen.id,
                         dock_pinned: dock_pinned(&tabs),
                         tabs,
@@ -186,6 +203,7 @@ fn items(state: &State, presentation: &PresentationSnapshot, level: BulkLevel) -
                     let Some(id) = state.resource_indexes.tab_ids.get(&tab) else { continue };
                     items.push(Item {
                         id: id.to_string(),
+                        workspace: None,
                         container: pane,
                         tabs: vec![tab],
                         pinned: presentation.pinned_tabs.contains(id.as_str()),
@@ -233,22 +251,32 @@ fn selected_anchor(
 }
 
 /// The objects `request` chooses relative to `anchor`, in container order,
-/// that the call closes: never the home workspace, nor an object with no
-/// tab (it has nothing to close and stays).
-fn choose(request: &BulkRequest, anchor: &str, items: Vec<Item>) -> anyhow::Result<Vec<Item>> {
-    let closes = |item: &Item| item.closable && !item.tabs.is_empty();
+/// that the call closes, and the `selection` ids that are already gone: never
+/// the home workspace, nor a tab, pane or screen with no tab (it has nothing
+/// to close and stays); a workspace with no tab closes.
+fn choose(
+    request: &BulkRequest,
+    anchor: &str,
+    items: Vec<Item>,
+) -> anyhow::Result<(Vec<Item>, Vec<String>)> {
+    let closes = |item: &Item| item.closable && (!item.tabs.is_empty() || item.workspace.is_some());
     let level = level_name(request.level);
     if request.selector == BulkSelector::Selection {
         let ids = request.ids.as_deref().unwrap_or_default();
+        let wanted = ids.iter().map(String::as_str).collect::<std::collections::HashSet<_>>();
+        let listed =
+            items.iter().map(|item| item.id.as_str()).collect::<std::collections::HashSet<_>>();
+        let mut gone = Vec::new();
         for id in ids {
-            if !items.iter().any(|item| &item.id == id) {
-                return Err(crate::state::commit::state_not_found(level, id));
+            if !listed.contains(id.as_str()) && !gone.contains(id) {
+                gone.push(id.clone());
             }
         }
-        return Ok(items
+        let chosen = items
             .into_iter()
-            .filter(|item| ids.contains(&item.id) && closes(item))
-            .collect());
+            .filter(|item| wanted.contains(item.id.as_str()) && closes(item))
+            .collect();
+        return Ok((chosen, gone));
     }
     let Some(position) = items.iter().position(|item| item.id == anchor) else {
         return Err(crate::state::commit::state_not_found(level, anchor));
@@ -273,7 +301,7 @@ fn choose(request: &BulkRequest, anchor: &str, items: Vec<Item>) -> anyhow::Resu
         .map(|(_, item)| item)
         .filter(closes)
         .collect();
-    Ok(chosen)
+    Ok((chosen, Vec::new()))
 }
 
 impl Mux {
@@ -297,7 +325,7 @@ impl Mux {
             return Ok(replay.into());
         }
         let presentation = self.presentation_snapshot();
-        let (chosen, surfaces, tab_ids, revision) = self.with_state(|state| {
+        let (chosen, gone, surfaces, tab_ids, revision) = self.with_state(|state| {
             let anchor = match (&request.anchor, request.selector) {
                 (Some(anchor), _) => anchor.clone(),
                 (None, BulkSelector::Selection) => String::new(),
@@ -315,7 +343,8 @@ impl Mux {
                         .context("bad request: the selectors name no object at the level")?
                 }
             };
-            let chosen = choose(request, &anchor, items(state, &presentation, request.level))?;
+            let (chosen, gone) =
+                choose(request, &anchor, items(state, &presentation, request.level))?;
             let surfaces =
                 chosen.iter().flat_map(|item| item.tabs.iter().copied()).collect::<Vec<_>>();
             let tab_ids = surfaces
@@ -323,7 +352,7 @@ impl Mux {
                 .filter_map(|surface| state.resource_indexes.tab_ids.get(surface))
                 .map(|id| id.to_string())
                 .collect::<Vec<_>>();
-            anyhow::Ok((chosen, surfaces, tab_ids, state.resource_revision))
+            anyhow::Ok((chosen, gone, surfaces, tab_ids, state.resource_revision))
         })?;
         anyhow::ensure!(
             surfaces.len() <= MAX_BULK_TABS,
@@ -336,19 +365,29 @@ impl Mux {
                 Vec::new()
             }
         };
+        let bare = chosen
+            .iter()
+            .filter(|item| item.tabs.is_empty())
+            .filter_map(|item| item.workspace)
+            .collect::<Vec<_>>();
         let result = json!({
             "tab_ids": tab_ids,
             "pane_ids": ids(BulkLevel::Pane),
             "screen_ids": ids(BulkLevel::Screen),
             "workspace_ids": ids(BulkLevel::Workspace),
+            "gone_ids": gone,
         });
-        if surfaces.is_empty() {
-            let mut result = result;
+        let nothing = |mut result: Value| {
+            result.set("workspace_ids", json!([]));
             result.set("closed_ids", json!([]));
-            return Ok(StateCommit { revision, result, replayed: false, personal_revision: None });
+            Ok(StateCommit { revision, result, replayed: false, personal_revision: None })
+        };
+        if surfaces.is_empty() && bare.is_empty() {
+            return nothing(result);
         }
-        let outcome = self.close_tabs_for_bulk(
+        let outcome = match self.close_tabs_and_bare_for_bulk(
             surfaces,
+            bare,
             request.end_terminals,
             OPERATION,
             match request.level {
@@ -360,8 +399,15 @@ impl Mux {
             &fingerprint,
             mutation,
             request.level == BulkLevel::Workspace,
-            result,
-        )?;
+            result.clone(),
+        ) {
+            Ok(outcome) => outcome,
+            // Every chosen object left before the commit: they are gone, as asked.
+            Err(error) if format!("{error:#}").contains("close target disappeared") => {
+                return nothing(result);
+            }
+            Err(error) => return Err(error),
+        };
         Ok(StateCommit {
             revision: outcome.resource_revision,
             result: outcome.result,

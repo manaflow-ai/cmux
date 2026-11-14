@@ -55,6 +55,36 @@ class NewReds(unittest.TestCase):
         self.assertNotIn("::error", done.stdout)
         self.assertIn("0 webview test steps red on this change, 0 red on the base too, 1 flaky on the base", done.stdout)
 
+    def test_a_file_timeout_its_base_red_tests_explain_is_red_on_the_base(self):
+        # transcript-block-sideways-scrollbar.test.ts hit its hard limit on base and head alike: four 60 s gallery
+        # waits, every one red on the base. The base side held those tests' verdicts and no file-level line, so the
+        # file's own red was charged to #41217, #41246 and #41204.
+        file = "test/transcript-block-sideways-scrollbar.test.ts"
+        slow = [f"{file} > chromium > shell-live-unwrapped-long-line", f"{file} > webkit > shell-live-unwrapped-long-cut"]
+        head = {file: False, **{name: False for name in slow}}
+        done = self.run_flaky(head, {name: False for name in slow}, [])
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn(f"webview test red step (base): {file}", done.stdout)
+        self.assertNotIn("::error", done.stdout)
+        self.assertIn("0 webview test steps red on this change, 3 red on the base too", done.stdout)
+
+    def test_a_file_timeout_stays_the_changes_when_the_base_does_not_explain_it(self):
+        file = "test/slow.test.ts"
+        base_red, new_red = f"{file} > base red", f"{file} > new red"
+        cases = {
+            # A test the head names red that the base passed: the change's, and so is the file.
+            "a new named red": ({file: False, base_red: False, new_red: False}, {base_red: False, new_red: True}),
+            # No test named: nothing on the base explains it.
+            "no named red": ({file: False}, {base_red: False}),
+            # The base ran the whole file and it passed.
+            "a base file pass": ({file: False, base_red: False}, {file: True, base_red: False}),
+        }
+        for why, (head, base) in cases.items():
+            with self.subTest(why):
+                done = self.run_flaky(head, base, [])
+                self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+                self.assertIn(f"webview test red step (new): {file}", done.stdout)
+
     def test_a_flaky_list_excuses_only_the_names_it_lists(self):
         done = self.run_flaky({"test/a.test.ts > flake": False, "test/a.test.ts > broken": False, "test/b.test.ts": False},
                               {}, ["test/a.test.ts > flake", "test/a.test.ts"])
@@ -165,6 +195,34 @@ class NewReds(unittest.TestCase):
     def test_no_head_results_fails(self):
         done = self.run_it(None, {"lint": True})
         self.assertEqual(done.returncode, 1)
+
+
+class RedStepsForTheBaseRerun(unittest.TestCase):
+    """cmux-next-guards.yml re-runs on the base only the steps red on the head (--red-steps, then
+    run_ci_guards.py --step): a step green on the head is never the change's, whatever the base says."""
+
+    def red(self, head):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "head.json"
+            if head is not None:
+                path.write_text(json.dumps(head))
+            return subprocess.run([sys.executable, str(SCRIPT), "--red-steps", str(path)], capture_output=True, text=True)
+
+    def test_each_red_step_once_with_its_checks_folded_in(self):
+        done = self.red({"lint": False, "ok": True, "wired :: a": False, "wired :: b": False, "wired": False,
+                         "fleet :: x": True})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.splitlines(), ["lint", "wired"])
+        self.assertEqual(run_ci_guards.CHECK_SEPARATOR, " :: ")
+
+    def test_a_green_or_missing_head_names_nothing(self):
+        self.assertEqual((self.red({"lint": True}).stdout, self.red(None).stdout), ("", ""))
+
+    def test_steps_the_base_did_not_rerun_are_not_charged_to_the_change(self):
+        # Base results hold only the re-run steps; a head step missing from them passed on the head.
+        done = NewReds.run_it(self, {"lint": False, "ok": True}, {"lint": False})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("0 guard steps red on this change, 1 red on the base too", done.stdout)
 
 
 class TipAndRedStepLines(unittest.TestCase):

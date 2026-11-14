@@ -5,6 +5,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextWindowRules
 
 /// The workspace closes that take several at once: Close Other Workspaces,
 /// Close Workspaces Above and Below, Close Others in Group, Close All Workspaces (one window) and
@@ -19,59 +20,70 @@ import CmuxNextSidebar
 @MainActor
 enum WorkspaceBulkClose {
     typealias Member = (WorkspaceModel, DaemonService)
-    static let ids: [ActionID] = ["palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "palette.closeWorkspacesAbove",
-                                  "workspace.closeOthersInGroup", "workspace.closeAll", "workspace.closeAllInAllWindows",
-                                  "sidebar.section.closeWorkspaces", "workspaceGroup.closeOthers"]
+    /// Every bulk close (cmux-window-rules `workspaces::BULK_CLOSES`).
+    static var ids: [ActionID] { WindowRules().bulkCloseIDs().map { ActionID(rawValue: $0) } }
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         for id in ids { registry.bind(id, run: { invocation in try close(id, invocation, context) }) }
         // On the bottom or top row, with only Home left, or alone in its group the close has
         // nothing to close: the row is disabled with the reason and every run is refused with it.
-        for (id, none) in nothingToClose {
+        for id in ids {
+            guard let none = nothingToClose(id) else { continue }
             context.setTargetReason(id) { invocation in
-                ((try? plan(id, invocation, context))?.0.isEmpty ?? false) ? none() : nil
+                ((try? plan(id, invocation, context))?.0.isEmpty ?? false) ? none : nil
             }
         }
     }
 
-    /// The closes that can find nothing to close, and what they say then.
-    static let nothingToClose: [(ActionID, @MainActor () -> String)] = [
-        ("palette.closeOtherWorkspaces", { RefusalStrings.noOtherWorkspacesToClose }),
-        ("palette.closeWorkspacesBelow", { RefusalStrings.noWorkspacesBelowToClose }),
-        ("palette.closeWorkspacesAbove", { RefusalStrings.noWorkspacesAboveToClose }),
-        ("workspace.closeOthersInGroup", { RefusalStrings.noOtherWorkspacesInGroupToClose }),
-    ]
+    /// What close `id` says when it finds nothing to close; nil when it runs anyway.
+    static func nothingToClose(_ id: ActionID) -> String? {
+        switch WindowRules().bulkClose(id.rawValue)?.nothingToClose {
+        case "noOtherWorkspaces": RefusalStrings.noOtherWorkspacesToClose
+        case "noWorkspacesBelow": RefusalStrings.noWorkspacesBelowToClose
+        case "noWorkspacesAbove": RefusalStrings.noWorkspacesAboveToClose
+        case "noOtherWorkspacesInGroup": RefusalStrings.noOtherWorkspacesInGroupToClose
+        default: nil
+        }
+    }
 
     /// What a run of `id` closes, and the window that stays open to show its
     /// undo toast (nil when none does).
     static func plan(_ id: ActionID, _ invocation: ActionInvocation, _ context: AppActionContext) throws -> ([Member], NSWindow?) {
         let windows = context.services.windows
         let closing: [String]
-        switch id {
-        case "workspace.closeAll":
+        // How each close finds its workspaces is Rust's (`workspaces::bulk_close`).
+        switch WindowRules().bulkClose(id.rawValue)?.plan {
+        case "windowWorkspaces":
             // A row's menu closes the rows of the window that lists it.
             let owner = invocation.target.flatMap { $0.kind == .workspace ? windows.registry.value.owner(of: $0.id) : nil }
             closing = try windows.registry.members(of: owner ?? context.window(invocation).state.id)
-        case "workspace.closeAllInAllWindows":
+        case "allWindows":
             closing = windows.controllers.flatMap { windows.registry.members(of: $0.state.id) }
-        case "sidebar.section.closeWorkspaces":
+        case "section":
             closing = try sectionWorkspaces(invocation, context)
-        case "workspaceGroup.closeOthers":
+        case "otherGroups":
             closing = try otherGroups(invocation, context).1.flatMap(\.workspaces).map(\.id.rawValue)
-        case "workspace.closeOthersInGroup":
+        case "othersInGroup":
             let workspace = try context.workspace(invocation).model
             guard let group = try WorkspaceVerbHandlers.group(of: workspace, context) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInGroup) }
             closing = group.workspaces.map(\.id.rawValue).filter { $0 != workspace.id }
-        default:
+        case "aroundSelection":
             // Sidebar order of the window that lists the target, every machine's rows.
             let target = try context.workspace(invocation).model
             let owner = windows.registry.value.owner(of: target.id).flatMap(windows.controller(for:)) ?? context.activeWindow
             let order = owner?.sidebar.model.selectableWorkspaces.map(\.id.rawValue) ?? context.sidebarOrder.map(\.id)
-            guard order.contains(target.id) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInSidebar) }
-            // A person's run on one of several selected rows keeps the whole selection, as Chrome's
-            // Close Other Tabs and Close Tabs Below do: the rows outside it, below its last, above its first.
-            let kept = try WindowMembershipHandlers.rowTargets(invocation, context).map(\.id)
-            closing = keeping(Set(kept), id: id, order: order)
+            if order.contains(target.id) {
+                // A person's run on one of several selected rows keeps the whole selection, as Chrome's
+                // Close Other Tabs and Close Tabs Below do: the rows outside it, below its last, above its first.
+                let kept = try WindowMembershipHandlers.rowTargets(invocation, context).map(\.id)
+                closing = WorkspaceClose.keeping(Set(kept), id: id, order: order)
+            } else if PinCommands(context: context).isWorkspacePinned(target) {
+                closing = WorkspaceClose.aroundPinned(id: id, order: order) // Pinned draws above the list
+            } else {
+                throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInSidebar)
+            }
+        default:
+            throw ActionFailure(message: RefusalStrings.describe(WindowRules.Unanswered(operation: "window_workspace_bulk_close")))
         }
         // The store's home workspace never closes (`home_not_closable`, HomeRules), and a
         // workspace with no key cannot (WorkspaceClose): they neither count nor leave.
@@ -79,39 +91,32 @@ enum WorkspaceBulkClose {
         return (members, survivor(closing: members.map(\.0.id), context))
     }
 
-    /// What Close Other Workspaces, Close Workspaces Below and Close Workspaces Above (`id`)
-    /// close of `order` (a sidebar's rows) around the rows `kept`: every other row, the rows
-    /// below the last kept one, or the rows above the first.
-    nonisolated static func keeping(_ kept: Set<String>, id: ActionID, order: [String]) -> [String] {
-        guard let first = order.firstIndex(where: kept.contains), let last = order.lastIndex(where: kept.contains) else { return [] }
-        switch id {
-        case "palette.closeOtherWorkspaces": return order.filter { !kept.contains($0) }
-        case "palette.closeWorkspacesBelow": return Array(order[(last + 1)...])
-        default: return Array(order[..<first])
-        }
-    }
-
     /// An open window that keeps a workspace after `closing` closes (the
     /// active one first): where the undo toast shows. Nil when every window closes.
     static func survivor(closing: [String], _ context: AppActionContext) -> NSWindow? {
-        let windows = context.services.windows
-        let gone = Set(closing)
-        let stays = ([context.activeWindow].compactMap { $0 } + windows.controllers).first { controller in
-            !windows.registry.members(of: controller.state.id).allSatisfy(gone.contains)
-        }
-        return stays?.window
+        let windows = context.services.windows, controllers = windows.controllers
+        let active = context.activeWindow.flatMap { active in controllers.firstIndex { $0 === active } }
+        let members = controllers.map { windows.registry.members(of: $0.state.id) }
+        // The active window first, then any that keeps a workspace (`workspaces::survivor`).
+        return WindowRules().survivor(active: active, windows: members, closing: closing)
+            .flatMap { controllers.indices.contains($0) ? controllers[$0].window : nil }
     }
 
     static func close(_ id: ActionID, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
         let (members, window) = try plan(id, invocation, context)
-        if members.isEmpty, let none = nothingToClose.first(where: { $0.0 == id })?.1 { throw ActionFailure.invalidTarget(none()) }
+        let byGroup = WindowRules().bulkClose(id.rawValue)?.byGroup == true
+        if members.isEmpty, let none = nothingToClose(id) { throw ActionFailure.invalidTarget(none) }
+        if !byGroup, invocation.origin == .user, members.count > 1, let state = rowsWindow(members, context) {
+            // The selection close's path: rows stay closing until the daemon answers; the toast counts what closed.
+            return WorkspaceSelectionClose.close(members.map(\.0.id), in: state, context.services, asked: true)
+        }
         let services = context.services
         let names = members.map { $0.0.name }
         // The groups these closes may empty (Close Others in Group's whole groups go as `PersonalGroupPin` says).
-        let cleanups = WorkspaceGroupClose.closeCleanups(id == "workspaceGroup.closeOthers" ? [] : members.map(\.0.id), services)
+        let cleanups = WorkspaceGroupClose.closeCleanups(byGroup ? [] : members.map(\.0.id), services)
         let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id))
         var groups: [(String?, [String])] = [(nil, names)]
-        if id == "workspaceGroup.closeOthers" {
+        if byGroup {
             // Each group closes as Close Workspaces in Group does (an unpinned group goes);
             // Undo reopens each group's workspaces, then its record.
             let (sidebar, others) = try otherGroups(invocation, context)
@@ -127,6 +132,15 @@ enum WorkspaceBulkClose {
         guard invocation.origin == .user, members.count > 1, let window else { return }
         WorkspaceGroupClose.offerUndo("workspaces-closed", closedToast(members.count), groups: groups, after: seen, in: window, services,
                                       cleanups: cleanups)
+    }
+
+    /// The one window that lists every row of `members`, or nil when they span windows.
+    static func rowsWindow(_ members: [Member], _ context: AppActionContext) -> WindowState? {
+        let windows = context.services.windows, registry = windows.registry.value
+        let (spans, owner) = WindowRules().rowsWindow(members.map { registry.owner(of: $0.0.id) })
+        if spans { return nil }
+        let controller = owner.flatMap(windows.controller(for:)) ?? context.activeWindow
+        return controller?.state
     }
 
     /// The open workspaces a sidebar section lists: its workspace items (Pinned
@@ -174,23 +188,6 @@ enum WorkspaceBulkClose {
         return await prompt(members, warn: warn, askWithoutUndo: window == nil, incognito: incognito)
     }
 
-    /// Whether `prompt` will likely ask about `members`, read from the store without the daemon: two
-    /// or more close with nothing to undo it, or (`warn`) one has a live terminal on a connected
-    /// machine that is not known to sit at its shell prompt (OSC 133, `TabModel.promptSinceMs`).
-    /// True: the rows stay until the answer. False: they leave at the press, and the terminals are
-    /// still asked behind them (a prompt can show while ssh or a nested shell runs, `WorkspaceCloseFlow`).
-    static func mayAsk(_ members: [Member], warn: Bool, askWithoutUndo: Bool = false) -> Bool {
-        if askWithoutUndo, members.count > 1 { return true }
-        return warn && members.contains { workspace, daemon in
-            daemon.isLive && workspace.screens.flatMap(\.panes).flatMap(\.tabs).contains(where: mayRunProgram)
-        }
-    }
-
-    /// A live terminal whose shell may be running a program: a command runs, or no prompt was seen.
-    static func mayRunProgram(_ tab: TabModel) -> Bool {
-        tab.kind == .pty && !tab.dead && (tab.commandSinceMs != nil || tab.promptSinceMs == nil)
-    }
-
     /// Asks when a terminal in `members` runs a program (`warn`), or when two
     /// or more close and nothing can undo it (`askWithoutUndo`).
     static func prompt(_ members: [Member], warn: Bool, askWithoutUndo: Bool = false, incognito: Bool = false,
@@ -200,19 +197,28 @@ enum WorkspaceBulkClose {
         // task-owner: one process-info lookup per workspace, all awaited right here.
         let lookups = (warn ? members : []).map { member in Task { @MainActor in await DestructiveConfirmation.runningPrograms(in: member.0, on: member.1) } }
         for lookup in lookups { programs += await lookup.value }
-        guard let first = members.first, !programs.isEmpty || (askWithoutUndo && members.count > 1) else { return nil }
-        let count = String(localized: "confirm.closeWorkspaces.title", defaultValue: "Close \(members.count) workspaces?", table: "Handlers", bundle: .module)
+        // Whether it asks, and with which title and body, is Rust's (`workspaces::close_prompt`).
+        let facts = WindowRules.CloseFacts(count: members.count, programs: programs, askWithoutUndo: askWithoutUndo, incognito: incognito,
+                                           titled: title != nil)
+        guard let first = members.first, let prompt = WindowRules().closePrompt(facts) else { return nil }
+        let heading = switch prompt.title {
+        case .given: title ?? ""
+        case .one: ConfirmationStrings.closeWorkspaceTitle(first.0.displayName)
+        case .count(let count): String(localized: "confirm.closeWorkspaces.title", defaultValue: "Close \(count) workspaces?", table: "Handlers", bundle: .module)
+        }
+        let body = switch prompt.body {
+        case .running(let running): ConfirmationStrings.stillRunning(running.joined(separator: ", "))
         // Incognito workspaces are never saved: nothing brings them back (WindowRegistry).
-        let noUndo = incognito
-            ? String(localized: "confirm.closeWorkspaces.noUndoIncognito",
-                     defaultValue: "No window stays open to undo this. Incognito workspaces cannot be reopened.", table: "Handlers", bundle: .module)
-            : String(localized: "confirm.closeWorkspaces.noUndo",
-                     defaultValue: "No window stays open to undo this. Reopen Closed Workspace and History bring them back.",
-                     table: "Handlers", bundle: .module)
-        return DestructiveConfirmation.Prompt(
-            title: title ?? (members.count == 1 ? ConfirmationStrings.closeWorkspaceTitle(first.0.displayName) : count),
-            body: programs.isEmpty ? noUndo : ConfirmationStrings.stillRunning(Set(programs).sorted().joined(separator: ", ")),
-            button: ConfirmationStrings.close, suppresses: programs.isEmpty ? nil : CmuxConfigSnapshot.warnBeforeClosingTabPath)
+        case .noUndo(incognito: true):
+            String(localized: "confirm.closeWorkspaces.noUndoIncognito",
+                   defaultValue: "No window stays open to undo this. Incognito workspaces cannot be reopened.", table: "Handlers", bundle: .module)
+        case .noUndo(incognito: false):
+            String(localized: "confirm.closeWorkspaces.noUndo",
+                   defaultValue: "No window stays open to undo this. Reopen Closed Workspace and History bring them back.",
+                   table: "Handlers", bundle: .module)
+        }
+        return DestructiveConfirmation.Prompt(title: heading, body: body, button: ConfirmationStrings.close,
+                                              suppresses: prompt.suppressesWarning ? CmuxConfigSnapshot.warnBeforeClosingTabPath : nil)
     }
 
     static func closedToast(_ count: Int) -> String {

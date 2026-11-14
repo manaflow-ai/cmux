@@ -1,7 +1,10 @@
 import AppKit
+import CmuxNextAgentActivity
+import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextSettings
@@ -9,24 +12,24 @@ import CmuxNextTerminal
 import os
 
 /// Runs a quit (user decision 2026-09-30). `applicationShouldTerminate`
-/// hands every quit here: it takes the origin (`QuitOriginTracker`), reads
-/// the local terminals for an interactive quit, decides (`QuitPolicy`),
-/// shows `QuitAlert` when asked to, then completes (`QuitSteps`, CmuxNextControl):
-/// remember the choice, save and close windows, and for End end the local
-/// terminals and stop the local daemon. A failed end step shows
-/// `QuitFailureAlert` (Retry or Quit Anyway). Remote sessions are never ended.
+/// hands every quit here: it takes the origin (`QuitOriginTracker`), asks
+/// about unsaved documents, decides (`QuitPolicy`; no quit asks how to quit), asks "Quit cmux?" when it would end running work,
+/// then completes (`QuitSteps`, CmuxNextControl): save and close windows, and
+/// for End end the local terminals and stop the local daemon. A failed end
+/// step shows `QuitFailureAlert` (Retry or Quit Anyway). Remote sessions are
+/// never ended.
 @MainActor
 final class QuitCoordinator {
     let origins = QuitOriginTracker()
-    private(set) var sheet: QuitAlert?
     /// "Some sessions did not end", while it shows.
     private(set) var failureAlert: QuitFailureAlert?
     /// A quit is in progress (deciding, asking or completing).
     private(set) var isQuitting = false
+    /// "Quit cmux?", while it shows (its dialog id); `signalled`: a signal answered it, so the quit goes on as a signal's does (sessions kept).
+    private var confirmDialog: Int?
+    private var signalled = false
     /// Runs once when the next quit is refused (an update's relaunch behind waits on that quit).
     var onQuitRefused: (() -> Void)?
-    /// The last dialog brought the app forward (`debug.quit`).
-    private(set) var lastAskActivated = false
     private unowned let services: AppServices
     /// The quit hook's participants (`AppServices.quitUnsaved`; tests replace it).
     var unsaved: QuitUnsavedRegistry
@@ -63,14 +66,10 @@ final class QuitCoordinator {
         deadline = QuitDeadline(reason: "its quit deadline was armed (a keep quit decided, or an End quit's engines began to stop)", end: services.quitDeadlineEnd())
     }
 
-    /// Records the origin, then starts AppKit's termination. A second Cmd-Q
-    /// while the dialog asks confirms its default (keep); a quit already
-    /// completing ignores a repeat.
+    /// Records the origin, then starts AppKit's termination. A quit already
+    /// running ignores a repeat.
     func requestQuit(_ origin: QuitOrigin) {
-        guard !isQuitting else {
-            if origin == .interactive { sheet?.answerDefault() }
-            return
-        }
+        guard !isQuitting else { return }
         origins.record(origin)
         // From a run-loop callout, not from inside the caller's main-queue
         // job (control socket, palette): terminateLater spins a nested run
@@ -80,48 +79,36 @@ final class QuitCoordinator {
 
     /// SIGTERM, SIGINT, SIGHUP (`QuitSignal`): Quit, keep sessions, never an alert. Dev
     /// tooling quits tagged apps this way (scripts/lib/stop-app-instances.sh)
-    /// and must never wait on the alert. An open alert is answered with
-    /// keep; a quit already completing is left to finish.
+    /// and must never wait on one. An open failure alert is answered with
+    /// Quit Anyway; a quit already completing is left to finish.
     func terminateFromSignal() {
-        if let sheet { return sheet.answerKeepingSessions() }
         if let failureAlert { return failureAlert.answerQuitAnyway() }
+        if let confirmDialog { signalled = true; CmuxDialogCenter.shared.dismiss(confirmDialog); return }
         guard !isQuitting else { return }
         requestQuit(.signal)
     }
 
     func shouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard !isQuitting else {
-            // A second Quit that reached AppKit directly (Dock, menu).
-            sheet?.answerDefault()
-            return .terminateLater
-        }
+        // A second Quit that reached AppKit directly (Dock, menu) waits for the first.
+        guard !isQuitting else { return .terminateLater }
         isQuitting = true
         DebugTimings.markLaunch("quit.requested")
         // Quit (menu, Cmd-Q, socket) never waits on another open sheet.
         SheetDismissal.endAll()
-        let origin = origins.consume(appleEventReason: Self.quitReason())
+        let origin = origins.consume(appleEventReason: NSAppleEventManager.shared().quitReason)
         let behavior = services.settings?.snapshot.quitBehavior ?? QuitBehaviorSetting.fallback
         logger.notice("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public)")
         // [services]: the quit task pins the app's services until it ends (cx-6so P1b).
         Task { @MainActor [services] in
-            // Unsaved documents come first (R96 quit hook). Answering that
-            // question is the quit's one dialog: the sessions are not asked
-            // about after it (#17501).
-            let askedUnsaved = origin == .interactive && !unsaved.unsaved().isEmpty
-            guard await resolveUnsaved(origin) else {
+            let choice = QuitPolicy.decide(origin, behavior: behavior)
+            // Unsaved documents (R96 quit hook), then "Quit cmux?" when this quit would end running work.
+            guard await resolveUnsaved(origin), await confirms(origin, choice) else {
                 isQuitting = false
                 sender.reply(toApplicationShouldTerminate: false)
                 quitRefused()
                 return
             }
-            let facts = QuitPolicy.needsFacts(origin) && !askedUnsaved ? await QuitFactsReader.read(services) : .none
-            switch QuitPolicy.decide(origin, behavior: behavior, facts: facts, alreadyAsked: askedUnsaved) {
-            case .quit(let choice):
-                await complete(choice, remember: false, sender)
-            case .ask(let prompt):
-                ask(prompt, sender, activate: Self.shouldActivate(origin, isActive: sender.isActive,
-                                                                  noActivate: WindowPlacement.noActivate))
-            }
+            await complete(signalled ? .keep : choice, sender)
         }
         return .terminateLater
     }
@@ -133,6 +120,22 @@ final class QuitCoordinator {
         refused?()
     }
 
+    /// "Quit cmux?" (`QuitRules.confirms`, `app.confirmQuit`): Return quits, Escape cancels; true when the quit goes on. "Don't ask again" is written before the quit goes on.
+    private func confirms(_ origin: QuitOrigin, _ choice: QuitSessionsChoice) async -> Bool {
+        let losses = QuitLosses(agents: services.agentLanes.working.count + AgentLaneStore.chief.working.count, terminals: services.daemon.liveTerminalCount)
+        guard QuitRules.confirms(origin, choice: choice, setting: services.settings?.snapshot.confirmQuit ?? CmuxConfigSnapshot.confirmQuitDefault, losses: losses) else { return true }
+        let text = QuitConfirmText(losses), path = CmuxConfigSnapshot.confirmQuitPath
+        let spec = DestructiveConfirmation.spec(.init(title: text.title, body: text.lines.joined(separator: " "), button: text.quit, suppresses: path))
+        let answer = await withCheckedContinuation { (continuation: CheckedContinuation<CmuxDialogAnswer, Never>) in
+            confirmDialog = CmuxDialogCenter.shared.present(spec, in: sheetWindow().map { .window($0) } ?? .app) { continuation.resume(returning: $0) }
+        }
+        confirmDialog = nil
+        let quits = answer.button == DestructiveConfirmation.confirmID
+        logger.notice("quit question agents=\(losses.agents) terminals=\(losses.terminals) quits=\(quits) signalled=\(self.signalled)")
+        if quits, answer.values[DestructiveConfirmation.suppressID]?.bool == true { _ = try? await services.settings?.setSetting(at: path, to: .bool(false), by: .user) }
+        return quits || signalled
+    }
+
     /// The unsaved step for `origin` (`QuitUnsavedStep.resolve`).
     private func resolveUnsaved(_ origin: QuitOrigin) async -> Bool {
         let window = sheetWindow()
@@ -140,37 +143,8 @@ final class QuitCoordinator {
                                              writeDrafts: { [drafts = services.recoveryDrafts] in await drafts.writePending() })
     }
 
-    /// A quit from the Dock or the app switcher while cmux is inactive is the
-    /// user's: cmux comes forward so the dialog is seen. Never in a
-    /// no-activate launch; non-interactive quits never ask.
-    static func shouldActivate(_ origin: QuitOrigin, isActive: Bool, noActivate: Bool) -> Bool {
-        origin == .interactive && !isActive && !noActivate
-    }
-
-    private func ask(_ prompt: QuitPrompt, _ sender: NSApplication, activate: Bool) {
-        lastAskActivated = activate
-        if activate { sender.activate() }
-        let sheet = QuitAlert(prompt: prompt) { [weak self] answer in
-            guard let self else { return }
-            self.sheet = nil
-            switch answer {
-            case .cancel:
-                self.isQuitting = false
-                sender.reply(toApplicationShouldTerminate: false)
-                self.quitRefused()
-            case .quit(let choice, let remember):
-                Task { @MainActor [services] in
-                    await self.complete(choice, remember: remember, sender)
-                    withExtendedLifetime(services) {} // pins the app's services until the quit ends
-                }
-            }
-        }
-        self.sheet = sheet
-        sheet.present(in: sheetWindow())
-    }
-
-    private func complete(_ choice: QuitSessionsChoice, remember: Bool, _ sender: NSApplication) async {
-        logger.notice("quit choice=\(choice.rawValue, privacy: .public) remember=\(remember)")
+    private func complete(_ choice: QuitSessionsChoice, _ sender: NSApplication) async {
+        logger.notice("quit choice=\(choice.rawValue, privacy: .public)")
         DebugTimings.markLaunch("quit.decided")
         let services = services
         // A keep quit ends within `keepQuitLimit` from here, whatever any step
@@ -187,29 +161,21 @@ final class QuitCoordinator {
         // can end the process; the write itself runs off the main thread.
         await services.crashRecovery.quitBegan()
         DebugTimings.markLaunch("quit.marked")
-        await quitSteps(choice).run(ends: choice.ends, remember: remember ? QuitPolicy.remembered(choice) : nil)
+        await quitSteps(choice).run(ends: choice.ends)
         DebugTimings.markLaunch("quit.replied")
         sender.reply(toApplicationShouldTerminate: true)
     }
 
     /// The quit's steps after the decision `choice` (`QuitSteps.run`).
     func quitSteps(_ choice: QuitSessionsChoice) -> QuitSteps {
-        let services = services
+        let services = services, steps = steps
         return QuitSteps(
-            remember: { behavior in
-                guard let settings = services.settings,
-                      let descriptor = SettingsSchema.descriptor(for: QuitBehaviorSetting.configPath) else { return }
-                do { try await settings.setSetting(descriptor, to: .string(behavior.rawValue), by: .user) } catch {
-                    Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
-                        .error("quit setting write failed: \(String(describing: error), privacy: .public)")
-                }
-            },
             prepareWindows: { [steps] in
-                let incognito = AgentQuitFiles.incognitoTabs(services.agentTabs, isIncognito: services.cache.browserTabs.isIncognitoTab)
+                let incognito = AgentQuitFiles.incognitoTabs(services.agentTabs, isIncognito: { AgentQuitFiles.isIncognito($0, in: services) })
                 await QuitSaveSteps(
                     remoteSnapshots: { await services.remoteTerminals.saveSnapshots() },
-                    agentComposers: { await services.agentTabs.relaunchWake.save(AgentQuitFiles.composers(services.agentTabs, isIncognito: incognito.contains)) },
-                    agentImages: { await services.agentTabs.launchImages.save(AgentQuitFiles.images(services.agentTabs, isIncognito: incognito.contains)) },
+                    agentComposers: { await services.agentTabs.relaunchWake.save(AgentQuitFiles.composers(services.agentTabs, isIncognito: { AgentQuitFiles.contains(incognito, $0) })) },
+                    agentImages: { await services.agentTabs.launchImages.save(AgentQuitFiles.images(services.agentTabs, isIncognito: { AgentQuitFiles.contains(incognito, $0) })) },
                     terminalFrames: {
                         await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
                             .save(services.cache.terminals.mapValues(\.session))
@@ -292,14 +258,5 @@ final class QuitCoordinator {
     private func sheetWindow() -> NSWindow? {
         let candidates = [services.windows.active?.window, NSApp?.mainWindow] + services.windows.controllers.map(\.window)
         return candidates.compactMap { $0 }.first { $0.isVisible && !$0.isMiniaturized && $0.attachedSheet == nil }
-    }
-
-    /// `kAEQuitReason` of the quit Apple event being handled, if any.
-    private static func quitReason() -> OSType? {
-        guard let event = NSAppleEventManager.shared().currentAppleEvent,
-              event.eventClass == AEEventClass(kCoreEventClass), event.eventID == AEEventID(kAEQuitApplication),
-              let reason = event.attributeDescriptor(forKeyword: AEKeyword(kAEQuitReason)) ?? event.paramDescriptor(forKeyword: AEKeyword(kAEQuitReason))
-        else { return nil }
-        return reason.enumCodeValue
     }
 }

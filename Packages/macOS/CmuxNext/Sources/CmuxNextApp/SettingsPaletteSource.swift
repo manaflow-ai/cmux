@@ -36,7 +36,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
     var rows: [PaletteSettingRow] {
         let root = settings.snapshot.root
         let colors = themeColors()
-        return SettingsSchema.all.filter(\.isPaletteExposed).map { descriptor in
+        return SettingsSchema.all.filter { $0.isPaletteListed(developerTools: DevTools.isEnabled) }.map { descriptor in
             let current = pending[descriptor.id].map { $0.value ?? settings.defaultValue(of: descriptor) } ?? descriptor.effectiveValue(in: root)
             return row(descriptor, current: current, colors: colors)
         }
@@ -102,7 +102,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         } else if isFont {
             settings.recentFonts.options(current: current?.stringValue, families: SettingsPageDomains.fontFamilies, defaultLabel: descriptor.defaultLabel ?? descriptor.title)
         } else {
-            descriptor.paletteOptions(current: current, themeColors: colors)
+            settings.paletteOptions(descriptor, current: current, themeColors: colors)
         }
         let currentOption = options.first(where: \.isCurrent)
         let label = currentOption?.title ?? current?.compactText ?? descriptor.defaultLabel ?? ""

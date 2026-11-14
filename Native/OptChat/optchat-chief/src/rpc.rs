@@ -13,7 +13,7 @@ use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
@@ -33,6 +33,8 @@ pub enum RpcError {
     Closed,
     /// No answer within the deadline (a later answer is dropped).
     Timeout(Duration),
+    /// The caller's watch ended the wait (`request_watching`; a later answer is dropped).
+    Stopped,
 }
 
 /// How long a control request (everything but a prompt) may take, so an
@@ -42,12 +44,16 @@ pub enum RpcError {
 /// says why it failed.
 pub const CONTROL_DEADLINE: Duration = Duration::from_secs(60);
 
+/// How often `request_watching` asks its caller whether to go on.
+const WATCH_TICK: Duration = Duration::from_secs(1);
+
 impl std::fmt::Display for RpcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RpcError::Remote { message, .. } => f.write_str(message),
             RpcError::Closed => f.write_str("connection closed"),
             RpcError::Timeout(d) => write!(f, "no answer within {} s", d.as_secs()),
+            RpcError::Stopped => f.write_str("stopped waiting"),
         }
     }
 }
@@ -196,16 +202,50 @@ impl RpcClient {
             Ok(answer) => answer,
             Err(RecvTimeoutError::Disconnected) => Err(RpcError::Closed),
             Err(RecvTimeoutError::Timeout) => {
-                if let Some(map) = self
-                    .waiters
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .as_mut()
-                {
-                    map.remove(&id);
-                }
+                self.forget(id);
                 Err(RpcError::Timeout(deadline))
             }
+        }
+    }
+
+    /// `request_within`, asking `keep_waiting` about once a second, with how long it has waited,
+    /// whether to go on: false ends the wait with `RpcError::Stopped`.
+    pub fn request_watching(
+        &self,
+        method: &str,
+        params: Value,
+        deadline: Duration,
+        keep_waiting: &mut dyn FnMut(Duration) -> bool,
+    ) -> Result<Value, RpcError> {
+        let (id, rx) = self.send(method, params);
+        let began = Instant::now();
+        loop {
+            let left = deadline.saturating_sub(began.elapsed());
+            match rx.recv_timeout(left.min(WATCH_TICK)) {
+                Ok(answer) => return answer,
+                Err(RecvTimeoutError::Disconnected) => return Err(RpcError::Closed),
+                Err(RecvTimeoutError::Timeout) if left <= WATCH_TICK => {
+                    self.forget(id);
+                    return Err(RpcError::Timeout(deadline));
+                }
+                Err(RecvTimeoutError::Timeout) if !keep_waiting(began.elapsed()) => {
+                    self.forget(id);
+                    return Err(RpcError::Stopped);
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+            }
+        }
+    }
+
+    /// No one waits on request `id` any more: its answer, if one comes, is dropped.
+    fn forget(&self, id: u64) {
+        if let Some(map) = self
+            .waiters
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_mut()
+        {
+            map.remove(&id);
         }
     }
 }
@@ -327,6 +367,37 @@ mod tests {
         let deadline = Duration::from_millis(200);
         assert_eq!(
             client.request_within("session/new", json!({}), deadline),
+            Err(RpcError::Timeout(deadline))
+        );
+        client.close();
+    }
+
+    #[test]
+    fn a_watch_ends_a_wait_and_a_silent_server_still_hits_the_deadline() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s");
+        let listener = UnixListener::bind(&path).unwrap();
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut lines = BufReader::new(stream).lines();
+            while let Some(Ok(_)) = lines.next() {}
+        });
+        let client = RpcClient::connect(&path, |_| {}).unwrap();
+        let mut asked = 0;
+        let stopped = client.request_watching(
+            "session/new",
+            json!({}),
+            Duration::from_secs(60),
+            &mut |_| {
+                asked += 1;
+                false
+            },
+        );
+        assert_eq!(stopped, Err(RpcError::Stopped));
+        assert_eq!(asked, 1);
+        let deadline = Duration::from_millis(100);
+        assert_eq!(
+            client.request_watching("session/new", json!({}), deadline, &mut |_| true),
             Err(RpcError::Timeout(deadline))
         );
         client.close();

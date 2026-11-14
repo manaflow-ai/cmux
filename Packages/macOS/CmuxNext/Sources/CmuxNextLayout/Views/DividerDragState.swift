@@ -5,9 +5,10 @@ import CmuxNextDesign
 struct DividerDragState {
     var kind: DividerHandleView.Kind
     var transaction: LayoutTransactionID
-    /// `motion.frameOwner.sharedEdges` (FRAME OWNER S2B) when the drag started (`DividerDrag.start`): a flip applies
-    /// from the next drag.
-    var sharedEdges = false
+    /// The drag moves edges, not whole frames (FRAME OWNER S2B, rule D: `SharedEdgeMotion`). A press that cannot hold its
+    /// line while the screen moves turns it off for its drag (`DividerDrag.catchShown`), which is then the drag from
+    /// before S2B: every frame it retargets snaps to its rest place.
+    var sharedEdges = true
     /// The press's pass that lays out the value it caught (rule C, `DividerDrag.catchShown`): every frame keeps where
     /// it shows.
     var catching = false
@@ -16,6 +17,9 @@ struct DividerDragState {
     /// the daemon has not confirmed): a cancel sends that again, in a new transaction.
     var caughtValue: DividerDragValue?
     var replaced: DividerDragValue?
+    /// A press that caught its line where the layout clamps it (rule D): while the line springs to the clamp it never
+    /// shows behind the pointer (`SharedEdgeClamp.follow`).
+    var clampHold: SharedEdgeClamp?
     var grabOffset: CGFloat
     var container: CGRect
     var axis: SplitAxis

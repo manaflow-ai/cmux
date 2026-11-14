@@ -1,0 +1,63 @@
+name: Swift acpmux calls are in the protocol
+
+# acpmux's wire contract is cmux-tui/crates/acpmux/spec/acpmux-protocol.json, emitted from its
+# Rust method registry (cmux-tui-spec.yml acpmux-protocol-ir keeps it current, and the webviews
+# generate their client from it). The app's Swift side names acpmux methods and the agent pane's
+# allowed param keys by hand; scripts/ci/check-swift-acpmux-protocol.py checks every one against
+# the protocol, so a drifted method or param fails here instead of at the daemon. It runs when
+# either side changes: seconds, no build.
+on:
+  pull_request:
+    paths:
+      - "Packages/macOS/CmuxNext/Sources/**"
+      - "cmux-tui/crates/acpmux/spec/acpmux-protocol.json"
+      - "scripts/ci/check-swift-acpmux-protocol.py"
+      - "scripts/ci/swift-acpmux-protocol-allowlist.txt"
+      - "tests/test_check_swift_acpmux_protocol.py"
+      - ".github/workflows/swift-acpmux-protocol.yml"
+  push:
+    branches:
+      - feat-cmux-next
+    paths:
+      - "Packages/macOS/CmuxNext/Sources/**"
+      - "cmux-tui/crates/acpmux/spec/acpmux-protocol.json"
+      - "scripts/ci/check-swift-acpmux-protocol.py"
+      - "scripts/ci/swift-acpmux-protocol-allowlist.txt"
+      - "tests/test_check_swift_acpmux_protocol.py"
+      - ".github/workflows/swift-acpmux-protocol.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: swift-acpmux-protocol-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
+jobs:
+  check:
+    name: Swift acpmux calls are in the protocol
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            Packages/macOS/CmuxNext/Sources
+            cmux-tui/crates/acpmux/spec/acpmux-protocol.json
+            scripts/ci
+            tests/test_check_swift_acpmux_protocol.py
+          sparse-checkout-cone-mode: false
+
+      # Red on a planted drifted method, pane method and param key, and on a stale allowlist entry.
+      - name: Checker tests
+        run: python3 -I tests/test_check_swift_acpmux_protocol.py
+
+      - name: Every Swift acpmux method and param is in the protocol
+        if: ${{ !cancelled() }}
+        run: python3 -I scripts/ci/check-swift-acpmux-protocol.py

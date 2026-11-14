@@ -45,6 +45,12 @@ fn scripted_app_host() {
     for line in BufReader::new(stream).lines() {
         let Ok(line) = line else { break };
         match serde_json::from_str::<ToHost>(&line).expect("protocol") {
+            // A script that names THROW_AT_INIT fails to load, as a syntax error does.
+            ToHost::Init { main, .. } if main.contains("THROW_AT_INIT") => {
+                send(FromHost::InitFailed {
+                    error: "SyntaxError: expecting ';' at main.js:2:12".into(),
+                });
+            }
             ToHost::Init { .. } => send(FromHost::Ready { runtime: "scripted".into() }),
             ToHost::Mount { mount, export, .. } => {
                 if export == "renderFail" {
@@ -282,6 +288,12 @@ fn temp_dir() -> TempDir {
 const CLIENT: u64 = 7;
 
 fn fixture_with(defaults: &[&str], idle: Duration, root: TempDir) -> Fixture {
+    fixture_safe(defaults, idle, root, false)
+}
+
+/// `fixture_with`, with `CMUX_SAFE_MODE` as `safe_mode_env` says; the safe
+/// mode flag file is `<root>/safe-mode.json`.
+fn fixture_safe(defaults: &[&str], idle: Duration, root: TempDir, safe_mode_env: bool) -> Fixture {
     let bundled = root.0.join("bundled");
     let state = root.0.join("state");
     std::fs::create_dir_all(state.join("apps/local")).unwrap();
@@ -326,6 +338,8 @@ fn fixture_with(defaults: &[&str], idle: Duration, root: TempDir) -> Fixture {
             idle_stop: idle,
             provider_deadline: Duration::from_millis(400),
             provider_user_deadline: Duration::from_millis(400),
+            safe_mode_file: Some(root.0.join("safe-mode.json")),
+            safe_mode_env,
         },
         Box::new(router.clone()),
         Box::new(fetcher.clone()),
@@ -890,6 +904,8 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
             idle_stop: Duration::from_secs(60),
             provider_deadline: Duration::from_secs(30),
             provider_user_deadline: Duration::from_secs(600),
+            safe_mode_file: None,
+            safe_mode_env: false,
         },
         Box::new(Arc::new(FakeRouter::default())),
         Box::new(Arc::new(FakeFetcher::default())),
@@ -989,8 +1005,12 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
 mod inventory_demand;
 #[path = "supervisor_local_reload_tests.rs"]
 mod local_reload;
+#[path = "supervisor_provider_changed_tests.rs"]
+mod provider_changed;
 #[path = "supervisor_provider_tests.rs"]
 mod provider_channel;
+#[path = "supervisor_safe_mode_tests.rs"]
+mod safe_mode;
 #[path = "supervisor_server_tests.rs"]
 mod servers;
 #[path = "supervisor_subscription_tests.rs"]
@@ -998,3 +1018,6 @@ mod subscriptions;
 
 #[path = "supervisor_run_lifecycle_tests.rs"]
 mod run_lifecycle;
+
+#[path = "supervisor_rollback_tests.rs"]
+mod rollback_tolerance;

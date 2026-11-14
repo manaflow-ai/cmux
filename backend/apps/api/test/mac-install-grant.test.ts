@@ -36,7 +36,7 @@ describe("the Mac install grant", { timeout: 60_000 }, () => {
     // automation.run is an execute op: the grant check refuses it before the automation is looked up.
     const run = await post("/v1/ops", mac.installToken, { op: "automation.run", params: { automation: "auto_00000000000000000000" }, idempotency_key: crypto.randomUUID(), origin: "cli" })
     expect(JSON.stringify(run.body)).toContain("grant does not cover execute")
-    const list = await post("/v1/read", mac.installToken, { op: "cloud.machine.list", params: {} })
-    expect(list.body, JSON.stringify(list.body)).toMatchObject({ op: "cloud.machine.list", value: { machines: [] } })
+    const list = await post("/v1/read", mac.installToken, { op: "install.list", params: {} })
+    expect(list.body, JSON.stringify(list.body)).toMatchObject({ op: "install.list" })
   })
 })

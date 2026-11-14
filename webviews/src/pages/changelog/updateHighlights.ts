@@ -55,10 +55,17 @@ export interface UpdateHighlights {
   changelog: { from: string; to: string };
 }
 
+/** Where What's New opens: the area a change is in (areas.ts key) and the change's title; the page
+    scrolls to that change, else to its area. */
+export interface ChangelogTarget {
+  area?: string;
+  title?: string;
+}
+
 /** What the card and popover ask the host to do (the mount point's bridge). */
 export interface UpdateSurfaceActions {
   /** "See What's New" / "See all changes": `updates.openChangelog` (ChangelogPageTab.open(from, to)). */
-  openChangelog(): void;
+  openChangelog(target?: ChangelogTarget): void;
   /** The card's x: hides the card for this version. */
   dismiss?(): void;
 }

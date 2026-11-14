@@ -70,7 +70,7 @@ extension TabCell {
         audioLayer.opacity = 1
         if let audioBackgroundLayer {
             audioBackgroundLayer.frame = glyph.insetBy(dx: -Self.audioFillOutset, dy: -Self.audioFillOutset)
-            audioBackgroundLayer.cornerRadius = max(0, metrics.cornerRadius - Metrics.space1)
+            audioBackgroundLayer.cornerRadius = metrics.nestedCornerRadius(audioBackgroundLayer.frame, in: bounds)
             audioBackgroundLayer.opacity = 1
         }
         return titleEnd - size - Metrics.space2

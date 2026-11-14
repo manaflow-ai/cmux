@@ -46,6 +46,9 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import runs_on_labels  # noqa: E402
+import workflow_jobs  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 # Blacksmith's 12 vCPU macOS 26 label: 5 slots, and stalled for hours on 2026-10-20, -26 and -28.
 LARGE_MAC = "blacksmith-12vcpu-macos-26"
@@ -109,7 +112,7 @@ SUPERSEDE_KEY = re.compile(r"(?<![\w.])(?:github\.(?:head_ref|ref|ref_name|run_i
 # An alternative taken only on one named branch (`github.ref == 'refs/heads/main' && 'main'`) is a group per
 # branch tip, like a github.ref key: a newer tip of that branch is what replaces its pending run.
 PINNED_REF = re.compile(r"github\.(?:ref|ref_name)\s*==\s*'[^']+'")
-EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
+EXPRESSION = gh_expressions.EXPRESSION
 
 
 def unwrap(text: str) -> str:
@@ -279,14 +282,20 @@ def load(path: Path) -> dict:
     return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader) or {}
 
 
-def runs_on_text(job: dict) -> str:
-    value = job.get("runs-on")
-    if isinstance(value, dict):
-        labels = value.get("labels") or []
-        value = [value.get("group", ""), *([labels] if isinstance(labels, str) else labels)]
-    if isinstance(value, list):
-        return " ".join(str(item) for item in value)
-    return str(value or "")
+def runs_on_cells(job: dict, workflow: str = "", job_id: str = "") -> list[str]:
+    """The job's runs-on as each matrix cell writes it (a label list or group joined by ", "). A matrix nothing
+    resolves fails, unless workflow_jobs.audited_matrix names why that job is read elsewhere: it is skipped ([])."""
+    cells = workflow_jobs.runs_on_cells(job)
+    if cells is None:
+        if workflow and job_id and workflow_jobs.audited_matrix(workflow, job_id):
+            return []
+        raise AssertionError(f"{workflow} {job_id}: runs-on has a matrix value nothing resolves")
+    return cells
+
+
+def runs_on_text(job: dict, workflow: str = "", job_id: str = "") -> str:
+    """Every matrix cell of the job's runs-on, one per line (runs_on_cells)."""
+    return "\n".join(runs_on_cells(job, workflow, job_id))
 
 
 def group_text(concurrency: object) -> tuple[str, str] | None:
@@ -312,47 +321,33 @@ def evicting(name: str, concurrency: object) -> str | None:
     return None
 
 
-MATRIX_KEY = re.compile(r"\bmatrix\.([A-Za-z_][\w-]*)")
-
-
-def lands_on_large_mac(job: dict) -> bool:
+def lands_on_large_mac(job: dict, workflow: str = "", job_id: str = "") -> bool:
     """Whether a job can run on LARGE_MAC with every picker before it silent (vars unknown or unset).
 
-    Fails closed: a runs-on that spells LARGE_MAC but whose value the resolver cannot read (a fromJSON() or
-    format() of it, an expression it cannot parse) counts as landing there.
+    Each matrix cell is read with its values in place. Fails closed: a matrix nothing resolves (unless audited by
+    name), or a runs-on that spells LARGE_MAC but whose value the resolver cannot read (a fromJSON() or format() of
+    it, an expression it cannot parse), counts as landing there.
     """
-    text = runs_on_text(job)
-    matrix = (job.get("strategy") or {}).get("matrix") if isinstance(job.get("strategy"), dict) else None
-    for key in MATRIX_KEY.findall(text):
-        if isinstance(matrix, str):
-            # A matrix built at run time (fromJSON of a picker's output): fails closed only if it spells the label.
-            if LARGE_MAC in matrix:
-                return True
+    cells = workflow_jobs.runs_on_cells(job)
+    if cells is None:
+        return not (workflow and job_id and workflow_jobs.audited_matrix(workflow, job_id))
+    for runs_on in cells:
+        if LARGE_MAC not in runs_on:
             continue
-        if not isinstance(matrix, dict):
-            continue
-        # The axis itself, and every include entry that sets that key (`include:` adds or extends combinations).
-        includes = matrix.get("include") if isinstance(matrix.get("include"), list) else []
-        values = [matrix.get(key, ""), *(entry.get(key, "") for entry in includes if isinstance(entry, dict))]
-        if LARGE_MAC in yaml.safe_dump(values) or (isinstance(matrix.get("include"), str) and LARGE_MAC in matrix["include"]):
+        if "${{" not in runs_on:  # a literal label (or label list) written down, or a matrix value
             return True
-    if LARGE_MAC not in text:
-        return False
-    runs_on = job.get("runs-on")
-    if isinstance(runs_on, dict):
-        runs_on = [runs_on.get("group", ""), *([runs_on.get("labels")] if isinstance(runs_on.get("labels"), str)
-                                                 else runs_on.get("labels") or [])]
-    # A pool read is a stall-aware pick: scripts/ci/runner_pools.py leaves the pool's first member only once it
-    # starts nothing (macos_26 then takes LARGE_MAC). So a pool read lands where its first member is.
-    if isinstance(runs_on, str):
+        # A pool read is a stall-aware pick: scripts/ci/runner_pools.py leaves the pool's first member only once it
+        # starts nothing (macos_26 then takes LARGE_MAC). So a pool read lands where its first member is.
         runs_on = POOL_REFERENCE.sub(lambda read: "'%s'" % runs_on_labels.pool_members(read.group(0).rsplit(".", 1)[1])[0],
                                      runs_on)
-    try:
-        labels = runs_on_labels.resolve_labels(runs_on, silent=PICKER_CONTEXTS)
-    except ValueError:
-        return True
-    unread = any(isinstance(label, runs_on_labels.Unknown) and str(label).endswith("(...)") for label in labels)
-    return unread or LARGE_MAC in {str(label) for label in labels}
+        try:
+            labels = runs_on_labels.resolve_labels(runs_on, silent=PICKER_CONTEXTS)
+        except ValueError:
+            return True
+        unread = any(isinstance(label, runs_on_labels.Unknown) and str(label).endswith("(...)") for label in labels)
+        if unread or LARGE_MAC in {str(label) for label in labels}:
+            return True
+    return False
 
 
 # The rescue's re-run actors (owned_pool_rescue.RESCUE_ACTOR, pr_runner_pool.RESCUE_ACTORS) and the attempts
@@ -616,6 +611,26 @@ def cascade_placed_failures(name: str, job_id: str, jobs: dict, placer: str, key
     return failures
 
 
+# Side-workflow Mac jobs whose runs-on may take the owned Mac their placing job picked:
+# (workflow, job) -> the placing job. A re-run of failed jobs keeps the placing job's outputs from the
+# attempt that ran it, so the owned read must hold only on that attempt; a later attempt would wait on
+# a Mac that may be gone or busy (main's cmux#27704).
+OWNED_PICKED = {("nightly-next-launch-smoke.yml", "smoke"): "pick",
+                ("nightly-next-cua-signed-host.yml", "signed-host"): "pick"}
+
+
+def owned_pick_failures(name: str, job_id: str, jobs: dict, placer: str) -> list[str]:
+    """The runs-on alternatives of `job_id` that read the picked owned Mac on any attempt."""
+    fresh = {f"needs.{placer}.outputs.placed_attempt == format('{{0}}', github.run_attempt)", "github.run_attempt == 1"}
+    failures = []
+    for expression in EXPRESSION.findall(runs_on_text(jobs[job_id])):
+        for alternative in split_top(unwrap(expression), "||"):
+            if f"needs.{placer}.outputs.runner" in alternative and not fresh & {
+                    term.strip() for term in conjuncts(alternative)}:
+                failures.append(f"{name} {job_id}: {alternative.strip()}")
+    return failures
+
+
 def smoke_tooling():
     path = ROOT / "scripts" / "ci" / "nightly_next_launch_smoke.py"
     spec = importlib.util.spec_from_file_location("_runs_on_fallback_launch_smoke", path)
@@ -633,11 +648,11 @@ class CascadePlacedSideJobs(unittest.TestCase):
 
     def test_the_rule_catches_a_job_left_on_the_side_label(self) -> None:
         jobs = load(WORKFLOWS / "nightly-next-launch-smoke.yml")["jobs"]
-        pinned = {**jobs, "smoke": {**jobs["smoke"], "runs-on": "${{ github.run_attempt == 1 && "
-                                                             "vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}"}}
+        pinned = {**jobs, "smoke": workflow_jobs.copy_job(jobs["smoke"], {"runs-on": "${{ github.run_attempt == 1 && "
+                                                                          "vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}"})}
         self.assertTrue(cascade_placed_failures("x.yml", "smoke", pinned, "pick", "launch-smoke"))
-        unplaced = {**jobs, "pick": {**jobs["pick"], "steps": [s for s in jobs["pick"]["steps"]
-                                                               if "side_lane_placement.py" not in str(s.get("run"))]}}
+        unplaced = {**jobs, "pick": workflow_jobs.copy_job(jobs["pick"], {"steps": [s for s in jobs["pick"]["steps"]
+                                                                                if "side_lane_placement.py" not in str(s.get("run"))]})}
         self.assertTrue(cascade_placed_failures("x.yml", "smoke", unplaced, "pick", "launch-smoke"))
 
     def test_the_cascade_takes_a_side_workflows_own_job(self) -> None:
@@ -650,6 +665,25 @@ class CascadePlacedSideJobs(unittest.TestCase):
         env = {"JOBS": "launch-smoke", "CASCADE_RUNS": " launch-smoke ", "CASCADE_JOBS": "launch-smoke"}
         self.assertEqual(module.candidates(env, ()), ["launch-smoke"])
         self.assertEqual(module.candidates({**env, "CASCADE_JOBS": ""}, ()), [])
+
+
+class OwnedPickedSideJobs(unittest.TestCase):
+    def test_a_picked_owned_mac_is_read_only_on_the_attempt_that_picked_it(self) -> None:
+        failures = []
+        for (name, job_id), placer in OWNED_PICKED.items():
+            jobs = load(WORKFLOWS / name)["jobs"]
+            self.assertIn(f"needs.{placer}.outputs.runner", runs_on_text(jobs[job_id]), f"{name} {job_id}")
+            failures += owned_pick_failures(name, job_id, jobs, placer)
+        self.assertEqual(failures, [], "an owned pick needs its picker's attempt check in the same alternative")
+
+    def test_the_rule_catches_an_owned_read_on_any_attempt(self) -> None:
+        stale = {"smoke": {"runs-on": "${{ needs.pick.outputs.placed_attempt == format('{0}', github.run_attempt) && "
+                                      "contains(needs.pick.outputs.blacksmith_6_jobs, ' smoke ') && "
+                                      "fromJSON(vars.RUNNER_POOLS).macos_26 || "
+                                      "needs.pick.outputs.owned_jobs != '' && needs.pick.outputs.runner || "
+                                      "fromJSON(vars.RUNNER_POOLS).macos_26 }}"}}
+        self.assertEqual(owned_pick_failures("x.yml", "smoke", stale, "pick"),
+                         ["x.yml smoke: needs.pick.outputs.owned_jobs != '' && needs.pick.outputs.runner"])
 
 
 class OneLaunchSmokePerBuild(unittest.TestCase):
@@ -689,7 +723,7 @@ class RunsOnFallbackTests(unittest.TestCase):
         for path in workflows():
             for job_id, job in (load(path).get("jobs") or {}).items():
                 key = f"{path.name}#{job_id}"
-                hit = lands_on_large_mac(job)
+                hit = lands_on_large_mac(job, path.name, job_id)
                 if hit and key in LARGE_MAC_LAST_RESORT:
                     seen.add(key)
                 elif hit:
@@ -702,7 +736,7 @@ class RunsOnFallbackTests(unittest.TestCase):
         failures = []
         for path in workflows():
             for job_id, job in (load(path).get("jobs") or {}).items():
-                match = SINGLE_HOST.search(runs_on_text(job))
+                match = SINGLE_HOST.search(runs_on_text(job, path.name, job_id))
                 if match:
                     failures.append(f"{path.name} {job_id}: {match.group(0)}")
         self.assertEqual(failures, [], "a runs-on must name a pool, never one machine")
@@ -713,17 +747,17 @@ class RunsOnFallbackTests(unittest.TestCase):
         # otherwise, and when unread, the build takes the plain ten-runner glaeda-nightly-only-m4pro.
         failures = [f"{path.name} {job_id}" for path in workflows()
                     for job_id, job in (load(path).get("jobs") or {}).items()
-                    if re.search(r"nightly-only-m4pro-builder|nightly-only-xl-builder|CI_NIGHTLY_ONLY_BUILDER_RUNNER", runs_on_text(job))]
+                    if re.search(r"nightly-only-m4pro-builder|nightly-only-xl-builder|CI_NIGHTLY_ONLY_BUILDER_RUNNER", runs_on_text(job, path.name, job_id))]
         self.assertEqual(failures, [], "the warm nightly builder label is a pick, never a runs-on literal")
 
     def test_a_single_host_variable_always_has_a_fallback(self) -> None:
         failures = []
         for path in workflows():
             for job_id, job in (load(path).get("jobs") or {}).items():
-                text = runs_on_text(job)
-                for match in SINGLE_HOST_VAR.finditer(text):
-                    if not POOL_FALLBACK.search(text[match.end():]):
-                        failures.append(f"{path.name} {job_id}: vars.{match.group(1)} is the last alternative")
+                for text in runs_on_cells(job, path.name, job_id):
+                    for match in SINGLE_HOST_VAR.finditer(text):
+                        if not POOL_FALLBACK.search(text[match.end():]):
+                            failures.append(f"{path.name} {job_id}: vars.{match.group(1)} is the last alternative")
         self.assertEqual(failures, [], "a single-host runner variable needs a later `||` pool fallback")
 
     def test_no_nightly_job_reads_a_picked_blacksmith_label(self) -> None:
@@ -734,19 +768,18 @@ class RunsOnFallbackTests(unittest.TestCase):
         jobs = load(WORKFLOWS / "nightly.yml")["jobs"]
         picked = re.compile(r"needs\.(?:pick-nightly-sign-runner|find-nightly-next-recovery|legacy-identity-target)"
                             r"\.outputs\.(?:runner|sign_runner|alternate|sign_alternate)\b")
-        seen = sorted(job_id for job_id, job in jobs.items() if picked.search(runs_on_text(job)))
+        seen = sorted(job_id for job_id, job in jobs.items() if picked.search(runs_on_text(job, "nightly.yml", job_id)))
         self.assertEqual(seen, [], "a nightly job reads a picked Blacksmith label")
 
     def test_a_picked_owned_mac_is_read_only_on_the_attempt_that_picked_it(self) -> None:
         # The owned-only form of the rule above. Nightlies never use Blacksmith (Lawrence, 2026-10-30, a7b6a61175c),
-        # so sign-nightly-identity-legacy and its verify read the picker's owned Mac, not a Blacksmith label with an
-        # alternate. A re-run of failed jobs keeps the old pick, so the owned read must hold only on the attempt that
+        # so the signing jobs read the picker's owned Mac, not a Blacksmith label with an alternate. A re-run of failed jobs keeps the old pick, so the owned read must hold only on the attempt that
         # ran the picker; a re-run then falls through to the owned slot or pool, never to the Mac that stalled.
         jobs = load(WORKFLOWS / "nightly.yml")["jobs"]
         owned = re.compile(r"needs\.(pick-nightly-sign-runner)\.outputs\.(?:sign_owned|owned)\b")
         failures, seen = [], set()
         for job_id, job in jobs.items():
-            for expression in EXPRESSION.findall(runs_on_text(job)):
+            for expression in EXPRESSION.findall(runs_on_text(job, "nightly.yml", job_id)):
                 for alternative in split_top(unwrap(expression), "||"):
                     match = owned.search(alternative)
                     if not match:
@@ -755,14 +788,14 @@ class RunsOnFallbackTests(unittest.TestCase):
                     guards = {f"needs.{match.group(1)}.outputs.attempt == github.run_attempt", "github.run_attempt == 1"}
                     if not guards & {term.strip() for term in conjuncts(alternative)}:
                         failures.append(f"nightly.yml {job_id}: {alternative.strip()}")
-        self.assertTrue({"sign-nightly-identity-legacy", "verify-nightly-identity-legacy"} <= seen, seen)
+        self.assertTrue({"build-sign-notarize-nightly", "generate-nightly-deltas"} <= seen, seen)
         self.assertEqual(failures, [], "an owned pick needs its picker's attempt check in the same alternative")
 
     def test_a_reserved_slot_always_has_a_fallback(self) -> None:
         failures, seen = [], 0
         for path in workflows():
             for job_id, job in (load(path).get("jobs") or {}).items():
-                text = runs_on_text(job)
+                text = runs_on_text(job, path.name, job_id)
                 seen += len(RESERVED_OUTPUT.findall(text))
                 for expression in EXPRESSION.findall(text):
                     for name in reserved_unsafe(expression):
@@ -833,10 +866,11 @@ class RunsOnFallbackTests(unittest.TestCase):
         rescued, failures, seen = rescued_paths(), [], 0
         for path in workflows():
             for job_id, job in (load(path).get("jobs") or {}).items():
-                text = runs_on_text(job)
-                seen += bool(OWNED_ROLE_LABEL.search(text))
-                for why in role_label_problems(f".github/workflows/{path.name}", text, rescued):
-                    failures.append(f"{path.name} {job_id}: {why}")
+                cells = runs_on_cells(job, path.name, job_id)
+                seen += bool(OWNED_ROLE_LABEL.search("\n".join(cells)))
+                for text in cells:
+                    for why in role_label_problems(f".github/workflows/{path.name}", text, rescued):
+                        failures.append(f"{path.name} {job_id}: {why}")
         self.assertEqual(failures, [], "a gui or session pool is one queue: it needs a member off it")
         self.assertGreaterEqual(seen, 3, "cmux-next's swift-test, daemon-test and generated-files read the gui pool")
 
@@ -844,7 +878,7 @@ class RunsOnFallbackTests(unittest.TestCase):
         failures = []
         for path in workflows():
             for job_id, job in (load(path).get("jobs") or {}).items():
-                for expression in EXPRESSION.findall(runs_on_text(job)):
+                for expression in EXPRESSION.findall(runs_on_text(job, path.name, job_id)):
                     for variable in RESERVED_RUNNER_VARIABLES:
                         if terminal_reserved(expression, variable):
                             failures.append(f"{path.name} {job_id}: terminal {variable} has no pool fallback")
@@ -904,13 +938,15 @@ class RunsOnFallbackTests(unittest.TestCase):
     def test_no_fixed_blacksmith_leg_comes_before_the_gui_overflow(self) -> None:
         failures, seen = [], 0
         for path in workflows():
-            for job_id, job in (load(path).get("jobs") or {}).items():
-                labels = {"runs-on": runs_on_text(job)}
-                runner_copy = (job.get("env") or {}).get("CMUX_NEXT_RUNNER")
+            document = load(path)
+            for job_id, job in (document.get("jobs") or {}).items():
+                labels = [("runs-on", text) for text in runs_on_cells(job, path.name, job_id)]
+                runner_copy = workflow_jobs.effective_env(document, job).get("CMUX_NEXT_RUNNER")
                 if isinstance(runner_copy, str):
-                    labels["CMUX_NEXT_RUNNER"] = runner_copy
-                for key, text in labels.items():
-                    seen += "outputs.gui_overflow" in text
+                    labels.append(("CMUX_NEXT_RUNNER", runner_copy))
+                # One count per field that reads it (runs-on, its CMUX_NEXT_RUNNER copy), however many cells.
+                seen += len({key for key, text in labels if "outputs.gui_overflow" in text})
+                for key, text in labels:
                     failures += [f"{path.name} {job_id} {key}: {alternative}" for alternative in overflow_preempted(text)]
         self.assertEqual(failures, [], "a GUI job takes the Blacksmith size its placement names (gui_overflow); a fixed "
                                        "Blacksmith leg may come only after it, as the last resort, or for a fork")
@@ -932,9 +968,9 @@ class RunsOnFallbackTests(unittest.TestCase):
         failures, placed = [], 0
         for path in workflows():
             for job_id, job in (load(path).get("jobs") or {}).items():
-                text = runs_on_text(job)
-                placed += "outputs.session_runner" in text
-                failures += [f"{path.name} {job_id}: {why}" for why in session_label_problems(text)]
+                cells = runs_on_cells(job, path.name, job_id)
+                placed += any("outputs.session_runner" in text for text in cells)
+                failures += [f"{path.name} {job_id}: {why}" for text in cells for why in session_label_problems(text)]
         self.assertEqual(failures, [], "a session label starts nothing for hours while its runners look online")
         self.assertGreaterEqual(placed, 1, "cmux-next's daemon tests read the placement's session_runner")
 

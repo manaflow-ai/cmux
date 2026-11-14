@@ -115,7 +115,9 @@ fn run_with_code(ctx: &Context<'_>, args: &[String]) -> u8 {
         }
         Err(e) if parsed.verb.first().is_some_and(|verb| verb == "pair") && !parsed.json => {
             let messages = crate::pairing::messages::current();
-            fail(false, &Error::new(e.kind, format!("{} ({})", messages.failed, e.message)))
+            let reason =
+                messages.explain(&e.message).map(|text| format!(": {text}")).unwrap_or_default();
+            fail(false, &Error::new(e.kind, format!("{}{reason} ({})", messages.failed, e.message)))
         }
         Err(e) => fail(parsed.json, &e),
     }
@@ -126,7 +128,20 @@ fn run_with_code(ctx: &Context<'_>, args: &[String]) -> u8 {
 fn fail(json: bool, e: &Error) -> u8 {
     let mut stderr = std::io::stderr().lock();
     let _ = if json {
-        let body = json!({"error": {"kind": e.kind.as_str(), "message": e.message}});
+        // The CLI's one error shape (`code`, `message`, `details`,
+        // `retryable`; docs/cli-conventions.md in cmuxterm-hq) beside the
+        // `error` object this noun printed first, which callers still read.
+        let code = match e.kind {
+            crate::error::ExitKind::Usage => "usage.invalid".to_owned(),
+            kind => format!("server.{}", kind.as_str()),
+        };
+        let body = json!({
+            "code": code,
+            "message": e.message,
+            "details": {},
+            "retryable": e.kind == crate::error::ExitKind::Unreachable,
+            "error": {"kind": e.kind.as_str(), "message": e.message},
+        });
         writeln!(stderr, "{body}")
     } else {
         writeln!(stderr, "cmux server: {}", e.message)
@@ -155,6 +170,8 @@ pub fn dispatch(ctx: &Context<'_>, args: &Args) -> Result<Output> {
         ["install"] => lifecycle::install(ctx, args),
         ["uninstall"] => lifecycle::uninstall(ctx, args),
         ["status"] => lifecycle::status(ctx, args),
+        ["up"] => lifecycle::up(ctx, args),
+        ["down"] => lifecycle::down(ctx, args),
         ["upgrade"] => lifecycle::upgrade(ctx, args),
         ["rollback"] => lifecycle::rollback(ctx, args),
         ["pin"] => lifecycle::pin(ctx, args),

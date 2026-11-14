@@ -65,11 +65,12 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
         json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
     )
     .unwrap();
-    // A login shell that takes 2 s (under the 3 s limit) and exports one variable.
+    // A login shell that takes 2 s (under the 3 s limit), exports one variable and runs its
+    // `-c` script, as a real one does (the login read waits for the script's end marker).
     let shell = dir.join("slowsh");
     write_executable(
         &shell,
-        "#!/bin/sh\nsleep 2\nprintf 'SSL_CERT_DIR=/amx-test-imported\\0'\nexec env -0\n",
+        "#!/bin/sh\nsleep 2\nSSL_CERT_DIR=/amx-test-imported\nexport SSL_CERT_DIR\nexec /bin/sh -c \"$4\"\n",
     );
     let socket = dir.join("s.sock");
     let started = Instant::now();
@@ -160,6 +161,100 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
     };
     assert!(code.success(), "{code:?}");
     assert!(term.elapsed() < Duration::from_secs(4), "stopped after {:?}", term.elapsed());
+    assert!(!socket.exists(), "socket removed on shutdown");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A login shell whose output ends after the environment but before the read's end marker (the
+/// shell was killed or crashed, or its output was cut). What it printed may be cut in the middle
+/// of a value, so none of it is taken: the agent starts with the daemon's own environment, no
+/// cache is written, and the read ends when the output ends, not at the 3 s limit. The daemon
+/// still binds and reports ready first, and stops on SIGTERM.
+#[tokio::test]
+async fn a_login_read_with_no_end_marker_takes_no_variable_and_the_daemon_still_serves() {
+    let dir = scratch("cut");
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    std::fs::write(
+        dir.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+    )
+    .unwrap();
+    // Runs its `-c` script up to the environment (the start marker and `env -0`) and ends there.
+    let shell = dir.join("cutsh");
+    write_executable(
+        &shell,
+        "#!/bin/sh\nsleep 2\nSSL_CERT_DIR=/amx-test-imported\nexport SSL_CERT_DIR\nexec /bin/sh -c \"${4%; printf*}\"\n",
+    );
+    let socket = dir.join("s.sock");
+    let started = Instant::now();
+    let mut child = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[])
+        .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("ACPMUX_LOGIN_ENV", "1")
+        .env("SHELL", &shell)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = child.id() as i32;
+    let stdout = child.stdout.take().unwrap();
+    let ready = tokio::task::spawn_blocking(move || {
+        for line in BufReader::new(stdout).lines() {
+            let line = line.unwrap();
+            if let Ok(v) = serde_json::from_str::<Value>(&line)
+                && v["ready"] == true
+            {
+                return v;
+            }
+        }
+        panic!("daemon exited without a readiness line");
+    });
+    let ready = tokio::time::timeout(Duration::from_secs(20), ready).await.unwrap().unwrap();
+    assert!(started.elapsed() < Duration::from_secs(2), "ready after {:?}", started.elapsed());
+    assert_eq!(ready["pid"], pid);
+
+    let mut rpc = Rpc::connect(&socket).await;
+    let s = rpc
+        .call(
+            "session/new",
+            json!({"cwd": dir, "mcpServers": [], "_meta": {"acpmux": {"name": "env"}}}),
+        )
+        .await;
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    rpc.call(
+        "session/prompt",
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "env: SSL_CERT_DIR"}]}),
+    )
+    .await;
+    let events = rpc
+        .call("_acpmux/events", json!({"sessionId": id, "kinds": ["agent_message_chunk"]}))
+        .await;
+    let texts: Vec<&str> = events["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|e| e.pointer("/msg/params/update/content/text").and_then(Value::as_str))
+        .collect();
+    assert_eq!(texts, ["SSL_CERT_DIR="], "a cut login read gave the agent a variable");
+    assert!(!dir.join("login-env.json").exists(), "a cut login read was cached");
+    let status = rpc.call("_acpmux/status", json!({})).await;
+    assert_eq!(status["ready"], true);
+    assert_eq!(status["liveAgents"], 1);
+
+    let term = Instant::now();
+    unsafe {
+        libc::kill(pid, libc::SIGTERM);
+    }
+    let code = loop {
+        if let Some(code) = child.try_wait().unwrap() {
+            break code;
+        }
+        assert!(term.elapsed() < Duration::from_secs(8), "daemon still running after SIGTERM");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert!(code.success(), "{code:?}");
     assert!(!socket.exists(), "socket removed on shutdown");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -414,12 +509,18 @@ async fn a_failed_state_write_while_loading_leaves_the_daemon_serving() {
 /// Starts a daemon on its own home `dir` whose owning app is `owner` (`ACPMUX_OWNER_APP_PID`, as
 /// the app's launcher sets it) and waits for its ready line. `harness`: a stand-in agent config.
 async fn owned_daemon(dir: &Path, owner: u32, harness: bool) -> std::process::Child {
+    owned_daemon_by(dir, ("ACPMUX_OWNER_APP_PID", owner), harness).await
+}
+
+/// [`owned_daemon`] whose owner is named in `owner.0`. Each stand-in agent writes its pid to
+/// `dir/harness.started` as its chat starts (`FAKE_NEW_GATE` with no gate).
+async fn owned_daemon_by(dir: &Path, owner: (&str, u32), harness: bool) -> std::process::Child {
     let socket = dir.join("s.sock");
     let mut cmd = if harness {
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
         std::fs::write(
             dir.join("config.json"),
-            json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+            json!({"harnesses": {"fake": {"argv": ["python3", fake], "env": {"FAKE_NEW_GATE": dir.join("harness")}}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
         )
         .unwrap();
         daemon_env::command(dir, daemon_env::Agents::StandIn, &[])
@@ -432,7 +533,7 @@ async fn owned_daemon(dir: &Path, owner: u32, harness: bool) -> std::process::Ch
         .env("ACPMUX_SOCKET", &socket)
         .env("TMPDIR", dir)
         .env("ACPMUX_LOGIN_ENV", "0")
-        .env("ACPMUX_OWNER_APP_PID", owner.to_string())
+        .env(owner.0, owner.1.to_string())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::inherit())
@@ -578,6 +679,117 @@ async fn quit_helpers_a_running_turn_keeps_the_daemon_after_its_app_is_gone() {
     assert!(alive, "the daemon stopped under a running turn after its app quit");
 }
 
+/// A daemon a test started stops with that test's process also while it waits for another
+/// process's lock on its home (`daemon/owner_exit.rs`): the watch is armed before that wait, which
+/// has no limit while the holder lives. The test holds the lock itself and never makes a socket;
+/// a `sleep` stands in for the test process.
+// Debug builds only, as the watch.
+#[cfg(debug_assertions)]
+#[tokio::test]
+async fn a_daemon_waiting_for_its_lock_ends_with_the_test_process() {
+    use std::os::fd::AsRawFd as _;
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let dir = scratch("towner-lock");
+    let held = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .mode(0o600)
+        .open(dir.join("daemon.lock"))
+        .unwrap();
+    // SAFETY: flock on a descriptor this test owns; released when it is dropped.
+    assert_eq!(unsafe { libc::flock(held.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    let mut owner = std::process::Command::new("sleep").arg("600").spawn().expect("a fake test");
+    let mut child = daemon_env::acpmux(&dir)
+        .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", dir.join("s.sock"))
+        .env("TMPDIR", &dir)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .env("ACPMUX_TEST_OWNER_PID", owner.id().to_string())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .unwrap();
+    // It waits for the lock while the test process runs.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    if let Some(status) = child.try_wait().unwrap() {
+        end(&mut owner);
+        panic!("the daemon did not wait for the held lock: {status:?}");
+    }
+    end(&mut owner);
+    let exited = exits_within(&mut child, Duration::from_secs(10)).await;
+    drop(held);
+    let _ = std::fs::remove_dir_all(&dir);
+    exited.expect("the daemon still waited for its lock 10 s after its test process was killed");
+}
+
+/// A daemon a test started stops with that test's process, mid-turn too (`daemon/owner_exit.rs`):
+/// a test that panicked, timed out or was killed left its daemon, its agent hosts and their
+/// stand-in harnesses running for days (34 hosts and 8 daemons on one lane VM, 130-144 h old),
+/// because a daemon and #28319's orphan exit wait for an idle agent. A `sleep` stands in for the
+/// test process; it is killed with an agent in a turn that never ends and a client connected.
+// Debug builds only, as the watch.
+#[cfg(debug_assertions)]
+#[tokio::test]
+async fn a_daemon_and_its_agents_end_with_the_test_process_mid_turn() {
+    let dir = scratch("towner-d");
+    let mut owner = std::process::Command::new("sleep").arg("600").spawn().expect("a fake test");
+    let mut child = owned_daemon_by(&dir, ("ACPMUX_TEST_OWNER_PID", owner.id()), true).await;
+    let socket = dir.join("s.sock");
+    let mut rpc = Rpc::connect(&socket).await;
+    let s = rpc
+        .call(
+            "session/new",
+            json!({"cwd": dir, "mcpServers": [], "_meta": {"acpmux": {"name": "busy"}}}),
+        )
+        .await;
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let harness: i32 = std::fs::read_to_string(dir.join("harness.started"))
+        .expect("the stand-in agent's pid")
+        .trim()
+        .parse()
+        .unwrap();
+    // A turn that never ends: a busy agent.
+    let line = json!({"jsonrpc": "2.0", "id": 99, "method": "session/prompt", "params": {"sessionId": id, "prompt": [{"type": "text", "text": "hang"}]}});
+    rpc.wr.write_all(format!("{line}\n").as_bytes()).await.unwrap();
+    let mut watcher = Rpc::connect(&socket).await;
+    let start = Instant::now();
+    while watcher.call("_acpmux/info", json!({"sessionId": id})).await["status"] != "running" {
+        assert!(start.elapsed() < Duration::from_secs(20), "the turn never started");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    // The test process runs: the daemon stays.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    if child.try_wait().unwrap().is_some() {
+        end(&mut owner);
+        panic!("the daemon exited while its test process runs");
+    }
+    // Killed as a test is, with no teardown; the client stays connected.
+    end(&mut owner);
+    let exited = exits_within(&mut child, Duration::from_secs(10)).await;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut harness_gone = false;
+    while Instant::now() < deadline {
+        // SAFETY: signal 0 only asks whether the stand-in agent still runs.
+        if unsafe { libc::kill(harness, 0) } != 0 {
+            harness_gone = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    if !harness_gone {
+        // SAFETY: the stand-in agent's group this test started; ends what the fix did not.
+        unsafe { libc::killpg(harness, libc::SIGKILL) };
+    }
+    drop((rpc, watcher));
+    let _ = std::fs::remove_dir_all(&dir);
+    exited.expect("the daemon still ran 10 s after its test process was killed mid-turn");
+    assert!(harness_gone, "the stand-in agent outlived its test process");
+}
+
 /// Creates an executable (0755) script without this process ever holding a
 /// write descriptor for it.
 ///
@@ -635,11 +847,14 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
     let login = dir.join("login-bin");
     std::fs::create_dir_all(&login).unwrap();
     write_executable(login.join("cmux"), "#!/bin/sh\necho stale\n");
-    // The login shell lists its own `cmux` first.
+    // The login shell lists its own `cmux` first, then runs its `-c` script.
     let shell = dir.join("loginsh");
     write_executable(
         &shell,
-        format!("#!/bin/sh\nPATH='{}':\"$PATH\" exec env -0\n", login.display()),
+        format!(
+            "#!/bin/sh\nPATH='{}':\"$PATH\"\nexport PATH\nexec /bin/sh -c \"$4\"\n",
+            login.display()
+        ),
     );
     let socket = dir.join("s.sock");
     let app_socket = dir.join("app.sock");
@@ -895,7 +1110,22 @@ async fn a_daemon_whose_home_is_removed_stops() {
         json!({"cwd": dir, "mcpServers": [], "_meta": {"acpmux": {"name": "gone"}}}),
     )
     .await;
-    std::fs::remove_dir_all(&home).unwrap();
+    // The chat's own writes (its log, the agent's start) may land in a folder while it is being
+    // removed (ENOTEMPTY), as a harness's `rmtree` would meet them too: remove again until the
+    // home is gone. A daemon that kept writing is still caught by the bound, and one that made
+    // the home again after it stopped by the check below.
+    let removing = Instant::now();
+    loop {
+        match std::fs::remove_dir_all(&home) {
+            Ok(()) => break,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
+            Err(e) if removing.elapsed() < Duration::from_secs(5) => {
+                eprintln!("removing the home again: {e}");
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            Err(e) => panic!("the home could not be removed in 5 s: {e}"),
+        }
+    }
     let status = exit_within(&mut child, acpmux::daemon::EXIT_BUDGET).await;
     let status = status.expect("the daemon still ran after its home was removed");
     assert!(status.success(), "{status:?}");

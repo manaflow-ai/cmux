@@ -106,6 +106,10 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// dispatch. The registry stamps it when the gate starts; the run's `action.*` signposts
     /// report its age when no input event is being dispatched at the run. Nil for every other run.
     public var inputTimestamp: Double?
+    /// The person chose this run from an open menu (the main menu or a context menu, `ActionMenuTarget`), not with a key
+    /// equivalent: AppKit runs a chosen item's action after the menu's tracking, outside any input event's dispatch, so no
+    /// event names the person; the run's focus choices count as theirs (`FocusState.personMoveSeq`). In-app only.
+    public var menuPick = false
 
     public init(target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:], origin: ActionOrigin = .user,
                 focusRequested: Bool = false) {
@@ -135,6 +139,14 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
 
     public subscript(_ name: String) -> ActionValue? {
         arguments[name]
+    }
+
+    /// A non-empty file path or data source argument `name` (an import or export file, a browser
+    /// to read) as the caller named it, or nil when none is named or a page asks: page script
+    /// never names a file or a source, the person picks it in the action's own panel.
+    public func callerNamedSource(_ name: String) -> String? {
+        guard origin != .page, let text = arguments[name]?.stringValue, !text.isEmpty else { return nil }
+        return text
     }
 
     /// Whether a destructive action was confirmed (`confirm: true`).

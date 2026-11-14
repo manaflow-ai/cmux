@@ -438,3 +438,30 @@ fn a_groups_allow_takes_only_macs_and_spends_every_nonce_or_none() {
     assert!(!gate.macs_prove("s1", &phone_proof));
     assert!(!gate.macs_spend("s1", &phone_proof));
 }
+
+#[test]
+fn a_macs_paired_phone_enrolled_here_allows_one_prompt_and_never_raises_a_policy() {
+    let k = key();
+    let phone = super::super::approvers::peer_phone_id("mac-device-1", "iphone-1").unwrap();
+    assert!(phone.starts_with(super::super::approvers::PEER_PHONE), "{phone}");
+    let path = dir("phone").join(FILE);
+    write(
+        &path,
+        json!([{"id": phone, "publicKey": hex(k.public_key().as_ref()), "name": "iPhone"}]),
+    );
+    let set = MacApprovers::default();
+    set.open(path);
+    let now = 1_000;
+    let ask = tool_ask();
+    let mut signed = parts("call-1", "yes", now + 120, "");
+    signed.mac = &phone;
+    let sig = sign(&k, &signed);
+    let decision = json!({"approver": phone, "expiresAt": now + 120, "signature": sig});
+    assert!(
+        set.verifies_then("inst", "s1", "p1", &ask, "yes", "n1", None, &decision, now, || true)
+    );
+    let raise = policy_message("inst", &phone, "s1", "approve-all", "n1");
+    let sig = hex(k.sign(&ring::rand::SystemRandom::new(), &raise).unwrap().as_ref());
+    let signed = json!({"approver": phone, "signature": sig});
+    assert!(!set.policy_verifies_then("inst", "s1", "approve-all", "n1", &signed, || true));
+}

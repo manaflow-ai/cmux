@@ -121,8 +121,34 @@ ensure_chrome() {
   if [ "$can_install" = 1 ]; then
     echo "system Chrome ${have:-missing}; installing Chrome stable (need $min or later)"
     # CI=1: reinstall over an older system Chrome instead of stopping at Playwright's prompt.
-    # shellcheck disable=SC2046
-    CI=1 $(playwright_cli) install --with-deps chrome || echo "warning: Chrome stable install failed" >&2
+    # The install runs apt-get update, which fails on a hash mismatch when Google republishes its
+    # apt repository mid-fetch (job 127181004735: "Hashes of received file ... do not match"); one
+    # more try a little later reads the new index.
+    # Playwright fetches the 140 MB .deb with one plain `curl -L -O`, no retry: a stream cut
+    # mid-transfer failed the shard's engine gate (job 131599730461, 2026-11-13: "curl: (92) HTTP/2
+    # stream 1 was not closed cleanly"), the shard ran 24 more min to a red, and its rerun made the
+    # head's verdict 51 min. A cut transfer is tried again: curl exit 18 (partial file), 28 (timed
+    # out), 35 (TLS connect), 52 (empty reply), 56 (receive failure), 92 (HTTP/2 stream). A 404
+    # (curl 22) or a name that does not resolve is not: another try does not fix it.
+    local log attempt delay="${CMUX_CHROME_INSTALL_RETRY_SECONDS:-15}"
+    log="$(mktemp)"
+    for attempt in 1 2 3; do
+      # shellcheck disable=SC2046
+      if CI=1 $(playwright_cli) install --with-deps chrome 2>&1 | tee "$log"; then break; fi
+      if [ "$attempt" = 1 ] && grep -qE 'Hash Sum mismatch|Hashes of received file' "$log"; then
+        echo "warning: apt index changed during the fetch; trying once more in $delay s" >&2
+        sleep "$delay"
+        continue
+      fi
+      if [ "$attempt" -lt 3 ] && grep -qE 'curl: \((18|28|35|52|56|92)\)' "$log"; then
+        echo "warning: the Chrome download was cut off; trying again in $delay s (try $((attempt + 1)) of 3)" >&2
+        sleep "$delay"
+        continue
+      fi
+      echo "warning: Chrome stable install failed" >&2
+      break
+    done
+    rm -f "$log"
     have="$(chrome_version || true)"
     if at_least "$have" "$min"; then
       echo "system Chrome $have at $(chrome_bin)"

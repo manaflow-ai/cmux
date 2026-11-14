@@ -12,6 +12,9 @@ public protocol PageChromiumHosting: AnyObject {
     /// Whether Chromium can host a page now: false when the build has no Chromium or it failed to
     /// start.
     var isAvailable: Bool { get }
+    /// App health's feed for every page view made with this host (the one host every page view takes
+    /// at init); nil: its pages report nothing.
+    var healthFeed: (any PageHealthFeed)? { get }
     /// Whether Chromium's `cmux-page://` scheme serves `page` (its bundled folder is registered).
     ///
     /// - Parameter page: The page to show.
@@ -35,16 +38,40 @@ public protocol PageChromiumHosting: AnyObject {
     /// - Returns: Whether a focus model owns `page`'s keys; if not, the page takes the keyboard itself
     ///   when its WebKit view had it.
     func focusViewChanged(_ page: PageWebView) -> Bool
+    /// Sends every file of a Chromium page to its page host (``PageWebView/chromiumResource(_:range:)``)
+    /// while `live`, so the live web loop (``WebDevOverride``) serves Chromium pages as it serves
+    /// WebKit ones. Returns false when this Chromium cannot (its pages then open in WebKit).
+    func setLivePages(_ live: Bool) -> Bool
+    /// Opens the developer tools of the cmux page `view` shows (a ``PageWebView``, or a page's own
+    /// `WKWebView`) and starts picking an element: Chromium DevTools for a page in Chromium, Web
+    /// Inspector for one in WebKit. The page's Inspect Element row calls it (``PageDeveloperTools``).
+    ///
+    /// - Parameter view: The page's view.
+    func inspectPage(_ view: NSView)
 }
 
 extension PageChromiumPage {
     /// No clip: the page shows as a plain rectangle.
     public var windowClip: CGPath? { nil }
+    /// No docked DevTools: the page has its whole view.
+    public var dockedDevTools: (page: CGRect, devTools: CGRect)? { nil }
+    /// No DevTools image.
+    public func devToolsImage() async -> CGImage? { nil }
+
+    public func restartRenderer() { reload() }
+
+    public var isUnresponsive: Bool { false }
 }
 
 extension PageChromiumHosting {
+    /// No app health feed: the host's pages report nothing.
+    public var healthFeed: (any PageHealthFeed)? { nil }
+
     /// No focus model: the page keeps its keyboard itself.
     public func focusViewChanged(_ page: PageWebView) -> Bool { false }
+    public func setLivePages(_ live: Bool) -> Bool { false }
+    /// No inspector: the row does nothing.
+    public func inspectPage(_ view: NSView) {}
 }
 
 /// One Chromium page the page host shows. The page host drives it only through this protocol
@@ -61,6 +88,9 @@ public protocol PageChromiumPage: AnyObject {
     /// none; a `<video>` asks one range at a time), and a nil answerer is a 404. The host sets it
     /// before the first ``load(_:)``.
     var resources: (@MainActor (URL, String?) async -> PageChromiumResponse)? { get set }
+    /// Answers a request for a dynamic path at once, in the turn it arrives, when it can
+    /// (``PageReadyResourceSource``); nil from it, or no answerer, asks ``resources``.
+    var readyResources: (@MainActor (URL) -> PageChromiumResponse?)? { get set }
     /// Rects in ``contentView``'s coordinates where native UI of the host window shows over the
     /// page. A Chromium page is a child window above the whole host window, so the page window
     /// leaves these rects uncovered: the native view under them shows there and takes the mouse
@@ -70,6 +100,13 @@ public protocol PageChromiumPage: AnyObject {
     /// a docked column shows only its uncovered part); nil when the page shows as a plain
     /// rectangle. A window image paints the page's image only inside it.
     var windowClip: CGPath? { get }
+    /// The page's own area and its docked DevTools' area, in ``contentView``'s coordinates, while
+    /// DevTools are docked beside the page (Inspect Element); nil otherwise. A window image paints
+    /// the page's image only in the page's area, and the DevTools' own image in theirs.
+    var dockedDevTools: (page: CGRect, devTools: CGRect)? { get }
+    /// The docked DevTools as Chromium drew them (their frontend's `Page.captureScreenshot`); nil
+    /// with none docked or when Chromium gives no image.
+    func devToolsImage() async -> CGImage?
     /// Runs a DevTools protocol method and returns its JSON result.
     ///
     /// - Parameters:
@@ -88,10 +125,18 @@ public protocol PageChromiumPage: AnyObject {
     func load(_ url: URL)
     /// Reloads the document.
     func reload()
+    /// App health's `restartRenderer`: ends a renderer that stopped answering and brings the page
+    /// back in a new one (the default: a plain reload).
+    func restartRenderer()
+    /// Whether Chromium's hang monitor says the page's renderer stopped answering (observable: the
+    /// page view follows it for app health's renderer part). The default: never.
+    var isUnresponsive: Bool { get }
     /// Sets the page zoom (1 is 100%).
     func setZoom(_ zoom: Double)
     /// Gives or takes the keyboard focus.
     func setFocused(_ focused: Bool)
+    /// Whether the page has the keyboard (a Chromium page takes it in its own child window).
+    var hasKeys: Bool { get }
     /// Shows or hides and pauses the page.
     func setVisible(_ visible: Bool)
     /// Makes the page see-through (true) or gives it its opaque page color back: where the document
@@ -151,4 +196,12 @@ extension PageChromiumPage {
     /// A host must explicitly provide native input; a placement view is not necessarily the renderer's input view.
     public func debugPress(at point: NSPoint) -> Bool { false }
     #endif
+}
+
+public extension PageChromiumPage {
+    /// A page that answers nothing at once (a fake in tests) sends every request to ``resources``.
+    var readyResources: (@MainActor (URL) -> PageChromiumResponse?)? {
+        get { nil }
+        set {}
+    }
 }

@@ -9,54 +9,18 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Dialog } from "../../../ui/Dialog";
-import { keyedIconProps } from "../../../ui/DialogButton";
+
+import { belowTabRowStyle, useTabRow } from "../header/tabRow";
 import { useT } from "../i18n";
 import { postNative } from "../native";
 import type { ChatImage } from "./chatImages";
 import { copyImage } from "./clipboard";
 import { Check, ChevronLeft, ChevronRight, Close, Copy, Folder, Globe } from "./icons";
-
-export const MIN_SCALE = 1;
-export const MAX_SCALE = 8;
+import { MIN_SCALE, type View, FIT, activeElementToRestore, zoomAbout, dataUrl } from "./imageViewerModel";
+import { keyedIconProps } from "../../../ui/DialogButton";
+import { useScrimClose } from "../../../ui/scrimClose";
 /// What a double click or the + key zooms to from the fitted image.
 const STEP = 2;
-
-type View = { scale: number; x: number; y: number };
-const FIT: View = { scale: 1, x: 0, y: 0 };
-
-/**
- * Base UI can restore focus to a Dialog.Trigger, but the viewer is opened by a markdown or
- * attachment button through ImageViewerContext and therefore has no Trigger of its own. Capture
- * the active opener before the portaled dialog moves focus so closing the viewer remains a local,
- * keyboard-friendly interaction.
- */
-export function activeElementToRestore(): HTMLElement | null {
-  if (typeof document === "undefined") return null;
-  const active = document.activeElement;
-  return active instanceof HTMLElement && active !== document.body ? active : null;
-}
-
-/// `view` zoomed to `scale` about `point` (relative to the stage's center), so the pixel under
-/// the point stays there. Back at the fitted size the image is centered again.
-export function zoomAbout(view: View, scale: number, point: { x: number; y: number }): View {
-  const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
-  if (next === MIN_SCALE) return FIT;
-  const ratio = next / view.scale;
-  return { scale: next, x: point.x - (point.x - view.x) * ratio, y: point.y - (point.y - view.y) * ratio };
-}
-
-/// The image as a `data:` URL, the form the host's image actions take (a composer attachment can be
-/// a `blob:` URL).
-export async function dataUrl(src: string): Promise<string> {
-  if (src.startsWith("data:")) return src;
-  const blob = await (await fetch(src)).blob();
-  return await new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
-}
 
 /// Show in Finder (the image's file when a reply named one inside the folders, else a copy) or
 /// Open in browser tab (a copy), by the host (AgentPaneImageCopies.swift): one request, so one
@@ -81,6 +45,7 @@ export function ImageViewer({
   onClose(): void;
 }) {
   const t = useT();
+  const below = belowTabRowStyle(useTabRow());
   const image = images[index];
   const [view, setView] = useState<View>(FIT);
   // The view a pinch started from, read by the gesture listener (registered once).
@@ -101,10 +66,10 @@ export function ImageViewer({
   }, []);
   const close = useRef<HTMLButtonElement>(null);
   const drag = useRef<{ id: number; x: number; y: number } | undefined>(undefined);
-  // Whether the stage has seen a fresh press (a click run's first, `detail` 1) since the viewer
-  // opened. A double click on a chat thumbnail opens the viewer on its first click; its second
-  // lands here as a double click and must not zoom (or close) the image that just opened (#27955).
-  const pressedHere = useRef(false);
+  // A click beside the fitted image closes the viewer (ui/scrimClose.ts, shared by every media
+  // viewer). Its `pressed` also keeps the second click of the double click that opened the viewer
+  // from zooming the image that just opened (#27955).
+  const scrim = useScrimClose(onClose, view.scale === MIN_SCALE);
   const count = images.length;
   const restoreFocus = useRef<HTMLElement | null>(activeElementToRestore());
 
@@ -237,6 +202,7 @@ export function ImageViewer({
       label={image.alt || t("image.viewer")}
       className="acpmux-image-viewer"
       backdropClassName="acpmux-image-viewer-backdrop"
+      style={below}
       initialFocus={close}
       // ui-allow: the viewer's own image keys (the arrows step, + - 0 zoom), as an image canvas has.
       onKeyDown={onKeyDown}
@@ -301,22 +267,16 @@ export function ImageViewer({
           ref={stageRef}
           className={`acpmux-image-viewer-stage${view.scale > MIN_SCALE ? " is-zoomed" : ""}`}
           onPointerDown={onPointerDown}
-          onMouseDown={(event) => {
-            if (event.detail <= 1) pressedHere.current = true;
-          }}
+          onMouseDown={scrim.props.onMouseDown}
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
           onDoubleClick={(event) => {
-            if (!pressedHere.current) return;
+            if (!scrim.pressed.current) return;
             const point = fromCenter(event.clientX, event.clientY);
             setView((current) => (current.scale > MIN_SCALE ? FIT : zoomAbout(current, STEP, point)));
           }}
-          onClick={(event) => {
-            // A click beside the fitted image closes the viewer, as on the scrim of a sheet; not the
-            // second click of the double click that opened it.
-            if (event.target === event.currentTarget && view.scale === MIN_SCALE && pressedHere.current) onClose();
-          }}
+          onClick={scrim.props.onClick}
         >
           <img
             className="acpmux-image-viewer-image"

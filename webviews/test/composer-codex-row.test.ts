@@ -45,7 +45,8 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
         const composer = document.querySelector(composerSelector)!;
         const box = composer.querySelector(boxSelector)!;
         const b = box.getBoundingClientRect();
-        const prompt = box.querySelector(".ProseMirror > p")?.getBoundingClientRect();
+        const paragraph = box.querySelector(".ProseMirror > p");
+        const prompt = paragraph?.getBoundingClientRect();
         const controls = Object.fromEntries(
           [
             ".acpmux-composer-plus .acpmux-picker-button",
@@ -84,6 +85,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
         });
         return {
           box: { width: b.width, height: b.height },
+          lineHeight: paragraph ? Number.parseFloat(getComputedStyle(paragraph).lineHeight) : null,
           prompt: prompt
             ? { top: prompt.top - b.top, bottom: prompt.bottom - b.top, left: prompt.left - b.left }
             : null,
@@ -140,11 +142,21 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
             expect(plus.width).toBe(28);
             expect(plus.height).toBe(28);
             expect(Math.abs(plus.left - 8)).toBeLessThanOrEqual(0.5);
+            // The last control keeps the right inset: the mic in Claude's look (Send is drawn only
+            // with a draft, before it), Codex's round Send after the mic in Codex's.
             const mic = controls[".acpmux-mic"];
+            const send = controls[".acpmux-send"];
+            if (look === "codex") expect(send).toBeDefined();
+            const last = look === "codex" ? send : mic;
             if (mic) {
               expect(mic.inside).toBe(true);
-              expect(Math.abs(geometry.box.width - mic.right - 8)).toBeLessThanOrEqual(0.5);
               expect(Math.abs(mic.top - plus.top)).toBeLessThanOrEqual(0.5);
+            }
+            if (last) expect(Math.abs(geometry.box.width - last.right - 8)).toBeLessThanOrEqual(0.5);
+            if (look === "codex" && mic && send) {
+              expect(send.left).toBeGreaterThan(mic.right);
+              expect(Math.abs(send.top - plus.top)).toBeLessThanOrEqual(0.5);
+              expect(send.width).toBe(28);
             }
             for (const selector of [
               ".acpmux-access-trigger",
@@ -167,19 +179,40 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
                 }
               }
           }
-          // The placeholder owns its line, above +, with the reference's clear separation. The
-          // lower controls have equal 8px edge insets, while the text starts 16px into the box.
+          // Codex's two-row layout: a 40px editor with 12px above it, 18px side insets,
+          // 8px before the 28px controls and 8px under them.
           const plus = codex.controls[".acpmux-composer-plus .acpmux-picker-button"]!;
           expect(codex.prompt).not.toBeNull();
-          expect(Math.abs(codex.prompt!.top - 16)).toBeLessThanOrEqual(0.5);
-          expect(Math.abs(codex.prompt!.left - 16)).toBeLessThanOrEqual(0.5);
-          expect(Math.abs(plus.top - codex.prompt!.bottom - 24)).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(codex.prompt!.top - 12)).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(codex.prompt!.left - 18)).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(plus.top - codex.prompt!.bottom - 28)).toBeLessThanOrEqual(0.5);
           expect(Math.abs(codex.box.height - plus.bottom - 8)).toBeLessThanOrEqual(0.5);
+          expect(codex.box.height).toBe(96);
+          // Leo 2026-11-08: "put the context ring to the left of the model picker". The right of
+          // the row reads ring, model, mic, Send; Claude's quiet row still ends on the ring.
+          const at = (geometry: typeof codex, selector: string) => geometry.controls[selector];
+          const ring = at(codex, ".acpmux-context-ring");
+          const model = at(codex, ".acpmux-model .acpmux-picker-button")!;
+          const codexMic = at(codex, ".acpmux-mic");
+          const codexSend = at(codex, ".acpmux-send")!;
+          expect(ring).toBeDefined();
+          expect(ring!.right).toBeLessThanOrEqual(model.left);
+          if (codexMic) {
+            expect(model.right).toBeLessThanOrEqual(codexMic.left);
+            expect(codexMic.right).toBeLessThanOrEqual(codexSend.left);
+          } else expect(model.right).toBeLessThanOrEqual(codexSend.left);
+          const claudeRing = at(claude, ".acpmux-context-ring");
+          if (claudeRing)
+            // The ring stands just left of the model button (Lawrence and Lucas 2026-11-11).
+            expect(claudeRing.right).toBeLessThanOrEqual(at(claude, ".acpmux-model .acpmux-picker-button")!.left + 0.5);
           console.log(`COMPOSER_PROMPT_CONTROL_GAP ${theme}-${width} ${plus.top - codex.prompt!.bottom}`);
           // The switch keeps every control and both horizontal edge insets.
           expect(codex.box.height).toBeGreaterThan(claude.box.height + 20);
-          expect(Object.keys(codex.controls).sort()).toEqual(Object.keys(claude.controls).sort());
-          for (const selector of [".acpmux-composer-plus .acpmux-picker-button", ".acpmux-mic", ".acpmux-send"]) {
+          // Codex's look adds only its always-drawn Send.
+          expect(Object.keys(codex.controls).sort()).toEqual(
+            [...new Set([...Object.keys(claude.controls), ".acpmux-send"])].sort(),
+          );
+          for (const selector of [".acpmux-composer-plus .acpmux-picker-button"]) {
             const c = claude.controls[selector];
             const x = codex.controls[selector];
             if (!c || !x) continue;
@@ -191,6 +224,76 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
         }
       });
 
+  // Leo 2026-11-04: "our codex style composer should look like codex's/chatgpt's". Codex's Send is
+  // its round button after the mic: a soft disc with nothing to send, the accent disc with a draft.
+  // Claude's look keeps the plain glyph (no disc, #23763).
+  test("Codex's Send is a round disc after the mic, filled with a draft; Claude's stays a plain glyph", async () => {
+    const page = await browser.newPage({ viewport: { width: 760, height: 560 }, deviceScaleFactor: 2 });
+    try {
+      const port = (vite.httpServer!.address() as { port: number }).port;
+      const send = async (variant: string) => {
+        await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.composer-look", { variant })}`);
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+        await page.mouse.move(0, 0);
+        await settle(page);
+        await page
+          .locator(".acpmux-composer")
+          .screenshot({ path: path.join(out, `${variant}.png`), animations: "disabled", caret: "hide" });
+        return page.evaluate(() => {
+          const el = document.querySelector<HTMLElement>(".acpmux-composer-box .acpmux-send");
+          const mic = document.querySelector<HTMLElement>(".acpmux-composer-box .acpmux-mic");
+          if (!el) return null;
+          const style = getComputedStyle(el);
+          const r = el.getBoundingClientRect();
+          const accent = getComputedStyle(el).getPropertyValue("--agent-accent").trim();
+          const probe = document.createElement("i");
+          probe.style.color = accent;
+          document.body.append(probe);
+          const accentColor = getComputedStyle(probe).color;
+          probe.remove();
+          return {
+            fill: style.backgroundColor,
+            radius: style.borderTopLeftRadius,
+            width: r.width,
+            ready: el.classList.contains("acpmux-send-ready"),
+            afterMic: mic ? r.left >= mic.getBoundingClientRect().right : null,
+            accentColor,
+          };
+        });
+      };
+      const transparent = (fill: string) => fill === "transparent" || /rgba\(.*,\s*0\)$/.test(fill);
+      const empty = await send("codex-send-empty");
+      expect(empty).not.toBeNull();
+      expect(empty!.afterMic).toBe(true);
+      expect(empty!.ready).toBe(false);
+      expect(transparent(empty!.fill)).toBe(false);
+      expect(empty!.radius).toBe("50%");
+      const ready = await send("codex-send-accent-disc");
+      expect(ready!.ready).toBe(true);
+      expect(ready!.afterMic).toBe(true);
+      expect(ready!.fill).toBe(ready!.accentColor);
+      // Mid-turn, the first Esc still lights Stop in Codex's look (composerStates.css
+      // data-escape-armed). A theme with an accent: a neutral theme's accent is its text colour.
+      await page.goto(
+        `http://127.0.0.1:${port}${galleryFrame("agent-pane.composer-look", { variant: "codex-send-stop", accent: "magenta" })}`,
+      );
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      await page.locator(".acpmux-composer-box .acpmux-md").first().click();
+      const stopColor = () =>
+        page.evaluate(() => getComputedStyle(document.querySelector(".acpmux-composer-box .acpmux-cancel")!).color);
+      const rest = await stopColor();
+      await page.keyboard.press("Escape");
+      await page.locator(".acpmux-composer-box .acpmux-cancel[data-escape-armed]").waitFor();
+      await settle(page);
+      expect(await stopColor()).not.toBe(rest);
+      const claude = await send("send-alt-after-mic-claude");
+      expect(claude).not.toBeNull();
+      expect(transparent(claude!.fill)).toBe(true);
+    } finally {
+      await page.close();
+    }
+  });
+
   // New Tab in Codex's look splits as Claude's: + before the field, the mic and Send after it, the
   // mode and model in the quiet row under the box; a narrow pane steps the labels down there.
   for (const width of [1200, 720, 480, 420, 280])
@@ -199,9 +302,8 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
       try {
         const port = (vite.httpServer!.address() as { port: number }).port;
         const open = async (look: "claude" | "codex") => {
-          await page.addInitScript((value) => localStorage.setItem("cmux.composer.look", value), look);
           await page.goto(
-            `http://127.0.0.1:${port}${galleryFrame("agent-pane.new-tab", { variant: "minimal-default", width })}`,
+            `http://127.0.0.1:${port}${galleryFrame("agent-pane.composer-look", { variant: `newtab-${look}`, width })}`,
           );
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           await page.waitForSelector(".nt-composer .acpmux-composer-foot .acpmux-model");
@@ -226,12 +328,25 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
           if (codex.controls[selector]) expect(codex.controls[selector]!.inside).toBe(true);
         const claude = await open("claude");
         expect(claude.look).toBeNull();
-        for (const [selector, c] of Object.entries(claude.controls)) {
-          const x = codex.controls[selector];
-          expect(x, selector).toBeDefined();
-          // The tray over Codex's box moves the whole composer down, never a control within it.
-          for (const edge of ["left", "right", "top", "bottom"] as const)
-            expect(Math.abs(x![edge] - c[edge]), `${selector} ${edge}`).toBeLessThanOrEqual(0.5);
+        expect(Object.keys(codex.controls)).toEqual(Object.keys(claude.controls));
+        for (const geometry of [claude, codex]) {
+          expect(geometry.unreachable).toEqual([]);
+          expect(geometry.lineHeight).not.toBeNull();
+          const plus = geometry.controls[".acpmux-composer-plus .acpmux-picker-button"]!;
+          const send = geometry.controls[".acpmux-send"]!;
+          // Each compact New Tab row derives its side inset from its own line height.
+          // Codex's 20px line and Claude's 22.75px line intentionally give different insets.
+          const inset = geometry.lineHeight! / 2;
+          expect(Math.abs(plus.left - inset)).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(geometry.box.width - send.right - inset)).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(geometry.box.height - geometry.lineHeight! - 28)).toBeLessThanOrEqual(0.5);
+          for (const control of Object.values(geometry.controls)) {
+            if (control.inside) {
+              expect(control.width).toBe(28);
+              expect(control.height).toBe(28);
+              expect(Math.abs((control.top + control.bottom) / 2 - geometry.box.height / 2)).toBeLessThanOrEqual(0.5);
+            } else expect(control.top).toBeGreaterThanOrEqual(geometry.box.height);
+          }
         }
       } finally {
         await page.close();

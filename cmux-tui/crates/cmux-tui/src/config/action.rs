@@ -82,12 +82,24 @@ pub enum Action {
     ResizeShrink,
     ScrollUp,
     ScrollDown,
+    ScrollPageUp,
+    ScrollPageDown,
+    ScrollHalfPageUp,
+    ScrollHalfPageDown,
+    /// Keyboard copy mode over the active terminal's scrollback.
+    CopyMode,
+    /// Copy mode opened straight into a backward scrollback search.
+    SearchScrollback,
     ClearHistory,
     BrowserBack,
     BrowserForward,
     BrowserReload,
     BrowserEditUrl,
     ShowShortcuts,
+    /// Jump to the next tab that needs the person (src/attention.rs order).
+    NextAttention,
+    /// Open the searchable list of tabs that need the person.
+    AttentionList,
     Detach,
     /// Docked workspaces (plans/cmux-next/docked-workspace-DESIGN.md): dock
     /// the active workspace on an edge, undock it, show or hide an edge,

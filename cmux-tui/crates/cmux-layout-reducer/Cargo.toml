@@ -9,7 +9,9 @@ description = "Pure layout reducer and tab-conservation invariants for the cmux 
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
+# float_roundtrip: a split ratio or column width crosses the app FFI and comes back bit for bit
+# (the app compares the columns it gets to the ones it holds).
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 # Swift String and Character semantics for the group hover summary (canonical equality, grapheme
 # clusters). Both are already in the app FFI through cmux-palette-ranker and cmux-focus-core.
 unicode-normalization = { workspace = true }

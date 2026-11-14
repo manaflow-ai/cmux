@@ -66,11 +66,6 @@ private typealias SidebarStrings = CmuxNextSidebar.Strings
         #expect(cost.runningSince == nil)
         #expect(cost.estimatedCostUsd(now: Self.now) == nil)
         #expect(cost.usage(now: Self.now, locale: Self.enUS) == SidebarStrings.costRateWhenRunning("$0.26"))
-
-        let fields = CloudHandlers.costFields(Self.machine(.paused), now: Self.now)
-        #expect(fields["hourly_rate_usd"] == .double(0.2645))
-        #expect(fields["running_since"] == nil)
-        #expect(fields["estimated_cost_usd"] == nil)
     }
 
     @Test func aMachineWithNoCostFactsHasNoCostLine() {
@@ -102,34 +97,25 @@ private typealias SidebarStrings = CmuxNextSidebar.Strings
 
     // MARK: Decoding
 
-    @Test func theMachineListDecodesRateStartAndLimits() throws {
+    @Test func theMachineRecordDecodesRateAndStart() throws {
         let body = #"""
-        {"vms":[{"id":"vm-1","status":"running","hourlyRateUsd":0.2645,"runningSince":1800000000000},
-                {"id":"vm-2","status":"paused","hourlyRateUsd":null,"runningSince":null}],
-         "limits":{"maxActiveVms":null,"activeVmCount":1}}
+        [{"id":"vm-1","status":"running","hourlyRateUsd":0.2645,"runningSince":1800000000000},
+         {"id":"vm-2","status":"paused","hourlyRateUsd":null,"runningSince":null}]
         """#
-        let list = try JSONDecoder().decode(CloudMachineList.self, from: Data(body.utf8))
-        #expect(list.vms[0].hourlyRateUsd == 0.2645)
-        #expect(list.vms[0].runningSince == Self.now)
-        #expect(list.vms[1].hourlyRateUsd == nil)
-        #expect(list.vms[1].runningSince == nil)
-        #expect(list.limits == CloudMachineLimits(maxActiveVms: nil, activeVmCount: 1))
-
-        let capped = try JSONDecoder().decode(CloudMachineList.self, from: Data(#"{"vms":[],"limits":{"maxActiveVms":3,"activeVmCount":2}}"#.utf8))
-        #expect(capped.limits == CloudMachineLimits(maxActiveVms: 3, activeVmCount: 2))
-        let closed = try JSONDecoder().decode(CloudMachineList.self, from: Data(#"{"vms":[],"limits":{"maxActiveVms":0,"activeVmCount":0}}"#.utf8))
-        #expect(closed.limits?.maxActiveVms == 0)
+        let vms = try JSONDecoder().decode([JSONValue].self, from: Data(body.utf8)).map { try CloudMachineRules().read("machine_classic", $0, as: CloudMachine.self, context: "machine") }
+        #expect(vms[0].hourlyRateUsd == 0.2645)
+        #expect(vms[0].runningSince == Self.now)
+        #expect(vms[1].hourlyRateUsd == nil)
+        #expect(vms[1].runningSince == nil)
     }
 
-    /// A cost or cap this client cannot read drops the line, never the machines.
+    /// A cost this client cannot read drops the line, never the machine.
     @Test func malformedCostFactsKeepTheMachines() throws {
-        let body = #"{"vms":[{"id":"vm-1","status":"running","hourlyRateUsd":"cheap","runningSince":"soon"}],"limits":"open"}"#
-        let list = try JSONDecoder().decode(CloudMachineList.self, from: Data(body.utf8))
-        #expect(list.vms.map(\.id) == ["vm-1"])
-        #expect(list.vms[0].hourlyRateUsd == nil)
-        #expect(list.vms[0].runningSince == nil)
-        #expect(list.limits == nil)
-        #expect(try JSONDecoder().decode(CloudMachineList.self, from: Data(#"{"vms":[]}"#.utf8)).limits == nil)
+        let body = #"[{"id":"vm-1","status":"running","hourlyRateUsd":"cheap","runningSince":"soon"}]"#
+        let vms = try JSONDecoder().decode([JSONValue].self, from: Data(body.utf8)).map { try CloudMachineRules().read("machine_classic", $0, as: CloudMachine.self, context: "machine") }
+        #expect(vms.map(\.id) == ["vm-1"])
+        #expect(vms[0].hourlyRateUsd == nil)
+        #expect(vms[0].runningSince == nil)
     }
 
     // MARK: Surfaces
@@ -155,9 +141,12 @@ private typealias SidebarStrings = CmuxNextSidebar.Strings
             == SidebarStrings.statusConnected)
     }
 
-    /// `cloud machine-status` answers agents with the cost fields.
+    /// `cloud machine-status` answers agents with the cost fields (cmux-cloud-handlers has the rounding cases).
     @Test func machineStatusFieldsCarryTheCost() {
-        let fields = CloudHandlers.costFields(Self.machine(.running), now: Self.now)
+        let services = MachineIconTests.services()
+        let session = MachineIconTests.cloudMachine(services, id: "vm-cost")
+        session.machine = Self.machine(.running)
+        let fields = CloudHandlers.status(session, CloudMachineStats(state: "running"), now: Self.now).fields
         #expect(fields["hourly_rate_usd"] == .double(0.2645))
         #expect(fields["running_since"] == .string(Self.now.addingTimeInterval(-8_040).ISO8601Format()))
         #expect(fields["estimated_cost_usd"] == .double(0.5907))

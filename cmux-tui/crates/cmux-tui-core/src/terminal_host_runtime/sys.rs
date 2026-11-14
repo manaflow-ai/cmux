@@ -56,7 +56,7 @@ pub(crate) use unix::*;
 
 #[cfg(windows)]
 pub(crate) use windows::host_runtime::{
-    HostChild, adopt_launch, pty_poll_handle, wait_for_pty_readable_or_forced_drain,
+    HostChild, PtyPollHandle, adopt_launch, pty_poll_handle, wait_for_pty_readable_or_forced_drain,
 };
 #[cfg(windows)]
 pub(crate) use windows::lease::*;
@@ -89,6 +89,9 @@ mod windows_stubs {
             "terminal hosts are not implemented on this platform",
         )
     }
+
+    /// Windows keeps the default send buffer of a client connection.
+    pub(crate) fn size_client_send_buffer(_stream: &HostStream) {}
 
     /// Windows v1 hosts never hand over PTY custody (`supports_pty_custody:
     /// false`), so no value of this type exists there.
@@ -138,4 +141,12 @@ mod windows_stubs {
 
     /// Windows hosts write no signal breadcrumbs yet.
     pub(crate) fn remove_terminal_loss_signals(_record_path: &Path) {}
+
+    /// Windows hosts do not watch their record directory yet (#36625).
+    pub(crate) fn follow_record_root_removal(
+        _dir: &Path,
+        _on_removed: impl FnOnce() + Send + 'static,
+    ) -> io::Result<()> {
+        Ok(())
+    }
 }

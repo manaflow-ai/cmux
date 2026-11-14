@@ -10,6 +10,7 @@ use super::RENDER_GRAPHIC_BASE64_CACHE_MAX_BYTES;
 use super::RENDER_GRAPHIC_BASE64_CACHE_MAX_ENTRIES;
 use super::VtStateMessage;
 use super::terminal_colors_json;
+use super::tree_reply_text::TreeText;
 use super::write_pending_sequence_json;
 use crate::AttachFrame;
 use crate::SurfaceId;
@@ -18,7 +19,7 @@ use crate::panic_free::RecoverPoison;
 use base64::Engine;
 use ghostty_vt::KittyReplayState;
 use serde::Serialize;
-use serde_json::json;
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::io::Write;
@@ -126,6 +127,20 @@ pub(super) struct BudgetedText {
     pub(super) text: String,
     pub(super) retained_bytes: usize,
     pub(super) budget: Arc<OutboundByteBudget>,
+    /// Set when this text is a request's reply: the slow request log's record of that request,
+    /// which ends when the text is written (`note_written`) or dropped unwritten.
+    pub(super) reply: Option<crate::diagnostics::request_log::ReplyMark>,
+}
+
+impl BudgetedText {
+    /// The connection's writer wrote this text to its socket (`ok`), or the write failed.
+    pub(super) fn note_written(&self, ok: bool) {
+        match &self.reply {
+            Some(reply) if ok => reply.written(),
+            Some(reply) => reply.lost(),
+            None => {}
+        }
+    }
 }
 
 impl Deref for BudgetedText {
@@ -225,7 +240,7 @@ impl BudgetedJsonWriter {
         // serde_json emits UTF-8; a lossy decode keeps this path panic-free.
         let text = String::from_utf8(bytes)
             .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned());
-        Arc::new(BudgetedText { text, retained_bytes, budget: self.budget.clone() })
+        Arc::new(BudgetedText { text, retained_bytes, budget: self.budget.clone(), reply: None })
     }
 }
 
@@ -256,6 +271,9 @@ pub(super) struct RenderService {
     pub(super) graphic_base64: Mutex<RenderGraphicBase64Cache>,
     pub(super) outbound_budget: Arc<OutboundByteBudget>,
     pub(super) control_budget: Arc<OutboundByteBudget>,
+    /// Test seam: the values this service serialized into control messages.
+    #[cfg(test)]
+    pub(super) control_serializations: AtomicUsize,
 }
 
 impl RenderService {
@@ -279,6 +297,8 @@ impl RenderService {
             )),
             outbound_budget: Arc::new(OutboundByteBudget::new(max_bytes)),
             control_budget: Arc::new(OutboundByteBudget::new(control_max_bytes)),
+            #[cfg(test)]
+            control_serializations: AtomicUsize::new(0),
         }
     }
 
@@ -295,12 +315,67 @@ impl RenderService {
         Ok(writer.finish())
     }
 
+    /// A snapshot viewer's `output` event: the text [`RenderService::serialize`]
+    /// makes of `{"event": "output", "surface", "data": <base64>, "generation",
+    /// "offset"}` and, when given, `"colors"`, written straight into the
+    /// outbound buffer with no base64 string or JSON value between. The keys
+    /// go in the order serde_json writes a map (sorted), so the line is
+    /// byte-identical to the one built from a value.
+    pub(super) fn serialize_snapshot_output(
+        &self,
+        surface: SurfaceId,
+        output: &[u8],
+        generation: u64,
+        offset: u64,
+        colors: Option<&Value>,
+    ) -> std::io::Result<Arc<BudgetedText>> {
+        let mut writer = BudgetedJsonWriter::new(self.outbound_budget.clone());
+        writer.write_all(b"{")?;
+        if let Some(colors) = colors {
+            writer.write_all(b"\"colors\":")?;
+            serde_json::to_writer(&mut writer, colors).map_err(json_error_to_io)?;
+            writer.write_all(b",")?;
+        }
+        writer.write_all(b"\"data\":\"")?;
+        write_base64_json_string(&mut writer, output)?;
+        write!(
+            writer,
+            "\",\"event\":\"output\",\"generation\":{generation},\"offset\":{offset},\"surface\":{surface}}}"
+        )?;
+        Ok(writer.finish())
+    }
+
     pub(super) fn serialize_control<T: Serialize + ?Sized>(
         &self,
         value: &T,
     ) -> std::io::Result<Arc<BudgetedText>> {
+        #[cfg(test)]
+        self.control_serializations.fetch_add(1, Ordering::Relaxed);
         let mut writer = BudgetedJsonWriter::new(self.control_budget.clone());
         serde_json::to_writer(&mut writer, value).map_err(json_error_to_io)?;
+        Ok(writer.finish())
+    }
+
+    /// The text of a `list-workspaces` tree, which the replies of its build
+    /// are written from (tree_reply_text.rs). It is not charged to a budget:
+    /// like the built tree it is kept only while its readers write, and each
+    /// reply written from it is charged.
+    pub(super) fn serialize_tree(&self, tree: &Value) -> std::io::Result<TreeText> {
+        #[cfg(test)]
+        self.control_serializations.fetch_add(1, Ordering::Relaxed);
+        TreeText::of(tree)
+    }
+
+    /// A control message that `write` writes, charged to the control budget
+    /// like [`Self::serialize_control`]'s, with room for `bytes` reserved first.
+    pub(super) fn write_control(
+        &self,
+        bytes: usize,
+        write: impl FnOnce(&mut BudgetedJsonWriter) -> std::io::Result<()>,
+    ) -> std::io::Result<Arc<BudgetedText>> {
+        let mut writer = BudgetedJsonWriter::new(self.control_budget.clone());
+        writer.ensure_capacity(bytes)?;
+        write(&mut writer)?;
         Ok(writer.finish())
     }
 
@@ -329,6 +404,9 @@ impl RenderService {
         writer.write_all(b",\"colors\":")?;
         serde_json::to_writer(&mut writer, &value.colors).map_err(json_error_to_io)?;
         write_pending_sequence_json(&mut writer, &value.pending_sequence)?;
+        if let Some(omitted) = value.history_rows_omitted {
+            write!(writer, ",\"history_rows_omitted\":{omitted}")?;
+        }
         writer.write_all(b"}")?;
         Ok(writer.finish())
     }

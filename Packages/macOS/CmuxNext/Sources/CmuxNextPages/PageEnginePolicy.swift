@@ -20,8 +20,8 @@ public nonisolated struct PageEnginePolicy: Sendable, Hashable {
     public var chromiumAvailable: Bool
     /// Whether Chromium's page scheme serves the page being decided (``PageChromiumHosting/serves(_:)``).
     public var chromiumServes: Bool
-    /// Whether `web-dev.json` points pages at a dev server or an overlay (``WebDevOverride/isActive``),
-    /// which only WebKit pages read.
+    /// Whether `web-dev.json` points pages at a dev server or an overlay (``WebDevOverride/isActive``)
+    /// that Chromium cannot serve (``PageChromiumHosting/setLivePages(_:)``), so only WebKit shows it.
     public var liveWebOverride: Bool
 
     /// - Parameters:
@@ -29,7 +29,7 @@ public nonisolated struct PageEnginePolicy: Sendable, Hashable {
     ///   - chromiumAvailable: Whether Chromium can host a page now.
     ///   - chromiumServes: Whether Chromium's page scheme serves the page; true by default, for a
     ///     caller that only asks about the setting and the page's own blockers.
-    ///   - liveWebOverride: Whether a live web override is in force (Debug, NIGHTLY and cmux NEXT DEV only).
+    ///   - liveWebOverride: Whether a live web override is in force that only WebKit can show.
     public init(preference: BrowserDefaultEngine, chromiumAvailable: Bool, chromiumServes: Bool = true,
                 liveWebOverride: Bool = false) {
         self.preference = preference

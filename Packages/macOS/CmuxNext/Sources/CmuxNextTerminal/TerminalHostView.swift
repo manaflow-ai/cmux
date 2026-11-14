@@ -11,7 +11,7 @@ import Observation
 /// the first cell sits exactly Ghostty's padding inside the border
 /// (`TerminalPadding.cmuxDefault` unless the user set their own).
 public final class TerminalHostView: NSView {
-    private weak var current: TerminalSurfaceView?
+    private(set) weak var current: TerminalSurfaceView?
     /// The session's theme; nil paints the config background.
     /// Called with the App Theme's veil this terminal draws on, or nil (``paintBackground()``).
     var onVeil: ((ThemeRGB?) -> Void)?
@@ -20,9 +20,12 @@ public final class TerminalHostView: NSView {
     }
     /// The label over the last screen while the link is down (click-through), built the first time
     /// a label shows: a new terminal's "connected" or quick "Restoring…" builds and shows nothing.
-    private lazy var statusLabel = TerminalStatusLabel(clock: statusClock, install: { [weak self] banner in
+    lazy var statusLabel = TerminalStatusLabel(clock: statusClock, install: { [weak self] banner in
         self?.addChrome(banner, .statusLabel)
-    }, didReveal: { [weak self] in self?.needsLayout = true })
+    }, didReveal: { [weak self] in
+        self?.syncRetryButton()
+        self?.needsLayout = true
+    })
     private let statusClock: any Clock<Duration>
     /// The scroller: thin, shown only while scrolling (SCROLLBARS-THIN). Overlay and hidden at rest,
     /// so it is built the first time the viewport moves through the scrollback, not with the
@@ -31,6 +34,9 @@ public final class TerminalHostView: NSView {
     private var scroller: TerminalScroller?
     /// The surface's last scrollbar state (Ghostty's scrollbar action), kept while no scroller is built.
     private var scrollbar: TerminalScrollbar?
+    /// Builds the scroller when the pointer reaches the trailing edge of a terminal with scrollback
+    /// (``pointerMoved(to:)``); none while there is nothing to scroll back through or once it is built.
+    private var edgeTracker: TerminalScrollerEdgeTracker?
     private var shownStatus: TerminalConnectionStatus = .connected
     private var hostLoss: TerminalHostLoss?
     private var hostLossCause: TerminalHostLossCause?
@@ -44,6 +50,8 @@ public final class TerminalHostView: NSView {
     private var retryButton: TerminalRetryButton?
     /// "Sized for <device>" with Take over, bottom-trailing, while another view sets the grid.
     private var sizedForChip: TerminalSizedForChip?
+    /// Classic's hatch over the pane space the grid does not use while the chip shows.
+    private var sizeHatch: TerminalSizeHatchView?
     private var restartAction: (@MainActor () -> Void)?
     /// The App's `tab.restart` for this tab; nil hides the button (a daemon
     /// without `tab-restart-v1`, a tab that cannot restart).
@@ -144,29 +152,21 @@ public final class TerminalHostView: NSView {
         }
     }
 
-    /// Pins the session's find bar to the top-trailing corner, above the
-    /// surface and the status banner.
+    /// Shows the session's find bar in the top-trailing corner, above the
+    /// surface and the status banner, and lets it take the keyboard now.
     /// The find bar is built the first time find opens, not with the
     /// terminal: its glass panel, stack and buttons cost about 5 ms of main
     /// thread per new terminal (R81 trace), most of a 120 Hz frame.
-    func attachFind(_ find: TerminalFindController) {
-        if find.isPresented { return installFindBar(find) }
-        withObservationTracking {
-            _ = find.isPresented
-        } onChange: { [weak self, weak find] in
-            Task { @MainActor in
-                guard let self, let find else { return }
-                self.attachFind(find)
-            }
+    func showFindBar(_ find: TerminalFindController) {
+        if let bar = subviews.lazy.compactMap({ $0 as? TerminalFindBarView }).first {
+            return bar.update()
         }
-    }
-
-    private func installFindBar(_ find: TerminalFindController) {
-        guard !subviews.contains(where: { $0 is TerminalFindBarView }) else { return }
         let bar = TerminalFindBarView(find: find)
         bar.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
+        // In the window before it renders shown: focus needs a window.
         addChrome(bar, .overlay)
         needsLayout = true
+        bar.update()
     }
 
     /// The link status label over the terminal, nil while none shows (connected, or a transient
@@ -179,12 +179,13 @@ public final class TerminalHostView: NSView {
     /// The layers of what the host shows over its surface, back to front. The surface and a held
     /// frame over it (``TerminalFrameHold``, directly above the surface) are below all of them.
     private enum ChromeLayer: Int, Comparable {
-        case scroller, accessory, statusLabel, overlay
+        case hatch, scroller, accessory, statusLabel, overlay
         static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
     }
 
     /// The layer of `view`, nil for the surface, a held frame and anything else that is not chrome.
     private func chromeLayer(of view: NSView) -> ChromeLayer? {
+        if view === sizeHatch { return .hatch }
         if view === scroller { return .scroller }
         if view === bottomAccessory { return .accessory }
         if view === statusLabel.banner { return .statusLabel }
@@ -218,13 +219,19 @@ public final class TerminalHostView: NSView {
             retryButton = button
             addChrome(button, .overlay)
         }
-        if let retryButton {
-            let hidden = retryButton.isHidden
-            retryButton.show(status)
-            changed = changed || hidden != retryButton.isHidden
-        }
+        changed = syncRetryButton() || changed
         // A new terminal's "connected" (or a label still waiting) changes nothing on screen: no layout.
         if changed { needsLayout = true }
+    }
+
+    /// Shows Retry for the shown status with the label it sits over: not while that label still waits
+    /// out its reveal delay (a drop that heals within it shows neither). Returns whether it changed.
+    @discardableResult
+    private func syncRetryButton() -> Bool {
+        guard let retryButton else { return false }
+        let hidden = retryButton.isHidden
+        retryButton.show(shownStatus, waiting: statusLabel.isWaiting)
+        return hidden != retryButton.isHidden
     }
 
     /// Builds the restart button once the shell has ended, or cmux lost its
@@ -258,6 +265,39 @@ public final class TerminalHostView: NSView {
     /// The "Sized for" chip's text, nil while hidden (diagnostics and tests).
     var sizedForText: String? {
         sizedForChip?.shown.map { TerminalSizedForChip.text(for: $0) }
+    }
+
+    /// The grid's rect in this view while another view sets it smaller than the terminal's area
+    /// (y up), nil otherwise: where the hatch stops.
+    var sizedForGridRect: CGRect? {
+        guard let shown = sizedForChip?.shown, let model = current?.session?.model,
+              model.cellPixelSize.width > 0, model.cellPixelSize.height > 0 else { return nil }
+        let scale = window?.backingScaleFactor ?? 2
+        let size = CGSize(width: CGFloat(shown.grid.columns) * model.cellPixelSize.width / scale,
+                          height: CGFloat(shown.grid.rows) * model.cellPixelSize.height / scale)
+        let area = CGRect(x: terminalBounds.minX, y: terminalBounds.minY,
+                          width: max(0, terminalBounds.width - scrollerWidth), height: terminalBounds.height)
+        let origin = firstCellOrigin
+        let grid = CGRect(x: area.minX + origin.x, y: area.maxY - origin.y - size.height, width: size.width, height: size.height)
+        // Hatch only where the grid leaves room: a cropped grid fills the area.
+        guard grid.maxX < area.maxX - 1 || grid.minY > area.minY + 1 else { return nil }
+        return grid.intersection(area)
+    }
+
+    private func layoutSizeHatch() {
+        let grid = sizedForGridRect
+        if grid == nil, sizeHatch == nil { return }
+        if sizeHatch == nil {
+            let hatch = TerminalSizeHatchView()
+            sizeHatch = hatch
+            addChrome(hatch, .hatch)
+        }
+        guard let sizeHatch else { return }
+        let area = CGRect(x: terminalBounds.minX, y: terminalBounds.minY,
+                          width: max(0, terminalBounds.width - scrollerWidth), height: terminalBounds.height)
+        if sizeHatch.frame != area { sizeHatch.frame = area }
+        sizeHatch.ground = hatchGround
+        sizeHatch.show(grid: grid.map { $0.offsetBy(dx: -area.minX, dy: -area.minY) })
     }
 
     func showSizedFor(_ sizedFor: TerminalSizedFor?) {
@@ -302,12 +342,22 @@ public final class TerminalHostView: NSView {
     func install(_ surfaceView: TerminalSurfaceView) {
         let old = current
         surfaceView.autoresizingMask = []
-        surfaceView.place(surfaceFrame, anchor: surfaceAnchor)
+        let placement = surfacePlacement
+        surfaceView.place(placement.frame, anchor: placement.anchor)
         // At the back: the scroller and the overlays stay over every swapped-in surface.
         addSubview(surfaceView, positioned: .below, relativeTo: nil)
         current = surfaceView
         old?.removeFromSuperview()
         followScrollbar(of: surfaceView)
+        // Beside the surface the host shows the program's own background when it set one (``programBackgroundDidChange(_:)``).
+        if surfaceView.session?.model.backgroundOverride != nil || old?.session?.model.backgroundOverride != nil { paintBackground() }
+    }
+
+    /// The current surface's program set its background (OSC 11, ``TerminalSurfaceModel/backgroundOverride``): what the
+    /// host shows beside its surface (a held frame's grow strip, RESIZE P0 15) is the colour of the program's empty cells.
+    func programBackgroundDidChange(_ surfaceView: TerminalSurfaceView) {
+        guard current === surfaceView else { return }
+        paintBackground()
     }
 
     /// Shows the surface's scrollbar state (Ghostty's scrollbar action) on the scroller, now and on
@@ -330,10 +380,35 @@ public final class TerminalHostView: NSView {
         let previous = scrollbar
         scrollbar = bar
         if let scroller { return scroller.update(bar) }
-        guard TerminalScrollerGeometry.isUserMove(from: previous, to: bar) else { return }
+        guard TerminalScrollerGeometry.isUserMove(from: previous, to: bar) else { return trackEdge(for: bar) }
         let scroller = makeScroller()
         scroller.update(previous)
         scroller.update(bar)
+    }
+
+    /// The pointer moved over the terminal to `point` (this view's coordinates), or left it (nil),
+    /// while no scroller is built (``TerminalScrollerEdgeTracker``). Over the scroller's strip with
+    /// scrollback to show, it builds the scroller and hands it the pointer, which shows it; a built
+    /// scroller follows the pointer itself.
+    func pointerMoved(to point: CGPoint?) {
+        guard scroller == nil, let point, let bar = scrollbar, bar.totalRows > bar.visibleRows else { return }
+        let area = terminalBounds
+        guard area.contains(point), point.x >= TerminalScroller.strip(in: area, style: SystemScrollers.nativeStyle).minX else { return }
+        let scroller = makeScroller()
+        scroller.update(bar)
+        (scroller.verticalScroller as? ThinScroller)?.pointerMoved(to: scroller.convert(point, from: self))
+    }
+
+    /// Tracks the pointer for ``pointerMoved(to:)`` only while there is scrollback and no scroller:
+    /// a terminal with nothing to scroll back through gets no tracking area.
+    private func trackEdge(for bar: TerminalScrollbar?) {
+        let wanted = scroller == nil && (bar.map { $0.totalRows > $0.visibleRows } ?? false)
+        if wanted, edgeTracker == nil {
+            edgeTracker = TerminalScrollerEdgeTracker(host: self)
+        } else if !wanted, let edgeTracker {
+            edgeTracker.detach()
+            self.edgeTracker = nil
+        }
     }
 
     /// Whether the scroller is built (tests).
@@ -345,6 +420,7 @@ public final class TerminalHostView: NSView {
         scroller.onScrollToRow = { [weak self] row in _ = self?.current?.performBindingAction("scroll_to_row:\(row)") }
         scroller.onWheel = { [weak self] event in self?.current?.scrollWheel(with: event) }
         self.scroller = scroller
+        trackEdge(for: nil) // the scroller's own tracking area follows the pointer from here
         // Above the surface and a held frame, below the accessory, the status label and the overlays.
         addChrome(scroller, .scroller)
         scroller.frame = scroller.strip(in: terminalBounds)
@@ -368,17 +444,20 @@ public final class TerminalHostView: NSView {
         max(0, hostWidth - TerminalScroller.reservedWidth(for: SystemScrollers.nativeStyle))
     }
 
-    /// The surface's frame: the host, less a legacy scroller's strip (none: the scroller is overlay). While
-    /// a pane's layout spring runs, the surface keeps the size it will rest at (``holdSurface(size:anchor:)``),
-    /// pinned to the area's top or bottom edge; the host clips it and paints the terminal background beside it.
-    private var surfaceFrame: CGRect {
+    /// The surface's frame: the host, less a legacy scroller's strip (none: the scroller is overlay). While a split's,
+    /// a close's or a zoom's layout spring runs, the surface keeps the size it will rest at
+    /// (``holdSurface(size:anchor:)``), pinned to the hold's edge of the area; the host clips it and paints the terminal
+    /// background beside it. While the host follows its pane through a key resize, the surface takes the area in every
+    /// frame (``followedSurfaceFrame(in:)``, cmux-ad m18).
+    /// The edge is the one a frame kept while its new size is drawn rides (``TerminalSurfaceView/place(_:anchor:)``).
+    private var surfacePlacement: (frame: CGRect, anchor: PaneMotionAnchor) {
         let area = terminalBounds
-        if let followed = followedHold { return followedSurfaceFrame(followed, in: area) }
+        if surfaceFollowsArea { return (followedSurfaceFrame(in: area), .top) }
         if let hold = surfaceHold {
             let y = hold.anchor == .bottom ? area.minY : area.maxY - hold.size.height
-            return CGRect(x: area.minX, y: y, width: hold.size.width, height: hold.size.height)
+            return (CGRect(x: area.minX, y: y, width: hold.size.width, height: hold.size.height), hold.anchor)
         }
-        return CGRect(x: area.minX, y: area.minY, width: max(0, area.width - scrollerWidth), height: area.height)
+        return (CGRect(x: area.minX, y: area.minY, width: max(0, area.width - scrollerWidth), height: area.height), .top)
     }
 
     /// The size the surface takes in a host of `hostSize` points: less the accessory's strip and a legacy
@@ -389,31 +468,61 @@ public final class TerminalHostView: NSView {
 
     /// The surface's size and edge while its pane's layout spring runs; nil at rest.
     private(set) var surfaceHold: (size: CGSize, anchor: PaneMotionAnchor)?
-    /// FRAME OWNER S3: the hold this host follows its pane through (``PaneMotionHoldFollowing``), and the host's size
-    /// when it began; nil at rest.
+    /// FRAME OWNER S3: the hold this host follows its pane through (``PaneMotionHoldFollowing``) and its size then; nil at rest.
     var followedHold: (hold: PaneMotionHold, heldSize: CGSize)?
-
-    /// The edge a surface rides while its frame differs from the area's (a hold, or a size Ghostty has not shown yet).
-    private var surfaceAnchor: PaneMotionAnchor { surfaceHold?.anchor ?? .top }
+    /// The followed hold ended: the host's next layout places the surface at its final frame, and a size drawn ahead that
+    /// this placement did not take goes (``TerminalSurfaceView/dropAhead()``).
+    var dropsAheadAtRest = false
+    /// The size drawn ahead at rest is a key resize's (a key press's first size, or a followed key hold's end), not a
+    /// snapped split's, close's or zoom's: its grid goes to the program with it (``TerminalSurfaceView``
+    /// `followsKeyResize`, RESIZE P0 11). Cleared with ``dropsAheadAtRest``.
+    var aheadOfKeyResize = false
+    /// The host's size when its size was drawn ahead of a follow or a snap (``drawAheadOfFollow(nextHostSize:keyPress:)``):
+    /// a layout at this size is not the placement the size waits for, so it does not drop it (RESIZE P0 14: a layout in
+    /// a Reduce Motion key press's own turn dropped the size drawn ahead and sent the old grid back). The placement at a
+    /// new size takes it or drops it; a snap that showed at this size drops it (``aheadOfFollowShown()``). Nil: the
+    /// next layout is the placement at rest (a followed hold ended).
+    var aheadRestBasis: CGSize?
+    /// A key press's held snap shows in this turn (``aheadOfFollowWillShow()``, RESIZE P0 21): the surface's placement
+    /// does not hold for its program's redraw again (``TerminalSurfaceView/programHoldTicks``). Cleared at the placement
+    /// and when the snap showed.
+    var showsKeySnap = false
+    /// A person drags a divider or edge of this host's pane (``PaneResizeGestureFollowing``): the surface it shows follows.
+    var followsResizeGesture = false
 
     /// Keeps the surface at `size`, the size it will have when its pane's layout spring lands (a split or a
     /// close, Lawrence 2026-10-23): the terminal draws its final grid on every frame of the spring and reflows
     /// once, not once per frame. `anchor`: the edge it rides (the bottom keeps a prompt on the last row in view).
     func holdSurface(size: CGSize, anchor: PaneMotionAnchor) {
         surfaceHold = (size, anchor)
-        current?.place(surfaceFrame, anchor: surfaceAnchor)
+        placeSurface()
     }
 
-    /// The spring landed: the surface takes the host's area again (the same size, unless the landing differs).
+    /// The hold ends (the spring landed, a drag caught it, or a key press whose terminal follows its pane: `restAt`): the surface takes the area again.
     func releaseSurfaceHold() {
         guard surfaceHold != nil else { return }
         surfaceHold = nil
-        current?.place(surfaceFrame, anchor: surfaceAnchor)
+        placeSurface()
+    }
+
+    /// The current surface takes its frame (``surfacePlacement``).
+    private func placeSurface() { // perf-hot: 4ms motion-frame
+        guard let current else { return }
+        let placement = surfacePlacement
+        current.place(placement.frame, anchor: placement.anchor)
+        showsKeySnap = false
+        // B1 (diag bf2b674a): a size drawn ahead goes only when its hold ended, never on a timer (a spring's next refresh
+        // can come 2 display ticks later, and dropping it then made that refresh wait for its frame again). The final
+        // placement took it if it is the final size; else Ghostty goes back to the view's size.
+        if dropsAheadAtRest, !surfaceFollowsArea, aheadRestBasis != bounds.size {
+            (dropsAheadAtRest, aheadOfKeyResize, aheadRestBasis) = (false, false, nil)
+            current.dropAhead()
+        }
     }
 
     public override func layout() { // perf-hot: 4ms motion-frame (each frame of a key resize the host follows, FRAME OWNER S3)
         super.layout()
-        current?.place(surfaceFrame, anchor: surfaceAnchor)
+        placeSurface()
         if let scroller {
             let strip = scroller.strip(in: terminalBounds)
             if scroller.frame != strip { scroller.frame = strip }
@@ -434,6 +543,7 @@ public final class TerminalHostView: NSView {
             layoutStatus(buttons: buttons)
         }
         let inset = Metrics.panelInset
+        layoutSizeHatch()
         if let sizedForChip, !sizedForChip.isHidden {
             // Bottom-trailing, clear of the scroller: where a padded grid leaves room.
             let trailing = bounds.width - scrollerWidth - inset
@@ -512,6 +622,7 @@ public final class TerminalHostView: NSView {
     /// background (`appearance.surfaces.terminal`) replaces all of these;
     /// the surfaces then draw a transparent default background.
     fileprivate func paintBackground() {
+        sizeHatch?.ground = hatchGround
         let (scope, tokens) = (themeScope, themeTokens)
         // The window root's backdrop (`WindowRootView.backdrop`): the scope's art and its own tint.
         let backdrop = WindowBackdrop(tokens, reduceTransparency: ReduceTransparency.shared.isEnabled,
@@ -528,16 +639,28 @@ public final class TerminalHostView: NSView {
             return
         }
         guard !backdrop.panesPaintBackground else {
-            guard let rgb = theme?.colors?.background else {
-                layer?.backgroundColor = GhosttyRuntime.shared.backgroundColor.cgColor
-                return
-            }
-            layer?.backgroundColor = CGColor(srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255, blue: CGFloat(rgb.b) / 255, alpha: 1)
+            // The program set its own background (OSC 11): the host beside the surface (a held frame's grow strip) has
+            // the colour of its empty cells.
+            layer?.backgroundColor = current?.session?.model.backgroundOverride?.cgColor ?? Self.opaqueGround(theme)
             return
         }
         let around = superview?.themeTokens.surfaceBackground.withAlpha(1)
         let own = tokens.surfaceBackground.withAlpha(1)
         layer?.backgroundColor = theme == nil || own == around ? nil : own.withAlpha(backdrop.tintOpacity).cgColor
+    }
+
+    /// The terminal background under the Sized for hatch: the user's terminal surface color, else the program's
+    /// own (OSC 11), else the theme's or the config's.
+    private var hatchGround: CGColor {
+        performWithTheme { Palette.surfaceOverride(.terminal) }?.cgColor
+            ?? current?.session?.model.backgroundOverride?.cgColor
+            ?? Self.opaqueGround(theme)
+    }
+
+    /// The background of `theme`'s empty cells, else the config's (``ground(theme:in:)`` gives a waiting pane the same).
+    static func opaqueGround(_ theme: GhosttyThemeConfig?) -> CGColor {
+        guard let rgb = theme?.colors?.background else { return GhosttyRuntime.shared.backgroundColor.cgColor }
+        return CGColor(srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255, blue: CGFloat(rgb.b) / 255, alpha: 1)
     }
 }
 

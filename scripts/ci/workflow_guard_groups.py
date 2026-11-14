@@ -60,8 +60,11 @@ PATH_OWNERS = {
     # resolver it imports, the reusable workflow that publishes the map, and
     # the one workflow wired to consume it.
     ".github/runners.json": frozenset(("ci",)),
+    # check-single-host-fallbacks.py (advisory in CI) reads every workflow's runs-on against this declaration.
+    ".github/single-host-fallbacks.json": frozenset(("ci",)),
     ".github/workflows/resolve-runners.yml": frozenset(("ci",)),
     ".github/workflows/ios-app-store.yml": frozenset(("ci",)),
+    "cmux-next-ios/scripts/asc_ensure_signing.py": frozenset(("ci",)),
     "scripts/ci/resolve_runners.py": frozenset(("ci",)),
     # test_runner_routing_table.py imports the routing check and reads every
     # workflow's runs-on against .github/runners.json.
@@ -91,6 +94,9 @@ PATH_OWNERS = {
     "ghostty": frozenset(("release-tooling",)),
     "ios/scripts/fetch-testflight-notes-history.sh": frozenset(("release-ios",)),
     "ios/scripts/upload-testflight.sh": frozenset(("release-ios",)),
+    # test_ios_app_review_gate.py loads the gate by path and reads the history.
+    "cmux-next-ios/scripts/app_review_gate.py": frozenset(("release-ios",)),
+    "cmux-next-ios/AppStoreReview/rejection-history.json": frozenset(("release-ios",)),
     # validate_test_execution_registry.py reads the recipe for the tests it runs.
     "scripts/verify-local.py": frozenset(("preflight", "ci")),
     # test_lint_feature_flags_scope.py reads its parser and registry discovery.
@@ -202,6 +208,8 @@ PATH_OWNERS = {
     "tests/test-execution.toml": frozenset(("preflight",)),
 }
 
+REGISTRY_FRAGMENT = re.compile(r"tests/test-execution\.d/[^/]+\.toml")
+
 # Changes here can alter which required work runs. They always exercise every
 # group, including when the candidate implementation would route more narrowly.
 ROUTING_POLICY_PATHS = frozenset({
@@ -230,7 +238,7 @@ def _determinism_scan(path: str) -> bool:
         return False
     if path.startswith(("tests/", "tests_v2/", "web/tests/", "webviews/test/")):
         return True
-    return path.startswith("Packages/") and "/Tests/" in path
+    return path.startswith(("Packages/", "cmux-next-ios/")) and "/Tests/" in path
 
 
 class GuardWorkflowError(ValueError):
@@ -421,6 +429,47 @@ def _workflow_path_owners() -> dict[str, frozenset[str]] | None:
         return None
 
 
+TEST_MODULE = re.compile(r"tests/([A-Za-z_][A-Za-z0-9_]*)\.py")
+
+
+def _importers(stem: str, root: Path) -> set[str]:
+    """tests/*.py files that import the sibling module `stem`, directly or through another
+    sibling module (tests/test_x.py imports job_lists_routing, which imports workflow_jobs)."""
+    found: set[str] = set()
+    pending = [stem]
+    while pending:
+        module = pending.pop()
+        pattern = re.compile(
+            rf"^\s*(?:from\s+{module}\s+import\b|import\s+(?:[\w.]+\s*,\s*)*{module}\b)", re.M
+        )
+        for candidate in sorted((root / "tests").glob("*.py")):
+            relative = f"tests/{candidate.name}"
+            if relative in found:
+                continue
+            try:
+                text = candidate.read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                continue
+            if pattern.search(text):
+                found.add(relative)
+                pending.append(candidate.stem)
+    return found
+
+
+def import_owners(path: str, derived: dict[str, frozenset[str]], root: Path | None = None) -> set[str]:
+    """Groups whose guard steps run a test that imports this tests/ module. A shared helper such
+    as tests/workflow_jobs.py is never run by a step itself, so without this an edit to it would
+    run none of the suites that read it."""
+    match = TEST_MODULE.fullmatch(path)
+    if match is None:
+        return set()
+    root = root or GUARD_WORKFLOW.parents[2]
+    owners: set[str] = set()
+    for importer in _importers(match.group(1), root):
+        owners.update(derived.get(importer, ()))
+    return owners
+
+
 def groups_for_path(path: str) -> tuple[str, ...] | None:
     """Return current observers for path, or None when ownership is unknown."""
     if path in ROUTING_POLICY_PATHS:
@@ -431,7 +480,11 @@ def groups_for_path(path: str) -> tuple[str, ...] | None:
         return GROUPS
 
     owners = set(PATH_OWNERS.get(path, ()))
+    if REGISTRY_FRAGMENT.fullmatch(path):
+        # A test registry area fragment is read like tests/test-execution.toml was.
+        owners.update(PATH_OWNERS["tests/test-execution.toml"])
     owners.update(derived.get(path, ()))
+    owners.update(import_owners(path, derived))
     if _python_syntax_scan(path):
         # Syntax compilation is a cheap, deterministic check. Keep it out of
         # the serial preflight bucket, whose other steps install and exercise

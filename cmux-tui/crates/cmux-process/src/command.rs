@@ -33,6 +33,8 @@ pub struct Command {
     pub(crate) stderr: Option<Stdio>,
     pub(crate) process_group: Option<i32>,
     pub(crate) new_session: bool,
+    /// macOS: the child is its own responsible process ([`Command::disclaim_responsibility`]).
+    pub(crate) disclaim_responsibility: bool,
     /// (descriptor, the number the child gets it at).
     #[cfg(unix)]
     pub(crate) inherit: Vec<(OwnedFd, RawFd)>,
@@ -55,6 +57,7 @@ impl Command {
             stderr: None,
             process_group: None,
             new_session: false,
+            disclaim_responsibility: false,
             #[cfg(unix)]
             inherit: Vec::new(),
         }
@@ -133,9 +136,9 @@ impl Command {
     /// [`Command::stderr`] set them). With [`Command::new_session`] and a
     /// terminal path (a PTY slave), that terminal becomes the child's
     /// controlling terminal: a session leader with none acquires the first
-    /// terminal it opens (macOS and Linux). The shell spawn of a PTY uses it,
-    /// as `cmux-mux2`'s `spawn_pty` does (`posix_spawn_file_actions_addopen`
-    /// on 0, then `adddup2` 0 to 1 and 2 on macOS). A failed open is the
+    /// terminal it opens (macOS and Linux). The shell spawn of a PTY uses it
+    /// (`posix_spawn_file_actions_addopen` on 0, then `adddup2` 0 to 1 and 2
+    /// on macOS). A failed open is the
     /// spawn's error. Replaces an earlier [`Command::stdin`].
     pub fn open_stdin_path(&mut self, path: impl AsRef<Path>) -> &mut Self {
         self.stdin_path = Some(path.as_ref().to_owned());
@@ -169,6 +172,17 @@ impl Command {
         self
     }
 
+    /// macOS: the child becomes its own responsible process, so privacy
+    /// permissions (Accessibility, Screen Recording) are checked against the
+    /// child's code signature, never this process's or its launcher's
+    /// (`responsibility_spawnattrs_setdisclaim`). The spawn fails when the
+    /// system has no such call, rather than starting the child under this
+    /// process's grants. Elsewhere it changes nothing.
+    pub fn disclaim_responsibility(&mut self) -> &mut Self {
+        self.disclaim_responsibility = true;
+        self
+    }
+
     /// Give the child a copy of `fd` at descriptor number `at` (3 or more:
     /// 0-2 are [`Command::stdin`], [`Command::stdout`], [`Command::stderr`]).
     /// The only way a descriptor other than 0-2 reaches the child.
@@ -192,15 +206,33 @@ impl Command {
     /// Start the child. Returns once it runs its program (an exec failure is
     /// this call's error). The streams and descriptors given are used up, as
     /// std does with a `Stdio` it owns.
+    ///
+    /// The child leads a process group of its own unless it was put in
+    /// another ([`Command::process_group`] with a pgid) or this process has
+    /// a controlling terminal (a command run from a shell: its children stay
+    /// in the terminal's foreground group, so Ctrl-C reaches them as it
+    /// reaches this process). A daemon has none, so its children lead their
+    /// groups. [`Command::new_session`] makes it a leader too. A leader's
+    /// drop ends what it started with it ([`Child`]).
     pub fn spawn(&mut self) -> io::Result<Child> {
+        let asked = self.process_group;
+        let leads_group = match asked {
+            _ if self.new_session => true,
+            Some(pgid) => pgid == 0,
+            None if cfg!(unix) && !has_controlling_terminal() => {
+                self.process_group = Some(0);
+                true
+            }
+            None => false,
+        };
         #[cfg(target_vendor = "apple")]
-        {
-            crate::spawn_apple::spawn(self)
-        }
+        let spawned = crate::spawn_apple::spawn(self);
         #[cfg(not(target_vendor = "apple"))]
-        {
-            self.spawn_std()
-        }
+        let spawned = self.spawn_std();
+        self.process_group = asked;
+        let mut child = spawned?;
+        child.set_leads_group(leads_group);
+        Ok(child)
     }
 
     /// Run the child to its end with stdin null and stdout and stderr
@@ -326,5 +358,26 @@ impl Command {
         #[cfg(unix)]
         self.inherit.clear();
         Ok(Child::from_std(child))
+    }
+}
+
+/// This process has a controlling terminal (`/dev/tty` opens).
+pub(crate) fn has_controlling_terminal() -> bool {
+    #[cfg(unix)]
+    {
+        // SAFETY: a constant path; the descriptor is closed at once.
+        let fd = unsafe {
+            libc::open(c"/dev/tty".as_ptr(), libc::O_RDONLY | libc::O_NOCTTY | libc::O_CLOEXEC)
+        };
+        if fd < 0 {
+            return false;
+        }
+        // SAFETY: the descriptor just opened.
+        unsafe { libc::close(fd) };
+        true
+    }
+    #[cfg(not(unix))]
+    {
+        true
     }
 }

@@ -40,6 +40,8 @@ public nonisolated struct AgentPaneSessionInfoModel: Codable, Equatable, Sendabl
         public var symbol: String?
         public var symbolColor: String?
         public var harness: String?
+        /// Identity ink selected by shared web, independent of the row's status.
+        public var identityTone: Int?
         /// A retrying row uses the native spinner instead of its harness glyph.
         public var working: Bool?
         /// A running row's shared wave phase and cadence.
@@ -159,6 +161,11 @@ public nonisolated struct AgentPaneSessionInfoModel: Codable, Equatable, Sendabl
     /// Called when ``overlays`` changes: the view cuts them out of the panel.
     var onOverlays: (() -> Void)?
 
+    /// The page's trackpad pinch (`pane.sessionInfo.pinch`): the panel zooms and pans with it.
+    public private(set) var pinch = AgentPaneSessionInfoPinch.none
+    /// Called when ``pinch`` changes: the view lays the panel out again.
+    var onPinch: (() -> Void)?
+
     /// Whether the panel shows.
     public var isOpen: Bool { info?.open == true }
 
@@ -174,8 +181,15 @@ public nonisolated struct AgentPaneSessionInfoModel: Codable, Equatable, Sendabl
         onOverlays?()
     }
 
+    func updatePinch(_ next: AgentPaneSessionInfoPinch) {
+        guard next != pinch else { return }
+        pinch = next
+        onPinch?()
+    }
+
     /// The page loaded again: it has sent nothing yet.
     func pageLoaded() {
+        updatePinch(.none)
         updateOverlays([])
         update(nil)
     }
@@ -218,6 +232,52 @@ public nonisolated struct AgentPaneSessionInfoOverlay: Equatable, Sendable {
             ))
         }
         return rects
+    }
+}
+
+/// The page's trackpad pinch (Leo, 2026-11-12: "evidently you zoom in and it doesn't really, you know,
+/// it doesn't follow"). A pinch in a Chromium page zooms its visual viewport only: the page's content
+/// is scaled by `scale` and panned so that the layout point (`left`, `top`) (CSS pixels) shows at the
+/// page's top left. The page's numbers for the panel (`top`, `side`, `width`) are layout pixels, so
+/// the App's panel stayed where it was, at its size, over the zoomed page. The App maps the panel
+/// through the same scale and offset and draws it magnified, so it zooms and pans with the page.
+public nonisolated struct AgentPaneSessionInfoPinch: Equatable, Sendable {
+    public var scale: CGFloat
+    public var left: CGFloat
+    public var top: CGFloat
+
+    public init(scale: CGFloat, left: CGFloat = 0, top: CGFloat = 0) {
+        self.scale = scale
+        self.left = left
+        self.top = top
+    }
+
+    /// No pinch: the page shows at its layout size and place.
+    public static let none = AgentPaneSessionInfoPinch(scale: 1)
+
+    /// A point in the page's layout (CSS pixels) where it shows under the pinch (CSS pixels of the
+    /// unzoomed viewport): ui/visualViewportBox.ts `onVisualViewport`.
+    func shown(_ point: CGPoint) -> CGPoint {
+        CGPoint(x: (point.x - left) * scale, y: (point.y - top) * scale)
+    }
+
+    /// The inverse of ``shown(_:)``: where a point on the zoomed screen lies in the page's layout.
+    func layout(_ point: CGPoint) -> CGPoint {
+        CGPoint(x: point.x / scale + left, y: point.y / scale + top)
+    }
+
+    /// `{scale, left, top}`, or nil for anything else (a bad number, a scale out of Chromium's range).
+    static func decode(_ params: [String: Any]?) -> AgentPaneSessionInfoPinch? {
+        guard let params else { return nil }
+        let number = { (key: String) -> Double? in
+            guard let value = (params[key] as? NSNumber)?.doubleValue, value.isFinite, abs(value) <= 100_000 else {
+                return nil
+            }
+            return value
+        }
+        guard let scale = number("scale"), (0.1...20).contains(scale),
+              let left = number("left"), let top = number("top") else { return nil }
+        return AgentPaneSessionInfoPinch(scale: CGFloat(scale), left: CGFloat(left), top: CGFloat(top))
     }
 }
 

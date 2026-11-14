@@ -82,7 +82,10 @@ const cardRows = [
   summary(17.6, { durationMs: 92_000, toolCount: 4 }),
   user("Investigate the disconnected peer and show the useful failure details", 16),
   assistant("The peer disappeared while the agent was waiting for its answer.", 15.8),
-  summary(15.6, { status: "failed", error: "peer disconnected while waiting for the agent to answer" }),
+  summary(15.6, {
+    status: "failed",
+    error: "peer disconnected while waiting for the agent to answer",
+  }),
   user("Check the changed files and link the review", 14),
   activity(
     [
@@ -146,7 +149,7 @@ export default agentPaneEntry({
   widths: { narrow: 880, normal: 1040, wide: 1240 },
   anchors: [{ selector: ".acpmux-scroll" }],
   covers: [
-    "agent-session/acpmux/App.tsx#VirtualTranscript",
+    "agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript",
     "agent-session/acpmux/threadMinimap/ThreadMinimap.tsx#ThreadMinimap",
     "agent-session/acpmux/threadMinimap/ScrollMap.tsx#ScrollMap",
     "agent-session/acpmux/threadMinimap/BookmarkIcon.tsx#BookmarkIcon",
@@ -210,18 +213,20 @@ export default agentPaneEntry({
       },
     },
     "card-prompt-growing": {
-      note: "Comparison arm: the same short, two-line, three-line and long prompts with an unconstrained card show why the fixed maximum reads better in a busy transcript.",
+      note: "Comparison arm: the long prompt with an unconstrained card (every prompt line and the whole reply) shows why the one-line title over a few reply lines reads better in a busy transcript.",
       snapshot: chat(promptWrapRows, { title: "Minimap prompt growing comparison" }),
       play: async (ctx) => {
         await ctx.hover({ selector: '[data-tick="3"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card .acpmux-minimap__prompt"));
         const card = ctx.document.querySelector<HTMLElement>(".acpmux-minimap__card");
+        const fixed = card?.getBoundingClientRect().height ?? 0;
         const style = ctx.document.createElement("style");
         style.textContent =
-          ".acpmux-minimap__card[data-prompt] .acpmux-minimap__prompt { -webkit-line-clamp: unset; } " +
-          ".acpmux-minimap__card[data-prompt] .acpmux-minimap__reply { max-height: none !important; }";
+          ".acpmux-minimap__card[data-prompt] .acpmux-minimap__prompt { white-space: pre-line; } " +
+          ".acpmux-minimap__card[data-prompt] .acpmux-minimap__reply { -webkit-line-clamp: unset; max-height: none !important; }";
         ctx.document.head.append(style);
-        await ctx.waitFor(() => (card?.getBoundingClientRect().height ?? 0) > 166);
+        // The prompt's four lines in place of one: the card is at least three lines taller.
+        await ctx.waitFor(() => (card?.getBoundingClientRect().height ?? 0) > fixed + 40);
       },
     },
     "first-paint": {
@@ -272,6 +277,38 @@ export default agentPaneEntry({
             !!ctx.document.querySelector('[data-tick="69"][aria-current="true"]') &&
             !ctx.document.querySelector(".acpmux-minimap__list[data-fade-bottom]"),
         );
+      },
+    },
+    "rail-shadow-subtle": {
+      note: "Rail shadow comparison: a restrained muted-token gradient at the foot, deepening with distance from the latest message. Kept as the lightest gallery arm for review.",
+      snapshot: chat(long, { title: "Thread minimap rail shadow, subtle" }),
+      play: async (ctx) => {
+        if (!ctx.document.querySelector('[data-tick="40"]')) return;
+        await ctx.scroll({ selector: ".acpmux-scroll" }, 4000);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__rail"));
+        ctx.document.querySelector<HTMLElement>(".acpmux-minimap__rail")?.setAttribute("data-shadow-variant", "subtle");
+      },
+    },
+    "rail-shadow-elevation": {
+      note: "Selected rail shadow: the shared low elevation token plus a short text-token gradient gives the bottom a clear depth cue while preserving tick contrast as the reader leaves the latest-message start point.",
+      snapshot: chat(long, { title: "Thread minimap rail shadow, selected elevation" }),
+      play: async (ctx) => {
+        if (!ctx.document.querySelector('[data-tick="40"]')) return;
+        await ctx.scroll({ selector: ".acpmux-scroll" }, 4000);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__rail"));
+        ctx.document
+          .querySelector<HTMLElement>(".acpmux-minimap__rail")
+          ?.setAttribute("data-shadow-variant", "elevation");
+      },
+    },
+    "rail-shadow-inset": {
+      note: "Rail shadow comparison: a compact inset hairline and muted-token gradient keep the cue entirely inside the rail edge; it remains available beside the selected elevation arm.",
+      snapshot: chat(long, { title: "Thread minimap rail shadow, inset" }),
+      play: async (ctx) => {
+        if (!ctx.document.querySelector('[data-tick="40"]')) return;
+        await ctx.scroll({ selector: ".acpmux-scroll" }, 4000);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__rail"));
+        ctx.document.querySelector<HTMLElement>(".acpmux-minimap__rail")?.setAttribute("data-shadow-variant", "inset");
       },
     },
     "long-chat": {
@@ -329,8 +366,12 @@ export default agentPaneEntry({
         if (!ctx.document.querySelector('[data-tick="5"]')) return;
         await ctx.focus({ selector: '[data-tick="5"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card"));
-        if (!ctx.document.querySelector('[data-tick="5"][data-bookmarked]'))
-          await ctx.click({ selector: ".acpmux-minimap__bookmark" });
+        // From the keyboard: a click puts the pointer in the card, which opens it (the card entry's `opened`), and the
+        // hover back to the rail below would close it, a different state from this one.
+        if (!ctx.document.querySelector('[data-tick="5"][data-bookmarked]')) {
+          await ctx.focus({ selector: ".acpmux-minimap__bookmark" });
+          await ctx.press("Enter");
+        }
         await ctx.waitFor(() => ctx.document.querySelector('[data-tick="5"][data-bookmarked]'));
         await ctx.hover({ selector: '[data-tick="5"]' });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-minimap__bookmark[aria-pressed="true"]'));

@@ -21,7 +21,7 @@ import {
   tool,
   user,
 } from "../../../gallery/fixtures/acpmux";
-import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
+import { GALLERY_NOW, minutesAgo, recentRun } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxRow } from "../model";
 import { SUBAGENTS, SubagentFold, type Subagent } from "./subagentFold";
@@ -43,8 +43,8 @@ function agent(
     name,
     task: name,
     state,
-    startedAt: minutesAgo(minutes),
-    ...(state !== "running" && { endedAt: minutesAgo(minutes - ran) }),
+    // What ended lingers in the hat only for its grace (trayLinger.ts): it ended just now.
+    ...(state === "running" ? { startedAt: minutesAgo(minutes) } : recentRun(minutes, ran)),
     ...rest,
   };
 }
@@ -206,6 +206,40 @@ const child = (id: string, title: string, minutes: number, running: boolean, doi
     ...(doingTool && { doingTool }),
   });
 
+/** counts-equal-rows: two reviewers, the compile and the tests run, two chats port the rest, and two
+ *  more chats it started run until `ended`. */
+const countsChats = (ended: boolean) => {
+  const base = chat(
+    [
+      user("Land the tray fix: two reviewers, the fleet compile and the tests", 3),
+      group(
+        [
+          agent("Review the tray counts", 2.8, "running", {
+            kind: "general-purpose",
+            action: "Read runningTray.ts",
+          }),
+          agent("Review the fold", 2.8, "running", { kind: "general-purpose", action: "Grep subagent_progress" }),
+          agent("Find the screenshot", 2.8, "completed", { kind: "Explore", ran: 0.4 }),
+        ],
+        2.8,
+      ),
+      described,
+      assistant("Two reviewers are on it, the compile and the tests run, and two chats port the rest.", 1.2),
+    ],
+    { isWorking: true },
+  );
+  return {
+    ...base,
+    sessions: [
+      ...base.sessions,
+      child("child-1", "Port the history page to React Aria", 2.5, true, "Run bun test"),
+      child("child-2", "Migrate the settings store to SQLite", 2.4, true, "Edit store.ts"),
+      child("child-3", "Fix the dock hover", 9, !ended),
+      child("child-4", "Draft the release notes", 8, !ended),
+    ],
+  };
+};
+
 /** The subagents a Codex chat's records fold into, as acpmux wrote them for Leo's chat (2026-10-22):
  *  the child needs_you_review reported the chat's own thread as running under its own session, and
  *  every later record of the chat came tagged with the chat's id. The fold reads them by lineage. */
@@ -357,11 +391,12 @@ const trayLines = (count: number) => async (ctx: PlayContext) => {
     throw new Error("the tray is the agents chip; no pill beside it");
 };
 
-/** A finished turn folds its work, each subagent's line with it (turns.ts `foldSegments`): open the
- * turn's Worked for, then wait for what the state shows. */
+/** A finished turn's subagent lines, drawn. A turn that folds its work (turns.ts `foldSegments`) folds
+ * each subagent's line with it: open its Worked for. A Claude turn keeps its runs in place (no fold,
+ * turnFoldStyle), so its lines already show. Then wait for what the state shows. */
 const openFold = async (ctx: PlayContext) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-worked"));
-  await ctx.click({ selector: ".cv-worked" });
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-worked, .cv-subagent-done"));
+  if (!ctx.document.querySelector(".cv-subagent-done")) await ctx.click({ selector: ".cv-worked" });
 };
 
 /** The conversation before the fan-out, so the transcript runs past the pane and the tray opens over
@@ -410,6 +445,29 @@ const expandTray = (placement: "composer" | "after-latest") => async (ctx: PlayC
     throw new Error("opening the tray on the composer covered the running turn's live line");
 };
 
+/** A chat that runs well past the pane, with one background command still running: the hat heads it
+ *  folded to one line (Leo, 2026-11-08, on expanding and folding such a hat: "there's, like, some
+ *  elements in between and then things don't balance out"). */
+const loneCommandChat = () =>
+  chat(
+    [
+      ...EARLIER,
+      user("Wait for the rerun and land it once it is green", 70),
+      assistant(
+        "The rerun is queued. I'll wait on it in the background and land the pull request pinned to its head once every check passes, then read the result back.",
+        66,
+      ),
+      user("Also check the transcript groups while it waits", 62),
+      assistant(
+        "Queued both: the transcript lane already fixes tool-call groups in the chat, and a pasted block in a sent message now reads as ordinary message text, with no separate card.",
+        60,
+      ),
+      testRun,
+      assistant("The rerun is still going; I'll report when it lands.", 1),
+    ],
+    { isWorking: true },
+  );
+
 /** A running line's look (Leo, 2026-11-03: "do we really need a running symbol vs just having the
  *  time and a square stop button?"): opens the tray, gives it one trayStopLook arm, and checks each
  *  running line with a time shows no spinner and no Running word, only its time and a filled Stop. */
@@ -446,6 +504,9 @@ const runningStopChat = chat(
   { isWorking: true },
 );
 
+/** A chat whose hat holds `agents`, for the row variants. */
+const rowsChat = (agents: Subagent[]) => chat([user("Fan the review out", 7), group(agents, 6.2)], { isWorking: true });
+
 export default agentPaneEntry({
   id: "agent-pane.subagent-tray",
   title: "Running subagents tray",
@@ -481,6 +542,80 @@ export default agentPaneEntry({
           assistant("The checks are visible above the composer.", 1),
         ],
         { isWorking: true },
+      ),
+    },
+    // Leo, 2026-11-05, on background subagents each reading "Bash": "these are all bash? How are they
+    // all bash? Aren't they sub-agents?". Claude's progress names their last tool and nothing more.
+    "bare-tool-said": {
+      note: "Background subagents whose progress names only their last tool (Bash): each line reads what the agent last said instead.",
+      play: openTray,
+      snapshot: chat(
+        [
+          user("Run the cloud work in the background", 200),
+          group(
+            [
+              agent("Cloud machines self-update cmux-tui", 183, "running", {
+                background: true,
+                action: "Bash",
+                lastMessage: "Waiting on the fleet build for the self-update PR.",
+              }),
+              agent("Webview fixes: protocol errors, new tab", 133, "running", {
+                background: true,
+                action: "Bash",
+                lastMessage: "Pushed the fix; CI is running on the head.",
+              }),
+              agent("Contract checks: CLI vs app, every action", 90, "running", {
+                background: true,
+                action: "Bash",
+                lastMessage: "38 of 52 actions match; checking the rest.",
+              }),
+            ],
+            200,
+          ),
+        ],
+        { isWorking: false },
+      ),
+    },
+    "bare-tool-silent": {
+      note: "The same subagents before they said anything: a bare Bash reads as running a command, never as the line's kind.",
+      play: openTray,
+      snapshot: chat(
+        [
+          user("Run the cloud work in the background", 200),
+          group(
+            [
+              agent("Cloud machines self-update cmux-tui", 183, "running", { background: true, action: "Bash" }),
+              agent("Cloud dev loop: hot-swap + cloud-in-a-box", 81, "running", { background: true, action: "Read" }),
+            ],
+            200,
+          ),
+        ],
+        { isWorking: false },
+      ),
+    },
+    "bare-tool-command": {
+      note: "A subagent's call titled only Bash, its command in its input: the line reads the command in words.",
+      play: openTray,
+      snapshot: chat(
+        [
+          user("Run the cloud work in the background", 200),
+          group(
+            [
+              agent("Delete seed capture code PR", 32, "running", {
+                background: true,
+                action: "bun test test/subagent-tray.test.tsx",
+                actionShell: true,
+              }),
+              agent("Cloud machines self-update cmux-tui", 183, "running", {
+                background: true,
+                action: "Bash",
+                lastMessage: "Waiting on the fleet build for the self-update PR.",
+              }),
+            ],
+            200,
+          ),
+        ],
+        { isWorking: false },
       ),
     },
     "grid-31": {
@@ -668,6 +803,23 @@ export default agentPaneEntry({
       },
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
     },
+    "lone-command-folded": {
+      note: "One background command heads the hat folded, as its own line: its title, its shell line muted, its time at the row's end, the panel button and the up chevron. Expanding it is one transition (lone-command-open).",
+      height: 420,
+      snapshot: loneCommandChat(),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head[data-lone]"));
+      },
+    },
+    "lone-command-open": {
+      note: "The same hat expanded (Leo, 2026-11-08: \"things don't balance out\"): the header reads its counts and keeps its time where the folded line had it, at the row's end over the line's own time; the shell line slides out as the title slides over, and the line grows in under the header on the shared fold. No other control shows or hides on the way.",
+      height: 420,
+      snapshot: loneCommandChat(),
+      play: async (ctx) => {
+        await openTray(ctx);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length === 1);
+      },
+    },
     "command-words": {
       note: 'Background commands read in words, not shell (Leo, 2026-11-03: "instead of raw things, we should be able to deterministically/heuristically have stuff"): built-in rules know only shapes anyone runs. A sleep reads Waiting 9m 20s, a merge Merging cmux#34769, a push Pushing its branch, bun test Testing its file, ssh On its host: what it runs there, docker compose Starting containers. The shell line is the tooltip; a line about a pull request links to it from its tail.',
       height: 560,
@@ -836,6 +988,96 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    // Tucked away (Settings > Agent Chat > Tuck Away Running Tray, TrayPullTab.tsx): the tab on the
+    // composer's top edge still flags what needs the person (Leo said "Yes", 2026-11-04, to "the
+    // tucked state, the hover tab with its dot or count"), and sits at the middle, left or right
+    // (agentPane.display.trayHandle; Leo: "maybe the left… or the right…").
+    ...Object.fromEntries(
+      (
+        [
+          [
+            "tucked-count",
+            "middle",
+            false,
+            "Tucked with three running: the chevron and count share a compact glass control joined to the composer's hairline.",
+          ],
+          [
+            "tucked-waiting",
+            "middle",
+            true,
+            "Tucked while a chat it started waits on you: a needs-you dot takes the count slot in the compact glass control.",
+          ],
+          [
+            "tucked-left",
+            "left",
+            false,
+            "Running Tray Handle: Left. The tab sits 12 px in from the composer's left corner.",
+          ],
+          [
+            "tucked-right",
+            "right",
+            true,
+            "Running Tray Handle: Right, with a chat waiting on you: the dot at the right.",
+          ],
+        ] as const
+      ).map(([id, side, waits, note]) => [
+        id,
+        {
+          note,
+          display: { "agentPane.display.trayTucked": true, "agentPane.display.trayHandle": side },
+          play: async (ctx: PlayContext) => {
+            await ctx.waitFor(() => ctx.document.querySelector(".acpmux-tray-pull__tab"));
+            const pull = ctx.document.querySelector(".acpmux-tray-pull")!;
+            if (pull.getAttribute("data-side") !== side)
+              throw new Error(`the tab sits ${pull.getAttribute("data-side")}`);
+            if (waits !== !!ctx.document.querySelector(".acpmux-tray-pull__dot"))
+              throw new Error(waits ? "a chat waits on you: the tab shows a dot" : "nothing waits: no dot");
+            if (!waits && ctx.document.querySelector(".acpmux-tray-pull__count")?.textContent !== "3")
+              throw new Error("the tab counts the three that run");
+          },
+          snapshot: (() => {
+            const base = chat(
+              [
+                user(prompt, 2),
+                group(
+                  [
+                    agent("Read the updater", 1.9, "running", {
+                      kind: "Explore",
+                      action: "Read Sources/Updater.swift",
+                    }),
+                    agent("Check the docs", 1.9, "running", {
+                      kind: "general-purpose",
+                      action: "Read docs/updates.md",
+                    }),
+                  ],
+                  1.9,
+                ),
+                devServer,
+                assistant("Two subagents are on it, and the dev server is up.", 1.2),
+              ],
+              { isWorking: true },
+            );
+            return waits
+              ? {
+                  ...base,
+                  sessions: [
+                    ...base.sessions,
+                    session({
+                      sessionId: "child-asks",
+                      title: "Pick the release channel",
+                      spawnedBy: SESSION_ID,
+                      startedBy: SESSION_ID,
+                      indicator: "input",
+                      status: "waiting",
+                      createdAt: minutesAgo(1.5),
+                    }),
+                  ],
+                }
+              : base;
+          })(),
+        },
+      ]),
+    ),
     "command-and-subagent": {
       note: "A turn with a subagent and a background command: a header with both counts, then a line each; the working line counts nothing, the tray is the count.",
       play: async (ctx) => {
@@ -856,6 +1098,9 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         await ctx.click({ selector: ".acpmux-running-tray__head" });
+        // Opening hands the header's words over (trayMotion.tsx Tick `slide`): read them once the
+        // leaving words are gone.
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-running-tray__title .acpmux-tick__out"));
         const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
         if (title !== "1 subagent running · 1 test run · 1 build") throw new Error(`unexpected tray title: ${title}`);
       },
@@ -911,6 +1156,8 @@ export default agentPaneEntry({
     "dispatched-lane": {
       note: 'Leo, 2026-11-03, on a lane a coordinator dispatched showing as a running line: "like why is this even in the "running" in the first place?" The tray lists only the chat\'s own work: its subagent\'s line, never the lane (started with sessions new, tagged mux.parent, no startedBy), which is its own chat in the sidebar.',
       play: async (ctx) => {
+        // One item heads the hat folded (Leo, 2026-11-07): its header opens it to the line.
+        await openTray(ctx);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line"));
         const lines = ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line");
         if (lines.length !== 1) throw new Error(`one line, the chat's own subagent; got ${lines.length}`);
@@ -959,37 +1206,10 @@ export default agentPaneEntry({
         if (title !== "2 subagents running · 2 sessions · 1 test run · 1 build · 3 done")
           throw new Error(`the header must count the rows: ${title}`);
       },
-      snapshot: (() => {
-        const base = chat(
-          [
-            user("Land the tray fix: two reviewers, the fleet compile and the tests", 3),
-            group(
-              [
-                agent("Review the tray counts", 2.8, "running", {
-                  kind: "general-purpose",
-                  action: "Read runningTray.ts",
-                }),
-                agent("Review the fold", 2.8, "running", { kind: "general-purpose", action: "Grep subagent_progress" }),
-                agent("Find the screenshot", 2.8, "completed", { kind: "Explore", ran: 0.4 }),
-              ],
-              2.8,
-            ),
-            described,
-            assistant("Two reviewers are on it, the compile and the tests run, and two chats port the rest.", 1.2),
-          ],
-          { isWorking: true },
-        );
-        return {
-          ...base,
-          sessions: [
-            ...base.sessions,
-            child("child-1", "Port the history page to React Aria", 2.5, true, "Run bun test"),
-            child("child-2", "Migrate the settings store to SQLite", 2.4, true, "Edit store.ts"),
-            child("child-3", "Fix the dock hover", 9, false),
-            child("child-4", "Draft the release notes", 8, false),
-          ],
-        };
-      })(),
+      snapshot: countsChats(false),
+      // Two of its chats end once the pane has drawn them running: the hat lists only what this view
+      // watched end (trayLinger.ts), never a chat that had already ended when it opened.
+      afterCall: { "pane.painted": countsChats(true) },
     },
     "codex-lineage": {
       note: 'A Codex chat\'s subagents as its records say (Leo 2026-10-22: "why is it like... staggered? were they created by another subagent?"): the chat itself started both, so they sit side by side. A child that reports its parent thread never makes the chat a subagent of its own, nested under that child.',
@@ -1008,6 +1228,63 @@ export default agentPaneEntry({
         ],
         { isWorking: true, harness: "codex" },
       ),
+    },
+    // Leo, 2026-11-07, on the hat's rows: "instead of the done on the left, you can just put like a check
+    // mark right where this stop square would be", a title cut far before its time, and "me clicking
+    // this, the entire box, it just feels like, okay, I would be expanding this".
+    "row-running": {
+      note: "A running row: its task up to its ticking time, then its filled Stop square and its chevron.",
+      play: async (ctx) => {
+        await openTray(ctx);
+        if (!ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line__stop-slot > button"))
+          throw new Error("a running row keeps its Stop");
+      },
+      snapshot: rowsChat([agent("Make autoland land again", 6.2, "running", { action: "Read land_ready.py" })]),
+    },
+    "row-finished-check": {
+      note: "A finished row beside a running one: its check sits in the Stop square's slot, after its time, the same size and column, so nothing moves when a row finishes; no Done on the left.",
+      play: async (ctx) => {
+        await openTray(ctx);
+        if (
+          !ctx.document.querySelector(
+            '.acpmux-agent-line[data-status="done"] .acpmux-agent-line__stop-track [data-done-check]',
+          )
+        )
+          throw new Error("a finished row's check sits in Stop's slot");
+      },
+      snapshot: rowsChat([
+        agent("Make autoland land again", 6.2, "running", { action: "Read land_ready.py" }),
+        agent("Check the docs", 3, "completed", { ran: 0.6 }),
+      ]),
+    },
+    "row-long-title": {
+      note: "A long task runs right up to its time and cuts with an ellipsis only where it truly overflows.",
+      play: async (ctx) => {
+        await openTray(ctx);
+      },
+      snapshot: rowsChat([
+        agent(
+          "Audit every background task row in the composer hat for clipped titles and misaligned trailing columns",
+          6.2,
+          "running",
+        ),
+        agent("Check the docs", 3, "completed", { ran: 0.6 }),
+      ]),
+    },
+    "row-expanded": {
+      note: "An expanded tray's subagent row opens its chat directly; the Stop button remains separate.",
+      play: async (ctx) => {
+        await openTray(ctx);
+        await ctx.click({ selector: ".acpmux-running-tray .acpmux-agent-line__button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of"));
+      },
+      snapshot: rowsChat([
+        agent("Make autoland land again", 6.2, "running", {
+          task: "Make autoland land again: find why next-autoland skips reviewed PRs and fix the preflight",
+          action: "Read land_ready.py",
+        }),
+        agent("Check the docs", 3, "completed", { ran: 0.6 }),
+      ]),
     },
     "many-folded": {
       note: "Five running: the tray starts folded to its header so it never takes the transcript's room; the chevron opens the list.",

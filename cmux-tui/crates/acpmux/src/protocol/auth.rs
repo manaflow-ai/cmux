@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 /// check that reads no keychain, when no newer evidence answers.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
 pub struct SessionAuthParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,

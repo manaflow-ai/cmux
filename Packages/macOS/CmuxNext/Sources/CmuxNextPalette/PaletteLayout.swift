@@ -31,7 +31,7 @@ enum PaletteLayout {
     static var actionsMenuWidth: CGFloat { width / 2 - Metrics.space6 }
     static var actionsMenuRowHeight: CGFloat { rowHeight - Metrics.space2 }
     static var keycapSize: CGFloat { Metrics.iconSize + Metrics.space2 + textGrowth(Typography.shortcut) }
-    static var keycapCornerRadius: CGFloat { Metrics.itemCornerRadius - Metrics.space1 }
+    static var keycapCornerRadius: CGFloat { Metrics.cornerRadius(nestedIn: Metrics.itemCornerRadius, inset: Metrics.space1) }
     static var iconBox: CGFloat { Metrics.iconSize + Metrics.space2 }
 
     /// How much larger the palette's text draws than the size its density's heights are made for:
@@ -125,7 +125,8 @@ enum PaletteText {
         let key = SymbolKey(name: name, size: size)
         if let cached = symbols[key] { return cached }
         let configuration = NSImage.SymbolConfiguration(pointSize: size, weight: .regular)
-        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else {
+        guard let image = NSImage.packOverride(forSymbol: name, pointSize: size)
+            ?? NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else {
             return nil
         }
         if symbols.count >= 1_024 { symbols.removeAll() }

@@ -5,6 +5,12 @@
 
 use super::*;
 
+// How long a long chat's fork takes to answer (an ignored bench).
+#[path = "fork_latency.rs"]
+mod fork_latency;
+// Fork Conversation's Cancel and its quiet history copy.
+#[path = "fork_cancel.rs"]
+mod fork_cancel;
 // Side questions fork the chat too, and share its Claude helpers.
 #[path = "aside.rs"]
 mod aside;
@@ -40,6 +46,9 @@ mod claude_allow_input;
 // The background-process registry over Claude's shells, which shares these helpers too.
 #[path = "processes.rs"]
 mod processes;
+// The person's message moves the long foreground call it waits behind.
+#[path = "message_background.rs"]
+mod message_background;
 // The same registry over Codex's background terminals (the fake app-server).
 #[cfg(unix)]
 #[path = "codex_processes.rs"]
@@ -617,5 +626,93 @@ async fn a_codex_chat_forks_through_an_earlier_turn_holding_only_the_history_bef
     assert_eq!(fork["sessions"].as_array().map(Vec::len), Some(1), "one conversation id: {fork}");
     assert_ne!(fork["sessions"], source["sessions"], "the fork is its own conversation");
     assert_eq!(source["prompts"], json!(["first", "second"]), "{source}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The rollout files under a Codex store (CODEX_HOME) whose names end with `suffix`.
+fn codex_rollouts(codex: &std::path::Path, suffix: &str) -> Vec<std::path::PathBuf> {
+    let mut found = Vec::new();
+    let mut dirs = vec![codex.join("sessions")];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.ends_with(suffix))
+            {
+                found.push(path);
+            }
+        }
+    }
+    found
+}
+
+/// An idle Codex chat forks by a copy of its rollout, never by `session/fork` to its agent.
+/// Codex lets one process write a thread, and the chat's process keeps a thread it forked
+/// (`thread/unsubscribe` does not let go), so the fork's own process was refused the thread
+/// ("already has an active writer") and fell back to a fresh one fed acpmux's transcript
+/// (`resumed` level `rehydrate`), its tool state lost. The copy is the fork's own thread: its
+/// process loads it, and its conversation holds the chat's turn.
+#[tokio::test]
+async fn codex_fork_resumes_its_own_thread_natively() {
+    let root =
+        std::env::temp_dir().join(format!("acpmux-codex-fork-idle-{}", uuid::Uuid::now_v7()));
+    let codex = root.join("codex");
+    std::fs::create_dir_all(&codex).unwrap();
+    let (hub, mut c) = codex_setup(&codex).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let r = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "first"}]}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r["stopReason"], "end_turn", "{r}");
+    let parent_thread = hub.resolve(&id).unwrap().meta().agent_session_id.unwrap();
+
+    let f = c
+        .request(method::SESSION_FORK, json!({"sessionId": id, "cwd": cwd()}))
+        .await
+        .unwrap_or_else(|e| panic!("an idle Codex chat forks: {e}"));
+    let fid = f["sessionId"].as_str().unwrap().to_owned();
+    let thread = hub.resolve(&fid).unwrap().meta().agent_session_id.unwrap();
+    assert_ne!(thread, parent_thread, "the fork is its own thread");
+    assert_eq!(
+        codex_rollouts(&codex, &format!("-{thread}.jsonl")).len(),
+        1,
+        "the fork's thread is a rollout in Codex's store: {thread}"
+    );
+    let asked = hub
+        .events(&id, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.dir == "out" && e.kind == method::SESSION_FORK)
+        .count();
+    assert_eq!(asked, 0, "the chat's agent is never asked for session/fork");
+
+    // Its first prompt runs on its own agent, which loaded the copy.
+    let fork = claude_history(&hub, &mut c, &fid).await;
+    assert_eq!(fork["prompts"], json!(["first"]), "the fork remembers the chat's turn: {fork}");
+    assert_eq!(fork["sessions"], json!([thread]), "{fork}");
+    let events = hub.events(&fid, 0, 10_000).unwrap();
+    let failed: Vec<&Value> = events
+        .iter()
+        .filter(|e| e.dir == "mux" && e.kind == "resume_failed")
+        .map(|e| &e.msg)
+        .collect();
+    assert!(failed.is_empty(), "the fork's own agent refused its thread: {failed:?}");
+    let resumed: Vec<&Value> =
+        events.iter().filter(|e| e.dir == "mux" && e.kind == "resumed").map(|e| &e.msg).collect();
+    assert!(
+        !resumed.iter().any(|m| m["level"] == "rehydrate"),
+        "the fork fell back to a fresh thread: {resumed:?}"
+    );
+    assert!(
+        resumed.iter().any(|m| m["level"] == "exact"),
+        "the fork loaded its thread: {resumed:?}"
+    );
+    assert_eq!(hub.resolve(&fid).unwrap().meta().agent_session_id.as_deref(), Some(&*thread));
     let _ = std::fs::remove_dir_all(&root);
 }

@@ -686,7 +686,7 @@ fn snapshot_bytes_per_settled_resize_with_local_history() {
     mux.shutdown();
 }
 
-// ---- terminal-snapshot-images-v1 --------------------------------------
+// ---- Kitty images in GHOSTSNP ------------------------------------------
 
 /// Kitty `a=T` of one `width`x`height` RGBA image with id `id`, placed at the
 /// cursor over 4x2 cells. `noise` fills it with pseudo-random pixels (they
@@ -727,6 +727,9 @@ fn quiet_surface_with_image(
     (mux, surface)
 }
 
+/// A GHOSTSNP attach the way older Mac apps ask: with the former
+/// `terminal-snapshot-images-v1` opt-in `snapshot_images: true`, which the
+/// host accepts and ignores.
 fn attach_images_viewer(
     mux: &std::sync::Arc<Mux>,
     surface: &crate::Surface,
@@ -748,275 +751,37 @@ fn attach_images_viewer(
     (writer, outbound, client)
 }
 
-/// One images chunk's stream bytes: base64 of at most 1 MiB, not compressed
-/// again, at the READY's generation and offset.
-fn images_bytes(event: &Value, ready: &Value) -> Vec<u8> {
-    assert_eq!(event["phase"], "images", "{event}");
-    assert!(event.get("compression").is_none(), "images are not compressed again: {event}");
-    assert_eq!(event["generation"], ready["generation"], "{event}");
-    assert_eq!(event["offset"], ready["offset"], "{event}");
-    assert!(event["version"].is_u64(), "an images chunk names its snapshot version: {event}");
-    assert_eq!(event["version"], ready["version"], "{event}");
-    let bytes = data(event);
-    assert!(bytes.len() <= 1 << 20, "an images chunk holds at most 1 MiB");
-    bytes
-}
-
-/// After `ready`: its history through `done`, then its images through
-/// `done`. Returns the images stream; other events are skipped.
-fn drain_history_then_images(outbound: &BoundedOutbound, ready: &Value) -> Vec<u8> {
-    let mut history_done = false;
-    let mut images = Vec::new();
+/// After `ready`: the complete snapshot, READY plus its history through
+/// `done`. Other events are skipped; any other snapshot phase fails.
+fn drain_snapshot(outbound: &BoundedOutbound, ready: &Value) -> Vec<u8> {
+    let mut complete = data(ready);
     loop {
-        let event = next_event(outbound, Duration::from_secs(10)).expect("history or images");
+        let event = next_event(outbound, Duration::from_secs(10)).expect("history");
         if event["event"] != "snapshot" {
             continue;
         }
-        match event["phase"].as_str() {
-            Some("history") => {
-                assert!(!history_done, "history after its last chunk: {event}");
-                assert_eq!(event["generation"], ready["generation"]);
-                history_done = event["done"] == true;
-            }
-            Some("images") => {
-                assert!(history_done, "images come after the READY's history: {event}");
-                images.extend_from_slice(&images_bytes(&event, ready));
-                if event["done"] == true {
-                    assert!(event.get("skipped_images").is_none(), "{event}");
-                    return images;
-                }
-            }
-            _ => panic!("unexpected snapshot event before the images ended: {event}"),
+        assert_eq!(event["phase"], "history", "only history follows a READY: {event}");
+        assert_eq!(event["generation"], ready["generation"]);
+        complete.extend(history_bytes(&event));
+        if event["done"] == true {
+            return complete;
         }
     }
 }
 
-/// No snapshot event (READY, history or images) arrives within `wait`.
-fn assert_no_snapshot_event(outbound: &BoundedOutbound, wait: Duration, why: &str) {
-    while let Some(event) = next_event(outbound, wait) {
-        assert_ne!(event["event"], "snapshot", "{why}: {event}");
-    }
-}
-
+/// GHOSTSNP owns image transport: the host no longer offers the separate
+/// images phase.
 #[test]
-fn snapshot_images_capability_is_advertised() {
+fn the_former_snapshot_images_capability_is_not_advertised() {
     let mux = Mux::new_for_test("snapshot-images-identify", SurfaceOptions::default());
     let (writer, _outbound) = captured_writer();
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
     let identity =
         handle_command(&mux, client, command(json!({"cmd": "identify"})), &writer).unwrap();
     let capabilities = identity["capabilities"].as_array().expect("capabilities");
-    assert!(capabilities.iter().any(|value| value == "terminal-snapshot-images-v1"), "{identity}");
+    assert!(capabilities.iter().all(|value| value != "terminal-snapshot-images-v1"), "{identity}");
     disconnect_client(&mux, client, false);
     mux.shutdown();
-}
-
-/// An opted-in viewer gets READY, its history, then the images chunks; the
-/// chunks concatenated are the host's Kitty replay at the READY's cut, and
-/// the trusted apply recreates the image.
-#[test]
-fn an_images_viewer_gets_ready_history_then_the_kitty_replay_at_the_cut() {
-    let (mux, surface) = quiet_surface_with_image("snapshot-images-order", 4, 4, false);
-    let (_writer, outbound, client) = attach_images_viewer(&mux, &surface, false);
-    let ready = next_event(&outbound, Duration::from_secs(10)).expect("ready");
-    assert_eq!(ready["phase"], "ready", "{ready}");
-    let images = drain_history_then_images(&outbound, &ready);
-    // `cat` prints nothing: the host is still at the READY's cut.
-    let (host, stats) =
-        surface.encode_kitty_replay_for_test(super::SNAPSHOT_IMAGES_MAX_BYTES).unwrap();
-    assert_eq!((stats.images, stats.placements), (1, 1), "{stats:?}");
-    assert!(images == host, "the images chunks are the Kitty replay at the cut");
-    let mut viewer = ghostty_vt::Terminal::new(80, 24, 1_000, Default::default()).unwrap();
-    viewer.apply_kitty_replay(&images).unwrap();
-    let shown = viewer.kitty_graphics_snapshot().unwrap();
-    assert_eq!(shown.images.iter().map(|image| image.id).collect::<Vec<_>>(), vec![7]);
-    assert_no_snapshot_event(&outbound, Duration::from_millis(500), "nothing after the images");
-    disconnect_client(&mux, client, false);
-    mux.shutdown();
-}
-
-/// Images have the priority of history: live output passes between images
-/// chunks, and a newer READY drops the rest of the older images. The new
-/// READY gets its own complete images.
-#[test]
-fn live_output_overtakes_images_and_a_new_ready_cancels_the_old_images() {
-    // 2048x1024 RGBA noise: 8 MiB of pixels that zlib cannot shrink, so the
-    // stream takes about eight chunks.
-    let (mux, surface) = quiet_surface_with_image("snapshot-images-priority", 2048, 1024, true);
-    let (writer, outbound, client) = attach_images_viewer(&mux, &surface, false);
-    let ready = next_event(&outbound, Duration::from_secs(10)).expect("ready");
-    let first_images = loop {
-        let event = next_event(&outbound, Duration::from_secs(10)).expect("event");
-        if event["event"] == "snapshot" && event["phase"] == "images" {
-            break event;
-        }
-    };
-    images_bytes(&first_images, &ready);
-    assert_ne!(first_images["done"], true, "8 MiB of noise takes many chunks");
-
-    surface.inject_output_for_test(b"live while images stream\r\n");
-    loop {
-        let event = next_event(&outbound, Duration::from_secs(10)).expect("event");
-        match (event["event"].as_str(), event["phase"].as_str()) {
-            (Some("output"), _) => break,
-            (Some("snapshot"), Some("images")) => {
-                assert_ne!(event["done"], true, "images finished before the live output");
-            }
-            _ => {}
-        }
-    }
-
-    std::thread::sleep(Duration::from_millis(600));
-    let reply = handle_command(
-        &mux,
-        client,
-        command(json!({"cmd": "snapshot-request", "surface": surface.id, "reason": "gap"})),
-        &writer,
-    )
-    .unwrap();
-    assert_eq!(reply["status"], "accepted", "{reply}");
-    let second = loop {
-        let event = next_event(&outbound, Duration::from_secs(10)).expect("event");
-        if event["event"] != "snapshot" {
-            continue;
-        }
-        if event["phase"] == "ready" {
-            break event;
-        }
-        assert_ne!(event["done"], true, "the old images must not finish after the request");
-    };
-    let images = drain_history_then_images(&outbound, &second);
-    let (host, _) = surface.encode_kitty_replay_for_test(super::SNAPSHOT_IMAGES_MAX_BYTES).unwrap();
-    assert!(images == host, "the new READY gets its complete images");
-    disconnect_client(&mux, client, false);
-    mux.shutdown();
-}
-
-/// The replay is encoded at most once per cut: a second viewer whose READY
-/// is at the same cut and image generation reuses the bytes, and an image
-/// change encodes again once.
-#[test]
-fn viewers_at_the_same_image_generation_share_one_encode() {
-    let (mux, surface) = quiet_surface_with_image("snapshot-images-cache", 4, 4, false);
-    let (_first_writer, first_outbound, first) = attach_images_viewer(&mux, &surface, false);
-    let ready = next_event(&first_outbound, Duration::from_secs(10)).expect("ready");
-    let first_images = drain_history_then_images(&first_outbound, &ready);
-    let encodes = surface.kitty_replay_encodes_for_test();
-    assert_eq!(encodes, 1, "the first READY encodes once");
-
-    let (_second_writer, second_outbound, second) = attach_images_viewer(&mux, &surface, false);
-    let ready = next_event(&second_outbound, Duration::from_secs(10)).expect("ready");
-    let second_images = drain_history_then_images(&second_outbound, &ready);
-    assert!(second_images == first_images, "the same generation gives the same bytes");
-    assert_eq!(surface.kitty_replay_encodes_for_test(), encodes, "the second viewer reuses them");
-
-    surface.inject_output_for_test(&kitty_image(8, 4, 4, false));
-    let (_third_writer, third_outbound, third) = attach_images_viewer(&mux, &surface, false);
-    let ready = next_event(&third_outbound, Duration::from_secs(10)).expect("ready");
-    let third_images = drain_history_then_images(&third_outbound, &ready);
-    assert!(third_images != first_images, "a new image changes the replay");
-    assert_eq!(surface.kitty_replay_encodes_for_test(), encodes + 1, "one encode per change");
-    for client in [first, second, third] {
-        disconnect_client(&mux, client, false);
-    }
-    mux.shutdown();
-}
-
-/// A local-history READY after a resize is followed by no images: on a
-/// match the viewer keeps its own.
-#[test]
-fn a_local_ready_after_a_resize_is_followed_by_no_images() {
-    let (mux, surface) = quiet_surface_with_image("snapshot-images-local", 4, 4, false);
-    let (_writer, outbound, client) = attach_images_viewer(&mux, &surface, true);
-    let ready = next_event(&outbound, Duration::from_secs(10)).expect("ready");
-    drain_history_then_images(&outbound, &ready);
-    surface.resize(60, 20).unwrap();
-    let local = loop {
-        let event = next_event(&outbound, Duration::from_secs(5)).expect("local ready");
-        if event["event"] == "snapshot" {
-            break event;
-        }
-    };
-    assert_eq!(local["phase"], "ready", "{local}");
-    assert_eq!(local["history"], "local", "{local}");
-    assert_no_snapshot_event(
-        &outbound,
-        Duration::from_millis(500),
-        "no images after a local READY",
-    );
-    disconnect_client(&mux, client, false);
-    mux.shutdown();
-}
-
-/// No images phase for a terminal without images: one that never had any,
-/// and one whose only image was deleted.
-#[test]
-fn a_terminal_without_images_sends_no_images_phase() {
-    let (mux, surface) = quiet_surface_with_scrollback("snapshot-images-none", 200);
-    let (_writer, outbound, client) = attach_images_viewer(&mux, &surface, false);
-    drain_ready_and_history(&outbound);
-    assert_no_snapshot_event(&outbound, Duration::from_millis(500), "no images phase");
-    disconnect_client(&mux, client, false);
-    mux.shutdown();
-
-    let (mux, surface) = quiet_surface_with_image("snapshot-images-deleted", 4, 4, false);
-    surface.inject_output_for_test(b"\x1b_Ga=d,d=I,i=7,q=2;\x1b\\");
-    let (_writer, outbound, client) = attach_images_viewer(&mux, &surface, false);
-    drain_ready_and_history(&outbound);
-    assert_no_snapshot_event(&outbound, Duration::from_millis(500), "no images phase");
-    disconnect_client(&mux, client, false);
-    mux.shutdown();
-}
-
-/// A viewer that did not opt in gets no images.
-#[test]
-fn a_viewer_without_snapshot_images_gets_no_images() {
-    let (mux, surface) = quiet_surface_with_image("snapshot-images-off", 4, 4, false);
-    let (_writer, outbound, client) = attach_snapshot_viewer(&mux, &surface);
-    drain_ready_and_history(&outbound);
-    assert_no_snapshot_event(&outbound, Duration::from_millis(500), "no images without opt-in");
-    disconnect_client(&mux, client, false);
-    mux.shutdown();
-}
-
-/// Images phase bytes and encode time for one 512x512 RGBA image
-/// (measurement).
-/// `cargo test -p cmux-tui-core --release --lib snapshot_images_bytes_for_one_512_image -- --ignored --nocapture`
-#[test]
-#[ignore = "measurement"]
-fn snapshot_images_bytes_for_one_512_image() {
-    for noise in [false, true] {
-        let session = format!("snapshot-images-bytes-{noise}");
-        let (mux, surface) = quiet_surface_with_image(&session, 512, 512, noise);
-        let started = Instant::now();
-        let (stream, stats) =
-            surface.encode_kitty_replay_for_test(super::SNAPSHOT_IMAGES_MAX_BYTES).unwrap();
-        let encode = started.elapsed();
-        let (_writer, outbound, client) = attach_images_viewer(&mux, &surface, false);
-        let ready = next_event(&outbound, Duration::from_secs(10)).expect("ready");
-        let (mut chunks, mut b64) = (0usize, 0usize);
-        loop {
-            let event = next_event(&outbound, Duration::from_secs(10)).expect("event");
-            if event["event"] != "snapshot" || event["phase"] != "images" {
-                continue;
-            }
-            images_bytes(&event, &ready);
-            chunks += 1;
-            b64 += event["data"].as_str().unwrap().len();
-            if event["done"] == true {
-                break;
-            }
-        }
-        println!(
-            "snapshot-images-512 noise={noise} stream_bytes={} images_b64={b64} chunks={chunks} \
-             image_bytes={} encode_us={}",
-            stream.len(),
-            stats.image_bytes,
-            encode.as_micros()
-        );
-        disconnect_client(&mux, client, false);
-        mux.shutdown();
-    }
 }
 
 /// A 64x64 8-bit RGB PNG (one color), base64.
@@ -1024,12 +789,14 @@ const PNG_64_RGB_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAA
 
 /// The dogfood transmission (400 short lines, then `f=100,a=T,c=8,r=4` with
 /// a PNG, no id, no `q`) through the reader's parse path, then an attach by
-/// identity (no surface) with `snapshot_images` gets an images phase that
-/// recreates the image. The real PTY child and terminal host flow is the
-/// cmux-tui integration test `a_hosted_png_reaches_a_snapshot_images_viewer`
-/// (this test mux runs no host).
+/// identity (no surface) gets a GHOSTSNP whose READY plus history restore
+/// the image: one KITTY_IMAGE_STORAGE and one KITTY_IMAGE_PAYLOAD record,
+/// and the restored terminal re-encodes the host's storage record. The real
+/// PTY child and terminal host flow is the cmux-tui integration test
+/// `a_hosted_png_reaches_a_snapshot_viewer` (this test mux runs no host).
 #[test]
-fn a_png_transmission_reaches_an_identity_attach_as_images() {
+fn a_png_transmission_reaches_an_identity_attach_in_ghostsnp() {
+    use ghostty_vt::snapshot_tag::{KITTY_IMAGE_PAYLOAD, KITTY_IMAGE_STORAGE};
     let (mux, surface) = quiet_surface_with_scrollback("snapshot-images-png", 0);
     for line in 0..400 {
         surface.inject_output_for_test(format!("line {line}\r\n").as_bytes());
@@ -1048,16 +815,6 @@ fn a_png_transmission_reaches_an_identity_attach_as_images() {
 
     let (writer, outbound) = captured_writer();
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-    let identity =
-        handle_command(&mux, client, command(json!({"cmd": "identify"})), &writer).unwrap();
-    assert!(
-        identity["capabilities"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|value| value == "terminal-snapshot-images-v1"),
-        "{identity}"
-    );
     handle_command(
         &mux,
         client,
@@ -1066,27 +823,107 @@ fn a_png_transmission_reaches_an_identity_attach_as_images() {
             "expected_generation": mux.registry_identity().1,
             "expected_terminal_id": surface.terminal_public_id().unwrap().as_str(),
             "snapshot": "ghostsnp", "snapshot_version": ghostty_vt::snapshot_version(),
-            "snapshot_images": true,
         })),
         &writer,
     )
     .unwrap();
     let ready = next_event(&outbound, Duration::from_secs(10)).expect("ready");
     assert_eq!(ready["phase"], "ready", "{ready}");
-    let images = drain_history_then_images(&outbound, &ready);
-    assert!(!images.is_empty());
-    let mut viewer = ghostty_vt::Terminal::new(80, 24, 1_000, Default::default()).unwrap();
-    viewer.apply_kitty_replay(&images).unwrap();
-    let shown = viewer.kitty_graphics_snapshot().unwrap();
-    assert_eq!(shown.images.len(), 1, "the images phase recreates the PNG image");
-    assert_eq!((shown.images[0].width, shown.images[0].height), (64, 64));
+    let complete = drain_snapshot(&outbound, &ready);
+    let tags = record_tags(&complete);
+    let count = |tag: u16| tags.iter().filter(|seen| **seen == tag).count();
+    assert_eq!(count(KITTY_IMAGE_STORAGE), 1, "{tags:?}");
+    assert_eq!(count(KITTY_IMAGE_PAYLOAD), 1, "GHOSTSNP carries the PNG pixels: {tags:?}");
+    let storage = |snapshot: &[u8]| {
+        ghostty_vt::snapshot_records(snapshot)
+            .find(|record| record.tag == KITTY_IMAGE_STORAGE)
+            .map(|record| record.payload().to_vec())
+    };
+    let restored = ghostty_vt::reencode_ready(&complete).expect("the snapshot decodes");
+    assert!(storage(&data(&ready)).is_some(), "the READY names the PNG");
+    assert_eq!(storage(&restored), storage(&data(&ready)), "GHOSTSNP alone restores the PNG");
+    assert_no_snapshot_event(&outbound, Duration::from_millis(500), "nothing after the history");
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
+/// No snapshot event arrives within `wait`.
+fn assert_no_snapshot_event(outbound: &BoundedOutbound, wait: Duration, why: &str) {
+    while let Some(event) = next_event(outbound, wait) {
+        assert_ne!(event["event"], "snapshot", "{why}: {event}");
+    }
+}
+
+// ---- one owner of image transport --------------------------------------
+
+/// SNAPSHOT DOUBLE IMAGE: since the ghostty-next sync of #35478 (upstream
+/// c7f68a7f4), GHOSTSNP itself carries every Kitty image: a
+/// KITTY_IMAGE_STORAGE record (tag 8) before READY and a KITTY_IMAGE_PAYLOAD
+/// record (tag 9) with the pixels in the history. An attach that asks for
+/// images the way the Mac app does (`snapshot_images: true`) gets each image
+/// once: one payload record, no images phase after the history, and the READY
+/// plus its history alone restore the host's images and placements.
+#[test]
+fn an_attach_sends_each_kitty_image_once() {
+    use ghostty_vt::snapshot_tag::{KITTY_IMAGE_PAYLOAD, KITTY_IMAGE_STORAGE};
+    let (mux, surface) = quiet_surface_with_image("snapshot-image-once", 64, 64, false);
+    let (_writer, outbound, client) = attach_images_viewer(&mux, &surface, false);
+    let ready = next_event(&outbound, Duration::from_secs(10)).expect("ready");
+    assert_eq!(ready["phase"], "ready", "{ready}");
+    let ready_bytes = data(&ready);
+    let mut complete = ready_bytes.clone();
+    let (mut history_done, mut images_phase_bytes, mut snapshot_bytes) =
+        (false, 0usize, ready["data"].as_str().unwrap().len());
+    // Every snapshot event until 500 ms after the last history chunk.
+    loop {
+        let wait = if history_done { Duration::from_millis(500) } else { Duration::from_secs(10) };
+        let Some(event) = next_event(&outbound, wait) else { break };
+        if event["event"] != "snapshot" {
+            continue;
+        }
+        snapshot_bytes += event["data"].as_str().map_or(0, str::len);
+        match event["phase"].as_str() {
+            Some("history") => {
+                assert!(!history_done, "history after its last chunk: {event}");
+                complete.extend(history_bytes(&event));
+                history_done = event["done"] == true;
+            }
+            Some("images") => images_phase_bytes += data(&event).len(),
+            _ => panic!("unexpected snapshot event: {event}"),
+        }
+    }
+    assert!(history_done, "the READY's history arrived through its last chunk");
+    let tags = record_tags(&complete);
+    let count = |tag: u16| tags.iter().filter(|seen| **seen == tag).count();
+    println!(
+        "snapshot-image-once: base64 bytes on the attach {snapshot_bytes}, \
+         GHOSTSNP payload records {}, images phase bytes {images_phase_bytes}",
+        count(KITTY_IMAGE_PAYLOAD)
+    );
+    assert_eq!(count(KITTY_IMAGE_STORAGE), 1, "the primary screen's image storage: {tags:?}");
+    assert_eq!(count(KITTY_IMAGE_PAYLOAD), 1, "GHOSTSNP carries the pixels once: {tags:?}");
+    assert_eq!(
+        images_phase_bytes, 0,
+        "the attach sends the image a second time, in an images phase after the history"
+    );
+    // A decoder that reads GHOSTSNP only restores the image and its
+    // placement: re-encoding the restored terminal gives the host's storage
+    // record.
+    let storage = |snapshot: &[u8]| {
+        ghostty_vt::snapshot_records(snapshot)
+            .find(|record| record.tag == KITTY_IMAGE_STORAGE)
+            .map(|record| record.payload().to_vec())
+    };
+    let restored = ghostty_vt::reencode_ready(&complete).expect("the snapshot decodes");
+    assert!(storage(&ready_bytes).is_some(), "the READY names the image");
+    assert_eq!(storage(&restored), storage(&ready_bytes), "GHOSTSNP alone restores the image");
     disconnect_client(&mux, client, false);
     mux.shutdown();
 }
 
 // ---- golden contract fixture --------------------------------------------
 
-/// The checked-in host event lines that the Mac decoder test also reads.
+/// The checked-in host event lines of the dogfood PNG attach.
 const DOGFOOD_PNG_FIXTURE: &str = "spec/fixtures/terminal-snapshot-dogfood-png.jsonl";
 
 /// One snapshot event as a fixture line. Volatile values become fixed
@@ -1104,11 +941,14 @@ fn fixture_line(event: &Value) -> String {
 
 /// Golden contract of the S3k dogfood flow: an 80x24 terminal with 40 short
 /// lines of scrollback and one 64x64 RGB PNG (`f=100,a=T,c=8,r=4`, no id, no
-/// `q`); a plain READY attach with `snapshot_images` and
-/// `snapshot_local_history` gets READY, history chunks and images chunks;
-/// then a resize to 60x20 gives one local READY. The lines must equal
+/// `q`); a plain READY attach with `snapshot_local_history` (and the ignored
+/// former `snapshot_images` opt-in) gets READY and its history chunks; then a
+/// resize to 60x20 gives one local READY. The lines must equal
 /// `spec/fixtures/terminal-snapshot-dogfood-png.jsonl`;
-/// `CMUX_UPDATE_SNAPSHOT_FIXTURE=1` rewrites the file.
+/// `CMUX_UPDATE_SNAPSHOT_FIXTURE=1` rewrites the file. GHOSTSNP carries the
+/// image (the ghostty-next sync of #35478, upstream c7f68a7f4): a
+/// `kitty_image_storage` record (tag 8) before READY and a
+/// `kitty_image_payload` record (tag 9) in the history chunk.
 #[test]
 fn dogfood_png_snapshot_events_match_the_golden_fixture() {
     let (mux, surface) = quiet_surface_with_scrollback("snapshot-images-fixture", 0);
@@ -1124,12 +964,13 @@ fn dogfood_png_snapshot_events_match_the_golden_fixture() {
     assert_eq!(ready["phase"], "ready", "{ready}");
     lines.push(fixture_line(&ready));
     loop {
-        let event = next_event(&outbound, Duration::from_secs(10)).expect("history or images");
+        let event = next_event(&outbound, Duration::from_secs(10)).expect("history");
         if event["event"] != "snapshot" {
             continue;
         }
+        assert_eq!(event["phase"], "history", "{event}");
         lines.push(fixture_line(&event));
-        if event["phase"] == "images" && event["done"] == true {
+        if event["done"] == true {
             break;
         }
     }
@@ -1408,4 +1249,170 @@ fn a_hidden_viewer_of_a_busy_program_wakes_its_reader_at_most_once_per_second() 
 
     disconnect_client(&mux, client, false);
     mux.shutdown();
+}
+
+// ---- attach-replay-history-rows-v1 ------------------------------------
+
+/// The first `vt-state` of a bytes attach with these extra fields.
+fn byte_attach_vt_state(
+    mux: &std::sync::Arc<Mux>,
+    surface: &crate::Surface,
+    extra: Value,
+) -> Value {
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let mut request = json!({"cmd": "attach-surface", "surface": surface.id});
+    for (key, value) in extra.as_object().expect("fields") {
+        request[key] = value.clone();
+    }
+    handle_command(mux, client, command(request), &writer).unwrap();
+    let first = next_event(&outbound, Duration::from_secs(5)).expect("vt-state");
+    assert_eq!(first["event"], "vt-state", "{first}");
+    disconnect_client(mux, client, false);
+    first
+}
+
+#[test]
+fn replay_history_rows_capability_is_advertised() {
+    let mux = Mux::new_for_test("replay-history-rows-identify", SurfaceOptions::default());
+    let (writer, _outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let identity =
+        handle_command(&mux, client, command(json!({"cmd": "identify"})), &writer).unwrap();
+    let capabilities = identity["capabilities"].as_array().expect("capabilities");
+    assert!(
+        capabilities.iter().any(|value| value == "attach-replay-history-rows-v1"),
+        "{identity}"
+    );
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
+/// Latest screen first (cmuxterm-hq#7231): a bytes attach with
+/// `replay_history_rows` gets a `vt-state` that rebuilds the screen and only
+/// that many of the newest history rows, and names how many older rows it
+/// left out; the same terminal attached without the field still gets its
+/// whole history and no new field.
+#[test]
+fn a_byte_attach_with_a_history_allowance_gets_the_latest_screen_first() {
+    let (mux, surface) = quiet_surface_with_scrollback("replay-history-rows", 5_000);
+    let full = byte_attach_vt_state(&mux, &surface, json!({}));
+    assert!(full.get("history_rows_omitted").is_none(), "{}", full["history_rows_omitted"]);
+    let screen = byte_attach_vt_state(&mux, &surface, json!({"replay_history_rows": 0}));
+    let tail = byte_attach_vt_state(&mux, &surface, json!({"replay_history_rows": 100}));
+
+    let screen_omitted = screen["history_rows_omitted"].as_u64().expect("omitted rows");
+    let tail_omitted = tail["history_rows_omitted"].as_u64().expect("omitted rows");
+    assert!(screen_omitted >= 4_900, "only {screen_omitted} rows were left out of 5,000");
+    assert_eq!(screen_omitted - tail_omitted, 100, "the allowance keeps 100 more rows");
+
+    let (full_bytes, screen_bytes, tail_bytes) = (data(&full), data(&screen), data(&tail));
+    assert!(
+        screen_bytes.len() * 50 < full_bytes.len(),
+        "a screen-only replay of {} bytes against the whole history's {}",
+        screen_bytes.len(),
+        full_bytes.len()
+    );
+    assert!(screen_bytes.len() < tail_bytes.len() && tail_bytes.len() < full_bytes.len());
+
+    // Each rebuilds the same screen.
+    let screen_text = |bytes: &[u8]| {
+        let mut term =
+            ghostty_vt::Terminal::new(80, 24, 10_000_000, ghostty_vt::Callbacks::default())
+                .unwrap();
+        term.vt_write(bytes);
+        term.viewport_text().unwrap()
+    };
+    let expected = screen_text(&full_bytes);
+    assert!(expected.contains("004999"), "{expected}");
+    assert_eq!(screen_text(&screen_bytes), expected);
+    assert_eq!(screen_text(&tail_bytes), expected);
+    mux.shutdown();
+}
+
+/// Bench (off unless CMUX_LATEST_SCREEN_BENCH=<attaches per arm>): a bytes
+/// attach of an 80x24 terminal with 10,000 and 50,000 lines of history, the
+/// whole replay (today) against the latest screen first
+/// (`replay_history_rows: 0`), interleaved. Per arm: the first `vt-state`
+/// line's wire bytes and the time from the request to that line on the
+/// connection's queue (p50/p95). Prints LATEST-SCREEN-BENCH lines and writes
+/// them to $FAST_CHECKS_OUT/latest-screen-bench.txt when that is set.
+#[test]
+fn latest_screen_first_bench() {
+    let Some(runs) = std::env::var("CMUX_LATEST_SCREEN_BENCH")
+        .ok()
+        .and_then(|runs| runs.parse::<usize>().ok())
+        .filter(|runs| *runs > 0)
+    else {
+        return;
+    };
+    let mut lines_out = Vec::new();
+    for history in [10_000, 50_000] {
+        let (mux, surface) =
+            quiet_surface_with_scrollback_limit("latest-screen-bench", history, 50_000_000);
+        let attach = |extra: Value| {
+            let (writer, outbound) = captured_writer();
+            let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+            let mut request = json!({"cmd": "attach-surface", "surface": surface.id});
+            for (key, value) in extra.as_object().expect("fields") {
+                request[key] = value.clone();
+            }
+            let started = Instant::now();
+            handle_command(&mux, client, command(request), &writer).unwrap();
+            let line = loop {
+                if let Some(message) = outbound.try_pop() {
+                    if message.contains("\"event\":\"vt-state\"") {
+                        break message;
+                    }
+                    continue;
+                }
+                assert!(started.elapsed() < Duration::from_secs(30), "no vt-state");
+                std::thread::yield_now();
+            };
+            let elapsed = started.elapsed().as_secs_f64() * 1000.0;
+            disconnect_client(&mux, client, false);
+            (line.len(), elapsed)
+        };
+        let (mut whole, mut screen) = (Vec::new(), Vec::new());
+        let (mut whole_bytes, mut screen_bytes) = (0, 0);
+        for round in 0..runs {
+            let arms: [bool; 2] = if round % 2 == 0 { [false, true] } else { [true, false] };
+            for tail in arms {
+                if tail {
+                    let (bytes, ms) = attach(json!({"replay_history_rows": 0}));
+                    screen_bytes = bytes;
+                    screen.push(ms);
+                } else {
+                    let (bytes, ms) = attach(json!({}));
+                    whole_bytes = bytes;
+                    whole.push(ms);
+                }
+            }
+        }
+        let percentiles = |times: &mut Vec<f64>| {
+            times.sort_by(f64::total_cmp);
+            let at = |p: f64| times[((times.len() - 1) as f64 * p).round() as usize];
+            format!("p50 {:.2} ms p95 {:.2} ms", at(0.5), at(0.95))
+        };
+        let profile = if cfg!(debug_assertions) { "dev-profile" } else { "release" };
+        lines_out.push(format!(
+            "LATEST-SCREEN-BENCH {profile} 80x24 {history} lines, {runs} attaches per arm: \
+             whole replay {whole_bytes} wire bytes, {}; latest screen first {screen_bytes} \
+             wire bytes, {}",
+            percentiles(&mut whole),
+            percentiles(&mut screen)
+        ));
+        mux.shutdown();
+    }
+    for line in &lines_out {
+        eprintln!("{line}");
+    }
+    if let Ok(dir) = std::env::var("FAST_CHECKS_OUT") {
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            std::path::Path::new(&dir).join("latest-screen-bench.txt"),
+            lines_out.join("\n") + "\n",
+        )
+        .unwrap();
+    }
 }

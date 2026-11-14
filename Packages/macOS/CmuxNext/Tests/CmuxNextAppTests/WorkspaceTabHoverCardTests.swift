@@ -58,7 +58,8 @@ struct WorkspaceTabHoverCardTests {
         let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [.workspace(workspace)])],
                                  activeWorkspaceID: WorkspaceID("foreground"))
         var selected: (WorkspaceID, TabID)?
-        model.onIntent = { if case let .selectTab(workspace, tab) = $0 { selected = (workspace, tab) } }
+        var selections = 0
+        model.onIntent = { if case let .selectTab(workspace, tab) = $0 { selected = (workspace, tab); selections += 1 } }
         let list = SidebarListView(model: model)
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 360, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -80,11 +81,12 @@ struct WorkspaceTabHoverCardTests {
                                                   windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
         let up = try #require(NSEvent.mouseEvent(with: .leftMouseUp, location: point, modifierFlags: [], timestamp: 1,
                                                 windowNumber: window.windowNumber, context: nil, eventNumber: 2, clickCount: 1, pressure: 0))
+        // Mouse-down focuses the tab (u2819), as a pane tab and a workspace row do; the release adds nothing.
         row.mouseDown(with: down)
-        #expect(selected == nil)
-        row.mouseUp(with: up)
         #expect(selected?.0 == target)
         #expect(selected?.1 == TabID("review"))
+        row.mouseUp(with: up)
+        #expect(selections == 1, "one click selects the tab once")
     }
 
     /// "Show Workspace Resource Usage" pins the card to show resource usage, which lives in its
@@ -356,10 +358,10 @@ struct WorkspaceTabHoverCardTests {
         }
     }
 
-    @Test func aPressedRowCannotSelectAReusedRowAfterItsTabChanges() throws {
+    @Test func aReleaseAfterTheRowsTabChangesSelectsNothingMore() throws {
         let view = WorkspaceTabHoverCardView()
-        var selected: TabID?
-        view.onSelect = { selected = $0 }
+        var selected: [TabID] = []
+        view.onSelect = { selected.append($0) }
         view.configure(title: "app", tabs: [
             SidebarTab(id: TabID("first"), title: "first"),
             SidebarTab(id: TabID("second"), title: "second"),
@@ -382,7 +384,7 @@ struct WorkspaceTabHoverCardTests {
         row.mouseDown(with: down)
         view.configure(title: "app", tabs: [SidebarTab(id: TabID("second"), title: "second")])
         row.mouseUp(with: up)
-        #expect(selected == nil, "a release from a stale press selected the replacement tab")
+        #expect(selected == [TabID("first")], "the press selects the pressed tab and the release selects no replacement")
     }
 
     @Test func aPressedRowSurvivesARefreshForTheSameTab() throws {
@@ -412,10 +414,13 @@ struct WorkspaceTabHoverCardTests {
         #expect(selected == TabID("first"))
     }
 
-    @Test func tabRowActivatesOnRelease() throws {
+    /// Lawrence (u2819): "why is mouse-down tab focus unimplemented?" A hover card tab row focuses its
+    /// tab on the press, as the pane tab strip and the sidebar's rows do; the release adds nothing.
+    @Test func tabRowActivatesOnPress() throws {
         let view = WorkspaceTabHoverCardView()
         var selected: TabID?
-        view.onSelect = { selected = $0 }
+        var selections = 0
+        view.onSelect = { selected = $0; selections += 1 }
         view.configure(title: "app", tabs: [SidebarTab(id: TabID("shell"), title: "shell")])
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 320, height: 120), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -435,9 +440,9 @@ struct WorkspaceTabHoverCardTests {
                                                  windowNumber: window.windowNumber, context: nil, eventNumber: 2,
                                                  clickCount: 1, pressure: 0))
         row.mouseDown(with: down)
-        #expect(selected == nil, "tab activated on mouse-down")
+        #expect(selected == TabID("shell"), "tab did not activate on mouse-down")
         row.mouseUp(with: up)
-        #expect(selected == TabID("shell"), "tab did not activate on mouse-up")
+        #expect(selections == 1, "one click activates the tab once")
     }
 
     /// Needs a real window number for the key event's window; a fleet worker at the login window has none.

@@ -19,7 +19,10 @@ for line in sys.stdin:
         result = {"tools": [
             {"name": "look", "description": "Look at the screen", "inputSchema": {"type": "object"}},
             {"name": "fail", "description": "Always fails", "inputSchema": {"type": "object"}},
-            {"name": "hold", "description": "Waits for a file", "inputSchema": {"type": "object"}}]}
+            {"name": "hold", "description": "Waits for a file", "inputSchema": {"type": "object"}},
+            {"name": "meta", "description": "Echoes the call's _meta", "inputSchema": {"type": "object"}}]}
+    elif method == "tools/call" and m["params"]["name"] == "meta":
+        result = {"content": [{"type": "text", "text": json.dumps(m["params"].get("_meta"))}]}
     elif method == "tools/call" and m["params"]["name"] == "hold":
         import os, time
         while not os.path.exists(m["params"]["arguments"]["path"]):
@@ -64,7 +67,7 @@ fn code_mode_runs_the_chats_other_servers_behind_it() {
     // index carries its own instructions.
     let listed =
         server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
-    assert!(listed["result"]["tools"][0]["description"].as_str().unwrap().contains("cua (3)"));
+    assert!(listed["result"]["tools"][0]["description"].as_str().unwrap().contains("cua (4)"));
     // Listed directly (every tool), each carries its server's rules.
     let all = server.list();
     let look = all.iter().find(|t| t["name"] == "cua_look").expect("cua_look is listed");
@@ -72,7 +75,7 @@ fn code_mode_runs_the_chats_other_servers_behind_it() {
     let index = call(&mut server, "cmux_docs", json!({}));
     assert_eq!(
         index["structuredContent"]["families"]["cua"],
-        json!(["cua_look", "cua_fail", "cua_hold"])
+        json!(["cua_look", "cua_fail", "cua_hold", "cua_meta"])
     );
     // cmux's own computer use rules come first, then the server's.
     let rules = format!("{}\n\nAsk before you click.", acpmux::agent_tools::CUA_RULES);
@@ -210,12 +213,16 @@ fn instructions_in_both_modes_tell_the_agent_never_to_ask_for_permission() {
     ] {
         assert!(rule.contains(phrase), "{phrase}: {rule}");
     }
-    for (code_mode, wrap_up) in [(false, false), (true, false), (true, true)] {
-        let init = initialize(&json!({}), false, code_mode, wrap_up);
+    for code_mode in [false, true] {
+        let init = initialize(&json!({}), false, code_mode);
         let text = init["instructions"].as_str().unwrap();
         assert!(text.contains(rule), "code mode {code_mode}: {text}");
-        // The next-step box's line comes after the rule, only where acpmux is folded in.
-        assert_eq!(text.ends_with(code_mode::WRAP_UP_INSTRUCTION), wrap_up, "{text}");
+        if code_mode {
+            // cmux_exec's description, always loaded, says each of these once.
+            for repeated in ["This chat runs in cmux", "acpmux_wrap_up", "sessions_offer_session"] {
+                assert!(!text.contains(repeated), "{repeated}: {text}");
+            }
+        }
         // Claude Code may cut server instructions past 2048 characters, which would drop the rule.
         assert!(
             text.chars().count() <= 2048,
@@ -492,6 +499,7 @@ fn the_helper_v2_bridge_gets_no_cmux_rules() {
         args: Vec::new(),
         env,
         call_timeout: Duration::from_secs(1),
+        shared: None,
     };
     let legacy = spec(Vec::new());
     assert_eq!(upstream::rules(&legacy, None).as_deref(), Some(acpmux::agent_tools::CUA_RULES));
@@ -509,12 +517,13 @@ fn a_stored_list_answers_without_starting_the_server_until_a_call() {
     let mut first = upstream_server("cmux-cua").with_listings(Some(dir.path().into()));
     let listed = first.descriptors(&BTreeSet::new());
     assert!(first.started(), "with nothing stored, listing starts the server");
-    assert_eq!(listed.len(), 3);
+    // look, fail, hold and meta: every tool the fake server lists.
+    assert_eq!(listed.len(), 4);
     drop(first);
     let mut second = upstream_server("cmux-cua").with_listings(Some(dir.path().into()));
     assert_eq!(second.descriptors(&BTreeSet::new()), listed, "the stored list, rules included");
     assert!(!second.started(), "a stored list starts nothing");
-    let result = second.call("look", json!({"at": 1}), None).unwrap();
+    let result = second.call("look", json!({"at": 1}), None, None).unwrap();
     assert!(second.started(), "the first call starts it");
     assert_eq!(result["content"][0]["text"], "saw {\"at\": 1}");
 }
@@ -545,4 +554,141 @@ fn a_stored_tool_the_server_dropped_is_not_sent() {
     let result = job.run(None);
     assert_eq!(result["isError"], true, "{result}");
     assert!(result.to_string().contains("no longer lists"), "{result}");
+}
+
+/// The tool use id Claude Code names a call by (`_meta["claudecode/toolUseId"]`) reaches the
+/// server behind cmux, for a call of its tool and for each call a `cmux_exec` script makes: its
+/// PreToolUse hook recorded which subagent made that call, and acpmux's server reads it there
+/// (W5-M, 2026-11-08: a subagent's `cmux.acpmux_bg_start` and its lane reports went to the lead).
+/// Nothing else of the call's `_meta` (its progress token) goes on.
+#[test]
+fn subagent_mcp_a_proxied_call_passes_on_the_tool_use_id_its_caller_was_named_by() {
+    let echoed = |result: &Value| -> Value {
+        serde_json::from_str(result["content"][0]["text"].as_str().unwrap_or("null")).unwrap()
+    };
+    let meta = json!({"claudecode/toolUseId": "toolu_01direct", "progressToken": 3});
+    let request = |name: &str, arguments: Value| {
+        json!({"jsonrpc": "2.0", "id": "m", "method": "tools/call",
+               "params": {"name": name, "arguments": arguments, "_meta": meta}})
+    };
+    let mut server = Server::new(Fake::with_actions(), None);
+    server.upstreams = vec![upstream::Proxied::new(upstream_server("cmux-cua"))];
+    let direct = server.handle(&request("cua_meta", json!({}))).unwrap();
+    assert_eq!(
+        echoed(&direct["result"]),
+        json!({"claudecode/toolUseId": "toolu_01direct"}),
+        "{direct}"
+    );
+    // A call with no tool use id passes on no `_meta`.
+    let plain = call(&mut server, "cua_meta", json!({}));
+    assert_eq!(echoed(&plain), Value::Null, "{plain}");
+
+    let mut server = code_mode_server(Fake::with_actions());
+    server.upstreams = vec![upstream::Proxied::new(upstream_server("cmux-cua"))];
+    let script =
+        "const a = await cmux.cua_meta({}); const b = await cmux.cua_meta({}); return [a, b];";
+    let ran = server.handle(&request("cmux_exec", json!({"script": script}))).unwrap();
+    // A script reads a call's JSON text as its value.
+    let passed = json!({"claudecode/toolUseId": "toolu_01direct"});
+    assert_eq!(ran["result"]["structuredContent"]["result"], json!([passed, passed]), "{ran}");
+    // The next script, with none, passes on none.
+    let none = "const r = await cmux.cua_meta({}); return {r};";
+    let ran = call(&mut server, "cmux_exec", json!({"script": none}));
+    assert_eq!(ran["structuredContent"]["result"], json!({"r": null}), "{ran}");
+}
+
+/// One process for the servers whose specs name the same `shared` launch (acpmux's own five,
+/// `acpmux tools-mcp`): each request names its server in `_meta`, each server lists and calls
+/// its own tools there, and a call that waits on one server holds no other server's call.
+#[cfg(unix)]
+#[test]
+fn servers_with_one_shared_launch_run_in_one_process() {
+    const SHARED_SERVER: &str = r#"
+import json, os, sys, threading
+with open(os.environ["STARTS"], "a") as f:
+    f.write("%d\n" % os.getpid())
+lock = threading.Lock()
+def say(m):
+    with lock:
+        print(json.dumps(m), flush=True)
+def answer(m):
+    server = ((m.get("params") or {}).get("_meta") or {}).get("cmux/server")
+    method, rid = m["method"], m["id"]
+    if method == "initialize":
+        result = {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}},
+                  "serverInfo": {"name": server}, "instructions": "rules of " + server}
+    elif method == "tools/list":
+        result = {"tools": [{"name": "who", "description": "of " + server, "inputSchema": {"type": "object"}},
+                            {"name": "hold", "description": "waits", "inputSchema": {"type": "object"}}]}
+    elif m["params"]["name"] == "hold":
+        import time
+        while not os.path.exists(m["params"]["arguments"]["path"]):
+            time.sleep(0.02)
+        result = {"content": [{"type": "text", "text": "held"}]}
+    else:
+        result = {"content": [{"type": "text", "text": server}]}
+    say({"jsonrpc": "2.0", "id": rid, "result": result})
+for line in sys.stdin:
+    m = json.loads(line)
+    if "id" in m:
+        threading.Thread(target=answer, args=(m,)).start()
+"#;
+    let dir = std::env::temp_dir().join(format!("cmux-mcp-shared-{}", uuid_like()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let script = dir.join("shared.py");
+    std::fs::write(&script, SHARED_SERVER).unwrap();
+    let starts = dir.join("starts");
+    let shared = json!({"command": "python3", "args": [script], "env": {"STARTS": starts}});
+    let specs = upstream::specs(Some(
+        json!([
+            {"name": "cmux-forum", "command": "/unused", "args": ["forum-mcp"], "env": {}, "shared": shared},
+            {"name": "acpmux", "command": "/unused", "args": ["acpmux-mcp"], "env": {}, "shared": shared},
+        ])
+        .to_string()
+        .into(),
+    ));
+    assert_eq!(specs.len(), 2);
+    assert!(specs.iter().all(|s| s.shared.is_some()));
+    let mut ups: Vec<upstream::Upstream> =
+        specs.into_iter().map(|s| upstream::Upstream::new(s).with_listings(None)).collect();
+    let forum = ups[0].descriptors(&BTreeSet::new());
+    let acpmux = ups[1].descriptors(&BTreeSet::new());
+    // Each server's own tools under its own prefix, with its own rules.
+    let names = |tools: &[Value]| -> Vec<String> {
+        tools.iter().map(|t| t["name"].as_str().unwrap().to_owned()).collect()
+    };
+    assert_eq!(names(&forum), ["forum_who", "forum_hold"]);
+    assert_eq!(names(&acpmux), ["acpmux_who", "acpmux_hold"]);
+    assert!(forum[0]["description"].as_str().unwrap().contains("rules of cmux-forum"));
+    assert!(acpmux[0]["description"].as_str().unwrap().contains("rules of acpmux"));
+    // One process for both.
+    let started = std::fs::read_to_string(&starts).unwrap();
+    assert_eq!(started.lines().count(), 1, "{started}");
+    // A call that waits on one server holds no call of the other.
+    let gate = dir.join("go");
+    let (forum, acpmux) = (ups.remove(0), ups.remove(0));
+    let held = std::thread::spawn({
+        let gate = gate.clone();
+        move || {
+            let mut forum = forum;
+            forum.call("hold", json!({"path": gate}), None, None).map(|_| forum)
+        }
+    });
+    let mut acpmux = acpmux;
+    let who = acpmux.call("who", json!({}), None, None).unwrap();
+    assert_eq!(who["content"][0]["text"], "acpmux", "{who}");
+    std::fs::write(&gate, b"").unwrap();
+    let forum = held.join().unwrap().unwrap();
+    drop(forum);
+    // The process stays while a server holds it.
+    let mut acpmux = acpmux;
+    assert_eq!(acpmux.call("who", json!({}), None, None).unwrap()["content"][0]["text"], "acpmux");
+    assert_eq!(std::fs::read_to_string(&starts).unwrap().lines().count(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn uuid_like() -> String {
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    format!("{}-{nanos}", std::process::id())
 }

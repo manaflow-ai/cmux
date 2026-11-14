@@ -26,6 +26,14 @@ async fn reply(c: &mut TestClient, id: i64) -> Result<Value, Value> {
     }
 }
 
+/// Waits until p-run's prompt reached its agent (its "running" chunk), not only its acceptance.
+/// A Stop between the two keeps the prompt from the agent, and p-run then answers
+/// `stopped_before_prompt` (`hub/turns.rs`), not the cancelled turn these tests expect.
+async fn agent_runs(c: &mut TestClient) {
+    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-run").await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
+}
+
 async fn stop(c: &mut TestClient, id: &str) {
     let cancel = Message::notification(method::SESSION_CANCEL, json!({"sessionId": id}));
     c.tx.send(cancel.to_line()).await.unwrap();
@@ -47,7 +55,7 @@ async fn a_prompt_past_the_count_limit_is_refused_and_nothing_is_queued_for_it()
     let id = new_session(&mut c, "full").await;
 
     let running = c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", Some("p-run"))).await;
-    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-run").await;
+    agent_runs(&mut c).await;
     let mut waiting = Vec::new();
     for n in 1..=2 {
         let pid = format!("p-wait-{n}");
@@ -82,7 +90,7 @@ async fn a_prompt_past_the_byte_limit_is_refused_and_a_smaller_one_still_queues(
     let id = new_session(&mut c, "bytes").await;
 
     let running = c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", Some("p-run"))).await;
-    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-run").await;
+    agent_runs(&mut c).await;
     let big = "x".repeat(40 << 10);
     let first = c.send(method::SESSION_PROMPT, prompt(&id, &big, Some("p-big-1"))).await;
     c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-big-1").await;
@@ -119,7 +127,7 @@ async fn a_full_queue_still_takes_a_prompt_that_replaces_a_queued_one() {
     };
 
     let running = c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", Some("p-run"))).await;
-    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-run").await;
+    agent_runs(&mut c).await;
     let first = c.send(method::SESSION_PROMPT, keyed("p-status-1", "status one")).await;
     c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-status-1").await;
 
@@ -148,7 +156,7 @@ async fn the_messages_a_digest_took_still_count_against_the_byte_limit() {
     let id = new_session(&mut c, "digest").await;
 
     let running = c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", Some("p-run"))).await;
-    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-run").await;
+    agent_runs(&mut c).await;
     let report = "r".repeat(30 << 10);
     let mut sent = Vec::new();
     for (pid, from) in [("p-a", "lane-a"), ("p-b", "lane-b")] {

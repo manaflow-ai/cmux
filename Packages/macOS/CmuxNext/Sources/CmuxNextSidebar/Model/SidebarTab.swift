@@ -38,6 +38,8 @@ public nonisolated struct SidebarTab: Identifiable, Hashable, Sendable {
     public var brand: String?
     /// A browser tab's page favicon, drawn as is in the kind icon's place (cx-d0d.8).
     public var favicon: SidebarFavicon?
+    /// A cmux page's own icon (a Cloud desktop's cloud), drawn where a favicon goes; nil for a site and every other kind.
+    public var pageIcon: IconName?
     /// The tab's own merged status (its OSC 7501 records, agent turn, page load): the tab bar's dot.
     public var state: StatusIndicatorState = .idle
     /// The tab's folder, shortened as the row's is ("~", "~/src/cmux").
@@ -62,6 +64,9 @@ public nonisolated struct SidebarTab: Identifiable, Hashable, Sendable {
     /// The machine the tab runs on when it is not its workspace's (a remote terminal's session);
     /// nil when the tab runs where its workspace does. The hover card names the workspace's otherwise.
     public var machine: String?
+    /// A terminal whose idle shell was freed (`park-tabs`, `workspaces.freeing.*`): it starts
+    /// again in its folder when its workspace is shown. The hover card counts these.
+    public var isFreed = false
 
     public init(id: TabID, title: String, kind: SidebarTabKind = .terminal, isUnread: Bool = false, brand: String? = nil,
                 favicon: SidebarFavicon? = nil, folder: String? = nil, state: StatusIndicatorState = .idle,

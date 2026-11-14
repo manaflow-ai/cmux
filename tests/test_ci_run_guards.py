@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import copy
+import os
 import re
 import subprocess
 import sys
@@ -24,7 +25,18 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import run_ci_guards  # noqa: E402
-import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+# tests/guard_child_env.py, loaded by path like git_fixture_env: every spawned guard run gets its own step files.
+_guard_child_spec = _git_fixture_importlib.spec_from_file_location(
+    "guard_child_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "guard_child_env.py"))
+guard_child_env = _git_fixture_importlib.module_from_spec(_guard_child_spec)
+_guard_child_spec.loader.exec_module(guard_child_env)
 
 FAST_WORKFLOW = ROOT / ".github/workflows/ci-fast-guards.yml"
 
@@ -385,6 +397,7 @@ class PortableSubstitutes(unittest.TestCase):
             payload = Path(temp) / "ci-guard.sh"
             payload.write_text(text)
             return subprocess.run(["bash", str(self.PAYLOAD), str(payload)], cwd=temp,
+                                  env=guard_child_env.guard_child_env(temp),
                                   capture_output=True, text=True, timeout=60)
 
     def test_the_substitute_runs_the_real_payload(self) -> None:
@@ -394,7 +407,8 @@ class PortableSubstitutes(unittest.TestCase):
         )
         # Every line of the real ci-guard.sh is one the substitute recognizes.
         text = (ROOT / "scripts/ci/workloads/ci-guard.sh").read_text(encoding="utf-8")
-        stubbed = re.sub(r"(?m)^(\./|python3 )(?!\"\$root).*$", "bash -c true", text)
+        stubbed = re.sub(r"(?m)^(check )?(\./|python3 )(?!\"\$root).*$", r"\1bash -c true", text)
+        self.assertIn("check bash -c true", stubbed)
         result = self.run_payload(stubbed)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
@@ -458,7 +472,92 @@ class FeatRoutesSelectTheGroups(unittest.TestCase):
             with self.subTest(label=label):
                 self.assertIn(label, listed)
         self.assertNotIn("release-ios", listed)
-        self.assertNotIn("release-notary", listed)
+        # No diff fails open to every routed group, release-notary included.
+        self.assertIn("workflow-guard-tests / release-notary:", listed)
+
+    def test_a_product_change_skips_release_notary(self) -> None:
+        listed = self.listed(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/X.swift"])
+        self.assertIn("workflow-guard-tests / ci:", listed)
+        self.assertNotIn("workflow-guard-tests / release-notary:", listed)
+
+    def test_a_signing_change_runs_release_notary(self) -> None:
+        listed = self.listed(["cmux.nightly.entitlements"])
+        self.assertIn("workflow-guard-tests / release-notary:", listed)
+
+    def test_skip_group_leaves_a_routed_group_out(self) -> None:
+        import contextlib  # noqa: PLC0415
+        import io  # noqa: PLC0415
+
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory(prefix="guard-routes-") as temp, contextlib.redirect_stdout(out):
+            code = run_ci_guards.main(["--list", "--feat-routes", str(Path(temp) / "none.txt"),
+                                       "--skip-group", "release-notary"])
+        self.assertEqual(code, 0)
+        listed = "\n".join(line for line in out.getvalue().splitlines() if not line.startswith(" "))
+        self.assertIn("workflow-guard-tests / ci:", listed)
+        self.assertIn("workflow-guard-tests / preflight:", listed)
+        # The routed-groups line still names it; the plan leaves it out.
+        self.assertNotIn("workflow-guard-tests / release-notary:", listed)
+
+
+class ATestSpawnedGuardRunLeavesTheCallersFilesAlone(unittest.TestCase):
+    """The guard runner points CMUX_GUARD_CHECK_RESULTS, GITHUB_STEP_SUMMARY, GITHUB_OUTPUT and GITHUB_ENV at the
+    running step's own files. A guard run a test spawns (a failing payload fixture, the runner-guard fixtures) must
+    write none of them: on #41333 the payload fixtures' `./a.sh` reds landed in the real step's results and the CI
+    guard group charged them to the change."""
+
+    def test_the_fixture_suites_leave_all_four_files_byte_identical(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            outer = {name: Path(temp) / f"outer-{name.lower()}" for name in
+                     ("CMUX_GUARD_CHECK_RESULTS", "GITHUB_STEP_SUMMARY", "GITHUB_OUTPUT", "GITHUB_ENV")}
+            for name, path in outer.items():
+                path.write_text(f"1\tthe caller's own {name}\n", encoding="utf-8")
+            before = {name: path.read_bytes() for name, path in outer.items()}
+            env = {key: value for key, value in os.environ.items() if not key.startswith("CMUX_GUARD_")}
+            env.update({name: str(path) for name, path in outer.items()})
+            done = subprocess.run(
+                [sys.executable, "-m", "unittest", "-q",
+                 "test_ci_run_guards.PortableSubstitutes", "test_ci_guard_check_isolation"],
+                cwd=ROOT / "tests", env=env, capture_output=True, text=True, timeout=600,
+            )
+            self.assertEqual(done.returncode, 0, done.stdout[-3000:] + done.stderr[-3000:])
+            after = {name: path.read_bytes() for name, path in outer.items()}
+            for name in outer:
+                with self.subTest(file=name):
+                    self.assertEqual(after[name], before[name])
+
+
+class DeterminismGateReportsEachFinding(unittest.TestCase):
+    """The determinism gate's --guard-checks reports one red guard check per (path, rule), with no line number, so a
+    base already red on the step excuses only the findings the base has (cmux#42416 landed two new findings behind
+    test_cargo_locks_explain.py's base reds)."""
+
+    def test_each_active_path_and_rule_is_one_red_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            (repo / "tests").mkdir(parents=True)
+            # Built from parts so this file's own text holds no duration assert for the gate to find.
+            check = "self.assert" + "Less(elapsed, {})"
+            (repo / "tests" / "test_timing.py").write_text(
+                "import unittest\n\nclass T(unittest.TestCase):\n"
+                "    def test_a(self):\n        elapsed = 1.0\n        " + check.format("2.0") + "\n\n"
+                "    def test_b(self):\n        elapsed = 1.0\n        " + check.format("3.0") + "\n"
+            )
+            allowlist = Path(tmp) / "allowlist.txt"
+            allowlist.write_text("")
+            results = Path(tmp) / "checks"
+            env = {key: value for key, value in os.environ.items() if not key.startswith("CMUX_GUARD_")}
+            env["CMUX_GUARD_CHECK_RESULTS"] = str(results)
+            argv = [sys.executable, str(ROOT / "scripts" / "check-test-determinism.py"), "--repo-root", str(repo),
+                    "--allowlist", str(allowlist), "--roots", "tests", "--strict"]
+            plain = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=120)
+            self.assertEqual(plain.returncode, 1, plain.stdout + plain.stderr)
+            self.assertFalse(results.exists(), "without --guard-checks the gate writes no checks")
+            reported = subprocess.run(argv + ["--guard-checks"], env=env, capture_output=True, text=True, timeout=120)
+            self.assertEqual(reported.returncode, 1, reported.stdout + reported.stderr)
+            self.assertEqual(results.read_text().splitlines(), ["0\ttests/test_timing.py: assert-on-duration"])
+            self.assertEqual(run_ci_guards.read_check_results(results),
+                             {"tests/test_timing.py: assert-on-duration": False})
 
 
 if __name__ == "__main__":

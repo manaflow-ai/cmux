@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextFocus
 import CmuxNextLayout
 import Foundation
 import Observation
@@ -17,15 +18,16 @@ import Observation
 /// owns the focused pane, the last focused pane per workspace and browser
 /// focus mode. It reads the selected workspace and tab selection from here.
 @Observable
-final class WindowState {
+final class WindowState: CloseSelectionWindow {
     /// Stable id that survives relaunch (the projection record id). Changes
     /// once, when the window opened at launch adopts a restored record.
     private(set) var id: String
     /// `WorkspaceModel.id` of the workspace shown; nil shows the empty
     /// state (the only window, with no workspaces).
     var workspaceID: String? {
-        didSet { if workspaceID != oldValue { noteShown(workspaceID, after: oldValue) } }
+        didSet { if workspaceID != oldValue { noteShown(workspaceID, after: oldValue); onShownChange?(workspaceID, oldValue) } }
     }
+    @ObservationIgnored var onShownChange: ((String?, String?) -> Void)? // each change of `workspaceID` (new, old): the close-selection rule's feed
     /// The workspaces shown side by side, `workspaceID` focused among them (Debug Settings `sidebar.multiView`,
     /// `WindowController.arrangeOnScreen`); nil shows `workspaceID` alone. Persisted in the record.
     var viewSet: WorkspaceViewSet?
@@ -34,6 +36,9 @@ final class WindowState {
     var docks = WindowDocks()
     /// The workspace the frame's stage shows (W5): `workspaceID` unless that one is docked. Persisted.
     var stageWorkspaceID: String?
+    /// The Chief panel (`WindowController+ChiefPanel`): the Chief chat floating or docked over the workspaces this
+    /// window shows, never over Home. Persisted in the record.
+    var chiefPanel = ChiefPanel()
     /// The top page this window shows in place of its workspace
     /// (TOP-SECTION-ITEMS-ARE-PAGES); nil shows the workspace. Selecting a
     /// workspace clears it (`showWorkspace(_:)`). Persisted in the record.
@@ -51,7 +56,7 @@ final class WindowState {
     let selection = TabSelectionMemory()
     /// This window's focus state machine: the only owner of focus, last
     /// focused pane per workspace, and browser focus mode. Never persisted.
-    let focus = FocusCoordinator()
+    let focus: FocusCoordinator
     /// Session-only browser tabs per pane (`PaneModel.id`), observed per pane.
     let localBrowserTabs = LocalBrowserTabs()
     /// Sidebar width in points (nil = default); kept while hidden, so the
@@ -98,8 +103,8 @@ final class WindowState {
     /// keep `full_screen` while it is set.
     var restoresFullScreen = false
 
-    init(id: String = UUID().uuidString.lowercased(), workspaceID: String? = nil, machineID: String? = nil) {
-        self.id = id
+    init(id: String = UUID().uuidString.lowercased(), workspaceID: String? = nil, machineID: String? = nil, focusInput: FocusInput) {
+        (self.id, focus) = (id, FocusCoordinator(machine: FocusMachine(input: focusInput)))
         self.workspaceID = workspaceID
         self.machineID = machineID ?? MachineRegistry.localID
     }
@@ -114,8 +119,8 @@ extension WindowState {
     }
 
     /// The state saved for one window.
-    convenience init(record: WindowRecord) {
-        self.init(id: record.id)
+    convenience init(record: WindowRecord, focusInput: FocusInput) {
+        self.init(id: record.id, focusInput: focusInput)
         adopt(record)
     }
 
@@ -128,6 +133,7 @@ extension WindowState {
         viewSet = record.multiView.flatMap(WorkspaceViewSet.init(record:)).flatMap { Set($0.ids).count == $0.ids.count ? $0 : nil }
         docks = WindowDocks(record: record)
         stageWorkspaceID = record.stageKey?.rawValue
+        chiefPanel = ChiefPanel(record: record.chiefPanel)
         machineID = record.machine ?? MachineRegistry.localID
         for (pane, tab) in record.selectedTabs { selection.select(tab, in: pane) }
         sidebarWidth = record.sidebarWidth
@@ -135,10 +141,9 @@ extension WindowState {
         activeScreenID = record.screenID?.rawValue
         savedFocusedPane = record.focusedPane
         restoresFullScreen = record.isFullScreen
+        selection.restoreFocus(record.focusedPanes, shown: workspaceID, pane: record.focusedPane)
         if let workspaceID, let pane = record.focusedPane { focus.send(.restoredPane(pane, workspace: workspaceID)) }
-        for (workspace, pane) in record.focusedPanes.sorted(by: { $0.key < $1.key }) where workspace != workspaceID {
-            focus.send(.restoredPane(pane, workspace: workspace))
-        }
+        for (workspace, pane) in record.focusedPanes.sorted(by: { $0.key < $1.key }) where workspace != workspaceID { focus.send(.restoredPane(pane, workspace: workspace)) }
         profileID = record.profile ?? .defaultProfile
         profileWorkspaces = Dictionary(record.profileWorkspaces.map { (ProfileID(rawValue: $0.key), $0.value.rawValue) },
                                        uniquingKeysWith: { first, _ in first })
@@ -156,13 +161,13 @@ extension WindowState {
 }
 
 extension WindowState {
-    /// Shows `id` (nil: the empty state): the window leaves its top page.
+    /// Shows `id` (nil: the empty state): the window leaves its top page unless `keepsPage` (one in place of a workspace that left).
     /// Unless `keepsCreation` (a repair, or the creation's own workspace,
     /// kept until it is mirrored), another workspace also ends the window's
     /// Cloud creation view; the creation goes on in its sidebar row.
-    func showWorkspace(_ id: String?, keepsCreation: Bool = true) {
+    func showWorkspace(_ id: String?, keepsCreation: Bool = true, keepsPage: Bool = false) {
         workspaceID = id
-        if id != nil { page = nil }
+        if id != nil, !keepsPage { page = nil }
         if !keepsCreation, id != nil { cloudCreation = nil }
     }
 

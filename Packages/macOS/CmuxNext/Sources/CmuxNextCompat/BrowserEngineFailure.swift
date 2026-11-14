@@ -1,8 +1,9 @@
 public import Foundation
 
-/// A browser failure the person saw but no crash report recorded: a page's
-/// renderer process ended (the sad tab, "Aw, Snap!") or a main-frame load
-/// failed (Chromium's net error page or interstitial).
+/// A browser failure no crash report recorded: a page's renderer process
+/// ended (the sad tab, "Aw, Snap!"), a main-frame load failed (Chromium's
+/// net error page or interstitial), or a helper process with no tab of its
+/// own (extension, GPU, utility) ended and Chromium restarted it.
 ///
 /// Holds no page content: the page address is reduced to its scheme and
 /// host (``site``), never a path, query or fragment. Crash reporting sends
@@ -24,6 +25,11 @@ public nonisolated struct BrowserEngineFailure: Hashable, Sendable {
         case rendererTerminated = "renderer_terminated"
         /// The main frame's load failed (a net error or an interstitial).
         case loadFailed = "load_failed"
+        /// A Chromium helper process with no tab of its own (an extension
+        /// renderer, the GPU process, a utility process such as the network
+        /// service) ended abnormally. Chromium restarts it, so no sad tab
+        /// shows it; a crash loop here shows as broken extensions or pages.
+        case helperEnded = "helper_ended"
     }
 
     /// Chromium's net error ERR_ABORTED: a cancelled load (Stop, a replacing
@@ -47,7 +53,8 @@ public nonisolated struct BrowserEngineFailure: Hashable, Sendable {
     public var site: String?
     /// For a load failure: Chromium shows its own interstitial (a certificate warning).
     public var interstitial: Bool
-    /// The helper process kind that ended (`renderer`); nil for a load failure.
+    /// The helper process kind that ended (`renderer`, `extension`,
+    /// `gpu-process`, `utility`); nil for a load failure.
     public var processKind: String?
     /// The engine's own short text for a renderer end, at most ``maxReasonLength`` characters.
     public var reason: String?
@@ -99,7 +106,7 @@ public nonisolated struct BrowserEngineFailure: Hashable, Sendable {
     /// with no error code are not.
     public var isReportable: Bool {
         switch kind {
-        case .rendererTerminated: true
+        case .rendererTerminated, .helperEnded: true
         case .loadFailed: code != 0 && code != Self.abortedNetError && codeName != "ERR_ABORTED"
         }
     }
@@ -112,9 +119,11 @@ public nonisolated struct BrowserEngineFailure: Hashable, Sendable {
     }
 
     /// The same failure on the same site: what a crash loop repeats. Kind,
-    /// termination, code and host.
+    /// termination, code and host; for a helper end, the helper kind.
     public var dedupeKey: String {
-        [kind.rawValue, termination ?? "-", String(code), host ?? "-"].joined(separator: "|")
+        var parts = [kind.rawValue, termination ?? "-", String(code), host ?? "-"]
+        if kind == .helperEnded { parts.append(processKind ?? "-") }
+        return parts.joined(separator: "|")
     }
 
     /// `url` as its scheme and host only: `https://example.com` for
