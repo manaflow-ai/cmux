@@ -29,7 +29,12 @@ headers_in=("$crates/cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI"
             "$crates/cmux-app-ffi/include/cmux_motion_ffi.h:CCmuxMotionFFI"
             "$crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h:CCmuxAgentPanePolicyFFI"
             "$crates/cmux-action-catalog/include/cmux_action_catalog.h:CCmuxActionCatalogFFI"
-            "$crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h:CCmuxDaemonLaunchFFI")
+            "$crates/cmux-cookie-sync/include/cmux_cookie_sync.h:CCmuxCookieSyncFFI"
+            "$crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h:CCmuxDaemonConnFFI"
+            "$crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h:CCmuxDaemonLaunchFFI"
+            "$crates/cmux-health-core/include/cmux_health.h:CCmuxHealthFFI"
+            "$crates/cmux-sdk-ffi/include/cmux_sdk_ffi.h:CCmuxSdkFFI"
+            "$crates/cmux-terminal-prediction/include/cmux_terminal_prediction.h:CCmuxTerminalPredictionFFI")
 
 for tool in cargo rustup xcodebuild lipo clang libtool; do
   command -v "$tool" >/dev/null 2>&1 || { echo "error: $tool is required" >&2; exit 1; }
@@ -54,8 +59,24 @@ done
 export CARGO_TARGET_DIR="$out_root/cargo"
 export MACOSX_DEPLOYMENT_TARGET=14.0
 # Machine code only: Xcode's ld and nm cannot read a newer rustc's bitcode.
-export CARGO_PROFILE_RELEASE_LTO=off
-export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C embed-bitcode=no"
+# Fat LTO keeps it so: rustc itself runs the one optimization over this crate,
+# std and every dependency and writes machine code, so no bitcode reaches
+# Xcode (iroh-ffi, the app's other Rust library, ships the same way). Without
+# it every crate kept its own copy of each generic it instantiated and nothing
+# was inlined across crates. CMUX_APP_FFI_LTO=off builds the old way, for
+# scripts/measure/app-ffi-size.sh only.
+lto="${CMUX_APP_FFI_LTO:-fat}"
+case "$lto" in fat|off) ;; *) echo "error: CMUX_APP_FFI_LTO must be fat or off" >&2; exit 2 ;; esac
+export CARGO_PROFILE_RELEASE_LTO="$lto"
+# rustc refuses -C embed-bitcode=no together with LTO.
+if [[ "$lto" == off ]]; then
+  export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C embed-bitcode=no"
+fi
+# The SQLite that rusqlite bundles here keeps each block's size in its own header
+# instead of asking malloc_default_zone()->size(). That virtual zone follows zones[0]: the
+# app's early delegating zone, then PartitionAlloc's once CEF loads, and neither owns
+# SQLite's older blocks. A 0 there crashed nightly 4294166855401 at launch (#41049).
+export LIBSQLITE3_FLAGS="${LIBSQLITE3_FLAGS:+$LIBSQLITE3_FLAGS }-DSQLITE_WITHOUT_ZONEMALLOC"
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/cmux-app-ffi.XXXXXX")"
 trap 'rm -rf "$work"' EXIT

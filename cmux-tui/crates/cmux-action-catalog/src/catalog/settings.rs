@@ -224,7 +224,8 @@ pub static ACTIONS: &[Action] = &[
         id: "liveWeb.start",
         group: GROUP,
         title: t("ActionCatalog", "action.liveWeb.start", "Edit cmux Live…"),
-        keywords: &["live web reload", "hot reload", "dev server", "edit", "web ui", "webviews", "vite", "checkout", "develop"],
+        hint: Some(t("ActionCatalog", "action.liveWeb.start.hint", "Change cmux's own UI and see it here at once, or let your agent do it. No build.")),
+        keywords: &["cmux live", "live web reload", "hot reload", "dev server", "edit", "web ui", "webviews", "vite", "checkout", "develop"],
         category: "settings",
         symbol: "bolt.horizontal.circle",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
@@ -236,7 +237,7 @@ pub static ACTIONS: &[Action] = &[
         id: "liveWeb.stop",
         group: GROUP,
         title: t("ActionCatalog", "action.liveWeb.stop", "Stop Editing cmux Live"),
-        keywords: &["live web reload", "hot reload", "dev server", "built-in", "bundled", "web ui"],
+        keywords: &["cmux live", "live web reload", "hot reload", "dev server", "built-in", "bundled", "web ui"],
         category: "settings",
         symbol: "bolt.horizontal.circle.fill",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
@@ -382,6 +383,17 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "billing.openPortal",
+        group: GROUP,
+        title: t("ActionCatalog", "action.billing.openPortal", "Manage Billing"),
+        keywords: &["billing", "subscription", "invoice", "receipt", "payment", "card", "plan", "pro", "stripe", "portal"],
+        category: "settings",
+        symbol: "creditcard",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action billing-open-portal",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "sendFeedback",
         group: GROUP,
         title: t("ActionCatalog", "action.sendFeedback", "Send Feedback"),
@@ -470,7 +482,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.newTab.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.newTab.toggle", "Toggle New Tab Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.newTab.toggle", "New Tab Animations"),
         keywords: &["animation", "motion", "tab", "new tab", "appearance"],
         category: "settings",
         symbol: "plus.rectangle.on.rectangle",
@@ -481,7 +493,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.newWorkspace.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.newWorkspace.toggle", "Toggle New Workspace Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.newWorkspace.toggle", "New Workspace Animations"),
         keywords: &["animation", "motion", "workspace", "sidebar", "appearance"],
         category: "settings",
         symbol: "sidebar.left",
@@ -492,7 +504,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.toggle", "Toggle All Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.toggle", "All Animations"),
         keywords: &["animation", "motion", "appearance", "no animations", "disable", "reduce motion", "instant"],
         category: "settings",
         symbol: "sparkles",
@@ -503,7 +515,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.sidebar.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.sidebar.toggle", "Toggle Sidebar Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.sidebar.toggle", "Sidebar Animations"),
         keywords: &["animation", "motion", "appearance", "sidebar", "row", "group", "reorder"],
         category: "settings",
         symbol: "sidebar.left",
@@ -514,7 +526,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.tabs.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.tabs.toggle", "Toggle Tab Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.tabs.toggle", "Tab Animations"),
         keywords: &["animation", "motion", "appearance", "tab", "tab bar"],
         category: "settings",
         symbol: "rectangle.split.3x1",
@@ -525,7 +537,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.panes.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.panes.toggle", "Toggle Pane and Window Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.panes.toggle", "Pane and Window Animations"),
         keywords: &["animation", "motion", "appearance", "pane", "split", "zoom", "window"],
         category: "settings",
         symbol: "rectangle.split.2x1",
@@ -536,7 +548,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.overlays.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.overlays.toggle", "Toggle Menu and Card Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.overlays.toggle", "Menu and Card Animations"),
         keywords: &["animation", "motion", "appearance", "menu", "popover", "palette", "toast", "card"],
         category: "settings",
         symbol: "menubar.rectangle",
@@ -547,7 +559,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.hoverCards.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.hoverCards.toggle", "Toggle Hover Card Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.hoverCards.toggle", "Hover Card Animations"),
         keywords: &["animation", "motion", "appearance", "hover card", "tooltip"],
         category: "settings",
         symbol: "rectangle.on.rectangle",
@@ -558,7 +570,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.home.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.home.toggle", "Toggle Home and Chat Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.home.toggle", "Home and Chat Animations"),
         keywords: &["animation", "motion", "appearance", "home", "chief", "chat", "bubble"],
         category: "settings",
         symbol: "bubble.left.and.bubble.right",
@@ -569,7 +581,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.cursor.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.cursor.toggle", "Toggle Agent Cursor Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.cursor.toggle", "Agent Cursor Animations"),
         keywords: &["animation", "motion", "appearance", "cursor", "agent", "ripple"],
         category: "settings",
         symbol: "cursorarrow.motionlines",
@@ -580,7 +592,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.indicators.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.indicators.toggle", "Toggle Spinner and Progress Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.indicators.toggle", "Spinner and Progress Animations"),
         keywords: &["animation", "motion", "appearance", "spinner", "progress", "pulse", "loading"],
         category: "settings",
         symbol: "progress.indicator",
@@ -591,7 +603,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.feedback.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.feedback.toggle", "Toggle Highlight and Color Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.feedback.toggle", "Highlight and Color Animations"),
         keywords: &["animation", "motion", "appearance", "hover", "highlight", "color", "theme"],
         category: "settings",
         symbol: "hand.point.up.left",
@@ -602,34 +614,12 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.animations.web.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.web.toggle", "Toggle Web Page Animations"),
+        title: t("ActionCatalog", "action.appearance.animations.web.toggle", "Web Page Animations"),
         keywords: &["animation", "motion", "appearance", "web", "page", "css"],
         category: "settings",
         symbol: "globe",
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "settings toggle-web-page-animations",
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "appearance.animations.bounce.subtle",
-        group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.bounce.subtle", "Use Bouncy Animations"),
-        keywords: &["animation", "motion", "spring", "bounce", "bouncy", "appearance"],
-        category: "settings",
-        symbol: "arrow.up.and.down.and.sparkles",
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
-        cli_name: "settings use-bouncy-animations",
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "appearance.animations.bounce.none",
-        group: GROUP,
-        title: t("ActionCatalog", "action.appearance.animations.bounce.none", "Use Animations Without Bounce"),
-        keywords: &["animation", "motion", "spring", "bounce", "critically damped", "appearance"],
-        category: "settings",
-        symbol: "arrow.right.to.line",
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
-        cli_name: "settings use-animations-without-bounce",
         ..Action::DEFAULT
     },
     Action {
@@ -657,7 +647,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.paneBorder.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.paneBorder.toggle", "Toggle Pane Borders"),
+        title: t("ActionCatalog", "action.appearance.paneBorder.toggle", "Pane Borders"),
         keywords: &["border", "outline", "hairline", "pane", "appearance", "layout"],
         category: "settings",
         symbol: "square.dashed",
@@ -668,7 +658,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.panePadding.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.panePadding.toggle", "Toggle Pane Padding"),
+        title: t("ActionCatalog", "action.appearance.panePadding.toggle", "Pane Padding"),
         keywords: &["padding", "gap", "inset", "edge to edge", "pane", "appearance", "layout"],
         category: "settings",
         symbol: "rectangle.inset.filled",
@@ -679,7 +669,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.paneCorners.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.paneCorners.toggle", "Toggle Rounded Pane Corners"),
+        title: t("ActionCatalog", "action.appearance.paneCorners.toggle", "Rounded Pane Corners"),
         keywords: &["corner", "radius", "rounded", "square", "pane", "appearance", "layout"],
         category: "settings",
         symbol: "square.on.square",
@@ -789,7 +779,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "focusRing.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.focusRing.toggle", "Toggle Focus Ring"),
+        title: t("ActionCatalog", "action.focusRing.toggle", "Focus Ring"),
         keywords: &["focus", "ring", "outline", "highlight", "pane", "appearance"],
         category: "settings",
         symbol: "square.dashed.inset.filled",
@@ -822,7 +812,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "focusRing.singlePane.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.focusRing.singlePane.toggle", "Toggle Focus Ring for a Single Pane"),
+        title: t("ActionCatalog", "action.focusRing.singlePane.toggle", "Focus Ring for a Single Pane"),
         keywords: &["focus", "ring", "single", "one", "pane", "appearance"],
         category: "settings",
         symbol: "square.inset.filled",
@@ -833,7 +823,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.paneBorderWidth.toggle",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.paneBorderWidth.toggle", "Toggle Thick Pane Borders"),
+        title: t("ActionCatalog", "action.appearance.paneBorderWidth.toggle", "Thick Pane Borders"),
         keywords: &["border", "width", "thick", "thin", "hairline", "pane", "appearance", "layout"],
         category: "settings",
         symbol: "lineweight",
@@ -881,10 +871,8 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["glass", "liquid glass", "lens", "refraction", "wallpaper", "plain glass", "appearance"],
         category: "settings",
         symbol: "drop",
-        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action appearance-glass-lens-toggle",
-        main_menu: Some("debug"),
         is_debug_only: true,
         ..Action::DEFAULT
     },
@@ -912,6 +900,33 @@ pub static ACTIONS: &[Action] = &[
         is_debug_only: true,
         ..Action::DEFAULT
     },
+    // Debug Settings > Toasts beside live sample toasts (Lawrence 2026-11-12: "so we can refine the toasts").
+    Action {
+        id: "debug.toastTuning",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.toastTuning", "Toast Tuning"),
+        keywords: &["toast", "toasts", "notice", "duration", "glass", "padding", "motion", "tuning", "playground", "debug"],
+        category: "settings",
+        symbol: "text.bubble",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-toast-tuning",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    // Every toast style with every kind of toast, light and dark; Pick sets the style of every toast and
+    // prompt (Lawrence 2026-11-13: "make a swift playground for me to pick my favorite").
+    Action {
+        id: "debug.toastPlayground",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.toastPlayground", "Toast Playground"),
+        keywords: &["toast", "toasts", "prompt", "notice", "style", "variants", "gallery", "playground", "pick", "debug"],
+        category: "settings",
+        symbol: "rectangle.stack.badge.play",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-toast-playground",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
     Action {
         id: "debug.tabBarPlayground",
         group: GROUP,
@@ -919,10 +934,8 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["tab bar", "tabs", "playground", "gallery", "variants", "crowded", "new tab", "plus", "chevron", "more", "debug"],
         category: "settings",
         symbol: "rectangle.3.group",
-        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action debug-tab-bar-playground",
-        main_menu: Some("debug"),
         is_debug_only: true,
         ..Action::DEFAULT
     },
@@ -933,10 +946,8 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["themes", "app theme", "contrast", "colors", "playground", "gallery", "audit", "debug"],
         category: "settings",
         symbol: "paintpalette",
-        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action debug-all-themes-playground",
-        main_menu: Some("debug"),
         is_debug_only: true,
         ..Action::DEFAULT
     },
@@ -947,10 +958,20 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["sidebar", "states", "rows", "playground", "gallery", "density", "text size", "dots", "spinner", "sizes", "debug"],
         category: "settings",
         symbol: "sidebar.left",
-        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action debug-sidebar-states-playground",
-        main_menu: Some("debug"),
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "debug.sidebarRowTuner",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.sidebarRowTuner", "Sidebar Row Tuner"),
+        keywords: &["sidebar", "rows", "tune", "tuner", "sizes", "spacing", "padding", "gap", "font", "sliders", "values", "debug"],
+        category: "settings",
+        symbol: "slider.horizontal.3",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-sidebar-row-tuner",
         is_debug_only: true,
         ..Action::DEFAULT
     },
@@ -961,10 +982,8 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["view", "window", "preview", "shell", "live", "hot reload", "dev server", "gallery", "mock app", "checkout", "debug"],
         category: "settings",
         symbol: "macwindow.on.rectangle",
-        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action debug-view-window",
-        main_menu: Some("debug"),
         is_debug_only: true,
         ..Action::DEFAULT
     },
@@ -975,11 +994,9 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["projection", "worktree", "dev server", "hot reload", "live", "preview", "view", "window", "debug"],
         category: "settings",
         symbol: "rectangle.on.rectangle",
-        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         arguments: &[args::SERVER.optional(), args::WORKTREE.optional(), args::TEST.optional(), args::PAGE.optional()],
         cli_name: "action debug-projection",
-        main_menu: Some("debug"),
         is_debug_only: true,
         focuses: true,
         ..Action::DEFAULT
@@ -991,11 +1008,9 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["projection", "test", "run", "worktree", "debug"],
         category: "settings",
         symbol: "checkmark.circle",
-        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         arguments: &[args::TEST.optional()],
         cli_name: "action debug-projection-run-test",
-        main_menu: Some("debug"),
         is_debug_only: true,
         starts_terminal: true,
         ..Action::DEFAULT
@@ -1007,10 +1022,8 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["latency", "budget", "10 ms", "slow", "action", "hud", "perf", "frame", "debug"],
         category: "settings",
         symbol: "gauge.with.dots.needle.67percent",
-        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action debug-action-latency-h-u-d",
-        main_menu: Some("debug"),
         is_debug_only: true,
         ..Action::DEFAULT
     },
@@ -1021,9 +1034,46 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["blocking", "main thread", "hang", "stall", "reset", "counts", "debug"],
         category: "settings",
         symbol: "arrow.counterclockwise",
-        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action debug-blocking-calls-reset",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "debug.blockingCalls.copy",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.blockingCalls.copy", "Copy Main-Thread Blocking Sites"),
+        keywords: &["blocking", "main thread", "hang", "stall", "sites", "copy", "list", "debug"],
+        category: "settings",
+        symbol: "doc.on.doc",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-blocking-calls-copy",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "debug.sidebarToggleIcon",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.sidebarToggleIcon", "Sidebar Toggle Icon…"),
+        keywords: &["sidebar", "toggle", "icon", "glyph", "button", "debug"],
+        category: "settings",
+        symbol: "sidebar.left",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::DEBUG_SIDEBAR_TOGGLE_ICON],
+        cli_name: "action debug-sidebar-toggle-icon",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "debug.statusIconSet",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.statusIconSet", "Status Icons…"),
+        keywords: &["status", "indicator", "icons", "question", "blocked", "waiting", "debug"],
+        category: "settings",
+        symbol: "questionmark.circle",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::DEBUG_STATUS_ICON_SET],
+        cli_name: "action debug-status-icon-set",
         is_debug_only: true,
         ..Action::DEFAULT
     },
@@ -1041,10 +1091,22 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "appearance.personalize",
+        group: GROUP,
+        title: t("ActionCatalog", "action.appearance.personalize", "Personalization…"),
+        keywords: &["personalization", "personalize", "appearance", "theme", "accent", "background", "wallpaper", "glass", "chief", "pet", "font", "density", "sounds", "make it yours"],
+        category: "settings",
+        symbol: "wand.and.stars",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "settings personalize",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "appearance.interfaceSize.increase",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.interfaceSize.increase", "Increase Interface Size"),
-        keywords: &["appearance", "font", "chrome", "bigger", "zoom"],
+        title: t("ActionCatalog", "action.appearance.interfaceSize.increase", "Increase Text Size"),
+        keywords: &["appearance", "font", "text", "size", "interface", "chrome", "bigger"],
         category: "settings",
         symbol: "plus.magnifyingglass",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("stepAdjust")), context_menu_exemption: Some("stepAdjust"), ..SurfacePlan::DEFAULT },
@@ -1054,8 +1116,8 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.interfaceSize.decrease",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.interfaceSize.decrease", "Decrease Interface Size"),
-        keywords: &["appearance", "font", "chrome", "smaller", "zoom"],
+        title: t("ActionCatalog", "action.appearance.interfaceSize.decrease", "Decrease Text Size"),
+        keywords: &["appearance", "font", "text", "size", "interface", "chrome", "smaller"],
         category: "settings",
         symbol: "minus.magnifyingglass",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("stepAdjust")), context_menu_exemption: Some("stepAdjust"), ..SurfacePlan::DEFAULT },
@@ -1065,8 +1127,8 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.interfaceSize.reset",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.interfaceSize.reset", "Reset Interface Size"),
-        keywords: &["appearance", "font", "chrome", "default"],
+        title: t("ActionCatalog", "action.appearance.interfaceSize.reset", "Reset Text Size"),
+        keywords: &["appearance", "font", "text", "size", "interface", "chrome", "default"],
         category: "settings",
         symbol: "textformat.size",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("stepAdjust")), context_menu_exemption: Some("stepAdjust"), ..SurfacePlan::DEFAULT },
@@ -1076,8 +1138,8 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.uiScale.increase",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.uiScale.increase", "Increase Interface Scale"),
-        keywords: &["appearance", "scale", "chrome", "bigger", "zoom"],
+        title: t("ActionCatalog", "action.appearance.uiScale.increase", "Increase App Zoom"),
+        keywords: &["appearance", "scale", "interface", "pages", "bigger", "zoom"],
         default_shortcut: Some(Shortcut { key: "=", modifiers: CTRL | SHIFT | CMD }),
         category: "settings",
         symbol: "plus.magnifyingglass",
@@ -1090,8 +1152,8 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.uiScale.decrease",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.uiScale.decrease", "Decrease Interface Scale"),
-        keywords: &["appearance", "scale", "chrome", "smaller", "zoom"],
+        title: t("ActionCatalog", "action.appearance.uiScale.decrease", "Decrease App Zoom"),
+        keywords: &["appearance", "scale", "interface", "pages", "smaller", "zoom"],
         default_shortcut: Some(Shortcut { key: "-", modifiers: CTRL | SHIFT | CMD }),
         category: "settings",
         symbol: "minus.magnifyingglass",
@@ -1104,8 +1166,8 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "appearance.uiScale.reset",
         group: GROUP,
-        title: t("ActionCatalog", "action.appearance.uiScale.reset", "Reset Interface Scale"),
-        keywords: &["appearance", "scale", "chrome", "default", "zoom"],
+        title: t("ActionCatalog", "action.appearance.uiScale.reset", "Reset App Zoom"),
+        keywords: &["appearance", "scale", "interface", "pages", "default", "zoom"],
         default_shortcut: Some(Shortcut { key: "0", modifiers: CTRL | SHIFT | CMD }),
         category: "settings",
         symbol: "1.magnifyingglass",

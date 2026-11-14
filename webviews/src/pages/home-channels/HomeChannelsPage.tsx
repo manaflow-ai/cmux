@@ -9,6 +9,7 @@ import { AttachmentContext } from "./AttachmentViews";
 import { AvatarContext } from "./avatars";
 import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
 import { Composer } from "./Composer";
+import { ChiefTaskHat } from "./ChiefTaskHat";
 import { GoalStrip } from "./GoalStrip";
 import { useHostSelection, type HomeSelection } from "./hostSelection";
 import { useHostMove } from "./hostMove";
@@ -59,6 +60,8 @@ const NOTICE_MS = 1600;
 export const APP_ACTION_RUN = "cmux.app.action.run";
 /** The app's New Cloud Machine action (CloudActionCatalog): its sheet makes the machine. */
 export const NEW_CLOUD_MACHINE = "newCloudMachine";
+/** The app's Restart cmux-tui… (its own confirm first): the daemon gate's fix for a refused page listener. */
+export const RESTART_SERVER = "palette.restartServer";
 
 export function HomeChannelsPage({
   store,
@@ -226,8 +229,8 @@ export function HomeChannelsPage({
           (reply) => {
             if (reply?.ran === false) say(t("notice.cloudNotRun"));
           },
-          // A refusal (the host's own words) shows as the page's short notice.
-          (error: unknown) => say(error instanceof Error && error.message ? error.message : t("notice.cloudNotRun")),
+          // A refusal shows as the page's own short notice; the host's words stay in its log.
+          () => say(t("notice.cloudNotRun")),
         )
     : undefined;
   const copyLink = (message?: HomeMessage, conversation = snap.selected) => {
@@ -727,6 +730,7 @@ export function HomeChannelsPage({
                           strings={strings}
                           onOpen={runs.onOpen}
                         />
+                        <ChiefTaskHat book={store.runs} conversation={open.id} strings={strings} />
                         <div className="lg-main-compose">
                           <Composer
                             key={open.id}
@@ -816,7 +820,14 @@ export function HomeChannelsPage({
                 conversations={conversations}
                 me={me}
               />
-              {palette && <Palette items={paletteItems} strings={strings} onClose={() => setPalette(false)} />}
+              {palette && (
+                <Palette
+                  items={paletteItems}
+                  rank={store.rankPalette}
+                  strings={strings}
+                  onClose={() => setPalette(false)}
+                />
+              )}
             </div>
           </div>
         </PicturesContext.Provider>

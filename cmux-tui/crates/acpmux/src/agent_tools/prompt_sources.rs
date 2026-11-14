@@ -19,10 +19,10 @@ pub const BASE_INSTRUCTIONS: &str = "These tools drive the cmux terminal app and
     In a cmux chat reply, show UI rather than describe it: ![alt](/abs/path.png), a bare image \
     path or an https image address draws as a thumbnail, and two in one paragraph sit side by side.";
 
-pub const CODE_MODE_INSTRUCTIONS: &str = "This chat runs in cmux: a terminal, tab or workspace \
-    the person asks for (\"on my right\", \"a new workspace\") is a cmux one, made and run with \
-    these tools, not your own shell. cmux tools run through cmux_exec scripts; its \
-    description lists the common ones. Selectors take a public id (ws_…, pane_…, tab_…, \
+/// It does not open with "This chat runs in cmux": `cmux_exec`'s description, always loaded,
+/// says that once.
+pub const CODE_MODE_INSTRUCTIONS: &str = "cmux tools run through cmux_exec scripts; its \
+    description lists the common ones and what \"a terminal\" or \"this workspace\" means here. Selectors take a public id (ws_…, pane_…, tab_…, \
     term_…), a unique prefix, <session>:<id> or an exact name; workspace, screen, pane and tab \
     also take `current` (this chat's own) or `focused` (the one the person looks at). Tools of the chat's \
     other cmux servers (cua_*: computer use on Mac \
@@ -146,6 +146,9 @@ impl AgentTools {
         if claude && self.plugin_dir.is_some() {
             for (path, body) in SKILL_FILES {
                 let Some(name) = path.strip_suffix("/SKILL.md") else { continue };
+                if !self.lists_skill(name) {
+                    continue;
+                }
                 // Store only the exact name/description frontmatter. The harness
                 // supplies its own catalog wrapper, hence this is an estimate.
                 let Some(frontmatter) =
@@ -248,7 +251,10 @@ mod tests {
         let parts = tools().context_parts(true);
         let skills: Vec<_> = parts.iter().filter(|p| p.source == "cmux-skill-listing").collect();
         let compiled = SKILL_FILES.iter().filter(|(p, _)| p.ends_with("/SKILL.md")).count();
-        assert_eq!(skills.len(), compiled);
+        // No `cmux-secrets` server here, so no `cmux-sudo` listing (`SKILL_SERVERS`).
+        assert_eq!(skills.len(), compiled - 1);
+        assert!(!skills.iter().any(|p| p.id.ends_with("skill-cmux-cmux-sudo")), "{skills:?}");
+        assert!(skills.iter().any(|p| p.id.ends_with("skill-cmux-cmux-cua")), "{skills:?}");
         assert!(skills.iter().any(|p| p.id.ends_with("skill-cmux-cmux-chat")), "{skills:?}");
         for skill in &skills {
             let text = skill.text.as_deref().unwrap();
@@ -285,7 +291,7 @@ mod tests {
         crate::context_inventory::record_tool_sources(&mut meta, parts.clone());
         let after = inspectable(&meta);
         // The skill descriptions plus the two rule fragments (asking, computer use).
-        assert_eq!((before, after), (0, compiled + 2));
+        assert_eq!((before, after), (0, skills.len() + 2));
         println!(
             "context-source-fixture: inspectable_before={before}, inspectable_after={after}, rows={}, text_parts={}, persisted_bytes={}, skill_description_tokens={}, full_skill_body_tokens={}",
             parts.len(),

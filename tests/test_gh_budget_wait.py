@@ -13,9 +13,15 @@ import os
 import re
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "gh_budget_wait.sh"
@@ -350,6 +356,10 @@ PUBLISH_PATH = (
     "find-nightly-next-recovery", "recover-nightly-next-notarization", "publish-nightly", "publish-nightly-next-github", "keep-published-dsyms",
     "generate-nightly-deltas", "republish-nightly-deltas", "published-in", "sign-release-notes",
     "publish-release-notes", "publish-nightly-reel", "build-nightly-app",
+    # The dispatches: run 42726398544's sign dispatch failed on "HTTP 403: API rate limit exceeded for
+    # installation" and nothing published for two hours (2026-11-10). A refused dispatch did nothing on
+    # GitHub's side, so waiting and trying it again never starts a second run.
+    "dispatch-nightly-next-sign", "dispatch-published-in", "retry-nightly-next",
 )
 INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wait\.sh --install")
 # One-mini mode adds room for glaeda's capacity wait on the nightly mini (tests/test_nightly_mini_gate_timeouts.py);
@@ -357,10 +367,20 @@ INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wait\.sh -
 ONE_MINI_TIMEOUT = re.compile(r"\$\{\{ vars\.CI_NIGHTLY_MINI != '' && \d+ \|\| (\d+) \}\}")
 
 
+# One-mini mode first, then the job's own limit: `${{ vars.CI_NIGHTLY_MINI != '' && <cond> && N || <mode off> }}`
+# (republish-nightly-deltas: the capacity wait on nightly-next only, then its by-track limit).
+# The contents of one whole expression (gh_expressions finds it).
+ONE_MINI_THEN = re.compile(r"vars\.CI_NIGHTLY_MINI != '' && [^|]+ && \d+ \|\| (.+)", re.DOTALL)
+
+
 def mode_off_timeout(value: object) -> str:
     """A timeout-minutes value with one-mini mode off."""
     one_mini = ONE_MINI_TIMEOUT.fullmatch(str(value))
-    return one_mini.group(1) if one_mini else str(value)
+    if one_mini:
+        return one_mini.group(1)
+    whole = gh_expressions.STRIPPED.fullmatch(str(value))
+    then = ONE_MINI_THEN.fullmatch(whole.group(1)) if whole else None
+    return f"${{{{ {then.group(1)} }}}}" if then else str(value)
 
 
 # A job timeout that differs on nightly-next: `${{ ... track == 'nightly-next' && NEXT || OTHER }}`.
@@ -368,6 +388,55 @@ NEXT_TIMEOUT = re.compile(r"\$\{\{ needs\.(?:decide|published-build)\.outputs\.t
 # Publish-path jobs whose nightly-next path makes no gh call (republish-nightly-deltas writes
 # deltas and feed to R2), so their nightly-next timeout needs no room for the hour's wait.
 NO_GH_ON_NIGHTLY_NEXT = ("republish-nightly-deltas",)
+
+# Every workflow's github.token shares one hourly limit, and the fleet spends it. A publish-path step
+# that reads GitHub on github.token alone fails when it runs out: sign runs 43129190893 and 43139032769
+# failed their unsigned restore on HTTP 403 and no nightly published from 01:28 to 03:25 UTC
+# (2026-11-12, Leo: "this is not a thing you can hold ci for anything for", "where is the prevention").
+# A step has an App-token path when its token is `steps.<mint>.outputs.token || github.token` (the
+# step names the App token first), or when its job installed gh_app_token.sh before it (gh goes out as
+# the release App first).
+TOKEN_KEYS = ("GH_TOKEN", "GITHUB_TOKEN", "token", "github-token")
+SHARED_TOKEN = re.compile(r"github\.token|secrets\.GITHUB_TOKEN")
+APP_TOKEN_FIRST = re.compile(r"steps\.[\w-]+\.outputs\.token\s*\|\|")
+# (job, step name): the publish-path steps on github.token alone on 2026-11-12. A new one fails; give
+# it an App-token path instead. Delete an entry when its step gets one.
+SHARED_TOKEN_ONLY = {
+    ("resolve-nightly-cmux-tui-client", "Validate the saved unsigned nightly source"),
+    ("resolve-nightly-cmux-tui-client", "Build the tip while its tree publishes"),
+    ("resolve-nightly-cmux-tui-client", "Resolve cmux-tui client commit"),
+    ("resolve-nightly-cmux-tui-client", "Leave the build slot to a newer nightly-next push"),
+    ("prepare-nightly-variant-primary", "Reuse a successful primary preparation"),
+    ("prepare-nightly-variant-primary", "Download signing inputs (parallel)"),
+    ("prepare-nightly-variant-primary", "Verify shipped libintl has its source"),
+    ("prepare-nightly-variant", "Reuse a successful primary preparation"),
+    ("prepare-nightly-variant", "Download signing inputs (parallel)"),
+    ("prepare-nightly-variant", "Verify shipped libintl has its source"),
+    ("find-nightly-next-recovery", "List newer pending nightly-next notarizations"),
+    ("published-in", "Comment the build on its PRs"),
+    ("sign-release-notes", "Build and sign the release notes"),
+    ("publish-nightly-reel", "Build and publish the reel"),
+    ("build-nightly-app", "Look up the nightly app compiled on the same inputs"),
+    ("build-nightly-app", "Stop when the run can no longer publish (before the compile)"),
+    ("build-nightly-app", "Bundle the cmux-tui client"),
+    ("build-nightly-app", "Stop when the run can no longer publish (before the upload)"),
+}
+
+
+def shared_token_only_steps(jobs: dict, names=PUBLISH_PATH) -> list[tuple[str, str]]:
+    """The (job, step name) pairs among `names` that read GitHub on github.token with no App-token path."""
+    found = []
+    for name in names:
+        installed = False
+        for step in jobs[name].get("steps", []):
+            if "gh_app_token.sh --install" in str(step.get("run", "")):
+                installed = True
+                continue
+            tokens = [str(value) for source in (step.get("env") or {}, step.get("with") or {})
+                      for key, value in source.items() if key in TOKEN_KEYS]
+            if any(SHARED_TOKEN.search(t) and not APP_TOKEN_FIRST.search(t) for t in tokens) and not installed:
+                found.append((name, str(step.get("name") or step.get("id"))))
+    return found
 
 
 class WorkflowTests(unittest.TestCase):
@@ -387,13 +456,39 @@ class WorkflowTests(unittest.TestCase):
                         if "github.token" in str(s.get("env", {})) or "release-tag-token" in str(s.get("env", {}))]
             # Only prepare's reuse probe (before any checkout; a refusal prepares here), the nightly
             # product lookup (no gh: a bounded REST lookup whose every refusal is a miss) and the
-            # unsigned-resume restore (a hand-run recovery, not the publish path) come first.
+            # unsigned-resume restore come first. The restore runs in every nightly-next sign run, so it
+            # reads with the routing App's token (test_no_new_publish_path_step_reads_github_on_the_shared_token_alone).
             early = [i for i in later_gh if i < at]
             for i in early:
                 resume = "nightly_next_unsigned_run != ''" in str(steps[i].get("if", ""))
                 # gh_app_token.sh installs first so this wrapper wraps it (tests/test_gh_app_token.py).
                 app_token = "gh_app_token.sh --install" in str(steps[i].get("run", ""))
                 self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume or app_token, (name, steps[i].get("name")))
+
+    def test_no_new_publish_path_step_reads_github_on_the_shared_token_alone(self) -> None:
+        new = [pair for pair in shared_token_only_steps(self.jobs) if pair not in SHARED_TOKEN_ONLY]
+        self.assertEqual(new, [], "give each step an App-token path: mint one and pass "
+                         "`steps.<mint>.outputs.token || github.token`, or install gh_app_token.sh earlier in its job")
+
+    def test_the_shared_token_detector(self) -> None:
+        mint = {"name": "Mint", "id": "mint", "uses": "actions/create-github-app-token@x"}
+        jobs = {"j": {"steps": [
+            {"name": "alone", "env": {"GH_TOKEN": "${{ github.token }}"}},
+            {"name": "secret", "with": {"github-token": "${{ secrets.GITHUB_TOKEN }}"}},
+            mint,
+            {"name": "app first", "env": {"GH_TOKEN": "${{ steps.mint.outputs.token || github.token }}"}},
+            {"name": "app last", "env": {"GH_TOKEN": "${{ github.token || steps.mint.outputs.token }}"}},
+            {"name": "other token", "env": {"GH_TOKEN": "${{ steps.mint.outputs.token }}"}},
+            {"name": "not a token", "env": {"REPO": "${{ github.token }}"}},
+            {"name": "install", "run": "bash scripts/ci/gh_app_token.sh --install"},
+            {"name": "after the wrapper", "env": {"GH_TOKEN": "${{ github.token }}"}},
+        ]}}
+        self.assertEqual(shared_token_only_steps(jobs, ["j"]), [("j", "alone"), ("j", "secret"), ("j", "app last")])
+
+    def test_every_dispatch_is_on_the_publish_path(self) -> None:
+        for name, job in self.jobs.items():
+            if any("gh workflow run" in str(s.get("run", "")) for s in job.get("steps", [])):
+                self.assertIn(name, PUBLISH_PATH, name)
 
     def test_publish_path_timeouts_leave_room_for_the_wait(self) -> None:
         for name in PUBLISH_PATH:
@@ -413,12 +508,18 @@ class WorkflowTests(unittest.TestCase):
         job = self.jobs["attest-nightly-remote-daemon"]
         # The all-nightly reservation, then our nightly-only pool, never Blacksmith (nightlies run only on our runners; run 41717500642
         # attested on cmux7s-mac-mini-glaeda-nightly-only-3).
-        self.assertNotIn("macos", job["runs-on"])
-        self.assertIn("vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro'", job["runs-on"])
-        self.assertTrue(job["runs-on"].endswith("|| vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"))
-        self.assertNotIn("blacksmith", job["runs-on"])
-        self.assertNotIn("RUNNER_POOLS", job["runs-on"])
-        self.assertEqual(job["needs"], ["build-nightly-remote-daemon"])
+        cells = workflow_jobs.runs_on_cells(job)
+        self.assertIsNotNone(cells, "attest-nightly-remote-daemon: runs-on has a matrix value nothing resolves")
+        self.assertEqual(len(cells), 1, cells)
+        runs_on = cells[0]
+        self.assertNotIn("macos", runs_on)
+        self.assertIn("vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro'", runs_on)
+        self.assertTrue(runs_on.endswith("|| vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"))
+        self.assertNotIn("blacksmith", runs_on)
+        self.assertNotIn("RUNNER_POOLS", runs_on)
+        # decide for its pipeline output, and build-nightly-app, which retains the assets in a sign run;
+        # nightly-next-one builds the same assets in one-job mode.
+        self.assertEqual(job["needs"], ["decide", "build-nightly-app", "build-nightly-remote-daemon", "nightly-next-one"])
         self.assertGreaterEqual(int(mode_off_timeout(job["timeout-minutes"])), 65)
         # No consumer can put this advisory job back on the publication path,
         # directly or transitively. A budget wait must not delay the feed.

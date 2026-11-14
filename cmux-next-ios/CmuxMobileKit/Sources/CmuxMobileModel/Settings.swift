@@ -149,6 +149,13 @@ public final class SettingsStore {
     public var wrapCode: Bool { didSet { save(wrapCode, "wrapCode") } }
     /// Read by the terminal key bar.
     public var keyClicks: Bool { didSet { save(keyClicks, "keyClicks") } }
+    /// Read by the terminal composer (`CmuxMobilePreferences.terminalJumpToBottom`).
+    public var terminalJumpToBottom: Bool { didSet { save(terminalJumpToBottom, "terminalJumpToBottom") } }
+    /// Read by the terminal (`CmuxMobilePreferences.predictiveEcho`) through the same key.
+    public var predictiveEcho: Bool { didSet { save(predictiveEcho, "predictiveEcho") } }
+    /// Read at each WireGuard dial (`FFIMacLinkDialer`) through the same key; Rust turns ultra
+    /// mode on only while the network is cellular. Off by default.
+    public var ultraOnCellular: Bool { didSet { save(ultraOnCellular, "ultraOnCellular") } }
     public var notifyLevel: NotificationLevel { didSet { save(notifyLevel.rawValue, "notifyLevel") } }
     /// Macs whose notifications are off (their device ids).
     public private(set) var notifyMutedMacs: [String] { didSet { save(notifyMutedMacs, "notifyMutedMacs") } }
@@ -185,6 +192,12 @@ public final class SettingsStore {
         followUp = string("followUp").flatMap(FollowUpBehavior.init(rawValue:)) ?? .queue
         wrapCode = bool("wrapCode", false)
         keyClicks = bool("keyClicks", true)
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string
+        // (CmuxMobilePreferences.terminalJumpToBottom reads the key the same way).
+        terminalJumpToBottom = defaults.object(forKey: "cmuxMobile.settings.terminalJumpToBottom") == nil
+            ? true : defaults.bool(forKey: "cmuxMobile.settings.terminalJumpToBottom")
+        predictiveEcho = bool("predictiveEcho", true)
+        ultraOnCellular = bool("ultraOnCellular", false)
         // The earlier three switches: Finished off reads as "Only when I'm needed".
         let level = string("notifyLevel").flatMap(NotificationLevel.init(rawValue:))
             ?? (bool("notifyFinished", true) ? .neededAndFinished : .needed)

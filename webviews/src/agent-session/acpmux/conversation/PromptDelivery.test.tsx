@@ -12,7 +12,9 @@ import type { AcpmuxRow, AcpmuxSnapshot, PromptDelivery } from "../model";
 import type { ComposerAttachment } from "../attachments";
 import { failedRuns, failedSendText } from "../sendFailure";
 import { messageMenuTarget } from "./messageMenu";
-import { DeliveryFailure, FailedSendsContext, type FailedSends } from "./PromptDelivery";
+import { DeliveryFailure } from "./PromptDelivery";
+import { FailedSendsContext, type FailedSends } from "./promptDeliveryModel";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -38,6 +40,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

@@ -20,6 +20,7 @@ struct AgentPaneCloudMachineRequestTests {
         #expect(Self.request("cloudMachine.attach", ["id": "vm-1"]) == .cloudMachine(.attach(id: "vm-1")))
         #expect(Self.request("cloudMachine.pause", ["id": "vm_0123"]) == .cloudMachine(.pause(id: "vm_0123")))
         #expect(Self.request("cloudMachine.prewarm", ["id": "vm_0123"]) == .cloudMachine(.prewarm(id: "vm_0123")))
+        #expect(Self.request("cloudMachine.delete", ["id": "vm_0123"]) == .cloudMachine(.delete(id: "vm_0123")))
         for method in AgentPaneCloudMachineRequest.methods { #expect(AgentPageOps.methods[method] == method) }
         #expect(String(describing: Self.request("cloudMachine.open", ["id": "vm-1"])) == "cloudMachine")
     }
@@ -35,6 +36,7 @@ struct AgentPaneCloudMachineRequestTests {
             #expect(Self.request("cloudMachine.attach", params) == .unsupported("cloudMachine.attach"))
             #expect(Self.request("cloudMachine.pause", params) == .unsupported("cloudMachine.pause"))
             #expect(Self.request("cloudMachine.prewarm", params) == .unsupported("cloudMachine.prewarm"))
+            #expect(Self.request("cloudMachine.delete", params) == .unsupported("cloudMachine.delete"))
         }
     }
 
@@ -100,6 +102,35 @@ struct AgentPaneCloudMachineRequestTests {
         gestures.record(click: true)
         #expect(await AgentPaneCloudMachineRequest.pause(id: "vm-3").reply(machines, gestures: gestures)["ok"] as? Bool == true)
         #expect(ran == ["resume vm-1", "open vm-2", "pause vm-3"])
+    }
+
+    /// Delete Machine… (Leo, 2026-11-08: "how would I be able to shut it down?") takes the
+    /// person's click like Pause; the App's Kill Machine then asks before it deletes.
+    @Test func deleteTakesOneGesture() async {
+        let machines = AgentPaneCloudMachines()
+        let gestures = AgentPaneUserGestures()
+        var ran: [String] = []
+        machines.delete = { ran.append("delete " + $0); return true }
+        #expect(await AgentPaneCloudMachineRequest.delete(id: "vm-4").reply(machines, gestures: gestures)["ok"] as? Bool != true)
+        #expect(ran.isEmpty)
+        gestures.record(click: true)
+        #expect(await AgentPaneCloudMachineRequest.delete(id: "vm-4").reply(machines, gestures: gestures)["ok"] as? Bool == true)
+        #expect(await AgentPaneCloudMachineRequest.delete(id: "vm-4").reply(machines, gestures: gestures)["ok"] as? Bool != true)
+        #expect(ran == ["delete vm-4"])
+    }
+
+    @Test func theListCarriesTheDeleteDateWhenKnown() async throws {
+        let machines = AgentPaneCloudMachines()
+        machines.list = {
+            .init(signedIn: true, loaded: true, machines: [
+                .init(id: "vm-1", name: "box", stage: "paused", evictAt: Date(timeIntervalSince1970: 1_800_000_000)),
+                .init(id: "vm-2", name: "gpu", stage: "ready"),
+            ])
+        }
+        let value = try #require(await AgentPaneCloudMachineRequest.list.reply(machines, gestures: AgentPaneUserGestures())["value"] as? [String: Any])
+        let rows = try #require(value["machines"] as? [[String: Any]])
+        #expect(rows[0]["evictAt"] as? Double == 1_800_000_000_000)
+        #expect(rows[1]["evictAt"] == nil)
     }
 
     @Test func aMachineTheAppRefusesIsAVisibleFailure() async {
@@ -192,6 +223,46 @@ struct AgentPaneCloudMachineRequestTests {
         let account = try #require(value["account"] as? [Any])
         #expect(account[0] as? String == "user")
         #expect(account[1] is NSNull)
+    }
+
+    /// The reply names the active team with its id and lists the account's teams, so the page never
+    /// names a team the account is no longer in (webviews TeamTag.tsx `activeTeamFromReply`).
+    @Test func theListNamesTheActiveTeamAndTheAccountsTeams() async throws {
+        let machines = AgentPaneCloudMachines()
+        machines.list = {
+            .init(signedIn: true, loaded: true, machines: [],
+                  team: .init(id: "t1", name: "cmux", personal: false),
+                  teams: [.init(id: "t0", name: "Personal", personal: true), .init(id: "t1", name: "cmux", personal: false)])
+        }
+        let reply = await AgentPaneCloudMachineRequest.list.reply(machines, gestures: AgentPaneUserGestures())
+        #expect(JSONSerialization.isValidJSONObject(reply))
+        let value = try #require(reply["value"] as? [String: Any])
+        let team = try #require(value["team"] as? [String: Any])
+        #expect(team["id"] as? String == "t1" && team["name"] as? String == "cmux" && team["personal"] as? Bool == false)
+        let teams = try #require(value["teams"] as? [[String: Any]])
+        #expect(teams.compactMap { $0["id"] as? String } == ["t0", "t1"])
+        #expect(teams.first?["personal"] as? Bool == true)
+        // Signed out: neither.
+        machines.list = { .init(signedIn: false, loaded: false, machines: [], teams: [.init(id: "t0", name: "Personal", personal: true)]) }
+        let out = try #require(await AgentPaneCloudMachineRequest.list.reply(machines, gestures: AgentPaneUserGestures())["value"] as? [String: Any])
+        #expect(out["team"] == nil && out["teams"] == nil)
+    }
+
+    /// A picker's read re-reads the account's teams at most once per `teamsAge`, so a team the
+    /// account was removed from leaves the Cloud face without a relaunch.
+    @Test func aPickerReadReReadsTheTeamsAtMostOncePerAge() async {
+        let machines = AgentPaneCloudMachines()
+        let start = ContinuousClock.now
+        @MainActor final class Reads { var count = 0 }
+        let reads = Reads()
+        let read: @MainActor () async -> Void = { reads.count += 1 }
+        #expect(machines.readTeamsIfOld(now: start, read: read))
+        #expect(!machines.readTeamsIfOld(now: start.advanced(by: .seconds(30)), read: read))
+        #expect(machines.readTeamsIfOld(now: start.advanced(by: AgentPaneCloudMachines.teamsAge + .seconds(1)), read: read))
+        // A clock that went back (another instant's read) never holds the next read off.
+        #expect(machines.readTeamsIfOld(now: start, read: read))
+        for _ in 0..<50 where reads.count < 3 { await Task.yield() }
+        #expect(reads.count == 3)
     }
 
     private actor NoHost: AgentPaneHostProviding {

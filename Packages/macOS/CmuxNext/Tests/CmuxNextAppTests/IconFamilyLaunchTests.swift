@@ -18,6 +18,12 @@ struct IconFamilyLaunchTests {
         #expect(DebugSettingsService.launchIconFamily(url) == .custom)
     }
 
+    @Test func launchReadsTheOptionalNekoFamilyFromTheFile() throws {
+        let url = try file(#"{"version": 1, "values": {"icons.family": "neko"}}"#)
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(DebugSettingsService.launchIconFamily(url) == .neko)
+    }
+
     @Test func noFileOrNoValueIsThePack() throws {
         #expect(DebugSettingsService.launchIconFamily(nil) == .pack)
         let url = try file(#"{"version": 1, "values": {}}"#)

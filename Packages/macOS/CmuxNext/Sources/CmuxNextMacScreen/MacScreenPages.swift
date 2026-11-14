@@ -241,6 +241,17 @@ public final class MacScreenPages {
         events.openInNewTab(MacScreenRecord(deviceID: id), key)
     }
 
+    /// Makes a record for an already-resolved screen-device UUID. Machine routes,
+    /// joined IDs and display names are not screen identities; callers that have
+    /// a person-requested scope can carry it into the first connection.
+    public func record(forDevice device: String, requesting scope: SessionScope? = nil) -> MacScreenRecord {
+        guard let id = MacScreenRecord.normalizedDeviceID(device) else {
+            return MacScreenRecord(macID: nil)
+        }
+        if let scope { pendingScopes[id] = scope }
+        return MacScreenRecord(deviceID: id)
+    }
+
     /// At launch: the shortcut tap, the permissions, and the saved device names
     /// (the first launch of this build also removes old link pairings).
     public func activate() {

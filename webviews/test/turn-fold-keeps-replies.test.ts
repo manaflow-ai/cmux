@@ -4,10 +4,11 @@
 // agent's inbox notice (Leo, 2026-11-06, on a closed "Worked for 2m 22s" that hid his answer: "your
 // intermediate message got lost. that can never happen", then "those intermediate messages should be
 // counted differently than other tool calls like it's a special never-fold type"). The work around
-// each reply folds into its own line before and after it, and no count reads a reply as a call.
+// each reply stays under Worked for, as chatgpt.com draws it (turn-fold-hides-every-call.test.ts), and
+// no count reads a reply as a call.
 // Gallery: agent-pane.turn-fold-replies.
-import { afterEach, expect, test } from "bun:test";
-import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { MESSAGE_RUN, type AcpmuxActivity, type AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { incomingPrompt } from "../src/agent-session/acpmux/conversation/incomingMessage";
 import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 
@@ -90,30 +91,39 @@ const FAMILIES = ["claude", "codex", "gemini", "muse", undefined];
 const closed = (agentFamily: string | undefined, rows = turn) =>
   turnView(rows, new Set(), { agentFamily, now: START + 200_000 });
 
+// These tests cover the arms that keep the replies in sight; `replies` was their default until the
+// Codex `answer` arm (tested at the end of this file) took its place on 2026-11-11.
+beforeEach(() => {
+  globalThis.cmuxExperiments = { "turn-fold-replies": "replies" };
+});
+
 afterEach(() => {
-  globalThis.cmuxExperiments = undefined;
+  delete (globalThis as { cmuxExperiments?: unknown }).cmuxExperiments;
 });
 
 /// The rows of `view` that draw a reply or a run of calls, in order: a reply by its id, a run as
-/// "run:<its calls>".
+/// "run:<its calls>". A run folded with the notice or message beside it (messageRuns.ts) counts its
+/// calls too: the notice stays in sight with the work around it.
 const outline = (view: AcpmuxRow[]) =>
   view.flatMap((shown) =>
     shown.kind === "assistant"
       ? [shown.id]
       : shown.kind === "activity"
         ? [`run:${(shown.items ?? []).filter((item) => item.tool).length}`]
-        : [],
+        : shown.kind === MESSAGE_RUN
+          ? [`run:${(shown.messageRun?.work ?? []).filter((item) => item.tool).length}`]
+          : [],
   );
 
 for (const family of FAMILIES)
-  test(`${family ?? "an unknown family"}: a closed fold keeps every reply in place and folds the work around each`, () => {
+  test(`${family ?? "an unknown family"}: a closed fold keeps every reply in place and the work around each under it`, () => {
     const view = closed(family);
     const worked = view.find((shown) => shown.kind === WORKED);
     expect(worked).toBeDefined();
     expect(worked!.foldOpen).toBe(false);
     // Every reply, the one between two tool groups included, draws, in the order it was said, with
-    // its own words; the work before and after each folds into its own line.
-    expect(outline(view)).toEqual(["a-start", "run:3", "a-middle", "run:4", "a-notice", "run:1", "a-final"]);
+    // its own words; the work before and after each stays under Worked for.
+    expect(outline(view)).toEqual(["a-start", "a-middle", "a-notice", "a-final"]);
     for (const id of REPLY_IDS)
       expect(view.find((shown) => shown.id === id)?.text).toBe(turn.find((r) => r.id === id)!.text);
     // The line sits over the turn's first reply.
@@ -121,11 +131,16 @@ for (const family of FAMILIES)
   });
 
 test("no count reads a reply as a call: the fold's lines count calls, the header counts no reply", () => {
+  // The lines beside a closed fold draw only in the arms that keep them (the default keeps none).
+  globalThis.cmuxExperiments = { "turn-fold-replies": "groups" };
   for (const family of FAMILIES) {
     const view = closed(family);
-    const runs = view.filter((shown) => shown.kind === "activity");
-    for (const run of runs) expect(run.items?.every((item) => item.tool || item.kind === "note")).toBe(true);
-    expect(runs.reduce((n, run) => n + (run.items?.filter((item) => item.tool).length ?? 0), 0)).toBe(8);
+    // A run folded with the notice beside it (messageRuns.ts) counts its calls as the run would.
+    const runs = view.flatMap((shown) =>
+      shown.kind === "activity" ? [shown.items ?? []] : shown.kind === MESSAGE_RUN ? [shown.messageRun!.work] : [],
+    );
+    for (const items of runs) expect(items.every((item) => item.tool || item.kind === "note")).toBe(true);
+    expect(runs.reduce((n, items) => n + items.filter((item) => item.tool).length, 0)).toBe(8);
     // The header's "N previous messages" counts what the fold hides; every reply is in sight, so it
     // reads "Worked for".
     expect(view.find((shown) => shown.kind === WORKED)!.previous).toBeUndefined();
@@ -142,7 +157,7 @@ test("a reply between two tool groups shows folded, and opening the fold keeps i
     row("s-0", "turnSummary", 41, { status: "completed", durationMs: 41_000, toolCount: 6 }),
   ];
   for (const family of FAMILIES) {
-    expect(outline(closed(family, between))).toEqual(["run:2", "a-middle", "run:4", "a-final"]);
+    expect(outline(closed(family, between))).toEqual(["a-middle", "a-final"]);
     const opened = turnView(between, new Set([`${WORKED}-u-0`]), { agentFamily: family, now: START + 60_000 });
     const order = outline(opened);
     expect(order.indexOf("a-middle")).toBeGreaterThan(0);
@@ -211,5 +226,45 @@ test("a closed fold's line around a reply never shows a draft call as a finished
     expect(outline(view)).toEqual(["run:2", "a-middle", "run:3", "a-final"]);
     const tools = view.flatMap((shown) => (shown.items ?? []).flatMap((item) => (item.tool ? [item.tool.id] : [])));
     expect(tools).not.toContain("draft-0");
+  }
+});
+
+test("the runs arm groups adjacent work after hiding its short note and draft call", () => {
+  // The closed runs arm hides short narration and draft-only calls. Its remaining adjacent calls
+  // join one run; the opened fold keeps the note between its groups.
+  const draft = row("t-draft", "activity", 27, {
+    items: [{ kind: "tool", text: "", tool: { id: "draft-0", title: "Bash", kind: "execute", status: "in_progress" } }],
+  });
+  const rows: AcpmuxRow[] = [
+    row("u-0", "user", 0, { text: "Group them" }),
+    calls("t-1", 1, 1),
+    row("a-middle", "assistant", 20, { text: REPLIES.middle }),
+    calls("t-2", 21, 2),
+    row("note", "assistant", 25, { text: "Checking the log next." }),
+    draft,
+    calls("t-3", 30, 3),
+    row("a-final", "assistant", 40, { text: REPLIES.final }),
+    row("s-0", "turnSummary", 41, { status: "completed", durationMs: 41_000, toolCount: 6 }),
+  ];
+  globalThis.cmuxExperiments = { "turn-fold-replies": "runs" };
+  const opened = turnView(rows, new Set([`${WORKED}-u-0`]), { agentFamily: "claude", now: START + 60_000 });
+  const after = (view: AcpmuxRow[]) => outline(view).slice(outline(view).indexOf("a-middle") + 1, -1);
+  expect(after(closed("claude", rows))).toEqual(["run:5"]);
+  expect(after(opened)).toEqual(["run:2", "note", "run:3"]);
+});
+
+test("by default a closed fold keeps substantive answers in sight", () => {
+  delete (globalThis as { cmuxExperiments?: unknown }).cmuxExperiments;
+  for (const family of FAMILIES) {
+    const view = closed(family);
+    const worked = view.find((shown) => shown.kind === WORKED);
+    expect(worked?.foldOpen).toBe(false);
+    expect(outline(view)).toEqual(REPLY_IDS);
+    // Opened, every substantive reply remains in order among the work.
+    const opened = turnView(turn, new Set([`${WORKED}-u-0`]), { agentFamily: family, now: START + 200_000 });
+    const order = outline(opened).filter((entry) => REPLY_IDS.includes(entry));
+    expect(order).toEqual(REPLY_IDS);
+    for (const id of ["a-start", "a-middle", "a-notice"])
+      expect(opened.find((shown) => shown.id === id)?.foldedReply).toBe(true);
   }
 });

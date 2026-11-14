@@ -6,6 +6,7 @@ import { cmuxCheckConfig } from "../config/vite-plus/check";
 import { fileURLToPath } from "node:url";
 import { cmuxDevServer, DEV_SERVER_PORT } from "./dev-server/plugins";
 import { viteCacheDir } from "./dev-server/viteCacheDir.mjs";
+import { bundleMetafile } from "./scripts/bundle-metafile.mjs";
 
 const outDir = process.env.CMUX_WEBVIEWS_OUT_DIR ?? "../Resources/markdown-viewer/webviews-app";
 // The code editor's copy of Pierre's extension map (pages/editor/pierre-filetypes.d.ts). The query
@@ -24,6 +25,7 @@ export default defineConfig({
   // The handoff schema is a published wire fixture; schema.test.ts verifies its exact bytes.
   ...cmuxCheckConfig({
     effectCleanupPlugin: fileURLToPath(new URL("./scripts/lint/effect-cleanup.mjs", import.meta.url)),
+    perfPlugin: fileURLToPath(new URL("./scripts/lint/perf-footguns.mjs", import.meta.url)),
     fmtIgnorePatterns: [
       "src/diff/generated/**",
       // A markdown test document: its exact syntax (*** rules, odd spacing) is what it tests.
@@ -38,6 +40,8 @@ export default defineConfig({
       "src/agent-session/acpmux/handoff/schema/acpmux-schema.json",
       "src/agent-session/acpmux/icons/cmuxIcons.json",
       "src/agent-session/acpmux/icons/cmuxIconsCustom.json",
+      // Gallery-only output of scripts/icons/build_pack.py.
+      "src/agent-session/acpmux/icons/nekoCandidate.json",
       // scripts/agent-icons/generate.py --check owns these bytes.
       "src/agent-session/shared/agentBrands.generated.ts",
       // Build output of scripts/pages/gen-design-scale.mjs.
@@ -55,6 +59,7 @@ export default defineConfig({
   // `bun run dev`: every surface on one port (dev-server/plugins.ts). Build ignores it.
   server: { host: "127.0.0.1", port: DEV_SERVER_PORT, strictPort: true },
   plugins: [
+    bundleMetafile(process.env.CMUX_WEBVIEWS_METAFILE),
     artifactRuntimeVite(),
     // Serve-only dev hosts (diff sidecar, markdown shell, agent pane pages); never in the build.
     ...cmuxDevServer(),
@@ -89,6 +94,29 @@ export default defineConfig({
         const resolved = await this.resolve(source, importer, { ...options, skipSelf: true });
         if (!resolved || !EDITOR_OWN_COPIES.test(resolved.id)) return null;
         return { ...resolved, id: `${resolved.id}${PIERRE_FILETYPES_QUERY}` };
+      },
+    },
+    {
+      // KaTeX's @font-face rules list woff2, woff and ttf; WebKit and Chromium read woff2, so the
+      // fallbacks are dropped and never emitted (about 0.8 MB of the app; the agent pane's
+      // katexStylePlugin.mjs does the same). A KaTeX whose rules no longer match fails the build.
+      name: "cmux-katex-woff2-only",
+      apply: "build",
+      // Before Vite's CSS plugin turns the url()s into asset references.
+      enforce: "pre",
+      transform(code, id) {
+        if (!id.endsWith("/katex/dist/katex.min.css")) return null;
+        let fonts = 0;
+        const out = code.replace(
+          /src:url\((fonts\/[^)]+\.woff2)\) format\("woff2"\)(?:,url\([^)]+\) format\("[^"]+"\))+/g,
+          (_, file) => {
+            fonts += 1;
+            return `src:url(${file}) format("woff2")`;
+          },
+        );
+        if (!fonts || /\.(woff|ttf)\)/.test(out))
+          throw new Error("cmux-katex-woff2-only: KaTeX's @font-face rules changed; update the pattern");
+        return { code: out, map: null };
       },
     },
     {

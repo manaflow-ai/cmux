@@ -6,7 +6,7 @@ import Testing
 
 /// T-KEYS 4: a key resize's first PTY grid landed 57 ms after the key (bench 41d16acc, cmux10s, 120 Hz), and each later
 /// one 41.6 ms (5 refreshes) after the one before. The view's ``TerminalGridReporter`` already lets at most one grid per
-/// 25 ms window go; the daemon IO then gave that grid to ``ResizeCoordinator/submit(_:size:window:)``, which sent it
+/// window go (then 25 ms, one per refresh since RESIZE P0 6); the daemon IO then gave that grid to ``ResizeCoordinator/submit(_:size:window:)``, which sent it
 /// one display frame later: a second coalescer behind the first, one refresh on every grid (the first, each one in the
 /// spring and the final one). A grid the view reports on the main actor reaches the daemon in the report's turn; the
 /// one-in-flight echo rule and a full screen transition's hold still apply (``ResizeCoordinatorFinalGridTests``).

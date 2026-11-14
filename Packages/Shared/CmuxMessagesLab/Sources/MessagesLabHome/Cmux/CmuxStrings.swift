@@ -83,6 +83,24 @@ enum CmuxStrings {
     static var replyingToSelection: String {
         String(localized: "home.replyQuote.replyingToSelection", defaultValue: "Replying to Selection", table: "CmuxHome", bundle: .module)
     }
+    // MARK: The Chief composer's `/` menu (SlashSkillMenuView)
+
+    static var slashSkillsTitle: String {
+        String(localized: "home.slashSkills.title", defaultValue: "Skills", table: "CmuxHome", bundle: .module)
+    }
+    /// The menu's only row when no skill matches the command typed.
+    static func slashSkillsNoMatch(_ query: String) -> String {
+        String(format: String(localized: "home.slashSkills.noMatch", defaultValue: "No skills match “%@”", table: "CmuxHome", bundle: .module), query)
+    }
+    /// The source tag of a Chief skill.
+    static var slashSkillsSourceChief: String {
+        String(localized: "home.slashSkills.source.chief", defaultValue: "Chief", table: "CmuxHome", bundle: .module)
+    }
+    /// The source tag of the person's own Claude Code skill.
+    static var slashSkillsSourceClaude: String {
+        String(localized: "home.slashSkills.source.claude", defaultValue: "Claude", table: "CmuxHome", bundle: .module)
+    }
+
     static var replyQuoteRemove: String {
         String(localized: "home.replyQuote.remove", defaultValue: "Remove Quote", table: "CmuxHome", bundle: .module)
     }
@@ -241,6 +259,11 @@ enum CmuxStrings {
     static var pictureToolText: String { String(localized: "home.picture.tool.text", defaultValue: "Text", table: "CmuxHome", bundle: .module) }
     static var pictureUndo: String { String(localized: "home.picture.undo", defaultValue: "Undo", table: "CmuxHome", bundle: .module) }
     static var pictureCompare: String { String(localized: "home.picture.compare", defaultValue: "Compare Side by Side", table: "CmuxHome", bundle: .module) }
+    /// The picture viewer's comparison styles (``HomePictureCompare/Style``): the control's VoiceOver name and its segments' tooltips.
+    static var pictureStyle: String { String(localized: "home.picture.style", defaultValue: "Comparison Style", table: "CmuxHome", bundle: .module) }
+    static var pictureStyleSideBySide: String { String(localized: "home.picture.style.sideBySide", defaultValue: "Side by Side", table: "CmuxHome", bundle: .module) }
+    static var pictureStyleFlip: String { String(localized: "home.picture.style.flip", defaultValue: "Flip in Place (Space, B, A)", table: "CmuxHome", bundle: .module) }
+    static var pictureStyleSlider: String { String(localized: "home.picture.style.slider", defaultValue: "Slider", table: "CmuxHome", bundle: .module) }
     static var pictureCopy: String { String(localized: "home.picture.copy", defaultValue: "Copy Picture", table: "CmuxHome", bundle: .module) }
     static var pictureSave: String { String(localized: "home.picture.save", defaultValue: "Save Picture…", table: "CmuxHome", bundle: .module) }
     static var pictureReply: String { String(localized: "home.picture.reply", defaultValue: "Send in Chat", table: "CmuxHome", bundle: .module) }

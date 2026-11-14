@@ -12,8 +12,9 @@ public nonisolated struct SettingsBuildDefaults: Sendable, Equatable {
     }
 
     /// `updates.downloadAutomatically` follows the channel (`UpdateTrack.downloadsAutomaticallyByDefault`):
-    /// off (the schema's default) on every channel since Leo 2026-10-27 ("ask before the download +
-    /// install step"), so this is `.none`; a channel whose default is on would fill it here.
+    /// on for cmux NEXT's nightly ring (Leo 2026-11-10: "the nightly automatically downloads and
+    /// installs/unpacks and you simply click and it restarts"), filled here; off (the schema's
+    /// default, `.none`) on every other channel.
     public static func channel(downloadsAutomatically: Bool) -> SettingsBuildDefaults {
         downloadsAutomatically ? SettingsBuildDefaults(values: [UpdatesSettings.downloadAutomaticallyPath: .bool(true)]) : .none
     }
@@ -28,6 +29,14 @@ extension SettingsController {
     /// `descriptor`'s default in this build: its build default (``SettingsBuildDefaults``), else the schema's.
     public func defaultValue(of descriptor: SettingDescriptor) -> JSONValue? {
         buildDefaults.values[descriptor.path] ?? descriptor.defaultValue
+    }
+
+    /// Whether `value` is what `descriptor` has with its key unset: this build's default, and no layer
+    /// below the file fills the key. The file then leaves the key out, so it follows a later change of
+    /// the default (Leo 2026-11-08: "if I'm on the default selection and the default selection changes
+    /// its properties, that's something that should happen").
+    func isUnsetValue(_ value: JSONValue, of descriptor: SettingDescriptor) -> Bool {
+        value == defaultValue(of: descriptor) && !layerBelowFileSets(descriptor.id)
     }
 
     /// Whether the person's file sets `descriptor` to something other than this build's default,

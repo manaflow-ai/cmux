@@ -1,7 +1,8 @@
 import CmuxNextDaemon
 
 /// The daemon calls Import from Conductor makes (``ConductorImport``): the dry run, the project
-/// list, closing a cut-off run's workspaces, adding projects and the ledger's records. The App's
+/// list, closing a cut-off run's workspaces, adding projects, saving their worktree recipes and
+/// the ledger's records. The App's
 /// is ``LiveConductorImportDaemon``; a test drives the run with its own.
 @MainActor
 protocol ConductorImportDaemon {
@@ -13,6 +14,8 @@ protocol ConductorImportDaemon {
     func closeWorkspace(_ key: WorkspaceKey) async throws
     /// `project.add`.
     func addProject(path: String, idempotencyKey: String) async throws
+    /// `project.update` `worktree`: the project's worktree recipe, unless one is already saved.
+    func saveRecipe(_ recipe: ConductorImportPlan.Recipe, idempotencyKey: String) async throws
     /// `conductor_import.record`.
     func record(workspace: String, stage: ConductorImportStage, cmuxWorkspace: String?, runCompleted: Bool,
                 idempotencyKey: String) async throws
@@ -40,6 +43,12 @@ struct LiveConductorImportDaemon: ConductorImportDaemon {
 
     func addProject(path: String, idempotencyKey: String) async throws {
         try await ProjectStateClient(connection: connection).add(path: path, idempotencyKey: idempotencyKey)
+    }
+
+    func saveRecipe(_ recipe: ConductorImportPlan.Recipe, idempotencyKey: String) async throws {
+        try await ProjectStateClient(connection: connection)
+            .saveWorktreeRecipe(path: recipe.projectPath, worktree: recipe.worktree, keepSaved: true,
+                                idempotencyKey: idempotencyKey)
     }
 
     func record(workspace: String, stage: ConductorImportStage, cmuxWorkspace: String?, runCompleted: Bool,

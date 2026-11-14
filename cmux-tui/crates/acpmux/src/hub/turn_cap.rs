@@ -10,7 +10,8 @@
 //! into that turn, once ([`NOTICE_KIND`]; the turn it went into is saved in the session's meta, so
 //! a turn a restart adopts gets no second), when an agent's message is waiting for it: on the
 //! first agent message past the cap, or at the cap when one waits already, queued or in the inbox
-//! with no notice carrying it ([`Hub::arm_turn_cap`]'s timer). The notice goes only into the turn it names ([`notice_reaches`], checked again as it is
+//! with no notice carrying it ([`Hub::arm_turn_cap`]'s timer). An FYI asks for none: it
+//! ends no turn sooner (`inbox.rs` module docs). The notice goes only into the turn it names ([`notice_reaches`], checked again as it is
 //! written; one logged but never written leaves `steer_withdrawn`). The hub never cancels
 //! the turn itself.
 //!
@@ -20,6 +21,7 @@
 //! holds the session weakly, so a closed session's timer does nothing.
 
 use super::*;
+use crate::prompt_class::PromptClass;
 use std::sync::Weak;
 
 /// The cap a coordinator session gets when it set none itself (the `coordinator` setting, which
@@ -98,20 +100,24 @@ pub(super) fn steer_unavailable(capped: bool) -> RpcError {
 impl Hub {
     /// Whether a prompt that arrives now and is another agent's message (`digest::agent_sender`
     /// of its `provenance` and `agent`) waits for the next turn instead of steering in: the
-    /// running turn is past its cap. Any agent message past the cap asks for the notice, steer or
-    /// not. The person's never waits.
+    /// running turn is past its cap. Any agent message past the cap but an FYI (`fyi`) asks for
+    /// the notice, steer or not: an FYI ends no turn sooner (`inbox.rs` module docs). The
+    /// person's never waits.
     #[inline(never)]
     pub(super) fn turn_cap_holds(
         self: &Arc<Self>,
         session: &Arc<Session>,
         provenance: Option<&Value>,
         agent: Option<&str>,
+        fyi: bool,
     ) -> bool {
         if super::digest::agent_sender(provenance, agent).is_none() {
             return false;
         }
         let Some((turn_id, cap)) = capped_turn(session, now_ms()) else { return false };
-        self.turn_cap_notice(session, &turn_id, cap);
+        if !fyi {
+            self.turn_cap_notice(session, &turn_id, cap);
+        }
         true
     }
 
@@ -144,20 +150,21 @@ impl Hub {
             let Some((running, cap)) = capped_turn(&session, now_ms()) else { return };
             // Another agent's message waits: queued (`queue.rs` keeps its sender as `run.agent`),
             // or in the inbox with no notice carrying it (`inbox.rs`), which steers none into a
-            // turn past its cap.
+            // turn past its cap. FYIs alone in the inbox ask for no notice: they wait for the
+            // next notice or their flush anyway (`inbox.rs` module docs).
             let queued = session
                 .queue
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .iter()
-                .any(|q| q.run.agent.is_some());
+                .any(|q| q.run.agent.is_some() && q.run.class != Some(PromptClass::Fyi));
             let held = session
                 .inbox
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .items
                 .iter()
-                .any(|i| !i.noticed);
+                .any(|i| !i.noticed && i.class != PromptClass::Fyi);
             if running == turn_id && (queued || held) {
                 hub.turn_cap_notice(&session, &running, cap);
             }

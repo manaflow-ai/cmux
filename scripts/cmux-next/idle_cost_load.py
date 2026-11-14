@@ -44,6 +44,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory as bm  # noqa: E402  (App, FakeChats, FAKE_AGENT_ID, process_table)
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 PEER = "bench-remote"
 
@@ -59,10 +60,22 @@ def private_write(path: str, data: bytes):
         handle.write(data)
 
 
-def read_chat(home: str, session: str) -> dict:
+# acpmux journals a chat's metadata and writes `session.json` only at a checkpoint: one every 30 s
+# (store/journal_store.rs CHECKPOINT_EVERY) and one at its shutdown (#37118). A read from a running
+# daemon waits for the next one; a seeder that is done with its daemon reads after `stop()` instead.
+CHECKPOINT_WAIT = 75.0
+
+
+def read_chat(home: str, session: str, wait: float = CHECKPOINT_WAIT) -> dict:
     """A chat as its daemon stored it: session.json and its event log segments."""
     folder = os.path.join(home, "sessions", session)
-    with open(os.path.join(folder, "session.json"), "rb") as handle:
+    path = os.path.join(folder, "session.json")
+    deadline = time.monotonic() + wait
+    while not os.path.exists(path) and time.monotonic() < deadline:
+        time.sleep(0.5)
+    if not os.path.exists(path):
+        raise RuntimeError(f"chat {session} has no session.json in {folder} after {wait:.0f} s (no acpmux checkpoint)")
+    with open(path, "rb") as handle:
         meta = handle.read()
     events = {}
     for path in sorted(glob.glob(os.path.join(folder, "events", "*.ndjson"))):
@@ -233,15 +246,23 @@ class PeerDaemon:
         agents running for a next daemon (hub/shutdown.rs), and they run outside the app bundle,
         where bench_memory.end_bundle never looks: `daemon shutdown --end-agents` ends them, then
         sweeps any host still running. Whatever it left under the daemon is killed last."""
-        if self.process and self.process.poll() is None:
-            left = self.pids()
+        if self.process:
+            running = self.process.poll() is None
+            left = self.pids() if running else set()
+            if running:
+                try:
+                    done = self.acpmux("daemon", "shutdown", "--end-agents", timeout=60)
+                    if done.returncode != 0:
+                        safe_print(f"   peer acpmux shutdown: {(done.stdout + done.stderr).strip()[:2000]}", file=sys.stderr)
+                    self.process.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    pass
+            # Its whole group (it leads one, start_new_session), whatever the daemon's state: an exited daemon can
+            # leave a child running in it (cmux#41767 review F1).
             try:
-                done = self.acpmux("daemon", "shutdown", "--end-agents", timeout=60)
-                if done.returncode != 0:
-                    print(f"   peer acpmux shutdown: {(done.stdout + done.stderr).strip()[:2000]}", file=sys.stderr)
-                self.process.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
+                os.killpg(self.process.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
             for pid in left - {self.process.pid}:
                 try:
                     os.kill(pid, signal.SIGKILL)  # this run's own peer processes only

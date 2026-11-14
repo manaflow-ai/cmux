@@ -112,6 +112,7 @@ public final class GitHubConnect {
 }
 
 #if os(iOS)
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -132,7 +133,7 @@ public struct GitHubConnectRow: View {
                 Label("Connect GitHub", systemImage: "link")
                 Spacer()
                 if model.working {
-                    ProgressView()
+                    CmuxSpinner()
                 } else if let value {
                     Text(value).foregroundStyle(.secondary)
                 }

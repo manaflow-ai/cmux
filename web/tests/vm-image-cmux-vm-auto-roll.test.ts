@@ -5,9 +5,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   AUTO_PREFIX,
+  BOOT_ENTRY,
   KEEP_AUTO,
+  MAX_BYTES,
+  MAX_ROLLS_BEHIND,
   ROLLBACK_DEPLOYS,
   approve,
+  bootDrift,
+  bootedImage,
   locate,
   modeOf,
   replaceList,
@@ -19,8 +24,12 @@ import {
 } from "../../images/cmux-vm/auto-roll";
 import { runChild, runChildOk } from "./helpers/run-child";
 
-// images/cmux-vm/auto-roll.ts edits the checked-in workers/cmux-vm/wrangler.jsonc; these run on that file.
-const wrangler = readFileSync(new URL("../../workers/cmux-vm/wrangler.jsonc", import.meta.url), "utf8");
+// images/cmux-vm/auto-roll.ts edits the checked-in workers/cmux-vm/wrangler.jsonc; these run on that file with its
+// auto-rolled entries taken out, since the live roll keeps adding them and the counts below assume none.
+const checkedIn = readFileSync(new URL("../../workers/cmux-vm/wrangler.jsonc", import.meta.url), "utf8");
+const handOnly = (text: string, env: "staging" | "production") =>
+  replaceList(text, env, locate(text, env).images.filter((i) => !i.id.startsWith(AUTO_PREFIX)));
+const wrangler = handOnly(handOnly(checkedIn, "staging"), "production");
 const candidate = { snapshot_id: `sh-${"a".repeat(32)}`, lock_sha256: "0".repeat(64), run: 1 };
 const tui = "1234567890abcdef1234567890abcdef12345678";
 const entry = (run: string, attempt = "1"): BootImage => rolledImage(candidate, `ci-${run}-${attempt}`, tui, run, attempt);
@@ -73,9 +82,87 @@ describe("auto-roll approve", () => {
 
   test("refuses a list the Worker would reject (more than 32 entries)", () => {
     const prod = locate(wrangler, "production").images;
-    const many = Array.from({ length: 32 }, (_, i) => ({ ...prod[0]!, id: `hand-${i}` }));
+    // Short entries, so 32 of them stay under MAX_BYTES and the entry cap is what refuses the 33rd.
+    const many = Array.from({ length: 32 }, (_, i) => ({ ...prod[0]!, id: `h-${i}`, displayName: "h", services: ["s"] }));
     const big = wrangler.replace(/("production": \{[\s\S]*?"VM_BOOT_IMAGES": )("(?:[^"\\\n]|\\.)*")/u, (_, head: string) => head + JSON.stringify(JSON.stringify(many)));
     expect(() => approve(big, entry("8"))).toThrow(/at most 32/);
+  });
+
+  test("refuses a list over Cloudflare's text binding limit, which fails the whole deploy", () => {
+    const staging = locate(wrangler, "staging").images;
+    // Long hand-approved names push staging past MAX_BYTES while it stays under 32 entries.
+    const name = "x".repeat(100);
+    const many = Array.from({ length: 24 }, (_, i) => ({ ...staging[0]!, id: `hand-${i}`, displayName: name }));
+    expect(Buffer.byteLength(JSON.stringify(many))).toBeGreaterThan(MAX_BYTES);
+    const big = wrangler.replace(/("staging": \{[\s\S]*?"VM_BOOT_IMAGES": )("(?:[^"\\\n]|\\.)*")/u, (_, head: string) => head + JSON.stringify(JSON.stringify(many)));
+    expect(() => approve(big, entry("8"))).toThrow(/bytes, at most 5120/);
+    // A list deployed before a trim still reads, so settle can roll that deploy back.
+    expect(locate(big, "staging").images).toHaveLength(24);
+  });
+
+  test("the checked-in lists, plus one more roll, stay under the text binding limit", () => {
+    const { text } = approve(checkedIn, entry("9000"));
+    for (const env of ["staging", "production"] as const)
+      expect(Buffer.byteLength(JSON.stringify(locate(text, env).images))).toBeLessThanOrEqual(MAX_BYTES);
+  });
+});
+
+describe("auto-roll check (stale boot image detector)", () => {
+  const drift = (text: string) => Object.fromEntries(bootDrift(text).map((d) => [d.env, d]));
+
+  test("each environment boots the entry cmux-platform follows: production its first, staging its last", () => {
+    expect(BOOT_ENTRY).toEqual({ production: "first", staging: "last" });
+    const { text } = approve(wrangler, entry("700"));
+    expect(bootedImage(text, "production")).toBe(entry("700").id);
+    expect(bootedImage(text, "staging")).toBe(entry("700").id);
+    expect(bootDrift(text).every((d) => d.ok && d.behind === 0)).toBe(true);
+  });
+
+  test("a roll, several rolls and a rollback keep both environments on production's newest roll", () => {
+    let text = wrangler;
+    for (let run = 1; run <= KEEP_AUTO + 2; run++) text = approve(text, entry(String(800 + run))).text;
+    expect(bootDrift(text).map((d) => d.behind)).toEqual([0, 0]);
+    text = rollback(text, entry(String(800 + KEEP_AUTO + 2)).id).text;
+    expect(bootDrift(text).map((d) => d.behind)).toEqual([0, 0]);
+  });
+
+  test("fails when staging's boot entry trails production's newest roll by more than MAX_ROLLS_BEHIND", () => {
+    let text = wrangler;
+    for (let run = 1; run <= MAX_ROLLS_BEHIND + 2; run++) text = approve(text, entry(String(900 + run))).text;
+    // A staging list that stopped taking rolls: its newest roll(s) dropped, the older ones still last.
+    const staging = locate(text, "staging").images;
+    const stale = replaceList(text, "staging", staging.slice(0, -(MAX_ROLLS_BEHIND + 1)));
+    const d = drift(stale);
+    expect(d.production!.ok).toBe(true);
+    expect(d.staging!.ok).toBe(false);
+    expect(d.staging!.behind).toBe(MAX_ROLLS_BEHIND + 1);
+    // Reordered newest-first like production: staging would boot its oldest entry, a hand-approved image.
+    const reordered = replaceList(text, "staging", [...staging].reverse());
+    expect(drift(reordered).staging!.ok).toBe(false);
+  });
+
+  test("the checked-in lists boot production's newest roll in both environments", () => {
+    for (const d of bootDrift(checkedIn)) expect({ env: d.env, image: d.image, ok: d.ok }).toEqual({ env: d.env, image: d.image, ok: true });
+  });
+
+  test("the CLI exits 1 on a stale list and 0 on the checked-in one", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "auto-roll-check-"));
+    try {
+      let text = wrangler;
+      for (let run = 1; run <= 3; run++) text = approve(text, entry(String(950 + run))).text;
+      const staging = locate(text, "staging").images;
+      const file = path.join(dir, "wrangler.jsonc");
+      writeFileSync(file, replaceList(text, "staging", staging.slice(0, -2)));
+      const script = new URL("../../images/cmux-vm/auto-roll.ts", import.meta.url).pathname;
+      const stale = await runChild("bun", [script, "check", "--wrangler", file]);
+      expect(stale.status).toBe(1);
+      expect(stale.stderr).toContain("staging boots");
+      writeFileSync(file, text);
+      const fresh = await runChild("bun", [script, "check", "--wrangler", file]);
+      expect(fresh.status).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -263,6 +350,14 @@ describe("auto-roll workflows", () => {
     const product = stepOf(smoke, "product");
     expect(product.env!["CMUX_VM_SMOKE_IMAGE"]).toContain("!startsWith(github.event.head_commit.message, 'cmux-vm: image roll') && inputs.image_rollback == ''");
     expect((smoke as unknown as { outputs: Record<string, string> }).outputs["boot_image"]).toBe("${{ steps.product.outputs.boot_image }}");
+  });
+
+  test("the roll bakes the plain image and hands back its channel-dev.json record", () => {
+    const roll = load("cloud-vm-image-roll.yml") as unknown as { jobs: { bake: { with: Record<string, unknown> } } };
+    expect(roll.jobs.bake.with).toMatchObject({ mode: "bake", keep_snapshot: true, agent_tools: true, roll: true });
+    expect(roll.jobs.bake.with).not.toHaveProperty("native_receiver");
+    const bake = load("cloud-vm-image-bake.yml");
+    expect(stepOf(bake.jobs["bake"]!, "roll_candidate").run).toContain('"$OUT_DIR/channel-dev.json"');
   });
 
   test("a roll's image id carries the run attempt", () => {

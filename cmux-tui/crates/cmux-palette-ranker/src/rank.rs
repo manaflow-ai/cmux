@@ -7,16 +7,15 @@ use crate::tier::{
     self, DEMOTION, Field, MAXIMUM_QUALITY, TIER_SCALE, entry_tier, highlights_for, match_quality,
     match_tier,
 };
-use crate::{Entry, Frecency, RankRequest, RankedRow, RankedSection};
+use crate::{
+    Entry, Frecency, RankAnswer, RankRequest, RankedRow, RankedSection, TYPO_PASS_THRESHOLD,
+};
 use std::collections::{HashMap, HashSet};
 
 /// Below every enabled row of any tier.
 const DISABLED_PENALTY: i64 = 100_000;
 const MAXIMUM_BOOST: i64 = 60;
 const DEFAULT_HALF_LIFE: f64 = 3.0 * 24.0 * 60.0 * 60.0;
-/// The typo pass runs only when the strict pass found fewer rows than this at the substring tier
-/// or better.
-const TYPO_PASS_THRESHOLD: usize = 3;
 /// A row picked at least this often (decayed) for the query's longest known start lifts,
 const LIFT_PICKS: f64 = 2.0;
 /// or the latest pick for that start while at least this much of it is left.
@@ -345,11 +344,11 @@ pub(crate) fn rank(
     entries: &[Entry],
     prepared: &Prepared,
     store: Option<&Frecency>,
-) -> Vec<RankedSection> {
+) -> RankAnswer {
     let raw = request.query.as_deref().unwrap_or("");
     let query = Query::new(raw);
     if query.is_empty() {
-        return rank_empty(request, entries, store);
+        return RankAnswer { sections: rank_empty(request, entries, store), strict_matches: 0 };
     }
     let now = request.now.unwrap_or(0.0);
     let gated = entries
@@ -444,7 +443,8 @@ pub(crate) fn rank(
         }
         strong
     };
-    if rank_pass(false, &mut scored) < TYPO_PASS_THRESHOLD {
+    let strict_matches = rank_pass(false, &mut scored);
+    if request.typo_pass.unwrap_or(strict_matches < TYPO_PASS_THRESHOLD) {
         scored.clear();
         rank_pass(true, &mut scored);
     }
@@ -585,5 +585,5 @@ pub(crate) fn rank(
     if request.keeps_section_order == Some(true) {
         section_order(&mut order, request.section_orders.as_deref().unwrap_or_default());
     }
-    sections_of(order, rows_by_section)
+    RankAnswer { sections: sections_of(order, rows_by_section), strict_matches }
 }

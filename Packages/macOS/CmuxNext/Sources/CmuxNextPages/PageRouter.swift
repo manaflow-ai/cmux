@@ -1,5 +1,6 @@
 public import CmuxNextSettings
 public import Foundation
+import os
 
 /// The host half of a page's bridge, engine neutral: it reads pane-protocol envelopes
 /// (plans/cmux-next/pane-protocol.md "Wire") from the page, checks them against the page's
@@ -101,7 +102,7 @@ public final class PageRouter {
             } catch let error as PageError {
                 return Self.error(id: id, error)
             } catch {
-                return Self.error(id: id, PageError(code: "cmux.page.failed", message: String(describing: error)))
+                return Self.error(id: id, failure(error, in: op))
             }
         case "sub":
             guard let stream = message["stream"]?.stringValue else { return Self.error(id: id, .invalidParams("missing stream")) }
@@ -111,7 +112,7 @@ public final class PageRouter {
             } catch let error as PageError {
                 return Self.error(id: id, error)
             } catch {
-                return Self.error(id: id, PageError(code: "cmux.page.failed", message: String(describing: error)))
+                return Self.error(id: id, failure(error, in: stream))
             }
         case "cancel":
             // A cancel of an unknown or finished id is a no-op; it gets no reply.
@@ -139,6 +140,12 @@ public final class PageRouter {
     public var historyNavigate: (@MainActor (_ back: Bool, _ gesture: Int) -> Bool)?
     /// The page is done with forwarded swipe gesture `g` (`cmux.app.swipe.release`): stop sending it.
     public var swipeRelease: (@MainActor (Int) -> Void)?
+
+    /// The page's heartbeat (``PageNativeOp/pageHeartbeat``) with its handled-input count, whether
+    /// it holds unsaved edits and whether it now rests (beats no more until something happens in it):
+    /// the page view feeds app health. Returns whether the host takes rest beats (the page may stop
+    /// beating). Nil (tests, a view not wired) still answers the beat.
+    public var heartbeat: (@MainActor (_ handled: UInt64, _ edits: Bool, _ rest: Bool) -> Bool)?
 
     /// A popup op (`cmux.app.popup.*`, cx-6k6cg) with its params: the page view's WebPopupHost.
     public var popup: (@MainActor (String, [String: Any]) -> JSONValue)?
@@ -362,6 +369,15 @@ public final class PageRouter {
             ["id": .number(Double(id)), "op": .string(call.op), "age_ms": .number(((now - call.started) * 1000).rounded())]
         }
     }
+
+    /// A provider's failure that is not a ``PageError``: logged with its Debug text, answered with
+    /// the fixed message (``PageError/failed(_:code:retryable:)``).
+    private func failure(_ error: any Error, in name: String) -> PageError {
+        Self.logger.error("page \(self.descriptor.id, privacy: .public) \(name, privacy: .public) failed: \(String(describing: error))")
+        return .failed(error)
+    }
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
 
     static func error(id: UInt64, _ error: PageError) -> JSONValue {
         var envelope: [String: JSONValue] = [

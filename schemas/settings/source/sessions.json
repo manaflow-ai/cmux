@@ -22,6 +22,9 @@
             "text": "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "SessionKeepAwakeSetting"
+          },
           "choices": [
             {
               "value": "off",
@@ -52,10 +55,42 @@
           "keywords": [
             "sleep",
             "awake",
+            "keep awake",
+            "stay awake",
+            "prevent sleep",
+            "no sleep",
+            "idle",
             "caffeinate",
             "battery",
             "power",
             "agents"
+          ]
+        },
+        {
+          "key": "sessions.keepAwakeForCommands",
+          "name": "keepAwakeForCommands",
+          "note": "On: a terminal command on this Mac that has run a minute and printed in the last ten minutes also keeps the Mac awake, under the same Off, While Plugged In or Always choice as sessions.keepAwake (KeepAwakeService; the rule is Rust keep_awake_plan). Off by default: Leo has not said whether it should be on.",
+          "title": {
+            "key": "settings.sessions.keepAwakeForCommands",
+            "text": "Also While Terminal Commands Run"
+          },
+          "help": {
+            "key": "settings.sessions.keepAwakeForCommands.help",
+            "text": "A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sleep",
+            "awake",
+            "keep awake",
+            "stay awake",
+            "prevent sleep",
+            "no sleep",
+            "caffeinate",
+            "terminal",
+            "command",
+            "build"
           ]
         },
         {
@@ -129,6 +164,31 @@
             "child chats",
             "subagents"
           ]
+        },
+        {
+          "key": "agents.promptSuggestions",
+          "name": "claudePromptSuggestions",
+          "note": "Claude Code's own prompt suggestion, and the same switch for Codex chats: after a turn the next prompt shows as ghost text in an empty composer (Tab or Right Arrow takes it). Not sessions.promptSuggestions, which is suggested child tasks. The acpmux daemon reads this key (nested or flat) at each Claude or Codex process start (cmux-tui/crates/acpmux/src/claude_stdio/prompt_suggestions.rs, codex_app_server.rs); off: no suggestions and no per-chat switch. Each suggestion is one extra model call that counts toward usage.",
+          "title": {
+            "key": "settings.agents.promptSuggestions",
+            "text": "Suggest Next Prompt"
+          },
+          "help": {
+            "key": "settings.agents.promptSuggestions.help",
+            "text": "After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "suggestions",
+            "prompt",
+            "next prompt",
+            "ghost text",
+            "autocomplete",
+            "claude",
+            "codex",
+            "usage"
+          ]
         }
       ]
     },
@@ -139,59 +199,12 @@
         "key": "settings.group.phone",
         "text": "Phone Access"
       },
-      "note": "Settings > Accounts > Phone Access: whether phones signed in to your cmux account reach this Mac and what they may do (PhoneAccessGate, MobileHostService). The transport (Iroh today) is not part of any key.",
+      "note": "Settings > Accounts > Phone Access: what this Mac does for cmux on iPhone, which connects through the iPhone host (IPhoneHostService, mobile.allowIPhoneConnections).",
       "rows": [
-        {
-          "key": "phone.allowConnections",
-          "name": "allowConnections",
-          "note": "Off: the phone listener does not run and no phone reaches this Mac. Off on a fresh install; a Mac that already served phones keeps it on (PhoneAccessMigration).",
-          "title": {
-            "key": "settings.phone.allowConnections",
-            "text": "Let Your Phone Use This Mac"
-          },
-          "help": {
-            "key": "settings.phone.allowConnections.help",
-            "text": "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "iphone",
-            "ios",
-            "mobile",
-            "remote",
-            "phone",
-            "pair",
-            "privacy"
-          ]
-        },
-        {
-          "key": "phone.startSessions",
-          "name": "startSessions",
-          "note": "Off: phones may view, type into and answer existing workspaces and agents, but not create workspaces or terminals (compat RPC and daemon lanes alike).",
-          "title": {
-            "key": "settings.phone.startSessions",
-            "text": "Let Your Phone Start New Workspaces"
-          },
-          "help": {
-            "key": "settings.phone.startSessions.help",
-            "text": "Off, your phone can still follow, type into and answer what's already running."
-          },
-          "kind": "toggle",
-          "default": true,
-          "keywords": [
-            "iphone",
-            "mobile",
-            "remote",
-            "workspace",
-            "terminal",
-            "start"
-          ]
-        },
         {
           "key": "phone.keepAwake",
           "name": "phoneKeepAwake",
-          "note": "Idle system sleep stays off while phone access is on and the listener runs (KeepAwakeService). A sleeping Mac is unreachable until it wakes.",
+          "note": "Idle system sleep stays off while iPhone connections are on for a signed-in account (KeepAwakeService). A sleeping Mac is unreachable until it wakes.",
           "title": {
             "key": "settings.phone.keepAwake",
             "text": "Keep Mac Awake for Your Phone"
@@ -201,6 +214,9 @@
             "text": "A sleeping Mac can't be reached from your phone until it wakes. Closing the lid still puts the Mac to sleep."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "PhoneKeepAwakeSetting"
+          },
           "choices": [
             {
               "value": "off",

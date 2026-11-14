@@ -10,20 +10,21 @@ import type { ReactNode } from "react";
 import { BackgroundTaskOutputContext } from "./backgroundTaskOutput";
 import { ArtifactContext } from "./artifactPreview";
 import { ImageViewerContext } from "./imageViewerContext";
-import { FailedSendsContext } from "./PromptDelivery";
+import { FailedSendsContext } from "./promptDeliveryModel";
 import { TranscriptReadOnly } from "./readOnly";
 import { RenderPages } from "./renderCall";
 import { RunInBackgroundContext } from "./runInBackground";
 import { TurnActionsContext, type TurnActions } from "./turnActions";
 import { ChatAccountsContext } from "../chatAccounts";
-import { SpeedToggleHost } from "../FastToggle";
-import { UpdateOfferContext } from "../HarnessHealthNotice";
+import { SpeedToggleHost } from "../fastToggleModel";
+import { UpdateOfferContext } from "../harnessHealthNoticeModel";
+import { HarnessUpdatesContext } from "../harnessUpdateList";
 import { PromptFocus } from "../promptFocus";
-import { ShellActionsContext } from "../shell/ShellRow";
+import { ShellActionsContext } from "../shell/shellRowModel";
 import { SignInContext } from "../signIn";
-import { SessionHoverContext } from "../started/SessionHoverCard";
-import { NO_MENTIONS, StartedMentionsContext } from "../started/StartedSessionCard";
-import { SubagentNavContext, SubagentPaneContext, SubagentStopContext } from "../subagents/SubagentGroup";
+import { SubagentNavContext, SubagentPaneContext, SubagentStopContext } from "../subagents/subagentGroupModel";
+import { SessionHoverContext } from "../started/sessionHoverCardModel";
+import { NO_MENTIONS, StartedMentionsContext } from "../started/startedSessionCardModel";
 import { SubsessionContext } from "../subagents/subsessions";
 import { AvatarContext } from "../../../pages/home-channels/avatars";
 
@@ -50,6 +51,7 @@ export function GuestActionsBoundary({ children }: { children: ReactNode }) {
     [SignInContext.Provider, undefined],
     [ChatAccountsContext.Provider, undefined],
     [UpdateOfferContext.Provider, undefined],
+    [HarnessUpdatesContext.Provider, undefined],
     [SpeedToggleHost.Provider, null],
     [PromptFocus.Provider, null],
     [AvatarContext.Provider, undefined],

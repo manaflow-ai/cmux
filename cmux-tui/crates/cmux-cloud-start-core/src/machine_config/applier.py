@@ -4,7 +4,7 @@
 # --repo checkout's .cmux/machine.toml: [env] to ~/.config/cmux/machine.env (0600, sourced by
 # login and interactive shells), [secrets] names reported missing until delivered, [setup] run
 # in order when it changed, [setup] check reported. Writes ./status.json; ends when done.
-import fcntl, hashlib, json, os, pwd, re, secrets, signal, stat, subprocess, sys, time, tomllib
+import fcntl, hashlib, json, os, pwd, re, secrets, shutil, signal, stat, subprocess, sys, time, tomllib
 
 HOME = os.path.expanduser("~")
 D = os.path.dirname(os.path.abspath(__file__))
@@ -34,6 +34,7 @@ RESERVED = {"PATH", "HOME", "USER", "LOGNAME", "SHELL", "IFS", "ENV", "BASH_ENV"
             "OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"}
 MAX_BYTES, MAX_NAMES, MAX_COMMANDS = 64 * 1024, 100, 50
 BOOTSTRAP_WAIT_S = 3 * 3600
+LOCK_WAIT_S = 5  # see take_lock
 STARTING_S = 60
 
 
@@ -259,7 +260,7 @@ def delivered():
         return set()
     with os.fdopen(fd) as f:
         st = os.fstat(f.fileno())
-        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or st.st_size > 4 << 20:
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
             return set()
         return {m.group(1) for m in re.finditer(r"^export ([A-Za-z_][A-Za-z0-9_]*)=", f.read(), re.M)}
 
@@ -303,8 +304,6 @@ def secret_values():
         st = os.fstat(f.fileno())
         if not stat.S_ISREG(st.st_mode):
             return []  # never sourced (machine.env takes a regular file only)
-        if st.st_size > 4 << 20:
-            raise Refused(f"{SECRETS_FILE} is over 4 MiB: deliver the secrets again (cmux cloud deliver-secrets)")
         # Bytes as they are (a CR stays a CR, any byte round-trips), so each value masks as setup prints it.
         text = f.read().decode("utf-8", "surrogateescape")
     if "\0" in text:  # bash drops a NUL when it sources the file, so the value it sets is not the one masked
@@ -565,6 +564,30 @@ def wait_for_bootstrap():
     raise Refused("the bootstrap still runs after 3 h")
 
 
+def wait_for_repository():
+    """After ``wait_for_bootstrap``: a --repo checkout cloned head first (machine_repo/step.sh,
+    `"fill":"background"`) gets the rest of its tree after its runner ended, under the repository sync
+    barrier. Setup runs in the checkout, so it waits until the barrier opens (`cmux repo wait`), and a
+    fill that failed refuses the apply."""
+    try:
+        fill = json.loads(read_owned(os.path.join(BOOT, "repo-status.json")) or b"").get("fill")
+    except (OSError, ValueError, AttributeError):
+        return
+    repo = checkout() if fill == "background" else None
+    if repo is None:
+        return
+    cmux = shutil.which("cmux-tui") or shutil.which("cmux")
+    if cmux is None:
+        raise Refused(f"{repo} is still being checked out and this machine has no cmux to wait on it")
+    status("waiting", waiting_for="repository")
+    code = subprocess.run([cmux, "repo", "wait", repo, str(BOOTSTRAP_WAIT_S)], stdin=subprocess.DEVNULL,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
+    if code == 124:
+        raise Refused(f"{repo} is still being checked out after 3 h")
+    if code != 0:
+        raise Refused(f"{repo} was not checked out completely; start the machine again")
+
+
 def pending_requests():
     return bool(complete_requests(os.path.join(D, "requests")))
 
@@ -582,9 +605,7 @@ def main():
             raise Refused(f"{os.path.join(D, 'lock')} is not a file of this user")
         code = 0
         while pending_requests():
-            try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
+            if not take_lock(lock):
                 return code  # the applier that holds it takes what is staged
             try:
                 while (request := take_request()) is not None:
@@ -598,6 +619,21 @@ def main():
     except Exception as e:  # noqa: BLE001  a startup error ends in a status too, never a stale one
         status("failed", error=f"{type(e).__name__}: {e}"[:500])
         return 1
+
+
+def take_lock(lock):
+    """The applier lock, tried for up to LOCK_WAIT_S: the session daemon holds it for a moment while it
+    writes machine-secrets.env (so no apply runs between its read of the declared names and its write),
+    and an applier that started then must not take that for a running apply and leave its request."""
+    deadline = time.monotonic() + LOCK_WAIT_S
+    while True:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.05)
 
 
 def own_folders():
@@ -614,6 +650,7 @@ def apply_once(request):
     try:
         start_lock = hold_bootstrap_start()
         wait_for_bootstrap()
+        wait_for_repository()
         status("running", **report)
         repo = checkout()
         kind, path = source(repo, request["source"])

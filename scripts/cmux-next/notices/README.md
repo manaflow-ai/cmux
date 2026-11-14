@@ -20,6 +20,12 @@ stale). Do not edit it by hand.
   third-party data: a bundle with `Contents/Resources/ghostty-licenses/` needs
   that entry, and the tree must pass `verify-ghostty-license-bundle.py` for the
   checkout's Ghostty revision.
+- A helper app that may run a copy of another bundled binary (the remote browser
+  host's five helpers run cmux-rb-host-helper, or copies of the Rust host when
+  that helper could not be built) names that binary in its entry's `copy_of`.
+  A helper whose LC_UUIDs are the source's (codesign and strip keep them) needs
+  the source's notices too, rust-std included; any other helper needs its own,
+  and the rustc scan below still fails one that links Rust std without rust-std.
 
 Rust and Zig standard libraries: `cmux-tui/build-support/notices/toolchains/`
 (shared with cmux-browser) stores rustc's `COPYRIGHT-library.html` per Rust
@@ -56,6 +62,16 @@ and the quickjs-c-atomics.h notice from reviewed.json) and the hand-written sect
 fails a js/vendor file without a reviewed row in `browser-host-js.json`, a new upstream
 version (marker), a changed text, or a section that lacks a path or text.
 install-cmux-tui-client.sh installs the binary only while bundle-map.json maps it.
+
+Agent screen-detection plugin: `bin/cmux-agent-screen-detection`
+(`cmux-tui/bindings/examples/rust-agent-screen-detection`, its own Cargo workspace,
+GPL-3.0-or-later AND Apache-2.0) has its own Rust section
+(`rust-cmux-agent-screen-detection`, from that workspace's Cargo.lock) and the
+hand-written section "herdr agent-detection plugin" for the herdr-derived manifests
+and sources (Apache-2.0, `manifests/LICENSE`). install-cmux-tui-client.sh installs it
+only while bundle-map.json maps it, like the browser host. The npm platform packages
+for macOS and Linux carry the same binary as `bin/cmux-agent-screen-detection`; their
+notice (package_notices.py) has its crates and the herdr Apache-2.0 text.
 
 CEF binaries need Chromium's `CREDITS.html` (`install-cef-credits.sh`) and
 CEF's own `LICENSE.txt` (`install-cef-license.sh`) in the embedded framework.
@@ -97,10 +113,10 @@ the source archive dry run run it blocking, with the declared-set check.
 build.rs change until the graph is regenerated on a Testbox for the new commit;
 its error gives the commands.
 
-Open item: the bundle check's scan for rustc std paths in a Mach-O without
-`rust-std` (Release merges Iroh's Rust code into the app binary) landed with
-its fix in one commit; the next change to that code adds a red test first as
-its own commit.
+The bundle check scans every Mach-O whose entries (and `copy_of` source) need
+no `rust-std` for rustc std paths (a static Rust library can land in a binary
+the map does not expect, as Iroh.framework's code once did in the app binary). A change to that code adds a red test first as its own commit, as the
+`copy_of` change did (sign run 43387981953).
 
 Planned: the Ghostty section of THIRD_PARTY_LICENSES.md from that collector
 (replaces part of the hand-written Ghostty section; needs the Zig package cache

@@ -10,9 +10,13 @@ use std::sync::Arc;
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::{Value, json};
 
+use anyhow::Context as _;
+
 use crate::model::State;
 use crate::mux::tab_groups::{pane_by_public_id, pane_public_id};
 use crate::mux::*;
+use crate::state::conversation_tabs::ConversationTabTarget;
+use crate::state::conversation_tabs_store::ConversationTabRecord;
 use crate::{Actor, PaneId, SurfaceId};
 use cmux_json::JsonSet as _;
 
@@ -247,7 +251,95 @@ pub(super) fn retarget_members(members: &mut [Value], panes: &HashMap<String, Sp
     changed
 }
 
+/// The [`TabSplit`] that puts a reopened tab straight into a new pane split
+/// off `neighbor` as its closed pane was (`split`, from [`pane_placement`]).
+/// None for a placement beside a whole split (`around`), which only a move
+/// can rebuild.
+fn tab_split_again(neighbor: PaneId, split: &Value) -> Option<TabSplit> {
+    if split.get("around").is_some_and(|around| !around.is_null()) {
+        return None;
+    }
+    let direction = match split["direction"].as_str()? {
+        "left" => "left",
+        "right" => "right",
+        "up" => "up",
+        "down" => "down",
+        _ => return None,
+    };
+    let ratio = split["ratio"].as_f64().map(|ratio| (ratio as f32).clamp(0.05, 0.95));
+    Some(TabSplit { pane: neighbor, direction, pane_id: None, split_id: None, ratio, around: None })
+}
+
 impl Mux {
+    /// Reopen closed agent or viewer tab `tab` (of member `record`) straight
+    /// into a new pane split off `neighbor` as its closed pane was: one
+    /// `pane.split` commit, one `pane-added` delta, and the neighbor's strip
+    /// never lists the tab. Creating it in the neighbor and then moving it
+    /// made every client play a tab open in the neighbor (the main pane)
+    /// before the split opened on its side (Leo 2026-11-07: "it should just
+    /// reopen on the right straight up"). None when the tab is a kind only a
+    /// pane takes (a terminal, a remote terminal, a page with no engine), the
+    /// placement needs a move, or the split fails; the caller then creates it
+    /// in `neighbor` and moves it as before.
+    pub(super) fn reopen_tab_split_again(
+        self: &Arc<Self>,
+        actor: &Actor,
+        neighbor: PaneId,
+        record: &Value,
+        tab: &Value,
+    ) -> Option<SurfaceId> {
+        let split = tab_split_again(neighbor, &record["split"])?;
+        let retired = tab["tab_id"].as_str();
+        let created = tab_strip::reopen_identity::scoped(retired, || {
+            self.create_reopened_tab_in_split(actor, split, tab)
+        });
+        match created {
+            Ok(Some(surface)) => {
+                super::closed_history::note_created(surface);
+                // The split a reopen puts back is not the user's: layout undo must not fold it
+                // back and close the reopened tab (as for a reopened screen's splits).
+                if let Some(pane) = self.with_state(|state| state.pane_of(surface)) {
+                    self.forget_layout_undo(pane);
+                }
+                if let Err(error) = self.restore_tab_details(actor, surface, tab) {
+                    eprintln!("cmux-tui: a reopened tab lost its name or pin: {error:#}");
+                }
+                Some(surface)
+            }
+            Ok(None) => None,
+            Err(error) => {
+                eprintln!("cmux-tui: a reopened tab could not open in its split: {error:#}");
+                None
+            }
+        }
+    }
+
+    fn create_reopened_tab_in_split(
+        self: &Arc<Self>,
+        actor: &Actor,
+        split: TabSplit,
+        tab: &Value,
+    ) -> anyhow::Result<Option<SurfaceId>> {
+        if tab["kind"].as_str() != Some("browser")
+            || tab.get("remote").is_some_and(|value| !value.is_null())
+        {
+            return Ok(None);
+        }
+        if let Some(conversation) = tab.get("conversation").filter(|value| !value.is_null()) {
+            let record = ConversationTabRecord::from_wire(conversation)
+                .context("the closed conversation tab has no valid record")?;
+            let target = ConversationTabTarget::Split(split);
+            let created = self.new_conversation_tab_as(actor, target, record, None, None, None)?;
+            return Ok(Some(created.surface.id));
+        }
+        let Some(record) = super::closed_history::frontend_browser_record(tab) else {
+            return Ok(None);
+        };
+        let surface = self.new_frontend_browser_tab_split_as(actor, split, record, None)?.id;
+        self.restore_frontend_browser_history(surface, tab);
+        Ok(Some(surface))
+    }
+
     /// Move the reopened tab `surface` from `neighbor` into a new pane
     /// split off it as its closed pane was (`split`, from
     /// [`pane_placement`]). Returns the new pane; None when the split

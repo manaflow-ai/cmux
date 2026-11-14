@@ -6,11 +6,15 @@
 
 #[path = "durable_agents/ancestor_answer.rs"]
 mod ancestor_answer;
+#[path = "durable_agents/answer_link_down.rs"]
+mod answer_link_down;
 #[path = "durable_agents/bg_caller_restart.rs"]
 mod bg_caller_restart;
 #[cfg(target_os = "linux")]
 #[path = "durable_agents/bg_replaced_binary.rs"]
 mod bg_replaced_binary;
+#[path = "durable_agents/caller_identity_restart.rs"]
+mod caller_identity_restart;
 #[path = "durable_agents/carried_restart.rs"]
 mod carried_restart;
 #[path = "support/daemon_env.rs"]
@@ -21,6 +25,8 @@ mod grant_cleared;
 mod idle_adopted;
 #[path = "durable_agents/late_hello_adoption.rs"]
 mod late_hello_adoption;
+#[path = "durable_agents/lost_link_turn.rs"]
+mod lost_link_turn;
 #[path = "durable_agents/queue_edit_parts.rs"]
 mod queue_edit_parts;
 #[path = "durable_agents/queue_restore.rs"]
@@ -39,6 +45,8 @@ mod stalled_turn;
 mod stop_if_idle_unadopted;
 #[path = "durable_agents/transfer_authority.rs"]
 mod transfer_authority;
+#[path = "durable_agents/unread_store.rs"]
+mod unread_store;
 #[path = "durable_agents/update_tool_call.rs"]
 mod update_tool_call;
 // This process runs stand-in agents (the fake agents under tests/). The restart harness's sizes
@@ -102,11 +110,19 @@ impl Daemon {
 
     /// A daemon whose fake agent steers as Claude Code does (`FAKE_CLAUDE_STEER`).
     fn claude_steering(tag: &str) -> Self {
+        Self::claude_steering_with(tag, &[])
+    }
+
+    /// [`Self::claude_steering`], with more `NAME=value` settings for the fake agent.
+    fn claude_steering_with(tag: &str, agent_env: &[&str]) -> Self {
         let mut daemon = Self::with_env(tag, "approve-all", &[]);
         daemon.sigterm();
+        let mut argv = vec!["/usr/bin/env", "FAKE_CLAUDE_STEER=1"];
+        argv.extend_from_slice(agent_env);
+        argv.extend_from_slice(&["python3", FAKE]);
         std::fs::write(
             daemon.home.join("config.json"),
-            json!({"harnesses": {"fake": {"argv": ["/usr/bin/env", "FAKE_CLAUDE_STEER=1", "python3", FAKE]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+            json!({"harnesses": {"fake": {"argv": argv}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
         )
         .unwrap();
         daemon.start();
@@ -360,11 +376,28 @@ fn make_fifo(path: &Path) {
 
 fn alive(pid: i64) -> bool {
     // SAFETY: signal 0 only checks existence.
-    unsafe { libc::kill(pid as i32, 0) == 0 }
+    let exists = unsafe { libc::kill(pid as i32, 0) == 0 };
+    exists && !ended(pid)
 }
 
-/// Whether `pid` is gone within `within` (an ended process group needs a
-/// moment to be reaped by launchd once its host exits).
+/// Whether `pid` has ended but is still in the process table: exiting (macOS `ps` state `E`) or
+/// a zombie no parent reaped yet (`Z`; `X` on Linux). A killed process whose parent is gone waits
+/// for launchd to run its exit and reap it, which takes seconds on a loaded Mac: that is the
+/// OS's reaper, not the product (the full-run failure "its MCP server outlived the hibernation").
+fn ended(pid: i64) -> bool {
+    let Ok(out) =
+        std::process::Command::new("ps").args(["-o", "stat=", "-p", &pid.to_string()]).output()
+    else {
+        return false;
+    };
+    let stat = String::from_utf8_lossy(&out.stdout);
+    let stat = stat.trim();
+    stat.starts_with('Z')
+        || stat.starts_with('X')
+        || (cfg!(target_os = "macos") && stat.contains('E'))
+}
+
+/// Whether `pid` is gone within `within`: exited, or exiting with no way back (`ended`).
 fn gone_within(pid: i64, within: Duration) -> bool {
     let deadline = Instant::now() + within;
     while alive(pid) {
@@ -629,6 +662,153 @@ async fn a_steered_turn_stays_open_across_an_update_restart_until_the_agent_ends
     );
 }
 
+/// An update restarts acpmux while a turn holds a steer its agent has not read (Claude Code holds
+/// a message for the turn's next tool step). The turn ends before that step, and the agent
+/// answers the steer "no turn is running". The daemon that wrote the steer runs it as the next
+/// turn then, but it is gone; the adopting daemon dropped the answer, so a message the sender was
+/// told was steered in never reached the agent.
+#[tokio::test]
+async fn a_steer_its_turn_never_read_runs_next_after_an_update_restart() {
+    let mut daemon = Daemon::claude_steering_with("steer-lost", &["FAKE_STEER_NO_TURN_AT_END=1"]);
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("gate: {}", gate.display())}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "before-gate chunk", |e| chunk(e, "before-gate"));
+    let mut steerer = daemon.rpc().await;
+    steerer
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "a tell"}], "_meta": {"acpmux": {"steer": true}}}),
+        )
+        .await;
+    daemon.wait_event(&session, "the steer written to the agent", |e| {
+        e["kind"] == "session/prompt" && e["msg"]["params"]["_meta"]["steer"] == true
+    });
+
+    daemon.sigterm();
+    drop((client, steerer));
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    std::fs::write(&gate, b"go").unwrap();
+    let tell = |e: &Value| {
+        e["kind"] == "user_message" && e["msg"]["text"] == "a tell" && e["msg"]["steer"] != true
+    };
+    let turn =
+        daemon.wait_event(&session, "the steer run as a turn of its own", tell)["msg"]["turnId"]
+            .clone();
+    daemon.wait_event(&session, "the steer's turn result", |e| {
+        e["kind"] == "turn_result" && e["msg"]["turnId"] == turn
+    });
+    let runs = daemon.events(&session).iter().filter(|e| tell(e)).count();
+    assert_eq!(runs, 1, "the steer ran more than once: {:#?}", daemon.events(&session));
+}
+
+/// [`a_steer_its_turn_never_read_runs_next_after_an_update_restart`], when the turn ends while
+/// no daemon runs: the agent's `STEER_NO_TURN` answer is in the host's log when the next daemon
+/// adopts it, as it is when a shutdown cancels the daemon's watch of the answer before it came
+/// (`unread_steer.rs`). The steer still runs next, once.
+#[tokio::test]
+async fn a_steer_answered_unread_while_no_daemon_runs_runs_next_after_the_restart() {
+    let mut daemon = Daemon::claude_steering_with("steer-down", &["FAKE_STEER_NO_TURN_AT_END=1"]);
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("gate: {}", gate.display())}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "before-gate chunk", |e| chunk(e, "before-gate"));
+    let mut steerer = daemon.rpc().await;
+    steerer
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "a tell"}], "_meta": {"acpmux": {"steer": true}}}),
+        )
+        .await;
+    daemon.wait_event(&session, "the steer written to the agent", |e| {
+        e["kind"] == "session/prompt" && e["msg"]["params"]["_meta"]["steer"] == true
+    });
+
+    daemon.sigterm();
+    drop((client, steerer));
+    // The turn ends, and the steer is answered unread, while no daemon runs.
+    std::fs::write(&gate, b"go").unwrap();
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    let tell = |e: &Value| {
+        e["kind"] == "user_message" && e["msg"]["text"] == "a tell" && e["msg"]["steer"] != true
+    };
+    let turn =
+        daemon.wait_event(&session, "the steer run as a turn of its own", tell)["msg"]["turnId"]
+            .clone();
+    daemon.wait_event(&session, "the steer's turn result", |e| {
+        e["kind"] == "turn_result" && e["msg"]["turnId"] == turn
+    });
+    let runs = daemon.events(&session).iter().filter(|e| tell(e)).count();
+    assert_eq!(runs, 1, "the steer ran more than once: {:#?}", daemon.events(&session));
+}
+
+/// An update restarts acpmux while another agent's message runs as a turn of its own (an inbox
+/// notice). The daemon that started the notice writes `inbox_answered` when it ends, and a
+/// sender's resend of the message is answered from it. The adopting daemon ended the turn and
+/// wrote nothing: the message stayed in the inbox unanswered, and its sender's resend waited
+/// for an answer that never came.
+#[tokio::test]
+async fn a_notice_turn_adopted_across_an_update_restart_answers_its_senders() {
+    let mut daemon = Daemon::new("notice-up", "approve-all");
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let from = |prompt_id: &str, text: String, resend: bool| {
+        let meta = json!({"promptId": prompt_id, "fromAgent": "coordinator", "class": "block",
+                          "steer": false, "resend": resend});
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": meta}})
+    };
+    // The chat's first work runs as its prompt; the next message from another agent is an inbox
+    // item, and the notice that carries it is a turn of its own.
+    let mut sender = daemon.rpc().await;
+    let first = sender.call("session/prompt", from("w-first", "hello".into(), false)).await;
+    assert_eq!(first["stopReason"], "end_turn", "{first:#}");
+    sender
+        .send("session/prompt", from("m-1", format!("notice-gate: {}", gate.display()), false))
+        .await;
+    daemon.wait_event(&session, "the notice written", |e| {
+        e["kind"] == "inbox_noticed"
+            && e["msg"]["promptIds"].as_array().is_some_and(|ids| ids.contains(&json!("m-1")))
+    });
+    daemon.wait_event(&session, "the notice's turn", |e| chunk(e, "before-gate"));
+
+    daemon.sigterm();
+    drop(sender);
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    std::fs::write(&gate, b"go").unwrap();
+    daemon.wait_event(&session, "the notice's inbox_answered", |e| {
+        e["kind"] == "inbox_answered"
+            && e["msg"]["promptIds"].as_array().is_some_and(|ids| ids.contains(&json!("m-1")))
+    });
+    let mut sender = daemon.rpc().await;
+    let resend = sender
+        .call("session/prompt", from("m-1", format!("notice-gate: {}", gate.display()), true));
+    let answer = tokio::time::timeout(Duration::from_secs(20), resend)
+        .await
+        .expect("the resend was never answered");
+    assert_eq!(
+        answer["stopReason"], "end_turn",
+        "the resend was not answered by its turn: {answer:#}"
+    );
+}
+
 /// An update restart adopts a running Claude chat without initializing its agent again, so the
 /// agent's `steering` capability came back false: every prompt sent into its turns then stopped
 /// the turn ("Sent now · stopped the turn") instead of steering, and the composer's hint flipped
@@ -825,6 +1005,20 @@ async fn backgrounds_work(daemon: &Daemon, session: &str) -> Value {
     entry["_meta"]["acpmux"]["backgroundsWork"].clone()
 }
 
+/// Waits (test polling) until the chat's `backgroundsWork` is true: a host whose kind answer
+/// came after the daemon's budget decides it when that answer comes, not at adoption.
+async fn until_backgrounds_work(daemon: &Daemon, session: &str, what: &str) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let now = backgrounds_work(daemon, session).await;
+        if now == true {
+            return;
+        }
+        assert!(Instant::now() < deadline, "{what}: the chat hides Ctrl-B ({now})");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 /// With the daemon down: the chat as a build that never saved its agent left it (no `agentInfo`),
 /// and the `cmux` profile now of `kind`. A `kind` other than Claude Code's, with no saved agent,
 /// leaves only the host's own answer to say the chat moves its work.
@@ -842,6 +1036,37 @@ fn set_router_kind(daemon: &Daemon, kind: &str) {
     let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     config["harnesses"]["cmux"]["kind"] = json!(kind);
     std::fs::write(&path, config.to_string()).unwrap();
+}
+
+/// A Claude Code host whose kind answer comes after the daemon's budget: on a loaded Mac it sits
+/// behind a replay the inbound loop did not drain in time (`ACPMUX_TEST_HOST_KIND_LATE` stands
+/// for that, with no load). The answer still decides Ctrl-B when it comes. Before, the
+/// late answer was dropped and the chat, whose profile reads as ACP, hid Ctrl-B until its next
+/// prompt (the full-run failure of the long-backlog test below on a loaded gate host).
+#[tokio::test]
+async fn a_claude_host_that_answers_its_kind_late_still_shows_ctrl_b() {
+    let mut daemon = Daemon::claude_router("kind-late", &[]);
+    let session = new_session(&daemon).await;
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "fg-shell"}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "the foreground shell", |e| {
+        e["msg"]["params"]["update"]["toolCallId"] == "toolu_fg"
+    });
+    daemon.sigterm();
+    drop(client);
+    forget_agent_and_set_router_kind(&daemon, &session, "acp");
+    daemon.env.push(("ACPMUX_TEST_HOST_KIND_LATE".into(), "1".into()));
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    until_backgrounds_work(&daemon, &session, "the host's late kind answer was dropped").await;
+    let mut rpc = daemon.rpc().await;
+    let moved = rpc.call("_acpmux/process/background", json!({"sessionId": session})).await;
+    assert_eq!(moved, json!({"backgrounded": true}));
 }
 
 /// A Claude Code host that streamed a long backlog while no daemon ran: the next daemon adopts it,
@@ -874,11 +1099,9 @@ async fn a_claude_host_with_a_long_backlog_is_adopted_and_its_state_query_answer
     daemon.start();
     daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
     until_turn_restored(&daemon, &session).await;
-    assert_eq!(
-        backgrounds_work(&daemon, &session).await,
-        true,
-        "the adopted host's state query went unanswered: the chat hides Ctrl-B"
-    );
+    // On a loaded Mac the answer comes after the daemon's budget: it decides when it comes.
+    until_backgrounds_work(&daemon, &session, "the adopted host's state query went unanswered")
+        .await;
     let mut rpc = daemon.rpc().await;
     let moved = rpc.call("_acpmux/process/background", json!({"sessionId": session})).await;
     assert_eq!(moved, json!({"backgrounded": true}));
@@ -1300,11 +1523,13 @@ async fn an_adopted_agent_without_a_recorded_token_restarts_after_its_turn() {
 
     daemon.sigterm();
     drop(client);
-    // What an older host's record looks like: no caller token.
+    // What an older host's record looks like: no caller token. An older daemon kept no
+    // registry of the tokens it gave out either (`caller_registry.rs`).
     let mut record = host.clone();
     assert!(record.as_object_mut().unwrap().remove("caller_token").is_some());
     let path = daemon.home.join("hosts").join(format!("{session}.json"));
     std::fs::write(&path, record.to_string()).unwrap();
+    std::fs::remove_file(daemon.home.join("caller-tokens.json")).unwrap();
     daemon.start();
     daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
     daemon.wait_event(&kept, "host_adopted", |e| e["kind"] == "host_adopted");
@@ -2031,6 +2256,11 @@ async fn a_queued_prompt_keeps_its_provenance_across_a_daemon_crash() {
     let queued = daemon.wait_event(&session, "queued record", |e| {
         e["kind"] == "queued" && e["msg"]["promptId"] == "q-prov"
     });
+    // The daemon says what it knows beside what the sender gave: a local process proved no
+    // sender (`prompt_provenance::observed`).
+    let mut provenance = provenance;
+    provenance["verified"] = json!(false);
+    provenance["transport"] = json!("unix");
     assert_eq!(queued["msg"]["_meta"]["provenance"], provenance, "{queued:#}");
 
     daemon.sigkill();
@@ -2098,6 +2328,26 @@ async fn a_narrower_policy_reaches_an_agent_whose_host_is_not_adopted_yet() {
     assert!(
         sent.lines().any(|l| l == "set_permission_mode"),
         "the hosted agent was never moved out of full access: {sent:?}"
+    );
+}
+
+/// Leo, 2026-11-12: "it took well over 90 seconds to start anything... everything waits on
+/// everything". A new chat waits for what an agent start needs (the login environment, the
+/// catalog, the launcher checks), never for the agent hosts' adoption: here adoption is held 8 s
+/// (`ACPMUX_TEST_ADOPT_HOLD_MS`, as one host whose hello never comes holds it), and the new chat
+/// answers well inside that.
+#[tokio::test]
+async fn a_new_chat_does_not_wait_for_adoption() {
+    const HOLD: Duration = Duration::from_secs(8);
+    let hold = HOLD.as_millis().to_string();
+    let daemon = Daemon::with_env("nogate", "approve-all", &[("ACPMUX_TEST_ADOPT_HOLD_MS", &hold)]);
+    let started = Instant::now();
+    let session = new_session(&daemon).await;
+    assert!(!session.is_empty());
+    assert!(
+        started.elapsed() < HOLD / 2,
+        "session/new waited {:?} for the agent hosts' adoption",
+        started.elapsed()
     );
 }
 
@@ -2187,6 +2437,95 @@ async fn a_full_access_stop_is_bounded_when_the_host_never_takes_the_terminate()
         gone_within(harness_pid, Duration::from_secs(10)),
         "the full-access agent ran on after its host ignored the terminate"
     );
+}
+
+/// A restart's detach ends its agent within a bound, also when its host never takes the terminate
+/// (its link stopped reading; the debug seam `ACPMUX_TEST_STALL_HOST_TERMINATE`). The host is then
+/// ended by its nonce. Before, the detach held the session's agent slot for good, and
+/// `_acpmux/status`, which reads every slot, never answered.
+#[tokio::test]
+async fn a_detach_is_bounded_when_the_host_never_takes_the_terminate() {
+    let env = [("ACPMUX_TEST_STALL_HOST_TERMINATE", "1")];
+    let fake = json!({"argv": ["python3", FAKE]});
+    let (daemon, mut rpc) = proven_daemon("stalldetach", fake, &env).await;
+    let session = new_session(&daemon).await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.call("session/prompt", prompt).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+
+    let mut restarter = daemon.rpc().await;
+    prove(&mut restarter).await;
+    let named = session.clone();
+    let restart = tokio::spawn(async move {
+        restarter.reply("_acpmux/sessions/restart_harness", json!({"sessions": [named]})).await
+    });
+    // The restart's detach holds the agent slot by now.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let status =
+        tokio::time::timeout(Duration::from_secs(10), rpc.call("_acpmux/status", json!({})))
+            .await
+            .expect("status waited on a detach whose host never takes the terminate");
+    assert!(status["pid"].is_number(), "{status}");
+    let r = tokio::time::timeout(Duration::from_secs(20), restart)
+        .await
+        .expect("the restart waited on a host that never takes the terminate")
+        .unwrap();
+    assert!(r["error"].is_null(), "{r}");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the agent ran on after its host ignored the terminate"
+    );
+    daemon.wait_event(&session, "host_ended", |e| e["kind"] == "host_ended");
+}
+
+/// A session closed while its host never takes the terminate: the close ends the host by its
+/// nonce, so no agent runs on behind a session that reads closed.
+#[tokio::test]
+async fn a_close_ends_the_agent_when_the_host_never_takes_the_terminate() {
+    let env = [("ACPMUX_TEST_STALL_HOST_TERMINATE", "1")];
+    let fake = json!({"argv": ["python3", FAKE]});
+    let (daemon, mut rpc) = proven_daemon("stallclose", fake, &env).await;
+    let session = new_session(&daemon).await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.call("session/prompt", prompt).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+
+    let killed = rpc.reply("_acpmux/kill", json!({"sessionId": session, "purge": false}));
+    let r = tokio::time::timeout(Duration::from_secs(20), killed)
+        .await
+        .expect("the close waited on a host that never takes the terminate");
+    assert!(r["error"].is_null(), "{r}");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the agent ran on after its session closed"
+    );
+}
+
+/// A Stop that an agent works through restarts the agent. When its host never takes the
+/// terminate, the restart ends the host by its nonce: the stopped agent does not run on, and the
+/// agent that starts again is not that same host adopted.
+#[tokio::test]
+async fn a_stop_restart_ends_the_agent_when_the_host_never_takes_the_terminate() {
+    let env = [("ACPMUX_TEST_STALL_HOST_TERMINATE", "1")];
+    let fake = json!({"argv": ["python3", FAKE]});
+    let (daemon, mut rpc) = proven_daemon("stallstop", fake, &env).await;
+    let session = new_session(&daemon).await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.call("session/prompt", prompt).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+
+    let deaf =
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": "deaf-to-cancel"}]});
+    rpc.send("session/prompt", deaf).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let cancel =
+        json!({"jsonrpc": "2.0", "method": "session/cancel", "params": {"sessionId": session}});
+    rpc.wr.write_all(format!("{cancel}\n").as_bytes()).await.unwrap();
+
+    // Two cancel graces (10 s and 5 s) pass before the restart, then the host's own end.
+    let gone =
+        tokio::task::spawn_blocking(move || gone_within(harness_pid, Duration::from_secs(40)));
+    assert!(gone.await.unwrap(), "the stopped agent ran on after its restart");
 }
 
 /// MDM's off as a push recorded it in start-mode.json, for the next daemon to load.
@@ -3033,8 +3372,18 @@ async fn a_report_of_an_agent_mdm_ended_leaves_the_next_agent_alone() {
     let later = json!({"sessionId": session,
                        "prompt": [{"type": "text", "text": "set-mode-after: 100 full-access"}]});
     rpc.call("session/prompt", later).await;
-    let first_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    // The report is in the log before the inbound loop holds it (`ACPMUX_TEST_UPDATE_DELAY_MS`).
+    daemon.wait_event(&session, "the full-access report", |e| {
+        e["dir"] == "in"
+            && e["kind"] == "current_mode_update"
+            && e["msg"]["params"]["update"]["currentModeId"] == "full-access"
+    });
+    // The agent that reported, from the log: its host record is gone once the held report ends
+    // it, 2 s after the report reached the inbound loop, which a loaded host passes before a
+    // read of the record (the full-run failure "host record: NotFound").
+    let events = daemon.events(&session);
+    let started = events.iter().rev().find(|e| e["kind"] == "host_started");
+    let first_pid = started.and_then(|e| e["msg"]["hostPid"].as_i64()).expect("host_started");
     // The next prompt ends the agent that reported full access and starts another.
     let next = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
     let answered = rpc.reply("session/prompt", next.clone()).await;
@@ -3047,7 +3396,7 @@ async fn a_report_of_an_agent_mdm_ended_leaves_the_next_agent_alone() {
     // No record: the next agent already ended.
     let record = std::fs::read(daemon.home.join("hosts").join(format!("{session}.json")));
     let record: Value = serde_json::from_slice(&record.unwrap_or_default()).unwrap_or_default();
-    let next_pid = record["harness_pid"].as_i64();
+    let next_pid = record["host_pid"].as_i64();
     assert!(next_pid.is_some(), "the ended agent's late report ended the agent after it");
     let next_pid = next_pid.unwrap();
     assert_ne!(next_pid, first_pid);

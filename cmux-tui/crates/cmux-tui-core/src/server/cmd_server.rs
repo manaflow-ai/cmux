@@ -100,6 +100,7 @@ pub(super) fn identify(
     Ok(identity)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn shutdown_daemon(
     mux: &Arc<Mux>,
     client: u64,
@@ -108,6 +109,7 @@ pub(super) fn shutdown_daemon(
     force: bool,
     end_terminals: bool,
     keep_layout: bool,
+    restart: Option<bool>,
 ) -> anyhow::Result<Value> {
     anyhow::ensure!(
         end_terminals || !keep_layout,
@@ -115,6 +117,7 @@ pub(super) fn shutdown_daemon(
     );
     let actual_identity =
         mux.begin_daemon_handoff(client, DaemonHandoffRequest::fenced(pid, generation, force))?;
+    mux.control_clients.set_daemon_handoff_restart(client, restart);
     // The fenced handoff reservation is held, so no second shutdown
     // can start while the hosts end. A failure releases it and keeps
     // this daemon serving.
@@ -139,6 +142,13 @@ pub(super) fn shutdown_daemon(
         "pid": actual_identity.pid,
         "generation": actual_identity.generation,
         "ended_terminals": ended_terminals,
+        // A stop that ended every terminal leaves nothing to resume: the
+        // stopping client removes the terminal and resume state in this
+        // directory once the owner released it; the other stores stay.
+        "session_dir": (end_terminals && !keep_layout)
+            .then(|| mux.session_state_directory())
+            .flatten()
+            .and_then(|dir| dir.to_str().map(str::to_owned)),
     }))
 }
 
@@ -190,7 +200,15 @@ pub(super) fn set_client_info(
     if identity_changed {
         mux.control_clients.set_sizing_identity(client, identity);
     }
-    if remote {
+    // A phone's carrier channel (`cloud-mobile-chat-v1` on a unix connection, phone_carrier.rs)
+    // is a remote device whether or not it says `remote`: incognito workspaces stay off it
+    // (incognito_remote.rs). Both marks are sticky, and this one is made before the
+    // declaration's reply, so nothing after it sees an incognito workspace.
+    #[cfg(unix)]
+    let phone = mux.phone_carrier_client(client);
+    #[cfg(not(unix))]
+    let phone = false;
+    if remote || phone {
         mux.control_clients.mark_remote_device(client);
     }
     mux.refresh_terminal_client_identity(client);

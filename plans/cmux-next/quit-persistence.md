@@ -1,4 +1,4 @@
-# Quit persistence: Cmd-Q keeps sessions, asks in a cmux dialog
+# Quit persistence: Cmd-Q keeps sessions, never asks
 
 Status: audit + design, 2026-10-04 (hq48). Code audited at `b3105b0f003` (origin/feat-cmux-next at
 the start of the audit; the `Quit/` and `CmuxNextDaemon/Connection/` trees are unchanged at
@@ -20,6 +20,13 @@ until #29984, an interactive quit asked nothing and kept the sessions. Lawrence 
 ("cmd q needs to prompt for what type of quit"): with local terminals and `app.quitBehavior` "ask", Cmd-Q asks Keep
 Sessions Running (default) / End Sessions, Keep Layout / End Everything / Cancel in one cmux dialog (the four buttons
 stack when they do not fit on one line); "Don't ask again" writes the choice. Scripts, signals and power off never ask.
+
+Update 2026-11-05: the quit alert is gone. Leo, on its screenshot: "This is, one, unnecessary. Two, ugly as f***. Like
+you still haven't fixed the styling ... don't show these kinds of things." No quit asks how to quit: Cmd-Q, the menu
+and the Dock keep the sessions running (or apply `app.quitBehavior`, whose "ask" value is gone and reads as "keep"; a
+remembered "end-everything" ends the sessions and keeps the workspaces). Quit and End Sessions, Keep Layout and Quit
+and End Everything sit under Quit in the cmux menu and in the command palette. The unsaved-documents question and "Some
+sessions did not end" stay. The sections below describe the alert as it was.
 
 Paths below are relative to `Packages/macOS/CmuxNext/Sources/` unless they start with `cmux-tui/`.
 

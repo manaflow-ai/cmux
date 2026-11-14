@@ -591,7 +591,9 @@ def main():
             result["failures"] = failures
             report[name] = result
             failed = failed or bool(failures)
-            print(f"{'FAIL' if failures else 'ok':4} {name}: " + "; ".join(failures or [json.dumps(result.get('work'))[:160]]), flush=True)
+            # The line shows each summary's numbers, not its list of frame times (`each_ms`), which would fill the 160 characters.
+            numbers = {n: {k: v for k, v in w.items() if k != "each_ms"} for n, w in (result.get("work") or {}).items()}
+            print(f"{'FAIL' if failures else 'ok':4} {name}: " + "; ".join(failures or [json.dumps(numbers)[:160]]), flush=True)
             continue
         frames, scale = (None, None) if opts.source == "window" else video_frames(directory)
         source = "video" if frames else "window"

@@ -86,6 +86,8 @@ class SideInstanceRemakeTests(unittest.TestCase):
     def state_of(self, ident: dict) -> list[Path]:
         paths = [self.home / ".acpmux/builds" / ident["key"], self.home / ".cmux/chief" / ident["key"],
                  self.home / ".cmux/chief" / f"{ident['key']}@acct",
+                 self.home / "Library/Application Support/cmux-next/builds" / ident["key"],
+                 # a build from before NEXT's own folder
                  self.home / "Library/Application Support/cmux/builds" / ident["key"],
                  self.home / "Library/Caches" / ident["bundle"]]
         for p in paths:

@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudCredentials
 import CmuxNextCloudUI
 import CmuxNextDaemon
 import Foundation
@@ -17,7 +18,7 @@ extension CloudStartChat {
     /// reads them), the store's others (`stored`: kept for a pin, never picked), and the chat's folder, environment and token flag (`access`).
     static func planRequest(key: String, account: [String?], workspace: String?, user: String?, machines: [CloudMachineSession],
                             local: String? = nil, stored: [String], environment: String? = nil, access: Bool = false, reservationKey: String? = nil,
-                            platform: String? = nil, team: String? = nil, ensureProject: Bool? = nil) -> String {
+                            platform: String? = nil, ensureProject: Bool? = nil) -> String {
         let listed: [[String: Any]] = machines.map { session in
             let connected = session.daemon.connection != nil
             let chats = connected ? session.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
@@ -25,7 +26,7 @@ extension CloudStartChat {
             return session.machine.startChatPlanEntry(connected: connected, chats: chats)
         }
         var request: [String: Any] = ["key": key, "account": CloudStartCore().accountText(account), "loaded": true, "machines": listed,
-                                      "stored": stored, "credential_on_stdin": access, "reservation_key": reservationKey, "platform": platform, "team": team, "ensure_project": ensureProject]
+                                      "stored": stored, "credential_on_stdin": access, "reservation_key": reservationKey, "platform": platform, "ensure_project": ensureProject]
         for (name, value) in [("user", user), ("workspace", workspace), ("local", local), ("environment", environment)] { request[name] = value }
         let data = (try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys])) ?? Data("{}".utf8)
         return String(decoding: data, as: UTF8.self)
@@ -62,29 +63,26 @@ extension CloudStartChat {
         try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
         let listed = cloud.listedMachineIDs
         let ensureProject = CloudStartCore().ensuresProject(account: account, platform: cloud.configuration.artifactsAPIBaseURL(), production: cloud.auth.configuration.isProductionAuth)
-        let team = start.reservationKey != nil ? try await cloud.reservationTeam() : nil
+        let install = start.reservationKey != nil ? try await cloud.installIdentity.installToken() : nil
         let access = try? await (ensureProject || start.reservationKey != nil ? cloud.auth.tokens().access : nil)
         let request = Self.planRequest(key: start.key, account: account, workspace: workspace, user: cloud.auth.user?.id,
                                        machines: machines.cloud.filter { listed.contains($0.machineID) }, local: start.home ? nil : start.uploadRoot ?? start.cwd,
                                        stored: machines.cloud.map(\.machine).keptForPin(listed: listed), environment: start.environment, access: access != nil,
-                                       reservationKey: start.reservationKey, platform: cloud.configuration.artifactsAPIBaseURL()?.absoluteString, team: team, ensureProject: ensureProject)
-        var plan = try Self.checked(await cli.startChatPlan(request: request, access: access))
+                                       reservationKey: start.reservationKey, platform: cloud.configuration.artifactsAPIBaseURL()?.absoluteString, ensureProject: ensureProject)
+        var plan = try Self.checked(await cli.startChatPlan(request: request, access: access, install: install))
         var invocation = invocation
         if let id = plan.machine, !listed.contains(id) {
             await cloud.refresh() // List a platform-reserved or project machine before attaching.
-            // A remembered machine that is gone (deleted, or of another backend) is dropped, never
-            // shown: the send makes a new machine instead (DEV 9fa9b1c3: "No Cloud machine has the
-            // id vm_c813daded688a74e806f." on a first send).
+            // A remembered machine that is gone (deleted, other backend) is dropped: the send makes a new one (DEV 9fa9b1c3).
             if machines.session(id) == nil {
                 cloud.logger.info("cloud start chat: the planned machine \(id, privacy: .public) is gone; making a new one")
                 plan.machine = nil
                 plan.createSent = false
             }
         }
-        if let id = plan.machine {
-            invocation.arguments["machine"] = .string(id)
-        } else {
+        if let id = plan.machine { invocation.arguments["machine"] = .string(id) } else {
             if !plan.createSent {
+                if let refused = await cloud.agentCheck.newMachineRefusal(harness: start.harness, model: start.model, login: .init(), userID: cloud.auth.user?.id, teamID: cloud.auth.teamID, otherTeams: cloud.auth.loginScopes, dogfood: DevTools.isEnabled)?.limitWords { throw CloudMove.Failure(message: refused) } // before a new machine: an agent that cannot run (a used-up Claude limit) leases none
                 _ = try Self.checked(await cli.startChatCreateBegin(key: start.key, account: CloudStartCore().accountText(account), name: plan.newName ?? "cloud-chats", createKey: plan.createKey))
             }
             var request = CloudMachineRequest(startChatKey: plan.createKey, sizedFor: await pick(), team: plan.createTeam ?? (account.last ?? nil))
@@ -99,21 +97,24 @@ extension CloudStartChat {
                 }) {
                     try Self.checkAccount(account, now: cloud.account, listCurrent: true)
                 }
-            } catch let failure as CloudAppOpFailure where !Task.isCancelled && CloudMachineCreateRetry().isDefinitiveRefusal(failure) {
+            } catch let failure as CloudAppOpFailure where !Task.isCancelled && CloudStartCore().isDefinitiveRefusal(failure) {
                 _ = try Self.checked(await cli.startChatCreateRefused(key: start.key, account: CloudStartCore().accountText(account), createKey: plan.createKey))
                 throw failure
             }
-            // Unpinned, a retry would plan afresh and could open the chat on another machine.
-            _ = try Self.checked(await cli.startChatPin(key: start.key, account: CloudStartCore().accountText(account), machine: created.machineID, workspace: workspace))
             invocation.arguments["machine"] = .string(created.machineID)
         }
-        return (try await CloudMove(services: services).machine(invocation, pick: pick), plan)
+        let id = invocation.arguments["machine"]?.stringValue, text = CloudStartCore().accountText(account)
+        return try await cli.releasing(made: plan.madeForStart ? id : nil, key: start.key, account: text, sameAccount: { account == cloud.account }, delete: { try await cloud.deleteMachine($0) }) { // a failed pin or attach deletes a machine made for this start
+            if let id, plan.machine == nil { _ = try Self.checked(await cli.startChatPin(key: start.key, account: text, machine: id, workspace: workspace)) } // unpinned, a retry could open the chat elsewhere
+            id.map { Self.warmSpare(services, claimed: $0) } // the claim's copy overlaps the dial; the install waits on it
+            return (try await CloudMove(services: services).machine(invocation, pick: pick), plan)
+        }
     }
 
     /// `answer`, or its error as the person reads it.
     static func checked<T>(_ answer: (CloudMoveCLI.Answer, T)) throws -> T {
         guard answer.0.ok else {
-            throw CloudMove.Failure(message: CloudMoveStrings.moveFailed(answer.0.error ?? answer.0.errorCode ?? ""))
+            throw answer.0.errorCode == "cloud.plan.required" ? CloudAPIError.planRequired(message: nil, upgradeURL: nil) as any Error : CloudMove.Failure(message: CloudMoveStrings.moveFailed(answer.0.error ?? answer.0.errorCode ?? ""))
         }
         return answer.1
     }

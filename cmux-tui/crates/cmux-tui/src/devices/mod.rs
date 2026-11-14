@@ -7,9 +7,12 @@
 
 use cmux_json::JsonSet as _;
 
+#[cfg(test)]
+mod credential_env_tests;
 mod model;
 mod network;
 mod removal;
+pub(crate) mod removed;
 #[cfg(test)]
 mod tests;
 
@@ -21,7 +24,7 @@ use anyhow::{Context as _, anyhow, bail};
 use serde_json::{Value, json};
 
 use crate::remote_host::{audit, config as host_config, self_exe};
-use model::{Device, Listing, Role, Sources, State};
+use model::{Listing, Role, Sources, State, Via};
 use network::{Choice, TailscaleNetwork, WeftNetwork};
 
 const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
@@ -250,13 +253,51 @@ impl Flags {
     }
 }
 
+/// The credentials no `cmux` child this process starts may inherit, each with why. A child that needs one gets it another way (a revoke step on its
+/// stdin); an acpmux daemon a child auto-starts would otherwise keep it for its lifetime. Every
+/// spawn of `cmux` (devices here, `cmux acp` in chat_start/joined.rs) removes these. Neither
+/// `cmux acp` (acpmux's CLI and the daemon it may start) nor the agents that daemon runs read
+/// any of them. Kept on purpose, so not listed: `CMUX_CLAUDE_AUTH` (no secret: the `own` or
+/// `team` Claude login the daemon picks, acpmux claude_cloud_auth.rs) and
+/// `ACPMUX_SESSION_TOKEN` with `ACPMUX_SESSION_TOKEN_SOCKET` (an agent's proof of its own
+/// session, which `cmux acp send` shows only to the daemon that issued it; that daemon never
+/// passes it on, acpmux client.rs). `credential_env_tests.rs` holds every other name.
+pub(crate) const CREDENTIAL_ENV: &[&str] = &[
+    // A join token (`cmux machine add`): one machine's enrollment.
+    "CMUX_JOIN",
+    // The account's bearer token.
+    "CMUX_CLOUD_ACCESS_TOKEN",
+    // Names a person's shell may export for the account's token (`cmux auth token`).
+    "CMUX_ACCESS_TOKEN",
+    "CMUX_API_TOKEN",
+    "CMUX_TOKEN",
+    // `cmux vm`'s API key: the VM commands read it, not acpmux.
+    "CMUX_VM_API_KEY",
+    // The machine provider's token: the app's own transport reads it and drops it at start.
+    "CMUX_MACHINE_PROVIDER_TOKEN",
+    // The debug sign-in's credentials file: the app's sign-in reads it, never a child.
+    "CMUX_AUTH_CREDENTIALS_FILE",
+    // The relay Worker's ticket key: a Worker secret, never a process's.
+    "CMUX_RELAY_TICKET_KEY",
+    // A workflow run's token: acpmux mints it for its runner, which needs no inherited one.
+    "CMUX_WORKFLOW_RUNNER_TOKEN",
+    // The machine provider's workspace grant, dropped with its token (config/ghostty_helper.rs).
+    "CMUX_PROVIDER_WORKSPACE_AUTHORITY",
+    // Other programs' secrets (the relay, a pane provider, weft): no cmux child reads them.
+    "CMUX_RELAY_HMAC_SECRET",
+    "CMUX_PANE_APP_CREDENTIAL",
+    "WEFT_ADMIN_TOKEN",
+    "WEFT_TICKET_SEED",
+];
+
 /// This program as `cmux` (argv[0]), so the `host` verbs, which exist only on the `cmux`
 /// surface, run too when this is `cmux-tui` (the app runs its bundled `cmux-tui device …`).
 fn cmux() -> anyhow::Result<Command> {
     let mut command = Command::new(self_exe()?);
-    // Neither a join token nor the cmux credential reaches a child: the credential was read
-    // once (`JoinAuth`) and a revoke step gets it on its stdin.
-    command.env_remove("CMUX_JOIN").env_remove("CMUX_CLOUD_ACCESS_TOKEN");
+    // The credential was read once (`JoinAuth`) and a revoke step gets it on its stdin.
+    for name in CREDENTIAL_ENV {
+        command.env_remove(name);
+    }
     #[cfg(unix)]
     std::os::unix::process::CommandExt::arg0(&mut command, "cmux");
     Ok(command)
@@ -622,9 +663,45 @@ fn remove(args: &[String]) -> anyhow::Result<()> {
         }
         return Ok(());
     }
-    let device: Device = model::find(&listing, key)
-        .cloned()
-        .ok_or_else(|| anyhow!("no device {key:?} here (cmux device list shows them)"))?;
+    let Some(device) = model::find(&listing, key).cloned() else {
+        // A joined machine the list no longer offers (revoked, so it lets nothing in) still
+        // shows in `machine list` as revoked: removing it only takes it off the lists. Only
+        // the hub's own list says it is revoked; one already removed stays removed.
+        if let Some(machine_id) = key.strip_prefix("joined:").filter(|id| !id.is_empty()) {
+            if !removed::ids().contains(machine_id) {
+                #[cfg(unix)]
+                let rows = crate::cli::joined_machine_rows(
+                    auth.platform.as_deref(),
+                    auth.credential.clone(),
+                );
+                #[cfg(not(unix))]
+                let rows = None;
+                if !removed::listed_revoked(rows, machine_id)? {
+                    bail!(
+                        "{machine_id} is not a revoked machine of this team (cmux machine list shows them)"
+                    );
+                }
+            }
+            if !flags.has("yes") {
+                println!("Removing {machine_id} will:\n  - leave the machine list");
+                if !confirm("Remove it?")? {
+                    bail!("not removed (pass --yes to remove without asking)");
+                }
+            }
+            removed::add(machine_id)?;
+            record("device.removed", json!({"device": key, "done": ["leave the machine list"]}));
+            if flags.has("json") {
+                println!(
+                    "{}",
+                    json!({"removed": {"joined": machine_id}, "done": ["leave the machine list"], "failed": []})
+                );
+            } else {
+                println!("Removed {machine_id} from the machine list.");
+            }
+            return Ok(());
+        }
+        bail!("no device {key:?} here (cmux device list shows them)");
+    };
     let steps = removal::plan(&device);
     if !flags.has("yes") {
         let what: Vec<&str> = steps.iter().map(|s| s.what.as_str()).collect();
@@ -656,6 +733,16 @@ fn remove(args: &[String]) -> anyhow::Result<()> {
                 json!({"step": step.what, "error": String::from_utf8_lossy(&o.stderr).trim()}),
             ),
             Err(e) => failed.push(json!({"step": step.what, "error": e.to_string()})),
+        }
+    }
+    // A joined machine that is fully removed leaves every list (the platform keeps it, revoked).
+    if failed.is_empty() {
+        for via in &device.via {
+            if let Via::Joined { machine_id } = via
+                && let Err(e) = removed::add(machine_id)
+            {
+                failed.push(json!({"step": "leave the machine list", "error": format!("{e:#}")}));
+            }
         }
     }
     record(

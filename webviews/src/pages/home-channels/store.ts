@@ -4,6 +4,7 @@
 // conversation, pages of PAGE older ones on demand) and refetches on a gap. Writes go to the host
 // with an idempotency key; the owner's event is what shows them.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { userMessage } from "../shared/userMessage";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { AttachmentService, messageGroups } from "./attachmentService";
 import { AvatarService } from "./avatars";
@@ -14,6 +15,7 @@ import { LiveBook } from "./live";
 import { readPresentation } from "./presentation";
 import { RunBook } from "./runs";
 import { HomeSheets } from "./sheets";
+import { fixtureRank, type PaletteRankReply, type PaletteRankRequest } from "./paletteRank";
 import { ChiefWorkStore } from "./ChiefWorkStore";
 import {
   HomeOps,
@@ -128,7 +130,8 @@ export interface HomeSnapshot {
   error?: string;
 }
 
-const describe = (error: unknown) => (isPageError(error) || error instanceof Error ? error.message : String(error));
+/** The plain sentence of a failure; the owner's own text stays in the error. */
+const describe = (error: unknown) => userMessage(error);
 
 export class HomeChannelsStore {
   private snapshot: HomeSnapshot;
@@ -406,6 +409,12 @@ export class HomeChannelsStore {
     this.stops = [];
     this.starting = undefined;
   }
+
+  /** Ranks the Cmd-K palette's rows (`cmux.home.paletteRank`); offline, the fixture ranker. */
+  readonly rankPalette = (request: PaletteRankRequest): Promise<PaletteRankReply> =>
+    this.client
+      ? this.client.call<PaletteRankReply>(HomeOps.paletteRank, request)
+      : Promise.resolve(fixtureRank(request));
 
   async reloadInbox(): Promise<void> {
     if (!this.client) return;

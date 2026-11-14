@@ -3,7 +3,7 @@
 // white rounded ring round the queued prompt being edited, and a blue ring that kept appearing).
 //
 // - The composer box and the New Tab box: at rest one device pixel in the composer edge (18% text);
-//   focused, the same one device pixel a step brighter (28% text). No wider line, no extra shadow,
+//   focused, the same one device pixel a step brighter (22% text). No wider line, no extra shadow,
 //   no outline. A page that is not the key one keeps the resting edge.
 // - The queued prompt's editor: no outline, the same focused hairline.
 // - A button reached from the keyboard: no outline (neither the shared accent ring nor WebKit's
@@ -16,6 +16,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { focusByKey } from "./support/focusByKey";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -24,7 +25,7 @@ type Inset = { spread: number; alpha: number };
 await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
   /** The composer edge's alpha over the harness's transparent page, at rest and focused. */
   const REST = 0.18;
-  const FOCUSED = 0.28;
+  const FOCUSED = 0.22;
   setDefaultTimeout(120_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -116,7 +117,7 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
         expect(restRims[0].spread * scale, `${box} rim in device px`).toBe(1);
         expect(restRims[0].alpha, `${box} rim at rest`).toBeCloseTo(REST, 2);
 
-        await page.focus(`#${field}`);
+        await focusByKey(page, `#${field}`);
         const focused = await shadows(page, box);
         // The same layers: no ring or glow added, the drop shadow unchanged.
         expect(focused.length, `${box} focused adds no shadow`).toBe(rest.length);

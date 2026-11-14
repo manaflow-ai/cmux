@@ -369,6 +369,7 @@ mod tests {
                 state: crate::workflow_runs::State::Running,
                 activities: Default::default(),
                 outcome: None,
+                caller_subagent: None,
             })
             .unwrap();
         let activity = ActivityRecord {
@@ -605,6 +606,7 @@ mod tests {
                 state: crate::workflow_runs::State::Running,
                 activities: Default::default(),
                 outcome: None,
+                caller_subagent: None,
             })
             .unwrap();
         let parent = ActivityRecord {

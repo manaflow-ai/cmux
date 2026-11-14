@@ -2,10 +2,14 @@ import CmuxNextActions
 import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextRemote
+import CmuxNextServer
+import CmuxNextSidebar
 
 // `remote.machines`: every SSH machine with its route, link state, daemon
 // state, capability level and workspaces (qualified `<machine>:workspace:N`).
-// A short main-actor read of observable state; no network.
+// A short main-actor read of observable state; no network. `machine.list {refresh?}` and
+// `device.join_line {open?, mint?, name?}`: the Machines section's rows and Add Device's join line
+// (CmuxNextServer MachineAutomation); `refresh` (default true) reads `cmux machine list` once first.
 extension AppControl {
     func registerRemoteMethods(_ services: AppServices) {
         service?.router.register([
@@ -38,6 +42,26 @@ extension AppControl {
                 }
                 return .value(.object(["machines": .array(rows), "unavailable": services.ssh.unavailableReason.map(JSONValue.string) ?? .null]))
             },
+            .async("machine.list") { [weak services] call in
+                guard let services else { return .null }
+                if call.params["refresh"]?.boolValue ?? true { await services.joinedMachines.refresh() }
+                return await Self.machineRows(services)
+            }.withDeadline(.fixed(AddDeviceCard.automationDeadline)),
+            .async("device.join_line") { [weak services] call in
+                guard let services else { return .null }
+                return try await Self.joinLine(call.params, services)
+            }.withDeadline(.fixed(AddDeviceCard.automationDeadline)),
         ])
+    }
+
+    @MainActor private static func joinLine(_ params: [String: JSONValue], _ services: AppServices) async throws -> JSONValue {
+        if let refusal = ControlError.policyRefusal("device.join_line", disabled: services.registry.disabledFeatures) { throw refusal }
+        return await services.addDevice.automationJoinLine(params, over: services.windows.active?.window)
+    }
+
+    @MainActor private static func machineRows(_ services: AppServices) -> JSONValue {
+        let rows = MachineSectionRow.rows(services.machines, health: services.machineHealth, joined: services.joinedMachines), rules = SidebarBridgeRules()
+        return ["machines": .array(rows.map { $0.automationJSON(linkState: rules.rowLink(connected: $0.isConnected, connecting: $0.isConnecting,
+                                                                                         serverState: $0.serverState?.rawValue)?.rawValue) })]
     }
 }

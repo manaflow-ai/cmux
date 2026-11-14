@@ -78,13 +78,19 @@ await requireBrowserLane("computer-picker-onboarding.test.ts", async () => {
               window as unknown as { cmuxGalleryLog: { method: string; params?: { id?: string } }[] }
             ).cmuxGalleryLog.some((call) => call.method === "action.run" && call.params?.id === "device.add"),
           );
-          // The list's Cloud row opens New Cloud Machine.
+          // Signed out (the fixture's Cloud answer), the list's one Cloud row is Sign in for Cloud and
+          // signs in; New Cloud Machine… stays on the right-click menu above (Leo, 2026-11-07: "The
+          // thing becomes just one state instead of rapidly switching to another").
           if (!(await computer.getAttribute("aria-expanded"))?.includes("true")) await computer.click();
           const menu = page.locator(".acpmux-env-popover");
-          const cloud = menu.getByRole("option", { name: /^Cloud/ });
+          const cloud = menu.getByRole("option", { name: /^Sign in for Cloud/ });
           await cloud.waitFor();
           const names = await menu.getByRole("option").allTextContents();
           expect(await cloud.count(), names.join(" | ")).toBe(1);
+          expect(
+            names.filter((name) => name.startsWith("Cloud")),
+            names.join(" | "),
+          ).toEqual([]);
           expect(await cloud.isVisible(), names.join(" | ")).toBe(true);
           if (artifacts) await page.screenshot({ path: path.join(artifacts, `${entry}-${colorScheme}.png`) });
           await cloud.click();
@@ -93,12 +99,14 @@ await requireBrowserLane("computer-picker-onboarding.test.ts", async () => {
               () =>
                 (
                   window as unknown as { cmuxGalleryLog: { method: string; params?: { id?: string } }[] }
-                ).cmuxGalleryLog.some((call) => call.method === "action.run" && call.params?.id === "newCloudMachine"),
+                ).cmuxGalleryLog.some(
+                  (call) => call.method === "action.run" && call.params?.id === "palette.auth.signIn",
+                ),
               null,
               { timeout: 10_000 },
             )
             .catch(async () => {
-              throw new Error(`Cloud ran no newCloudMachine; actions: ${JSON.stringify(await log())}`);
+              throw new Error(`Sign in for Cloud ran no palette.auth.signIn; actions: ${JSON.stringify(await log())}`);
             });
         } finally {
           await page.close();

@@ -145,22 +145,21 @@ impl Hub {
     /// logged so (`queue_paused` with `reason: "stop"`).
     pub(super) fn hold_agent_messages(&self, session: &Arc<Session>, turn_id: &str) {
         static HOLDS: AtomicU64 = AtomicU64::new(0);
-        let held: Vec<String> = {
-            // Begun under the queue lock, where a release checks and ends it (`digest.rs`).
-            let mut queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
-            session.stop_hold.store(HOLDS.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
-            // Named with those a failed turn held already: the Stop holds them too, and a pane
-            // shows each as held by it (`views.rs` `held_by_stop`).
-            queue
-                .iter_mut()
-                .filter(|q| q.run.agent.is_some())
-                .map(|q| {
-                    // One sent now waits too: the Stop came after it.
-                    (q.held, q.sent_now) = (true, false);
-                    q.prompt_id.clone()
-                })
-                .collect()
-        };
+        // Begun under the queue lock, where a release checks and ends it (`digest.rs`), and
+        // logged under it (`queue.rs` `QUEUE_KINDS`: a change and its record are one step).
+        let mut queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
+        session.stop_hold.store(HOLDS.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
+        // Named with those a failed turn held already: the Stop holds them too, and a pane
+        // shows each as held by it (`views.rs` `held_by_stop`).
+        let held: Vec<String> = queue
+            .iter_mut()
+            .filter(|q| q.goes_in_by_itself())
+            .map(|q| {
+                // One sent now waits too: the Stop came after it.
+                (q.held, q.sent_now) = (true, false);
+                q.prompt_id.clone()
+            })
+            .collect();
         if !held.is_empty() {
             self.append(
                 session,
@@ -358,6 +357,11 @@ impl Hub {
         self.cancel_pending_permissions(session);
         // Its own process group only (`ChildAgent::kill`), and it waits for the process to end.
         child.kill().await;
+        // A host that did not take the terminate still runs the stopped agent, and the agent
+        // that starts again would be that same host adopted.
+        if child.host_unended() {
+            self.end_unadopted_host(session).await;
+        }
         if session.turn().is_some_and(|t| t.turn_id == turn.turn_id) {
             session.steer_end.send_replace(Some((turn.turn_id.clone(), forced_answer(true))));
         }
@@ -376,6 +380,28 @@ impl Hub {
     ) -> Result<(), RpcError> {
         let running = self.stop_prompt_retry(session, prompt_id)?;
         self.cancel_matching(session, None, Some(running.as_deref().unwrap_or(prompt_id))).await
+    }
+
+    /// A `session/prompt` its client cancelled with `$/cancel_request` (`server/prompt_cancel.rs`):
+    /// out of the queue while it waits, else exactly its turn stopped, as a workflow's prompt is
+    /// (`cancel_prompt`). Its request runs on, so the turn ends as any other (`finish_turn`).
+    pub(crate) async fn stop_cancelled_prompt(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        prompt: &str,
+    ) {
+        if self.remove_queued(session, prompt) {
+            return;
+        }
+        if let Err(e) = self.cancel_prompt(session, prompt).await {
+            tracing::debug!(
+                target: crate::request_cancel::LOG_TARGET,
+                session = %session.id,
+                prompt,
+                "a cancelled prompt's stop: {}",
+                e.message
+            );
+        }
     }
 
     /// A Stop while Claude compacts ends the turn at once and withdraws the person's queued

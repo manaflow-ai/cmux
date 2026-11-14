@@ -8,15 +8,18 @@ use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use cmux_link::dial::{CloudEventRequest, MAX_LINE_BYTES, ReloadRequest, parse_line};
+use cmux_link::dial::{MAX_LINE_BYTES, ReloadRequest, parse_line};
 use cmux_link::owner_session::OwnerSession;
 use cmux_link::pairing::Pairings;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 
-use super::cloud::{CloudResolver, ConnectInfoSource, apply_cloud_event};
+use super::acpmux::AcpmuxTarget;
 use super::dial::{Overlay, serve_dial_line};
 use super::inbound::{InboundRefused, serve_inbound_watched};
+use cmux_link::stamp::LinkPeer;
+
+use super::key_adoption::RetiringPeers;
 use super::lines::read_line;
 use super::paired_streams::{OpenStreams, Revocations};
 
@@ -27,7 +30,81 @@ pub(super) struct Peers {
     changes: tokio::sync::watch::Sender<Arc<Pairings>>,
     /// Every admitted or handshaking paired stream.
     open: Arc<OpenStreams>,
-    updates: tokio::sync::Mutex<()>,
+    /// Every change to the pairing file and every reload, one at a time.
+    updates: Arc<tokio::sync::Mutex<()>>,
+    /// Woken when a paired peer's link named its new key ([`RekeyTarget`]).
+    rekeyed: Arc<tokio::sync::Notify>,
+    /// The peers still on this link's retired key, when it adopted the node key.
+    retiring: std::sync::OnceLock<Arc<RetiringPeers>>,
+    /// This link's own public keys (current, and retired while kept): never a peer's.
+    own: std::sync::OnceLock<Vec<[u8; 32]>>,
+    /// Test only: how many rekey replies the inbound path drops, as a lost reply.
+    #[cfg(test)]
+    pub(super) drop_replies: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+/// Where a paired peer's [`cmux_link::dial::Service::Rekey`] goes: its record
+/// in the pairing file, then a reload (`serve` waits on [`Peers::rekeyed`]).
+#[derive(Clone)]
+pub(super) struct RekeyTarget {
+    path: PathBuf,
+    changed: Arc<tokio::sync::Notify>,
+    retiring: Option<Arc<RetiringPeers>>,
+    own: Vec<[u8; 32]>,
+    #[cfg(test)]
+    drop_replies: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl RekeyTarget {
+    /// Move `install`'s pairing to `key` in the file; true when it changed.
+    /// One read-modify-write at a time, under the file's lock across
+    /// processes ([`Pairings::update`]), so no writer saves over another. This link's own keys are refused: a peer record
+    /// with one would stop every start of the mesh. The caller answers the
+    /// peer first, then calls [`Self::reload`]: the reload closes the old
+    /// key's streams, the answering one included.
+    ///
+    /// `from` is the pairing that authenticated the change, as it was then
+    /// (`from_key` its key): under the lock the change is made only while the
+    /// stored record is still that one, so a `link peer add` that replaced
+    /// it in the meantime wins.
+    pub(super) async fn apply(
+        &self,
+        from: &LinkPeer,
+        from_key: &[u8; 32],
+        key: &[u8; 32],
+    ) -> io::Result<bool> {
+        if self.own.contains(key) {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "own_key"));
+        }
+        // The file's own lock, which `link peer add|remove` and install moves take too.
+        let (path, from, from_key, key) = (self.path.clone(), from.clone(), *from_key, *key);
+        tokio::task::spawn_blocking(move || {
+            Pairings::update(&path, |pairings| pairings.rekey_from(&from, &from_key, &key))
+        })
+        .await
+        .map_err(io::Error::other)?
+    }
+
+    /// This link's node key, for the answer to `install` while this link
+    /// still keeps it on its retired key: it adopted too, and both move in
+    /// the one exchange. Asked again, it answers the same.
+    pub(super) fn answer_for(&self, install: &str) -> Option<[u8; 32]> {
+        self.retiring.as_ref()?.answer_for(install)
+    }
+
+    /// Test only: whether this reply is dropped as lost.
+    #[cfg(test)]
+    pub(super) fn drops_reply(&self) -> bool {
+        use std::sync::atomic::Ordering;
+        self.drop_replies
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| left.checked_sub(1))
+            .is_ok()
+    }
+
+    /// Ask the running link to reload its peers.
+    pub(super) fn reload(&self) {
+        self.changed.notify_one();
+    }
 }
 
 /// How long a reload waits for revoked paired streams to close before it
@@ -38,15 +115,46 @@ impl Peers {
     pub(super) fn load(path: PathBuf) -> io::Result<Self> {
         let loaded = Arc::new(Pairings::load(&path)?);
         let (changes, _) = tokio::sync::watch::channel(loaded);
-        Ok(Self { path, changes, open: Arc::default(), updates: tokio::sync::Mutex::new(()) })
+        Ok(Self {
+            path,
+            changes,
+            open: Arc::default(),
+            updates: Arc::default(),
+            rekeyed: Arc::default(),
+            retiring: std::sync::OnceLock::new(),
+            own: std::sync::OnceLock::new(),
+            #[cfg(test)]
+            drop_replies: Arc::default(),
+        })
     }
 
-    /// A Native Cloud link has no paired installs or local peers. Keep the
-    /// same revocation/event machinery while starting from an empty view;
-    /// its inherited broker is the only authority for Cloud hosts.
-    pub(super) fn isolated(path: PathBuf) -> Self {
-        let (changes, _) = tokio::sync::watch::channel(Arc::new(Pairings { peers: vec![] }));
-        Self { path, changes, open: Arc::default(), updates: tokio::sync::Mutex::new(()) }
+    /// Where inbound rekeys write.
+    pub(super) fn rekey_target(&self) -> RekeyTarget {
+        RekeyTarget {
+            path: self.path.clone(),
+            changed: self.rekeyed.clone(),
+            retiring: self.retiring.get().cloned(),
+            own: self.own.get().cloned().unwrap_or_default(),
+            #[cfg(test)]
+            drop_replies: self.drop_replies.clone(),
+        }
+    }
+
+    /// This link's own public keys, which no rekey may give a peer (set
+    /// once, before `serve_overlay` starts).
+    pub(super) fn own_keys(&self, keys: Vec<[u8; 32]>) {
+        let _ = self.own.set(keys);
+    }
+
+    /// Inbound rekeys from a peer still on the retired key answer with the
+    /// node key (set once, before `serve_overlay` starts).
+    pub(super) fn answer_rekeys_from(&self, retiring: Arc<RetiringPeers>) {
+        let _ = self.retiring.set(retiring);
+    }
+
+    /// Wait until a paired peer's rekey changed the pairing file.
+    pub(super) async fn rekeyed(&self) {
+        self.rekeyed.notified().await;
     }
 
     /// What every incoming or outgoing paired stream watches for revocation.
@@ -109,11 +217,10 @@ enum StatusOp {
 /// Serve the local socket. Each caller must be this user and
 /// signed as cmux (`cmux_link::caller`); others are closed unanswered.
 /// `status` is the one-line answer to `link.status`.
-pub(super) async fn serve_local<O: Overlay, S: ConnectInfoSource>(
+pub(super) async fn serve_local<O: Overlay>(
     listener: UnixListener,
     overlay: Arc<O>,
     peers: Arc<Peers>,
-    resolver: Arc<CloudResolver<S>>,
     status: Arc<str>,
 ) -> io::Result<()> {
     let mut failures = 0u32;
@@ -131,24 +238,17 @@ pub(super) async fn serve_local<O: Overlay, S: ConnectInfoSource>(
                 continue;
             }
         };
-        tokio::spawn(serve_local_request(
-            stream,
-            overlay.clone(),
-            peers.clone(),
-            resolver.clone(),
-            status.clone(),
-        ));
+        tokio::spawn(serve_local_request(stream, overlay.clone(), peers.clone(), status.clone()));
     }
 }
 
 /// The first accept retry delay; later ones grow linearly up to 1 s.
 const ACCEPT_RETRY: std::time::Duration = std::time::Duration::from_millis(20);
 
-async fn serve_local_request<O: Overlay, S: ConnectInfoSource>(
+async fn serve_local_request<O: Overlay>(
     mut stream: UnixStream,
     overlay: Arc<O>,
     peers: Arc<Peers>,
-    resolver: Arc<CloudResolver<S>>,
     status: Arc<str>,
 ) {
     // The signature check calls into the OS; keep it off the async workers.
@@ -158,12 +258,6 @@ async fn serve_local_request<O: Overlay, S: ConnectInfoSource>(
         return;
     }
     let Ok(first) = read_line(&mut stream, MAX_LINE_BYTES).await else { return };
-    if let Some(event) = parse_line::<CloudEventRequest>(&first) {
-        let ok = apply_cloud_event(&event, &*overlay, &resolver).await;
-        let reply = if ok { "{\"ok\":true}\n" } else { "{\"ok\":false}\n" };
-        let _ = stream.write_all(reply.as_bytes()).await;
-        return;
-    }
     if let Some(StatusRequest { op: StatusOp::Status }) = parse_line::<StatusRequest>(&first) {
         let _ = stream.write_all(format!("{status}\n").as_bytes()).await;
         return;
@@ -175,20 +269,25 @@ async fn serve_local_request<O: Overlay, S: ConnectInfoSource>(
         return;
     }
     let pairings = peers.snapshot();
-    serve_dial_line(stream, &first, &*overlay, &pairings, &resolver, Some(peers.revocations()))
-        .await;
+    serve_dial_line(stream, &first, &*overlay, &pairings, Some(peers.revocations())).await;
 }
 
-/// Serve overlay streams from paired peers. Without a session socket this
-/// link only dials, and inbound streams are closed.
+/// Serve overlay streams from paired peers. Without a session socket and
+/// without an acpmux target this link only dials, and inbound streams are
+/// closed.
 pub(super) async fn serve_overlay<L: OverlayListener>(
     mut listener: L,
     peers: Arc<Peers>,
     session_socket: Option<PathBuf>,
     owner: Option<Arc<OwnerSession>>,
+    acpmux: AcpmuxTarget,
 ) {
+    // Every paired stream is read: a link that serves nothing else still takes its peers' rekeys.
+    let rekey = peers.rekey_target();
     while let Some((stream, key, address)) = listener.accept().await {
-        let Some(session_socket) = session_socket.clone() else { continue };
+        let rekey = rekey.clone();
+        let session_socket = session_socket.clone();
+        let acpmux = acpmux.clone();
         let pairings = peers.snapshot();
         let owner = owner.clone();
         let revocations = peers.revocations();
@@ -201,9 +300,11 @@ pub(super) async fn serve_overlay<L: OverlayListener>(
                 key,
                 address,
                 &pairings,
-                &session_socket,
+                session_socket.as_deref(),
                 owner.as_deref(),
+                &acpmux,
                 Some(revocations),
+                Some(&rekey),
             )
             .await;
             // Owner session refusals are security events: always log them.

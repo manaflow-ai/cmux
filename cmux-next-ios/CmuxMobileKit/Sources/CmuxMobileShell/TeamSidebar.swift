@@ -3,6 +3,7 @@ import CmuxMobileAuth
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileSettings
+import CmuxSpinner
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -40,7 +41,13 @@ struct TeamSidebar: View {
                     ForEach(store.teams) { team in
                         row(team)
                     }
-                    if store.teams.isEmpty {
+                    if store.teams.isEmpty, store.awaitsAccountData {
+                        // Teams still loading: never "No teams".
+                        CmuxSpinner(label: Text("Loading teams…"))
+                            .padding(.horizontal, theme.metrics.sideMargin)
+                            .padding(.vertical, 8)
+                            .accessibilityIdentifier("sidebar.teams.loading")
+                    } else if store.teams.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("No teams. Create one to share Macs and workspaces.")
                                 .font(theme.type.rowSubtitle)
@@ -123,7 +130,7 @@ struct TeamSidebar: View {
                 onlineCount: team.listedMacs.filter(\.isOnline).count,
                 isSelected: selected
             )
-            .animation(theme.motion.snap.animation, value: selected)
+            .animation(theme.motion.snap.animation.unlessReduceMotion, value: selected)
         }
         .buttonStyle(SidebarRowStyle())
         .padding(.horizontal, theme.metrics.selectedRowInset)
@@ -148,7 +155,7 @@ struct TeamSidebar: View {
             HStack(spacing: SidebarTeamRow.avatarGap) {
                 ZStack {
                     if shell.isFetchingInvite {
-                        ProgressView()
+                        CmuxSpinner()
                     } else {
                         Image(systemName: "person.badge.plus").font(.system(size: 17))
                     }

@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextHomeEngine
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -43,7 +44,7 @@ import Testing
 
     init() {
         let suite = "HomeDirectoryChiefArchiveTests-\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suite) ?? .standard
+        defaults = UserDefaults(testSuiteName: suite) ?? .standard
         defaults.removePersistentDomain(forName: suite)
     }
 

@@ -1,6 +1,6 @@
 import AppKit
 import CmuxHomeCore
-import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextSettings
 
 /// `debug.home` `page`: the Home page's conversation list as the active

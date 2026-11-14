@@ -5,17 +5,7 @@
 // draft dots its head stem; closed (and an open one with conflicts) crosses out its head's arrow.
 // The native panel draws the same names (native/changes.ts), so both read alike.
 import { Icon } from "../icons/Icon";
-
-export type PullRequestGlyphState = "open" | "draft" | "merged" | "closed" | "conflicting";
-
-export const PULL_REQUEST_ICONS: Record<PullRequestGlyphState, string> = {
-  open: "git.pullrequest",
-  draft: "git.pullrequest.draft",
-  merged: "git.pullrequest.merged",
-  closed: "git.pullrequest.closed",
-  conflicting: "git.pullrequest.closed",
-};
-
+import { type PullRequestGlyphState, PULL_REQUEST_ICONS } from "./pullRequestGlyphModel";
 export function PullRequestGlyph({ state, size }: { state: PullRequestGlyphState; size: number }) {
   return <Icon name={PULL_REQUEST_ICONS[state]} size={size} row className="acpmux-session-info-pr__glyph" />;
 }

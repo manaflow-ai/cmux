@@ -86,6 +86,11 @@ pub struct Composers {
 }
 
 impl Composers {
+    /// Whether any surface holds unsent text (whitespace clears a surface's draft).
+    pub(in crate::hub) fn any_draft(&self) -> bool {
+        !self.drafts.is_empty()
+    }
+
     fn sent_by(&self, prompt_id: &str) -> Option<&Surface> {
         self.sent.iter().rev().find(|(id, _)| id == prompt_id).map(|(_, s)| s)
     }
@@ -139,7 +144,7 @@ impl Hub {
         client: &str,
     ) -> Result<Value, RpcError> {
         if session.moving().is_some() {
-            return Err(queue::moving_error());
+            return Err(queue::moving_error(session));
         }
         let composing = !text.trim().is_empty();
         let changed = {
@@ -232,6 +237,7 @@ impl Hub {
                     "class": q.run.class,
                     "author": crate::author::listed(q.run.provenance.as_ref()),
                     "subagentRetry": super::subagent_retry::listed(q.run.provenance.as_ref()),
+                    "provenance": super::digest::listed_provenance(q.run.provenance.as_ref(), q.run.agent.as_deref()),
                     "surface": label(&q.prompt_id),
                 })
             })

@@ -1,9 +1,10 @@
 //! `cmux-rd`: the remote desktop host engine, as a library: the `cmux-rd` binary (main.rs)
 //! and, on macOS, `cmux rd ...` in the cmux binary run [`run_cli`]. The host engine (Linux: a virtual X display; macOS: the Mac's
 //! own display) and its measurement tools. Subcommands:
-//!   host     --listen-systemd --peer-uid 0 [--display :99] [--xauthority PATH] [--idle-exit-s 120] [--codec openh264]
-//!            (Linux, the production Cloud mode: the socket comes from systemd; src/systemd.rs)
-//!   host     [--browser URL (Linux) [--browser-bin google-chrome] [--browser-cdp-port N]] --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99 | --display main|N on macOS] [--port 4103] [--max-fps 60] [--input-frame-now 1] [--max-width PX (macOS)] [--codec openh264|x264|videotoolbox] [--openh264-lib PATH] [--profile high|baseline] [--upstream-record DIR]
+//!   host     --listen-systemd --peer-uid 0 [--display :99] [--xauthority PATH] [--idle-exit-s 120] [--codec openh264] [--no-udp-link] [--link-stun HOST:PORT,...]
+//!            (Linux, the production Cloud mode: the socket comes from systemd; src/systemd.rs;
+//!            media moves to a UDP link when the viewer offers one: src/hybrid.rs)
+//!   host     [--browser URL (Linux) [--browser-bin google-chrome] [--browser-cdp-port N]] --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99 | --display main|N on macOS] [--port 4103] [--max-fps N (default: the display's refresh rate, else 60)] [--input-frame-now 1] [--max-width PX (macOS)] [--codec openh264|x264|videotoolbox] [--openh264-lib PATH] [--profile high|baseline] [--upstream-record DIR]
 //!   bench    --addr HOST:4103 --token-fd N [--carrier udp|stream] [--input key|click|scroll|none] [--samples 300] [--duration-s 30 (none)] [--user USER] [--upstream mic|camera|screen] [--at X,Y] [--marker-origin X,Y] [--decoder videotoolbox|openh264 (macOS)] [--snapshot FILE.ppm] [--record FILE.h264]
 //!   testapp  --display :99 --workload marker|text|motion|idle
 //!   serve    one device hub session over the secure link, driven by the app in JSON lines on
@@ -17,12 +18,12 @@
 //! app is Linux only. Design: plans/cmux-next/remote-desktop.md and remote-desktop-mac-host.md.
 //! Wire: crate cmux-rd-proto.
 
-#![cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
+#![cfg_attr(not(any(target_os = "linux", target_os = "macos", windows)), allow(dead_code))]
 
 mod args;
-#[cfg(feature = "bench")]
+#[cfg(all(feature = "bench", any(target_os = "linux", target_os = "macos")))]
 mod bench;
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[cfg(target_os = "linux")]
 mod browser;
 #[cfg(target_os = "linux")]
 mod capture;
@@ -34,9 +35,12 @@ mod connect;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod desktop;
 mod encoder;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod fdwait;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod host;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod hybrid;
 #[cfg(target_os = "linux")]
 mod inject;
 #[cfg(target_os = "linux")]
@@ -44,6 +48,9 @@ mod keymap;
 #[cfg(target_os = "macos")]
 mod mac;
 mod marker;
+#[cfg(all(feature = "bench", any(target_os = "linux", target_os = "macos")))]
+mod observe;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod selftest;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
 mod serve;
@@ -55,10 +62,15 @@ mod stream;
 mod systemd;
 #[cfg(target_os = "linux")]
 mod testapp;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod token;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod upstream;
 #[cfg(all(target_os = "macos", feature = "bench"))]
 mod vtdecode;
+#[cfg(windows)]
+mod windows;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod wire;
 #[cfg(target_os = "linux")]
 mod workload;
@@ -74,7 +86,7 @@ pub type Res<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 pub fn run_cli(args: &[String]) -> i32 {
     let Some(cmd) = args.first() else {
         eprintln!(
-            "usage: cmux-rd host|bench|testapp|serve|connect|encode-selftest|openh264-install [--key value ...]"
+            "usage: cmux-rd host|bench|observe|testapp|serve|connect|encode-selftest|openh264-install [--key value ...]"
         );
         return 2;
     };
@@ -88,14 +100,21 @@ pub fn run_cli(args: &[String]) -> i32 {
     let result = match cmd.as_str() {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         "host" => host::run(&opts),
-        #[cfg(feature = "bench")]
+        #[cfg(windows)]
+        "host" => windows::run(&opts),
+        #[cfg(windows)]
+        "windows-selftest" => windows::selftest(&opts),
+        #[cfg(all(feature = "bench", any(target_os = "linux", target_os = "macos")))]
         "bench" => bench::run(&opts),
+        #[cfg(all(target_os = "macos", feature = "bench"))]
+        "observe" => mac::observe::run(&opts),
         #[cfg(target_os = "linux")]
         "testapp" => testapp::run(&opts),
         #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
         "serve" => serve::run(&opts),
         #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
         "connect" => connect::run(),
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         "encode-selftest" => selftest::run(&opts),
         #[cfg(feature = "openh264")]
         "openh264-install" => encoder::install_openh264(&opts),

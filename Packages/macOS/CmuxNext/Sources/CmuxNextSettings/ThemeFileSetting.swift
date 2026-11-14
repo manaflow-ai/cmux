@@ -7,13 +7,14 @@ public import Foundation
 /// settings (`ThemeFileOverlay`), so a person rices the whole app from a dotfile with no build.
 /// Unset (the default) applies none, so nothing changes until a person picks one.
 public nonisolated struct ThemeFileSetting: Sendable {
-    public static let path = ["appearance", "themeFile"]
-    public let configPath = Self.path
     /// The folder beside cmux-next.json that holds the theme files.
     public static let folderName = "themes"
     public static let fileExtension = "json"
     /// A theme file larger than this is refused unread: a look is a few hundred bytes.
     public static let maximumBytes = 256 * 1024
+    /// The theme files cmux ships (`Resources/theme-files`, `<app>/Contents/Resources/theme-files`): listed
+    /// with the user's and read when the user has no file of the same name, which wins. Nil outside an app.
+    public static let bundledFolder: URL? = Bundle.main.resourceURL?.appending(path: "theme-files", directoryHint: .isDirectory)
 
     public init() {}
 
@@ -36,20 +37,29 @@ public nonisolated struct ThemeFileSetting: Sendable {
         folder(configDirectory: configDirectory).appending(path: "\(name).\(fileExtension)", directoryHint: .notDirectory)
     }
 
+    /// The file `name` reads from: the user's, else the shipped one; nil when neither is there. File I/O.
+    public static func readableURL(named name: String, configDirectory: URL, bundled: URL? = bundledFolder) -> URL? {
+        let own = url(named: name, configDirectory: configDirectory)
+        if FileManager.checked.fileExists(atPath: own.path) { return own }
+        let shipped = bundled?.appending(path: "\(name).\(fileExtension)", directoryHint: .notDirectory)
+        return shipped.flatMap { FileManager.checked.fileExists(atPath: $0.path) ? $0 : nil }
+    }
+
     /// The theme file `root` names, nil when unset or not a valid name (the schema check reports it).
     public static func name(in root: JSONValue) -> String? {
-        guard let name = root.value(at: path)?.stringValue, isValidName(name) else { return nil }
+        guard let name = root.value(at: configPath)?.stringValue, isValidName(name) else { return nil }
         return name
     }
 
-    /// The names of the theme files in the folder, sorted as Finder sorts them. File I/O.
-    public static func names(configDirectory: URL) -> [String] {
-        let folder = folder(configDirectory: configDirectory)
-        let files = (try? FileManager.checked.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-        return files.filter { $0.pathExtension.lowercased() == fileExtension }
+    /// The names of the theme files in the folder and the shipped ones, each once, sorted as Finder
+    /// sorts them. File I/O.
+    public static func names(configDirectory: URL, bundled: URL? = bundledFolder) -> [String] {
+        let files = [folder(configDirectory: configDirectory)] + [bundled].compactMap(\.self)
+        let names = files.flatMap { (try? FileManager.checked.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)) ?? [] }
+            .filter { $0.pathExtension.lowercased() == fileExtension }
             .map { $0.deletingPathExtension().lastPathComponent }
             .filter(isValidName)
-            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        return Set(names).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 }
 
@@ -62,7 +72,7 @@ extension SettingsController {
     /// (as the last load read it, so hovering one previews it with no disk read); for any other
     /// setting its kind's values (`SettingDescriptor.paletteOptions`).
     public func paletteOptions(_ descriptor: SettingDescriptor, current: JSONValue?, themeColors: [ThemeRGB]) -> [SettingOption] {
-        guard descriptor.path == ThemeFileSetting.path else { return descriptor.paletteOptions(current: current, themeColors: themeColors) }
+        guard descriptor.path == ThemeFileSetting.configPath else { return descriptor.paletteOptions(current: current, themeColors: themeColors) }
         let names = themeFileSources.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         return [SettingOption(value: nil, title: descriptor.defaultLabel ?? "", isCurrent: current == nil)]
             + names.map { SettingOption(value: .string($0), title: $0, isCurrent: current?.stringValue == $0) }

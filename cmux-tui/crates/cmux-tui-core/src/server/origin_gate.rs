@@ -93,26 +93,30 @@ fn check(mux: &Mux, client: u64, envelope: &RequestEnvelope) -> Result<Actor, Re
 }
 
 /// Classifies one accepted local peer while its kernel PID evidence is live.
+///
+/// The peer's terminal comes from the terminals' seats
+/// (`diagnostics/terminal_seats.rs`), as the peer's lane does
+/// (`terminal_admission`), and not from the session state: a terminal has
+/// its seat before it is in that state, and the host that starts a terminal
+/// has one before the terminal's first process runs. A host that an earlier
+/// daemon started has one from this daemon's start to the end of its
+/// adoption, when the daemon read its start and knew that it lives. So a
+/// process of such a terminal is that terminal's from its first connection,
+/// and never the local user by the order of two events. `parent_of`: the
+/// parent of a process (`ConnectionStats::seated_terminal`).
 fn classify_local_peer(
     mux: &Mux,
     peer_key: Option<&str>,
     session_for_pid: impl FnOnce(u32) -> Option<u32>,
+    parent_of: impl FnOnce(u32) -> Option<u32>,
 ) -> LocalPeer {
     let Some(process) = peer_key.and_then(peer_pid) else { return LocalPeer::Unknown };
     let Some(session) = session_for_pid(process) else { return LocalPeer::Unknown };
-    let terminal = mux.with_state(|state| {
-        state
-            .surfaces
-            .values()
-            .chain(state.terminal_catalog.values())
-            .find(|surface| surface.process_id() == Some(session))
-            .and_then(|surface| surface.terminal_public_id())
-            .map(|terminal| terminal.as_str().to_string())
-    });
-    if let Some(terminal) = terminal {
-        return LocalPeer::Terminal(terminal);
+    let seated = mux.connection_stats().seated_terminal(session, parent_of);
+    match seated.and_then(|terminal| terminal.id) {
+        Some(terminal) => LocalPeer::Terminal(terminal.to_string()),
+        None => LocalPeer::Other,
     }
-    LocalPeer::Other
 }
 
 pub(super) fn peer_pid(key: &str) -> Option<u32> {
@@ -283,6 +287,36 @@ pub(super) fn app_connection(mux: &Mux, client: u64) -> AppConnection {
     }
 }
 
+/// The cmux app's own process on the local socket: its verified main connection (not bound to an
+/// agent), or a page relay of that same process (the audit-token peer key of a verified main
+/// connection, as `origin.confirmation.issue` pairs them). The Feed's reads carry the person's
+/// whole feed, Reports basket and GitHub results, so an agent or a script on the same socket
+/// reads none of them (feed.md: a non-user principal sees only its own items).
+pub(super) fn app_process(mux: &Mux, client: u64) -> bool {
+    if mux.conversation_principal(client) != crate::conversation_store::LOCAL_USER {
+        return false;
+    }
+    let state = mux.control_clients.state.lock().recover_poison();
+    let Some(record) = state.clients.get(&client) else { return false };
+    if !matches!(record.transport, ClientTransport::Unix) {
+        return false;
+    }
+    match record.origin.role {
+        HelloRole::Main => record.origin.verified_app,
+        HelloRole::PageRelay => {
+            let Some(peer) = record.origin.peer_key.as_deref() else { return false };
+            state.clients.iter().any(|(id, other)| {
+                *id != client
+                    && matches!(other.transport, ClientTransport::Unix)
+                    && other.origin.role == HelloRole::Main
+                    && other.origin.verified_app
+                    && other.origin.peer_key.as_deref() == Some(peer)
+            })
+        }
+        HelloRole::Legacy => false,
+    }
+}
+
 /// A WebSocket connection admitted with a page-bound credential
 /// (`page-credential {page}`): fixed at accept, with its page.
 pub(super) fn set_scoped_page(mux: &Mux, client: u64, page: String) {
@@ -377,8 +411,16 @@ pub(super) fn set_peer_identity_at_accept(
     client: u64,
     peer_key: Option<String>,
     peer_token: Option<cmux_link::app_caller::PeerToken>,
-) {
-    let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id);
+) -> crate::diagnostics::ClientKind {
+    use crate::diagnostics::ClientKind;
+    let parent_of = terminal_admission::parent_process;
+    let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id, parent_of);
+    // What the peer is for the request counters, before it declares a kind.
+    let kind = match &local_peer {
+        LocalPeer::Terminal(_) => ClientKind::Terminal,
+        LocalPeer::Other => ClientKind::Local,
+        LocalPeer::Unknown => ClientKind::Unknown,
+    };
     let mobile_host = peer_executable(peer_key.as_deref(), peer_token.as_ref())
         .is_some_and(|path| is_bundled_mobile_host_path(&path));
     let mut state = mux.control_clients.state.lock().recover_poison();
@@ -387,6 +429,7 @@ pub(super) fn set_peer_identity_at_accept(
         record.origin.local_peer = local_peer;
         record.origin.mobile_host = mobile_host;
     }
+    kind
 }
 
 /// Name of the phone host beside the daemon's executable
@@ -627,6 +670,10 @@ mod test_hooks {
         with_origin(mux, client, |origin| origin.mobile_host = true);
     }
 
+    pub(in crate::server) fn set_page_for_test(mux: &Arc<Mux>, client: u64, page: &str) {
+        with_origin(mux, client, |origin| origin.page = Some(page.to_string()));
+    }
+
     pub(in crate::server) fn set_peer_key_for_test(mux: &Arc<Mux>, client: u64, peer_key: &str) {
         with_origin(mux, client, |origin| origin.peer_key = Some(peer_key.to_string()));
     }
@@ -673,6 +720,10 @@ mod pairing_gate_tests;
 #[cfg(all(test, unix))]
 #[path = "chief_profile_ws_tests.rs"]
 mod chief_profile_ws_tests;
+
+#[cfg(all(test, unix))]
+#[path = "palette_rank_page_tests.rs"]
+mod palette_rank_page_tests;
 
 /// The peer executable is read only while the peer key or token still
 /// names the same process (review 2 finding 3): a stale pid version, as a

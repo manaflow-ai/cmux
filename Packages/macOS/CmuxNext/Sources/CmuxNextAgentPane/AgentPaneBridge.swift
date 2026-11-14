@@ -39,7 +39,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         // ring file, answered at once and not logged here.
         if let body = message.body as? [String: Any], body["method"] as? String == AgentPageFlickerLog.method, let view {
             view.flickerLog?.recordPage(body["params"] as? [String: Any], page: AgentPageFlickerLog.pageName(view),
-                                        pid: view.knownWebContentPid)
+                                        pid: view.flickerPid)
             return replyHandler(AgentPaneReply.success(), nil)
         }
         // Where a chat rests belongs to the chat, so it is answered here from the one store both
@@ -59,6 +59,23 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             // task-owner: one trusted page request, completed by its reply handler
             Task { replyHandler(await AgentPaneTailCache.reply(to: method, params: params, host: host, pageGeneration: generation), nil) }
             return
+        }
+        // A chat's unsent prompts (``AgentPaneUnsentPrompts``): the chat's, kept across relaunches,
+        // never the model's and never logged (they are the person's text).
+        if let body = message.body as? [String: Any], let method = body["method"] as? String,
+           AgentPaneUnsentPrompts.handles(method: method) {
+            let params = body["params"].flatMap { JSONValue(foundation: $0) } ?? .null
+            // task-owner: one trusted page request, completed by its reply handler
+            Task {
+                switch await AgentPaneUnsentPrompts.reply(to: method, params: params) {
+                case .success(let value): replyHandler(AgentPaneReply.success(value.foundationObject), nil)
+                case .failure(let error): replyHandler(AgentPaneReply.failure(code: error.code, message: error.message), nil)
+                }
+            }
+            return
+        }
+        if let body = message.body as? [String: Any], let method = body["method"] as? String {
+            AgentPaneTailCache.keepHandOver(of: method, params: body["params"] as? [String: Any], pageGeneration: tailGeneration)
         }
         let request = AgentPaneRequest(body: message.body)
         if case .uiPointerReport(let text) = request, let value = try? JSONSerialization.jsonObject(with: Data(text.utf8)),
@@ -125,6 +142,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             AgentPaneClosedItem.push(view.recentlyClosed, to: view)
             AgentPaneNowPlaying.shared.push(to: view)
             view.model.attentionTabs?.push(to: view)
+            view.model.attentionTabs?.places.push(to: view)
             view.announceSessionInfo()
             view.model.readAloud?.push(to: view)
             view.pushPaneNotices()

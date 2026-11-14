@@ -11,11 +11,13 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
 import { chatProject, internalFolder } from "../src/agent-session/acpmux/session-info/chatFolders";
-import { EnvironmentSection, environmentToSave } from "../src/agent-session/acpmux/session-info/EnvironmentSection";
+import { EnvironmentSection } from "../src/agent-session/acpmux/session-info/EnvironmentSection";
+import { environmentToSave } from "../src/agent-session/acpmux/session-info/environmentSectionModel";
 import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { setNativeHost } from "../src/agent-session/acpmux/native";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
+import { settleReact } from "./support/domTeardown";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
@@ -52,6 +54,7 @@ beforeEach(() => resetSessionInfoState());
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

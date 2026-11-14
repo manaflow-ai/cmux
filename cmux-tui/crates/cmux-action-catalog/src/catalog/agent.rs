@@ -113,6 +113,17 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "palette.newCloudChat",
+        group: GROUP,
+        title: t("ActionCatalog", "action.palette.newCloudChat", "New Cloud Chat"),
+        keywords: &["agent", "chat", "new", "cloud", "vm", "remote", "machine", "sleep"],
+        category: "agents",
+        symbol: "cloud",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        cli_name: "action palette-new-cloud-chat",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "agentPane.toggleSessionInfo",
         group: GROUP,
         title: t("Localizable", "action.agentPane.toggleSessionInfo", "Toggle Session Info"),
@@ -247,12 +258,12 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "agentPane.togglePointerInspector",
         group: GROUP,
-        title: Text::raw("Inspect UI Element"),
-        keywords: &["agent", "ui", "pointer", "inspect", "inspect element", "pick", "element", "debug"],
+        title: Text::raw("Point at Element"),
+        keywords: &["agent", "ui", "pointer", "point", "point at element", "inspect", "inspect element", "inspect ui element", "pick", "element", "debug"],
         category: "agents",
         symbol: "scope",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "inspect", 1).folder("tools").label(Text::raw("Inspect Element"))], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "inspect", 1).folder("tools").label(Text::raw("Point at Element…"))], ..SurfacePlan::DEFAULT },
         cli_name: "agent toggle-ui-pointer",
         ..Action::DEFAULT
     },
@@ -306,6 +317,17 @@ pub static ACTIONS: &[Action] = &[
         symbol: "chart.bar.xaxis",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action stats-show",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "agentBoard.show",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agentBoard.show", "Show Agent Board"),
+        keywords: &["agent board", "board", "work tracking", "ledger", "evidence", "decisions", "permutations", "agents"],
+        category: "agents",
+        symbol: "square.grid.3x3.topleft.filled",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action agent-board-show",
         ..Action::DEFAULT
     },
     Action {
@@ -402,6 +424,23 @@ pub static ACTIONS: &[Action] = &[
         requires: &["agentPaneFocused"],
         targets: &["pane"],
         cli_name: "action agent-pane-copy-last-code-block",
+        ..Action::DEFAULT
+    },
+    // The floating mini (the Chief pet) stands for the focused chat; run while it does, it gives the
+    // mini back to the Chief. Person-only: with the mini managed off it opens the mini's reply box.
+    Action {
+        id: "agentPane.showInMini",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agentPane.showInMini", "Show in Mini"),
+        keywords: &["agent", "chat", "mini", "pet", "chief", "floating", "avatar", "coordinator"],
+        category: "agents",
+        symbol: "pip",
+        surfaces: PALETTE,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        requires: &["agentPaneFocused"],
+        targets: &["pane"],
+        cli_name: "action agent-pane-show-in-mini",
+        is_person_only: true,
         ..Action::DEFAULT
     },
     Action {
@@ -579,6 +618,18 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "palette.toggleTerminalChat",
+        group: GROUP,
+        title: t("ActionCatalog", "action.palette.toggleTerminalChat", "Toggle Terminal and Chat"),
+        keywords: &["agent", "chat", "terminal", "gui", "swap", "switch"],
+        default_shortcut: Some(Shortcut { key: "`", modifiers: OPT | CMD }),
+        category: "agents",
+        symbol: "arrow.left.arrow.right",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "agent toggle-terminal-chat",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "palette.launchClaudeTeams",
         group: GROUP,
         title: t("ActionCatalog", "action.palette.launchClaudeTeams", "Launch Claude Teams"),
@@ -607,7 +658,7 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["agent", "fork", "branch"],
         default_shortcut: Some(Shortcut { key: "y", modifiers: OPT | CMD }),
         category: "agents",
-        symbol: "arrow.triangle.branch",
+        symbol: "arrow.branch",
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("terminalSelection", "create", 199), Placement::at("agentChat", "create", 199)], ..SurfacePlan::DEFAULT },
         cli_name: "agent fork-conversation",

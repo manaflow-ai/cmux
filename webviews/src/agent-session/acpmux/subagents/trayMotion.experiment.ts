@@ -10,21 +10,16 @@ export const trayMotionLook = defineExperiment({
   id: "subagent-tray-motion",
   title: "Subagent tray motion",
   description:
-    "The tray's entrance and exit: the new message's own rise, a tight fade, or a rise with a slight spring.",
+    "The tray's entrance and exit: the house settle (a fade and a short rise, no overshoot) or a tight fade.",
   arms: {
     message: {
-      label: "Like a message",
+      label: "Settle",
       description:
-        "The live transcript row's entrance (cv-enter: fade and a 4px rise on --agent-motion-in and --agent-ease-out); out on --agent-motion-out.",
+        "A fade and a 4px rise on the house settle (--cmux-ease-settle over --cmux-motion-settle: cubic-bezier(0.16, 1, 0.3, 1), 180 ms, no overshoot); out quicker on --agent-motion-out.",
     },
     tight: {
       label: "Tight fade",
       description: "Opacity only, on the micro step (120 ms) easing out; out on the quick step.",
-    },
-    spring: {
-      label: "Slight spring",
-      description:
-        "An 8px rise from 98% scale on the standard step (180 ms) with a small overshoot; out on the quick step.",
     },
   },
   defaultArm: "message",

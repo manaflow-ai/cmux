@@ -41,9 +41,9 @@ impl Terminal {
         // (`settlePromptRedraw`), so the live screen is already the settled
         // one: a bounce the shell never answered, which can wait until the
         // person types, costs no copy.
-        let drawn = pending.payload().get(..4)?;
+        let &[cols_lo, cols_hi, rows_lo, rows_hi] = pending.payload().first_chunk::<4>()?;
         let drawn_grid =
-            (u16::from_le_bytes([drawn[0], drawn[1]]), u16::from_le_bytes([drawn[2], drawn[3]]));
+            (u16::from_le_bytes([cols_lo, cols_hi]), u16::from_le_bytes([rows_lo, rows_hi]));
         if drawn_grid == (self.cols(), self.rows()) {
             return None;
         }

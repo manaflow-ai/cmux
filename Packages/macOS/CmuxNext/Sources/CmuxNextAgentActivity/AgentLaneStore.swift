@@ -24,8 +24,10 @@ public final class AgentLaneStore {
             return storage
         }
         set {
+            if storage != newValue { revision &+= 1 }
             withMutation(keyPath: \.lanes) { storage = newValue }
             waiting = Set(newValue.compactMap { $0.value.state == .input ? $0.key : nil })
+            if waitingSessions != waiting { waitingSessions = waiting }
             working = Set(newValue.compactMap { $0.value.state == .working ? $0.key : nil })
             unread = Set(newValue.compactMap { $0.value.unread ? $0.key : nil })
             syncCells()
@@ -39,6 +41,9 @@ public final class AgentLaneStore {
     /// the menu bar's count) reads a few lanes instead of ranking every one. Not observed: read
     /// it when it is used.
     @ObservationIgnored public private(set) var waiting: Set<String> = []
+    /// ``waiting``, observed: written only when a session starts or stops waiting, so a reader of the waiting sessions
+    /// (the Needs You tray's approvals) is not told of every agent step (main-thread-scheduling.md section 3, O7).
+    public private(set) var waitingSessions: Set<String> = []
     /// The sessions whose lane runs a turn (`.working`), kept as ``waiting`` is: the menu bar's
     /// Running list reads these few lanes, never every one.
     @ObservationIgnored public private(set) var working: Set<String> = []
@@ -53,8 +58,11 @@ public final class AgentLaneStore {
     public func set(_ session: String, _ lane: AgentActivityLane?) {
         let ownedBefore = Self.chiefOwnership(storage[session])
         let nameBefore = storage[session]?.name
+        if storage[session] != lane { revision &+= 1 }
         withMutation(keyPath: \.lanes) { storage[session] = lane }
+        let wasWaiting = waiting.contains(session)
         if lane?.state == .input { waiting.insert(session) } else { waiting.remove(session) }
+        if waiting.contains(session) != wasWaiting { waitingSessions = waiting }
         if lane?.state == .working { working.insert(session) } else { working.remove(session) }
         if lane?.unread == true { unread.insert(session) } else { unread.remove(session) }
         // Only this session's cell can change: the others' lanes are as they were.
@@ -83,13 +91,28 @@ public final class AgentLaneStore {
         if chiefParticipants != identities { chiefParticipants = identities }
     }
     @ObservationIgnored private var storage: [String: AgentActivityLane] = [:]
+    /// Counts the writes that changed a lane (``set(_:_:)``, ``lanes``' setter), observed: a reader that only needs to
+    /// know that some lane changed (`agent_chat.changed`, AppProviderChangeFeed.agentChats) reads this one number
+    /// instead of every lane. Reading ``lanes`` there mapped and compared every lane on the main thread at each agent
+    /// step (a 2.0 s hang in NIGHTLY 23c9f5a, 2026-11-11 01:11:27Z, `agentChats` under the feed's observation).
+    public private(set) var revision: UInt64 = 0
     /// One observable cell per session a reader asked for (``lane(_:)``, ``links(_:)``).
     @ObservationIgnored private var cells: [String: AgentLaneCell] = [:]
     /// The acpmux socket whose watch fills the store (set by `AgentTurnStateFeed`), for requests
     /// about its sessions such as the Priority view's Archive.
     @ObservationIgnored public var socketPath: String?
     /// The watch is up and has delivered its page: `lanes` is every session, not a gap.
-    public var live = false
+    public var live = false {
+        didSet {
+            // Going down, keep the sessions it showed (before `lanes` is emptied), for the gap; a page ends the gap.
+            if oldValue, !live { beforeGap = Set(storage.keys) } else if live, beforeGap != nil { beforeGap = nil }
+        }
+    }
+
+    /// The sessions the watch listed when it last went down, nil while it is live or before its first page. Through a
+    /// watch gap the sidebar keeps these sessions' rows and leaves the ones it had hidden (gone sessions) hidden
+    /// (`keepsWorkspace`; Leo 2026-11-05: "randomly there's these workspaces that appear and disappear").
+    public private(set) var beforeGap: Set<String>?
 
     /// Changes only when ownership changes; ordinary lane output does not remap every row.
     public private(set) var chiefParticipants: [String: String] = [:]

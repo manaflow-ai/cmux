@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import CmuxConversationCore
 import CmuxConversationGeometry
+import CmuxSpinner
 import UIKit
 
 /// One message: optional sender name, reply quote, images, text bubble or
@@ -851,7 +852,7 @@ final class LoadingCell: UICollectionViewCell {
     static let reuseID = "loading"
     /// ChatKit's load-more row (CKTranscriptHeaderCell.defaultCellHeight).
     static let height: CGFloat = 20
-    let spinner = UIActivityIndicatorView(style: .medium)
+    let spinner = CmuxSpinnerView(side: 20)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -909,9 +910,11 @@ final class ConversationStartCell: UICollectionViewCell {
     static func text(title: String, subtitle: String, color: UIColor) -> NSAttributedString {
         let centered = NSMutableParagraphStyle()
         centered.alignment = .center
-        let text = NSMutableAttributedString(string: title + "\n", attributes: [
+        let text = NSMutableAttributedString(string: subtitle.isEmpty ? title : title + "\n", attributes: [
             .font: ConversationTheme.timestampBoldFont, .foregroundColor: color, .paragraphStyle: centered,
         ])
+        // A service line without a subtitle (no encryption claim): no lock.
+        guard !subtitle.isEmpty else { return text }
         let lock = UIImage(systemName: "lock.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 8, weight: .bold))!
         let lockAttachment = NSTextAttachment(image: lock.withTintColor(color, renderingMode: .alwaysOriginal))
         // A 9.33 pt tall lock on the baseline at the symbol's own proportions

@@ -18,6 +18,29 @@ main's `screen-stream-eval-dispatch.yml` (scheduled workflows run only from the 
 uploads `results.json` and a `summary.md` that shows each number's change against the last daily
 run (the last successful one that dispatcher started).
 
+## Prebuilt tools
+
+A Mac that must not build (a laptop cleared for benches only) runs the harness from a copy of
+`scripts/measure` with `prebuilt=DIR`, where DIR holds tools built elsewhere for that Mac: `cmux-rd`
+(`cargo build --release` in `cmux-tui/crates/cmux-rd-host`), `screen-eval-preflight`,
+`screen-eval-scene`, `screen-eval-ocr` (`swiftc -O` of the `.swift` files here) and `cmux-rd-marker`
+(`swiftc -O` of `cmux-tui/crates/cmux-rd-host/scripts/mac-marker/main.swift`), plus an optional `rev`
+file naming the commit they were built from (`run.rev`). A fleet step builds them all at one commit,
+with no console or grant needed:
+
+```
+cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/screen-stream-eval.sh \
+  --ref SHA --arg=tools-only=1 --artifact artifacts/screen-stream-eval/tools.tar.gz
+```
+
+The archive holds one folder, `tools/`. Nothing is compiled: only the `rd` target
+has this mode, and a Mac without the grants and without `CmuxScreenEvalLauncher.app` stops with exit 3
+instead of compiling the launcher.
+
+```
+bash scripts/measure/screen-stream-eval.sh prebuilt=DIR targets=rd [repeats=3] [samples=200]
+```
+
 ## Scenarios (fixed)
 
 | Scenario | What runs on the host | What is measured |
@@ -50,9 +73,10 @@ form on the host Mac. The verbs are:
 | Verb | Does |
 | --- | --- |
 | `build` | builds its host and viewer into `EVAL_BIN` |
+| `caps` (optional) | prints `window-only` for a target with no input path to time (`cu-png`, `rd-window`): the harness then skips its latency stage and judges it on its window rows alone. A target without the verb runs both stages |
 | `host-start`, `host-stop` | starts its host on this Mac's main display at its defaults, and returns once the host is ready; stops it |
 | `latency-view INPUT SAMPLES RAW`, `latency-report INPUT RAW OUT` | INPUT `key` or `pointer`: SAMPLES inputs on the marker through its viewer; OUT gets `{"g2g_ms": {"n", "p50", "p95", ...}, "lost", "split": {"input_to_capture_ms", "encode_ms", "transport_ms", "decode_ms", "method"}}` (transport: what is left between encode and decode, by each target's own method; not comparable across targets). rd's split also has `input_to_capture_parts`: `{"render_ms", "sck_ms", "pickup_ms", "gate_ms", "encode_ms"}`, each `{"n", "p50", "p95"}`, from the host's per-frame timing log |
-| `window-view SECONDS FRAME GO RAW`, `window-report RAW OUT` | a viewer that sends nothing for SECONDS. It creates GO once its first frame shows, which starts the scene's timeline (the scene then holds its last screen until the harness stops it). FRAME gets the last decoded frame (PNG or PPM), and OUT gets `{"series": [{"unix_ms", "bytes", "frames", "decode_ms", "encode_ms"}], "extra"}`, one row a second |
+| `window-view SECONDS FRAME GO RAW`, `window-report RAW OUT` | a viewer that sends nothing for SECONDS. It creates GO once its first frame shows, which starts the scene's timeline (the scene then holds its last screen until the harness stops it). FRAME gets the last decoded frame (PNG or PPM), and OUT gets `{"series": [{"unix_ms", "bytes", "frames", "decode_ms", "encode_ms"}], "extra"}`, one row a second, each row stamped at the end of its second |
 
 Today's targets:
 
@@ -62,6 +86,19 @@ Today's targets:
 - `webrtc`: `CmuxVNCWebRTC` `ScreenStreamHost` (the iPhone's path). `cmux-vnc-host --capture`
   runs with the default device hub signaling. The viewers are `RdMarkerClickLatencyTests`
   (`CMUX_RD_MARKER_INPUT=key|click`) and `StreamWindowTests`.
+- `cu-png`: the computer-use preview's frame path as the app runs it today (`CmuxNextComputerUse`
+  `ComputerUseLiveCapture`), replayed by `cu-png.swift` on the scene's window. It captures a window
+  stream, reads it at 6 fps, scales it to 360 px on the long side, and encodes PNG and a base64
+  `data:` URL. The target is host and viewer at once, so it has window rows only: no latency and no
+  host. Its cost is a floor, because the app also copies each frame into the helper's ring, rounds
+  the corners, evaluates JavaScript and decodes the PNG in the webview.
+- `rd-window`: the same window alone as a cmux.rd/1 stream at the same 360 px rung (`cmux-rd host
+  --display window:ID --max-width 360 --max-fps 6`), with `cmux-rd bench` as the viewer.
+  `rd-window-30` runs it at 30 fps. Both have window rows only.
+
+The window targets add `extra.process_cpu_pct`, the CPU of the process that captures and encodes,
+over the view. Compare them in one run with `--arg=targets=cu-png,rd-window,rd-window-30`
+(hq#9837, fix 2).
 
 Adding one (for example Petal, https://github.com/kiruna-labs/petal) means writing
 `targets/petal.sh` with these verbs and passing `--arg=targets=rd,webrtc,petal`. Its numbers then

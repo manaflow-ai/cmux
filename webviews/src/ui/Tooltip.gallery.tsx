@@ -1,9 +1,10 @@
 // Reference variants for the shared compact tooltip surface: the compact title/detail hierarchy
 // with an above-first anchor, and how a tooltip sizes to its text (Leo, 2026-11-07: "you just have
 // this, like, one, one and a half words on a second line, and it's like, okay, why is this even so
-// wide in the first place?"). The token hover is the agent chat's turn tokens (TurnTokens.tsx), a
-// title tooltip (ui/titleTooltips.ts) at three layouts: one balanced string, two rows, one stat per
-// row (the shipped one); the stage's desktop layer installs title tooltips as every page's does. Long and short text and the window's edge (#22693) use Base UI's tooltip.
+// wide in the first place?"). The token variants are a title tooltip (ui/titleTooltips.ts) with a
+// stats list at three layouts: one balanced string, two rows, one stat per row, all sized by the shared
+// fit (ui/tooltipFit.ts); the chat's own token hover is its plain-words line (turnTokensModel.ts
+// tokenDetail). The stage's desktop layer installs title tooltips as every page's does. Long and short text and the window's edge (#22693) use Base UI's tooltip.
 // l10n-allow-file: gallery fixture labels, not shipped UI.
 import { Button } from "./Button";
 import { Tooltip, TooltipProvider } from "./Tooltip";
@@ -28,7 +29,7 @@ const COPY: Record<Mode, [string, string]> = {
   edge: ["At the window's edge", "Never breaks inside a word next to the edge (#22693)."],
   "tokens-balanced": ["A: one balanced string", "The token hover as one line of stats, wrapped even."],
   "tokens-two-rows": ["B: two rows", "Output and fresh input, then the cache."],
-  "tokens-rows": ["C: one stat per row (shipped)", "Each count on its own short row."],
+  "tokens-rows": ["C: one stat per row", "Each count on its own short row."],
 };
 
 function TooltipGallery({ mode = "detail" }: Props) {

@@ -5,7 +5,7 @@
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { ModelPickerProps } from "./modelPickerLayout";
-import type { QuickProviderLook } from "./QuickModelMenu";
+import type { QuickProviderLook } from "./quickModelMenuModel";
 
 const catalog: ModelPickerProps["catalog"] = [
   {

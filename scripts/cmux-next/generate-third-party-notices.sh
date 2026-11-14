@@ -28,6 +28,10 @@
 #   rust-cmux-cli           bin/cmux and bin/cmux-tui-ssh/*  cmux-tui/Cargo.lock
 #   rust-cmux-app-host      bin/cmux-app-host                cmux-tui/Cargo.lock
 #   rust-cmux-browser-host  bin/cmux-browser-host            cmux-tui/Cargo.lock
+#   rust-cmux-agent-screen-detection  bin/cmux-agent-screen-detection
+#                           cmux-tui/bindings/examples/rust-agent-screen-detection/Cargo.lock
+#                           (its own workspace; the herdr-derived part has the
+#                           hand-written section "herdr agent-detection plugin")
 #   rust-cmux-cloud         bin/cmux-cloud                   first-party-apps/cloud/server
 #   rust-cmux-diff-sidecar  bin/cmux-diff-sidecar            Native/DiffSidecar/Cargo.lock (this tree)
 #   rust-optchat-chief      bin/optchat-chief (nightly-next) Native/OptChat/optchat-chief/Cargo.lock (this tree)
@@ -35,7 +39,6 @@
 #   rust-cmux-remote-browser-host  Helpers/cmux-remote-browser-host.app
 #                           cmux-tui/crates/cmux-remote-browser-host/Cargo.lock at the
 #                           pinned binary's source_commit (remote-browser-host.pin.json)
-#   rust-iroh-ffi           Iroh.framework                   manaflow-ai/iroh-ffi at the Package.resolved revision
 #   rust-cmux-cua           cmux Computer Use.app            manaflow-ai/cmux-cua at the scripts/build-cmux-cua.sh pin
 #
 # In pin mode first-party crates point at the permanent tag
@@ -52,6 +55,9 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 NOTICES="$ROOT/cmux-tui/build-support/notices"
 CACHE="${CMUX_NOTICES_CACHE:-$HOME/.cache/cmux-notices}"
 CHECK=0 TUI_SOURCE=pin TREES="" WRITE_TREES=0
+# remote_refs and net_retry: a remote that does not answer is never read as a missing ref.
+# shellcheck source=scripts/cmux-next/lib/origin-net.sh
+source "$ROOT/scripts/cmux-next/lib/origin-net.sh"
 usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -75,10 +81,10 @@ if [[ "$TUI_SOURCE" == tree && "$CHECK" == 1 ]]; then
   exit 2
 fi
 
-iroh_rev="$(python3 -c 'import json, sys
-pins = [p for p in json.load(open(sys.argv[1]))["pins"] if p["identity"] == "iroh-ffi"]
-print(pins[0]["state"]["revision"])' "$ROOT/Packages/macOS/CmuxNext/Package.resolved")"
-[[ "$iroh_rev" =~ ^[0-9a-f]{40}$ ]] || { echo "error: no iroh-ffi revision in Packages/macOS/CmuxNext/Package.resolved" >&2; exit 1; }
+# Before any git or curl call: the tools below need Python 3.11.4 (tomllib, and tarfile's extraction
+# filter). An older python3 ends the run here with one line that names the needed version and the
+# interpreter.
+python3 "$NOTICES/python_floor.py"
 
 cua_rev="$(sed -n 's/^CMUX_CUA_PINNED_SHA="\([0-9a-f]*\)"$/\1/p' "$ROOT/scripts/build-cmux-cua.sh")"
 [[ "$cua_rev" =~ ^[0-9a-f]{40}$ ]] || { echo "error: no CMUX_CUA_PINNED_SHA in scripts/build-cmux-cua.sh" >&2; exit 1; }
@@ -88,7 +94,8 @@ if [[ "$TUI_SOURCE" == pin ]]; then
   pin="$(sed -n 's/^commit=//p' "$ROOT/scripts/cmux-next/cmux-tui.pin")"
   [[ "$pin" =~ ^[0-9a-f]{40}$ ]] || { echo "error: no commit= line in scripts/cmux-next/cmux-tui.pin" >&2; exit 1; }
   ref="cmux-tui-src-${pin:0:11}"
-  if ! git -C "$ROOT" ls-remote --exit-code --tags origin "refs/tags/$ref" >/dev/null; then
+  tui_tag_lines="$(remote_refs "$ROOT" origin "refs/tags/$ref")" || exit 1
+  if [[ -z "$tui_tag_lines" ]]; then
     echo "error: source tag $ref (the cmux-tui pin) does not exist on origin; first-party crates must point at a permanent tag" >&2
     exit 1
   fi
@@ -98,7 +105,7 @@ if [[ "$TUI_SOURCE" == pin ]]; then
   # only when the pin has them. A cache made before they were archived (no
   # .archived-v2 stamp) is made again.
   if [[ ! -f "$tui_src/.archived-v2" ]]; then
-    git -C "$ROOT" cat-file -e "$pin^{commit}" 2>/dev/null || git -C "$ROOT" fetch --quiet origin "$pin"
+    git -C "$ROOT" cat-file -e "$pin^{commit}" 2>/dev/null || net_retry "fetch the cmux-tui pin $pin" git -C "$ROOT" fetch --quiet origin "$pin"
     tui_paths=(cmux-tui first-party-apps/cloud/server)
     if git -C "$ROOT" cat-file -e "$pin:workers/cmux-vm/cli" 2>/dev/null; then tui_paths+=(workers/cmux-vm/cli); fi
     rm -rf "$tui_src" "$tui_src.partial" && mkdir -p "$tui_src.partial"
@@ -113,26 +120,19 @@ else
   tui_label="at ${ref:0:11}"
 fi
 
-iroh_src="$CACHE/iroh-ffi-$iroh_rev"
-if [[ ! -d "$iroh_src" ]]; then
-  rm -rf "$iroh_src.partial" && mkdir -p "$iroh_src.partial"
-  git -C "$iroh_src.partial" init --quiet
-  git -C "$iroh_src.partial" fetch --quiet --depth 1 https://github.com/manaflow-ai/iroh-ffi.git "$iroh_rev"
-  git -C "$iroh_src.partial" checkout --quiet FETCH_HEAD
-  [[ "$(git -C "$iroh_src.partial" rev-parse HEAD)" == "$iroh_rev" ]] || { echo "error: iroh-ffi checkout is not $iroh_rev" >&2; exit 1; }
-  mv "$iroh_src.partial" "$iroh_src"
-fi
-
 cua_src="$CACHE/cmux-cua-$cua_rev"
 if [[ ! -d "$cua_src" ]]; then
   rm -rf "$cua_src.partial" && mkdir -p "$cua_src.partial"
   git -C "$cua_src.partial" init --quiet
-  git -C "$cua_src.partial" fetch --quiet --depth 1 https://github.com/manaflow-ai/cmux-cua.git "$cua_rev"
+  net_retry "fetch cmux-cua $cua_rev" git -C "$cua_src.partial" fetch --quiet --depth 1 https://github.com/manaflow-ai/cmux-cua.git "$cua_rev"
   git -C "$cua_src.partial" checkout --quiet FETCH_HEAD
   [[ "$(git -C "$cua_src.partial" rev-parse HEAD)" == "$cua_rev" ]] || { echo "error: cmux-cua checkout is not $cua_rev" >&2; exit 1; }
   mv "$cua_src.partial" "$cua_src"
 fi
 cua_rust="$cua_src/libs/cmux-cua/rust"
+# The agent screen-detection plugin is its own Cargo workspace inside cmux-tui.
+asd_rel=cmux-tui/bindings/examples/rust-agent-screen-detection
+asd_src="$tui_src/$asd_rel"
 
 # The remote browser host is a prebuilt, pinned binary (ensure-remote-browser-host.sh),
 # not a build of this tree: its notices come from the crate at the pin's
@@ -146,17 +146,17 @@ rbh_crate=cmux-tui/crates/cmux-remote-browser-host
 # source_commit need not be on a branch, so a permanent tag holds it (publish-remote-browser-host.sh
 # pushes it), as cmux-tui-src-<pin> does for the cmux-tui pin; the first-party links name the tag.
 rbh_ref="cmux-rbh-src-${rbh_rev:0:11}"
-rbh_tag_lines="$(git -C "$ROOT" ls-remote --tags origin "refs/tags/$rbh_ref^{}" "refs/tags/$rbh_ref" || true)"
+rbh_tag_lines="$(remote_refs "$ROOT" origin "refs/tags/$rbh_ref^{}" "refs/tags/$rbh_ref")" || exit 1
 if ! grep -q "^$rbh_rev" <<<"$rbh_tag_lines"; then
   echo "error: source tag $rbh_ref (the remote browser host pin's source_commit) is not on origin at $rbh_rev; push it: git push origin $rbh_rev:refs/tags/$rbh_ref" >&2
   exit 1
 fi
 rbh_src="$CACHE/cmux-rbh-src-$rbh_rev"
 if [[ ! -d "$rbh_src" ]]; then
-  # Its own shallow fetch (as for iroh-ffi), not this checkout's history.
+  # Its own shallow fetch (as for cmux-cua), not this checkout's history.
   rm -rf "$rbh_src.git" "$rbh_src.partial" && mkdir -p "$rbh_src.partial"
   git init --quiet "$rbh_src.git"
-  git -C "$rbh_src.git" fetch --quiet --depth 1 https://github.com/manaflow-ai/cmux.git "$rbh_rev"
+  net_retry "fetch the remote browser host source $rbh_rev" git -C "$rbh_src.git" fetch --quiet --depth 1 https://github.com/manaflow-ai/cmux.git "$rbh_rev"
   [[ "$(git -C "$rbh_src.git" rev-parse FETCH_HEAD)" == "$rbh_rev" ]] || { echo "error: fetched commit is not $rbh_rev" >&2; exit 1; }
   [[ "$(git -C "$rbh_src.git" rev-parse "FETCH_HEAD:$rbh_crate")" == "$rbh_tree" ]] ||
     { echo "error: $rbh_crate at $rbh_rev is not the pin's crate_tree $rbh_tree" >&2; exit 1; }
@@ -180,23 +180,23 @@ if [[ "$WRITE_TREES" == 1 ]]; then
   cargo_tree rust-cmux-cli "$tui_src/cmux-tui" cmux-tui acpmux
   cargo_tree rust-cmux-app-host "$tui_src/cmux-tui" cmux-app-host
   cargo_tree rust-cmux-browser-host "$tui_src/cmux-tui" cmux-browser-host
+  cargo_tree rust-cmux-agent-screen-detection "$asd_src" cmux-agent-screen-detection
   cargo_tree rust-cmux-cloud "$tui_src/first-party-apps/cloud/server" cmux-cloud
   cargo_tree rust-cmux-diff-sidecar "$ROOT/Native/DiffSidecar" cmux-diff-sidecar
   cargo_tree rust-optchat-chief "$ROOT/Native/OptChat/optchat-chief" optchat-chief
   cargo_tree rust-mobile-host "$ROOT/cmux-next-ios/rust" cmux-mobile-host
   cargo_tree rust-cmux-remote-browser-host "$rbh_src/$rbh_crate" cmux-remote-browser-host
-  cargo_tree rust-iroh-ffi "$iroh_src" iroh-ffi
   cargo_tree rust-cmux-cua "$cua_rust" cmux-cua
 fi
 
 python3 "$NOTICES/fetch_crates.py" --cache "$CACHE" \
   --lock "$tui_src/cmux-tui/Cargo.lock" \
   --lock "$tui_src/first-party-apps/cloud/server/Cargo.lock" \
+  --lock "$asd_src/Cargo.lock" \
   --lock "$ROOT/Native/DiffSidecar/Cargo.lock" \
   --lock "$ROOT/Native/OptChat/optchat-chief/Cargo.lock" \
   --lock "$ROOT/cmux-next-ios/rust/Cargo.lock" \
   --lock "$rbh_src/$rbh_crate/Cargo.lock" \
-  --lock "$iroh_src/Cargo.lock" \
   --lock "$cua_rust/Cargo.lock"
 
 work="$(mktemp -d)"
@@ -212,7 +212,7 @@ section() {
     --source-tag "$ref" \
     --target aarch64-apple-darwin --target x86_64-apple-darwin \
     --format markdown --section-id "$id" --title "$title" \
-    "${tree_arg[@]}" --out "$work/$id.md" "$@"
+    ${tree_arg[@]+"${tree_arg[@]}"} --out "$work/$id.md" "$@"
 }
 
 vm_cli_args=()
@@ -222,7 +222,7 @@ fi
 section rust-cmux-cli "Rust crates: cmux CLI and daemon (bin/cmux)" \
   --lock "$tui_src/cmux-tui/Cargo.lock" --lock-label "cmux-tui/Cargo.lock $tui_label" \
   --root cmux-tui --root acpmux --workspace "$tui_src/cmux-tui" --repo-root "$tui_src" \
-  --first-party 'cmux-tui/crates/*' --first-party 'cmux-tui/bindings/*' "${vm_cli_args[@]}"
+  --first-party 'cmux-tui/crates/*' --first-party 'cmux-tui/bindings/*' ${vm_cli_args[@]+"${vm_cli_args[@]}"}
 section rust-cmux-app-host "Rust crates: app host (bin/cmux-app-host)" \
   --lock "$tui_src/cmux-tui/Cargo.lock" --lock-label "cmux-tui/Cargo.lock $tui_label" \
   --root cmux-app-host --workspace "$tui_src/cmux-tui" --repo-root "$tui_src" \
@@ -231,6 +231,10 @@ section rust-cmux-browser-host "Rust crates: browser host (bin/cmux-browser-host
   --lock "$tui_src/cmux-tui/Cargo.lock" --lock-label "cmux-tui/Cargo.lock $tui_label" \
   --root cmux-browser-host --workspace "$tui_src/cmux-tui" --repo-root "$tui_src" \
   --first-party 'cmux-tui/crates/*' --first-party 'cmux-tui/bindings/*'
+section rust-cmux-agent-screen-detection "Rust crates: agent screen-detection plugin (bin/cmux-agent-screen-detection)" \
+  --lock "$asd_src/Cargo.lock" --lock-label "$asd_rel/Cargo.lock $tui_label" \
+  --root cmux-agent-screen-detection --workspace "$asd_src" --repo-root "$tui_src" \
+  --first-party 'cmux-tui/bindings/*' --first-party 'cmux-tui/bindings/examples/*'
 section rust-cmux-cloud "Rust crates: Cloud app server (bin/cmux-cloud)" \
   --lock "$tui_src/first-party-apps/cloud/server/Cargo.lock" --lock-label "first-party-apps/cloud/server/Cargo.lock $tui_label" \
   --root cmux-cloud --workspace "$tui_src/first-party-apps/cloud/server" --workspace "$tui_src/cmux-tui" --repo-root "$tui_src" \
@@ -251,36 +255,36 @@ section rust-cmux-remote-browser-host "Rust crates: remote browser host (Helpers
   --lock "$rbh_src/$rbh_crate/Cargo.lock" --lock-label "$rbh_crate/Cargo.lock at ${rbh_rev:0:11} (the pinned binary's source)" \
   --root cmux-remote-browser-host --workspace "$rbh_src/$rbh_crate" --repo-root "$rbh_src" \
   --first-party 'cmux-tui/crates/*' --source-tag "$rbh_ref"
-section rust-iroh-ffi "Rust crates: Iroh.framework (manaflow-ai/iroh-ffi)" \
-  --lock "$iroh_src/Cargo.lock" --lock-label "manaflow-ai/iroh-ffi Cargo.lock at ${iroh_rev:0:11}" \
-  --root iroh-ffi --workspace "$iroh_src" \
-  --path-download "git+https://github.com/manaflow-ai/iroh-ffi.git@$iroh_rev"
 section rust-cmux-cua "Rust crates: Computer Use helper (cmux Computer Use.app, manaflow-ai/cmux-cua)" \
   --lock "$cua_rust/Cargo.lock" --lock-label "manaflow-ai/cmux-cua Cargo.lock at ${cua_rev:0:11}" \
   --root cmux-cua --workspace "$cua_rust" \
   --path-download "git+https://github.com/manaflow-ai/cmux-cua.git@$cua_rev"
 
 python3 "$ROOT/scripts/cmux-next/notices/ghostty_themes_notice.py" --root "$ROOT" --out "$work/ghostty-themes.md"
+# CMUX_NOTICES_OUT (tree mode only): write the notices there instead of the checkout's file. nightly-next-one generates
+# them in the background while the Release build copies the committed file (app-third-party-notices.sh generate).
+OUT_FILE="$ROOT/THIRD_PARTY_LICENSES.md"
+if [[ "$TUI_SOURCE" == tree && -n "${CMUX_NOTICES_OUT:-}" ]]; then OUT_FILE="$CMUX_NOTICES_OUT"; fi
 compose=(python3 "$ROOT/scripts/cmux-next/notices/compose_notices.py"
   --hand-written "$ROOT/scripts/cmux-next/notices/hand-written.md"
   --section "$work/ghostty-themes.md"
   --section "$work/rust-cmux-cli.md" --section "$work/rust-cmux-app-host.md"
   --section "$work/rust-cmux-browser-host.md"
+  --section "$work/rust-cmux-agent-screen-detection.md"
   --section "$work/rust-cmux-cloud.md" --section "$work/rust-cmux-diff-sidecar.md"
   --section "$work/rust-optchat-chief.md"
   --section "$work/rust-mobile-host.md"
   --section "$work/rust-cmux-remote-browser-host.md"
-  --section "$work/rust-iroh-ffi.md"
   --section "$work/rust-cmux-cua.md"
-  --out "$ROOT/THIRD_PARTY_LICENSES.md")
+  --out "$OUT_FILE")
 review=(python3 "$NOTICES/review_list.py" --cache "$CACHE"
-  --lock "$tui_src/cmux-tui/Cargo.lock" --lock "$tui_src/first-party-apps/cloud/server/Cargo.lock"
-  --lock "$ROOT/Native/DiffSidecar/Cargo.lock" --lock "$ROOT/Native/OptChat/optchat-chief/Cargo.lock" --lock "$iroh_src/Cargo.lock"
+  --lock "$tui_src/cmux-tui/Cargo.lock" --lock "$tui_src/first-party-apps/cloud/server/Cargo.lock" --lock "$asd_src/Cargo.lock"
+  --lock "$ROOT/Native/DiffSidecar/Cargo.lock" --lock "$ROOT/Native/OptChat/optchat-chief/Cargo.lock"
   --lock "$ROOT/cmux-next-ios/rust/Cargo.lock" --lock "$rbh_src/$rbh_crate/Cargo.lock"
   --lock "$cua_rust/Cargo.lock")
 if [[ "$TUI_SOURCE" == tree ]]; then
   "${compose[@]}"
-  echo "wrote THIRD_PARTY_LICENSES.md for this tree (${ref:0:11}; $(wc -c < "$ROOT/THIRD_PARTY_LICENSES.md" | tr -d ' ') bytes)"
+  echo "wrote $OUT_FILE for this tree (${ref:0:11}; $(wc -c < "$OUT_FILE" | tr -d ' ') bytes)"
 elif [[ "$CHECK" == 1 ]]; then
   "${review[@]}" --check
   "${compose[@]}" --check

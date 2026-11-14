@@ -482,11 +482,15 @@
     "agent-pane.composer-context#folder-favicons": [
       "menu-fit:div[aria-label=\"Folder\"]"
     ],
-    "agent-pane.composer-context#folder-long-list": [],
+    "agent-pane.composer-context#folder-long-list": [
+      "menu-fit:div[aria-label=\"Folder\"]"
+    ],
     "agent-pane.composer-context#folder-menu": [
       "menu-fit:div[aria-label=\"Folder\"]"
     ],
-    "agent-pane.composer-context#folder-pinned-search": [],
+    "agent-pane.composer-context#folder-pinned-search": [
+      "menu-fit:div[aria-label=\"Folder\"]"
+    ],
     "agent-pane.composer-context#folder-short-note": [
       "menu-fit:div[aria-label=\"Folder\"]"
     ],
@@ -563,20 +567,20 @@
     "agent-pane.composer-look#send-one-slot-codex-typed": [],
     "agent-pane.composer-pickers#access-grants": [],
     "agent-pane.composer-pickers#claude-direct-accounts": [
-      "menu-fit:\"CLI login✓PersonalWork APIProviderlocal-\"",
+      "menu-fit:\"CLI loginPersonalWork APIProviderlocal-c\"",
       "menu-fit:div[aria-label=\"Model\"]",
-      "menu-row:\"CLI login✓PersonalWork APIProviderlocal-\" \"CLI login\"",
-      "menu-row:\"CLI login✓PersonalWork APIProviderlocal-\" \"Work API\"",
-      "menu-row:\"CLI login✓PersonalWork APIProviderlocal-\" \"cmux-router\"",
-      "menu-row:\"CLI login✓PersonalWork APIProviderlocal-\" \"local-coderouter\"",
-      "menu-row:\"CLI login✓PersonalWork APIProviderlocal-\" \"✓Personal\""
+      "menu-row:\"CLI loginPersonalWork APIProviderlocal-c\" \"CLI login\"",
+      "menu-row:\"CLI loginPersonalWork APIProviderlocal-c\" \"Personal\"",
+      "menu-row:\"CLI loginPersonalWork APIProviderlocal-c\" \"Work API\"",
+      "menu-row:\"CLI loginPersonalWork APIProviderlocal-c\" \"cmux-router\"",
+      "menu-row:\"CLI loginPersonalWork APIProviderlocal-c\" \"local-coderouter\""
     ],
     "agent-pane.composer-pickers#claude-effort-up": [
       "menu-fit:div[aria-label=\"Model\"]",
-      "menu-row:\"Low✓MediumRecommendedHighExtra HighMax\" div[aria-label=\"Opus 5.5 · Extra High\"]",
-      "menu-row:\"Low✓MediumRecommendedHighExtra HighMax\" div[aria-label=\"Opus 5.5 · High\"]",
-      "menu-row:\"Low✓MediumRecommendedHighExtra HighMax\" div[aria-label=\"Opus 5.5 · Low\"]",
-      "menu-row:\"Low✓MediumRecommendedHighExtra HighMax\" div[aria-label=\"Opus 5.5 · Max\"]"
+      "menu-row:\"LowMediumRecommendedHighExtra HighMax\" div[aria-label=\"Opus 5.5 · Extra High\"]",
+      "menu-row:\"LowMediumRecommendedHighExtra HighMax\" div[aria-label=\"Opus 5.5 · High\"]",
+      "menu-row:\"LowMediumRecommendedHighExtra HighMax\" div[aria-label=\"Opus 5.5 · Low\"]",
+      "menu-row:\"LowMediumRecommendedHighExtra HighMax\" div[aria-label=\"Opus 5.5 · Max\"]"
     ],
     "agent-pane.composer-pickers#claude-model-menu": [
       "menu-fit:div[aria-label=\"Model\"]"
@@ -585,9 +589,9 @@
     "agent-pane.composer-pickers#effort-focus": [],
     "agent-pane.composer-pickers#effort-menu": [
       "menu-fit:div[aria-label=\"Model\"]",
-      "menu-row:\"Low✓MediumHigh\" div[aria-label=\"GPT-6.1 Sol · High\"]",
-      "menu-row:\"Low✓MediumHigh\" div[aria-label=\"GPT-6.1 Sol · Low\"]",
-      "menu-row:\"Low✓MediumHigh\" div[aria-label=\"GPT-6.1 Sol · Medium\"]"
+      "menu-row:\"LowMediumHigh\" div[aria-label=\"GPT-6.1 Sol · High\"]",
+      "menu-row:\"LowMediumHigh\" div[aria-label=\"GPT-6.1 Sol · Low\"]",
+      "menu-row:\"LowMediumHigh\" div[aria-label=\"GPT-6.1 Sol · Medium\"]"
     ],
     "agent-pane.composer-pickers#effort-press-drag-release": [],
     "agent-pane.composer-pickers#fast-mode": [
@@ -672,7 +676,7 @@
     ],
     "agent-pane.composer#agent-home-path": [],
     "agent-pane.composer#attach-screenshot": [],
-    "agent-pane.composer#attach-screenshot-too-large": [],
+    "agent-pane.composer#attach-screenshot-oversized": [],
     "agent-pane.composer#attach-window-cancelled": [],
     "agent-pane.composer#attachment-failed": [],
     "agent-pane.composer#attachment-inline-caret": [],
@@ -791,26 +795,26 @@
     "agent-pane.composer#quiet-chips": [],
     "agent-pane.composer#reasoning-claude": [
       "menu-fit:div[aria-label=\"Model\"]",
-      "menu-row:\"Low✓MediumRecommendedHighMax\" div[aria-label=\"Opus 5.5 · High\"]",
-      "menu-row:\"Low✓MediumRecommendedHighMax\" div[aria-label=\"Opus 5.5 · Low\"]",
-      "menu-row:\"Low✓MediumRecommendedHighMax\" div[aria-label=\"Opus 5.5 · Max\"]"
+      "menu-row:\"LowMediumRecommendedHighMax\" div[aria-label=\"Opus 5.5 · High\"]",
+      "menu-row:\"LowMediumRecommendedHighMax\" div[aria-label=\"Opus 5.5 · Low\"]",
+      "menu-row:\"LowMediumRecommendedHighMax\" div[aria-label=\"Opus 5.5 · Max\"]"
     ],
     "agent-pane.composer#reasoning-claude-default": [
-      "menu-fit:\"Low✓MediumHighMax\"",
+      "menu-fit:\"LowMediumHighMax\"",
       "menu-fit:div[aria-label=\"Model\"]",
-      "menu-row:\"Low✓MediumHighMax\" \"High\"",
-      "menu-row:\"Low✓MediumHighMax\" \"Low\"",
-      "menu-row:\"Low✓MediumHighMax\" \"Max\"",
-      "menu-row:\"Low✓MediumHighMax\" \"✓Medium\""
+      "menu-row:\"LowMediumHighMax\" \"High\"",
+      "menu-row:\"LowMediumHighMax\" \"Low\"",
+      "menu-row:\"LowMediumHighMax\" \"Max\"",
+      "menu-row:\"LowMediumHighMax\" \"Medium\""
     ],
     "agent-pane.composer#reasoning-codex": [
       "menu-fit:div[aria-label=\"Model\"]"
     ],
     "agent-pane.composer#reasoning-menu": [
       "menu-fit:div[aria-label=\"Model\"]",
-      "menu-row:\"LowMediumRecommended✓HighExtra High\" div[aria-label=\"GPT-5.5 · Extra High\"]",
-      "menu-row:\"LowMediumRecommended✓HighExtra High\" div[aria-label=\"GPT-5.5 · High\"]",
-      "menu-row:\"LowMediumRecommended✓HighExtra High\" div[aria-label=\"GPT-5.5 · Low\"]"
+      "menu-row:\"LowMediumRecommendedHighExtra High\" div[aria-label=\"GPT-5.5 · Extra High\"]",
+      "menu-row:\"LowMediumRecommendedHighExtra High\" div[aria-label=\"GPT-5.5 · High\"]",
+      "menu-row:\"LowMediumRecommendedHighExtra High\" div[aria-label=\"GPT-5.5 · Low\"]"
     ],
     "agent-pane.composer#reasoning-none": [],
     "agent-pane.composer#search-files-key": [],
@@ -1005,7 +1009,6 @@
     "agent-pane.file-search#pick": [],
     "agent-pane.file-search#truncated": [],
     "agent-pane.first-run#minimal": [],
-    "agent-pane.first-run#minimal-projects": [],
     "agent-pane.first-run#project-card": [],
     "agent-pane.folder-choice#error": [],
     "agent-pane.folder-choice#keyboard": [],
@@ -1396,121 +1399,121 @@
     "agent-pane.model-button-default-effort#profile-default": [],
     "agent-pane.model-button-default-effort#profile-default-effort-menu": [
       "menu-fit:div[aria-label=\"Model\"]",
-      "menu-row:\"Low✓MediumRecommendedHighExtra HighMax\" div[aria-label=\"Opus 5.5 · Extra High\"]",
-      "menu-row:\"Low✓MediumRecommendedHighExtra HighMax\" div[aria-label=\"Opus 5.5 · High\"]",
-      "menu-row:\"Low✓MediumRecommendedHighExtra HighMax\" div[aria-label=\"Opus 5.5 · Low\"]",
-      "menu-row:\"Low✓MediumRecommendedHighExtra HighMax\" div[aria-label=\"Opus 5.5 · Max\"]"
+      "menu-row:\"LowMediumRecommendedHighExtra HighMax\" div[aria-label=\"Opus 5.5 · Extra High\"]",
+      "menu-row:\"LowMediumRecommendedHighExtra HighMax\" div[aria-label=\"Opus 5.5 · High\"]",
+      "menu-row:\"LowMediumRecommendedHighExtra HighMax\" div[aria-label=\"Opus 5.5 · Low\"]",
+      "menu-row:\"LowMediumRecommendedHighExtra HighMax\" div[aria-label=\"Opus 5.5 · Max\"]"
     ],
     "agent-pane.model-button-default-effort#profile-picked-high": [
       "menu-fit:div[aria-label=\"Model\"]",
-      "menu-row:\"LowMediumRecommended✓HighExtra HighMax\" div[aria-label=\"Opus 5.5 · Extra High\"]",
-      "menu-row:\"LowMediumRecommended✓HighExtra HighMax\" div[aria-label=\"Opus 5.5 · High\"]",
-      "menu-row:\"LowMediumRecommended✓HighExtra HighMax\" div[aria-label=\"Opus 5.5 · Low\"]",
-      "menu-row:\"LowMediumRecommended✓HighExtra HighMax\" div[aria-label=\"Opus 5.5 · Max\"]"
+      "menu-row:\"LowMediumRecommendedHighExtra HighMax\" div[aria-label=\"Opus 5.5 · Extra High\"]",
+      "menu-row:\"LowMediumRecommendedHighExtra HighMax\" div[aria-label=\"Opus 5.5 · High\"]",
+      "menu-row:\"LowMediumRecommendedHighExtra HighMax\" div[aria-label=\"Opus 5.5 · Low\"]",
+      "menu-row:\"LowMediumRecommendedHighExtra HighMax\" div[aria-label=\"Opus 5.5 · Max\"]"
     ],
     "agent-pane.model-button-default-effort#profile-update-pending": [],
     "agent-pane.model-menu-density#before": [
       "menu-fit:div[aria-label=\"Model\"]",
       "menu-row:div[aria-label=\"Model\"] \"EffortHigh\"",
       "menu-row:div[aria-label=\"Model\"] \"Fable 5.1⌘4\"",
+      "menu-row:div[aria-label=\"Model\"] \"Fast mode\"",
       "menu-row:div[aria-label=\"Model\"] \"Haiku 5.5⌘3\"",
       "menu-row:div[aria-label=\"Model\"] \"More models\"",
-      "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\"",
-      "menu-row:div[aria-label=\"Model\"] \"✓Fast mode\"",
-      "menu-row:div[aria-label=\"Model\"] \"✓Opus 5.5\""
+      "menu-row:div[aria-label=\"Model\"] \"Opus 5.5\"",
+      "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\""
     ],
     "agent-pane.model-menu-density#before-effort": [
-      "menu-fit:\"LowMedium✓HighExtra HighMaxUltracode\"",
+      "menu-fit:\"LowMediumHighExtra HighMaxUltracode\"",
       "menu-fit:div[aria-label=\"Model\"]",
-      "menu-row:\"LowMedium✓HighExtra HighMaxUltracode\" \"Extra High\"",
-      "menu-row:\"LowMedium✓HighExtra HighMaxUltracode\" \"Low\"",
-      "menu-row:\"LowMedium✓HighExtra HighMaxUltracode\" \"Max\"",
-      "menu-row:\"LowMedium✓HighExtra HighMaxUltracode\" \"Medium\"",
-      "menu-row:\"LowMedium✓HighExtra HighMaxUltracode\" \"Ultracode\"",
-      "menu-row:\"LowMedium✓HighExtra HighMaxUltracode\" \"✓High\"",
+      "menu-row:\"LowMediumHighExtra HighMaxUltracode\" \"Extra High\"",
+      "menu-row:\"LowMediumHighExtra HighMaxUltracode\" \"High\"",
+      "menu-row:\"LowMediumHighExtra HighMaxUltracode\" \"Low\"",
+      "menu-row:\"LowMediumHighExtra HighMaxUltracode\" \"Max\"",
+      "menu-row:\"LowMediumHighExtra HighMaxUltracode\" \"Medium\"",
+      "menu-row:\"LowMediumHighExtra HighMaxUltracode\" \"Ultracode\"",
       "menu-row:div[aria-label=\"Model\"] \"EffortHigh\"",
       "menu-row:div[aria-label=\"Model\"] \"Fable 5.1⌘4\"",
+      "menu-row:div[aria-label=\"Model\"] \"Fast mode\"",
       "menu-row:div[aria-label=\"Model\"] \"Haiku 5.5⌘3\"",
       "menu-row:div[aria-label=\"Model\"] \"More models\"",
-      "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\"",
-      "menu-row:div[aria-label=\"Model\"] \"✓Fast mode\"",
-      "menu-row:div[aria-label=\"Model\"] \"✓Opus 5.5\""
+      "menu-row:div[aria-label=\"Model\"] \"Opus 5.5\"",
+      "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\""
     ],
     "agent-pane.model-menu-density#native": [
       "menu-fit:div[aria-label=\"Model\"]"
     ],
     "agent-pane.model-menu-density#native-effort": [
-      "menu-fit:\"LowMedium✓HighExtra HighMaxUltracode\"",
+      "menu-fit:\"LowMediumHighExtra HighMaxUltracode\"",
       "menu-fit:div[aria-label=\"Model\"]",
-      "menu-row:\"LowMedium✓HighExtra HighMaxUltracode\" \"Extra High\"",
-      "menu-row:\"LowMedium✓HighExtra HighMaxUltracode\" \"Low\"",
-      "menu-row:\"LowMedium✓HighExtra HighMaxUltracode\" \"Max\"",
-      "menu-row:\"LowMedium✓HighExtra HighMaxUltracode\" \"Medium\"",
-      "menu-row:\"LowMedium✓HighExtra HighMaxUltracode\" \"Ultracode\"",
-      "menu-row:\"LowMedium✓HighExtra HighMaxUltracode\" \"✓High\""
+      "menu-row:\"LowMediumHighExtra HighMaxUltracode\" \"Extra High\"",
+      "menu-row:\"LowMediumHighExtra HighMaxUltracode\" \"High\"",
+      "menu-row:\"LowMediumHighExtra HighMaxUltracode\" \"Low\"",
+      "menu-row:\"LowMediumHighExtra HighMaxUltracode\" \"Max\"",
+      "menu-row:\"LowMediumHighExtra HighMaxUltracode\" \"Medium\"",
+      "menu-row:\"LowMediumHighExtra HighMaxUltracode\" \"Ultracode\""
     ],
     "agent-pane.model-menu-density#roomy": [
       "menu-fit:div[aria-label=\"Model\"]",
       "menu-row:div[aria-label=\"Model\"] \"EffortHigh\"",
       "menu-row:div[aria-label=\"Model\"] \"Fable 5.1⌘4\"",
+      "menu-row:div[aria-label=\"Model\"] \"Fast mode\"",
       "menu-row:div[aria-label=\"Model\"] \"Haiku 5.5⌘3\"",
       "menu-row:div[aria-label=\"Model\"] \"More models\"",
-      "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\"",
-      "menu-row:div[aria-label=\"Model\"] \"✓Fast mode\"",
-      "menu-row:div[aria-label=\"Model\"] \"✓Opus 5.5\""
+      "menu-row:div[aria-label=\"Model\"] \"Opus 5.5\"",
+      "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\""
     ],
     "agent-pane.model-menu-density#roomy-effort": [
-      "menu-fit:\"LowMedium✓HighExtra HighMaxUltracode\"",
+      "menu-fit:\"LowMediumHighExtra HighMaxUltracode\"",
       "menu-fit:div[aria-label=\"Model\"]",
       "menu-row:div[aria-label=\"Model\"] \"EffortHigh\"",
       "menu-row:div[aria-label=\"Model\"] \"Fable 5.1⌘4\"",
+      "menu-row:div[aria-label=\"Model\"] \"Fast mode\"",
       "menu-row:div[aria-label=\"Model\"] \"Haiku 5.5⌘3\"",
       "menu-row:div[aria-label=\"Model\"] \"More models\"",
-      "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\"",
-      "menu-row:div[aria-label=\"Model\"] \"✓Fast mode\"",
-      "menu-row:div[aria-label=\"Model\"] \"✓Opus 5.5\""
+      "menu-row:div[aria-label=\"Model\"] \"Opus 5.5\"",
+      "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\""
     ],
     "agent-pane.model-menu-density#tight": [
       "menu-fit:div[aria-label=\"Model\"]",
       "menu-row:div[aria-label=\"Model\"] \"EffortHigh\"",
       "menu-row:div[aria-label=\"Model\"] \"Fable 5.1⌘4\"",
+      "menu-row:div[aria-label=\"Model\"] \"Fast mode\"",
       "menu-row:div[aria-label=\"Model\"] \"Haiku 5.5⌘3\"",
       "menu-row:div[aria-label=\"Model\"] \"More models\"",
-      "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\"",
-      "menu-row:div[aria-label=\"Model\"] \"✓Fast mode\"",
-      "menu-row:div[aria-label=\"Model\"] \"✓Opus 5.5\""
+      "menu-row:div[aria-label=\"Model\"] \"Opus 5.5\"",
+      "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\""
     ],
     "agent-pane.model-menu-density#tight-effort": [
-      "menu-fit:\"LowMedium✓HighExtra HighMaxUltracode\"",
+      "menu-fit:\"LowMediumHighExtra HighMaxUltracode\"",
       "menu-fit:div[aria-label=\"Model\"]",
-      "menu-row:\"LowMedium✓HighExtra HighMaxUltracode\" \"Extra High\"",
-      "menu-row:\"LowMedium✓HighExtra HighMaxUltracode\" \"Low\"",
-      "menu-row:\"LowMedium✓HighExtra HighMaxUltracode\" \"Max\"",
-      "menu-row:\"LowMedium✓HighExtra HighMaxUltracode\" \"Medium\"",
-      "menu-row:\"LowMedium✓HighExtra HighMaxUltracode\" \"Ultracode\"",
-      "menu-row:\"LowMedium✓HighExtra HighMaxUltracode\" \"✓High\"",
+      "menu-row:\"LowMediumHighExtra HighMaxUltracode\" \"Extra High\"",
+      "menu-row:\"LowMediumHighExtra HighMaxUltracode\" \"High\"",
+      "menu-row:\"LowMediumHighExtra HighMaxUltracode\" \"Low\"",
+      "menu-row:\"LowMediumHighExtra HighMaxUltracode\" \"Max\"",
+      "menu-row:\"LowMediumHighExtra HighMaxUltracode\" \"Medium\"",
+      "menu-row:\"LowMediumHighExtra HighMaxUltracode\" \"Ultracode\"",
       "menu-row:div[aria-label=\"Model\"] \"EffortHigh\"",
       "menu-row:div[aria-label=\"Model\"] \"Fable 5.1⌘4\"",
+      "menu-row:div[aria-label=\"Model\"] \"Fast mode\"",
       "menu-row:div[aria-label=\"Model\"] \"Haiku 5.5⌘3\"",
       "menu-row:div[aria-label=\"Model\"] \"More models\"",
-      "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\"",
-      "menu-row:div[aria-label=\"Model\"] \"✓Fast mode\"",
-      "menu-row:div[aria-label=\"Model\"] \"✓Opus 5.5\""
+      "menu-row:div[aria-label=\"Model\"] \"Opus 5.5\"",
+      "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\""
     ],
     "agent-pane.model-menu-providers#provider-expanded": [],
     "agent-pane.model-menu-providers#provider-row": [],
     "agent-pane.model-menu-providers#provider-row-open": [
-      "menu-fit:\"✓OpenCodeOpenRouterDeepSeek\"",
-      "menu-row:\"✓OpenCodeOpenRouterDeepSeek\" \"DeepSeek\"",
-      "menu-row:\"✓OpenCodeOpenRouterDeepSeek\" \"OpenRouter\"",
-      "menu-row:\"✓OpenCodeOpenRouterDeepSeek\" \"✓OpenCode\""
+      "menu-fit:\"OpenCodeOpenRouterDeepSeek\"",
+      "menu-row:\"OpenCodeOpenRouterDeepSeek\" \"DeepSeek\"",
+      "menu-row:\"OpenCodeOpenRouterDeepSeek\" \"OpenCode\"",
+      "menu-row:\"OpenCodeOpenRouterDeepSeek\" \"OpenRouter\""
     ],
     "agent-pane.model-menu-providers#provider-submenu": [],
     "agent-pane.model-menu-providers#provider-submenu-open": [
-      "menu-fit:\"✓OpenCodeOpenRouterDeepSeek\"",
-      "menu-row:\"✓OpenCodeOpenRouterDeepSeek\" \"DeepSeek\"",
-      "menu-row:\"✓OpenCodeOpenRouterDeepSeek\" \"OpenRouter\"",
-      "menu-row:\"✓OpenCodeOpenRouterDeepSeek\" \"✓OpenCode\""
+      "menu-fit:\"OpenCodeOpenRouterDeepSeek\"",
+      "menu-row:\"OpenCodeOpenRouterDeepSeek\" \"DeepSeek\"",
+      "menu-row:\"OpenCodeOpenRouterDeepSeek\" \"OpenCode\"",
+      "menu-row:\"OpenCodeOpenRouterDeepSeek\" \"OpenRouter\""
     ],
     "agent-pane.model-picker#curated": [
       "menu-fit:div[aria-label=\"Model\"]"
@@ -1659,9 +1662,15 @@
       "menu-fit:div[aria-label=\"Model\"]"
     ],
     "agent-pane.model-picker#search-empty": [],
-    "agent-pane.model-picker#search-flat": [],
-    "agent-pane.model-picker#search-grouped": [],
-    "agent-pane.model-picker#search-grouped-top-rail": [],
+    "agent-pane.model-picker#search-flat": [
+      "menu-fit:div[aria-label=\"Model\"]"
+    ],
+    "agent-pane.model-picker#search-grouped": [
+      "menu-fit:div[aria-label=\"Model\"]"
+    ],
+    "agent-pane.model-picker#search-grouped-top-rail": [
+      "menu-fit:div[aria-label=\"Model\"]"
+    ],
     "agent-pane.model-picker#signed-out": [
       "menu-fit:div[aria-label=\"Model\"]"
     ],
@@ -1733,16 +1742,8 @@
     "agent-pane.new-chat-composer#started": [],
     "agent-pane.new-chat-composer#started-codex": [],
     "agent-pane.new-chat-no-shift#send-to-streaming": [],
-    "agent-pane.new-tab-dots#claude-actions": [],
     "agent-pane.new-tab-dots#claude-minimal": [],
     "agent-pane.new-tab-dots#codex-minimal": [],
-    "agent-pane.new-tab-headline-stability#long": [],
-    "agent-pane.new-tab-headline#machine": [],
-    "agent-pane.new-tab-headline#on": [],
-    "agent-pane.new-tab-headline#picked": [],
-    "agent-pane.new-tab-headline#picker-open": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
     "agent-pane.new-tab-page#escape-clear": [],
     "agent-pane.new-tab-page#folder-chooser": [],
     "agent-pane.new-tab-page#idle": [],
@@ -1813,18 +1814,10 @@
     ],
     "agent-pane.new-tab#layout-claude-chips-below": [],
     "agent-pane.new-tab#layout-codex-tabs-above": [],
-    "agent-pane.new-tab#layout-current-fixed": [],
     "agent-pane.new-tab#long-title": [],
     "agent-pane.new-tab#machines-fleet": [],
     "agent-pane.new-tab#many-chats": [],
-    "agent-pane.new-tab#minimal-ambient": [],
-    "agent-pane.new-tab#minimal-ambient-offline": [],
     "agent-pane.new-tab#minimal-default": [],
-    "agent-pane.new-tab#minimal-edit-mode": [],
-    "agent-pane.new-tab#minimal-headline-off": [],
-    "agent-pane.new-tab#minimal-stage-foot": [],
-    "agent-pane.new-tab#minimal-widgets": [],
-    "agent-pane.new-tab#minimal-widgets-ordered": [],
     "agent-pane.new-tab#model-picker-open": [
       "menu-fit:div[aria-label=\"Model\"]"
     ],
@@ -1927,12 +1920,6 @@
       "menu-label:div[aria-label=\"Suggestions\"] div[aria-label=\"New terminal\"]"
     ],
     "agent-pane.new-tab#typed-tab-match-stage": [],
-    "agent-pane.new-tab#widgets": [],
-    "agent-pane.new-tab#widgets-all-off": [],
-    "agent-pane.new-tab#widgets-all-on": [],
-    "agent-pane.new-tab#widgets-hover": [],
-    "agent-pane.new-tab#widgets-hover-dismiss": [],
-    "agent-pane.new-tab#widgets-off": [],
     "agent-pane.new-tab#workspace-switch-animation-audit": [
       "menu-fit:div[aria-label=\"Suggestions\"]",
       "menu-label:div[aria-label=\"Suggestions\"] div[aria-label=\"New terminal\"]"
@@ -2648,11 +2635,11 @@
     "agent-pane.tool-group-overlap#mixed": [],
     "agent-pane.tool-output-full-read#collapsed": [],
     "agent-pane.tool-output-full-read#compact": [],
-    "agent-pane.tool-output-full-read#expanded": [],
     "agent-pane.tool-output-full-read#json": [],
     "agent-pane.tool-output-full-read#log": [],
     "agent-pane.tool-output-full-read#mcp-markdown": [],
     "agent-pane.tool-output-full-read#raw": [],
+    "agent-pane.tool-output-full-read#scrolled": [],
     "agent-pane.tool-output-full-read#wrapped-line": [],
     "agent-pane.tool-row-column#before": [],
     "agent-pane.tool-row-column#column": [],
@@ -2759,7 +2746,7 @@
     "agent-pane.transcript#edit-long-line-code": [],
     "agent-pane.transcript#edit-long-line-code-cut": [],
     "agent-pane.transcript#edit-long-line-prose": [],
-    "agent-pane.transcript#edit-preview-open": [],
+    "agent-pane.transcript#edit-preview-scrolled": [],
     "agent-pane.transcript#edited-files": [],
     "agent-pane.transcript#failed-send-too-large": [],
     "agent-pane.transcript#failed-sends-grouped": [],
@@ -2981,9 +2968,9 @@
     "app.window#chat-session-info": [],
     "app.window#composer-effort-menu": [
       "menu-fit:div[aria-label=\"Model\"]",
-      "menu-row:\"LowMediumRecommended✓HighMax\" div[aria-label=\"Opus 5.5 · High\"]",
-      "menu-row:\"LowMediumRecommended✓HighMax\" div[aria-label=\"Opus 5.5 · Low\"]",
-      "menu-row:\"LowMediumRecommended✓HighMax\" div[aria-label=\"Opus 5.5 · Max\"]"
+      "menu-row:\"LowMediumRecommendedHighMax\" div[aria-label=\"Opus 5.5 · High\"]",
+      "menu-row:\"LowMediumRecommendedHighMax\" div[aria-label=\"Opus 5.5 · Low\"]",
+      "menu-row:\"LowMediumRecommendedHighMax\" div[aria-label=\"Opus 5.5 · Max\"]"
     ],
     "app.window#composer-model-picker": [
       "menu-fit:div[aria-label=\"Model\"]"
@@ -3083,38 +3070,38 @@
     ],
     "new-tab.quick-model-menu#opencode-more-models": [],
     "new-tab.quick-model-menu#provider-grouped": [
-      "menu-fit:\"✓Claude CodeClaude Code (sr)CLI login✓Cl\"",
+      "menu-fit:\"Claude CodeClaude Code (sr)CLI loginClau\"",
       "menu-fit:div[aria-label=\"Model\"]",
-      "menu-row:\"✓Claude CodeClaude Code (sr)CLI login✓Cl\" \"API key\"",
-      "menu-row:\"✓Claude CodeClaude Code (sr)CLI login✓Cl\" \"CLI login\"",
-      "menu-row:\"✓Claude CodeClaude Code (sr)CLI login✓Cl\" \"Claude Code (sr)\"",
-      "menu-row:\"✓Claude CodeClaude Code (sr)CLI login✓Cl\" \"Cmux\"",
-      "menu-row:\"✓Claude CodeClaude Code (sr)CLI login✓Cl\" \"✓Claude Code\"",
-      "menu-row:\"✓Claude CodeClaude Code (sr)CLI login✓Cl\" \"✓Claude subscription\""
+      "menu-row:\"Claude CodeClaude Code (sr)CLI loginClau\" \"API key\"",
+      "menu-row:\"Claude CodeClaude Code (sr)CLI loginClau\" \"CLI login\"",
+      "menu-row:\"Claude CodeClaude Code (sr)CLI loginClau\" \"Claude Code (sr)\"",
+      "menu-row:\"Claude CodeClaude Code (sr)CLI loginClau\" \"Claude Code\"",
+      "menu-row:\"Claude CodeClaude Code (sr)CLI loginClau\" \"Claude subscription\"",
+      "menu-row:\"Claude CodeClaude Code (sr)CLI loginClau\" \"Cmux\""
     ],
     "new-tab.quick-model-menu#provider-inline": [
       "menu-fit:div[aria-label=\"Model\"]"
     ],
     "new-tab.quick-model-menu#provider-submenu": [
-      "menu-fit:\"✓Claude CodeClaude Code (sr)CLI login✓Cl\"",
+      "menu-fit:\"Claude CodeClaude Code (sr)CLI loginClau\"",
       "menu-fit:div[aria-label=\"Model\"]",
-      "menu-row:\"✓Claude CodeClaude Code (sr)CLI login✓Cl\" \"API key\"",
-      "menu-row:\"✓Claude CodeClaude Code (sr)CLI login✓Cl\" \"CLI login\"",
-      "menu-row:\"✓Claude CodeClaude Code (sr)CLI login✓Cl\" \"Claude Code (sr)\"",
-      "menu-row:\"✓Claude CodeClaude Code (sr)CLI login✓Cl\" \"Cmux\"",
-      "menu-row:\"✓Claude CodeClaude Code (sr)CLI login✓Cl\" \"✓Claude Code\"",
-      "menu-row:\"✓Claude CodeClaude Code (sr)CLI login✓Cl\" \"✓Claude subscription\""
+      "menu-row:\"Claude CodeClaude Code (sr)CLI loginClau\" \"API key\"",
+      "menu-row:\"Claude CodeClaude Code (sr)CLI loginClau\" \"CLI login\"",
+      "menu-row:\"Claude CodeClaude Code (sr)CLI loginClau\" \"Claude Code (sr)\"",
+      "menu-row:\"Claude CodeClaude Code (sr)CLI loginClau\" \"Claude Code\"",
+      "menu-row:\"Claude CodeClaude Code (sr)CLI loginClau\" \"Claude subscription\"",
+      "menu-row:\"Claude CodeClaude Code (sr)CLI loginClau\" \"Cmux\""
     ],
     "new-tab.quick-model-menu#roomy-more-models": [],
     "new-tab.quick-model-menu#routes-account": [
-      "menu-fit:\"✓Claude Codeclaude-sr2Claude Code (work)\"",
-      "menu-row:\"✓Claude Codeclaude-sr2Claude Code (work)\" \"API key\"",
-      "menu-row:\"✓Claude Codeclaude-sr2Claude Code (work)\" \"CLI login\"",
-      "menu-row:\"✓Claude Codeclaude-sr2Claude Code (work)\" \"Claude Code (work)\"",
-      "menu-row:\"✓Claude Codeclaude-sr2Claude Code (work)\" \"Cmux\"",
-      "menu-row:\"✓Claude Codeclaude-sr2Claude Code (work)\" \"claude-sr2\"",
-      "menu-row:\"✓Claude Codeclaude-sr2Claude Code (work)\" \"✓Claude Code\"",
-      "menu-row:\"✓Claude Codeclaude-sr2Claude Code (work)\" \"✓Claude subscription\""
+      "menu-fit:\"Claude Codeclaude-sr2Claude Code (work)C\"",
+      "menu-row:\"Claude Codeclaude-sr2Claude Code (work)C\" \"API key\"",
+      "menu-row:\"Claude Codeclaude-sr2Claude Code (work)C\" \"CLI login\"",
+      "menu-row:\"Claude Codeclaude-sr2Claude Code (work)C\" \"Claude Code (work)\"",
+      "menu-row:\"Claude Codeclaude-sr2Claude Code (work)C\" \"Claude Code\"",
+      "menu-row:\"Claude Codeclaude-sr2Claude Code (work)C\" \"Claude subscription\"",
+      "menu-row:\"Claude Codeclaude-sr2Claude Code (work)C\" \"Cmux\"",
+      "menu-row:\"Claude Codeclaude-sr2Claude Code (work)C\" \"claude-sr2\""
     ],
     "new-tab.quick-model-menu#routes-one-tab": [],
     "new-tab.quick-model-menu#short-more-models": [],
@@ -3339,7 +3326,7 @@
     ],
     "pages.home-channels#switcher-empty": [],
     "pages.home-channels#switcher-filtered": [
-      "menu-fit:\"ConversationsRReviewer9:00 AM##design8:0\""
+      "menu-fit:\"Conversations##release9:21 AMRReviewer9:\""
     ],
     "pages.home-channels#teammates": [],
     "pages.home-channels#thread": [],
@@ -3446,6 +3433,7 @@
     "pages.settings-menus#customized": [],
     "pages.settings-menus#generated": [],
     "pages.settings-menus#terminal": [],
+    "pages.settings-motion#backdrops-workspace": [],
     "pages.settings-motion#play-changed-only": [],
     "pages.settings-motion#play-override-reset": [],
     "pages.settings-motion#play-reset-fontfamily": [],
@@ -3455,6 +3443,7 @@
     "pages.settings-motion#play-reset-pinned": [],
     "pages.settings-motion#play-reset-secondlineorder": [],
     "pages.settings-motion#play-search": [],
+    "pages.settings-motion#theme-file-refused": [],
     "pages.settings-server#current": [],
     "pages.settings-server#none": [],
     "pages.settings-server#restart-recommended": [],
@@ -3555,7 +3544,6 @@
     "pages.settings#backdrops-empty": [],
     "pages.settings#backdrops-link": [],
     "pages.settings#backdrops-pending": [],
-    "pages.settings#backdrops-workspace": [],
     "pages.settings#browser": [],
     "pages.settings#browser-customized": [],
     "pages.settings#browser-group-1": [],
@@ -3711,7 +3699,6 @@
     "pages.settings#theme-app-light-dark": [],
     "pages.settings#theme-app-separate": [],
     "pages.settings#theme-customized": [],
-    "pages.settings#theme-file-refused": [],
     "pages.settings#theme-file-replace": [],
     "pages.settings#theme-file-save": [],
     "pages.settings#theme-group-1": [],

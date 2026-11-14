@@ -5,6 +5,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -23,11 +24,8 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 const entry = (id: string, title: string, summary: string, pr?: string) => ({
@@ -129,4 +127,26 @@ test("the shared PR chip leaves a private repository's pull request as plain tex
   } finally {
     act(() => root.unmount());
   }
+});
+
+test("a raw change's row shows its description's first paragraph, not the paragraphs after it", async () => {
+  const { sheetRows } = await import("../src/pages/changelog/SheetPage");
+  const { releaseView } = await import("../src/pages/changelog/model");
+  const raw = {
+    build: "2",
+    shortVersion: "1.0.0-nightly.2",
+    date: "2026-11-07",
+    highlights: [],
+    changes: [],
+    items: [
+      {
+        title: "Sidebar rows keep their place when a workspace closes",
+        pr: 37002,
+        description:
+          "Nothing jumps when a row goes.\nIts neighbours stay put.\n\nThe store now keeps a tombstone per row.",
+      },
+    ],
+  };
+  const rows = sheetRows(releaseView(raw, "en"));
+  expect(rows.map((r) => r.line)).toEqual(["Nothing jumps when a row goes. Its neighbours stay put."]);
 });

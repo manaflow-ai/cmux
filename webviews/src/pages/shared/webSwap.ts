@@ -25,7 +25,7 @@ export const WEB_SWAP_FOCUS = "data-cmux-swap-focus";
 export const WEB_SWAP_FOCUS_KEY = "cmux.webSwap.focus";
 /** A stash older than this is from a look that did not swap: it is ignored. */
 export const WEB_SWAP_FOCUS_FRESH_MS = 10_000;
-/** What counts as an open menu, popover or dialog (as SessionInfo and WidgetEditing read it). */
+/** What counts as an open menu, popover or dialog (as SessionInfo reads it). */
 const OPEN_POPUP =
   'dialog[open], [role="dialog"], [role="alertdialog"], [role="menu"], .ui-popup, [aria-haspopup]:not([aria-haspopup="false"])[aria-expanded="true"], [role="combobox"][aria-expanded="true"]';
 
@@ -56,6 +56,13 @@ function unkeptFieldHold(doc: Document, edited = false): string | null {
     if (text?.trim() || (edited && isTextField(field) && field.value !== field.defaultValue)) return "field";
   }
   return null;
+}
+
+/** Edits a chat's wake state does not carry: registered unsaved state (sends, drafts not yet saved,
+ * composition) and any edited field outside the kept composer, such as a queued message being edited.
+ * A release that `agents.hiddenChats.discard` alone makes keeps such a page (`holdsEdits`). */
+export function pageEditHold(doc: Document = document): string | null {
+  return registeredPageHold(doc) || unkeptFieldHold(doc, true);
 }
 
 /** What a hidden page cannot hand back in its wake state: registered unsaved state (including

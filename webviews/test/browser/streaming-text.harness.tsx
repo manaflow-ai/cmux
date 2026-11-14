@@ -22,7 +22,7 @@ import { FileRenderer, File as PierreFile } from "@pierre/diffs";
 import { createRoot } from "react-dom/client";
 import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
 import { saveSnapshot } from "../../src/agent-session/acpmux/snapshotCache";
-import { loadHighlightedCode } from "../../src/agent-session/acpmux/conversation/CodeBlock";
+import { loadHighlightedCode } from "../../src/agent-session/acpmux/conversation/codeBlockModel";
 import { nextFrame } from "../../src/agent-session/acpmux/direct";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../../src/agent-session/acpmux/model";
 import { percentile, round2 } from "../../src/agent-session/acpmux/perf";

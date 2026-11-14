@@ -961,6 +961,11 @@ pub fn foreground_leader(pid: u32) -> Option<u32> {
     foreground_process_group(pid)
 }
 
+/// The executable of process `pid` (the name [`foreground_process_name`] gives its group leader).
+pub fn process_executable(pid: u32) -> Option<String> {
+    process_name(pid)
+}
+
 /// Program name (basename only, never arguments) of the job a terminal runs
 /// in the foreground when that job is not the terminal's own PTY child
 /// `pid`: the program a shell started and waits for. `None` when the child
@@ -1402,7 +1407,7 @@ fn restrict_permissions(_path: &Path, _mode: u32) -> std::io::Result<()> {
 mod codex_daemon;
 pub use codex_daemon::descends_from_codex_app_server_daemon;
 mod job_launch;
-pub use job_launch::{JobLaunch, foreground_job_launch};
+pub use job_launch::{JobLaunch, foreground_job_launch, process_launch};
 
 #[cfg(test)]
 mod tests;

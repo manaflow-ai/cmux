@@ -1,5 +1,5 @@
 import CmuxNextDaemon
-import CmuxNextHome
+import CmuxNextHomeModel
 import Foundation
 
 /// The Chief's Model popup below its "Default" item, built from the models acpmux offers for the

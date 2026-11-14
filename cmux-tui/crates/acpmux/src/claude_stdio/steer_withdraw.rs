@@ -78,7 +78,7 @@ impl Translator {
             Some(Pending::Withdraw(prompt_id)) => Some(prompt_id),
             _ => None,
         };
-        if let Some(gone) = self.unbatch(uuid, prompt_id.as_deref(), cancelled).await {
+        if let Some(gone) = self.unbatch(uuid, prompt_id.as_deref(), ok, cancelled).await {
             if let Some(steer) = gone {
                 out.push(Message::err(steer, RpcError::internal(STEER_WITHDRAWN)));
                 withdrawn = true;
@@ -112,6 +112,7 @@ impl Translator {
         &self,
         uuid: &str,
         prompt_id: Option<&str>,
+        ok: bool,
         cancelled: bool,
     ) -> Option<Option<Id>> {
         let mut batches = self.batches.lock().await;
@@ -119,6 +120,8 @@ impl Translator {
             return None;
         }
         let (_, held) = batches.rewrite.take()?;
+        // A Claude Code that refused the drop is not asked for another (`write_steer`).
+        batches.no_drop |= !ok;
         let mut steers = self.steers.lock().await;
         let mut parts = Vec::new();
         let mut gone = None;
