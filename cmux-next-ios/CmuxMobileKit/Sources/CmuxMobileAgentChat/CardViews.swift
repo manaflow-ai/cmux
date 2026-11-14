@@ -91,7 +91,7 @@ struct PermissionCard: View {
                     // The plan as the transcript renders a reply (the Mac pane's plan card).
                     StreamingMarkdown(markdown: plan, isStreaming: false, animatesBlocks: false)
                 } else if let command = record.request.toolCall.command {
-                    CodeCard(language: "bash", code: command, title: "Command", maxHeight: 6 * 19 + 60)
+                    CodeCard(language: "bash", code: command, title: "Command", maxHeight: 6 * 19 + 60, alwaysWraps: true)
                 } else {
                     Text(record.request.toolCall.title).font(.subheadline.monospaced())
                 }

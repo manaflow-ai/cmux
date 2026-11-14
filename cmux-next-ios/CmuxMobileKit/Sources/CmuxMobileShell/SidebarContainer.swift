@@ -514,6 +514,9 @@ struct SidebarContainer<Sidebar: View, Content: View>: UIViewControllerRepresent
     let model: SidebarModel
     let sidebar: Sidebar
     let content: Content
+    /// Room over the shell for a bar drawn above every screen (voice mode's): the container's
+    /// top safe area grows by it, so each screen's navigation bar sits under the bar.
+    var topBarInset: CGFloat = 0
 
     func makeUIViewController(context: Context) -> SidebarContainerViewController {
         let sidebarHost = UIHostingController(rootView: sidebar)
@@ -522,6 +525,10 @@ struct SidebarContainer<Sidebar: View, Content: View>: UIViewControllerRepresent
         return SidebarContainerViewController(model: model, sidebar: sidebarHost, content: contentHost)
     }
 
-    func updateUIViewController(_ controller: SidebarContainerViewController, context: Context) {}
+    func updateUIViewController(_ controller: SidebarContainerViewController, context: Context) {
+        if controller.additionalSafeAreaInsets.top != topBarInset {
+            controller.additionalSafeAreaInsets.top = topBarInset
+        }
+    }
 }
 #endif

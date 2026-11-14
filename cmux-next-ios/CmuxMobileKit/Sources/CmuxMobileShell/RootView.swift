@@ -587,7 +587,8 @@ struct ShellView: View {
             sidebar: TeamSidebar(store: shell.store, shell: shell, sidebar: shell.sidebar),
             // The container hosts the tabs in their own hosting controller: pass the
             // root's objects across it (Settings → Plan reads the billing model).
-            content: ShellTabs(shell: shell).environment(shell.store).environment(billing)
+            content: ShellTabs(shell: shell).environment(shell.store).environment(billing),
+            topBarInset: ShellTopBar.shared.height
         )
         .ignoresSafeArea()
         #if DEBUG
@@ -801,6 +802,16 @@ extension CmuxMobileModel.TransportKind {
     var link: CmuxMobileTransport.TransportKind { self == .webrtc ? .webRTC : .wireGuard }
 }
 
+/// The height of the bar drawn over every screen (voice mode's), with its gap: the shell's
+/// container takes it as extra top safe area.
+@MainActor @Observable
+final class ShellTopBar {
+    static let shared = ShellTopBar()
+    /// Space between the bar and the navigation bar under it.
+    static let gap: CGFloat = 4
+    var height: CGFloat = 0
+}
+
 /// The live Chief call over the signed-in shell: the full-screen call, the
 /// pill while it is minimized, and every Call Chief entry point
 /// (``ChiefCallLauncher``) routed to ``ShellModel/callChief()``.
@@ -817,9 +828,15 @@ private struct LiveCallHost: ViewModifier {
                         .padding(.top, 2)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 } else if let session = voice.session {
-                    // Voice mode on an agent session: captions, mute and end, over every screen.
+                    // Voice mode on an agent session: captions, mute and end, above every screen.
+                    // The shell's top safe area grows by the bar (`ShellTopBar`), so the screen's
+                    // navigation bar (Back, the chat's title, More) sits under it, not behind it.
                     AgentVoiceBar(mode: voice, session: session)
                         .padding(.top, 2)
+                        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
+                            ShellTopBar.shared.height = height + ShellTopBar.gap
+                        }
+                        .onDisappear { ShellTopBar.shared.height = 0 }
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }

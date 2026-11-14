@@ -67,6 +67,15 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// Like the embedded terminal, iOS 26 also needs a gradient fallback:
     /// a bare top edge container alone does not obscure text under the clock.
     private let topFade = TopFadeView()
+    /// The native bottom scroll edge effect's container: from the bottom stack's top to the
+    /// screen's bottom, so rows scrolling under the composer (and under the home indicator
+    /// below it) soften the way they do under a system toolbar, instead of reading through
+    /// the composer's glass.
+    private let bottomShelf = UIView()
+    /// iOS 26 draws no edge effect for a bare container (as `topFade` for the top): while rows
+    /// are under the stack, they fade into the background over the stack's top and stay
+    /// covered under it and the home indicator.
+    private let bottomFade = BottomFadeView()
     private let emptyHost: UIHostingController<AnyView>
     private var dockHost: UIHostingController<AnyView>?
     private var dockContainer: PassthroughView?
@@ -225,6 +234,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         scrollView.alwaysBounceVertical = true
         scrollView.backgroundColor = .cmuxMobileBackground
         scrollView.topEdgeEffect.style = .soft
+        scrollView.bottomEdgeEffect.style = .soft
         list.scrollDelegate = self
         // Safari's bottom bar: a tap on the page while the field is being edited ends the
         // editing and lowers the keyboard (CMUX-34). The draft stays in the composer, and the
@@ -248,6 +258,28 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
                 topFade.isAccessibilityElement = false
                 view.addSubview(topFade)
             }
+        }
+
+        bottomShelf.isUserInteractionEnabled = false
+        bottomShelf.isAccessibilityElement = false
+        bottomShelf.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(bottomShelf)
+        let bottomEdge = UIScrollEdgeElementContainerInteraction()
+        bottomEdge.scrollView = scrollView
+        bottomEdge.edge = .bottom
+        bottomShelf.addInteraction(bottomEdge)
+        if #unavailable(iOS 27) {
+            bottomFade.isUserInteractionEnabled = false
+            bottomFade.isAccessibilityElement = false
+            bottomFade.translatesAutoresizingMaskIntoConstraints = false
+            bottomFade.alpha = 0
+            view.addSubview(bottomFade)
+            NSLayoutConstraint.activate([
+                bottomFade.topAnchor.constraint(equalTo: dockGuide.topAnchor, constant: -BottomFadeView.tail),
+                bottomFade.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+                bottomFade.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                bottomFade.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            ])
         }
 
         for host in [emptyHost] + [dockHost, jumpHost].compactMap({ $0 }) {
@@ -277,6 +309,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             emptyHost.view.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             emptyHost.view.centerYAnchor.constraint(equalTo: openArea.centerYAnchor),
             emptyHost.view.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, constant: -40),
+            bottomShelf.topAnchor.constraint(equalTo: dockGuide.topAnchor),
+            bottomShelf.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            bottomShelf.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomShelf.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
 
         // Above a docked keyboard (the guide's top is the view's bottom when
@@ -809,6 +845,13 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// turn: never for an empty chat, the rubber band, or a drag that is
     /// pulling the keyboard down (verify/jump-button.md).
     private func updateJump() {
+        // The bottom edge softens only rows that are under the stack; resting on the newest
+        // row (8 pt over the stack) nothing is, and the edge stays off it (as the terminal's).
+        let under = !isEmpty && distanceFromBottom > Self.contentGap
+        if scrollView.bottomEdgeEffect.isHidden == under { scrollView.bottomEdgeEffect.isHidden = !under }
+        // The fallback fade comes in over its own height as the rows go under, not at once.
+        let fade = isEmpty ? 0 : min(1, max(0, (distanceFromBottom - Self.contentGap) / BottomFadeView.tail))
+        if bottomFade.superview != nil, abs(bottomFade.alpha - fade) > 0.01 { bottomFade.alpha = fade }
         let shown: Bool
         if isEmpty {
             jumpVisibility = JumpToBottomVisibility()
@@ -1148,6 +1191,42 @@ final class ChatKeyboardTrace {
 #endif
 
 #if os(iOS)
+/// Clear over the stack's top, then the background from the stack's top down to the screen's
+/// bottom: rows scrolled under the composer fade out instead of reading through its glass.
+@MainActor
+private final class BottomFadeView: UIView {
+    static let tail: CGFloat = 24
+
+    private let gradient = CAGradientLayer()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        layer.addSublayer(gradient)
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: BottomFadeView, _: UITraitCollection) in
+            view.updateColors()
+        }
+        updateColors()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradient.frame = bounds
+        let clear = min(1, Self.tail / max(bounds.height, 1))
+        gradient.locations = [0, NSNumber(value: Double(clear)), 1]
+        CATransaction.commit()
+    }
+
+    private func updateColors() {
+        let color = UIColor(Color.cmuxMobileBackground).resolvedColor(with: traitCollection)
+        gradient.colors = [color.withAlphaComponent(0).cgColor, color.cgColor, color.cgColor]
+    }
+}
+
 /// Solid over the status bar, then fades to clear at the content inset so the
 /// first row at rest is unobscured. Matches the embedded terminal's fallback.
 @MainActor

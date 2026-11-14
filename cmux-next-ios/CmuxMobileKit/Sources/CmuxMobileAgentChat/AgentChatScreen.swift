@@ -923,7 +923,7 @@ struct StreamingMarkdown: View {
                      animatesBlocks: animatesBlocks, marks: findMarks)
             .contextMenu {
                 Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = markdown }
-                Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(markdown) }
+                Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(ChatSelectText.readable(markdown)) }
                 ShareLink(item: markdown) { Label("Share", systemImage: "square.and.arrow.up") }
             }
     }
