@@ -25,7 +25,7 @@ public final class SidebarModel {
             let newValue = newValue.map { $0.resolvingGroupDepths() }
             // An unchanged set is no structural change (an intent that edits nothing).
             guard newValue != storedSections else { return }
-            if !isReprojecting { sourceSections = newValue }
+            if !isReprojecting { sourceSections = newValue; sourceRowPatches.removeAll(keepingCapacity: true) }
             let paths = Self.groupPaths(in: newValue)
             withMutation(keyPath: \.sections) {
                 storedSections = newValue
@@ -48,6 +48,9 @@ public final class SidebarModel {
     /// source lets a live settings reload restore sections or rows that were
     /// hidden by the previous value.
     @ObservationIgnored private var sourceSections: [SidebarSection]
+    // Content updates stay O(changed rows). Apply them to the source only
+    // when a structural/configuration change already needs a projection.
+    @ObservationIgnored private var sourceRowPatches: [WorkspaceID: SidebarWorkspace] = [:]
     @ObservationIgnored private var isReprojecting = false
     /// Moves on every write of the rows: a structural set, a fold, and a row patch (`patchWorkspaces`), which
     /// `sectionsRevision` does not count. A reader that saves what the rows show (the sidebar snapshot) compares it
@@ -183,7 +186,9 @@ public final class SidebarModel {
             // A selected row is always visible, even when a settings reload
             // hides its workspace or section. Reproject the current document
             // in the same turn as selection changes.
-            if !sourceSections.isEmpty { reprojectSections() }
+            if !sectionCustomization.hiddenSections.isEmpty || sectionCustomization.workspaces.values.contains(where: \.hidden) {
+                reprojectSections()
+            }
         }
     }
     /// The workspace shown in the window: the selection when it is a workspace.
@@ -494,12 +499,27 @@ public final class SidebarModel {
     /// collapsed sections applied; assigns only when something changed.
     public func setSections(_ new: [SidebarSection]) {
         sourceSections = new.map { $0.resolvingGroupDepths() }
+        sourceRowPatches.removeAll(keepingCapacity: true)
         reprojectSections()
     }
 
     /// Rebuilds the visible rows from the latest document and current
     /// projection settings without replacing the document source.
     private func reprojectSections() {
+        if !sourceRowPatches.isEmpty {
+            let index = SidebarRowIndex(sourceSections)
+            for row in sourceRowPatches.values {
+                for path in index.paths(of: row.id) {
+                    let old = SidebarRowIndex.workspace(at: path, in: sourceSections)
+                    var copy = row
+                    copy.rowState = old.rowState
+                    copy.machineID = old.machineID
+                    copy.isArchived = old.isArchived
+                    SidebarRowIndex.set(copy, at: path, in: &sourceSections)
+                }
+            }
+            sourceRowPatches.removeAll(keepingCapacity: true)
+        }
         let new = sourceSections
         SidebarPerfCounters.add(.sectionSets) // each set arranges and compares every row
         SidebarPerfCounters.add(.rowsWalked, new.reduce(0) { $0 + $1.nodes.count })
@@ -602,7 +622,11 @@ public final class SidebarModel {
         if rowIndex == nil { rowIndex = SidebarRowIndex(storedSections) }
         guard let index = rowIndex else { return false }
         // A filter may match or drop a listed row: shown again; a row this window does not list changes nothing.
-        guard filterText.isEmpty else { return !rows.contains { !index.paths(of: $0.id).isEmpty } }
+        guard filterText.isEmpty else {
+            guard !rows.contains(where: { !index.paths(of: $0.id).isEmpty }) else { return false }
+            for row in rows { sourceRowPatches[row.id] = row }
+            return true
+        }
         var patched: [SidebarWorkspace] = []
         var previousPatches: [SidebarNeedsYou.RowPatch] = []
         var writes: [(SidebarRowIndex.Path, SidebarWorkspace)] = []
@@ -629,6 +653,7 @@ public final class SidebarModel {
             if onRowsPatchedWithPrevious != nil { previousPatches.append((before: old, after: row)) }
         }
         for (path, row) in writes { SidebarRowIndex.set(row, at: path, in: &storedSections) }
+        for row in rows { sourceRowPatches[row.id] = row }
         if !patched.isEmpty {
             onRowsPatched?(patched)
             if !previousPatches.isEmpty { onRowsPatchedWithPrevious?(previousPatches) }
