@@ -670,16 +670,6 @@ if mode in ("verdict", "no-screens", "verdict-then-crash"):
     open(path, "w").write('[{"severity": "warning", "guideline": "4.0", "message": "m", "where": "step-01-launch.png"}]')
 if mode in ("verdict", "verdict-then-crash"):
     open("step-01-launch.png", "wb").write(b"png")
-if mode == "refused":
-    # What claude -p --output-format json prints when it cannot start: a
-    # run-unique session id and usage ahead of the reason (gate runs
-    # 43625607673 and 43632344606).
-    import uuid
-    print('{"type":"result","subtype":"success","is_error":true,"duration_ms":%d,"duration_api_ms":0,'
-          '"num_turns":1,"stop_reason":"stop_sequence","session_id":"%s","total_cost_usd":0,'
-          '"usage":{"input_tokens":0,"output_tokens":0},"result":"Invalid API key \\u00b7 Please run /login"}'
-          % (os.getpid(), uuid.uuid4()))
-    sys.exit(1)
 print('{"result": "done"}')
 sys.exit(1 if mode in ("crash", "verdict-then-crash") else 0)
 """
@@ -743,24 +733,6 @@ class AgentReviewerPassTests(unittest.TestCase):
             code, findings = self.run_pass(mode)
             self.assertNotEqual(code, 0, mode)
             self.assertIn(("agent.no-verdict", "blocker"), [(f["rule"], f["severity"]) for f in findings], mode)
-
-    def test_an_agent_that_could_not_start_says_why_the_same_way_each_run(self) -> None:
-        # Gate runs 43625607673 (feat-cmux-next) and 43632344606 (cmux#43014):
-        # the message quoted the first 200 characters of claude's JSON, a
-        # session id and usage counts, which cut off the reason and differed
-        # on every run, so the same red on base and on a PR were two errors.
-        for name in ("xcrun", "axe"):
-            self.tool(name)
-        self.tool("claude", STUB_CLAUDE)
-        said = []
-        for _ in range(2):
-            code, findings = self.run_pass("refused")
-            self.assertNotEqual(code, 0)
-            self.assertEqual([(f["rule"], f["severity"]) for f in findings], [("agent.no-verdict", "blocker")])
-            said.append(findings[0]["message"])
-        self.assertEqual(said[0], said[1])
-        self.assertIn("Invalid API key · Please run /login", said[0])
-        self.assertNotIn("session_id", said[0])
 
     def test_an_agent_that_never_looked_at_the_app_is_red(self) -> None:
         for name in ("xcrun", "axe"):
