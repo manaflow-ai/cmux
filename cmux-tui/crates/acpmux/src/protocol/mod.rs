@@ -306,7 +306,7 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::BtwParams>(method::MUX_BTW, Request),
         untyped(method::MUX_TAG, Request),
         untyped(method::MUX_DETACH_PARENT, Request),
-        keyed::<params::InfoParams>(method::MUX_INFO, Request),
+        untyped(method::MUX_INFO, Request),
         untyped(method::MUX_MACHINE_INFO, Request),
         untyped(method::MUX_SESSION_FILES, Request),
         request::<events::EventsParams, events::EventsResult>(method::MUX_EVENTS),

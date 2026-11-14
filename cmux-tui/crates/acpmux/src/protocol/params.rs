@@ -217,8 +217,6 @@ keyed! {
     HarnessesParams: ["cwd"];
     /// `_acpmux/inbox_thread`.
     InboxThreadParams: ["sessionId", "threadId", "markRead"];
-    /// `_acpmux/info`: one chat's detail, or with `sessionIds` and `row` the list's rows by key.
-    InfoParams: ["sessionId", "session", "name", "waitLogs", "row", "sessionIds", "withTools", "usage"];
     /// `initialize`.
     InitializeParams: ["protocolVersion", "clientCapabilities", "clientInfo"];
     /// `_acpmux/kill`.
