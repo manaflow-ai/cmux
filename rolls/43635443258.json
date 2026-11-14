@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43635443258",
+  "recorded_at": "2026-11-14T20:11:49Z",
+  "reason": "cmux-tui 304822ef8bd2 changes the image's cmux-tui (pinned 899e9ed245d8)",
+  "dry_run": false,
+  "cmux_tui": "304822ef8bd252edd26e4ee97e9e28031d16c30f",
+  "fixes": [
+    {
+      "sha": "304822ef8bd252edd26e4ee97e9e28031d16c30f",
+      "mergedAt": "2026-11-14T11:39:35-08:00",
+      "subject": "CMUX-572: defer congestion loss across jitter reordering (#43067)"
+    },
+    {
+      "sha": "58159e517bab6fad521a1d65ded83a1e4c618fca",
+      "mergedAt": "2026-11-14T11:28:11-08:00",
+      "subject": "Agent chat: the page's thin store for a chat's rows (v2 row 6c) (#43153)"
+    },
+    {
+      "sha": "85f81ed2f13a169d90b4f80f13024d1d204d7f69",
+      "mergedAt": "2026-11-14T11:24:18-08:00",
+      "subject": "Extensions open the links you click: cmux.opener/1 routes terminal links to the matching app (#43007)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T20:11:49Z",
+    "snapshot_id": "sh-caac69800411478193c7e3afacf800c5",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43635443258): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "75e550c2dad3c31b177827f282d10347748d1b6a",
+    "image": "cloud-native-auto-304822ef-43635443258-1",
+    "revision": "ci-43635443258-1",
+    "at": "2026-11-14T20:11:49Z"
+  },
+  "rolled_back": false
+}
