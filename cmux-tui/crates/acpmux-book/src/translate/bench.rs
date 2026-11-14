@@ -204,7 +204,7 @@ fn measure_child() {
         "MEASURE {count} {bytes} {best} {} {cold_best} {} {peak} {} {full} {queue_empty}",
         p95(&mut all),
         p95(&mut cold_all),
-        checkpoint.len()
+        checkpoint.translator.len() + 32 * checkpoint.prompts.len()
     );
     assert!(peak * 1024 < 64_000_000, "resident peak {peak} KiB must be under 64 MB");
 }
