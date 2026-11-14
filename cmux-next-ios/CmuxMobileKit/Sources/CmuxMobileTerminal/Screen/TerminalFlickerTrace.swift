@@ -181,7 +181,7 @@ final class TerminalFlickerTrace: NSObject {
             stepResizes.append("\(step):\(now.resizes - stepStartResizes)")
         }
         let busy = busyMeter.take()
-        line += String(format: " busy=%.1f span=%.1f ours=%.1f", busy.busyMs, busy.longestMs, ours.values.reduce(0, +))
+        line += String(format: " busy=%.1f span=%.1f commit=%.1f ours=%.1f", busy.busyMs, busy.longestMs, busy.commitMs, ours.values.reduce(0, +))
         if !ours.isEmpty {
             line += " parts=" + ours.sorted { $0.value > $1.value }.prefix(4).map { String(format: "%@:%.1f", $0.key, $0.value) }.joined(separator: ",")
         }

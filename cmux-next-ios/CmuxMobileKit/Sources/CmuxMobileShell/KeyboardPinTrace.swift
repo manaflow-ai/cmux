@@ -150,7 +150,7 @@ final class KeyboardPinTrace: NSObject {
             parts.append("field=-")
         }
         let busy = busyMeter.take()
-        parts.append(String(format: "busy=%.1f span=%.1f", busy.busyMs, busy.longestMs))
+        parts.append(String(format: "busy=%.1f span=%.1f commit=%.1f", busy.busyMs, busy.longestMs, busy.commitMs))
         let line = parts.joined(separator: " ")
         let summary = [
             "fj=\(fieldSteps.jumps)",
