@@ -1254,7 +1254,8 @@ class Review2Tests(OneRunRule):
         self.assertEqual(state["current"]["yield_since"], cron.iso(at(1)))
         d = cron.decide(state, at(cron.ABANDON_HOURS + 6), "b" * 40, None, lambda sha: ["motion"], "nightly.yml waits")
         self.assertEqual(state["current"]["sha"], "a" * 40, "17 h old, but only 1 h of it active")
-        self.assertTrue(d["yielded"])
+        # The runner host was given up after HOST_WAIT_HOURS; the wait stays a yield until a part answers.
+        self.assertEqual(d["worker"], cron.BENCH_WORKER)
         cron.record_part(state["current"], "build", {"state": "done"}, "r", at(cron.ABANDON_HOURS + 7))
         self.assertAlmostEqual(state["current"]["yield_hours"], cron.ABANDON_HOURS + 6)
         cron.decide(state, at(cron.ABANDON_WALL_HOURS + 1), "b" * 40, None, lambda sha: ["motion"], "nightly.yml waits")
