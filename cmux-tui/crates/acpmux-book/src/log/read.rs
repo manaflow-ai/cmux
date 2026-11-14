@@ -187,6 +187,7 @@ impl Log {
         open_folds: &[u64],
         bounds: Option<(u64, u64)>,
         fold_cache: &mut BTreeMap<u64, Vec<(u64, u64)>>,
+        fold_hint: &mut Option<crate::folds::Entry>,
     ) -> Result<Option<u64>, Error> {
         let (lower, upper) = bounds.unwrap_or((self.min_row, self.max_row));
         let mut id = start;
@@ -195,7 +196,9 @@ impl Log {
         let mut span: Option<Span> = None;
         while id != 0 && id >= lower && id <= upper && budget.rows != 0 && looked < WALK_ENTRIES {
             looked = looked.saturating_add(1);
-            if let Some((visible, jump)) = self.fold_step(id, up, open_folds, fold_cache)? {
+            if let Some((visible, jump)) =
+                self.fold_step(id, up, open_folds, fold_cache, fold_hint)?
+            {
                 if !visible {
                     id = jump.unwrap_or_else(|| {
                         if up { id.saturating_add(1) } else { id.saturating_sub(1) }
@@ -238,8 +241,16 @@ impl Log {
         up: bool,
         open_folds: &[u64],
         fold_cache: &mut BTreeMap<u64, Vec<(u64, u64)>>,
+        fold_hint: &mut Option<crate::folds::Entry>,
     ) -> Result<Option<(bool, Option<u64>)>, Error> {
-        let Some(fold) = self.fold_entry(row_id)? else { return Ok(None) };
+        let fold = if fold_hint.is_some_and(|fold| (fold.group..=fold.last).contains(&row_id)) {
+            *fold_hint
+        } else {
+            let found = self.fold_entry(row_id)?;
+            *fold_hint = found;
+            found
+        };
+        let Some(fold) = fold else { return Ok(None) };
         if open_folds.contains(&fold.group) || row_id == fold.group {
             return Ok(Some((true, None)));
         }
@@ -369,6 +380,7 @@ impl Log {
         };
         let mut out = Vec::with_capacity(budget.rows.min(512));
         let mut fold_cache = BTreeMap::new();
+        let mut fold_hint = None;
         let mut result = match anchor {
             Anchor::End => {
                 let lo = self.walk(
@@ -379,6 +391,7 @@ impl Log {
                     open_folds,
                     None,
                     &mut fold_cache,
+                    &mut fold_hint,
                 )?;
                 out.reverse();
                 self.window_of(out, lo.unwrap_or(self.max_row), self.max_row)
@@ -393,6 +406,7 @@ impl Log {
                     open_folds,
                     None,
                     &mut fold_cache,
+                    &mut fold_hint,
                 )?;
                 out.reverse();
                 self.window_of(out, lo.unwrap_or(start), start)
@@ -407,6 +421,7 @@ impl Log {
                     open_folds,
                     None,
                     &mut fold_cache,
+                    &mut fold_hint,
                 )?;
                 self.window_of(out, start, hi.unwrap_or(start))
             }
@@ -433,6 +448,7 @@ impl Log {
                     open_folds,
                     None,
                     &mut fold_cache,
+                    &mut fold_hint,
                 )?;
                 budget = Budget {
                     rows: kept_rows.saturating_add(ahead.rows),
@@ -449,6 +465,7 @@ impl Log {
                     open_folds,
                     None,
                     &mut fold_cache,
+                    &mut fold_hint,
                 )?;
                 out.reverse();
                 if budget.rows != 0 && budget.bytes != 0 {
@@ -463,6 +480,7 @@ impl Log {
                             open_folds,
                             None,
                             &mut fold_cache,
+                            &mut fold_hint,
                         )?
                         .or(hi);
                 }
@@ -505,18 +523,35 @@ impl Log {
         };
         let mut out = Vec::new();
         let mut fold_cache = BTreeMap::new();
+        let mut fold_hint = None;
         let mut result = match edge {
             Edge::Before(id) => {
                 let start = id.saturating_sub(1).min(self.max_row);
-                let lo =
-                    self.walk(start, false, &mut budget, &mut out, &[], None, &mut fold_cache)?;
+                let lo = self.walk(
+                    start,
+                    false,
+                    &mut budget,
+                    &mut out,
+                    &[],
+                    None,
+                    &mut fold_cache,
+                    &mut fold_hint,
+                )?;
                 out.reverse();
                 self.window_of(out, lo.unwrap_or(id.max(1)), start)
             }
             Edge::After(id) => {
                 let start = id.saturating_add(1).max(self.min_row);
-                let hi =
-                    self.walk(start, true, &mut budget, &mut out, &[], None, &mut fold_cache)?;
+                let hi = self.walk(
+                    start,
+                    true,
+                    &mut budget,
+                    &mut out,
+                    &[],
+                    None,
+                    &mut fold_cache,
+                    &mut fold_hint,
+                )?;
                 self.window_of(out, start, hi.unwrap_or(id.min(self.max_row)))
             }
         };
@@ -547,6 +582,7 @@ impl Log {
         };
         let mut rows = Vec::new();
         let mut fold_cache = BTreeMap::new();
+        let mut fold_hint = None;
         let _ = self.walk(
             start,
             up,
@@ -555,6 +591,7 @@ impl Log {
             &[group],
             Some((fold.group, fold.last)),
             &mut fold_cache,
+            &mut fold_hint,
         )?;
         if !up {
             rows.reverse();

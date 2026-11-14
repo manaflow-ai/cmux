@@ -92,7 +92,7 @@ pub(crate) fn copy_book(from: &Path, to: &Path) {
             std::fs::copy(entry.path(), to.join(sub).join(entry.file_name())).expect("copy");
         }
     }
-    for name in ["rows.idx", "seq.idx", "checkpoint", "raw.map", "rows.undo"] {
+    for name in ["rows.idx", "seq.idx", "checkpoint", "raw.map", "rows.undo", "folds.idx"] {
         if from.join(name).exists() {
             std::fs::copy(from.join(name), to.join(name)).expect("copy");
         }

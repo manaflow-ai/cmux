@@ -543,6 +543,40 @@ fn an_index_entry_that_does_not_match_its_record_is_reported_not_served() {
 }
 
 #[test]
+fn closed_folds_skip_hidden_rows_and_open_fold_pages_are_bounded() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut log, _) = open(home.path());
+    log.append_settled(1, 1, RawRange::NONE, br#"{"body":{"out":[[2,3],[5,5]]}}"#).unwrap();
+    for id in 2..=10 {
+        log.append_settled(id, 1, RawRange::NONE, &text(id)).unwrap();
+    }
+    let mut folds = crate::folds::Folds::open(&home.path().join("folds.idx"), 0).unwrap();
+    folds.append(1, 10).unwrap();
+    folds.sync().unwrap();
+    let closed = log.read_window(Anchor::End, 400, MAX_FRAME_BYTES, &[]).unwrap();
+    assert_eq!(ids(&closed.rows), vec![1, 2, 3, 5]);
+    let open = log.read_page(Edge::After(1), MAX_PAGE_BYTES, Some(1)).unwrap();
+    assert_eq!(ids(&open.rows), (1..=10).collect::<Vec<_>>());
+    assert!(!open.has_before && !open.has_after);
+}
+
+#[test]
+fn stopped_log_rejects_every_bounded_read() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut log, _) = open(home.path());
+    settle(&mut log, 1, 2);
+    log.write_checkpoint(&[], &[]).unwrap();
+    log.patch(1, 2, RawRange::NONE, b"patched").unwrap();
+    log.fail_cut_after(0);
+    assert!(log.cut_to_checkpoint(&[]).is_err());
+    assert!(matches!(log.window(Anchor::End, 1, 1024), Err(Error::Stopped)));
+    assert!(matches!(log.page(Edge::After(0), 1024), Err(Error::Stopped)));
+    assert!(matches!(log.since(0, 1024), Err(Error::Stopped)));
+    let mut out = Vec::new();
+    assert!(matches!(log.read_blob(1, 0, 1, &mut out), Err(Error::Stopped)));
+}
+
+#[test]
 fn a_log_can_move_to_its_actors_thread() {
     fn is_send<T: Send>() {}
     is_send::<Log>();

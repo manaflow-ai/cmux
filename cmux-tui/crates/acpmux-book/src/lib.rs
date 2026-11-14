@@ -28,6 +28,8 @@ pub mod row;
 pub mod translate;
 
 #[cfg(test)]
+mod chat_read_gates;
+#[cfg(test)]
 mod log_bench;
 #[cfg(test)]
 mod log_tests;
