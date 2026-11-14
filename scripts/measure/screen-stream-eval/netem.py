@@ -122,6 +122,8 @@ def tcp_session(client: socket.socket, upstream_addr: tuple[str, int], delay_s: 
     except OSError:
         client.close()
         return
+    # Bound connection setup, not a valid idle share: media/feedback use UDP.
+    upstream.settimeout(None)
     done = threading.Event()
     threading.Thread(target=tcp_copy, args=(client, upstream, delay_s, done), daemon=True).start()
     threading.Thread(target=tcp_copy, args=(upstream, client, delay_s, done), daemon=True).start()
