@@ -2721,6 +2721,18 @@ def show_long_chat(turns=24):
     return shown
 
 
+def long_chat_tab(topo=None):
+    """The long chat's tab id now, found by its session: a chat tab opened by session starts as a provisional tab that
+    the daemon's own tab replaces (TabContent `confirm`), so the id make_chat saw may be gone by the quit."""
+    if not LONG_CHAT:
+        return None
+    for ws in (topo or topology() or {}).get("workspaces", []):
+        for tab in tabs_of(ws):
+            if tab.get("agent_session") == LONG_CHAT.get("session"):
+                return tab.get("id")
+    return LONG_CHAT.get("tab")
+
+
 def focus_long_chat():
     """The long chat's tab selected in the front window, its page drawn (chat_items puts back each pane's shown tab, so
     it stays selected through every round's snapshots)."""
@@ -2730,7 +2742,7 @@ def focus_long_chat():
     ws = workspace_named("rj-chats")
     if ws:
         cli("workspace", ws["id"], "focus")
-    cli("tab", chat["tab"], "focus")
+    cli("tab", long_chat_tab(), "focus")
     return bool(wait(lambda: "first_content_ms" in (page(None, "layout_watch", ms=300) or {}), 20, 0.5))
 
 
@@ -2739,14 +2751,15 @@ def long_chat_shown():
     if not LONG_CHAT:
         return "no long chat"
     topo = topology() or {}
+    tab_id = long_chat_tab(topo)
     for window in topo.get("windows", []):
         for ws in topo.get("workspaces", []):
             if ws.get("id") not in window.get("workspaces", []):
                 continue
             for screen in ws.get("screens", []):
                 for pane in screen.get("panes", []):
-                    if any(t.get("id") == LONG_CHAT["tab"] for t in pane.get("tabs", [])):
-                        if pane.get("selected_tab") != LONG_CHAT["tab"]:
+                    if any(t.get("id") == tab_id for t in pane.get("tabs", [])):
+                        if pane.get("selected_tab") != tab_id:
                             return f"its pane shows tab {pane.get('selected_tab')}"
                         if window.get("workspace") != ws.get("id"):
                             return f"its window shows workspace {ws_name(topo, window.get('workspace'))}"
