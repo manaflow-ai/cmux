@@ -14,7 +14,7 @@ struct AutomaticLoginRecoveryTests {
 
     @Test func aCaptureSlotRemainsOptedOutOfLoginRecovery() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-capture-login-(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-capture-login-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
