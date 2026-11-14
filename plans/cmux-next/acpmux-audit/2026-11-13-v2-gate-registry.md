@@ -27,10 +27,10 @@ A gate that lives in `acpmux`'s own tests is run with the `gate` cargo profile
 `cargo test --profile gate -p acpmux --lib NAME -- --ignored --nocapture` (the gates are
 ignored tests, and the measured line is printed before the bound is checked). It is the
 release profile with link-time optimization off and 16 codegen units. A plain `--release`
-test build of `acpmux` does not end on the CI runner, so no lane starts one. The gates of the
-other three v2 crates (`acpmux-book`, `acpmux-client`, `acpmux-core`) build in `--release` as
-before. A row stays `measured: false` until its run with one of these two commands is in the
-PR that sets it.
+test build of `acpmux` does not end on the CI runner, so no lane starts one. The gates of
+`acpmux-book` and `acpmux-core` build in `--release` as before. `acpmux-client` has no v2 gate on
+this base, so the nightly list omits its test build. A row stays `measured: false` until its run
+with one of these two commands is in the PR that sets it.
 
 ## Nightly rollout (v2 PR 0b)
 
