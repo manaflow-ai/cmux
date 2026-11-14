@@ -36,10 +36,15 @@ final class FeedWaiterRegistry: Sendable {
         var cleanupClaimed = false
     }
     private let groups = OSAllocatedUnfairLock(initialState: [String: Group]())
+    /// Requests nobody answered in cmux before the hook timed out. The hook
+    /// hands those back to the agent's own prompt, so they stay here until a
+    /// later hook from the same agent shows they were answered there.
+    private let handedOff = OSAllocatedUnfairLock(initialState: [String: WorkstreamEvent]())
 
     func register(requestID: String, event: WorkstreamEvent) -> Registration? {
         let token = UUID()
         let semaphore = DispatchSemaphore(value: 0)
+        handedOff.withLock { _ = $0.removeValue(forKey: requestID) }
         return groups.withLock { groups in
             let existing = groups[requestID]
             if let existing, !Self.matches(existing.event, event) { return nil }
@@ -120,7 +125,7 @@ final class FeedWaiterRegistry: Sendable {
     }
 
     func finish(_ registration: Registration) -> Finished {
-        groups.withLock { groups in
+        let finished = groups.withLock { groups in
             guard var group = groups[registration.requestID], group.id == registration.groupID else {
                 return Finished(outcome: .init(result: .unavailable, authoritativeEvent: nil),
                     target: nil, shouldCancel: false, itemID: nil)
@@ -146,6 +151,12 @@ final class FeedWaiterRegistry: Sendable {
             return Finished(outcome: .init(result: result, authoritativeEvent: group.event),
                 target: target, shouldCancel: cancel, itemID: group.itemID)
         }
+        // Only a stamped request can later be shown superseded.
+        if finished.shouldCancel, case .timedOut = finished.outcome.result,
+           let event = finished.outcome.authoritativeEvent, event.feedHookSentAtMs != nil {
+            handedOff.withLock { $0[registration.requestID] = event }
+        }
+        return finished
     }
 
     func cleanupStored(requestID: String, groupID: UUID) {
@@ -158,7 +169,12 @@ final class FeedWaiterRegistry: Sendable {
     }
 
     func invalidate(requestID: String, source: String, sessionID: String) -> (Reply, UUID?)? {
-        groups.withLock { groups in
+        handedOff.withLock { handedOff in
+            if let event = handedOff[requestID], Self.belongs(event, source: source, sessionID: sessionID) {
+                handedOff.removeValue(forKey: requestID)
+            }
+        }
+        return groups.withLock { groups in
             guard var group = groups[requestID], group.decision == nil, !group.cleanupClaimed,
                   group.event.source == source else { return nil }
             let canonical = FeedWorkstreamIdentifier.canonicalizedRawValue(agentID: source, rawValue: group.event.sessionId)
@@ -178,17 +194,15 @@ final class FeedWaiterRegistry: Sendable {
     /// before its SessionEnd hook ran, so cleanup cannot depend on knowing the
     /// individual request ids that were pending on that session.
     func invalidate(source: String, sessionID: String) -> [(Reply, UUID?)] {
-        groups.withLock { groups in
+        handedOff.withLock { handedOff in
+            handedOff = handedOff.filter { !Self.belongs($0.value, source: source, sessionID: sessionID) }
+        }
+        return groups.withLock { groups in
             var invalidated: [(Reply, UUID?)] = []
             for (requestID, var group) in groups {
                 guard group.decision == nil, group.terminalResult == nil,
                       !group.cleanupClaimed,
-                      group.event.source == source else { continue }
-                let canonical = FeedWorkstreamIdentifier.canonicalizedRawValue(
-                    agentID: source, rawValue: group.event.sessionId
-                )
-                guard (FeedWorkstreamIdentifier(rawValue: canonical)?.sessionID
-                    ?? group.event.sessionId) == sessionID else { continue }
+                      Self.belongs(group.event, source: source, sessionID: sessionID) else { continue }
                 invalidated.append((Reply(requestID: requestID, groupID: group.id,
                     event: group.event, target: group.target), group.itemID))
                 group.target = nil
@@ -205,19 +219,12 @@ final class FeedWaiterRegistry: Sendable {
     /// the same agent context (source, session, and subagent) whose hook was
     /// sent before `event`. Requests or events without a send stamp never match.
     func supersede(by event: WorkstreamEvent) -> [(Reply, UUID?)] {
-        guard let observedAtMs = event.feedHookSentAtMs else { return [] }
-        let session = FeedWorkstreamIdentifier.canonicalizedRawValue(agentID: event.source, rawValue: event.sessionId)
-        let agentID = event.feedAgentID
+        guard event.feedHookSentAtMs != nil else { return [] }
         return groups.withLock { groups in
             var superseded: [(Reply, UUID?)] = []
             for (requestID, var group) in groups {
                 guard group.decision == nil, group.terminalResult == nil, !group.cleanupClaimed,
-                      group.event.source == event.source,
-                      FeedWorkstreamIdentifier.canonicalizedRawValue(
-                          agentID: group.event.source, rawValue: group.event.sessionId) == session,
-                      group.event.feedAgentID == agentID,
-                      let requestedAtMs = group.event.feedHookSentAtMs,
-                      requestedAtMs < observedAtMs else { continue }
+                      Self.isSuperseded(group.event, by: event) else { continue }
                 superseded.append((Reply(requestID: requestID, groupID: group.id, event: group.event,
                     target: group.target), group.itemID))
                 group.target = nil
@@ -227,6 +234,17 @@ final class FeedWaiterRegistry: Sendable {
                 for semaphore in group.subscribers.values { semaphore.signal() }
             }
             return superseded
+        }
+    }
+
+    /// Takes the timed-out requests that `event` shows were answered in the
+    /// agent's own prompt, by the same rule as `supersede(by:)`.
+    func retireHandedOff(supersededBy event: WorkstreamEvent) -> [(requestID: String, event: WorkstreamEvent)] {
+        guard event.feedHookSentAtMs != nil else { return [] }
+        return handedOff.withLock { handedOff in
+            let retired = handedOff.filter { Self.isSuperseded($0.value, by: event) }
+            for requestID in retired.keys { handedOff.removeValue(forKey: requestID) }
+            return retired.map { (requestID: $0.key, event: $0.value) }
         }
     }
 
@@ -245,9 +263,28 @@ final class FeedWaiterRegistry: Sendable {
 
     func discardInactive() {
         groups.withLock { $0 = $0.filter { !$0.value.subscribers.isEmpty } }
+        handedOff.withLock { $0.removeAll() }
     }
 
     func subscriberCount(_ requestID: String) -> Int { groups.withLock { $0[requestID]?.subscribers.count ?? 0 } }
+
+    /// A request is superseded by a hook from the same agent context (source,
+    /// session, and subagent) sent after it. Unstamped events never match.
+    private static func isSuperseded(_ request: WorkstreamEvent, by event: WorkstreamEvent) -> Bool {
+        guard let observedAtMs = event.feedHookSentAtMs,
+              let requestedAtMs = request.feedHookSentAtMs,
+              requestedAtMs < observedAtMs else { return false }
+        return request.source == event.source
+            && FeedWorkstreamIdentifier.canonicalizedRawValue(agentID: request.source, rawValue: request.sessionId)
+                == FeedWorkstreamIdentifier.canonicalizedRawValue(agentID: event.source, rawValue: event.sessionId)
+            && request.feedAgentID == event.feedAgentID
+    }
+
+    private static func belongs(_ event: WorkstreamEvent, source: String, sessionID: String) -> Bool {
+        guard event.source == source else { return false }
+        let canonical = FeedWorkstreamIdentifier.canonicalizedRawValue(agentID: source, rawValue: event.sessionId)
+        return (FeedWorkstreamIdentifier(rawValue: canonical)?.sessionID ?? event.sessionId) == sessionID
+    }
 
     private static func matches(_ lhs: WorkstreamEvent, _ rhs: WorkstreamEvent) -> Bool {
         lhs.source == rhs.source

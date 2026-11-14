@@ -641,6 +641,18 @@ final class FeedCoordinator: @unchecked Sendable {
             expireTimedOutItem(itemID)
             waiterRegistry.cleanupStored(requestID: reply.requestID, groupID: reply.groupID)
         }
+        // A request the Feed timed out on went back to the agent's own prompt,
+        // and this later hook shows it was answered there. Its card, banner and
+        // overlay already ended at the timeout; only the journal still holds
+        // its attention. Stop and SessionEnd are left to the journal's own turn
+        // handling: a resolution stamped now could land after the turn's end
+        // and read as work resuming.
+        let endsTurn = event.hookEventName == .stop || event.hookEventName == .sessionEnd
+        for (requestID, request) in waiterRegistry.retireHandedOff(supersededBy: event) where !endsTurn {
+            notificationJournal.observeFeed(AgentFeedSemanticInput(event: request,
+                agentKey: Self.lifecycleStatusKey(forSource: request.source),
+                requestID: requestID, resolvesRequest: true))
+        }
         return retiredDecision
     }
 
