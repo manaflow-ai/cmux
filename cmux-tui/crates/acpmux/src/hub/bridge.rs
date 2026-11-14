@@ -76,7 +76,7 @@ fn deliveries() -> std::sync::MutexGuard<'static, Deliveries> {
 static DELIVERED: LazyLock<Mutex<HashMap<String, HashSet<String>>>> =
     LazyLock::new(Default::default);
 
-fn delivered() -> std::sync::MutexGuard<'static, HashMap<String, HashSet<String>>> {
+fn delivered_ids() -> std::sync::MutexGuard<'static, HashMap<String, HashSet<String>>> {
     DELIVERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
@@ -377,7 +377,7 @@ impl Hub {
             record.extend(more.clone());
         }
         self.append(session, "mux", "bridge_delivered", record);
-        if let Some(ids) = delivered().get_mut(&session.id) {
+        if let Some(ids) = delivered_ids().get_mut(&session.id) {
             ids.insert(prompt_id.clone());
         }
         if let Some(f) = opts.on_accepted.take() {
@@ -392,7 +392,7 @@ impl Hub {
     /// its log's `bridge_delivered` records (headers only, off the async threads); later ones
     /// read the set that read made.
     async fn delivered_before(self: &Arc<Self>, session: &Session, prompt_id: &str) -> bool {
-        if let Some(ids) = delivered().get(&session.id) {
+        if let Some(ids) = delivered_ids().get(&session.id) {
             return ids.contains(prompt_id);
         }
         let hub = Arc::clone(self);
@@ -417,7 +417,7 @@ impl Hub {
         // A log that could not be read is read again on the next ask, not taken as empty.
         let Some(ids) = read else { return false };
         // A delivery made while the log was read added nothing (no set yet): merge, never replace.
-        let mut all = delivered();
+        let mut all = delivered_ids();
         let known = all.entry(session.id.clone()).or_default();
         known.extend(ids);
         known.contains(prompt_id)
@@ -546,7 +546,7 @@ fn reply(prompt_id: &str, turn_id: Option<&str>, app: Option<&Value>) -> Value {
 /// Tests: forget what this process knows of `session_id`'s deliveries, as a restart does.
 #[cfg(test)]
 fn forget_delivered_ids(session_id: &str) {
-    delivered().remove(session_id);
+    delivered_ids().remove(session_id);
 }
 
 #[cfg(test)]
