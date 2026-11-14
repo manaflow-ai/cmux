@@ -38,23 +38,33 @@ jobs:
       actions: write # dispatch and read ios-review-gate.yml
       contents: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
-    # The gate's reviewer-path jobs take about 30 minutes, plus their queue.
-    timeout-minutes: 150
+    # Gate runs have taken up to about 2 hours (the reviewer-path jobs and their
+    # macOS queue); past this the push run is red with no verdict.
+    timeout-minutes: 240
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Dispatch the gate on feat-cmux-next
+      - name: Find or dispatch the gate for the feat-cmux-next head
         id: dispatch
         run: |
           set -euo pipefail
           sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/feat-cmux-next" --jq .sha)"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not resolve feat-cmux-next: $sha" >&2; exit 1; }
-          # return_run_details: the reply names the run this dispatch made, so a
-          # concurrent dispatch is never mistaken for it.
-          run_id="$(gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/ios-review-gate.yml/dispatches" \
-            -f ref=feat-cmux-next -f "inputs[ref]=$sha" -f "inputs[lane]=appstore" -f "inputs[agent_pass]=true" \
-            -F return_run_details=true --jq .workflow_run_id)"
-          [[ "$run_id" =~ ^[0-9]+$ ]] || { echo "::error::the dispatch named no run: $run_id" >&2; exit 1; }
+          # A main push does not change the code the gate judges, so pushes while
+          # feat-cmux-next stays put share one gate run: the newest not-cancelled
+          # one this workflow dispatched for that SHA (github-actions[bot], lane
+          # appstore). A new dispatch per push would also let the gate's
+          # concurrency group cancel a queued one, a red with no blocker found.
+          run_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ios-review-gate.yml/runs?event=workflow_dispatch&head_sha=$sha&per_page=20" \
+            --jq '[.workflow_runs[] | select(.actor.login == "github-actions[bot]" and .conclusion != "cancelled")][0].id // empty')"
+          if [[ -z "$run_id" ]]; then
+            # return_run_details: the reply names the run this dispatch made, so a
+            # concurrent dispatch is never mistaken for it.
+            run_id="$(gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/ios-review-gate.yml/dispatches" \
+              -f ref=feat-cmux-next -f "inputs[ref]=$sha" -f "inputs[lane]=appstore" -f "inputs[agent_pass]=true" \
+              -F return_run_details=true --jq .workflow_run_id)"
+          fi
+          [[ "$run_id" =~ ^[0-9]+$ ]] || { echo "::error::no gate run for $sha: $run_id" >&2; exit 1; }
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
           echo "App Review gate for feat-cmux-next $sha: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run_id" \
             | tee -a "$GITHUB_STEP_SUMMARY"
