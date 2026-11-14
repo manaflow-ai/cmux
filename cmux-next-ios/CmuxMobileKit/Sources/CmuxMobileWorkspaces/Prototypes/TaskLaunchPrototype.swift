@@ -103,10 +103,11 @@ final class ProtoPicks {
         agentID = id
         (model, effort, mode) = Self.remembered(next, defaults)
         defaults.set(id, forKey: Self.prefix + "agent")
+        defaults.synchronize()
     }
     func pick(model id: String) { model = id; defaults.set(id, forKey: Self.prefix + agentID + ".model") }
     func pick(effort id: String) { effort = id; defaults.set(id, forKey: Self.prefix + agentID + ".effort") }
-    func pick(mode id: String) { mode = id; defaults.set(id, forKey: Self.prefix + agentID + ".mode") }
+    func pick(mode id: String) { mode = id; defaults.set(id, forKey: Self.prefix + agentID + ".mode"); defaults.synchronize() }
     func pick(launch: ProtoLaunch) { self.launch = launch; defaults.set(launch.rawValue, forKey: Self.prefix + "launch") }
 
     /// Start: what would be sent, said once (the prototype starts nothing).
