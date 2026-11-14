@@ -11,7 +11,9 @@ if (unknown.length > 0) {
 }
 
 try {
-  const result = await reconcileStripeSubscriptions({ dryRun });
+  // Not a 60 s function, so no time budget: a truncated run still means the
+  // backlog is larger than one batch.
+  const result = await reconcileStripeSubscriptions({ dryRun, budgetMs: Number.POSITIVE_INFINITY });
   console.log(JSON.stringify({ dryRun, ...result }, null, 2));
   if (result.failed > 0 || result.truncated) process.exitCode = 1;
 } catch (error) {
