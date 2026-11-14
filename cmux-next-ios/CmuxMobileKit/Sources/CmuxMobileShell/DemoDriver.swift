@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -76,6 +76,30 @@ struct DemoDriver {
             // CMUX-489: Home's Mac is not connected; the rows this phone kept show under the
             // top bar (no link is dialed: the mock store marks the Mac's link failed).
             MacHomeFeed.shared.seedStressRows(count: 8, macID: "mac-studio")
+            shell.store.tracksMacData = true
+            shell.store.macConnection["mac-studio"] = .failed("The Mac didn't answer.")
+            shell.tab = .home
+        case "retry-home-failed":
+            // The link is up, but the last read failed: kept rows, "Couldn't refresh · last known".
+            MacHomeFeed.shared.seedStressRows(count: 8, macID: "mac-studio")
+            MacHomeFeed.shared.setProblemForDemo("The Mac didn't answer.")
+            shell.store.tracksMacData = true
+            shell.store.macConnection["mac-studio"] = .connected
+            shell.tab = .home
+        case "retry-home-unreachable-empty", "retry-home-asleep-empty":
+            // Nothing kept: Workspaces' empty state ("Can't connect to …", or "… is offline").
+            MacHomeFeed.shared.seedStressRows(count: 0, macID: "mac-studio")
+            if name == "retry-home-asleep-empty" {
+                shell.store.teams = shell.store.teams.map { team in
+                    var team = team
+                    team.macs = team.macs.map { mac in
+                        var mac = mac
+                        if mac.id == "mac-studio" { mac.isOnline = false }
+                        return mac
+                    }
+                    return team
+                }
+            }
             shell.store.tracksMacData = true
             shell.store.macConnection["mac-studio"] = .failed("The Mac didn't answer.")
             shell.tab = .home

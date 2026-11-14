@@ -370,6 +370,7 @@ impl Mux {
             agent_chat_notices: Default::default(),
             #[cfg(unix)]
             project_chats: Default::default(),
+            chat_index: Default::default(),
             project_watch: Default::default(),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),

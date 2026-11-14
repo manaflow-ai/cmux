@@ -556,31 +556,6 @@ public final class DaemonTerminalSession: TerminalSession {
         }
     }
 
-    /// The Mac terminal's foreground program (`process-info`
-    /// `foreground_program`, the foreground job's program: its leader, or the
-    /// script a leading shell runs, as `man` on macOS), nil while
-    /// not attached, on a refusal or after ``processInfoDeadline``. One bounded
-    /// read, asked when the screen enters the alternate screen and when a drag
-    /// begins there (``TerminalPanRoute``).
-    public func foregroundProgram() async -> String? {
-        guard attached, let client else { return nil }
-        let surface = surface
-        do {
-            let reply = try await client.request("process-info", params: ["surface": surface], deadline: Self.processInfoDeadline)
-            if let error = Self.error(in: reply) {
-                log.notice("surface \(surface, privacy: .public): process-info refused: \(error, privacy: .public)")
-                return nil
-            }
-            return TerminalAlternateScroll.program(processInfo: (try JSONSerialization.jsonObject(with: reply) as? [String: Any]) ?? [:])
-        } catch {
-            log.notice("surface \(surface, privacy: .public): process-info failed: \(String(describing: error), privacy: .public)")
-            return nil
-        }
-    }
-
-    /// How long a drag's `process-info` may take (the Mac answers in one PTY query).
-    nonisolated static let processInfoDeadline: Duration = .seconds(1)
-
     /// The reader scrolled up to the mirror's oldest row and the Mac has
     /// older ones (``historyRowsOmitted``): a second attach with
     /// ``historyChunkRows`` more rows of history (all of them when that many

@@ -98,6 +98,9 @@ struct Signals {
     host_broken: bool,
     /// `started` times since the last `ready`.
     starts: VecDeque<u64>,
+    /// A `started` with no `ready` or `exited` after it: only then is a
+    /// progress line a restore (a late line of an ensure that ended is not).
+    starting: bool,
     restoring: bool,
     restore_bytes: u64,
     last_progress: u64,
@@ -481,18 +484,21 @@ impl Health {
                         s.starts.pop_front();
                     }
                     (s.restoring, s.restore_bytes) = (false, 0);
+                    s.starting = true;
                     // A new process: tell the launcher again if it loops.
                     part.repair.held = false;
                 }
                 "ready" => {
                     s.starts.clear();
-                    s.restoring = false;
+                    (s.starting, s.restoring) = (false, false);
                 }
-                "exited" => s.restoring = false,
+                "exited" => (s.starting, s.restoring) = (false, false),
                 // With bytes read, only more bytes is progress. Without (a daemon whose progress
                 // line has no work counters yet), each line says the owner is still restoring;
                 // its own no-work bound ends a stuck one.
                 "restoreProgress" => match value {
+                    // No owner is starting: the line came after its ensure ended.
+                    _ if !s.starting => {}
                     Some(bytes) if s.restoring && bytes <= s.restore_bytes => {}
                     Some(bytes) => {
                         s.restoring = true;
