@@ -207,3 +207,28 @@ fn a_damaged_group_row_is_a_hole_that_keeps_its_place() {
         ([turn_group(3)].as_slice(), turn_group(3), turn_group(3))
     );
 }
+
+#[test]
+fn a_group_row_rows_idx_does_not_hold_is_a_hole_that_keeps_its_place() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut log, mut folds) = folded_turns(home.path(), 1, 3);
+    // `folds.idx` lists turn 4; its rows were never settled, so `rows.idx` has no entry.
+    let missing = turn_group(4);
+    folds.append(missing, missing + TURN_ROWS - 1).unwrap();
+    assert!(log.row(missing).is_none());
+    let page = log.read_turns(Edge::Before(u64::MAX), usize::MAX, &folds).unwrap();
+    assert_eq!(ids(&page.rows), groups(1..=3));
+    assert_eq!(page.refused, [missing]);
+    assert_eq!(texts(&page).len(), 3);
+    assert_eq!((page.lo, page.hi), (turn_group(1), missing));
+    // The hole spends no bytes but holds its place: a one-byte page is the hole alone.
+    let page = log.read_turns(Edge::Before(u64::MAX), 1, &folds).unwrap();
+    assert!(page.rows.is_empty() && page.has_before && !page.has_after);
+    assert_eq!(
+        (page.refused.as_slice(), page.lo, page.hi),
+        ([missing].as_slice(), missing, missing)
+    );
+    let page = log.read_turns(Edge::After(turn_group(3)), usize::MAX, &folds).unwrap();
+    assert!(page.rows.is_empty() && page.has_before && !page.has_after);
+    assert_eq!(page.refused, [missing]);
+}
