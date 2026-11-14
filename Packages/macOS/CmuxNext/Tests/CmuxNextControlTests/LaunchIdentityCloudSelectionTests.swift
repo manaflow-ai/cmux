@@ -45,4 +45,18 @@ import Testing
         #expect(!LaunchIdentity.inheritedKeys(processEnvironment: environment, bundledEnvironment: bundled)
             .contains("CMUX_NEXT_CLOUD_BACKEND"))
     }
+
+    /// A launcher inside another cmux that names this app (`CMUX_BUNDLE_ID` set to its bundle id) sets the
+    /// backend for this app on purpose; its other cmux markers are still dropped.
+    @Test func aLauncherThatNamesThisAppKeepsItsBackend() {
+        let environment = Self.nightlyTerminal.merging(["CMUX_BUNDLE_ID": Self.devBundle,
+                                                        "CMUX_NEXT_CLOUD_BACKEND": "staging"]) { $1 }
+        let stripped = Set(LaunchIdentity.inheritedKeys(processEnvironment: environment, bundledEnvironment: [:],
+                                                        bundleID: Self.devBundle))
+        #expect(stripped.isDisjoint(with: Self.cloudKeys))
+        #expect(stripped.isSuperset(of: ["CMUX_BUNDLE_ID", "CMUX_SOCKET_PATH"]))
+        // The nightly's own bundle id names the nightly, not this DEV build.
+        #expect(Set(LaunchIdentity.inheritedKeys(processEnvironment: Self.nightlyTerminal, bundledEnvironment: [:],
+                                                 bundleID: Self.devBundle)).isSuperset(of: Self.cloudKeys))
+    }
 }
