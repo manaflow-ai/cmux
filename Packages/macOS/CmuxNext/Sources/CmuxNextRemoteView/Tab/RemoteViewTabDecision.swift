@@ -44,6 +44,11 @@ public nonisolated struct RemoteConnectionTarget: Sendable, Hashable {
         self.kind = kind
         self.requiresConfirmation = requiresConfirmation
     }
+
+    /// Builds the desktop variant used by Cloud connection gates.
+    public static func desktop(name: String, status: String?, region: String?, requiresConfirmation: Bool = true) -> Self {
+        Self(name: name, status: status, region: region, kind: .desktop, requiresConfirmation: requiresConfirmation)
+    }
 }
 
 /// What a `remote_view` tab shows.

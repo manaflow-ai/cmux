@@ -39,8 +39,7 @@ extension MachineRegistry: RemoteLocalhostMachines {
 
     func cloudMachineConnectionTarget(machine machineID: String, requiresConfirmation: Bool = true) -> RemoteConnectionTarget? {
         guard let machine = cloudSession(machineID)?.machine else { return nil }
-        return RemoteConnectionTarget(name: machine.title, status: machine.shownStatus.rawValue.capitalized,
-                                      region: machine.region, kind: .desktop, requiresConfirmation: requiresConfirmation)
+        return .desktop(name: machine.title, status: machine.shownStatus.rawValue.capitalized, region: machine.region, requiresConfirmation: requiresConfirmation)
     }
 
     /// Open Desktop's URL carries the id lowercased (a DNS label).
