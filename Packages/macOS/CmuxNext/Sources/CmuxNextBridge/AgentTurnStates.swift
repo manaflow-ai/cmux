@@ -66,11 +66,16 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
     public var subagentsRunning = 0
     public var subagentNames: [String] = []
     public var commandsRunning = 0
+    /// The chat works in a turn Claude Code runs on its own (acpmux `backgroundTurn`: woken by a
+    /// background command or subagent that ended, a scheduled wakeup), not one anyone prompted.
+    /// acpmux says `working` meanwhile (https://github.com/manaflow-ai/cmux/issues/42447), and
+    /// such a turn never pings: its end rings no pane. False from an older acpmux.
+    public var backgroundTurn = false
 
     public init(model: String? = nil, turnStartedAtMs: UInt64? = nil, prompt: String? = nil,
                 laneState: String? = nil, laneSinceMs: UInt64? = nil, cwd: String? = nil,
                 contextTokens: Int? = nil, contextWindow: Int? = nil, costUsd24h: Double? = nil, promptIsNotice: Bool = false,
-                subagentsRunning: Int = 0, subagentNames: [String] = [], commandsRunning: Int = 0) {
+                subagentsRunning: Int = 0, subagentNames: [String] = [], commandsRunning: Int = 0, backgroundTurn: Bool = false) {
         self.model = model
         self.turnStartedAtMs = turnStartedAtMs
         self.prompt = prompt
@@ -84,11 +89,13 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
         self.subagentsRunning = subagentsRunning
         self.subagentNames = subagentNames
         self.commandsRunning = commandsRunning
+        self.backgroundTurn = backgroundTurn
     }
 
     /// A summary's detail; nil when it names none of them.
     public static func of(summary: [String: Any]) -> AgentChatDetail? {
         let turn = summary["turn"] as? [String: Any]
+        let background = summary["backgroundTurn"] as? [String: Any]
         let text = { (value: Any?) -> String? in
             guard let text = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
             return text
@@ -103,7 +110,9 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
         }
         let tokens = { (value: Any?) -> Int? in amount(value).flatMap { $0 < Double(Int.max) ? Int($0) : nil } }
         let count = { (value: Any?) -> Int in max(0, (value as? NSNumber)?.intValue ?? 0) }
-        let detail = AgentChatDetail(model: text(summary["model"]), turnStartedAtMs: (turn?["startedAt"] as? NSNumber)?.uint64Value,
+        // A background turn's start is the running turn's start (the hover card's "since").
+        let started = (turn?["startedAt"] as? NSNumber ?? background?["startedAt"] as? NSNumber)?.uint64Value
+        let detail = AgentChatDetail(model: text(summary["model"]), turnStartedAtMs: started,
                                      prompt: text(turn?["prompt"]), laneState: text(lane?["state"]),
                                      laneSinceMs: (lane?["since"] as? NSNumber)?.uint64Value, cwd: text(summary["cwd"]),
                                      contextTokens: tokens(usage?["contextTokens"]),
@@ -112,7 +121,8 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
                                      promptIsNotice: turn?["notice"] as? Bool == true,
                                      subagentsRunning: count(summary["subagentsRunning"]),
                                      subagentNames: (summary["subagentNames"] as? [Any] ?? []).compactMap(text),
-                                     commandsRunning: count(summary["commandsRunning"]))
+                                     commandsRunning: count(summary["commandsRunning"]),
+                                     backgroundTurn: turn == nil && background != nil)
         return detail == AgentChatDetail() ? nil : detail
     }
 
@@ -441,7 +451,9 @@ public final class AgentTurnStateStore {
         let held = record(session)
         held.source = source
         if recordsTimeline, held.state == .working, state != .working {
-            onTurnEnded?(session)
+            // A turn Claude Code ran on its own never pings (acpmux `background_turn.rs`): its end
+            // rings no pane; the diff still warms.
+            if held.detail?.backgroundTurn != true { onTurnEnded?(session) }
             for observer in turnEndedObservers { observer(session, (detail ?? held.detail)?.cwd) }
         }
         if recordsTimeline {
