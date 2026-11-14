@@ -6,7 +6,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import postgres, { type Sql } from "postgres";
 
-import { closeCloudDbForTests } from "../db/client";
+import { closeCloudDbForTests, cloudDb } from "../db/client";
+import {
+  accountDeletionCheckForUser,
+  detachAppleBillingForAccountDeletion,
+} from "../services/billing/apple/accountDeletion";
+import { processAppleNotification, type AppleIapDependencies } from "../services/billing/apple/service";
 import { activeApplePlanForUser } from "../services/billing/apple/entitlement";
 import type { AppleSubscriptionState } from "../services/billing/apple/state";
 import { AppleOwnershipError, databaseAppleIapStore } from "../services/billing/apple/store";
@@ -202,5 +207,168 @@ describe("Apple IAP store", () => {
     expect(statuses.map((row) => [row.original_transaction_id, row.status])).toEqual([
       ["otx-a", "expired"], ["otx-b", "billing_retry"], ["otx-c", "grace_period"], ["otx-d", "expired"], ["otx-e", "billing_retry"],
     ]);
+  });
+});
+
+// Account deletion with an App Store subscription: the pre-delete check sees
+// the renewing subscription, deletion removes the token and the subscription
+// state, keeps the transaction ledger under the deleted-account placeholder,
+// and a later App Store notification is skipped as unlinked instead of
+// granting a plan to the deleted account.
+const DELETING_USER = "deleting-user";
+
+function deletionState(token: string, overrides: Partial<AppleSubscriptionState> = {}): AppleSubscriptionState {
+  return {
+    originalTransactionId: "otx-deleted",
+    appAccountToken: token,
+    bundleId: "com.cmux.app",
+    environment: "Production",
+    productId: "com.cmux.app.pro.monthly",
+    planId: "pro",
+    status: "active",
+    autoRenewEnabled: true,
+    autoRenewProductId: "com.cmux.app.pro.monthly",
+    purchaseDate: new Date(NOW - DAY),
+    originalPurchaseDate: new Date(NOW - DAY),
+    expiresAt: new Date(NOW + 29 * DAY),
+    gracePeriodExpiresAt: null,
+    storefront: "USA",
+    currency: "USD",
+    priceMilliunits: 74990,
+    lastTransactionId: "tx-1",
+    revokedAt: null,
+    revocationReason: null,
+    stateSignedAt: new Date(NOW - DAY),
+    ...overrides,
+  };
+}
+
+async function subscribeDeletingUser(): Promise<string> {
+  const token = await store.accountTokenForUser(DELETING_USER);
+  await store.writeSubscriptionState(deletionState(token), { tokenOwner: DELETING_USER });
+  await store.recordTransaction({
+    transactionId: "tx-1",
+    originalTransactionId: "otx-deleted",
+    userId: DELETING_USER,
+    productId: "com.cmux.app.pro.monthly",
+    planId: "pro",
+    environment: "Production",
+    type: "PURCHASE",
+    purchaseDate: new Date(NOW - DAY),
+    expiresAt: new Date(NOW + 29 * DAY),
+    priceMilliunits: 74990,
+    currency: "USD",
+    storefront: "USA",
+    offerType: null,
+    revokedAt: null,
+    payload: {},
+  });
+  return token;
+}
+
+describe("account deletion with an App Store subscription", () => {
+  dbTest("the pre-delete check reports a renewing subscription and stops once auto-renew is off", async () => {
+    const token = await subscribeDeletingUser();
+    expect(await accountDeletionCheckForUser(DELETING_USER)).toEqual({
+      appStoreSubscriptionRenews: true,
+      manageSubscriptionsUrl: "https://apps.apple.com/account/subscriptions",
+    });
+    await store.writeSubscriptionState(
+      deletionState(token, { autoRenewEnabled: false, stateSignedAt: new Date(NOW) }),
+      { tokenOwner: DELETING_USER },
+    );
+    expect(await accountDeletionCheckForUser(DELETING_USER)).toEqual({
+      appStoreSubscriptionRenews: false,
+      manageSubscriptionsUrl: null,
+    });
+  });
+
+  dbTest("deletion leaves other accounts' tokens, subscriptions and ledger rows alone", async () => {
+    await subscribeDeletingUser();
+    const otherToken = await store.accountTokenForUser("other-user");
+    await store.writeSubscriptionState(
+      deletionState(otherToken, { originalTransactionId: "otx-other", lastTransactionId: "tx-other" }),
+      { tokenOwner: "other-user" },
+    );
+    await store.recordTransaction({
+      transactionId: "tx-other",
+      originalTransactionId: "otx-other",
+      userId: "other-user",
+      productId: "com.cmux.app.pro.monthly",
+      planId: "pro",
+      environment: "Production",
+      type: "PURCHASE",
+      purchaseDate: new Date(NOW - DAY),
+      expiresAt: new Date(NOW + 29 * DAY),
+      priceMilliunits: 74990,
+      currency: "USD",
+      storefront: "USA",
+      offerType: null,
+      revokedAt: null,
+      payload: {},
+    });
+
+    await cloudDb().transaction((tx) => detachAppleBillingForAccountDeletion(tx, DELETING_USER));
+
+    expect(await store.userIdForAccountToken(otherToken)).toBe("other-user");
+    expect(await store.subscription("otx-other")).toMatchObject({ userId: "other-user", status: "active" });
+    const otherLedger = await sql!`select user_id from apple_transactions where transaction_id = 'tx-other'`;
+    expect(otherLedger.map((row) => row.user_id)).toEqual(["other-user"]);
+    expect(await accountDeletionCheckForUser("other-user")).toMatchObject({ appStoreSubscriptionRenews: true });
+  });
+
+  dbTest("deletion unlinks the subscription, keeps the ledger, and a later renewal is skipped", async () => {
+    const token = await subscribeDeletingUser();
+
+    await cloudDb().transaction((tx) => detachAppleBillingForAccountDeletion(tx, DELETING_USER));
+
+    expect(await store.userIdForAccountToken(token)).toBeNull();
+    expect(await store.subscription("otx-deleted")).toBeNull();
+    expect(await accountDeletionCheckForUser(DELETING_USER)).toMatchObject({ appStoreSubscriptionRenews: false });
+    const ledger = await sql!`select user_id from apple_transactions where transaction_id = 'tx-1'`;
+    expect(ledger.map((row) => row.user_id)).toEqual(["deleted-account"]);
+
+    // Apple keeps renewing the subscription; its next notification still
+    // carries the deleted account's token.
+    const { row } = await store.insertNotification({
+      notificationUuid: "renewal-after-deletion",
+      notificationType: "DID_RENEW",
+      subtype: null,
+      environment: "Production",
+      originalTransactionId: "otx-deleted",
+      signedDate: new Date(NOW),
+      payload: {
+        data: {
+          transactionInfo: {
+            type: "Auto-Renewable Subscription",
+            originalTransactionId: "otx-deleted",
+            transactionId: "tx-2",
+            appAccountToken: token,
+            bundleId: "com.cmux.app",
+            productId: "com.cmux.app.pro.monthly",
+            environment: "Production",
+            purchaseDate: NOW,
+            expiresDate: NOW + 30 * DAY,
+            signedDate: NOW,
+          },
+        },
+      },
+    });
+    const applied: string[] = [];
+    const deps: AppleIapDependencies = {
+      store,
+      verifier: {} as AppleIapDependencies["verifier"],
+      serverApi: null,
+      applyEntitlement: async (userId) => { applied.push(userId); },
+      captureEvent: async () => {},
+      now: () => new Date(NOW),
+    };
+
+    expect(await processAppleNotification(row, deps)).toBe("skipped");
+    expect(applied).toEqual([]);
+    expect(await store.subscription("otx-deleted")).toBeNull();
+    const [ledgerRow] = await sql!`select processed_at, error from apple_notifications where notification_uuid = 'renewal-after-deletion'`;
+    expect(ledgerRow?.processed_at).not.toBeNull();
+    expect(ledgerRow?.error).toBe("skipped: unlinked_account");
   });
 });
