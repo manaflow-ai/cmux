@@ -9,11 +9,19 @@ extension AgentPaneView {
     /// dropped them on it, and gives the composer the keyboard. `claimed`: the bundle id of the app
     /// they came from, when known (a file's own metadata, a screenshot's, still says first). The page
     /// takes them when it gets the command (`chat.attach.external`); a page still loading gets it
-    /// once it subscribes.
+    /// once its client is ready (`pane.clientReady`).
     public func attachExternal(_ urls: [URL], claimed: String?) {
         guard !urls.isEmpty else { return }
         model.droppedPaths.hold(external: urls, claimed: claimed)
         focusChat()
+        guard model.clientReady else {
+            model.whenClientReady = { [weak self] in self?.sendAttachExternal() }
+            return
+        }
+        sendAttachExternal()
+    }
+
+    private func sendAttachExternal() {
         deliver([.command("attachExternal")], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"attachExternal\");"])
     }
 

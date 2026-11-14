@@ -68,17 +68,18 @@ test("only a composer takes the files, with the keyboard; without one the host k
     asked.push(method);
     return { files: [{ name: "x.png", type: "image/png", data: PNG }] };
   };
-  takeExternalInto(() => null, call);
+  expect(takeExternalInto(() => null, call)).toBe(false);
   expect(asked).toEqual([]);
   const took: string[] = [];
   let focused = 0;
-  takeExternalInto(
+  const asking = takeExternalInto(
     () => ({
       attachFiles: (files, kind) => took.push(...files.map((file) => `${kind}:${file.name}`)),
       focus: () => focused++,
     }),
     call,
   );
+  expect(asking).toBe(true);
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(asked).toEqual(["chat.attach.external"]);
   expect(took).toEqual(["external:x.png"]);

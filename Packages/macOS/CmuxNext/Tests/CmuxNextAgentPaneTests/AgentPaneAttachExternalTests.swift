@@ -126,6 +126,19 @@ struct AgentPaneAttachExternalTests {
         #expect(try Data(contentsOf: saved) == Data([3]))
     }
 
+    /// A push that waits for the page's client runs once, when the page says its client is ready, and
+    /// not when it says it is not.
+    @Test func aPushForAPageStillLoadingWaitsForItsClient() async {
+        let model = Self.model()
+        var ran = 0
+        model.whenClientReady = { ran += 1 }
+        _ = await Self.ask(model, "pane.clientReady", ["ready": false])
+        #expect(ran == 0)
+        _ = await Self.ask(model, "pane.clientReady", ["ready": true])
+        _ = await Self.ask(model, "pane.clientReady", ["ready": true])
+        #expect(ran == 1 && model.whenClientReady == nil)
+    }
+
     /// Whether this process reaches a pasteboard server: a fleet test step often does not, and there
     /// every write fails and every read returns nil (as `AttachmentSourceTests` finds).
     nonisolated private static let hasPasteboard: Bool = {
