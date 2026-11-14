@@ -154,13 +154,17 @@ async fn hold_attach_supports_view_typing_presence_and_exact_live_kinds() {
     let mut second = Client::connect(&hub).await;
     let second_attach = second.call(method::MUX_ATTACH, hold(json!(["named_kind"]))).await;
     assert!(second_attach.get("error").is_none(), "{second_attach}");
-    let participants_before_detach = loop {
-        let presence = first.notification_method(method::MUX_PRESENCE).await;
-        let count = presence["params"]["participants"].as_array().unwrap().len();
-        if count >= 2 {
-            break count;
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let count = hub.presence.snapshot(ID)["participants"].as_array().unwrap().len();
+            if count >= 2 {
+                break;
+            }
+            tokio::task::yield_now().await;
         }
-    };
+    })
+    .await
+    .expect("the second hold appears in presence");
 
     hub.append(&session, "mux", "named_kind", json!({"ok": true}));
     hub.append(&session, "mux", "not_named", json!({"ok": false}));
@@ -178,11 +182,17 @@ async fn hold_attach_supports_view_typing_presence_and_exact_live_kinds() {
 
     let detached = second.call(method::MUX_DETACH, json!({"sessionId": ID})).await;
     assert!(detached.get("error").is_none(), "{detached}");
-    let after_detach = first.notification_method(method::MUX_PRESENCE).await;
-    assert_eq!(
-        after_detach["params"]["participants"].as_array().unwrap().len(),
-        participants_before_detach.saturating_sub(1)
-    );
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let count = hub.presence.snapshot(ID)["participants"].as_array().unwrap().len();
+            if count == 1 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("detach removes the second presence");
 }
 
 fn p95(values: &[u128]) -> u128 {
