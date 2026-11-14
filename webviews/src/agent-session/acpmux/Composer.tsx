@@ -55,7 +55,7 @@ import { newSlotMemory, type SlotMemory } from "./composer/sendSlotGlyphModel";
 import { isActive, type Dictation } from "./dictation";
 import { DictationStrip } from "./DictationListening";
 import { FileSearch } from "./FileSearch";
-import { PromptFocus } from "./promptFocus";
+import { PromptFocusProvider } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { MentionMenu } from "./MentionMenu";
 import { markdownOffset, mentionQuery, mentionResults, useMentionSearch } from "./mentionMenuModel";
@@ -176,7 +176,6 @@ import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
 import { MachineLinkStatus } from "./MachineLinkStatus";
 import { peerLink, type PeerLink } from "./peerLink";
-import { composerHoldsDraft } from "./conversation/wakeFolds";
 import {
   emojiMatches,
   emojiTrigger,
@@ -283,8 +282,6 @@ export type ComposerWake = {
   attachments?: ComposerAttachment[];
   shell?: boolean;
   shellText?: string;
-  /// Typed text or chips: only read by the host's hidden-chat release, never handed back.
-  holdsDraft?: boolean;
 };
 
 type Props = {
@@ -1068,8 +1065,6 @@ function ComposerFrame({
           attachments,
           shell: shellRef.current.shell,
           shellText: shellRef.current.shellText,
-          // A release agents.hiddenChats.discard alone makes keeps a page holding a draft (AgentPaneWakeState.swift).
-          holdsDraft: composerHoldsDraft(field.current?.value() ?? textRef.current, attachments),
         };
       },
       async settleDraft() {
@@ -3007,10 +3002,10 @@ function ComposerFrame({
           </>
         }
         chips={
-          <PromptFocus value={focusPrompt}>
+          <PromptFocusProvider focus={focusPrompt}>
             <Chips snapshot={snapshot} />
             <MachineLinkStatus link={machineLink} onReconnect={onReconnectMachine} />
-          </PromptFocus>
+          </PromptFocusProvider>
         }
         // The context ring sits left of the model chip (composerLocation.css; Lucas 2026-11-11).
         // A new chat has no ring: it shows from the first send (chatHasFirstSend, locationRow.ts),

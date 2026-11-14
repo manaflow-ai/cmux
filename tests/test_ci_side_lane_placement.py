@@ -2131,9 +2131,11 @@ class AppFfiBuildPlacement(unittest.TestCase):
 
     On 2026-11-10 vars.CI_NEXT_PROMOTE_POOL was unset and every FFI build queued on blacksmith-6vcpu-macos-26
     behind PR CI for 11 to 66 minutes, while feat-cmux-next stayed red until its re-pin landed. The build now
-    takes an idle promote runner, else a free Blacksmith slot (12 vCPU, then 6), never a side mini, and only the
-    fallback queue when the cascade places nothing. The placement step's env and the build's runs-on are
-    evaluated from the workflow itself, so a workflow edit reaches the test.
+    takes an idle promote runner, else a free Blacksmith slot (12 vCPU, then 6), and only the fallback queue when
+    the cascade places nothing. That is with vars.CI_BLACKSMITH_MACOS `on`. Unset (Blacksmith macOS off, cmux#43103)
+    it takes an idle promote runner, else vars.CI_SIDE_LANE_RUNNER: on 2026-11-14 blacksmith-6vcpu-macos-26 stalled
+    (104 queued, oldest 106 min) and "Check the app FFI pin" went red on every push (hq#10943). The placement step's
+    env and the build's runs-on are evaluated from the workflow itself, so a workflow edit reaches the test.
     """
 
     PROMOTE = "glaeda-promote-side-trusted-std-xcode-26.6"
@@ -2142,18 +2144,18 @@ class AppFfiBuildPlacement(unittest.TestCase):
     def workflow(self) -> dict:
         return yaml.safe_load((WORKFLOWS / "app-ffi-release.yml").read_text())
 
-    def context(self, *, promote: str, attempt: str = "1", event: str = "push") -> dict:
+    def context(self, *, promote: str, attempt: str = "1", event: str = "push", switch: str = "on") -> dict:
         context = github_context(event, ref="refs/heads/feat-cmux-next", CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=SIDE,
-                                 CI_NEXT_PROMOTE_POOL=promote)
+                                 CI_NEXT_PROMOTE_POOL=promote, CI_BLACKSMITH_MACOS=switch)
         context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, event={}, token="g")
         context["steps"] = {"route-token": {"outputs": {"token": "t"}}}
         return context
 
     def route(self, runners: list[dict], *, promote: str = "", free: tuple[int, int] = (5, 10), attempt: str = "1",
-              event: str = "push", ran: bool = True, queued: int = 0) -> tuple[str, dict[str, str]]:
+              event: str = "push", ran: bool = True, queued: int = 0, switch: str = "on") -> tuple[str, dict[str, str]]:
         """(the build's runs-on, the placement's outputs) for `runners` and `free` (12 vCPU, 6 vCPU) Blacksmith slots."""
         workflow = self.workflow()
-        context = self.context(promote=promote, attempt=attempt, event=event)
+        context = self.context(promote=promote, attempt=attempt, event=event, switch=switch)
         step = next(step for step in workflow["jobs"]["placement"]["steps"] if step.get("id") == "place")
         self.assertEqual(step["run"].strip(), "python3 scripts/ci/side_lane_placement.py")
         values = {key: evaluate(value, context) if "${{" in str(value) else value for key, value in step["env"].items()}
@@ -2186,8 +2188,8 @@ class AppFfiBuildPlacement(unittest.TestCase):
         self.assertNotIn("app-ffi-build", lines["blacksmith_12_jobs"] + lines["blacksmith_6_jobs"])
 
     def test_no_promote_pool_takes_a_free_blacksmith_slot_never_an_idle_side_mini(self):
-        # The variable unset (2026-11-10), with an idle side mini: the side mini runs PR code, so it never
-        # takes a build whose artifact is published; the free 12 vCPU slot does.
+        # Blacksmith macOS on and the promote variable unset (2026-11-10), with an idle side mini: the free
+        # 12 vCPU slot takes the build.
         label, lines = self.route([runner("mini-a-glaeda-3")], promote="")
         self.assertEqual(label, self.LARGE)
         self.assertEqual(lines["blacksmith_12_jobs"], " app-ffi-build ")
@@ -2241,6 +2243,25 @@ class AppFfiBuildPlacement(unittest.TestCase):
         label, lines = self.route([idle], promote=self.PROMOTE, attempt="2")
         self.assertEqual(lines["promote_runner"], "")
         self.assertNotEqual(label, self.PROMOTE)
+
+    def test_blacksmith_macos_off_takes_the_side_pool_on_every_route(self):
+        # vars.CI_BLACKSMITH_MACOS unset (cmux#43103's off switch): no Blacksmith macOS label on any route, free
+        # slots, a stalled queue, a re-run, a dispatch or a placement that did not run alike.
+        for why, kwargs in {"free slots": {}, "no free slot": {"free": (0, 0)},
+                            "stalled 6 vCPU queue": {"free": (0, 0), "queued": placement.cascade.OVERFLOW_BACKLOG},
+                            "re-run": {"attempt": "2"}, "dispatch": {"event": "workflow_dispatch"},
+                            "no placement": {"ran": False},
+                            "busy promote pool": {"promote": self.PROMOTE}}.items():
+            with self.subTest(why=why):
+                runners = [runner("cmux14", busy=True, labels=(self.PROMOTE,))] if "promote" in kwargs else []
+                label, lines = self.route(runners, switch="", **kwargs)
+                self.assertEqual(label, SIDE)
+                self.assertNotIn("app-ffi-build", lines.get("blacksmith_12_jobs", "") + lines.get("blacksmith_6_jobs", ""))
+
+    def test_blacksmith_macos_off_still_takes_an_idle_promote_runner_first(self):
+        idle = runner("cmux14", labels=(self.PROMOTE,))
+        label, _ = self.route([idle], promote=self.PROMOTE, switch="")
+        self.assertEqual(label, self.PROMOTE)
 
     def test_the_build_runs_whatever_the_placement_did(self):
         build = self.workflow()["jobs"]["build"]
