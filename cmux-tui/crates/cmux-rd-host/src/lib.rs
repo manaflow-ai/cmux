@@ -6,6 +6,7 @@
 //!            media moves to a UDP link when the viewer offers one: src/hybrid.rs)
 //!   host     [--browser URL (Linux) [--browser-bin google-chrome] [--browser-cdp-port N]] --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99 | --display main|N on macOS] [--port 4103] [--max-fps N (default: the display's refresh rate, else 60)] [--input-frame-now 1] [--max-width PX (macOS)] [--codec openh264|x264|videotoolbox] [--openh264-lib PATH] [--profile high|baseline] [--upstream-record DIR]
 //!   bench    --addr HOST:4103 --token-fd N [--carrier udp|stream] [--input key|click|scroll|none] [--samples 300] [--duration-s 30 (none)] [--user USER] [--upstream mic|camera|screen] [--at X,Y] [--marker-origin X,Y] [--decoder videotoolbox|openh264 (macOS)] [--snapshot FILE.ppm] [--record FILE.h264]
+//!   observe  --mode passive --pid VIEWER_PID --window CGWINDOW_ID --start-file PATH --marker-origin X,Y --cell-size N [--expected-nonce 32 lowercase hex] [--duration-s 10] [--interval-ms 1000]
 //!   testapp  --display :99 --workload marker|text|motion|idle
 //!   serve    one device hub session over the secure link, driven by the app in JSON lines on
 //!            stdin and stdout (src/serve.rs); macOS and Linux
@@ -49,6 +50,8 @@ mod mac;
 mod marker;
 #[cfg(feature = "bench")]
 mod observe;
+#[cfg(feature = "bench")]
+mod process_cpu;
 mod selftest;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
 mod serve;
@@ -79,7 +82,7 @@ pub type Res<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 pub fn run_cli(args: &[String]) -> i32 {
     let Some(cmd) = args.first() else {
         eprintln!(
-            "usage: cmux-rd host|bench|observe|testapp|serve|connect|encode-selftest|openh264-install [--key value ...]"
+            "usage: cmux-rd host|bench|observe|observe-cpu|testapp|serve|connect|encode-selftest|openh264-install [--key value ...]"
         );
         return 2;
     };
@@ -97,6 +100,8 @@ pub fn run_cli(args: &[String]) -> i32 {
         "bench" => bench::run(&opts),
         #[cfg(all(target_os = "macos", feature = "bench"))]
         "observe" => mac::observe::run(&opts),
+        #[cfg(all(target_os = "macos", feature = "bench"))]
+        "observe-cpu" => mac::cpu::run(&opts),
         #[cfg(target_os = "linux")]
         "testapp" => testapp::run(&opts),
         #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
