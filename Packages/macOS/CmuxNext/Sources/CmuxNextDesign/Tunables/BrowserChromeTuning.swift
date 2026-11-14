@@ -14,7 +14,8 @@ public import CoreGraphics
 /// ```swift
 /// let square = BrowserChromeTuning.value(.closeSize) // 14 at Default, unless tuned
 /// ```
-public nonisolated enum BrowserChromeTuning {
+public nonisolated struct BrowserChromeTuning {
+    public nonisolated init() {}
     /// The Debug Settings section that lists the values.
     public static let section = TunableSection(id: "browserChrome", title: "Browser Chrome", symbol: "macwindow", order: 14)
 
