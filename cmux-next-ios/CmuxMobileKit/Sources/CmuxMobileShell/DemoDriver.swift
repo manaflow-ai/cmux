@@ -688,7 +688,7 @@ struct DemoDriver {
         guard await until(30, { shell.terminalTabs.model(forTabID: tab.id) != nil }),
               let model = shell.terminalTabs.model(forTabID: tab.id) else { return step("live-terminal no model") }
         await until(30) { model.connectionState.isAttached }
-        await until(20) { model.controller?.started == true && !model.debugState.contains("draws=0 ") }
+        await until(20) { model.debugState != "-" && !model.debugState.contains("draws=0 ") }
         await pause(1.5)
         model.composerText = #"clear; for i in 0 1 2 3 4 5 6 7; do printf "\e[4${i}m   "; done; printf "\e[0m\n"; "#
             + #"for i in 0 1 2 3 4 5 6 7; do printf "\e[10${i}m   "; done; printf "\e[0m\n"; "#
