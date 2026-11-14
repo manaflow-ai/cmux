@@ -103,10 +103,12 @@ jobs:
                 web_changed=true
               fi
               # A diff of only prose and images reaches neither app: skip the
-              # Mac job; ios-e2e-status still concludes green.
+              # backend and the Mac job (it gates on run_clients alone, so
+              # clear that too); ios-e2e-status still concludes green.
               app_paths=$(grep -Ev '(\.md$|^docs/|^plans/|^release-notes/|^images/|^art/)' <<<"$changed" || true)
               if [ -n "$changed" ] && [ -z "$app_paths" ]; then
                 run_e2e=false
+                run_clients=false
               fi
             else
               # Isolate a rebase or detached edge rather than mutating the
