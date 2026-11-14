@@ -536,8 +536,8 @@ pub unsafe extern "C" fn acpmux_client_subscribe_chat(
     })
 }
 
-/// Asks a chat sub for a page from `{ "sid", "before" | "after", "fold"?, "maxBytes"? }`. The
-/// core fills the stream and the edition.
+/// Asks a chat sub for a page from `{ "sid", "before" | "after", "fold"? | "turns"?,
+/// "maxBytes"? }`. The core fills the stream and the edition.
 ///
 /// # Safety
 /// `handle` and the input slice obey the pointer/length contract.
