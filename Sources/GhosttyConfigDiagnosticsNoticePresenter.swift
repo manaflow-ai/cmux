@@ -22,7 +22,7 @@ final class GhosttyConfigDiagnosticsNoticePresenter {
     /// place the card just under it. Standard mode draws the app titlebar band
     /// and the Bonsplit tab bar; minimal mode draws the tab bar only.
     static func chromeHeight(isMinimalMode: Bool) -> CGFloat {
-        let tabBar = WindowChromeMetrics.bonsplitTabBarHeight
+        let tabBar = SurfaceTabBarLayoutSettings().height
         return isMinimalMode ? tabBar : WindowChromeMetrics.appTitlebarHeight + tabBar
     }
 
