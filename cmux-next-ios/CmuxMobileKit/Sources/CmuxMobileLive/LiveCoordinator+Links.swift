@@ -938,7 +938,9 @@ extension LiveCoordinator {
         case .connecting:
             if store.macData[macID]?.source == .live { store.handleMacData(.disconnected(at: Date()), macID: macID) }
             store.handleMacData(.connecting, macID: macID)
-            if store.macConnection[macID] == nil || store.macConnection[macID] == .connected {
+            // Inside the quiet wait an earlier failure (from before the app went away) reads as
+            // connecting again: the wait started over on foreground (`restartQuiet`).
+            if store.macConnection[macID] == nil || store.macConnection[macID] == .connected || !session.outageShows {
                 store.macConnection[macID] = .connecting
             }
         case .connected:

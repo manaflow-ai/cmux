@@ -106,7 +106,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
 
     /// The connection toast over kept rows, the states Workspaces' toast uses (``ConnectionBannerState``).
     private var homeBanner: ConnectionBannerState? {
-        guard let status = connectionStatus, keptRowsShow, bannerGate.isShown else { return nil }
+        // An unreachable Mac is already past the coordinator's quiet wait (`macConnection` turns
+        // `.failed` only then): it speaks at once; the other states wait here.
+        guard let status = connectionStatus, keptRowsShow, bannerGate.isShown || status.kind == .unreachable else { return nil }
         let mac = macTag ?? String(localized: "your Mac")
         if status.isRetrying { return .reconnecting(to: mac, identity: homeMacID) }
         switch status.kind {
