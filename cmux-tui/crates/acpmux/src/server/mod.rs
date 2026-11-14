@@ -29,6 +29,7 @@ use tokio::sync::{Semaphore, broadcast, mpsc};
 pub use windows_socket::{UnixListener, bind_unix, router_admin, serve_unix};
 
 pub(crate) mod dual_requests;
+pub(crate) mod link_v2;
 mod ws_peek;
 mod ws_shutdown;
 pub(crate) use ws_shutdown::DRAIN_BUDGET as WS_DRAIN_BUDGET;

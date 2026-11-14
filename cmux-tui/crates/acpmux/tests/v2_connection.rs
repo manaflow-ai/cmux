@@ -146,7 +146,7 @@ fn pair(
     let driver = source.clone();
     let task = tokio::spawn(async move {
         let (rd, wr) = server.into_split();
-        conn::run(rd, wr, driver, "pr4-gate", &["list".into()]).await
+        conn::run(rd, wr, driver, "pr4-gate", &["list".into()], super::Role::Local).await
     });
     (client, source, task)
 }

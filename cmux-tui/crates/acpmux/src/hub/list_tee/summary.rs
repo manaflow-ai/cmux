@@ -429,6 +429,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn peer_form_keeps_stuck_details_but_masks_scanned_error_text() {
+        let (hub, session) = fixture(false).await;
+        hub.edit_test_meta(&session, |meta| {
+            for seq in 1..=3 {
+                meta.harness_failures.observe(
+                    &serde_json::json!({
+                        "status": "failed",
+                        "errorText": "HTTP 503 bearer ghp_aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234"
+                    }),
+                    seq,
+                    seq * 10,
+                );
+            }
+        });
+        let row = summary_from_session(&hub, &session).unwrap();
+        let local: Value = serde_json::from_str(row.extra.get()).unwrap();
+        assert_eq!(local["stuckSince"], 30);
+        assert_eq!(local["stuckError"], "HTTP 503 bearer [redacted]");
+        let peer: Summary = serde_json::from_str(row.peer_form.as_ref().unwrap().get()).unwrap();
+        let peer_extra: Value = serde_json::from_str(peer.extra.get()).unwrap();
+        assert_eq!(peer_extra["stuckSince"], 30);
+        assert!(!peer_extra["stuckError"].as_str().unwrap().contains("ghp_"));
+    }
+
+    #[tokio::test]
     async fn display_lists_shrink_without_losing_required_keys_or_the_peer_form() {
         let (hub, session) = fixture(true).await;
         hub.edit_test_meta(&session, |meta| {
