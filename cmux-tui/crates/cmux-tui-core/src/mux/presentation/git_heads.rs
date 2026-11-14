@@ -217,16 +217,18 @@ impl Mux {
     /// thread of the request, the HEAD of each directory that a tab shows and whose cached
     /// value is older than [`GIT_HEAD_TTL`]. The client of such a request holds no tree and asks
     /// no second time, so the refresh would come too late for it: a branch switched with no
-    /// event must be in this reply. The tree that the request reads next finds each value fresh,
-    /// so the request queues nothing for the refresh.
+    /// event must be in this reply. The tree that the request reads next finds these values
+    /// fresh and queues none of them for the refresh; a value that got older than
+    /// [`GIT_HEAD_TTL`] while the request worked goes to the refresh, as in each other walk.
     ///
     /// A HEAD that changed is stored here, so the refresh would find the file system equal to
     /// the cache and tell no client. The request tells them itself, as the refresh does: it
     /// moves the tree revision and sends `tab-changed` for the tabs of that directory.
     ///
     /// The cache also holds directories that no tab shows now; none of them is read here. The
-    /// state lock is taken one time, for the directories of the tabs, and only when the cache
-    /// has a stale value.
+    /// state lock is taken one time to find the directories of the tabs, and only when the
+    /// cache has a stale value. When a HEAD changed, it is taken one time more to find the tabs
+    /// of that directory, and 2 short times for each `tab-changed`.
     pub(crate) fn read_stale_git_heads(&self) {
         let now = Instant::now();
         let stale: HashSet<String> = {
@@ -251,7 +253,8 @@ impl Mux {
         let mut changed = HashSet::new();
         for cwd in shown {
             // Another request, or the refresh, can have read this directory since the list
-            // above was made: requests that come at the same moment then do not each read it.
+            // above was made: it is not read a second time. Two requests that come to one
+            // directory inside the time of one read still both read it.
             let fresh = |entry: &Entry| entry.checked.elapsed() < GIT_HEAD_TTL;
             if self.git_heads.inner.lock().recover_poison().heads.get(&cwd).is_none_or(fresh) {
                 continue;

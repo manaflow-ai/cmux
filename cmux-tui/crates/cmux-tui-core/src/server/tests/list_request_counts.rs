@@ -459,6 +459,20 @@ fn known_of(tree: &Value) -> Value {
     })
 }
 
+/// The surfaces of the `tab-changed` deltas that `events` holds now, each with whether its
+/// tab has `branch` in the event.
+fn changed_tabs_on_branch(events: &MuxEventReceiver, branch: &str) -> Vec<(SurfaceId, bool)> {
+    let field = format!("\"git_branch\":\"{branch}\"");
+    std::iter::from_fn(|| events.try_recv().ok())
+        .filter_map(|event| match event {
+            MuxEvent::TreeDelta(delta) if delta.kind == TreeDeltaKind::TabChanged => {
+                Some((delta.surface?, delta.entity.to_string().contains(&field)))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// The surfaces of the `tab-changed` deltas that `events` holds now.
 fn changed_tabs(events: &MuxEventReceiver) -> Vec<SurfaceId> {
     std::iter::from_fn(|| events.try_recv().ok())
@@ -669,9 +683,10 @@ fn a_request_with_no_known_tree_reads_each_stale_git_head_in_its_reply() {
 /// A request with no `known` that finds a branch switched with no event stores the new value,
 /// so the background refresh finds no change after it and can send nothing. The request itself
 /// must tell each other client: one `tab-changed` for each tab of the directory whose branch
-/// changed (a client that takes events), and a move of the tree revision (a client that asks
-/// again with `known`). A second request with no `known` directly after it finds each value
-/// fresh and reads no HEAD.
+/// changed (a client that takes events), with the new branch in it, and a move of the tree
+/// revision (a client that asks again with `known`). A second request with no `known` directly
+/// after it finds each value fresh and reads no HEAD, and a refresh after it sends no second
+/// event for the same switch.
 #[test]
 fn a_branch_that_a_request_with_no_known_tree_found_reaches_each_other_client() {
     let session = Session::of("list-counts-no-known-tells", 3);
@@ -693,9 +708,9 @@ fn a_branch_that_a_request_with_no_known_tree_found_reaches_each_other_client() 
     let reply = app.list(mux);
     assert_eq!(reply.matches("\"git_branch\":\"next\"").count(), 2, "{}", start_of(&reply));
     wait_until("each git HEAD refresh ended", || Mux::git_head_refreshes_running() == 0);
-    let mut told: Vec<Option<usize>> = changed_tabs(&events)
+    let mut told: Vec<(Option<usize>, bool)> = changed_tabs_on_branch(&events, "next")
         .iter()
-        .map(|surface| session.surfaces.iter().position(|tab| tab == surface))
+        .map(|(surface, next)| (session.surfaces.iter().position(|tab| tab == surface), *next))
         .collect();
     told.sort_unstable();
 
@@ -709,13 +724,21 @@ fn a_branch_that_a_request_with_no_known_tree_found_reaches_each_other_client() 
     let with_new_branch = since.to_string().matches("\"git_branch\":\"next\"").count();
     wait_until("each git HEAD refresh ended", || Mux::git_head_refreshes_running() == 0);
 
+    // The walk of a mutation sends each directory to the refresh: it finds the branch that the
+    // request stored and has nothing to tell.
+    assert!(mux.age_git_heads_for_test(), "this host has no instant that is 3 seconds old");
+    drop(mux.tree_decorations());
+    wait_until("each git HEAD refresh ended", || Mux::git_head_refreshes_running() == 0);
+    let told_by_the_refresh = changed_tabs(&events).len();
+
     assert_eq!(
-        (told, reads_again, whole_tree, with_new_branch),
-        (vec![Some(0), Some(2)], 0, true, 2),
+        (told, reads_again, whole_tree, with_new_branch, told_by_the_refresh),
+        (vec![(Some(0), true), (Some(2), true)], 0, true, 2, 0),
         "after a request with no `known` found a new branch in the repository of terminals 0 \
-         and 2: the terminals with a `tab-changed` for a client that takes events, the git HEAD \
-         reads of a second request with no `known`, whether a request with the `known` from \
-         before the switch gets the whole tree, and the tabs with the new branch in it"
+         and 2: the terminals with a `tab-changed` for a client that takes events (and whether \
+         the event has the new branch), the git HEAD reads of a second request with no `known`, \
+         whether a request with the `known` from before the switch gets the whole tree, the \
+         tabs with the new branch in it, and the `tab-changed` events of a refresh after it"
     );
     session.end();
 }
