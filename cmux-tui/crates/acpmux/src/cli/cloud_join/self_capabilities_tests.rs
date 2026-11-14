@@ -56,7 +56,9 @@ fn fake_hub_gated(
             log.lock().unwrap().push((request, bearer, sent));
             if let Some((arrived, release)) = &gate {
                 arrived.send(()).unwrap();
-                release.recv().unwrap();
+                release
+                    .recv_timeout(std::time::Duration::from_secs(60))
+                    .expect("the test released the held answer");
             }
             let text = body.to_string();
             write!(socket, "HTTP/1.1 {status} answer\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{text}", text.len()).unwrap();
@@ -207,7 +209,11 @@ async fn a_reconnect_states_once_never_two_at_a_time_and_never_after_saving() {
     let fire = || trigger.fire(test_scope(), "test", home.path().to_owned(), None, &NO_WAIT);
     // A reconnect with no list recorded states it.
     let first = fire().expect("a reconnect with no list starts a statement");
-    let arrived = tokio::task::spawn_blocking(move || arrived.recv()).await.unwrap();
+    let arrived = tokio::task::spawn_blocking(move || {
+        arrived.recv_timeout(std::time::Duration::from_secs(60))
+    })
+    .await
+    .unwrap();
     arrived.expect("the statement reached the hub");
     // Its answer is held: another reconnect (or the start) meanwhile starts none.
     assert!(fire().is_none(), "one statement at a time");
