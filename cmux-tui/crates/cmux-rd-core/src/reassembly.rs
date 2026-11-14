@@ -215,7 +215,8 @@ impl Reassembler {
             .filter(|(_, p)| !Self::decodable(p) && now_us >= Self::nack_at(p, after_us, retry_us))
             .take(MAX_NACK_FRAMES)
             .map(|(&frame, p)| {
-                let end = if now_us >= p.last_seen_us.saturating_add(after_us) {
+                let grace_us = after_us.max(MIN_REORDER_GRACE_US);
+                let end = if now_us >= p.last_seen_us.saturating_add(grace_us) {
                     p.count
                 } else {
                     Self::observed_data(p) as u16
