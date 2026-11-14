@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "openh264")]
 use cmux_encode::openh264::{load_verified, Platform};
 #[cfg(any(feature = "openh264", feature = "bench"))]
-use cmux_encode::openh264::{OpenH264, OpenH264Api};
+use cmux_encode::openh264::{OpenH264, OpenH264Api, OpenH264Options};
 pub use cmux_encode::H264Encoder;
 
 /// Encoder settings.
@@ -125,7 +125,13 @@ pub fn open(cfg: &EncCfg<'_>) -> Res<Box<dyn H264Encoder>> {
                 threads: cfg.threads,
                 screen_content: cfg.screen_content,
             };
-            Ok(Box::new(OpenH264::new(&enc_cfg, openh264_api(cfg.openh264_lib)?)?))
+            // Windows hosts code every frame and let the quantizer hold the rate: with frame
+            // skipping, pages of new text reached 15-17 on-time fps on the Windows bench, and
+            // without it 17-30 at the same bitrate, 0.3 dB of text PSNR apart (cmux-codecs
+            // RESULTS.md).
+            let opts = OpenH264Options { frame_skip: !cfg!(windows), ..Default::default() };
+            let api = openh264_api(cfg.openh264_lib)?;
+            Ok(Box::new(OpenH264::with_options(&enc_cfg, api, &opts)?))
         }
         #[cfg(feature = "x264")]
         "x264" => Ok(Box::new(crate::x264::X264::new(

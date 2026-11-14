@@ -72,6 +72,45 @@ CBR, low-latency mode. Both encoders' output was decoded by OpenH264.
   else OpenH264) is ready for a host to call, but it stays unused until a machine with a GPU
   encoder produces `h264-mf` rows. The same workflow runs them on a runner that has one.
 
+## Sharper or faster on Windows: encoder settings (CPU host)
+
+Runs 43643167390 and 43645088338 of the same workflow, same kind of 4-vCPU VM, no GPU (so no
+hardware MFT rows; `codec-bench-windows-exe`, the run's codec-bench.exe, runs them on a machine
+with one). Leo: "cant we sharpen up windows? or is there no way... fps on the open one is so wack".
+The bar was a setting with at least OpenH264's text PSNR and more on-time fps.
+
+OpenH264 with frame skipping off (`frameskip=0`), page scene, two runs each:
+
+| link | loss | on-time fps skip on / off | text PSNR dB skip on / off | media Mbps skip on / off |
+|---|---|---|---|---|
+| 30 Mbps | 0% | 17.4-17.5 / 29.2-29.7 | 31.4 / 31.1 | 9.0 / 8.9 |
+| 30 Mbps | 2% | 14.6-15.1 / 16.7-26.9 | 31.2-31.3 / 31.1-31.2 | 8.8-8.9 / 8.9 |
+| 30 Mbps | 2% bursty | 14.6-15.2 / 20.9-22.9 | 31.4-31.5 / 31.4-31.6 | 8.8-9.0 / 7.9-8.6 |
+| 10 Mbps | 0% | 0.0 / 0.0 (shown 2.0 / 7.3) | 32.2 / 31.6 | 2.7 / 6.9 |
+
+- Scroll and typing: within 0.4 fps and 0.3 dB at 30 Mbps. At 10 Mbps frame skip off is equal or
+  ahead (scroll at 2% bursty 24.2 against 20.2 fps, drag at 2% bursty 23.8 against 16.3).
+- Drag at 2% loss on the 30 Mbps link is the one row it loses: 22.9-23.1 against 24.8-26.3 fps.
+- `threads=4` on top changes nothing measurable (variant 3 of run 43645088338).
+- `complexity=2` (OpenH264's high) is slower: page 13.1-15.9 fps.
+- At 5 Mbps neither setting shows a frame in any scene (40 IDRs per row): an engine finding
+  for its own fix, not a codec difference.
+
+Media Foundation's software MFT, the knobs it accepted:
+
+- Quality VBR (`rc=quality`, 70 or 85): text PSNR 42-45 dB on pages but 19-23 Mbps, so on-time
+  fps falls to 0.0-12.5.
+- Peak VBR (`rc=pvbr,peak=200`): 7.7 Mbps and 26.5-26.9 dB on pages at 22-29 fps, still 4.5 dB
+  under OpenH264; at a 10 Mbps link it stalls (0 on-time fps on page and scroll).
+- Low-delay VBR and a QP ceiling of 20 on still frames: the CBR rows again, within 0.1 dB.
+- High profile with CABAC: pages 21.1-23.3 dB against CBR's 20.8-22.0.
+- Quality-vs-speed 100 with a 1 s buffer: pages 24.2-25.1 dB at 5.2-5.6 Mbps and 22.7-28.9 fps,
+  still 6 dB under OpenH264.
+
+Verdict: Windows hosts send OpenH264 with frame skipping off (`cmux-rd-host/src/encoder.rs`).
+Linux hosts keep frame skipping on. No software MFT setting is as sharp as OpenH264 at a rate the
+link carries; the hardware MFT rows still need a machine with a GPU encoder.
+
 ## VP9 and AV1 against H.264 (#43051, #43115)
 
 - At H.264's own bitrate, VP9 (libvpx, WebRTC's screen settings) drops most frames: 3.2-28.9

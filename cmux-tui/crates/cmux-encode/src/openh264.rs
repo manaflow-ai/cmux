@@ -322,8 +322,11 @@ impl OpenH264 {
         p.bPrefixNalAddingCtrl = false;
         p.bEnableSSEI = false;
         p.iEntropyCodingModeFlag = 0;
-        // Frame skipping lets the rate controller hold the target (measured: without it the
-        // target overshot 6x); a skipped frame sends nothing and the next damage retries.
+        // Frame skipping lets the rate controller hold the target by sending nothing for a
+        // frame (an early measurement overshot 6x without it). On the codec bench, which
+        // follows the media engine's target, the rate held without it too (8.6-8.9 Mbps against
+        // 8.8-9.0 on the page scene) and pages of new text kept up to 29 on-time fps instead of
+        // 15-17, so Windows hosts turn it off (cmux-rd-host `encoder::open`).
         p.bEnableFrameSkip = opts.frame_skip;
         p.bEnableLongTermReference = false;
         p.iMultipleThreadIdc = threads;
