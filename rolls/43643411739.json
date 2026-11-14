@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43643411739",
+  "recorded_at": "2026-11-14T21:40:23Z",
+  "reason": "cmux-tui 7aa4ee2f3294 changes the image's cmux-tui (pinned a4283ed8d473)",
+  "dry_run": false,
+  "cmux_tui": "7aa4ee2f32944324e44dafa4e7a825a2b1eb4bac",
+  "fixes": [
+    {
+      "sha": "7aa4ee2f32944324e44dafa4e7a825a2b1eb4bac",
+      "mergedAt": "2026-11-14T21:10:30Z",
+      "subject": "cmux remote exec and cp, and a reserved process stream never loses output (#43048)"
+    },
+    {
+      "sha": "b084b10e6b4d8997f9a23f13044523cfc70ab70e",
+      "mergedAt": "2026-11-14T21:10:15Z",
+      "subject": "Agent chat: user rows say who sent a prompt and where from, and ask rows carry their request (v2 row 2c, PR 2) (#43200)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T21:40:23Z",
+    "snapshot_id": "sh-6387234709b14b29bbdaa415a4a5842f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43643411739): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "92b672cad21abecfd7ad0a096b302c9a248a6cfd",
+    "image": "cloud-native-auto-7aa4ee2f-43643411739-1",
+    "revision": "ci-43643411739-1",
+    "at": "2026-11-14T21:40:23Z"
+  },
+  "rolled_back": false
+}
