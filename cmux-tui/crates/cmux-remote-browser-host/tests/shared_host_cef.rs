@@ -272,13 +272,25 @@ fn three_remote_tabs_share_one_host_keep_their_own_cookies_and_survive_its_sigki
     }
     assert_eq!(*sup.hosts.borrow(), vec![pid], "two tabs, one host pid");
     // Each tab's profile is on disk in its own directory. CEF falls back to
-    // an in-memory profile when a tab's cache path is not under the root it
-    // resolved (/tmp is /private/tmp on macOS), which loses the cookies a
-    // restart keeps.
-    let on_disk = std::fs::read_dir(dir.join("cache").join("tabs"))
-        .expect("tabs dir")
-        .filter_map(Result::ok)
-        .filter(|e| std::fs::read_dir(e.path()).is_ok_and(|mut d| d.next().is_some()))
+    // an in-memory profile, which loses the cookies a restart keeps, when a
+    // tab's cache path is not directly under the root it resolved (/tmp is
+    // /private/tmp on macOS). Tab directories are looked for one and two
+    // levels down, so an old layout (`tabs/N`) counts too.
+    let cache = dir.join("cache");
+    let tab_dirs = |at: &Path| -> Vec<std::path::PathBuf> {
+        std::fs::read_dir(at)
+            .map(|d| d.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.is_dir()).collect())
+            .unwrap_or_default()
+    };
+    let on_disk = tab_dirs(&cache)
+        .into_iter()
+        .flat_map(|p| if p.ends_with("tabs") { tab_dirs(&p) } else { vec![p] })
+        // Chrome's own directories in the root (Crashpad, caches) are not tabs.
+        .filter(|p| {
+            p.parent().is_some_and(|d| d.ends_with("tabs"))
+                || p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("tab-"))
+        })
+        .filter(|p| std::fs::read_dir(p).is_ok_and(|mut d| d.next().is_some()))
         .count();
     assert!(on_disk >= 3, "{on_disk} of 3 tab profiles are on disk");
     // A viewer's token picks its tab; a wrong token is refused.

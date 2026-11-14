@@ -189,7 +189,9 @@ impl Supervisor {
             }
             return out;
         }
-        let cache = self.root.join("tabs").join(self.next_dir.to_string());
+        // Chrome makes a profile only directly under its user data dir (the
+        // root cache path): `root/tabs/1` was refused and fell back to memory.
+        let cache = self.root.join(format!("tab-{}", self.next_dir));
         self.next_dir += 1;
         let tab = TabRecord {
             id: id.to_string(),
@@ -446,7 +448,7 @@ pub mod run {
             }
         };
         let Ok(bound) = listener.local_addr() else { return 1 };
-        if let Err(e) = std::fs::create_dir_all(opts.root.join("tabs")) {
+        if let Err(e) = std::fs::create_dir_all(&opts.root) {
             eprintln!("supervise: cache root {}: {e}", opts.root.display());
             return 1;
         }
