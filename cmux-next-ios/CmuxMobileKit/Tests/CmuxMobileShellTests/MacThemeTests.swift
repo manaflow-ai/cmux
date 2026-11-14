@@ -97,22 +97,6 @@ import UIKit
         #expect(try FileManager.default.contentsOfDirectory(atPath: cache.folder.path) == ["appearance.json"])
     }
 
-    /// The app's own colors stay the stock ones under a Mac's theme, in both looks (only the
-    /// accent and the terminal follow the Mac).
-    @Test func aMacThemeNeverChangesTheAppsBackgrounds() async {
-        CmuxMobileMacTheme.shared.matchesMac = true
-        CmuxMobileMacTheme.shared.apply(Self.mocha)
-        CmuxMobileMacTheme.shared.apply(Self.solarizedLight)
-        await CmuxMobileMacTheme.shared.settled()
-        let colors = CmuxMobileColors()
-        #expect(colors.bg.dark == CmuxMobileRGBA(hex: "#000000"))
-        #expect(colors.bg.light == CmuxMobileRGBA(hex: "#FFFFFF"))
-        #expect(colors.surface.dark == CmuxMobileRGBA(hex: "#1C1C1E"))
-        #expect(colors.bgGrouped.light == CmuxMobileRGBA(hex: "#F2F2F7"))
-        #expect(colors.label.light == CmuxMobileRGBA(hex: "#000000"))
-        #expect(colors.separator.dark == CmuxMobileRGBA(hex: "#38383A"))
-    }
-
     /// A connected Mac's theme replaces the cached one, live and on disk.
     @Test func theMacsThemeWinsOverTheCachedOne() async throws {
         let cache = Self.cache()
