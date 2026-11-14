@@ -19,7 +19,8 @@ await requireBrowserLane("subagent-chip-preview.test.ts", async () => {
   setDefaultTimeout(120_000);
   const ENTRY = "agent-pane.subagent-chip-preview";
   const CHIPS = ".cv-subagent-started button.cv-agent-tag";
-  const PREVIEW = ".acpmux-subagent-preview";
+  // The open card: a card that just closed fades out beside the next one (data-closed).
+  const PREVIEW = ".acpmux-subagent-preview[data-open]";
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>>;
   let browser: Browser;
@@ -74,6 +75,7 @@ await requireBrowserLane("subagent-chip-preview.test.ts", async () => {
 
       await page.mouse.move(0, 0);
       await card.waitFor({ state: "detached", timeout: 5_000 });
+      expect(await page.locator(PREVIEW).count()).toBe(0);
     } finally {
       await page.close();
     }

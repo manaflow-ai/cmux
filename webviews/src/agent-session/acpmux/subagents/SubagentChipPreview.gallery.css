@@ -12,7 +12,7 @@
   opacity: 1;
   transform: none;
 }
-/* Version B: the state as a tinted pill above the name, as Warp's session hover card leads. */
+/* Version B: the state as a tinted pill above the name, as a session hover card reference leads. */
 .subagent-preview-gallery__pill {
   align-self: flex-start;
   padding: 0 var(--ds-space-1);

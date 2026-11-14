@@ -5,13 +5,13 @@
 // shows the subagent's whole name, its state, its latest output and its task, on the shared hover
 // card (the tooltip layer's glass), so nothing in the transcript moves.
 //
-// From the references (cmux-design-references): Warp's session hover card (`warp/web/tab-hover-status`:
+// From the design references: a session hover card (status-and-progress topic,
 // a status pill, then the title and its context) and Codex mobile's agents sheet
 // (`codex-mobile/live/agents-sheet-active-completed`: a name, then Working or Done); and the card
 // Session Info's Subagents lines already show (session-info/SubagentsSection.tsx). Three looks:
 // - `card` (the pick, shipped): Session Info's card, one surface for every subagent hover: the name
 //   emphasized, a muted state line, the latest output, the task dim;
-// - `status-pill`: Warp's, the state as a tinted pill above the name;
+// - `status-pill`: the reference card's, the state as a tinted pill above the name;
 // - `name-only`: the plain tooltip, the name with the task as its detail line.
 // The other variants hover a chip in each place one renders: the grouped start line, a single start
 // line, a finished line, and the keyboard's way in. Synthetic data.
@@ -197,7 +197,7 @@ export default componentEntry<Props>({
       props: { count: 9, pane: 560, look: "card" },
     },
     "status-pill": {
-      note: "Version B, after Warp's session hover card: the state as a tinted pill above the name. A second card style next to Session Info's.",
+      note: "Version B, after the session hover card reference: the state as a tinted pill above the name. A second card style next to Session Info's.",
       props: { count: 9, pane: 560, look: "status-pill" },
     },
     "name-only": {
