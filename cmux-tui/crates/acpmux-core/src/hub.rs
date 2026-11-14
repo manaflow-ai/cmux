@@ -501,11 +501,11 @@ impl Hub {
     /// One disk start order. Call from a blocking worker; the first window
     /// needs only the fixed head, the bounded log tail, and one snapshot page.
     pub fn open(
-        directory: &std::path::Path,
+        directory: &Path,
         boot: u64,
         random: impl FnOnce() -> u32,
     ) -> Result<(Self, HubWriter), HubError> {
-        std::fs::create_dir_all(directory)?;
+        fs::create_dir_all(directory)?;
         let snapshot_path = directory.join("index.snap");
         let mut rebuild = false;
         let disk = match DiskSnapshot::open(&snapshot_path) {
@@ -691,11 +691,11 @@ impl Hub {
         }
         let Ok(subscribers) = self.subscribers.lock() else { return };
         for subscriber in subscribers.iter() {
-            if let Ok(mut state) = subscriber.state.lock() {
-                if !state.window_pending {
-                    state.window_pending = true;
-                    subscriber.notify.notify_one();
-                }
+            if let Ok(mut state) = subscriber.state.lock()
+                && !state.window_pending
+            {
+                state.window_pending = true;
+                subscriber.notify.notify_one();
             }
         }
     }

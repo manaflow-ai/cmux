@@ -55,7 +55,7 @@ impl HubWriter {
         self.hydration = None;
         self.maintenance = None;
         self.log = None;
-        if super::quarantine_index(&directory).is_err() {
+        if quarantine_index(&directory).is_err() {
             // Keep the hub alive even if the quarantine itself hits a
             // transient storage error; the old files are still ignored once
             // the new writer is opened from an empty derived state.
