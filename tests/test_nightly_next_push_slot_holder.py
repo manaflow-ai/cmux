@@ -259,6 +259,28 @@ for name, next_jobs, next_status in (
                                 starts=[nxt, holder])
     if go:
         failures.append(f"a finishing holder with one promoted run {name}: no second promotion: {reason}")
+# Review of 4cf338e7c740: holder H (commit W) reaches the ask, the tick promotes X, push run R0(X) fails in resolve,
+# and retry-nightly-next dispatches "Retry nightly-next (1 of 2)" of X, whose nightly-next-one waits pending behind
+# H. Then Y becomes buildable. The retry_of filter drops that retry (a retry of the head while a commit waits), but it
+# is still an open loop run at the slot: promoting Y would get GitHub to replace its pending job. No promotion.
+X = "d" * 40
+h_w = run(43634178843, 25, head_sha=HEAD)
+retry_x = run(43650000001, 3, event="workflow_dispatch", display_title="Retry nightly-next (1 of 2)", head_sha=X)
+r0_x = run(43649000000, 9, "completed", head_sha=X)
+retry_jobs = [*PRE, job("nightly-next-one", "pending", 1, "")]
+go, reason = rolling.decide(NOW, head=X, head_runs=[retry_x, r0_x],
+                            jobs_of=lambda r: notarizing if r["id"] == h_w["id"] else retry_jobs, promotions=[],
+                            oldest_waiting=("e" * 40, NOW - dt.timedelta(minutes=2)), starts=[retry_x, r0_x, h_w])
+if go:
+    failures.append(f"a retry of the head pending at the slot behind a finishing holder: no promotion: {reason}")
+# Run-list lag: nightly-next already moved past the holder's commit (a promotion went through), but the new push run
+# is not listed yet. The holder is no longer the head's run, so it is not finishing for this rule: it holds.
+lagged = run(43634178843, 25, head_sha=HEAD)
+go, reason = rolling.decide(NOW, head=WAITING, head_runs=[], jobs_of=lambda r: notarizing, promotions=[],
+                            oldest_waiting=("e" * 40, NOW - dt.timedelta(minutes=2)), starts=[lagged])
+if go:
+    failures.append(f"nightly-next moved past the finishing holder, its new run not listed yet: no promotion: {reason}")
+
 # The feed watch's starvation guard keeps counting a finishing holder (run_holds_group is unchanged): its dispatch
 # for one commit skips the rolling rule, so only the rule above may promote past a holder.
 if not watch.run_holds_group(holder, notarizing, NOW):
