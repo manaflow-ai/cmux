@@ -657,10 +657,11 @@ public final class MacHomeFeed {
     /// Its screen shows it only once it has a message (``ChiefSession/lastMessage``).
     public func keptSession(for route: MacConversationRoute) -> ChiefSession? {
         if let session = sessions[route.conversationID] ?? keptSessions[route.conversationID] { return session }
-        guard let transcripts, let key = transcriptKey(route.conversationID) else { return nil }
+        // Nothing kept on disk still opens the conversation (its title and composer, empty).
+        let key = transcripts == nil ? nil : transcriptKey(route.conversationID)
         let identity = ChiefIdentity(chiefID: route.chief ?? "agent_unknown", title: route.title, avatar: homeInitials(route.title))
         let session = ChiefSession(backend: ChiefOfflineBackend(reason: Self.keptReason), identity: identity,
-                                   outbox: ChiefOutbox(file: nil), transcripts: transcripts, transcriptKey: key)
+                                   outbox: ChiefOutbox(file: nil), transcripts: key == nil ? nil : transcripts, transcriptKey: key)
         session.unavailableTitle = Self.keptTitle
         session.status = Self.keptReason
         session.macID = macID

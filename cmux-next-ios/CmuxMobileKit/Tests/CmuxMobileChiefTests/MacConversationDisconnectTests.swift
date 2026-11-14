@@ -37,6 +37,28 @@ import Testing
         #expect(loader.failed)
         #expect(loader.session == nil)
     }
+    @Test func aFailedFirstOpenShowsTheConversationNotAFullScreenError() async {
+        // The user, 2026-11-13: a full-screen "Couldn't load this conversation." hid everything.
+        // The conversation opens (title, what was kept, composer) under its own bar.
+        let loader = MacConversationLoader()
+        let kept = session()
+        var tries = 0
+        await loader.load({ throw Offline() }, fallback: kept, tryAgain: { tries += 1 })
+        #expect(!loader.failed)
+        #expect(loader.session === kept)
+        #expect(loader.isStale)
+        #expect(kept.barItem == .unavailable(reason: MacConversationLoader.staleReasonNothingKept, retrying: false))
+        kept.retryConnecting()
+        #expect(tries == 1)
+
+        // The Mac answers: the live conversation replaces it.
+        let live = session()
+        await loader.load({ live }, fallback: kept)
+        #expect(loader.session === live)
+        #expect(!loader.isStale)
+        #expect(kept.unavailableTitle == nil)
+    }
+
     @Test func theKeptConversationSaysItIsNotLiveAndOffersTryAgain() async {
         let loader = MacConversationLoader()
         let open = session()

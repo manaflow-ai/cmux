@@ -35,7 +35,13 @@ final class HomeMacDisconnectedUITests: XCTestCase {
         // Non-blocking: the kept rows still open.
         row.tap()
         XCTAssertTrue(app.buttons["home.compose"].waitForNonExistence(timeout: 10), "a kept row opens\n\(app.debugDescription)")
-        attach(app, "2-row-opened")
+        // The conversation itself opens, under its "Not connected" bar, never a full-screen error.
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Not connected to your Mac")).firstMatch
+                        .waitForExistence(timeout: 20),
+                      "the conversation's own bar\n\(app.debugDescription)")
+        XCTAssertFalse(app.buttons["home.conversation.retry"].exists, "no full-screen error")
+        XCTAssertTrue(app.textViews.firstMatch.exists || app.textFields.firstMatch.exists, "the composer shows\n\(app.debugDescription)")
+        attach(app, "2-row-opened-conversation")
     }
 
     @MainActor

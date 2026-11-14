@@ -1057,19 +1057,10 @@ struct MacConversationScreen: View {
     var body: some View {
         Group {
             // One branch for the kept and the live session: the screen stays as it goes live.
+            // A failed first open shows the conversation too (its title, what this phone kept and
+            // the composer) under its bar's "Not connected" and Try Again, never a full-screen error.
             if let session = loader.session ?? shownKept {
                 ChiefConversationScreen(session: session)
-            } else if loader.failed {
-                ContentUnavailableView {
-                    Label(route.title, systemImage: "bubble.left.and.exclamationmark.bubble.right")
-                } description: {
-                    Text(RecoveryMessage.conversation.text)
-                } actions: {
-                    RetryButton {
-                        await loader.retry(macID: macID, reconnect: reconnect, refresh: { await feed.refresh() })
-                    }
-                    .accessibilityIdentifier("home.conversation.retry")
-                }
             } else {
                 CmuxSpinner().accessibilityIdentifier("home.conversation.loading")
             }
@@ -1080,20 +1071,11 @@ struct MacConversationScreen: View {
             if loader.session == nil { kept = feed.keptSession(for: route) }
             // A dropped link keeps the open conversation on screen with its bar's Try Again
             // (CMUX-30), never a full-screen error over the transcript and the composer.
-            await loader.load({ try await feed.session(for: route) }, tryAgain: { [loader, feed, macID, reconnect] in
+            await loader.load({ try await feed.session(for: route) }, fallback: kept, tryAgain: { [loader, feed, macID, reconnect] in
                 Task { @MainActor in
                     await loader.retry(macID: macID, reconnect: reconnect, refresh: { await feed.refresh() })
                 }
             })
-        }
-        // A first open that failed over kept messages: they stay, marked as not live, with Try Again.
-        .onChange(of: loader.failed) { _, failed in
-            guard failed, loader.session == nil, let kept = shownKept else { return }
-            MacConversationLoader.markStale(kept) { [loader, feed, macID, reconnect] in
-                Task { @MainActor in
-                    await loader.retry(macID: macID, reconnect: reconnect, refresh: { await feed.refresh() })
-                }
-            }
         }
         .onChange(of: loader.isStale) { _, stale in
             guard stale else { return }

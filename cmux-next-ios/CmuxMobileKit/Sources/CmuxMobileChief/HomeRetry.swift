@@ -43,6 +43,10 @@ final class MacConversationLoader {
     static var staleReason: String {
         String(localized: "Showing the last messages. What you send waits until it reconnects.")
     }
+    /// The same over a conversation this phone kept nothing of.
+    static var staleReasonNothingKept: String {
+        String(localized: "Its messages load when it reconnects. What you send waits until then.")
+    }
 
     func retry(macID: String?, reconnect: ((String) async -> Void)?, refresh: (@MainActor () async -> Void)? = nil) async {
         if let macID { await reconnect?(macID) }
@@ -53,8 +57,11 @@ final class MacConversationLoader {
     }
 
     /// Loads the route's session. The session shown keeps showing while it loads;
-    /// on a failure it stays, marked stale, with `tryAgain` on its bar.
+    /// on a failure it stays, marked stale, with `tryAgain` on its bar. A first open that fails
+    /// shows `fallback` the same way (what this phone kept, or an empty conversation), never a
+    /// full-screen error over the title and the composer (the user, 2026-11-13).
     func load(_ sessionForRoute: @MainActor () async throws -> ChiefSession,
+              fallback: ChiefSession? = nil,
               tryAgain: (@MainActor () -> Void)? = nil) async {
         generation += 1
         let mine = generation
@@ -74,8 +81,9 @@ final class MacConversationLoader {
             isStale = false
         } catch {
             guard mine == generation, !Task.isCancelled else { return }
-            if let previous {
-                Self.markStale(previous, tryAgain: tryAgain)
+            if let shown = previous ?? fallback {
+                Self.markStale(shown, tryAgain: tryAgain)
+                session = shown
                 isStale = true
             } else {
                 failed = true
@@ -87,7 +95,7 @@ final class MacConversationLoader {
     static func markStale(_ session: ChiefSession, tryAgain: (@MainActor () -> Void)?) {
         session.unavailableTitle = staleTitle
         session.reconnect = tryAgain
-        session.status = staleReason
+        session.status = session.lastMessage == nil ? staleReasonNothingKept : staleReason
     }
 
     private static func clearStale(_ session: ChiefSession) {
