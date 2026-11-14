@@ -202,13 +202,18 @@ describe("the counting turn", () => {
     expect(turn.steps.some((step) => "shell" in step)).toBe(false);
   });
 
-  test("the shared model stub plays it from the turn's own prompt; only a step's output carries its number", () => {
+  test("the shared model stub plays it from the turn's own prompt as Reads of the written files; only a read's result carries its number", () => {
     const script = { version: 1, steps: [{ shell: "echo first" }, { text: "done" }], turns: [countingTurnScript(3)] };
     const dir = mkdtempSync(join(tmpdir(), "chaos-count-"));
     try {
+      // The files, as the guest command writes them in the chat's folder.
+      const wrote = spawnSync("sh", ["-c", chaos.countingFilesCommand(dir, "t1-f0", 3)], { encoding: "utf8" });
+      const folder = /@@dir (\S+)/.exec(wrote.stdout)?.[1] ?? "";
+      expect(folder).toBe(join(dir, "chaos-count", "t1-f0"));
       const file = join(dir, "script.json");
       writeFileSync(file, JSON.stringify(script));
       // An earlier turn's tool result, then the counting prompt and k of its own results: the step the stub plays.
+      const prompt = chaos.countingPrompt("t1-f0", "drop 5 s", folder);
       const py = [
         "import json, sys",
         `sys.path.insert(0, ${JSON.stringify(fileURLToPath(new URL("../../tests/fixtures/model-stub", import.meta.url)))})`,
@@ -216,25 +221,33 @@ describe("the counting turn", () => {
         "s = m.Stub(m.load_script(sys.argv[1]), 'n', None)",
         "out = []",
         "for k in range(5):",
-        "    r = m.Results(['first'] + ['x'] * k, 'p', [('hi', 0), ('[chaos-count t1-f0] count', 1)])",
-        "    i, step, res, turn = s.step(r, ['Bash'])",
-        "    out.append([i, turn, m.render(step.get('shell', step.get('text', '')), 'n', res)])",
+        "    r = m.Results(['first'] + ['x'] * k, 'p', [('hi', 0), (sys.argv[2], 1)])",
+        "    i, step, res, turn = s.step(r, ['Bash', 'Read'])",
+        "    call = m.anthropic_tool_call(step, ['Bash', 'Read'], 'n', res) if 'tool' in step else m.render(step['text'], 'n', res)",
+        "    out.append([i, turn, call, step.get('pause', 0)])",
         "print(json.dumps(out))",
       ].join("\n");
-      const r = spawnSync("python3", ["-c", py, file], { encoding: "utf8" });
+      const r = spawnSync("python3", ["-c", py, file, prompt], { encoding: "utf8" });
       expect(r.stderr).toBe("");
-      const played = JSON.parse(r.stdout) as Array<[number, number, string]>;
+      const played = JSON.parse(r.stdout) as Array<[number, number, any, number]>;
       expect(played.map((p) => p[0])).toEqual([0, 1, 2, 3, 3]);
       expect(played[3][2]).toBe("Counted 3 steps for t1-f0.");
-      const cmd = played[1][2];
-      expect(cmd).toBe("sleep 0.2; printf '%s-%s-%s\\n' chaos t1-f0 2");
-      expect(countedSteps("t1-f0", cmd)).toEqual([]);
-      const ran = spawnSync("sh", ["-c", cmd], { encoding: "utf8" }).stdout;
-      expect(countedSteps("t1-f0", ran)).toEqual([2]);
+      // A Read (no shell, so no policy asks a person), paced by the stub.
+      const call = played[1][2];
+      expect(call).toEqual({ name: "Read", input: { file_path: join(folder, "2.txt") } });
+      expect(played[1][3]).toBe(0.2);
+      expect(countedSteps("t1-f0", JSON.stringify(call))).toEqual([]);
+      const read = spawnSync("cat", [call.input.file_path], { encoding: "utf8" }).stdout;
+      expect(countedSteps("t1-f0", read)).toEqual([2]);
       expect(countMarker("t1-f0")).toBe("[chaos-count t1-f0]");
+      expect(new RegExp(countingTurnScript().match).test(prompt)).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test("no counting step runs a shell", () => {
+    expect(countingTurnScript().steps.some((step) => "shell" in step)).toBe(false);
   });
 });
 
@@ -285,6 +298,29 @@ describe("journalCommand", () => {
       expect(events).toEqual([{ seq: 5, ks: [] }, { seq: 6, ks: [1], call: "a" }]);
       expect(r.stdout).not.toContain("xxxxx");
       expect(spawnSync("cat", [join(bin, "args")], { encoding: "utf8" }).stdout.trim()).toBe("acp tail ses-1 --since 4");
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+
+  test("a permission ask comes through as its tool's kind and a cut title, and the notes name it", () => {
+    const bin = mkdtempSync(join(tmpdir(), "chaos-tail-"));
+    try {
+      const lines = [
+        { seq: 7, kind: "turn_started" },
+        { seq: 8, kind: "permission_request", msg: { request: { toolCall: { kind: "execute", title: `sleep 0.2; ${"y".repeat(100)}`, rawInput: { command: "secret-arg" } } } } },
+      ];
+      writeFileSync(join(bin, "c"), `#!/bin/sh\ncat <<'EOF'\n${lines.map((l) => JSON.stringify(l)).join("\n")}\nEOF\n`);
+      chmodSync(join(bin, "c"), 0o755);
+      const r = spawnSync("sh", ["-c", `c=${join(bin, "c")}; ${journalCommand("ses-1", 6)}`], { encoding: "utf8" });
+      expect(r.stdout).not.toContain("secret-arg");
+      const notes: chaos.JournalNotes = { kinds: {}, asks: [] };
+      for (const l of r.stdout.split("\n").filter((x) => x.startsWith("{"))) chaos.noteJournalLine(notes, JSON.parse(l));
+      expect(notes.kinds).toEqual({ turn_started: 1, permission_request: 1 });
+      const text = chaos.journalNotesText(notes);
+      expect(text).toContain("1 permission ask: seq 8: execute \"sleep 0.2; yyy");
+      expect(text).not.toContain("y".repeat(60));
+      expect(chaos.journalNotesText({ kinds: { turn_started: 1 }, asks: [] })).toBe("the turn's journal records: turn_started 1; no permission ask");
     } finally {
       rmSync(bin, { recursive: true, force: true });
     }

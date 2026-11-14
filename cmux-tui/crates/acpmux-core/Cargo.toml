@@ -21,10 +21,13 @@ arc-swap.workspace = true
 cmux-scope.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
+sha2.workspace = true
 thiserror = "2"
 tokio = { version = "1.52", features = ["io-util", "macros", "rt", "sync", "time"] }
 
 [dev-dependencies]
+# The list helper's tests against the hub (`src/tokio_list_tests.rs`).
+acpmux-client = { path = "../acpmux-client", features = ["tokio"] }
 serde = { workspace = true, features = ["derive"] }
 tempfile = "3"
 tokio = { version = "1.52", features = ["macros", "rt-multi-thread", "sync", "net", "time", "test-util"] }

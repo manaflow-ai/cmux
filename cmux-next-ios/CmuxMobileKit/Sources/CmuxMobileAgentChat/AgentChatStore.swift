@@ -217,6 +217,16 @@ public final class AgentChatStore {
     /// turns yet the chat shows a loading state, never the empty new-chat screen; with turns it
     /// shows them (kept from before) and says it is updating.
     public private(set) var isLoadingHistory = false
+    /// The first message this phone is sending has not shown in the transcript yet (New Task):
+    /// the chat still says it is starting. Read live: the source's note goes once the send ends.
+    public var awaitsFirstPrompt: Bool { !hasTurns && source.awaitsFirstPrompt }
+    /// The source can't reach its Mac now (``AgentSessionSource/isOffline``). Read live.
+    public var isOffline: Bool { source.isOffline }
+
+    /// The Mac is starting this chat (``AgentSessionSource/isStarting`` when the store was made):
+    /// read once, so its loading state says so until the history comes, whatever the source
+    /// notes meanwhile (the hub forgets a started session when its history attaches).
+    public let isStarting: Bool
     /// The chat is new: it holds no turns and none are on their way (the empty state shows).
     public var isNewChat: Bool { !hasTurns && !isLoadingHistory }
     /// The title the agent gave the session (`session_info_update`).
@@ -285,6 +295,12 @@ public final class AgentChatStore {
         public var attachments: [AgentAttachment]
         /// The prompt's acpmux id: sending the same text again reuses it, so the Mac runs it once.
         public var promptID: String?
+
+        public init(text: String, attachments: [AgentAttachment], promptID: String?) {
+            self.text = text
+            self.attachments = attachments
+            self.promptID = promptID
+        }
     }
     /// A returned draft the Mac turned out to have run (its prompt id showed up in the
     /// transcript after the link came back): the composer takes it out again (then clears this).
@@ -353,6 +369,7 @@ public final class AgentChatStore {
         self.source = source
         self.summary = source.summary
         self.isLoadingHistory = source.loadsHistory
+        self.isStarting = source.isStarting
         self.quietStatus = quietStatus
         quietStatus.update(down: source.summary.status == .disconnected || source.loadsHistory)
         let stream = source.events()
@@ -1791,4 +1808,20 @@ private final class EarlierHistorySource: AgentSessionSource {
     init(summary: AgentSessionSummary) { self.summary = summary }
     func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { $0.finish() } }
     func send(_ intent: AgentClientIntent) {}
+}
+
+extension AgentChatStore {
+    /// What the chat's loading state says. Connecting first: a chat whose start is over but
+    /// whose Mac dropped (a task that never left the phone) waits on the link, not its agent.
+    public var loadingText: String {
+        if summary.status == .disconnected || isOffline && !awaitsFirstPrompt {
+            return "Connecting to \(summary.macName)…"
+        }
+        return isStarting || awaitsFirstPrompt ? Self.startingText(summary) : "Loading chat…"
+    }
+
+    /// "Starting Claude…"; the Mac's default agent, not named yet, is "Starting chat…".
+    public static func startingText(_ summary: AgentSessionSummary) -> String {
+        summary.harness.isEmpty ? "Starting chat…" : "Starting \(summary.agentName)…"
+    }
 }

@@ -1,6 +1,7 @@
 //! I/O-free client state machine for agent-service v2.
 
 pub mod ffi;
+pub mod tokio_list;
 pub mod wire;
 
 use acpmux_list_types::{OriginState, RowKey, Summary};
@@ -1049,6 +1050,8 @@ where
                 view: sub.request.view,
                 max_bytes: wire::MAX_PAGE_BYTES as u32,
                 filter: sub.request.filter.clone(),
+                edition: None,
+                fold: None,
             }
         };
         self.pages.insert(
@@ -1091,6 +1094,8 @@ where
                 view: sub.request.view,
                 max_bytes: wire::MAX_PAGE_BYTES as u32,
                 filter: sub.request.filter.clone(),
+                edition: None,
+                fold: None,
             }
         };
         self.pages.insert(
@@ -1537,6 +1542,8 @@ where
                     view: sub.request.view,
                     max_bytes: wire::MAX_PAGE_BYTES as u32,
                     filter: sub.request.filter.clone(),
+                    edition: None,
+                    fold: None,
                 }
             };
             self.pages.insert(
@@ -2729,6 +2736,8 @@ tail"#;
             view: Some(ListView::Folders),
             max_bytes: wire::MAX_PAGE_BYTES as u32,
             filter: None,
+            edition: None,
+            fold: None,
         };
         client.page(page_request).unwrap();
         let folder = serde_json::json!({

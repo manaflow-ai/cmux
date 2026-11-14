@@ -291,6 +291,28 @@ import SwiftUI
         #expect(source.toastText?.hasPrefix("Couldn't move") == true)
     }
 
+    /// A link tapped in a terminal: github.com opens on this iPhone, with no tab on the Mac;
+    /// the Mac's own dev server opens in a browser tab beside the terminal on the Mac
+    /// (Leo, 2026-11-14: "if you're in the terminal and you highlight a link and it's a
+    /// github.com link").
+    @Test func aTerminalLinkOpensOnThePhoneUnlessOnlyTheMacReachesIt() async throws {
+        let (store, source) = make()
+        var onPhone: [URL] = []
+        source.openOnPhone = { onPhone.append($0) }
+        let count = source.tabs.count
+        let github = URL(string: "https://github.com/manaflow-ai/cmux/pull/1")!
+        await source.openLink(github, fromTab: "t-zsh")
+        #expect(onPhone == [github])
+        #expect(source.tabs.count == count)
+
+        let dev = URL(string: "http://localhost:3000/")!
+        await source.openLink(dev, fromTab: "t-zsh")
+        #expect(onPhone == [github])
+        #expect(source.tabs.count == count + 1)
+        let opened = try #require(store.workspace(id: "ws-cmux")?.tabs.last)
+        #expect(opened.url == dev && opened.kind == .browser && source.openedTab == opened.id)
+    }
+
     /// A page's link that opens a new tab or window (`rb.open_tab`): a browser tab beside the
     /// page, shown at once (a background tab stays behind with a toast); one the Mac refuses
     /// says why and gives the page no tab. The browser page menu has Hard Reload and Open in
