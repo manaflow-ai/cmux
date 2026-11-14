@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4361340770101",
+  "notes": "notes/4361340770101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43042,
+      "title": "CMUX-572: add deterministic rd netem metrics",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37558,
+      "title": "Tooltips size to their text, balanced; the agent chat's token hover is one count per row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42884,
+      "title": "Agent chat: images from another app go into a chat's composer (Open With, Dock drop, Send to cmux Chat)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42929,
+      "title": "nightly-next: post-publish deltas yield the signer Mac to the build loop",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43059,
+      "title": "acpmux: a watched transcript's write wakes its chat at once (terminal to chat toggle under 100 ms)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43123,
+      "title": "fresh-home-launch.sh: one EXIT trap removes the private bun dir too, and a launch that leaves $TMPDIR files fails",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40455,
+      "title": "cmux-tui: list-workspaces limit: the first screen of a god session, with total",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
