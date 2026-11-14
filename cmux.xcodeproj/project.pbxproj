@@ -4384,6 +4384,14 @@
 		197D3DA9292D64327F43E992 /* UITestSocketCommandScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBDC58D3DAF8CE9754EC3D37 /* UITestSocketCommandScript.swift */; };
 		CF67431916D254CC833A68CB /* UITestSocketCommandScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99D963CCA7BBBC39762B304F /* UITestSocketCommandScriptTests.swift */; };
 		E7F100000000000000000001 /* UITestSocketSanityCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7F100000000000000000002 /* UITestSocketSanityCoordinator.swift */; };
+		B200000000000000000A0010 /* UntrackedAgentSessionDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = B200000000000000000A0011 /* UntrackedAgentSessionDetector.swift */; };
+		B200000000000000000A0020 /* UntrackedAgentSessionDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B200000000000000000A0021 /* UntrackedAgentSessionDetectorTests.swift */; };
+		B200000000000000000A0070 /* UntrackedAgentSessionDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B200000000000000000A0071 /* UntrackedAgentSessionDiagnostics.swift */; };
+		B200000000000000000A0080 /* UntrackedAgentSessionDiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B200000000000000000A0081 /* UntrackedAgentSessionDiagnosticsTests.swift */; };
+		B200000000000000000A0050 /* UntrackedAgentSessionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B200000000000000000A0051 /* UntrackedAgentSessionMonitor.swift */; };
+		B200000000000000000A0060 /* UntrackedAgentSessionMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B200000000000000000A0061 /* UntrackedAgentSessionMonitorTests.swift */; };
+		B200000000000000000A0030 /* UntrackedAgentSessionWarningSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B200000000000000000A0031 /* UntrackedAgentSessionWarningSettings.swift */; };
+		B200000000000000000A0040 /* UntrackedAgentSessionWarningSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B200000000000000000A0041 /* UntrackedAgentSessionWarningSettingsTests.swift */; };
 		A500120D /* UpdateLogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001223 /* UpdateLogStore.swift */; };
 		F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */; };
 		C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */; };
@@ -9062,6 +9070,14 @@
 		FBDC58D3DAF8CE9754EC3D37 /* UITestSocketCommandScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/UITests/UITestSocketCommandScript.swift; sourceTree = "<group>"; };
 		99D963CCA7BBBC39762B304F /* UITestSocketCommandScriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UITestSocketCommandScriptTests.swift"; sourceTree = "<group>"; };
 		E7F100000000000000000002 /* UITestSocketSanityCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/UITests/UITestSocketSanityCoordinator.swift"; sourceTree = "<group>"; };
+		B200000000000000000A0011 /* UntrackedAgentSessionDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UntrackedAgentSessionDetector.swift; sourceTree = "<group>"; };
+		B200000000000000000A0021 /* UntrackedAgentSessionDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UntrackedAgentSessionDetectorTests.swift; sourceTree = "<group>"; };
+		B200000000000000000A0071 /* UntrackedAgentSessionDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UntrackedAgentSessionDiagnostics.swift; sourceTree = "<group>"; };
+		B200000000000000000A0081 /* UntrackedAgentSessionDiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UntrackedAgentSessionDiagnosticsTests.swift; sourceTree = "<group>"; };
+		B200000000000000000A0051 /* UntrackedAgentSessionMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UntrackedAgentSessionMonitor.swift; sourceTree = "<group>"; };
+		B200000000000000000A0061 /* UntrackedAgentSessionMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UntrackedAgentSessionMonitorTests.swift; sourceTree = "<group>"; };
+		B200000000000000000A0031 /* UntrackedAgentSessionWarningSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UntrackedAgentSessionWarningSettings.swift; sourceTree = "<group>"; };
+		B200000000000000000A0041 /* UntrackedAgentSessionWarningSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UntrackedAgentSessionWarningSettingsTests.swift; sourceTree = "<group>"; };
 		A5001223 /* UpdateLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateLogStore.swift; sourceTree = "<group>"; };
 		F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillReleaseVisibilityTests.swift; sourceTree = "<group>"; };
 		C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillUITests.swift; sourceTree = "<group>"; };
@@ -12350,6 +12366,10 @@
 				F76550020000000000000002 /* VaultAgentProcessScanner+ForkParentFallbackWrappers.swift */,
 				F76550050000000000000002 /* VaultAgentProcessScanner+LiveProcessIdentity.swift */,
 				F76550060000000000000002 /* VaultObservedAgentProcess.swift */,
+				B200000000000000000A0011 /* UntrackedAgentSessionDetector.swift */,
+				B200000000000000000A0031 /* UntrackedAgentSessionWarningSettings.swift */,
+				B200000000000000000A0051 /* UntrackedAgentSessionMonitor.swift */,
+				B200000000000000000A0071 /* UntrackedAgentSessionDiagnostics.swift */,
 				FE003004 /* SessionIndexStore+CodexSQL.swift */,
 				FE003005 /* RovoDevIndex.swift */,
 				F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */,
@@ -13163,6 +13183,10 @@
 				842300000000000000000002 /* SurfaceResumeExitedAgentLivenessTests.swift */,
 				842300000000000000000006 /* RestorableAgentProcessGenerationTests.swift */,
 				842300000000000000000008 /* SurfaceResumeAgentBindingGenerationTests.swift */,
+				B200000000000000000A0021 /* UntrackedAgentSessionDetectorTests.swift */,
+				B200000000000000000A0041 /* UntrackedAgentSessionWarningSettingsTests.swift */,
+				B200000000000000000A0061 /* UntrackedAgentSessionMonitorTests.swift */,
+				B200000000000000000A0081 /* UntrackedAgentSessionDiagnosticsTests.swift */,
 				D3610B020000000000000002 /* AgentSessionAutoResumeSwiftTests.swift */,
 				A9E010000000000000000005 /* AgentExecutableResolverTests.swift */,
 				A9E030000000000000000001 /* AgentSessionSocketSurfaceTests.swift */,
@@ -17709,6 +17733,10 @@
 				A5001501 /* UITestRecorder.swift in Sources */,
 				197D3DA9292D64327F43E992 /* UITestSocketCommandScript.swift in Sources */,
 			E7F100000000000000000001 /* UITestSocketSanityCoordinator.swift in Sources */,
+				B200000000000000000A0010 /* UntrackedAgentSessionDetector.swift in Sources */,
+				B200000000000000000A0070 /* UntrackedAgentSessionDiagnostics.swift in Sources */,
+				B200000000000000000A0050 /* UntrackedAgentSessionMonitor.swift in Sources */,
+				B200000000000000000A0030 /* UntrackedAgentSessionWarningSettings.swift in Sources */,
 				A500120D /* UpdateLogStore.swift in Sources */,
 				A5001208 /* UpdateTitlebarAccessory.swift in Sources */,
 				944FADDCC0FC5D78EB85E584 /* UpgradePromptImpression.swift in Sources */,
@@ -19640,6 +19668,10 @@
 				468100000000000000000003 /* TypingHotPathRegressionTests.swift in Sources */,
 				0C8A1FB23FA2673EDA2BE6A4 /* UITestFixtureTeamsAuthClientTests.swift in Sources */,
 				CF67431916D254CC833A68CB /* UITestSocketCommandScriptTests.swift in Sources */,
+				B200000000000000000A0020 /* UntrackedAgentSessionDetectorTests.swift in Sources */,
+				B200000000000000000A0080 /* UntrackedAgentSessionDiagnosticsTests.swift in Sources */,
+				B200000000000000000A0060 /* UntrackedAgentSessionMonitorTests.swift in Sources */,
+				B200000000000000000A0040 /* UntrackedAgentSessionWarningSettingsTests.swift in Sources */,
 				F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */,
 				9E333A705D5EA232771DA203 /* UpgradeAnalyticsTests.swift in Sources */,
 				A36C009DF2E44501AA774136 /* VaultCheckpointForkTests.swift in Sources */,
