@@ -961,7 +961,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             try? await ContinuousClock().sleep(for: TerminalTUIGridHold.cap)
             guard let self, !Task.isCancelled, self.tuiGridHold.heldRows != nil else { return }
             sizingLog.notice("grid hold expired: no replay at \(self.tuiRows, privacy: .public) rows")
-            self.endGridHold(layout: true)
+            if self.freezeView != nil, self.model.isTUI {
+                // Under a held still: the area changes when the still goes.
+                self.endGridHold(layout: false)
+                self.areaSwapPending = true
+            } else {
+                self.endGridHold(layout: true)
+            }
         }
     }
 
@@ -991,7 +997,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         } else if tuiGridHold.heldRows != held {
             armGridHoldExpiry()
         }
-        if tuiGridHold.heldRows != held {
+        let areaHeight = CGFloat(tuiGridHold.rows(page: tuiRows)) * cell.height
+        if tuiGridHold.heldRows != held || (cell.height > 0 && tuiHeight.constant != areaHeight) {
             relayoutTUIArea()
         }
     }
@@ -1321,7 +1328,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // A disconnect, a reattach, the process gone or the app off the
             // alternate screen: a keyboard hold ends now (its held frame, if
             // a reset waits behind it, is taken before the replay is fed).
-            apply(replayHold.arrived(event, isTUI: model.isTUI, heldRows: tuiGridHold.heldRows, pageRows: tuiRows).release)
+            let leaving = event == .alternateScreen(false)
+            apply(replayHold.arrived(event, isTUI: model.isTUI, heldRows: tuiGridHold.heldRows, pageRows: tuiRows).release, pageWide: leaving)
         default:
             break
         }
@@ -1469,10 +1477,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard replayHold.holdsAt(nextIsGrid: output.nextHostGrid != nil) else { return false }
         stopOutputLink()
         let deadline = max(0, keyboardMoveEnds - CACurrentMediaTime()) + 0.1
+        let movement = keyboardMovement
         DispatchQueue.main.asyncAfter(deadline: .now() + deadline) { [weak self] in
             // A did-show or did-hide that never came (filtered, or a page
-            // that left): the hold ends with the movement.
-            guard let self, self.replayHold.holding else { return }
+            // that left): the hold ends with the movement (not a newer one).
+            guard let self, self.replayHold.holding, self.keyboardMovement == movement else { return }
             self.keyboardStopped()
         }
         return true
@@ -1812,7 +1821,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // The replay is parsed and draws something: drop the held frame on
             // the next present (or after one more batch, whichever comes first).
             freezeBatches += 1
-            if freezeBatches >= 2, heldFrameMayGo() { unfreeze() }
+            // A full-screen app's area swaps with the still on a present
+            // (surfacePresented), once Ghostty has drawn the new grid.
+            if freezeBatches >= 2, !(areaSwapPending && model.isTUI), heldFrameMayGo() { unfreeze() }
         }
         if raw > Self.mirrorReset.count { model.liveOutputDrawn() }
         outputSinceProbe = true
@@ -1875,11 +1886,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     // MARK: Held frame (R2-3)
 
     /// `ESC c`: the session resets the mirror before a replay (a resize, a reattach).
-    static let mirrorReset = Data("\u{1B}c".utf8)
+    static let mirrorReset = TerminalReclaimHold.reset
 
     /// Holds what is on screen until the replay after a reset is drawn. Only
     /// once the page has drawn something (the first attach has nothing to hold).
-    private func freezeLastFrame() {
+    /// `pageWide`: the app is leaving the alternate screen (its replay or the
+    /// event at hand turns it off): the area is about to be hidden, so the
+    /// still is of the whole page.
+    private func freezeLastFrame(pageWide: Bool = false) {
         // Never while the page is being scrolled: the still would stand over
         // the moving rows and show an older position until the replay was in
         // (user report 2026-10-14, frames alternating near the bottom).
@@ -1889,18 +1903,21 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // (the composer's glass, the key row) stays live above the backing,
         // and a still of the whole page cost 10-15 ms on the frame the
         // keyboard stopped (the held replay's reset, step f97802b9).
-        let source: UIView = model.isTUI ? tuiHost : view
+        let areaStill = model.isTUI && !pageWide && !output.leavesAlternateScreen
+        let source: UIView = areaStill ? tuiClip : view
         guard let snapshot = measured("hold-frame-snapshot", { source.snapshotView(afterScreenUpdates: false) }) else { return }
         snapshot.isUserInteractionEnabled = false
         if source === view {
             snapshot.frame = view.bounds
             view.insertSubview(snapshot, belowSubview: bottomBacking)
         } else {
-            // The grid's own host, in it, pinned to its bottom: the host is
-            // pinned to the composer and rides the keyboard's animation, so
-            // the still does too (a still of the clip added mid-animation
-            // stood where the clip ends, 12-21 pt off the moving composer).
-            snapshot.frame.origin = CGPoint(x: 0, y: tuiHost.bounds.height - snapshot.bounds.height)
+            // A still of the whole area (the surface reaches into the side
+            // padding when panned or wider than the phone), placed in the
+            // grid's own host, bottoms together: the host is pinned to the
+            // composer and rides the keyboard's animation, so the still does
+            // too (added to the clip mid-animation, it stood where the clip
+            // ends, 12-21 pt off the moving composer).
+            snapshot.frame.origin = CGPoint(x: -Self.sidePadding, y: tuiHost.bounds.height - snapshot.bounds.height)
             snapshot.autoresizingMask = [.flexibleTopMargin]
             tuiHost.addSubview(snapshot)
         }
@@ -2639,7 +2656,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             tuiScroll.stopMomentum()
             tuiSizing.tuiEnded()
             endGridHold(layout: false)
-            apply(replayHold.cancel())
+            apply(replayHold.cancel(), pageWide: true)
             scrollView.isScrollEnabled = true
             scrollView.topEdgeEffect.style = .soft
             tuiClip.isHidden = true
@@ -3387,12 +3404,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         dock.keyboardWillShow(visibleHeight: max(0, screen.intersection(frame).height))
         setKeyBar(visible: dock.softKeyboard == .shown, note: note)
         measured("keyboard-will") { keyboardWillMove(note) }
-        #if DEBUG
-        // The window's layout pass our changes call for, timed on its own
-        // (TerminalFlickerTrace's `keyboard-layout`): the rest of a long
-        // keyboard frame is outside the page's work.
-        if flickerTrace != nil { measured("keyboard-layout") { view.window?.layoutIfNeeded() } }
-        #endif
     }
 
     @objc private func keyboardWillHide(_ note: Notification) {
@@ -3402,12 +3413,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         dock.keyboardWillHide()
         setKeyBar(visible: false, note: note)
         measured("keyboard-will") { keyboardWillMove(note) }
-        #if DEBUG
-        // The window's layout pass our changes call for, timed on its own
-        // (TerminalFlickerTrace's `keyboard-layout`): the rest of a long
-        // keyboard frame is outside the page's work.
-        if flickerTrace != nil { measured("keyboard-layout") { view.window?.layoutIfNeeded() } }
-        #endif
     }
 
     @objc private func keyboardDidHide(_ note: Notification) {
@@ -3509,8 +3514,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// A keyboard hold ended (`TerminalKeyboardReplayHold.Release`): a reset
     /// behind the held grid gets its held frame now, before its replay is
     /// fed, and the output queue goes on.
-    private func apply(_ release: TerminalKeyboardReplayHold.Release) {
-        if release.takeHeldFrame { freezeLastFrame() }
+    private func apply(_ release: TerminalKeyboardReplayHold.Release, pageWide: Bool = false) {
+        if release.takeHeldFrame { freezeLastFrame(pageWide: pageWide) }
         guard release.resume else { return }
         sizingLog.notice("keyboard hold ended: the Mac's redraw at \(self.tuiRows, privacy: .public) rows goes to the screen")
         scheduleOutput()

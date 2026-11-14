@@ -152,7 +152,8 @@ final class TerminalFlickerTrace: NSObject {
             // main-proof: UIKit runs update link actions on the main thread.
             MainActor.assumeIsolated { self?.committed = self?.sample() }
         }
-        updateLink.requiresContinuousUpdates = true
+        // No forced updates: a frame UIKit does not update keeps the last
+        // sample (the trace's display link reads it once, then samples itself).
         updateLink.isEnabled = true
         self.updateLink = updateLink
     }
@@ -176,6 +177,7 @@ final class TerminalFlickerTrace: NSObject {
         guard let window = host.window else { return }
         if probe.window !== window { window.addSubview(probe) }
         guard let now = committed ?? sample() else { return }
+        committed = nil
         let t = link.timestamp - start
         let duration = max(1.0 / 120, link.targetTimestamp - link.timestamp)
         let interval = lastTimestamp > 0 ? link.timestamp - lastTimestamp : 0

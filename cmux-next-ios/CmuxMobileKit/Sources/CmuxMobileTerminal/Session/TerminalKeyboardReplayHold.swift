@@ -112,5 +112,5 @@ public struct TerminalKeyboardReplayHold: Equatable, Sendable {
     }
 
     /// `ESC c`: the session resets the mirror before a replay.
-    public static let mirrorReset = Data("\u{1B}c".utf8)
+    public static let mirrorReset = TerminalReclaimHold.reset
 }

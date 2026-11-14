@@ -51,6 +51,11 @@ public struct TerminalOutputQueue: Sendable {
 
     public var isEmpty: Bool { items.isEmpty }
 
+    /// A switch off the alternate screen is queued (a replay that leaves it).
+    public var leavesAlternateScreen: Bool {
+        items.contains { if case .alternateScreen(false) = $0 { true } else { false } }
+    }
+
     /// The Mac's grid change at the front, when that is the next step.
     public var nextHostGrid: (columns: Int, rows: Int)? {
         guard case .hostGrid(let columns, let rows)? = items.first else { return nil }
