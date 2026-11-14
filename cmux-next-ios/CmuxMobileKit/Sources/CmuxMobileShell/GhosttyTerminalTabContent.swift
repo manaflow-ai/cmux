@@ -553,6 +553,12 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// The open terminal tab's model: voice mode reads it in every build, and DEBUG demos
     /// drive the tab through it.
     func model(forTabID id: String) -> TerminalModel? { hosts[id]?.model }
+
+    /// Cooled tabs' last frames held in memory, and their pixel bytes (tests).
+    var framesHeldInMemory: Int { lastFrames.count }
+    var frameBytesHeldInMemory: Int {
+        lastFrames.values.reduce(0) { total, image in total + (image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0) }
+    }
 }
 
 /// A short background task for the background release: begun before the

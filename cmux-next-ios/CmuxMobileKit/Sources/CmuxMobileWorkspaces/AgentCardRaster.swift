@@ -114,6 +114,9 @@ final class AgentCardRasterizer: NSObject {
 
     @objc private func memoryWarning() { held = nil }
 
+    /// A built card is on screen (`AgentTabCard` appeared) or left it.
+    func setShown(_ feed: AgentCardFeed, _ shown: Bool) {}
+
     /// Whether a waiting card holds thumbnails now (tests).
     var holdsThumbnails: Bool { held != nil }
 
