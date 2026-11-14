@@ -1,7 +1,9 @@
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextDevices
 @testable import CmuxNextMacScreen
 import CmuxNextSettings
+import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
@@ -73,7 +75,10 @@ struct CmuxRemoteConfigDeadlineTests {
             accessToken: { throw CancellationError() }), bundleIdentifier: "test.config-deadline", loginKeychain: LoginKeychain(),
             selectedBaseURL: URL(string: "https://hub.invalid"), retryClock: retryClock,
             makeAppHub: { _, _, _, _, _ in appIdentityAttempts += 1; throw CancellationError() })
-        hub.makeRemoteHub = { _, _ in _ = try await remote.configuredAvailability(); return nil }
+        hub.makeRemoteHub = { _, _ -> DeviceHub? in
+            _ = try await remote.configuredAvailability()
+            return nil
+        }
         defer { hub.willSignOut() }
         hub.start(settings: settings)
         try await clock.waitForSleeper()
