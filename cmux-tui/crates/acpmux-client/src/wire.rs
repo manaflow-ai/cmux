@@ -1106,7 +1106,9 @@ impl FrameDecoder {
 /// Errors raised by bounded frame encoding and decoding.
 #[derive(Debug)]
 pub enum FrameError {
-    TooLarge { bytes: usize },
+    TooLarge {
+        bytes: usize,
+    },
     InvalidLength(usize),
     UnknownKind(u8),
     Truncated,
@@ -1115,6 +1117,8 @@ pub enum FrameError {
     Decode(serde_json::Error),
     RequestInFlight,
     MirrorUnsupported,
+    /// A request the client core does not send, and why.
+    Refused(&'static str),
 }
 
 impl fmt::Display for FrameError {
@@ -1131,6 +1135,7 @@ impl fmt::Display for FrameError {
             Self::Decode(error) => write!(f, "frame payload decode failed: {error}"),
             Self::RequestInFlight => f.write_str("a page request is already in flight"),
             Self::MirrorUnsupported => f.write_str("folders view cannot be mirrored"),
+            Self::Refused(why) => write!(f, "refused: {why}"),
         }
     }
 }
