@@ -23,7 +23,8 @@ await requireBrowserLane("agent-pane-goal-strip-column.test.ts", async () => {
   // A wide pane (the column is capped, so the gutters are wide), a normal one, a narrow one and one
   // under the composer's 298px narrow outset (--acpmux-stack-outset).
   const WIDTHS = [1800, 900, 420, 300];
-  const VARIANTS = ["loop-wakeup", "loop-wakeup-open", "loop-cron", "goal-stalled", "claude-loop-steps"];
+  // The loop's own row is the `stack` arm now (loopPlace.experiment.ts); the default is the quiet row, below.
+  const VARIANTS = ["loop-wakeup-stack", "loop-wakeup-open", "goal-stalled", "claude-loop-steps"];
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -44,7 +45,7 @@ await requireBrowserLane("agent-pane-goal-strip-column.test.ts", async () => {
     await vite?.close();
   });
 
-  async function open(variant: string, width: number): Promise<Page> {
+  async function open(variant: string, width: number, row = ".acpmux-dock > .acpmux-goal"): Promise<Page> {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width, height: 620 } });
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width })}`);
@@ -52,7 +53,7 @@ await requireBrowserLane("agent-pane-goal-strip-column.test.ts", async () => {
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 60_000,
     });
-    await page.locator(".acpmux-dock > .acpmux-goal").first().waitFor({ timeout: 30_000 });
+    await page.locator(row).first().waitFor({ timeout: 30_000 });
     return page;
   }
 
@@ -94,13 +95,57 @@ await requireBrowserLane("agent-pane-goal-strip-column.test.ts", async () => {
             if (/b2mqa7gwr|github\.com|Steps:/.test(m.text))
               offenders.push(`${where}: the wake prompt paints in the row`);
           }
-          if (variant === "loop-cron" && m.text !== "Repeats every 5 minutes")
-            offenders.push(`${where}: the chip reads "${m.text}"`);
           if (variant === "loop-wakeup-open") {
             if (!m.details) offenders.push(`${where}: the prompt did not open on demand`);
             else if (m.details.left < m.goal.left - 1 || m.details.right > m.goal.right + 1)
               offenders.push(`${where}: the opened prompt ${m.details.left}..${m.details.right} leaves the row`);
           }
+        } finally {
+          await page.close();
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  // Leo, 2026-11-12, of "Checking back in 7 min." standing over the composer: "WE PROb need to start
+  // unwinding a lot of these things at the bottom". By default a loop is a line in the quiet row
+  // under the box (LoopQuiet.tsx): the stack over the composer is exactly as tall as with no loop.
+  test("a loop sits in the quiet row and adds no height to the bottom stack", async () => {
+    const offenders: string[] = [];
+    const LOOPS: Record<string, RegExp> = {
+      "loop-wakeup": /^Checking back in 1[45] min\.$/,
+      "loop-cron": /^Repeats every 5 minutes$/,
+      "loop-wakeup-short": /^in 1[45] min\.$/,
+    };
+    for (const width of [900, 420]) {
+      const bare = await open("claude-chat", width, ".acpmux-composer-foot");
+      const bareDock = await bare.evaluate(
+        () => document.querySelector(".acpmux-dock")!.getBoundingClientRect().height,
+      );
+      await bare.close();
+      for (const [variant, reads] of Object.entries(LOOPS)) {
+        const page = await open(variant, width, ".acpmux-composer-foot > .acpmux-loop-quiet");
+        try {
+          const m = await page.evaluate(() => {
+            const line = document.querySelector<HTMLElement>(".acpmux-composer-foot > .acpmux-loop-quiet")!;
+            const box = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
+            const r = line.getBoundingClientRect();
+            return {
+              text: line.textContent?.trim() ?? "",
+              stackRow: document.querySelector(".acpmux-dock > .acpmux-goal") !== null,
+              dock: document.querySelector(".acpmux-dock")!.getBoundingClientRect().height,
+              inside: r.left >= box.left - 1 && r.right <= box.right + 1,
+            };
+          });
+          const where = `${variant} @ ${width}px`;
+          if (!reads.test(m.text)) offenders.push(`${where}: the line reads "${m.text}"`);
+          if (/b2mqa7gwr|github\.com|Steps:/.test(m.text))
+            offenders.push(`${where}: the wake prompt paints in the row`);
+          if (m.stackRow) offenders.push(`${where}: the loop still stands as a row over the composer`);
+          if (Math.abs(m.dock - bareDock) > 1)
+            offenders.push(`${where}: the stack is ${m.dock}px, ${bareDock}px with no loop`);
+          if (!m.inside) offenders.push(`${where}: the line leaves the composer's edges`);
         } finally {
           await page.close();
         }

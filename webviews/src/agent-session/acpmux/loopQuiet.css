@@ -1,0 +1,39 @@
+/* A /loop's next run in the composer's quiet row (LoopQuiet.tsx). Like the machine link
+   (machineLinkStatus.css) it stands after the mode and takes the row's free middle, so the ring, the
+   model and the effort keep their place at the row's end; a narrow row cuts its words at the end
+   before it moves another control. With the machine link beside it, the link takes the free middle. */
+/* Doubled class: `.acpmux-composer-bar > :not(.acpmux-chips)` (composerLocation.css) sets every other
+   row item to flex: none. */
+.acpmux-composer-foot.acpmux-composer-foot > .acpmux-loop-quiet {
+  order: -1;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-inline-end: auto;
+}
+.acpmux-composer-foot:has(> .acpmux-loop-quiet) .acpmux-access,
+.acpmux-composer-foot:has(> .acpmux-machine-link) > .acpmux-loop-quiet {
+  margin-inline-end: 0;
+}
+.acpmux-loop-quiet {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+  min-width: 0;
+  min-height: var(--grid-composer-quiet-row-height, 28px);
+  padding-inline: var(--acpmux-row-inset, 8px);
+  color: var(--agent-muted);
+  font-size: var(--text-control);
+  line-height: 16px;
+  white-space: nowrap;
+}
+.acpmux-loop-quiet-mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+}
+.acpmux-loop-quiet-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}

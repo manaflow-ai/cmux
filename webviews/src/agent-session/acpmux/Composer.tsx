@@ -174,6 +174,7 @@ import { EmojiMenu } from "./EmojiMenu";
 import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
 import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
+import { LoopQuiet } from "./LoopQuiet";
 import { MachineLinkStatus } from "./MachineLinkStatus";
 import { peerLink, type PeerLink } from "./peerLink";
 import { composerHoldsDraft } from "./conversation/wakeFolds";
@@ -3002,6 +3003,8 @@ function ComposerFrame({
         chips={
           <PromptFocus value={focusPrompt}>
             <Chips snapshot={snapshot} />
+            {/* A /loop's next run, after the mode, not a row over the composer (LoopQuiet.tsx). */}
+            <LoopQuiet goal={snapshot.summary?.goal} />
             <MachineLinkStatus link={machineLink} onReconnect={onReconnectMachine} />
           </PromptFocus>
         }

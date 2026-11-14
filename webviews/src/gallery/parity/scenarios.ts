@@ -469,7 +469,7 @@ export const SCENARIOS: readonly Scenario[] = [
     source: "src/agent-session/acpmux/composerLook.gallery.ts",
     variant: "loop-wakeup",
     background: "dark",
-    inspect: "A loop waiting for its next check-in. Open the loop control to inspect the wake prompt.",
+    inspect: "A loop waiting for its next check-in, in the composer's quiet row; its wake prompt is in the tooltip.",
   },
 ];
 
