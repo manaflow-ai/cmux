@@ -303,6 +303,13 @@
   Regression: `SidebarListPatchCopyTests` (a real `SidebarListView` attached, elements copied per patch).
   dcb21bf3e42 (review F1 of #39638: write into the cached section only when the same node sits at that place) has no
   visual change; it reached the branch without its `Sidebar-Look:` trailer.
+- 2026-11-11: the account menu at the sidebar's bottom-left opens on cmux's own glass (`GlassMenu`), not
+  AppKit's menu material. Leo, verbatim: "Well, that's the whole point, right? Like that's what we wanted to do
+  anyways. have better design (systems too)". Same rows, actions, shortcuts, checks, subtitles and submenus; the
+  menu glass level with the one 40% veil, 8 pt corner, 28 pt rows on the menu grid. The control keeps its
+  selected fill while the menu is open and a second click closes it. The group editor's card moves onto the same
+  surface (`Glass.makeMenuPanel`): its veil is the only change. Gallery `ui.native-menu-material`;
+  tests `GlassMenuTests`.
 - 2026-11-09: a multi-selection drags as one stack of its rows, as a browser's vertical tabs do. Leo,
   verbatim (2026-11-08, ask-2ba1bed2e4, screen recordings of ours beside a browser's): "ours vs edge's group moving i
   think we need to make ours more like edge and chrome". The card carried only the pressed row and a count badge
