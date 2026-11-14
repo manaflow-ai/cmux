@@ -951,6 +951,42 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         #expect(LiveCoordinator.reattachesOnChannelEnd(served: 4, lastOpenedOn: nil))
     }
 
+    /// Review round 17: while one machine waited out a quick-drop backoff, every ask for a read
+    /// (each apply that wants a held machine) cancelled the read in flight, so no read finished
+    /// and another machine's hold never lifted. A hold inside its wait no longer makes the read in
+    /// flight look useless: the read finishes and lifts the other hold.
+    @Test(.timeLimit(.minutes(1))) func aBackoffOnOneMachineNeverCancelsTheReadThatLiftsAnother() async {
+        let flags = OpsLog()
+        let reads = OpsLog()
+        ServiceStub.install(host: host) { request in
+            guard Self.op(request) == "cloud.machine.list" else { return .init() }
+            reads.add("read")
+            let body = Self.list([("vm_a", "running"), ("vm_b", "running")])
+            return .init(body: body, held: flags.all.contains("hold"))
+        }
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let (live, cloud) = make(store: store, ops: OpsLog())
+        defer { live.stop() }
+        cloud.start()
+        await settle { reads.all.count >= 1 && !store.cloudMachines.isEmpty }
+        // vm_a waits out a backoff; vm_b's link was closed by the phone (a stale hold).
+        live.holdCloudDial("vm_a")
+        live.cloudHoldNotBefore["vm_a"] = ContinuousClock.now + .seconds(120)
+        live.holdCloudListStale(["vm_b"])
+        flags.add("hold")
+        cloud.refreshSoon()
+        await settle { reads.all.count >= 2 }
+        let before = reads.all.count
+        // Asks while that read is out: none cancels it.
+        for _ in 0..<3 { live.onCloudHoldsWaiting?(false) }
+        for _ in 0..<200 { await Task.yield() }
+        #expect(reads.all.count == before, "an ask cancelled the read in flight and read again")
+        ServiceStub.release(host: host)
+        await settle { live.cloudStaleHolds["vm_b"] == nil }
+        #expect(live.cloudStaleHolds["vm_b"] == nil, "the read never finished and lifted vm_b's hold")
+        #expect(live.cloudDropHolds["vm_a"] != nil, "vm_a's backoff still holds it")
+    }
+
     /// The page's full read and the list poll share an order: a page read whose machine list
     /// answers after a newer poll keeps the newer list, but still shows its plan and snapshots.
     @Test(.timeLimit(.minutes(1))) func aPageReadOvertakenByAPollStillShowsItsPlanAndSnapshots() async {
