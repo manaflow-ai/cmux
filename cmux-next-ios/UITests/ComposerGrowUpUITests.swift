@@ -47,11 +47,21 @@ final class ComposerGrowUpUITests: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "the keyboard comes up")
         field.typeText("one")
         let oneLine = field.frame
+        if name == "terminal" {
+            // The text view runs the field's whole height (user report
+            // 2026-11-13: a scrolled draft was cut 6 pt inside the glass):
+            // one line is the field's 40 pt, the send circle 6 pt above its bottom.
+            XCTAssertEqual(oneLine.height, 40, accuracy: 1, "terminal: the text view is the field's full height")
+        }
         attach(app, "\(name)-1-line")
         var frames: [Int: CGRect] = [1: oneLine]
         for count in 2...9 {
             field.typeText("\n\(Self.line)")
             frames[count] = field.frame
+            if name == "terminal" {
+                let send = app.buttons["terminal.composer.send"].firstMatch.frame
+                XCTAssertEqual(send.maxY, field.frame.maxY - 6, accuracy: 1, "terminal: the send circle rides 6 pt above the field's bottom at \(count) lines")
+            }
             if [3, 6, 9].contains(count) { attach(app, "\(name)-\(count)-lines") }
         }
         // A keystroke on the last line, as in the report ("when i y").

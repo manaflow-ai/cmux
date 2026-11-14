@@ -178,11 +178,16 @@ struct TerminalComposer: View {
                 onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil
             )
             sendButton
+                .padding(.vertical, TerminalDockMetrics.fieldPadding)
         }
         .padding(.leading, 14)
         .padding(.trailing, TerminalDockMetrics.fieldPadding)
-        .padding(.vertical, TerminalDockMetrics.fieldPadding)
+        // No vertical padding around the text: the text view runs from the
+        // field's top edge to its bottom edge (`textVerticalInset` keeps the
+        // text off them), so a scrolled draft is cut exactly at the edge. The
+        // rounded shape clips the cut lines at the corners too.
         .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
+        .clipShape(.rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
         .glassSurface(in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
     }
 

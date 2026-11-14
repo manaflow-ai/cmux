@@ -46,9 +46,10 @@ struct ComposerTextView: UIViewRepresentable {
         view.backgroundColor = .clear
         view.textColor = .label
         view.tintColor = .label
-        // With the field container's 6 pt padding, one line is 40 pt: as tall
-        // as the paperclip and mic circles beside it (classic).
-        let inset = TerminalDockMetrics.textInset
+        // The view runs the field's full height (`textVerticalInset`): one
+        // line is 40 pt, as tall as the paperclip and voice circles beside
+        // it (classic), and a scrolled draft is cut at the field's edge.
+        let inset = TerminalDockMetrics.textVerticalInset
         view.textContainerInset = UIEdgeInsets(top: inset, left: 0, bottom: inset, right: 0)
         view.textContainer.lineFragmentPadding = 0
         view.keyboardAppearance = .dark

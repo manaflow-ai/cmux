@@ -131,10 +131,16 @@ public struct TerminalDockMetrics: Sendable {
     public static let control: CGFloat = 40
     public static let sendDiameter: CGFloat = 28
     public static let fieldCornerRadius: CGFloat = 20
-    /// The field container's padding around the text (and the send circle).
+    /// The field container's padding around the send circle, and beside the text.
     public static let fieldPadding: CGFloat = 6
-    /// The text view's own vertical inset inside that padding.
+    /// The text's distance from the text view's top and bottom inside the field
+    /// at rest (3 pt below the field's 6 pt padding).
     public static let textInset: CGFloat = 3
+    /// The text view's own top and bottom inset. The text view runs the
+    /// field's whole height, so a draft that scrolls is cut at the field's
+    /// edge, not 6 pt inside it (user report 2026-11-13: a strip of empty
+    /// glass above the cut line); one line still sits where it did.
+    public static let textVerticalInset: CGFloat = textInset + fieldPadding
 
     public init() {}
 

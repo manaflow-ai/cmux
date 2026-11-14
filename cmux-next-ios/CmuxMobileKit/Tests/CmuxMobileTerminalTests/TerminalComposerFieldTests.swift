@@ -15,7 +15,7 @@ import UIKit
     static func field(_ lines: Int) -> ComposerUITextView {
         let view = ComposerUITextView()
         view.font = .preferredFont(forTextStyle: .body)
-        let inset = TerminalDockMetrics.textInset
+        let inset = TerminalDockMetrics.textVerticalInset
         view.textContainerInset = UIEdgeInsets(top: inset, left: 0, bottom: inset, right: 0)
         view.textContainer.lineFragmentPadding = 0
         view.text = (1...lines).map { "echo \($0)" }.joined(separator: "\n")
@@ -38,6 +38,10 @@ import UIKit
         let visible = CGRect(origin: tall.contentOffset, size: tall.bounds.size)
         // The caret overhangs its line by about a point on each side.
         #expect(caret.minY >= visible.minY - 2 && caret.maxY <= visible.maxY + 2, "caret \(caret) in \(visible)")
+        // Typing at the end shows the field's bottom inset under the last
+        // line, as at rest, not the line flush against the field's edge.
+        #expect(abs(visible.maxY - tall.contentSize.height) < 0.5, "scrolled to the end: \(visible) of \(tall.contentSize)")
+        #expect(tall.textContainerInset.top == TerminalDockMetrics.textVerticalInset)
     }
 
     @Test func terminalKeyInputStaysRaw() {
