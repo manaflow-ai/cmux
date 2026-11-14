@@ -293,7 +293,8 @@ class SidRows {
     if (!this.apart.size) return;
     const first = this.ids[0];
     const last = this.ids[this.ids.length - 1];
-    for (const entry of [...this.apart.values()]) {
+    // `put` deletes the entry it joins: a Map's iteration skips nothing it has not reached yet.
+    for (const entry of this.apart.values()) {
       const id = entry.id;
       const joins =
         first === undefined || last === undefined
