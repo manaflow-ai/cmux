@@ -478,6 +478,10 @@ mod tests {
             &["resume", "--last"],
             &["exec", "resume", "--last"],
             &["fork", "--last"],
+            // A skip flag after the prompt (reproduced with Codex 0.169).
+            &["exec", "hi", "--worktree"],
+            &["exec", "hi", "--ignore-user-config"],
+            &["hi", "--remote", "ws://127.0.0.1:1"],
         ] {
             let (settings, calls, said) = launch(AgentsCmuxMcp::On, args, found("/opt/cmux"));
             assert!(calls.is_empty() && said.is_empty(), "{args:?}");
@@ -500,7 +504,9 @@ mod tests {
         assert!(!settings.contains(&off), "{settings:?}");
         let (settings, _, said) = launch(AgentsCmuxMcp::On, &[], CodexEntry::Unknown);
         assert!(!settings.contains(&off), "{settings:?}");
-        assert_eq!(said, [crate::localization::catalog().agent_wrapper.codex_mcp_unknown]);
+        // One line, the shim's own (structure, not wording).
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].starts_with("cmux: ") && said[0].contains("Codex"), "{said:?}");
         assert!(settings.iter().any(|s| s.starts_with("mcp_servers.cmux_terminal.command=")));
     }
 }
