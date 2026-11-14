@@ -407,7 +407,7 @@ fn the_apps_lines_are_read() {
         app_line(r#"{"token":2,"error":{"kind":"unsupported"}}"#),
         Some(AppLine::Token { read: 2, result: TokenRead::Failed(LinkError::Unsupported) })
     );
-    let env = serve_machine::Env::from([("A".to_owned(), "b".to_owned())]);
+    let env = Env::from([("A".to_owned(), "b".to_owned())]);
     assert_eq!(
         app_line(r#"{"token":5,"env":{"A":"b"}}"#),
         Some(AppLine::Token { read: 5, result: TokenRead::Ok(env) })
