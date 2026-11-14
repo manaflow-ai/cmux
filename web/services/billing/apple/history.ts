@@ -136,8 +136,8 @@ async function ingestPage(
   for (const signedPayload of signedPayloads) {
     const uuid = claimedNotificationUuid(signedPayload);
     if (uuid && await deps.store.notification(uuid)) {
+      // Not verified this run: a duplicate says nothing about Apple's check.
       counts.duplicate += 1;
-      verified += 1;
       continue;
     }
     try {
