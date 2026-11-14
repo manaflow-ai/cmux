@@ -218,6 +218,37 @@ pub(crate) fn classify_client_line(line: &[u8]) -> Lane {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn string_ids_keep_attach_replies_with_live_records() {
+        let tracker = MuxLaneTracker::default();
+        for command in
+            ["agent-session-attach", "agent-session-events", "attach-surface", "loopback-open"]
+        {
+            let request = format!(r#"{{"id":"chaos-7","cmd":"{command}"}}"#);
+            let lane = classify_client_line(request.as_bytes());
+            assert_eq!(lane, Lane::Bulk, "{command}");
+            tracker.observe_request(request.as_bytes(), lane);
+            assert_eq!(
+                tracker.classify_server_line(br#"{"id":"chaos-7","ok":true}"#),
+                Some(Lane::Bulk),
+                "{command} reply must precede its live records"
+            );
+        }
+    }
+
+    #[test]
+    fn string_and_numeric_ids_have_separate_reply_slots() {
+        let tracker = MuxLaneTracker::default();
+        tracker.observe_request(br#"{"id":"7","cmd":"agent-session-attach"}"#, Lane::Bulk);
+        tracker.observe_request(br#"{"id":7,"cmd":"send"}"#, Lane::Interactive);
+        assert_eq!(tracker.classify_server_line(br#"{"id":7,"ok":true}"#), Some(Lane::Interactive));
+        assert_eq!(tracker.classify_server_line(br#"{"id":"7","ok":true}"#), Some(Lane::Bulk));
+        tracker.suppress_response(7);
+        tracker.observe_request(br#"{"id":"7","cmd":"agent-session-events"}"#, Lane::Bulk);
+        assert_eq!(tracker.classify_server_line(br#"{"id":"7","ok":true}"#), Some(Lane::Bulk));
+        assert_eq!(tracker.classify_server_line(br#"{"id":7,"ok":true}"#), None);
+    }
+
+    #[test]
     fn loopback_forward_lines_use_the_bulk_lane_in_both_directions() {
         for line in [
             &br#"{"id":1,"cmd":"loopback-open","stream":1,"host":"localhost","port":3000}"#[..],
