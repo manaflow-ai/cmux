@@ -958,6 +958,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if cell.height > 0 { applyTUIAreaHeight(cellHeight: cell.height) }
         view.setNeedsLayout()
         view.layoutIfNeeded()
+        // tuiHost is laid out by tuiClip, after the page's own pass (#42422).
+        tuiClip.layoutIfNeeded()
     }
 
     private func endGridHold(layout: Bool) {
