@@ -1235,6 +1235,18 @@ class BuildSpeedAndSupersede(unittest.TestCase):
         self.assertEqual(repin["group"], "app-ffi-repin")
         self.assertIs(repin["cancel-in-progress"], False)
 
+    def test_the_re_pin_hold_ends_inside_the_pin_grace(self):
+        # publish-app-ffi-repin.sh holds a published release for a newer run created at most REPIN_PENDING_MAX_MIN
+        # ago. That hold plus the newer build's timeout-minutes must end inside "Check the app FFI pin"'s
+        # --stale-grace, or a newer run still queued turns the base red (2026-11-14, hq#10943: the hold was 180 min,
+        # the grace 120).
+        script = (ROOT / "scripts/cmux-next/publish-app-ffi-repin.sh").read_text()
+        hold = int(re.search(r'pending_max_min="\$\{REPIN_PENDING_MAX_MIN:-(\d+)\}"', script).group(1))
+        checks = (ROOT / ".github/workflows/cmux-next.yml").read_text()
+        grace = int(re.search(r"check-app-ffi-pin\.sh --verify-release --stale-grace (\d+)", checks).group(1)) // 60
+        build = int(self.jobs["build"]["timeout-minutes"])
+        self.assertLess(hold + build, grace, f"re-pin hold {hold} min + build {build} min vs pin grace {grace} min")
+
     def test_build_checkout_is_treeless_with_full_history(self):
         checkout = self.jobs["build"]["steps"][0]
         self.assertTrue(checkout["uses"].startswith("actions/checkout@"))
