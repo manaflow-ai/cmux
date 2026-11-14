@@ -236,13 +236,10 @@ import CmuxNextWakeupsTestSupport
     @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
     func theFirstTooltipFadesInRisingAndAWarmNeighborsIsThereAtOnce() async throws {
         Motion.reduceMotionOverride = false
-        // Another suite's window mid-resize would drop the rise (`Motion.isLiveResizing`).
-        Motion.liveResizeOverride = false
         let watch = OverrideWatch(Motion.reduceMotionDidChange)
         defer {
             watch.stop()
             Motion.reduceMotionOverride = nil
-            Motion.liveResizeOverride = nil
         }
         let clock = ManualClock()
         let (window, buttons, presenter, _) = try Self.toolbar(clock: clock)

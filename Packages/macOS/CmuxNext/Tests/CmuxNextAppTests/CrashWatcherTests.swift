@@ -57,6 +57,41 @@ struct CrashWatcherTests {
         #expect(await Self.end(of: watcher.pid, within: 10) != nil, "the watcher did not exit after the kill")
     }
 
+    /// A stand-in `sample` that never returns (as `sample` did on a loaded CI runner, run 42568653071).
+    private static func hangingSampleTool() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "crash-watcher-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let tool = directory.appending(path: "sample")
+        try "#!/bin/zsh -f\nexec /bin/sleep 1000\n".write(to: tool, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tool.path)
+        return tool
+    }
+
+    @Test func aSampleThatNeverReturnsDoesNotKeepTheStuckProcessAlive() async throws {
+        let app = try Self.spawnStandIn()
+        defer { Self.stop(app) }
+        let tool = try Self.hangingSampleTool()
+        defer { try? FileManager.default.removeItem(at: tool.deletingLastPathComponent()) }
+        let sample = Self.sampleFile()
+        defer { unlink(sample) }
+        let watcher = try CrashWatcher(sampleFile: sample, seconds: 2, sampleTool: tool.path).spawn(watching: app)
+        defer {
+            close(watcher.writeEnd)
+            // The watcher leads its own process group: this also ends a stand-in sample it left running.
+            kill(-watcher.pid, SIGKILL)
+            var status: Int32 = 0
+            waitpid(watcher.pid, &status, 0)
+        }
+        var byte: UInt8 = 0x63
+        let started = ContinuousClock.now
+        #expect(write(watcher.writeEnd, &byte, 1) == 1)
+        // 2 s of watcher seconds plus the sample bound, with room for a loaded runner.
+        let status = try #require(await Self.end(of: app, within: 15), "a sample that never returns kept the stuck process alive")
+        #expect(status & 0x7f == SIGKILL, "wait status \(status)")
+        #expect(ContinuousClock.now - started >= .seconds(2), "the watcher acted before its seconds")
+        #expect(await Self.end(of: watcher.pid, within: 10) != nil, "the watcher did not exit after the kill")
+    }
+
     @Test func aNormalEndWithNoArmLeavesTheProcessAndEndsTheWatcher() async throws {
         let app = try Self.spawnStandIn()
         defer { Self.stop(app) }

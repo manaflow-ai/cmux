@@ -23,6 +23,7 @@ import {
   type Plot,
 } from "../src/pages/chief-usage/shape";
 import type { UsageQuery, UsageSummary } from "../src/pages/chief-usage/types";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -42,12 +43,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const query = (since: UsageQuery["since"], by: UsageQuery["by"] = "chief"): UsageQuery => ({ since, by, top: 10 });

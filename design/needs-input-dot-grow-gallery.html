@@ -1,0 +1,26 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Needs-input dot: grow in, three looks</title>
+<style>
+body{margin:0;padding:24px;background:#141416;color:#ececf0;font:13px/1.45 -apple-system,BlinkMacSystemFont,sans-serif}
+h1{font-size:18px;margin:0 0 4px} p.lead{color:#9a9aa2;max-width:820px}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(240px,1fr));gap:14px;margin-top:16px}
+.var{border:1px solid #2a2a2e;border-radius:10px;padding:12px;background:#1b1b1e} .var.rec{border-color:#5e8bff;box-shadow:0 0 0 1px #5e8bff55}
+.meta{color:#9a9aa2;font-size:11px;margin-top:8px} button{margin-top:16px}
+.line{display:inline-flex;align-items:center;gap:8px;height:24px;color:#f0c674}
+.dot{flex:none;width:12px;height:12px;border-radius:50%;background:radial-gradient(circle closest-side,#f0c674 66%,#f0c6744d 67%)}
+.pill{height:20px;line-height:20px;padding:0 8px;border-radius:6px;background:#f0c67429}
+.go .a .dot{animation:pop 265ms cubic-bezier(0.16,1,0.3,1) both}
+.go .b .dot{animation:room 265ms cubic-bezier(0.16,1,0.3,1) both}
+.go .c .dot{animation:room 265ms cubic-bezier(0.16,1,0.3,1) both,ring 265ms cubic-bezier(0.16,1,0.3,1) 265ms both}
+@keyframes pop{from{transform:scale(0);opacity:0}}
+@keyframes room{from{width:0;margin-inline-end:-8px;transform:scale(0);opacity:0}}
+@keyframes ring{50%{box-shadow:0 0 0 4px #f0c67433}}
+</style></head><body>
+<h1>Needs input: the yellow dot grows in when an ask opens</h1>
+<p class="lead">Leo, 2026-11-08: "I mostly just meant the yellow circle thing. I thought that was cute." The dot already shrinks into the Thinking words once answered; these are the ways it can grow in when a decision opens under a line already on screen. All run the house settle curve at 265 ms. Replay to watch them.</p>
+<div id="g" class="grid go">
+<div class="var a"><b>A</b> Scale only<div><span class="line"><span class="dot"></span><span class="pill">Waiting for you: allow this?</span></span></div><div class="meta">The dot's room is there from the first frame: the words jump 20px right, then the dot scales up beside them.</div></div>
+<div class="var b rec"><b>B</b> Scale and room together (picked)<div><span class="line"><span class="dot"></span><span class="pill">Waiting for you: allow this?</span></span></div><div class="meta">The room opens as the dot grows, so the words slide over in the same motion. The exact reverse of the answered shrink.</div></div>
+<div class="var c"><b>C</b> B, then a ring pulse<div><span class="line"><span class="dot"></span><span class="pill">Waiting for you: allow this?</span></span></div><div class="meta">One soft ring after the grow. Doubles the motion to 530 ms, past the 265 ms ceiling.</div></div>
+</div>
+<button onclick="const g=document.getElementById('g');g.classList.remove('go');void g.offsetWidth;g.classList.add('go')">Replay</button>
+</body></html>

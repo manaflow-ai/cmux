@@ -47,7 +47,7 @@
   background: transparent;
   color: var(--page-text-2);
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   cursor: default;
 }
 
@@ -82,8 +82,8 @@
   user-select: text;
 }
 
-.stash-search:focus,
-.stash-import-text:focus {
+.stash-search:focus-visible,
+.stash-import-text:focus-visible {
   border-color: var(--page-text-3);
 }
 

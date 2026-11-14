@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextDesignTokens
 import Observation
 
 /// The strip's plus on the one hover-reveal mechanism (R120): it brightens from
@@ -40,7 +41,7 @@ final class TabStripRevealController {
         // task-owner: this controller (cancelled in deinit); event-driven (Observation).
         observation = Task { [weak self] in
             for await _ in ObservationStream({
-                (DesignSettings.shared.plusButton, TabTunables.restingControlOpacity.value, TabTunables.crowdedControls.value, TabTunables.crowdedControlOpacity.value)
+                (DesignSettings.shared.plusButton, TabTunables.restingControlOpacity.value, TabTunables.crowdedControls.value, TabTunables.crowdedControlOpacity.value, TabTunables.chevronOnHover.value)
             }) {
                 self?.applyPlusButtonMode()
             }
@@ -53,14 +54,27 @@ final class TabStripRevealController {
         // Hidden at rest while the tabs leave room; muted once they fill the bar, so its kept room never
         // reads as an empty gap (Leo 2026-10-19, 2026-10-20).
         hover.restAlpha = TabTunables.restingControlAlpha(crowded: strip.isCrowded)
-        // The chooser sits beside the plus, so it fades with it; it never shows next to a hidden plus.
+        // The chooser sits beside the plus, so it fades with it; it never shows next to a hidden plus. Under
+        // `tabs.chevronOnHover` it stays out of the strip's reveal: only the + or the ⌄ under the pointer (or
+        // its menu) shows it (`TabStripView.updateChooserReveal`), never a hover anywhere on the strip.
+        let plusMode = DesignSettings.shared.plusButton
+        let chooserOnHover = TabTunables.chevronOnHover.value
         for control in [strip.newTabButton, strip.newTabMenuButton] as [NSView] {
-            if DesignSettings.shared.plusButton == .hover {
+            let isChooser = control === strip.newTabMenuButton
+            if Self.joinsStripReveal(plusMode: plusMode, isChooser: isChooser, chooserOnHover: chooserOnHover) {
                 if HoverReveal.owner(of: control) == nil { hover.add(control) }
             } else {
                 hover.remove(control)
             }
         }
+        strip.updateChooserReveal()
+    }
+
+    /// Whether a strip control fades with the strip's hover: the + and the ⌄ under `tabs.plusButton` =
+    /// hover, except the ⌄ when it shows only on the +'s own hover (Lucas 2026-11-12: "the chevron should
+    /// only show up when the + button is hovered directly").
+    nonisolated static func joinsStripReveal(plusMode: PlusButtonMode, isChooser: Bool, chooserOnHover: Bool) -> Bool {
+        plusMode == .hover && !(isChooser && chooserOnHover)
     }
 
     /// Maps the strip's inputs onto the reveal: the pointer, and a hold for

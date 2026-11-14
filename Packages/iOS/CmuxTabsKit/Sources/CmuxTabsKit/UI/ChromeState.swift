@@ -25,13 +25,13 @@ final class ChromeState {
     func collapse(_ theme: TabsKitTheme) {
         guard bar == .expanded, !editing, !menuOpen else { return }
         withAnimation(theme.motion.resolve(theme.motion.collapse)) { bar = .collapsed }
-        withAnimation(theme.motion.sideOut) { sidesVisible = false }
+        withAnimation(theme.motion.resolve(theme.motion.sideOut)) { sidesVisible = false }
     }
 
     func expand(tap: Bool, _ theme: TabsKitTheme) {
         guard bar == .collapsed else { return }
         withAnimation(theme.motion.resolve(tap ? theme.motion.expandTap : theme.motion.expandScroll)) { bar = .expanded }
-        withAnimation(theme.motion.sideIn) { sidesVisible = true }
+        withAnimation(theme.motion.resolve(theme.motion.sideIn)) { sidesVisible = true }
     }
 
     /// Finger travel on the page (positive = finger moving down). Not

@@ -1,5 +1,5 @@
 // l10n-allow-file: browser fixture labels and diagnostics, not shipped UI.
-// A "Received N messages" row's hover (the senders' short names, MessageGroupHead.tsx) shows at the
+// A "Received N messages" row's hover (its messages, MessageGroupHover.tsx) shows at the
 // row's words, not centered under the whole transcript-wide row (Leo, 2026-11-03: "this hover
 // preview is in the wrong place!"). The row is a tool row (`.cv-tool`, width 100%), so its box runs
 // to the pane's right edge; the tooltip (ui/titleTooltips.ts) anchors to its words instead. A
@@ -43,16 +43,29 @@ await requireBrowserLane("inbox-group-hover-anchor-browser.test.ts", async () =>
       return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
     });
 
-  /** Hovers `hovered` and returns the shown tooltip's box and text. */
-  async function tooltipFor(page: Page, hovered: Locator) {
+  /** The group head's hover card (MessageGroupHover.tsx, a ui/Tooltip) and a name's title tooltip. */
+  const GROUP_HOVER = ".cv-group-hover__popup";
+  const TITLE_TOOLTIP = ".ui-title-tooltip";
+
+  /** Hovers `hovered` and returns the shown tooltip's (`selector`) box and text. */
+  async function tooltipFor(page: Page, hovered: Locator, selector = TITLE_TOOLTIP) {
     await page.mouse.move(2, 2);
-    await page.waitForFunction(() => document.querySelector<HTMLElement>(".ui-title-tooltip")?.hidden !== false);
+    await page.waitForFunction((selector) => {
+      const tip = document.querySelector<HTMLElement>(selector);
+      return !tip || tip.hidden || !tip.isConnected || tip.getBoundingClientRect().width === 0;
+    }, selector);
     await hovered.hover();
-    await page.waitForFunction(() => {
-      const tip = document.querySelector<HTMLElement>(".ui-title-tooltip");
-      return !!tip && !tip.hidden && !tip.hasAttribute("data-ending-style") && tip.textContent !== "";
-    });
-    const tip = page.locator(".ui-title-tooltip");
+    await page.waitForFunction((selector) => {
+      const tip = document.querySelector<HTMLElement>(selector);
+      return (
+        !!tip &&
+        !tip.hidden &&
+        !tip.hasAttribute("data-ending-style") &&
+        !tip.hasAttribute("data-starting-style") &&
+        tip.textContent !== ""
+      );
+    }, selector);
+    const tip = page.locator(selector).first();
     return { rect: await box(tip), text: await tip.textContent() };
   }
 
@@ -82,12 +95,13 @@ await requireBrowserLane("inbox-group-hover-anchor-browser.test.ts", async () =>
       // The row runs far past its words: the case Leo hit.
       expect((await box(head)).right - (await box(words)).right).toBeGreaterThan(200);
 
-      const onWords = await tooltipFor(page, words);
+      // Its hover lists the messages (Leo, 2026-11-07), still at the row's words.
+      const onWords = await tooltipFor(page, words, GROUP_HOVER);
       expect(onWords.text).toBeTruthy();
       expectAt(onWords.rect, await box(head.locator(".cv-tool__text")), "group row, pointer on its words");
 
       // The pointer on the row's mark shows the same tooltip at the same place (within the fade-in's rise).
-      const onMark = await tooltipFor(page, head.locator(".cv-tool__icon"));
+      const onMark = await tooltipFor(page, head.locator(".cv-tool__icon"), GROUP_HOVER);
       expect(onMark.text).toBe(onWords.text);
       expect(Math.abs(onMark.rect.left - onWords.rect.left)).toBeLessThanOrEqual(3);
       expect(Math.abs(onMark.rect.top - onWords.rect.top)).toBeLessThanOrEqual(3);

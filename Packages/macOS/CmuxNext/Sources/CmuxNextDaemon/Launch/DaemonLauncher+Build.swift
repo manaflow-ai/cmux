@@ -8,14 +8,13 @@ extension DaemonLauncher {
     /// The app daemon's session and state directory of `build` (per-build
     /// isolation S3, cx-is1kf.4): ``BuildIdentity/appSession`` and
     /// ``BuildIdentity/daemonStateDirectory(appSupport:)`` under
-    /// `<applicationSupport>/cmux`. With `log` (the app launcher), a build
+    /// `<applicationSupport>/cmux-next` (``nextSupport(_:)``). With `log` (the app launcher), a build
     /// whose names are of its key (the untagged DEV build among them) logs
     /// them, so a developer can find its session.
     public static func appNames(build: BuildIdentity, applicationSupport: URL = applicationSupportDirectory(),
                                 log: Bool = false) -> (session: String, stateDirectory: URL?) {
         let session = build.appSession ?? "cmux-app"
-        let stateDirectory = build.daemonStateDirectory(
-            appSupport: applicationSupport.appendingPathComponent("cmux", isDirectory: true))
+        let stateDirectory = build.daemonStateDirectory(appSupport: nextSupport(applicationSupport))
         // An untagged NIGHTLY, RC or staging build keeps the old shared session it ran
         // before cx-6so.41, once adopted (cx-r650e): `cmux-app` in cmux-tui's default root.
         if LegacyChannelSession(applicationSupport: applicationSupport)

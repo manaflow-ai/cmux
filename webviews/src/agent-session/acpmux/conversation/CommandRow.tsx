@@ -6,7 +6,8 @@
 // `cd <folder> &&`, which its Shell block names) and the plumbing after it (`2>/dev/null | head`),
 // then its exit status and run time (the check and time on hover only),
 // opening to its Shell block. A command that went on in the background shows how it stands there
-// instead (BackgroundMark.tsx), and its time once it ends.
+// instead (BackgroundMark.tsx), and its time once it ends; while it serves a page, the page's chip
+// (PreviewChip.tsx).
 import { useFindReveal } from "./chatFind";
 import { memo, useId, useMemo, useState } from "react";
 import { useT } from "../i18n";
@@ -15,12 +16,15 @@ import { commandFolder } from "./commandFolder";
 import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
-import { ReactionMark, ReactionReply } from "./ReactionMark";
+import { PreviewChip } from "./PreviewChip";
+import { RunElsewhereBelow, RunElsewhereChip } from "./RunElsewhere";
+import { inBackground } from "./runElsewhereModel";
+import { ReactionMark } from "./ReactionMark";
 import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
-import { Check, ChevronRight, TerminalSquare } from "./icons";
+import { ChevronRight, TerminalSquare } from "./icons";
 import { isRunning, toolDuration } from "./toolGroups";
-import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { useRowDisclosure } from "./transcriptDisclosureModel";
 import { commandLine, commandLook, commandSaid } from "./commandActions";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { rowFailed, toolFailure } from "./toolFailure";
@@ -36,7 +40,8 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
   const step = useInStep();
   const tool = item.tool!;
   // The Verbose transcript view opens the command to its output.
-  const [open, setOpen] = useTranscriptDisclosure(`command:${tool.id}`, false, true);
+  // Kept under the call's own key, as a lone call's is: grouped with others it keeps the reader's choice.
+  const [open, setOpen] = useRowDisclosure(tool.id);
   // Find in Chat counts matches in the whole output, so a command it reveals shows all of it.
   const [reveal, setReveal] = useState(0);
   useFindReveal(
@@ -59,11 +64,9 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
   // Claude Code says its exit code only in the output ("Exit code 1"): the Shell block says it once.
   const output = (failure?.output ?? tool.output)?.replace(/\n$/, "");
   const duration = toolDuration(t, tool);
-  // A failed call says so in a red word right after its title, before its chevron, as Claude Code
-  // desktop tags one ("Count the fixture cases Failed ⌄"; Leo, 2026-11-03: "claude code desktop's
-  // summarization of tool calls/parsing of them seem kinda good?"). A step of an opened run says
-  // "failed" (drawn "Failed", conversation.css `.cv-command > .cv-command__failed`) and its opened Shell block says
-  // "Exit code N"; a lone command keeps its "Exit 1". A background command that failed says it too.
+  // Codex marks no command as passed or failed (Lawrence and Lucas, 2026-11-11 standup): the row
+  // draws no check and no time once it ends. A failed call's word ("failed", "Exit 1") stays for
+  // screen readers only (conversation.css clips it away); the opened Shell block says "Exit code N".
   const tag = tool.background
     ? tool.background.state === "failed"
       ? t("tools.failed")
@@ -148,19 +151,27 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
           </span>
         )}
         <span className="cv-command__meta">
+          {/* The page a background command serves, while it runs (PreviewChip.tsx). */}
+          {tool.background?.state === "running" && <PreviewChip toolCallId={tool.id} />}
+          {/* From 20 s on, a running command offers another machine (RunElsewhere.tsx). */}
+          <RunElsewhereChip
+            toolCallId={tool.id}
+            kind={tool.kind}
+            command={tool.command}
+            startedAt={tool.startedAt}
+            running={running}
+            background={inBackground(tool)}
+          />
           <ReactionMark reaction={tool.reaction} />
           {tool.approved && <ApprovedMark />}
-          {foreground || tag ? null : tool.background ? (
-            <BackgroundMark background={tool.background} />
-          ) : failure ? null : (
-            <Check size={14} className="cv-command__ok" />
-          )}
-          {duration && <span className="cv-command__time">{duration}</span>}
+          {!foreground && !tag && tool.background && <BackgroundMark background={tool.background} />}
+          {running && duration && <span className="cv-command__time">{duration}</span>}
         </span>
         <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {/* A call that went on in the background says how it stands there, not why it failed. */}
       {!tool.background && <ToolFailureCause failure={failure} />}
+      <RunElsewhereBelow toolCallId={tool.id} command={tool.command} />
       {fold.present && (
         <div {...fold.bodyProps}>
           <ShellBlock
@@ -171,7 +182,6 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
             reveal={reveal}
             live={running}
           />
-          <ReactionReply reaction={tool.reaction} />
         </div>
       )}
     </>

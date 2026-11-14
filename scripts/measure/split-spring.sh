@@ -54,9 +54,12 @@ tag="split-spring"
 out="$(pwd)/artifacts/split-spring"
 mkdir -p "$out"
 sha="$(git rev-parse HEAD)"
-# A bench build (--config=bench) is cached apart from the default Debug build of the same commit.
-key="$sha"
-[[ ${#reload_config[@]} -gt 0 && "${reload_config[1]}" != debug ]] && key="$sha-${reload_config[1]}"
+# Keyed by the app's sources, not the commit: the bench's own scripts (scripts/cmux-next, scripts/measure) build
+# nothing, so a change to them alone reuses the app. Every other path, the build scripts in scripts/ too, is in the key.
+key="$( { git ls-tree HEAD | grep -v $'\tscripts$'; git ls-tree HEAD:scripts | grep -v -E $'\t(cmux-next|measure)$'; } \
+  | git hash-object --stdin)"
+# A bench build (--config=bench) is cached apart from the default Debug build of the same sources.
+[[ ${#reload_config[@]} -gt 0 && "${reload_config[1]}" != debug ]] && key="$key-${reload_config[1]}"
 cache=""
 if [[ "$app_cache" == 1 && -n "${CI_SHARED_CACHE_DIR:-}" ]]; then
   cache="$CI_SHARED_CACHE_DIR/split-spring-apps"

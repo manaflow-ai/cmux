@@ -47,7 +47,7 @@ extension TabStripView {
         let contentX = scrollMapping.contentX(convert(point, to: tabsClip).x, isPinned: drag.isPinned)
         let region = result.slots.filter { $0.isPinned == drag.isPinned && $0.id != Self.placeholderID }
         guard let first = region.first, let last = region.last else { return }
-        let x = min(max(contentX - drag.grabOffset, first.x), last.maxX - width)
+        let x = min(max(contentX - drag.grabOffset, first.x), dragTrailingLimit(drag, regionEnd: last.maxX) - width)
         let entries = region.filter { $0.id != drag.id }
         var index: Int
         var group: TabGroupID?
@@ -85,6 +85,15 @@ extension TabStripView {
         } else {
             applyFrames()
         }
+    }
+
+    /// The content x a dragged tab's trailing edge may reach: an unpinned tab follows the pointer
+    /// to the end of the visible strip (Chrome, Safari), not only to the end of the other tabs,
+    /// so a lone tab moves with the pointer instead of staying stuck in its slot. Pinned tabs stay
+    /// in their band. The + keeps following the slots, not the lifted tab (`applyFrames`).
+    func dragTrailingLimit(_ drag: TabStripDrag, regionEnd: CGFloat) -> CGFloat {
+        guard !drag.isPinned else { return regionEnd }
+        return max(regionEnd, scrollMapping.contentX(viewportWidth, isPinned: false))
     }
 
     /// Whether `point` (strip coordinates) is the tear-off distance past

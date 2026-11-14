@@ -23,6 +23,7 @@ import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 type Card = {
+  look: string | null;
   component: string | null;
   /// The strip and the card are the Composer's own children, the card the one ComposerBox draws.
   nested: boolean;
@@ -92,6 +93,7 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
     const strip = document.querySelector(".acpmux-composer-strip")?.getBoundingClientRect();
     const form = box.closest("form");
     return {
+      look: form?.getAttribute("data-composer-look") ?? null,
       component: form?.getAttribute("data-cmux-component") ?? null,
       nested:
         box.parentElement === form &&
@@ -120,7 +122,7 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
 
   for (const variant of ["claude", "project", "remote"])
     test(`${variant}: the new chat's card is the started chat's card`, async () => {
-      const started = await card("started");
+      const started = await card(variant === "claude" ? "started" : "started-codex");
       const fresh = await card(variant);
       expect(fresh.component).toBe("Composer");
       expect(started.component).toBe("Composer");
@@ -128,10 +130,17 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
       expect(fresh.radii).toEqual(started.radii);
       expect(fresh.radii.every((radius) => parseFloat(radius) > 0)).toBe(true);
       expect(fresh.ring).toBe(started.ring);
-      // The chips stand over the card, apart from it: no tab on its top edge.
       expect(fresh.strip).not.toBeNull();
-      expect(fresh.top - fresh.strip!.bottom).toBeGreaterThanOrEqual(2);
-      expect(fresh.top - fresh.strip!.bottom).toBeLessThanOrEqual(10);
+      if (variant === "claude") {
+        // A saved Claude choice keeps separate location chips above the card.
+        expect(fresh.look).toBeNull();
+        expect(fresh.top - fresh.strip!.bottom).toBeGreaterThanOrEqual(2);
+        expect(fresh.top - fresh.strip!.bottom).toBeLessThanOrEqual(10);
+      } else {
+        // New viewers use Codex's filled tray, tucked 10px beneath the same card.
+        expect(fresh.look).toBe("codex");
+        expect(fresh.top - fresh.strip!.bottom).toBeCloseTo(-10, 1);
+      }
     });
 
   // Codex's look keeps its tray (composerLook.css); the card over it is the started Codex chat's.
@@ -170,7 +179,7 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
     await page.close();
     const tab = await browser!.newPage({ viewport: { width: 720, height: 640 } });
     await tab.goto(
-      `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.new-tab", { variant: "minimal-default" })}`,
+      `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.composer-look", { variant: "newtab-claude" })}`,
     );
     await tab.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 90_000,

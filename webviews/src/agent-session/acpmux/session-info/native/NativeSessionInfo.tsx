@@ -12,6 +12,8 @@ import { opensProcessTerminal } from "../../processTerminal";
 import type { StartedSession } from "../../started/startedSessions";
 import { useNow } from "../../subagents/subagentGroupModel";
 import type { Subagent } from "../../subagents/subagentFold";
+import { useResumeRuns, type ResumeActions } from "../../subagents/ResumeControl";
+import { resumeVersion } from "../../subagents/resumeState";
 import type { WorkflowAgent, WorkflowSummary } from "../../summary/workflow";
 import type { Artifact } from "../../conversation/artifactPreview";
 import type { TurnFile } from "../../diff";
@@ -44,6 +46,7 @@ import {
 } from "./model";
 import { outputsSection } from "./outputs";
 import { useNativeOverlayReport } from "./overlays";
+import { useNativePinchReport } from "./pinch";
 import { panelAction } from "./panelActions";
 import { usageSection } from "./usage";
 import type { AccessGrant } from "../EnvironmentSection";
@@ -118,6 +121,8 @@ export type NativeSessionInfoProps = {
   workflows: readonly WorkflowSummary[];
   agent?: Subagent;
   onOpenSubagent?: (id: string) => void;
+  /// Resume on a stopped subagent's row (subagents/ResumeControl.tsx), as a row button here.
+  resumeSubagent?: ResumeActions;
   onOpenSession?: (sessionId: string) => void;
   onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   onStopWorkflow?: (id: string) => Promise<unknown>;
@@ -131,6 +136,8 @@ export type NativeSessionInfoProps = {
   onReconnectMcp?: (server: string) => Promise<unknown>;
   onOpenFolder?: (path: string) => void;
   onShowCall?: (toolCallId: string) => boolean;
+  /// Reveals the turn linked by a native time breakdown row.
+  onShowTurn?: (turnId: string) => void;
 };
 
 /// Sends the model when it changes, coalesced to a frame; withdraws it when the chat's panel goes.
@@ -217,6 +224,9 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
     [props.processes, props.workflows],
   );
   const stops = useNativeOperations(activeStops);
+  // Each stopped subagent's Resume as it goes, as the page's own rows keep it (ResumeControl.tsx).
+  const resumes = useResumeRuns();
+  const resumeAgent = props.resumeSubagent?.resumeAgent;
   const sourceFiles = useNativeSourceFiles(props.onOpenSourceFile, t);
   const [localReveal, setLocalReveal] = useState<NativeSessionInfoModel["reveal"]>();
   // The person's choices inside the sections (the page's components keep these in their own state).
@@ -467,6 +477,13 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           pendingMax: limit.pendingMax,
           limitState: limit.state,
           onOpen: props.onOpenSubagent,
+          ...(resumeAgent && {
+            resume: {
+              capabilities: props.resumeSubagent?.retryCapabilities,
+              run: (agent) => resumes.run(agent, resumeVersion(agent), resumeAgent),
+              shown: (agent) => resumes.shown(agent.id, resumeVersion(agent)),
+            },
+          }),
           onOpenSession: props.onOpenSession,
           now,
           showAll: subagentsAll,
@@ -514,6 +531,8 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
       usageSection(
         {
           own: summary?.usageStats,
+          timeBreakdown: summary?.timeBreakdown,
+          onShowTurn: props.onShowTurn,
           planLimits: typeof summary?.usageLimits === "object" ? summary.usageLimits : undefined,
           sessions: props.allSessions ?? [],
           chatId,
@@ -553,6 +572,8 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   };
   // The page's popups over the App's panel: it steps behind them (overlays.ts).
   useNativeOverlayReport(info.open);
+  // The page's trackpad pinch: the App's panel zooms and pans with it (pinch.ts).
+  useNativePinchReport(info.open);
   usePostSessionInfo(info, actions, () => {
     if (props.revealed) props.onRevealed?.();
     else setLocalReveal(undefined);

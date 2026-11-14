@@ -328,4 +328,33 @@ private func settle(until condition: (() -> Bool)? = nil) async {
         #expect(rig.refreshes == 0)
         await rig.finish()
     }
+
+    /// A socket that cannot open retries on its backoff in front and behind; only in
+    /// front does each retry also fetch the Mac list over HTTP (the foreground's kick
+    /// reconnects, and the socket's hello brings the list).
+    @Test func backgroundRetriesMakeNoHTTPRefreshes() async {
+        for backgrounded in [true, false] {
+            let rig = PresenceTestRig()
+            var attempts = 0
+            rig.request = {
+                attempts += 1
+                throw URLError(.notConnectedToInternet)
+            }
+            rig.listener.backgrounded = backgrounded
+            rig.listener.start()
+            var elapsed: Duration = .zero
+            while elapsed < .seconds(3600) {
+                await settle()
+                guard let next = rig.clock.pendingDelays.first else { break }
+                rig.clock.advance(by: next)
+                elapsed += next
+            }
+            await settle()
+            print("bg-quiet: presence per hour (background: \(backgrounded)): \(attempts) socket retries, \(rig.refreshes) HTTP refreshes")
+            // 2, 4, 8, then 20 s apart: 183 retries in the hour either way.
+            #expect(attempts > 150)
+            if backgrounded { #expect(rig.refreshes == 0) } else { #expect(rig.refreshes >= attempts - 1) }
+            await rig.finish()
+        }
+    }
 }

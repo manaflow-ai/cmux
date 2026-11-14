@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 import Foundation
 @testable import CmuxNextUpdater
 import Testing
@@ -17,7 +18,7 @@ import Testing
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.silent-background-update", shortVersion: "1.0.0",
                                            build: "100", minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
-        let defaults = UserDefaults(suiteName: "SilentBackgroundUpdateTests.\(UUID().uuidString)")!
+        let defaults = UserDefaults(testSuiteName: "SilentBackgroundUpdateTests.\(UUID().uuidString)")!
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
                                      enableSparkle: false, recordsUpdates: false)
         updater.announcementsFetch = false
@@ -144,6 +145,36 @@ import Testing
         #expect(accepted == 2, "the found update kept waiting after Low Data Mode ended")
     }
 
+    /// Before the network monitor's first path the link counts as metered: a launch check's update
+    /// waits instead of downloading on Low Data Mode, and downloads once the first path says the
+    /// link is free (#39680 review F1). An update the organization requires still downloads.
+    @Test func theLinkCountsAsMeteredUntilTheFirstPath() {
+        let updater = Self.updater()
+        var accepted = 0
+        updater.acceptAvailable = { accepted += 1 }
+        updater.downloadSetting = (true, .deferLowData)
+        updater.networkPending = true
+        updater.applyDownloadPolicy()
+        #expect(!updater.downloadsFoundUpdates && accepted == 0, "an update downloaded before the monitor said which link this is")
+        updater.networkChanged(constrained: true, expensive: false)
+        #expect(!updater.downloadsFoundUpdates && accepted == 0, "an update downloaded on Low Data Mode")
+        updater.networkChanged(constrained: false, expensive: false)
+        #expect(updater.downloadsFoundUpdates && accepted == 1, "the found update kept waiting on a free link")
+
+        let free = Self.updater()
+        free.downloadSetting = (true, .deferLowData)
+        free.networkPending = true
+        free.applyDownloadPolicy()
+        free.networkChanged(constrained: false, expensive: false)
+        #expect(free.downloadsFoundUpdates, "a first path equal to the starting state left downloads off")
+
+        let always = Self.updater()
+        always.downloadSetting = (true, .download)
+        always.networkPending = true
+        always.applyDownloadPolicy()
+        #expect(always.downloadsFoundUpdates, "meteredNetwork download waited for the first path")
+    }
+
     @Test func theUsersCheckShowsTheCardNotTheButton() {
         let updater = Self.updater()
         updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: false)
@@ -163,13 +194,16 @@ import Testing
         #expect(updater.availableButton == nil)
     }
 
-    /// Automatic download and install is opt-in on every channel (Leo 2026-10-27: "ask before the
-    /// download + install step, and likewise for the reboot"): the dogfood apps ask as stable does.
-    @Test func automaticDownloadsAreOptInOnEveryChannel() {
+    /// Automatic download is opt-in on every channel but cmux NEXT's nightly ring (Leo 2026-10-27:
+    /// "ask before the download + install step"; 2026-11-10, for the nightly: "automatically
+    /// downloads and installs/unpacks and you simply click"). The relaunch always asks.
+    @Test func automaticDownloadsAreOptInOnEveryChannelButTheNightlyRing() {
         #expect(!UpdateTrack.stable.downloadsAutomaticallyByDefault)
         #expect(!UpdateTrack.rc.downloadsAutomaticallyByDefault)
         #expect(!UpdateTrack.nightly.downloadsAutomaticallyByDefault)
         #expect(!UpdateTrack.development.downloadsAutomaticallyByDefault)
+        // cmux NEXT's nightly ring is the one exception (Leo 2026-11-10: "the nightly automatically downloads").
+        #expect(UpdateTrack.nightlyNext.downloadsAutomaticallyByDefault)
     }
 
     /// `updates.status` (and `cmux version`) report whether this app downloads by itself, from its
@@ -180,7 +214,7 @@ import Testing
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.nightly", shortVersion: "1.0.0-nightly.100",
                                            build: "100", minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: true)
-        let defaults = UserDefaults(suiteName: "SilentBackgroundUpdateTests.\(UUID().uuidString)")!
+        let defaults = UserDefaults(testSuiteName: "SilentBackgroundUpdateTests.\(UUID().uuidString)")!
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
                                      enableSparkle: false, recordsUpdates: false)
         #expect(updater.disabledReason == nil)
@@ -200,7 +234,7 @@ import Testing
                                            build: "100", minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { true },
-                                     defaults: UserDefaults(suiteName: "SilentBackgroundUpdateTests.\(UUID().uuidString)")!,
+                                     defaults: UserDefaults(testSuiteName: "SilentBackgroundUpdateTests.\(UUID().uuidString)")!,
                                      enableSparkle: false, recordsUpdates: false)
         var accepted = 0
         updater.acceptAvailable = { accepted += 1 }

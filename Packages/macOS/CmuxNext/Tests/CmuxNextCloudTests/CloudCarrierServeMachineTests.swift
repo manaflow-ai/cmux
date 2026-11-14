@@ -99,7 +99,7 @@ import Testing
         var machine = Self.spawning()
         let error = CloudLinkError.invalidAnswer("served another socket")
         #expect(machine.reduce(.readyLine(child: 1, socket: "/tmp/elsewhere.sock", policy: nil))
-            == [.cancelReadyDeadline, .closeStdin(child: 1), .release(child: 1), .resume([1], .failure(error))])
+            == [.cancelReadyDeadline, .closeStdin(child: 1), .release(child: 1), .resume([1], .failure(error)), .armStopDeadline(child: 1)])
         #expect(machine.state == .idle(lastEnd: error, alive: 1))
         // The next connect waits for that child's exit before it claims the socket.
         #expect(machine.reduce(.connect(2, keepRefusal: false)) == [])
@@ -140,7 +140,8 @@ import Testing
     @Test func readyDeadlineClosesTheChild() {
         var machine = Self.spawning()
         #expect(machine.reduce(.readyDeadline(1))
-            == [.cancelReadyDeadline, .closeStdin(child: 1), .release(child: 1), .resume([1], .failure(M.noReadyLine))])
+            == [.cancelReadyDeadline, .closeStdin(child: 1), .release(child: 1), .resume([1], .failure(M.noReadyLine)),
+                .armStopDeadline(child: 1)])
     }
 
     @Test func spawnFailureLeavesNoChild() {
@@ -243,7 +244,8 @@ import Testing
         var machine = Self.ready()
         _ = machine.reduce(.connect(2, keepRefusal: false))
         _ = machine.reduce(.tokenRead(1, read: 2, .ok(Self.env("t-2"))))
-        #expect(machine.reduce(.tokenWritten(child: 1, token: "t-2", ok: false)) == [.cancelRefresh, .closeStdin(child: 1), .release(child: 1)])
+        #expect(machine.reduce(.tokenWritten(child: 1, token: "t-2", ok: false))
+            == [.cancelRefresh, .closeStdin(child: 1), .armStopDeadline(child: 1), .release(child: 1)])
         #expect(machine.state == .draining(3, child: 1), "the relaunch waits for the old child's exit")
         #expect(machine.reduce(.childExit(child: 1, code: 0)) == [.claimSocket(3)])
     }
@@ -268,6 +270,53 @@ import Testing
             #expect(machine.reduce(.stop) == [], "\(name): a second stop does nothing")
             #expect(machine.reduce(.accountEnded) == [], "\(name)")
         }
+    }
+
+    /// A pause parks the serve: the child and the parked connects end as a stop ends them, but the next connect
+    /// (the resume) drains the parked child and launches a fresh one.
+    @Test func parkFromEachStateEndsTheChildAndKeepsTheServe() {
+        let expected: [String: [M.Effect]] = [
+            "idle": [],
+            "claiming": [.resume([1], .failure(Self.closed))],
+            "awaitingToken": [.resume([1], .failure(Self.closed))],
+            "spawning": [.cancelReadyDeadline, .closeStdin(child: 1), .release(child: 1), .resume([1], .failure(Self.closed)), .armStopDeadline(child: 1)],
+            "ready": [.cancelRefresh, .closeStdin(child: 1), .release(child: 1), .armStopDeadline(child: 1)],
+            "draining": [.closeStdin(child: 1), .release(child: 1), .resume([2], .failure(Self.closed)), .armStopDeadline(child: 1)],
+            "idle with an exiting child": [.closeStdin(child: 1), .release(child: 1), .armStopDeadline(child: 1)],
+        ]
+        for (name, state) in Self.everyState() {
+            var machine = state
+            let child = machine.child
+            #expect(machine.reduce(.park) == expected[name], "\(name)")
+            #expect(machine.state == .idle(lastEnd: Self.closed, alive: child), "\(name)")
+            #expect(!machine.isTerminal, "\(name)")
+            #expect(machine.waiters.isEmpty, "\(name)")
+            #expect(machine.refusal == Self.closed, "\(name)")
+            let epoch = machine.epoch
+            if let child {
+                #expect(machine.reduce(.connect(9, keepRefusal: false)) == [], "\(name): the resume waits for the parked child")
+                #expect(machine.state == .draining(epoch &+ 1, child: child), "\(name)")
+                #expect(machine.reduce(.stopDeadline(child: child)) == [.terminate(child: child)], "\(name): SIGTERM bounds the wait")
+                #expect(machine.reduce(.childExit(child: child, code: 15)) == [.claimSocket(epoch &+ 1)], "\(name)")
+            } else {
+                #expect(machine.reduce(.connect(9, keepRefusal: false)) == [.claimSocket(epoch &+ 1)], "\(name)")
+            }
+            #expect(machine.waiters == [9], "\(name)")
+            // An account end after the park is still terminal.
+            #expect(machine.reduce(.accountEnded).contains(.resume([9], .failure(Self.closed))), "\(name)")
+            #expect(machine.isTerminal, "\(name)")
+        }
+    }
+
+    /// A parked child that ignores its stdin closing gets SIGTERM at its deadline even when no resume came yet; a
+    /// deadline for a child that already exited does nothing.
+    @Test func parkedChildIsTerminatedAtItsDeadline() {
+        var machine = Self.ready()
+        _ = machine.reduce(.park)
+        #expect(machine.reduce(.stopDeadline(child: 1)) == [.terminate(child: 1)])
+        #expect(machine.reduce(.childExit(child: 1, code: 15)) == [])
+        #expect(machine.state == .idle(lastEnd: Self.closed, alive: nil))
+        #expect(machine.reduce(.stopDeadline(child: 1)) == [], "no SIGTERM after the exit")
     }
 
     @Test func connectAfterStopFailsWithoutEffects() {

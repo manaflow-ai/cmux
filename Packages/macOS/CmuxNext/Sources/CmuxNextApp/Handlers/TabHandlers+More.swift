@@ -58,8 +58,36 @@ extension TabHandlers {
             guard let room = try ctx.optionalRoom(invocation["space"]) else { return .refused(RoomStrings.roomArgumentRequired) }
             return moveToSpace(ctx, tab: tab, room: room.id)
         })
+        // Into the workspace the chosen window shows; the revealer makes that window key (Move Workspace to Window… for one tab).
+        registry.bindEffect("tab.moveToWindow", requires: nil, effect: { invocation in
+            guard let (tab, _) = ctx.daemonTab(invocation) else { return .done }
+            guard let id = try ctx.window(invocation).state.workspaceID, let workspace = ctx.services.workspace(id: id) else {
+                return .refused(RefusalStrings.noWorkspaceToActOn)
+            }
+            TabMoves.toWorkspace(tab, workspace: workspace, services: ctx.services,
+                                 completion: revealer(ctx, tab: tab, outcome: .workspace(id: workspace.id), workspaceID: workspace.id))
+            return .done
+        })
+        registry.bindEffect("tab.duplicateToNewSplit", effect: { duplicateToNewSplit($0, ctx) })
         registry.bind("palette.moveTabToNewWorkspace", invoke: { moveToNewWorkspace(ctx, $0, newWindow: false) })
         registry.bind("tab.moveToNewWindow", invoke: { moveToNewWorkspace(ctx, $0, newWindow: true) })
+    }
+
+    /// Duplicate Tab to New Split: Duplicate Tab's copy (a terminal in its folder, a browser at its page with its
+    /// history, an agent chat), made next to the original, then moved to a new split toward `direction` (right by
+    /// default) as New ▸ Placement moves a made tab (`NewAtPlacement.place`). One row for duplicate, then move.
+    private static func duplicateToNewSplit(_ invocation: ActionInvocation, _ ctx: AppActionContext) -> ActionEffect {
+        guard let (pane, id) = ctx.tab(invocation), let tab = pane.tab(id) else { return .done }
+        let edges = ["left": "left", "up": "top", "down": "bottom"], edge = edges[invocation["direction"]?.stringValue ?? ""] ?? "right"
+        let home = pane.pane, before = Set(home.tabs.map(\.id)), services = ctx.services, machineID = pane.daemon.machineID
+        var only = invocation.onMachine(machineID)
+        only.target = ActionTargetRef(kind: .tab, id: tab.id)
+        guard ctx.registry.perform("duplicateTab", invocation: only) else { return .done }
+        // The copy is the tab of this pane that was not in it before the duplicate, once the daemon made it (not its placeholder).
+        NewAtPlacement.place({ home.tabs.first { !before.contains($0.id) && !ProvisionalTab.isProvisional(surface: $0.surface) }
+                                 .flatMap { services.locateTab($0.id, onMachine: machineID) } },
+                             from: pane, .split(edge: edge), ctx, finished: { _ in })
+        return .done
     }
 
     /// Move Tab to Space moves only the tab: a tab alone in its workspace takes that workspace (a pin in the home

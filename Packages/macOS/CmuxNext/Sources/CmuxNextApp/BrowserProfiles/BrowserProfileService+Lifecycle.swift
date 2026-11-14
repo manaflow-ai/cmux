@@ -112,15 +112,14 @@ extension BrowserProfileService {
 
 /// The one path that makes a browser profile for a person's pick: New Browser Profile… (palette,
 /// menu, CLI) and the New Tab page's Open in New Profile both name it the same way and give it the
-/// same first free color.
+/// same most distinct color.
 extension BrowserProfileService {
     /// The name and color a new profile gets: `name` trimmed, else "Profile N" (N one past the
-    /// profiles there are); `color`, else the first color no other profile uses.
+    /// profiles there are); `color`, else the palette color that looks the most unlike the other profiles' (``GroupColor/automatic(after:)``).
     func newProfileDefaults(name: String?, color: String?) -> (name: String, color: String?) {
         let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = trimmed.flatMap { $0.isEmpty ? nil : $0 } ?? BrowserProfileAppStrings.defaultName(ordered.count + 1)
-        let used = Set(ordered.compactMap(\.color))
-        return (name, color ?? GroupColor.automatic(used: used)?.rawValue)
+        return (name, color ?? GroupColor.automatic(after: ordered.compactMap(\.color)).rawValue)
     }
 
     /// Makes a profile named as ``newProfileDefaults(name:color:)`` says and returns its id once this
@@ -128,7 +127,7 @@ extension BrowserProfileService {
     func makeProfile(name: String?, color: String? = nil, icon: String? = nil) async throws -> String {
         let defaults = newProfileDefaults(name: name, color: color)
         let id = try await createProfile(name: defaults.name, color: defaults.color, icon: icon)
-        try await awaitReported(id, deadline: .seconds(5))
+        try await awaitReported(id, deadline: .seconds(5)) // timeout: the create succeeded; a record never mirrored refuses the open
         return id
     }
 

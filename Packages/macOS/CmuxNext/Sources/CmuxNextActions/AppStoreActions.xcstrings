@@ -525,6 +525,137 @@
         }
       }
     },
+    "action.app.reloadCustomViews" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تحميل العروض المخصصة"
+          }
+        },
+        "bs" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponovo učitaj prilagođene prikaze"
+          }
+        },
+        "da" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genindlæs tilpassede visninger"
+          }
+        },
+        "de" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigene Ansichten neu laden"
+          }
+        },
+        "en" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload Custom Views"
+          }
+        },
+        "es" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recargar vistas personalizadas"
+          }
+        },
+        "fr" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recharger les vues personnalisées"
+          }
+        },
+        "it" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ricarica viste personalizzate"
+          }
+        },
+        "ja" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムビューを再読み込み"
+          }
+        },
+        "km" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទុកទិដ្ឋភាពផ្ទាល់ខ្លួនឡើងវិញ"
+          }
+        },
+        "ko" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 지정 보기 다시 불러오기"
+          }
+        },
+        "nb" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last inn egendefinerte visninger på nytt"
+          }
+        },
+        "pl" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wczytaj ponownie widoki własne"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recarregar visualizações personalizadas"
+          }
+        },
+        "ru" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезагрузить пользовательские представления"
+          }
+        },
+        "th" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โหลดมุมมองที่กำหนดเองใหม่"
+          }
+        },
+        "tr" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Özel Görünümleri Yeniden Yükle"
+          }
+        },
+        "uk" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезавантажити власні подання"
+          }
+        },
+        "vi" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tải lại chế độ xem tùy chỉnh"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新加载自定义视图"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新載入自訂檢視"
+          }
+        }
+      }
+    },
     "action.app.remove" : {
       "extractionState" : "manual",
       "localizations" : {

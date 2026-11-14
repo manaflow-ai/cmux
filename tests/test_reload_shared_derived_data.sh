@@ -21,8 +21,8 @@ unset CMUX_DERIVED_DATA CMUX_CI_STEP_CLASS
 [[ "$(resolve_tagged_derived_data one 0 "")" != "$(resolve_tagged_derived_data two 0 "")" ]] \
   || fail "two tags must not share a DerivedData by default"
 
-export CMUX_DERIVED_DATA="/tmp/cmux warm/DerivedData"
-[[ "$(resolve_tagged_derived_data one 0 "")" == "/tmp/cmux warm/DerivedData" ]] || fail "CMUX_DERIVED_DATA ignored"
+export CMUX_DERIVED_DATA="/Volumes/cmux warm/DerivedData"
+[[ "$(resolve_tagged_derived_data one 0 "")" == "/Volumes/cmux warm/DerivedData" ]] || fail "CMUX_DERIVED_DATA ignored"
 [[ "$(resolve_tagged_derived_data one 0 "")" == "$(resolve_tagged_derived_data two 0 "")" ]] \
   || fail "tags must share the warm DerivedData when CMUX_DERIVED_DATA is set"
 [[ "$(resolve_tagged_derived_data one 1 "/explicit/dd")" == "/explicit/dd" ]] \
@@ -66,8 +66,24 @@ grep -Fq 'DERIVED_DATA="$(resolve_tagged_derived_data "$TAG_SLUG" "$DERIVED_SET"
   || fail "reload.sh does not resolve the tag's DerivedData through resolve_tagged_derived_data"
 
 # cmux-debug-cli.sh must look for the tagged CLI where reload.sh built it.
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
-sock="/tmp/cmux-debug-ddtest-$$.sock"
+# A private folder under /tmp (short enough for a Unix socket path on macOS), never a fixed name in /tmp itself.
+tmp="$(mktemp -d /tmp/cmux-dd.XXXXXXXX)"; trap 'rm -rf "$tmp"' EXIT
+# reload.sh and the dev shim keep their tag links in the shared /tmp (/tmp/cmux-<tag>). The functions below run
+# with every /tmp path moved to this stand-in (sticky and world-writable, like /tmp), so the test never makes
+# or deletes a fixed name in the real /tmp, where another user could have planted it.
+shared="$tmp/shared-tmp"
+mkdir -p "$shared"; chmod 1777 "$shared"
+move_tmp() {
+  python3 -c '
+import re, sys
+text = sys.stdin.read()
+moved = re.sub(r"""(?<![\w.$/])/tmp(?=[/"\x27}\s]|$)""", lambda _: sys.argv[1], text, flags=re.M)
+sys.exit("no /tmp path to move") if moved == text else sys.stdout.write(moved)' "$shared"
+}
+# cmux-debug-cli.sh finds a cmux-next tag's socket in the state folder first (HOME below).
+cli_home="$tmp/cli-home"
+sock="$cli_home/.local/state/cmux/cmux-debug-ddtest-$$.sock"
+mkdir -p "$(dirname "$sock")"
 command -v python3 >/dev/null || fail "python3 is required for the test listener"
 mkfifo "$tmp/ready"
 # The listener accepts until the EXIT trap kills it, and reports readiness through the FIFO.
@@ -83,13 +99,13 @@ while True:
 PY
 server=$!
 disown "$server" 2>/dev/null || true
-trap 'kill "$server" 2>/dev/null || true; rm -f "$sock"; rm -rf "$tmp"' EXIT
+trap 'kill "$server" 2>/dev/null || true; rm -rf "$tmp"' EXIT
 read -r _ < "$tmp/ready" || true
 [[ -S "$sock" ]] || fail "test socket was not created"
 cli_dir="$tmp/dd/Build/Products/Debug/cmux DEV ddtest-$$.app/Contents/Resources/bin"
 mkdir -p "$cli_dir"
 printf '#!/bin/sh\necho shared-cli "$@"\n' > "$cli_dir/cmux"; chmod +x "$cli_dir/cmux"
-out="$(CMUX_TAG="ddtest-$$" CMUX_DERIVED_DATA="$tmp/dd" "$ROOT/scripts/cmux-debug-cli.sh" ping 2>&1)" \
+out="$(HOME="$cli_home" CMUX_TAG="ddtest-$$" CMUX_DERIVED_DATA="$tmp/dd" "$ROOT/scripts/cmux-debug-cli.sh" ping 2>&1)" \
   || fail "cmux-debug-cli.sh did not find the CLI in CMUX_DERIVED_DATA: $out"
 [[ "$out" == *"shared-cli"* ]] || fail "cmux-debug-cli.sh ran something else: $out"
 
@@ -103,8 +119,7 @@ fi
 # The cmux shim must run the CLI from the DerivedData the tag was built into, even when
 # a stale build of the same tag sits in the default per-tag directory.
 tag="ddtest-$$"
-link="/tmp/cmux-$tag"
-trap 'kill "$server" 2>/dev/null || true; rm -f "$sock" "$link" "/tmp/cmux-ddstale-$$"; rm -rf "$tmp"' EXIT
+link="$shared/cmux-$tag"
 # reload.sh sources the shim writer (and its socket probe) from scripts/lib/cmux-dev-shim-install,
 # the one source of the managed shim; load it the same way. Sourcing runs no command.
 grep -Fq 'source "$SCRIPT_DIR/lib/cmux-dev-shim-install"' "$ROOT/scripts/reload.sh" \
@@ -127,18 +142,26 @@ PLIST
 done
 ln -s "$tmp/dd" "$link"
 write_dev_cli_shim "$tmp/bin/cmux" "$tmp/no-fallback" "$tmp/no-pointer"
+grep -Fq '"/tmp/cmux-$TAG"/Build/Products' "$tmp/bin/cmux" || fail "the shim no longer looks for the tag's /tmp/cmux-<tag> link"
+# With no PlistBuddy (Linux) the shim takes a tag's socket from its old /tmp name; cmux-next keeps a symlink
+# there to the socket in its state folder, and so does this stand-in.
+ln -s "$sock" "$shared/cmux-debug-$tag.sock"
+move_tmp < "$tmp/bin/cmux" > "$tmp/bin/cmux.moved" || fail "could not move the shim's /tmp paths"
+mv "$tmp/bin/cmux.moved" "$tmp/bin/cmux"; chmod +x "$tmp/bin/cmux"
 out="$(env -u CMUX_SOCKET -u CMUX_SOCKET_PATH -u CMUX_BUNDLED_CLI_PATH HOME="$fake_home" \
   "$tmp/bin/cmux" --socket "$sock" ping 2>&1)" || fail "the shim found no CLI for a shared DerivedData: $out"
 [[ "$out" == "shared-cli --socket $sock ping" ]] || fail "the shim did not run the CLI built into the shared DerivedData: $out"
 
 # The cleanup reminder must name what holds the tag's build, and never a directory other tags share.
-eval "$(awk '/^tag_build_cleanup_paths\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
-eval "$(awk '/^print_tag_cleanup_commands\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
+grep -Fq 'link="/tmp/cmux-${tag}"' "$ROOT/scripts/reload.sh" || fail "reload.sh no longer keeps a tag's link at /tmp/cmux-<tag>"
+grep -Fq "find /tmp/ -maxdepth 1 -name 'cmux-*'" "$ROOT/scripts/reload.sh" || fail "the reminder no longer scans /tmp for tag links"
+eval "$(awk '/^tag_build_cleanup_paths\(\) \{/,/^}/' "$ROOT/scripts/reload.sh" | move_tmp)"
+eval "$(awk '/^print_tag_cleanup_commands\(\) \{/,/^}/' "$ROOT/scripts/reload.sh" | move_tmp)"
 # shellcheck source=scripts/lib/mobile-attach.sh
 source "$ROOT/scripts/lib/mobile-attach.sh"
 eval "$(awk '/^sanitize_bundle\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
 SCRIPT_DIR="$ROOT/scripts"
-eval "$(awk '/^print_tag_cleanup_reminder\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
+eval "$(awk '/^print_tag_cleanup_reminder\(\) \{/,/^}/' "$ROOT/scripts/reload.sh" | move_tmp)"
 sandbox="$tmp/sandbox"
 mkdir -p "$sandbox"
 # Reads this test's commands out of a reminder the way a shell would after a paste, with
@@ -161,7 +184,7 @@ reminder_args() {
 }
 has_arg() { grep -Fxq -- "$1" "$2"; }
 args="$tmp/args"
-ln -s "$tmp/dd" "/tmp/cmux-ddstale-$$"
+ln -s "$tmp/dd" "$shared/cmux-ddstale-$$"
 out="$(HOME="$fake_home" print_tag_cleanup_reminder "$tag" "$tmp/dd")"
 reminder_args "$out" "$args"
 has_arg "$shared_app" "$args" || fail "the reminder does not remove the current tag's app from the shared DerivedData: $out"
@@ -190,10 +213,9 @@ stop_at="$(printf '%s\n' "$out" | grep -nF -- "server stop" | head -1 | cut -d: 
 # as that literal path and must never run.
 evil_dd="$tmp/dd \"warm\" \$(touch pwned-subst) \`touch pwned-tick\`"
 evil_home="$tmp/home \"two\" \$(touch pwned-home)"
-evil_tag_dir="/tmp/cmux-ddbad-$$-\$(touch pwned-tag)"
-trap 'kill "$server" 2>/dev/null || true; rm -f "$sock" "$link" "/tmp/cmux-ddstale-$$" "/tmp/cmux-ddevil-$$"; rm -rf "$tmp" "$evil_tag_dir"' EXIT
+evil_tag_dir="$shared/cmux-ddbad-$$-\$(touch pwned-tag)"
 mkdir -p "$evil_dd/Build/Products/Debug" "$evil_tag_dir/Build/Products/Debug"
-ln -s "$evil_dd" "/tmp/cmux-ddevil-$$"
+ln -s "$evil_dd" "$shared/cmux-ddevil-$$"
 out="$(HOME="$evil_home" print_tag_cleanup_reminder "$tag" "$evil_dd")"
 reminder_args "$out" "$args"
 pwned="$(cd "$sandbox" && ls)"

@@ -272,7 +272,6 @@ struct BrowserOpenSplitPlacement: Sendable, Equatable {
 
     static func noPane(_ method: String) -> ControlError {
         ControlError(code: "unavailable", message: ControlStrings.format("control.error.openSplitNoPane",
-                                                                         "%@: no pane can take the tab (open a workspace first)", method),
-                     data: ["not_run": true])
+                                                                         "%@: no pane can take the tab (open a workspace first)", method)).notRun()
     }
 }

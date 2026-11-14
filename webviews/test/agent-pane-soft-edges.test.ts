@@ -231,7 +231,7 @@ await requireBrowserLane("agent-pane-soft-edges.test.ts", async () => {
     // Paint a solid probe through the real scroller's alpha mask: 30px above the dock stays fully
     // legible, while the short edge still softens and everything below the dock stays hidden.
     await scrollTo(page, "middle");
-    await page.locator(".acpmux-jump-latest[data-shown]").waitFor();
+    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]").waitFor();
     const probe = await page.evaluate(() => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const style = getComputedStyle(node);

@@ -15,6 +15,9 @@ import { reducedMotion } from "../threadMinimap/scrollMotion";
 /// How far the pointer moves before a press becomes a drag; less is a click (open, remove).
 export const DRAG_SLOP_PX = 4;
 
+/// A chip's content opened in place under its face (ContentChip.tsx), never a place a drag starts.
+const OPENED_CONTENT = ".acpmux-paste-chip__panel";
+
 /// The slot of each staged chip in the strip: `data-attachment-index`, its chip inside it (an index,
 /// so the page never carries a chip's id, which may hold a file's name).
 const SLOT = "[data-attachment-index]";
@@ -200,6 +203,9 @@ export function useStripReorder(
     };
     const down = (event: PointerEvent) => {
       if (!live.current.onReorder || event.button !== 0 || live.current.ids.length < 2) return;
+      // A chip's content opened in place (ContentChip.tsx's panel: a pick's report) is for reading:
+      // a press there selects its text and never picks the chip up.
+      if (event.target instanceof Element && event.target.closest(OPENED_CONTENT)) return;
       const id = idOf(slotOf(event.target));
       if (!id) return;
       press = { id, x: event.clientX, y: event.clientY, pointer: event.pointerId, dragged: false };

@@ -93,6 +93,33 @@ pub(super) fn origin_of(device: &DeviceAuth) -> (Origin, ConnAuth) {
     }
 }
 
+/// A paired machine's connection, served as its role says
+/// (`pairing::origin_of`): the WebSocket listener's, once the handshake
+/// proved `device`'s credential, or an in-process caller that vouches for it.
+pub async fn serve_connection_device(
+    hub: Arc<Hub>,
+    inbound: tokio::sync::mpsc::Receiver<String>,
+    out: tokio::sync::mpsc::Sender<String>,
+    device: crate::pairing::DeviceAuth,
+) {
+    let (origin, auth) = origin_of(&device);
+    super::serve_connection_from(
+        hub,
+        inbound,
+        out,
+        origin,
+        auth,
+        None,
+        false,
+        crate::sender_harness::SocketPeer::Unknown,
+        Some(device.id),
+        None,
+        None,
+        None,
+    )
+    .await
+}
+
 /// The read-only gate, before any dispatcher: a refusal, or the params the
 /// request runs with.
 pub(super) fn gate(conn: &Conn, m: &str, params: Value) -> Result<Value, RpcError> {
@@ -223,6 +250,9 @@ pub(super) async fn dispatch(
             | method::MUX_MACHINE_CONSENT_GET
             | method::MUX_PAIR_SET
             | method::MUX_PAIR_REDEEM
+            | method::MUX_MACHINE_ENROLL
+            | method::MUX_MACHINE_LEAVE_IF_AUTO
+            | method::MUX_MACHINE_SIGNED_IN
     ) {
         return None;
     }
@@ -245,7 +275,12 @@ pub(super) async fn dispatch(
                     .map_err(|_| RpcError::internal("consent refusal could not be recorded"))
             }
         }
-        method::MUX_MACHINE_CONSENT_GET => Ok(crate::cli::cloud_join::consent_status()),
+        method::MUX_MACHINE_CONSENT_GET => Ok(crate::cli::cloud_join::consent_status_for(params)),
+        method::MUX_MACHINE_ENROLL => super::machine_enroll::enroll(hub, conn, params).await,
+        method::MUX_MACHINE_LEAVE_IF_AUTO => {
+            super::machine_enroll::leave_if_auto(hub, conn, params).await
+        }
+        method::MUX_MACHINE_SIGNED_IN => super::sign_in_follow::signed_in(hub, conn, params).await,
         _ => issue(hub, conn, params),
     })
 }

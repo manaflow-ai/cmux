@@ -11,10 +11,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use cmux_app_host::{AppInfo, FromHost, ToHost};
+use cmux_app_host::{FromHost, ToHost};
 use serde_json::{Value, json};
 
-use super::grants::{Grant, ScopeTable};
+use super::grants::Grant;
 use super::host::{Exit, HostProcess};
 use super::supervisor::{
     ApiError, Host, HostKey, HostState, Inner, MAX_CRASHES, Mount, MountKey, Out, Supervisor,
@@ -65,12 +65,27 @@ impl Supervisor {
             if !preview && !installed {
                 return Err(ApiError::new("apps.notInstalled", "the app is not installed"));
             }
+            // Safe mode: no host, no stream, no mount; the place shows its
+            // native view (R5).
+            if inner.safe_mode.is_some() && super::safe_mode::holds_off(package) {
+                return Err(ApiError::new("apps.safe_mode", super::safe_mode::OFF));
+            }
+            // Paused by its budget: no host until Resume (budget.rs).
+            if !preview && inner.ladders.get(app).is_some_and(|l| l.paused.is_some()) {
+                return Err(ApiError::new("apps.paused", super::budget::PAUSED));
+            }
             if self.config.host_binary.is_none() {
                 return Err(ApiError::new("apps.unavailable", "this daemon has no app host"));
             }
             let key = MountKey { client, mount_id: mount_id.to_string() };
+            // A view mounted again under its id (Reload) keeps its old scene
+            // on screen until this one: its first scene replaces it.
+            let replacing = inner.mounts.contains_key(&key);
             let mut outs = self.unmount_locked(&mut inner, &key);
             let host_key = HostKey { app: app.to_string(), preview };
+            if !preview {
+                self.note_launch_mount_locked(&mut inner, app);
+            }
             inner.mounts.insert(
                 key.clone(),
                 Mount {
@@ -78,7 +93,8 @@ impl Supervisor {
                     interface: interface.to_string(),
                     export: export.clone(),
                     context: context.clone(),
-                    reset: false,
+                    reset: replacing,
+                    budget: Default::default(),
                 },
             );
             outs.extend(self.revive_host_locked(&mut inner, &host_key, |process| {
@@ -189,6 +205,21 @@ impl Supervisor {
         let Some(package) = inner.catalog.packages.get(&key.app).cloned() else {
             return self.fail_host_locked(inner, key, "the app is gone");
         };
+        // Every path to a host (mount, run, restart) ends here.
+        if inner.safe_mode.is_some() && super::safe_mode::holds_off(&package) {
+            return self.end_host_locked(inner, key, super::safe_mode::OFF, "off");
+        }
+        if !key.preview && inner.ladders.get(&key.app).is_some_and(|l| l.paused.is_some()) {
+            return self.end_host_locked(inner, key, super::budget::PAUSED, "paused");
+        }
+        // The print the local watch last read (no disk work under the lock).
+        // A save since then makes the folder's print differ from it, and the
+        // copy (`rollback.rs`) is only taken while the folder still matches,
+        // so the last good copy never holds files this host did not load.
+        let print = (package.source == super::mirror::Source::Local && !key.preview)
+            .then(|| inner.local_prints.get(&key.app).copied())
+            .flatten()
+            .filter(|print| *print != super::local_reload::UNREAD);
         let Some(main) = package.main_source() else {
             return self.fail_host_locked(inner, key, "runtime.main is missing");
         };
@@ -216,17 +247,8 @@ impl Supervisor {
             Ok(process) => Arc::new(process),
             Err(error) => return self.fail_host_locked(inner, key, &format!("spawn: {error}")),
         };
-        let table = ScopeTable::get();
-        process.send(&ToHost::Init {
-            app: AppInfo { id: package.id.clone(), version: package.version.clone() },
-            settings: package.default_settings(),
-            api_version: "1.0.0".into(),
-            ops: Some(table.allowed_ops(&grant)),
-            known_ops: Some(table.known_ops()),
-            locale: Some("en".into()),
-            strings: package.strings("en"),
-            main,
-        });
+        self.host_spawns.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        process.send(&super::load_trial::init_message(&package, main, &grant));
         // The package may have been saved since a mount (a local reload): its
         // interface may now name another export, or be gone, which fails the
         // mount the way `mount` refuses it.
@@ -273,6 +295,7 @@ impl Supervisor {
         host.subs.clear();
         host.ready_at = None;
         host.inflight = 0;
+        host.print = print;
         // A restart with nothing to do arms the idle stop like any other host.
         failed.extend(self.idle_check_locked(inner, key));
         failed
@@ -285,7 +308,24 @@ impl Supervisor {
         key: &HostKey,
         reason: &str,
     ) -> Vec<Out> {
-        let mut outs = self.log_locked(inner, &key.app, "error", format!("host: {reason}"));
+        if !key.preview {
+            inner.failed.insert(key.app.clone(), reason.to_string());
+        }
+        self.end_host_locked(inner, key, reason, "crashed")
+    }
+
+    /// Ends `key`'s host: its mounts fail with `reason`, its calls are
+    /// refused and the record goes away. `state` is the `apps-host` state
+    /// told: `crashed` (logged as an error) or `off` (safe mode).
+    pub(super) fn end_host_locked(
+        &self,
+        inner: &mut Inner,
+        key: &HostKey,
+        reason: &str,
+        state: &str,
+    ) -> Vec<Out> {
+        let level = if state == "crashed" { "error" } else { "info" };
+        let mut outs = self.log_locked(inner, &key.app, level, format!("host: {reason}"));
         let failed: Vec<MountKey> =
             inner.mounts.iter().filter(|(_, m)| m.host == *key).map(|(k, _)| k.clone()).collect();
         for mount in failed {
@@ -308,7 +348,7 @@ impl Supervisor {
             outs.extend(host.queued_runs.into_iter().map(|run| run.refuse("apps.host", reason)));
         }
         outs.push(Out::Broadcast(
-            json!({ "event": "apps-host", "app": key.app, "state": "crashed", "reason": reason }),
+            json!({ "event": "apps-host", "app": key.app, "state": state, "reason": reason }),
         ));
         outs
     }
@@ -450,6 +490,9 @@ impl Supervisor {
                     host.state = HostState::Running;
                 }
                 host.ready_at = Some(Instant::now());
+                if !key.preview {
+                    inner.failed.remove(&key.app);
+                }
                 vec![Out::Broadcast(
                     json!({ "event": "apps-host", "app": key.app, "state": "running" }),
                 )]
@@ -460,7 +503,7 @@ impl Supervisor {
             }
             FromHost::Mounted { mount, error } => {
                 let Some(mount_key) = find_mount(inner, key, &mount) else { return vec![] };
-                let Some(reason) = error else { return vec![] };
+                let Some(reason) = error else { return self.good_mount_locked(inner, key) };
                 inner.mounts.remove(&mount_key);
                 let mut outs = vec![Out::Client(
                     mount_key.client,
@@ -471,13 +514,7 @@ impl Supervisor {
             }
             FromHost::Scene { mount, ops } => {
                 let Some(mount_key) = find_mount(inner, key, &mount) else { return vec![] };
-                let record = inner.mounts.get_mut(&mount_key).expect("mount");
-                let mut event =
-                    json!({ "event": "apps-scene", "mount_id": mount_key.mount_id, "ops": ops });
-                if std::mem::take(&mut record.reset) {
-                    event.set("reset", Value::Bool(true));
-                }
-                vec![Out::Client(mount_key.client, event)]
+                self.scene_locked(inner, key, &mount_key, ops, Instant::now())
             }
             FromHost::Call { cb, name, params, options } => {
                 self.call_locked(inner, key, cb, name, params, options)
@@ -508,17 +545,22 @@ impl Supervisor {
                 outs.extend(self.idle_check_locked(inner, key));
                 outs
             }
-            FromHost::Fatal { reason, entry } => self.log_locked(
-                inner,
-                &key.app,
-                "error",
-                format!("{entry}: the app hit its {} limit", reason.as_str()),
-            ),
+            FromHost::Fatal { reason, entry } => {
+                let mut outs = self.log_locked(
+                    inner,
+                    &key.app,
+                    "error",
+                    format!("{entry}: the app hit its {} limit", reason.as_str()),
+                );
+                outs.extend(self.vm_killed_locked(inner, key, reason, Instant::now()));
+                outs
+            }
         }
     }
 
     /// Records a daemon event subscription when the grant can read the
-    /// stream's family (`agent.changed` needs what `agent.list` needs).
+    /// stream's declared `reads` op (`theme.changed` needs what `settings.get` needs), or a
+    /// provider stream's family (`agent_cli.changed` needs what `agent_cli.list` needs).
     fn subscribe_locked(
         &self,
         inner: &mut Inner,
@@ -587,8 +629,15 @@ impl Supervisor {
         let mut outs =
             self.log_locked(inner, &key.app, "error", format!("host crashed: {}", exit.describe()));
         outs.push(Out::Broadcast(json!({ "event": "apps-host", "app": key.app, "state": "crashed", "reason": exit.describe() })));
+        let healthy = inner
+            .hosts
+            .get(key)
+            .is_some_and(|host| host.ready_at.is_some_and(|at| at.elapsed() >= HEALTHY_AFTER));
+        if healthy && let Some(ladder) = inner.ladders.get_mut(&key.app) {
+            ladder.healthy();
+        }
         let host = inner.hosts.get_mut(key).expect("host");
-        if host.ready_at.is_some_and(|at| at.elapsed() >= HEALTHY_AFTER) {
+        if healthy {
             host.backoff.reset();
             host.crashes = 0;
         }
@@ -629,6 +678,25 @@ impl Supervisor {
         self.emit(outs);
     }
 
+    /// A mount of `key` rendered without an error: the files its host
+    /// loaded become the app's last good version, once per version.
+    fn good_mount_locked(&self, inner: &mut Inner, key: &HostKey) -> Vec<Out> {
+        let Some(print) = inner.hosts.get(key).and_then(|host| host.print) else { return vec![] };
+        let kept = inner.last_good.get(&key.app).map(|good| good.print);
+        if kept == Some(print) || inner.good_tried.get(&key.app) == Some(&print) {
+            return vec![];
+        }
+        let Some(package) = inner.catalog.packages.get(&key.app) else { return vec![] };
+        let out = Out::KeepGood {
+            app: key.app.clone(),
+            dir: package.dir.clone(),
+            version: package.version.clone(),
+            print,
+        };
+        inner.good_tried.insert(key.app.clone(), print);
+        vec![out]
+    }
+
     /// Delivers a daemon change event to every subscribed host.
     pub fn publish(&self, stream: &str, body: Value) {
         // This family has one verified-provider ingress, never the generic router feed.
@@ -656,6 +724,7 @@ pub(super) fn new_host() -> Host {
         crashes: 0,
         ready_at: None,
         inflight: 0,
+        print: None,
     }
 }
 
@@ -666,5 +735,7 @@ fn find_mount(inner: &Inner, key: &HostKey, wire: &str) -> Option<MountKey> {
 fn mark_reset(inner: &mut Inner, key: &HostKey) {
     for mount in inner.mounts.values_mut().filter(|m| m.host == *key) {
         mount.reset = true;
+        // Held ops of the old process would land on the new tree.
+        mount.budget.clear_pending();
     }
 }

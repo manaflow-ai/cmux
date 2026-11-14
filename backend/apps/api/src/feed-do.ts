@@ -1,7 +1,7 @@
 import type { EventFrame, OpFrame, Principal } from "@cmux/ownership"
 import { feedKindSchemas, FeedList, type FeedItem, type PushTarget } from "@cmux/protocol"
 import { decodeParams } from "./domains/common.ts"
-import { approvalOf, type ApprovalSource } from "./domains/feed-approvals.ts"
+import { approvalAnswerChannel, approvalOf, type ApprovalSource } from "./domains/feed-approvals.ts"
 import { listItems } from "./domains/feed-query.ts"
 import { feedCounts, feedDomain, nextFeedWake, visibleTo, type FeedState } from "./domains/feed.ts"
 import { isUserClient, prunableAt, pushEligible, RETENTION_MS } from "./domains/feed-state.ts"
@@ -49,7 +49,15 @@ export class FeedDO extends OwnerDO<FeedState> {
   override async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
     // Every poster counts (an install, or a session by its identity); system ops do not.
     const poster = principal.kind === "system" ? undefined : (principal.install ?? principal.identity)
-    if ((frame.op !== "feed.post" && frame.op !== "feed.adopt") || poster === undefined) return super.submit(entity, principal, frame)
+    if ((frame.op !== "feed.post" && frame.op !== "feed.adopt") || poster === undefined) {
+      // A Cloud approval's answer (or decline) answers once CloudDO has it, so the caller's same-key retry finds the
+      // approved run in flight or done (approvalAnswerChannel); bounded, the alarm sends what is left. Only that item's
+      // own delivery is waited for: any other answer returns at once, even during another Cloud delivery (#40370 F1).
+      const cloud = frame.op === "feed.answer" || frame.op === "feed.cancel" ? this.cloudApprovalOf(entity, frame.params) : null
+      const res = await super.submit(entity, principal, frame)
+      if (cloud) await this.promptDelivered(() => this.answerDelivered(cloud))
+      return res
+    }
     const day = Math.floor(Date.now() / 86_400_000)
     const sql = this.ctx.storage.sql
     const used = () => {
@@ -128,6 +136,27 @@ export class FeedDO extends OwnerDO<FeedState> {
       if (a?.request === request) return { team: a.team, source: a.source }
     }
     return null
+  }
+
+  /** The Cloud approval (its team and request) the answered `params.item` carries, or null for any other item. */
+  private cloudApprovalOf(entity: string, params: unknown): { team: string; request: string } | null {
+    const id = (params as { item?: unknown } | null)?.item
+    if (typeof id !== "string" || !this.isBound(entity)) return null
+    const item = this.bind(entity).currentState.items[id]
+    const a = item ? approvalOf(item) : null
+    return a?.source === "cloud" ? { team: a.team, request: a.request } : null
+  }
+
+  /** Whether the answer item for `request` is out of this feed's CloudDO channel (sent, or never queued). */
+  private answerDelivered(a: { team: string; request: string }): boolean {
+    const engine = this.boundEngine
+    if (!engine) return true
+    return !engine.outbox.queued(`CloudDO:${a.team}`, `approval:${a.request}`)
+  }
+
+  /** A Cloud approval's answer goes to CloudDO at commit, not at the next alarm (feed-approvals.ts approvalAnswerChannel). */
+  protected override promptChannel(channel: string): boolean {
+    return super.promptChannel(channel) || approvalAnswerChannel(channel)
   }
 
   /** Text written without the redaction is scrubbed on bind (feed-privacy.ts). */

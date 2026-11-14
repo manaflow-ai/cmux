@@ -53,7 +53,7 @@ struct Waiting<'a> {
 impl<'a> Waiting<'a> {
     fn begin(session: &'a Session, events: &'a super::list_guard::Events) -> Self {
         session.start_retry_waits.store(true, Ordering::SeqCst);
-        events.changed();
+        events.row_changed(session);
         Self { session, events }
     }
 }
@@ -61,7 +61,7 @@ impl<'a> Waiting<'a> {
 impl Drop for Waiting<'_> {
     fn drop(&mut self) {
         self.session.start_retry_waits.store(false, Ordering::SeqCst);
-        self.events.changed();
+        self.events.row_changed(self.session);
     }
 }
 

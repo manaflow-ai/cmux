@@ -288,6 +288,7 @@ enum WorkspaceVerbHandlers {
                     bridge.model.apply(.reorder([id], to: DropPosition(section: section.id, group: group, index: index)))
                 }
                 bridge.place(moving, at: DropPosition(section: section.id, group: group, index: 0), in: before)
+                bridge.rows.show() // the optimistic order leaves also when the placement changed no row (a sorted group, a refused move)
             }
         }
     }

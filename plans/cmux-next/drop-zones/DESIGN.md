@@ -18,7 +18,7 @@ Targets a dragged tab can reach, in the order the drag session asks them:
 | Target | Hit area | Preview | Result |
 | --- | --- | --- | --- |
 | Sidebar row / gap | row middle / row edge, gap after 0.25 s dwell | row light / gap | into workspace / new workspace |
-| Tab strip | the strip, insert index by tab midpoint | 2x20 pt accent caret in the opened gap | insert at index |
+| Tab strip | the strip, insert index by tab midpoint | the opened gap itself: neighbors slide aside and the dragged tab sits in it, kept inside the strip (Chrome, Safari; no caret since 2026-11-08) | insert at index |
 | Window edge (dock) | 24 pt band (top 32 pt below the tab bar); sides 12 pt | 30% band of the screen | new dock |
 | Column gap | 36 pt centered on each gap | gap rect | new column |
 | Pane edge | band per edge of the body below the tab bar | final layout: new pane filled, resized panes outlined | split, new pane 0.5 |
@@ -81,7 +81,7 @@ Problems found:
 4. **Corners split on the diagonal** (relative depth), the same shape at every size.
 5. **No flicker.** Shown panes, docks and gaps hold 12 pt past their lines; docks and gaps shrink for entry from the split zone that faces them.
 6. **One preview per outcome.** Join is the body fill, for a tab dropped in a pane center and for a
-   pane dragged onto a pane (swap). The caret is only for a tab bar slot.
+   pane dragged onto a pane (swap). A tab bar slot shows no overlay: the opened gap with the tab in it is its preview.
 
 Defaults picked (no user input needed): band 25%, floor 48 pt, no cap (Debug Settings
 `drop.edgeMaximum` 0 = none, still tunable), hysteresis 12 pt, dwell 0.

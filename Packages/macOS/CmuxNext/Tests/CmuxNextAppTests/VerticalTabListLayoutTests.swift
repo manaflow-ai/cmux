@@ -50,6 +50,21 @@ import Testing
         #expect(layout.contentHeight > newTab.frame.maxY)
     }
 
+    /// Leo 2026-11-05, on a group with no color: "you might as well have it be at least slightly distinguishing from,
+    /// like, literally depicting it as if it were unhovered". Each group has a pane from its header to its last shown
+    /// tab, the full row width (no indent of its own), which a no-color group fills.
+    @Test func eachGroupHasAPaneFromItsHeaderToItsLastTab() throws {
+        let layout = Self.layout()
+        #expect(layout.groupPanes.map(\.group) == [Self.work, Self.later])
+        let header = try Self.row(layout, .groupHeader(Self.work)), w2 = try Self.row(layout, .tab(TabID("w2")))
+        let work = try #require(layout.groupPanes.first)
+        #expect(work.frame == CGRect(x: header.frame.minX, y: header.frame.minY, width: header.frame.width, height: w2.frame.maxY - header.frame.minY))
+        let later = try Self.row(layout, .groupHeader(Self.later))
+        #expect(try #require(layout.groupPanes.last).frame == later.frame, "a collapsed group's pane is its header")
+        let a = try Self.row(layout, .tab(TabID("a"))), b = try Self.row(layout, .tab(TabID("b")))
+        #expect(!layout.groupPanes.contains { $0.frame.intersects(a.frame) || $0.frame.intersects(b.frame) }, "ungrouped tabs sit outside")
+    }
+
     @Test func iconsOnlyStacksTheTilesAndDropsTheIndent() throws {
         let layout = Self.layout(iconsOnly: true)
         let p1 = try Self.row(layout, .pinned(TabID("p1"))), p2 = try Self.row(layout, .pinned(TabID("p2")))

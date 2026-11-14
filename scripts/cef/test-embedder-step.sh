@@ -127,9 +127,13 @@ sleep 1
 survivors="$(pgrep -f "$WORK/" | grep -vx "$$" || true)"
 windows >"$WORK/windows.after"
 if [[ -n "$survivors" ]]; then
-  echo "cmux-embedder: $(echo "$survivors" | wc -l | tr -d ' ') process(es) outlived the tests (step fails):"
-  for pid in $survivors; do ps -o pid=,command= -p "$pid" 2>/dev/null | cut -c1-200 | sed 's/^/    /'; done
-  awk -F'\t' -v s=" $(echo $survivors) " 'index(s, " " $1 " ") {print "    window " $3 " of " $2 " (pid " $1 ") still open"}' "$WORK/windows.after"
+  # The report runs in a subshell that ignores SIGPIPE: output nobody reads would otherwise end this script
+  # (SIGPIPE, or set -e on a failed write) before the kill (tests/test_guard_logs_survive_closed_pipe.py).
+  ( trap '' PIPE
+    echo "cmux-embedder: $(echo "$survivors" | wc -l | tr -d ' ') process(es) outlived the tests (step fails):"
+    for pid in $survivors; do ps -o pid=,command= -p "$pid" 2>/dev/null | cut -c1-200 | sed 's/^/    /'; done
+    awk -F'\t' -v s=" $(echo $survivors) " 'index(s, " " $1 " ") {print "    window " $3 " of " $2 " (pid " $1 ") still open"}' "$WORK/windows.after"
+  ) || true
   kill $survivors 2>/dev/null || true
   sleep 3
   left="$(for p in $survivors; do kill -0 "$p" 2>/dev/null && echo "$p"; done)"

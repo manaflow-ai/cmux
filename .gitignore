@@ -81,8 +81,6 @@ tmux-*.log
 # Local-only prototype and deploy state
 /Prototypes/*-clone/
 /.cloudflare/
-# Locally downloaded prebuilt client for Packages/Shared/CmuxTerminalClient
-Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/
 
 # The settings export stamp is derived, never committed (Leo 2026-10-21):
 # scripts/ci/defaults_guard.py source-stamp --ref REF prints it for any commit.

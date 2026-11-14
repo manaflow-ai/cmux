@@ -490,6 +490,8 @@ fn sync_group(
             profile: field(profile, &Some(group.profile.clone())),
             auto_archive: Patch::Keep,
             sort: Patch::Keep,
+            row_limit: Patch::Keep,
+            revealed: Patch::Keep,
         };
         if patch != GroupPatch::default() {
             try_apply(batch, Op::GroupUpdate { id: item.id.clone(), patch });

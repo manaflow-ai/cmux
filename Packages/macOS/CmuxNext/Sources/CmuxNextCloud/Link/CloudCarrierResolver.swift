@@ -44,22 +44,28 @@ public struct CloudCarrierResolver: CloudLinkResolver {
         await serve?.observeOwnership(update)
     }
 
-    /// Ends the session's `carrier serve` (machine removed, sign-out, quit).
+    /// Stops the session's `carrier serve` for good (machine removed, sign-out, quit): a later `open` fails closed.
     public func close(_ key: CloudLinkKey) async { await serve?.stop() }
+
+    /// Stops the session's `carrier serve` while the machine is paused; the next `open` (a resume) starts another.
+    public func park(_ key: CloudLinkKey) async { await serve?.park() }
 }
+
 /// One Cloud session's `cmux carrier serve --machine <vm_id> --socket <path>` (#37278): started on the first
-/// connect and kept for the session. It gets a fresh access token on stdin (`{"access_token":…}`) at each
-/// later connect and, since the app's auth has no refresh signal, a minute before the last token's `exp`
+/// connect and kept while the machine runs (a pause parks it; the next connect starts another). It gets a fresh
+/// access token on stdin (`{"access_token":…}`) at each later connect and, since the app's auth has no refresh signal, a minute before the last token's `exp`
 /// while it runs (``refreshDelay(_:now:)``), so every new dial carries a live bearer. After its ready line its
 /// stderr names each refused connection's step, which ends the link with that step's wording, and each
 /// connection's `vmk`.
 ///
 /// The lifecycle is one state machine (``ServeMachine``): this actor only runs its effects and feeds every async
 /// result back to it as an event tagged with the epoch or child it belongs to, so a result that comes back after
-/// a stop, an account end or a relaunch changes nothing. ``stop()`` and an account end are terminal: a later
-/// connect fails as closed and starts nothing (a new session makes a new serve). Closing stdin stops the child
-/// (it removes its socket); SIGTERM follows after ``stopGrace``. A relaunch waits for the previous child's exit,
-/// and a new instance for the same socket waits for the old instance's child (``CloudCarrierLeases``).
+/// a stop, a park, an account end or a relaunch changes nothing. ``stop()`` and an account end are terminal: a
+/// later connect fails as closed and starts nothing (a new session makes a new serve). ``park()`` (a pause) ends
+/// the child the same way but leaves the serve reusable: the next connect starts a fresh child. Closing stdin
+/// stops the child (it removes its socket); SIGTERM follows after ``stopGrace``. A relaunch waits for the previous
+/// child's exit (bounded by that SIGTERM), and a new instance for the same socket waits for the old instance's
+/// child (``CloudCarrierLeases``).
 public actor CloudCarrierServe {
     /// `carrier serve` binds at once and dials only per connection, so its ready line comes fast.
     static let readyDeadline: Duration = .seconds(15)
@@ -85,7 +91,7 @@ public actor CloudCarrierServe {
     private var waiters: [ServeMachine.WaiterID: CheckedContinuation<String, any Error>] = [:]
     private var lastWaiter: ServeMachine.WaiterID = 0
     /// Writes the next token line while the child is ready; cancelled when it leaves ready.
-    private let refresher = DemandTimer(owner: "CloudCarrierServe.tokenRefresh")
+    private let refresher: DemandTimer
     private let readyTimer = DemandTimer(owner: "CloudCarrierServe.readyDeadline")
     /// One per stopping (or stale) child; dropped at its exit.
     private var stopTimers: [ServeMachine.ChildID: DemandTimer] = [:]
@@ -101,10 +107,13 @@ public actor CloudCarrierServe {
         }
     }
 
+    /// `clock` paces the token refresh; tests pass a manual clock.
     init(connector: CloudCarrierDial.Connector, socket: String, refreshDelay: @escaping @Sendable (String) -> Duration = { CloudCarrierServe.refreshDelay($0) },
-         leases: CloudCarrierLeases? = nil, check: @escaping @Sendable (String) throws -> Void) {
+         leases: CloudCarrierLeases? = nil, clock: any Clock<Duration> = ContinuousClock(),
+         check: @escaping @Sendable (String) throws -> Void) {
         let leases = leases ?? connector.streams?.leases ?? CloudCarrierLeases()
         (self.connector, self.socket, self.check, nextRefresh, self.leases) = (connector, socket, check, refreshDelay, leases)
+        refresher = DemandTimer(owner: "CloudCarrierServe.tokenRefresh", clock: clock)
         leaseOwner = leases.newOwner()
         machine = ServeMachine(socket: socket)
     }
@@ -121,6 +130,9 @@ public actor CloudCarrierServe {
     var refreshing: Bool { machine.isReady }
 
     var state: ServeMachine.State { machine.state }
+
+    /// The tasks waiting for the current child's exit now.
+    var childExitWaiters: Int { machine.child.flatMap { children[$0] }?.exitWaiterCount ?? 0 }
 
     func observeOwnership(_ update: @escaping @Sendable (CloudCallerOwnership) async -> Void) { ownershipObserver = update }
 
@@ -147,6 +159,11 @@ public actor CloudCarrierServe {
     /// Ends the serve for good: the child's stdin closes, and a connect or launch still in flight (waiting
     /// for the lease, a token or the previous child's exit) resumes closed and spawns nothing.
     public func stop() { send(.stop) }
+
+    /// Ends the child while the machine is paused: its stdin closes (SIGTERM after ``stopGrace``) and a connect
+    /// or launch in flight resumes closed, but the serve stays reusable: the next connect starts a fresh child
+    /// once this one exited.
+    public func park() { send(.park) }
 
     /// Reduces `event`, and every event its effects queue, in order. The fence is read before each one: an
     /// account end that came after the connector was made stops this serve before any later event can hand out

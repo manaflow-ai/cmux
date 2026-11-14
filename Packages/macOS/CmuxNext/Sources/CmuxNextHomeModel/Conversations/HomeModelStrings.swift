@@ -140,7 +140,7 @@ package struct HomeModelStrings {
     // MARK: First-run Switching card (``HomeSwitchKeys``)
 
     package static var switchKeysTabs: String {
-        String(localized: "home.firstRun.switchKeys.tabs", defaultValue: "Tab 1–9 (like VS Code)", bundle: .module)
+        String(localized: "home.firstRun.switchKeys.tabs", defaultValue: "Tab 1–9", bundle: .module)
     }
     package static var switchKeysWorkspaces: String {
         String(localized: "home.firstRun.switchKeys.workspaces", defaultValue: "Workspace 1–9", bundle: .module)

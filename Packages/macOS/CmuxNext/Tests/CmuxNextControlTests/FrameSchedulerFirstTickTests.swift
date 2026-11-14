@@ -7,7 +7,7 @@ import Testing
 /// (RESIZE VIDEOS, Lawrence 2026-11-02: "make sure all animations are world class and 120hz").
 /// An idle window has no display link; the first tick after it starts had no previous timestamp and
 /// stepped every client by 1/60 s. At 120 Hz that put the first moving frame of every split, close,
-/// New Column, zoom, equalize and screen switch two refreshes along its spring, then the motion went
+/// New Column, zoom and equalize two refreshes along its spring, then the motion went
 /// on at one refresh per frame: a lurch at the start, off the declared curve. The first tick now
 /// steps by the display's own refresh period, which the link reports with every frame.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct FrameSchedulerFirstTickTests {

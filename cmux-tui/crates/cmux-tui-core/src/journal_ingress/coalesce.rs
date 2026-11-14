@@ -64,7 +64,8 @@ pub(super) fn push_coalesced(batch: &mut Vec<QueuedJournalEvent>, next: QueuedJo
                 JournalIngressEvent::TerminalBarrier
                 | JournalIngressEvent::Frontend { .. }
                 | JournalIngressEvent::Producer { .. }
-                | JournalIngressEvent::Effect(_) => true,
+                | JournalIngressEvent::Effect(_)
+                | JournalIngressEvent::AgentHookCleared { .. } => true,
             })
         }
         _ => None,

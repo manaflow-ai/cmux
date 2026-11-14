@@ -42,9 +42,12 @@ pub struct Durability {
     pub kept: Arc<AtomicU64>,
     /// The journal's written LSN (`cmux_journal::Journal::on_written`); closed with `durable`.
     pub written: tokio::sync::watch::Receiver<u64>,
-    /// Called when a line waited past the stall limit for the journal (a hung or failing disk:
-    /// its writer retries without end): the store asks the daemon to stop for a restart.
-    pub stalled: Arc<dyn Fn(String) + Send + Sync>,
+    /// Called with how long a line has waited each time it waits another stall interval for the
+    /// journal (`server/durable_gate.rs`). When the journal's writer is failing (a write or sync
+    /// returned an error: it retries without end) the store asks the daemon to stop for a restart
+    /// and this returns true; when the writer is only slow (a sync under way on a saturated disk)
+    /// it logs the wait and returns false, and the line keeps waiting.
+    pub stalled: Arc<dyn Fn(std::time::Duration) -> bool + Send + Sync>,
 }
 
 /// A streamed agent line: a `Stream` record, synced with the next acked batch or a second later,

@@ -124,9 +124,11 @@ import Testing
         #expect(h.saved("controlsOnHover") == true)
         #expect(h.sidebar.newButton.alphaValue == 0)
 
+        // Off is the default: the write removes the key (#38119), so cmux.json keeps no copy.
         _ = h.services.registry.perform("sidebar.controlsOnHover.off")
-        await h.until { h.saved("controlsOnHover") == false && h.sidebar.newButton.alphaValue == 1 }
-        #expect(h.saved("controlsOnHover") == false)
+        await h.until { h.fileParses() && h.saved("controlsOnHover") == nil && h.sidebar.newButton.alphaValue == 1 }
+        #expect(h.fileParses(), "cmux.json is missing or does not parse")
+        #expect(h.saved("controlsOnHover") == nil, "off is the default: sidebar.controlsOnHover leaves cmux.json")
         #expect(h.sidebar.newButton.alphaValue == 1)
     }
 }

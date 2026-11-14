@@ -58,7 +58,9 @@ public nonisolated struct AgentPaneGitDiffOptions: Equatable, Sendable {
 
 /// A read of the chat session's repository that the pane asks for:
 /// `git.diff` with `{cwd, scope, include_patch, paths?, context_lines?}`, `git.status` with
-/// `{cwd}`, or `file.search` with `{cwd or path, query, limit?}`. The App
+/// `{cwd}`, `file.search` with `{cwd or path, query, limit?}`, or
+/// `git.worktree.setup` with `{path, since?}` (a new worktree's setup and its
+/// output from byte `since`, a decimal string). The App
 /// runs it as the session host's resource operation (`git.diff`,
 /// `git.status`, `git.files.search`) with `cwd` as its `path`; it reads the
 /// repository and changes nothing.
@@ -69,6 +71,8 @@ public nonisolated enum AgentPaneGitRequest: Equatable, Sendable {
     case filesSearch(cwd: String, query: String, limit: Int)
     /// One turn's changes: checkpoint `from` against `to`, or the working tree.
     case checkpointDiff(cwd: String, from: String, to: String?, includePatch: Bool, options: AgentPaneGitDiffOptions = .init())
+    /// A worktree's setup: its state, port and output from byte `since`.
+    case worktreeSetup(cwd: String, since: String?)
 
     /// The longest query the session host takes, in characters.
     public static let maximumQueryLength = 256
@@ -83,6 +87,7 @@ public nonisolated enum AgentPaneGitRequest: Equatable, Sendable {
         case .status: "git.status"
         case .filesSearch: "git.files.search"
         case .checkpointDiff: "git.checkpoint.diff"
+        case .worktreeSetup: "git.worktree.setup"
         }
     }
 
@@ -90,7 +95,8 @@ public nonisolated enum AgentPaneGitRequest: Equatable, Sendable {
     /// relative path against its own directory, not the chat's.
     public var cwd: String {
         switch self {
-        case .diff(let cwd, _, _, _), .status(let cwd), .filesSearch(let cwd, _, _), .checkpointDiff(let cwd, _, _, _, _): cwd
+        case .diff(let cwd, _, _, _), .status(let cwd), .filesSearch(let cwd, _, _), .checkpointDiff(let cwd, _, _, _, _),
+             .worktreeSetup(let cwd, _): cwd
         }
     }
 
@@ -99,13 +105,13 @@ public nonisolated enum AgentPaneGitRequest: Equatable, Sendable {
         (1...128).contains(id.utf8.count) && id.utf8.allSatisfy { $0 > 0x20 && $0 < 0x7F }
     }
 
-    /// Nil unless `method` is one of the four and `params` name an absolute
+    /// Nil unless `method` is one of the five and `params` name an absolute
     /// folder (and, for a diff, one of the five scopes; for a search, a
     /// query of at most ``maximumQueryLength`` characters and a limit from 1
-    /// to ``maximumSearchLimit``). A search names its folder as `cwd` or
-    /// `path`.
+    /// to ``maximumSearchLimit``; for a setup, a `since` of decimal digits).
+    /// A search or a setup names its folder as `cwd` or `path`.
     init?(method: String, params: [String: Any]?) {
-        let folder = params?["cwd"] ?? (method == "file.search" ? params?["path"] : nil)
+        let folder = params?["cwd"] ?? (["file.search", "git.worktree.setup"].contains(method) ? params?["path"] : nil)
         guard let cwd = folder as? String, cwd.hasPrefix("/"), !cwd.contains("\u{0}") else { return nil }
         switch method {
         case "git.checkpoint.diff":
@@ -140,6 +146,13 @@ public nonisolated enum AgentPaneGitRequest: Equatable, Sendable {
             self = .diff(cwd: cwd, scope: scope, includePatch: params?["include_patch"] as? Bool ?? false, options: options)
         case "git.status":
             self = .status(cwd: cwd)
+        case "git.worktree.setup":
+            switch params?["since"] {
+            case nil, is NSNull: self = .worktreeSetup(cwd: cwd, since: nil)
+            case let since as String where (1...20).contains(since.utf8.count) && since.utf8.allSatisfy({ (0x30...0x39).contains($0) }):
+                self = .worktreeSetup(cwd: cwd, since: since)
+            default: return nil
+            }
         default:
             return nil
         }

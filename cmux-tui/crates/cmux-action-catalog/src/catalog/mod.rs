@@ -32,9 +32,11 @@ mod cloud_port;
 mod cloud_session;
 mod cmux_remote;
 mod density;
+mod divider;
 mod extension;
 mod file_page;
 mod files_pane;
+mod git;
 mod hang_reports;
 mod help_link;
 mod hibernation;
@@ -135,6 +137,7 @@ pub static GROUPS: &[&[Action]] = &[
     agent_chat_view::ACTIONS,
     agent_side_question::ACTIONS,
     agent_harness::ACTIONS,
+    git::ACTIONS,
     cloud::ACTIONS,
     cloud_port::ACTIONS,
     account::ACTIONS,
@@ -147,6 +150,7 @@ pub static GROUPS: &[&[Action]] = &[
     chrome_style::ACTIONS,
     backdrop::ACTIONS,
     pane_background::ACTIONS,
+    divider::ACTIONS,
     hibernation::ACTIONS,
     auto_archive::ACTIONS,
     workspace_bulk_archive::ACTIONS,

@@ -68,10 +68,12 @@ pub fn carrier_socket_of(machine: &str) -> std::path::PathBuf {
 
 /// A link-test machine record (contract 1.2 shape).
 pub fn link_machine(id: &str, status: &str) -> Value {
-    json!({ "id": id, "team": "team_t0000000000000000001", "name": id, "status": status,
-        "size": { "cpu": 2, "memory_mb": 4096, "disk_mb": 16384 },
+    json!({ "id": id, "team": "team_t0000000000000000001", "creator": "user_u0000000000000000001",
+        "name": id, "status": status, "size": { "cpu": 2, "memory_mb": 4096, "disk_mb": 16384 },
+        "image": { "id": "img_i0000000000000000001", "daemon_version": "0.40.0" },
         "host": if status == "running" { json!(format!("host-{id}")) } else { Value::Null },
-        "classic": false, "revision": "1" })
+        "classic": false, "created_at": 1_790_000_001_000i64, "last_active_at": null,
+        "idle_policy": { "idle_seconds": 1800 }, "error": null, "revision": "1" })
 }
 
 /// A `cloud.machine.connect_info` answer (contract 1.7) for a bound,

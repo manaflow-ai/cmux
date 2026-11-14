@@ -58,7 +58,7 @@ await requireBrowserLane("message-action-rows-browser.test.ts", async () => {
   };
 
   describe("one button in every action row", () => {
-    test("a prompt's row and a reply footer's draw the same boxes, glyphs and chevron", async () => {
+    test("prompt and footer actions share boxes and glyphs; only failed recovery keeps the model split", async () => {
       const page = await open(ROWS, "pointed");
       try {
         const rows = await page.evaluate(() =>
@@ -72,30 +72,46 @@ await requireBrowserLane("message-action-rows-browser.test.ts", async () => {
               button: box(button),
               glyph: box(button.querySelector("svg")),
             }));
-            const retry = row.querySelector(":is(.cv-turn-retry, .cv-message-retry)")!;
-            const chevron = retry.querySelector(".cv-turn-retry-menu")!;
+            const retry = row.querySelector(":is(.cv-turn-retry, .cv-message-retry)");
+            const chevron = retry?.querySelector(".cv-turn-retry-menu");
             return {
               selector,
               buttons,
-              chevron: { button: box(chevron), glyph: box(chevron.querySelector("svg")) },
-              retryGlyph: box(retry.querySelector(".cv-iconbtn:not(.cv-turn-retry-menu) svg")),
-              pill: box(retry),
+              split:
+                retry && chevron
+                  ? {
+                      chevron: { button: box(chevron), glyph: box(chevron.querySelector("svg")) },
+                      retryGlyph: box(retry.querySelector(".cv-iconbtn:not(.cv-turn-retry-menu) svg")),
+                      pill: box(retry),
+                    }
+                  : null,
             };
           }),
         );
         for (const row of rows) {
-          expect(row.buttons.length).toBeGreaterThanOrEqual(2);
+          // A prompt's row keeps Copy alone here since its inline resend went to the message menu
+          // (#42247); the failed footer has Copy and Retry at least.
+          expect([row.selector, row.buttons.length >= (row.selector === ".cv-user__actions" ? 1 : 2)]).toEqual([
+            row.selector,
+            true,
+          ]);
           for (const { button, glyph } of row.buttons) {
             expect([row.selector, button.width, button.height]).toEqual([row.selector, 24, 24]);
             expect([row.selector, glyph.width, glyph.height]).toEqual([row.selector, 16, 16]);
             // The same room on each side of the glyph.
             expect(glyph.left - button.left).toBe(button.right - glyph.right);
           }
-          expect([row.selector, row.chevron.glyph.width, row.chevron.button.width]).toEqual([row.selector, 12, 16]);
+          if (row.selector === ".cv-user__actions") {
+            expect(row.split).toBeNull();
+            continue;
+          }
+          expect(row.split).not.toBeNull();
+          const split = row.split!;
+          expect([row.selector, split.chevron.glyph.width, split.chevron.button.width]).toEqual([row.selector, 12, 16]);
           // Retry's glyph, 4, the chevron's; its one hover box with 4 of room at each end.
-          expect([row.selector, row.chevron.glyph.left - row.retryGlyph.right]).toEqual([row.selector, 4]);
-          expect([row.selector, row.retryGlyph.left - row.pill.left]).toEqual([row.selector, 4]);
-          expect([row.selector, row.pill.right - row.chevron.glyph.right]).toEqual([row.selector, 4]);
+          expect([row.selector, split.chevron.glyph.left - split.retryGlyph.right]).toEqual([row.selector, 4]);
+          expect([row.selector, split.retryGlyph.left - split.pill.left]).toEqual([row.selector, 4]);
+          expect([row.selector, split.pill.right - split.chevron.glyph.right]).toEqual([row.selector, 4]);
         }
       } finally {
         await page.close();
@@ -105,9 +121,9 @@ await requireBrowserLane("message-action-rows-browser.test.ts", async () => {
     test("Retry under the pointer lights one box over Retry and its chevron", async () => {
       const page = await open(ROWS, "pointed");
       try {
-        await page.hover(".cv-user__actions .cv-message-retry > .cv-iconbtn:not(.cv-turn-retry-menu)");
+        await page.hover(".cv-turn-actions .cv-turn-retry > .cv-iconbtn:not(.cv-turn-retry-menu)");
         const lit = await page.evaluate(() => {
-          const retry = document.querySelector(".cv-user__actions .cv-message-retry")!;
+          const retry = document.querySelector(".cv-turn-actions .cv-turn-retry")!;
           return {
             pill: getComputedStyle(retry).backgroundColor,
             button: getComputedStyle(retry.querySelector(".cv-iconbtn")!).backgroundColor,
@@ -119,6 +135,19 @@ await requireBrowserLane("message-action-rows-browser.test.ts", async () => {
         await page.close();
       }
     });
+  });
+
+  test("a completed reply keeps Copy and Fork without inline Retry", async () => {
+    const page = await open(ROWS, "completed");
+    try {
+      expect(await page.locator('.cv-user__actions button[aria-label="Copy"]').count()).toBe(1);
+      expect(await page.locator('.cv-turn-actions button[aria-label="Copy"]').count()).toBe(1);
+      expect(await page.locator('.cv-turn-actions button[aria-label="Fork from here"]').count()).toBe(1);
+      expect(await page.locator('.cv-user__actions button[aria-label="Retry"], .cv-turn-retry').count()).toBe(0);
+      expect(await page.locator(".cv-user__time").getAttribute("title")).toMatch(/\S/);
+    } finally {
+      await page.close();
+    }
   });
 
   test("a prompt's age ticks in place: the same node, the same box, no fade", async () => {
@@ -176,7 +205,7 @@ await requireBrowserLane("message-action-rows-browser.test.ts", async () => {
   });
 
   for (const variant of ["steered-claude", "next-prompt-no-summary"])
-    test(`${variant}: every reply time hovers with its detail, the steered stretch's too`, async () => {
+    test(`${variant}: every reply time hovers; the steered stretch's footer draws none`, async () => {
       const page = await open(STEERED, variant, { width: 760, height: 560 });
       try {
         const times = await page.evaluate(() =>
@@ -186,18 +215,24 @@ await requireBrowserLane("message-action-rows-browser.test.ts", async () => {
             return {
               row: time.closest("[data-row-id]")?.getAttribute("data-row-id") ?? "",
               tip: time.getAttribute("title") ?? time.getAttribute("data-tooltip") ?? "",
+              detail: time.getAttribute("data-tooltip-detail") ?? "",
               hit: hit === time || time.contains(hit),
             };
           }),
         );
-        expect(times.some((time) => time.row.startsWith("superseded"))).toBe(true);
+        // A turn's footer draws no time, the stretch the person came in on's too (Lawrence, 2026-11-11
+        // standup: the Codex app shows none); a reply's own row keeps its time, and it hovers.
+        const superseded = await page.evaluate(() =>
+          [...document.querySelectorAll('[data-row-id^="superseded"]')].map((row) =>
+            Boolean(row.querySelector(".cv-turn-time")),
+          ),
+        );
+        expect(superseded.length).toBeGreaterThan(0);
+        expect(superseded).not.toContain(true);
         for (const time of times) {
           expect([time.row, time.hit]).toEqual([time.row, true]);
           expect([time.row, time.tip]).toEqual([time.row, expect.stringMatching(/\S/)]);
         }
-        // The stretch the person came in on says how long it worked, as a turn's own footer does.
-        const steered = times.find((time) => time.row.startsWith("superseded"))!;
-        expect(steered.tip).toMatch(/^Worked for /);
       } finally {
         await page.close();
       }

@@ -11,7 +11,6 @@ const files = [
   // Per-card second timers (plans/cmux-next/resource-efficiency-DESIGN.md section 9, row 6).
   "src/pages/home-channels/RunCard.tsx",
   "src/agent-session/acpmux/CloudStartView.tsx",
-  "src/agent-session/acpmux/newtab/NewTabExtras.tsx",
   "src/agent-session/acpmux/newtab/NowPlayingPlayer.tsx",
 ];
 

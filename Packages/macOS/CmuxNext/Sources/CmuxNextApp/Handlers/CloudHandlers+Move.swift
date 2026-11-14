@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextCloudUI
 
 extension CloudHandlers {
     /// Move to Cloud and Bring Back Local: the palette, the tab and chat right-click
@@ -46,5 +47,13 @@ extension CloudHandlers {
             guard !CloudMoveAsks.isAgent(invocation) else { throw ActionFailure(message: CloudMoveAskStrings.bringBackIsPersons) }
             try CloudBringBack(services: services).start(invocation, context: context)
         }
+        bind(CloudBringBack.toMachine, registry, reason: reason) { invocation in
+            guard !CloudMoveAsks.isAgent(invocation) else { throw ActionFailure(message: CloudMoveAskStrings.bringBackIsPersons) }
+            try CloudBringBack(services: services).start(invocation, context: context, toMachine: true)
+        }
+        // A chat that cannot move now (no first message yet) shows its rows disabled with why, and every run refuses with it.
+        let refusal: @MainActor (ActionInvocation) -> String? = { CloudMove(services: services).refusal($0, context: context) }
+        context.setTargetReason(CloudMove.action, refusal)
+        ActionTargetTitles.setPaletteReason(CloudMove.action, in: registry) { [weak registry] in registry?.withoutRefusals { refusal(ActionInvocation()) } }
     }
 }

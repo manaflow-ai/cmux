@@ -7,6 +7,6 @@ extension AgentChatsPalettePage {
     init(services: AppServices) {
         self.init(windows: services.chatsFeed?.windows,
                   history: { [weak services] query in await services?.palette.model.rankerHistory(keyPrefix: "chat:", query: query) },
-                  open: { [weak services] key in services?.chatsOpener.open(key) })
+                  open: { [weak services] key, reveal in services?.chatsOpener.open(key, reveal: reveal) })
     }
 }

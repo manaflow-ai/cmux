@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextFloating
 @testable import CmuxNextHomeEngine
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -42,7 +43,7 @@ import Testing
 
         // Another Chief's choice, in the app's defaults under the key it has always used.
         let suite = "cmux-chief-mascot-order-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(["agent_scout01": "machine-blue"], forKey: "home.chief.mascots")
         let picks = ChiefMascotPicks(defaults: defaults, defaultChief: HomeChiefAvatars.defaultChief)

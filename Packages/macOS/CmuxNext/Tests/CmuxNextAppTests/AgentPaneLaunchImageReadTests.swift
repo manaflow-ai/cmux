@@ -32,6 +32,26 @@ struct AgentPaneLaunchImageReadTests {
         return directory
     }
 
+    /// Two machines' tabs of one id each get their own page back (#36767 review at dde50546): this Mac's
+    /// under the bare id it always used, the other's under its machine's slot, never each other's.
+    @Test func twoMachinesTabsOfOneIDKeepTheirOwnPages() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "launch-images-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let saving = AgentPaneLaunchImages(directory: directory)
+        saving.localMachine = { "this-mac" }
+        let local = saving.slot("tab_a", machine: "this-mac"), remote = saving.slot("tab_a", machine: "other-mac")
+        #expect(local == "tab_a" && remote != local, "slots \(local) and \(remote)")
+        let wide = try Self.page()
+        wide.size = NSSize(width: 8, height: 8) // saved at 1x: it reads back 8 points wide
+        await saving.save([local: try Self.page(), remote: wide])
+        let images = AgentPaneLaunchImages(directory: directory)
+        images.localMachine = { "this-mac" }
+        let read = try #require(images.prefetch(on: Self.work))
+        await read.value
+        #expect(images.take(images.slot("tab_a", machine: "other-mac"))?.size == NSSize(width: 8, height: 8))
+        #expect(images.take(images.slot("tab_a", machine: "this-mac"))?.size == NSSize(width: 4, height: 4))
+    }
+
     @Test func theLaunchReadsEverySavedPageOffTheMainThread() async throws {
         let directory = try await Self.saved(["tab_a", "tab_b"])
         defer { try? FileManager.default.removeItem(at: directory) }

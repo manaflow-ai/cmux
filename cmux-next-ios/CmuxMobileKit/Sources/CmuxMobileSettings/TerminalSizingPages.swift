@@ -109,7 +109,10 @@ struct TerminalSizingMacsPage: View {
     var body: some View {
         List {
             Section {
-                if macs.isEmpty {
+                if macs.isEmpty, store.awaitsAccountData {
+                    // The account's Macs are still on their way: not "No Macs.".
+                    CmuxSpinner(label: Text("Loading Macs…"))
+                } else if macs.isEmpty {
                     Text("No Macs.").foregroundStyle(theme.colors.label2)
                 }
                 ForEach(macs) { mac in

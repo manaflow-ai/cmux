@@ -72,6 +72,12 @@ public final class CloudStartRuns<Answer: Sendable, Machine: Sendable> {
         creations[Creation(name: name, account: account)] != nil
     }
 
+    /// The names `account`'s creations are making now, one waiting on the person's Start included: `cloud list-machines`
+    /// lists them under `creating`, so a sandboxed Run's cleanup never takes a machine still to come for gone (#39022 F2).
+    public func creatingNames(account: [String?]) -> [String] {
+        creations.keys.filter { $0.account == account }.map(\.name).sorted()
+    }
+
     public func creating(_ name: String, account: [String?], _ create: @escaping @MainActor () async throws -> Machine) async throws -> Machine {
         let key = Creation(name: name, account: account)
         let asked = forgets
@@ -228,9 +234,14 @@ public struct CloudStartRunKey: Hashable, Sendable {
     public var account: [String?]
     /// The run's `--login` word; nil for none. Runs that differ in it are different runs.
     public var login: String?
+    /// The folder on this Mac the run copies (`--from-folder`); nil for none. Runs that differ in it are different runs.
+    public var fromFolder: String?
+    /// The run's `--model`; nil for none. Runs that differ in it are different runs.
+    public var model: String?
 
-    public init(machine: String, agent: String, cwd: String?, caller: String?, account: [String?], login: String? = nil) {
+    public init(machine: String, agent: String, cwd: String?, caller: String?, account: [String?], login: String? = nil, fromFolder: String? = nil, model: String? = nil) {
         (self.machine, self.agent, self.cwd, self.caller, self.account, self.login) = (machine, agent, cwd, caller, account, login)
+        (self.fromFolder, self.model) = (fromFolder, model)
     }
 }
 

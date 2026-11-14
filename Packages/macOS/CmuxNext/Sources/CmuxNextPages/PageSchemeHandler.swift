@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextCompat
 import UniformTypeIdentifiers
 import WebKit
 
@@ -198,6 +199,14 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         return PageChromiumResponse(status: 200, mimeType: type, body: resource.data)
     }
 
+    /// The source's answer at once (``PageReadyResourceSource``), as ``dynamicResponse(to:source:)``
+    /// gives it; nil when it has none ready.
+    static func readyResponse(to request: PageResourceRequest, source: any PageReadyResourceSource) -> PageChromiumResponse? {
+        guard let resource = source.readyResource(for: request) else { return nil }
+        let fallback = mimeType(forExtension: request.path.last.map { ($0 as NSString).pathExtension } ?? "")
+        return PageChromiumResponse(status: 200, mimeType: resource.mimeType.flatMap(validMIMEType) ?? fallback, body: resource.data)
+    }
+
     /// A ranged source's answer as it set it (206 and `Content-Range` for a range), else a 404 with
     /// the page's headers.
     static func rangedReply(url: URL, page: PageDescriptor, request: PageResourceRequest, range: String?,
@@ -283,6 +292,18 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         guard !components.contains(where: { $0 == ".." || $0 == "." }) else { return nil }
         if let prefix = components.first, page.dynamicPrefixes.contains(prefix) {
             return .dynamic(PageResourceRequest(prefix: prefix, path: Array(components.dropFirst()), url: url))
+        }
+        // Build-owned shared assets for the first-party pages. Keep the page's origin and CSP;
+        // only this sibling asset directory is mounted, never another page's resources. JavaScript
+        // chunks and the shared stylesheet are the only formats this mount exposes.
+        // `root` is already the page's pinned bundle/update/overlay, so chunks follow that tree.
+        if components.first == "__shared", FirstPartyPages.shippedIDs.contains(page.id.lowercased()),
+           root.lastPathComponent == page.resource, root.deletingLastPathComponent().lastPathComponent == "pages" {
+            guard components.count == 2, ["js", "css"].contains((components[1] as NSString).pathExtension.lowercased()) else { return nil }
+            let shared = root.standardizedFileURL.resolvingSymlinksInPath().deletingLastPathComponent()
+                .appendingPathComponent("__shared", isDirectory: true)
+            guard shared.standardizedFileURL == shared.standardizedFileURL.resolvingSymlinksInPath() else { return nil }
+            return fileURL(components: Array(components.dropFirst()), root: shared).map(Route.file)
         }
         return fileURL(components: components, root: root).map(Route.file)
     }

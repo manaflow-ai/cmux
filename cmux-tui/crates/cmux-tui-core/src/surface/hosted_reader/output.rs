@@ -46,9 +46,16 @@ impl HostedReader {
                 mux.upgrade()
                     .map_or(crate::shell_history::Recording::Off, |mux| mux.shell_recording())
             });
+            // Borrowed bytes are `output` itself, or its start when the end
+            // of a possible prompt mark waits for the next chunk.
             let output = match normalized {
-                Cow::Borrowed(_) => output,
-                Cow::Owned(normalized) => normalized,
+                Cow::Borrowed(parsed) if parsed.as_ptr() == output.as_ptr() => {
+                    let parsed = parsed.len();
+                    let mut output = output;
+                    output.truncate(parsed);
+                    output
+                }
+                normalized => normalized.into_owned(),
             };
             if let Some(colors) = colors.as_ref() {
                 let delta = terminal_color_override_delta(&self.applied_color_overrides, colors);
@@ -93,16 +100,16 @@ impl HostedReader {
                 journal_enabled.then_some(output)
             };
             if self.title_changed.swap(false, Ordering::Relaxed) {
-                // A program that rewrites the same title (a spinner's
-                // resting frame, a prompt redraw) announces nothing.
+                // A program that rewrites the same title (a prompt redraw)
+                // or only steps its spinner announces nothing (D2).
                 let title = crate::terminal_title::read(&term);
-                let mut stored = pty.title.lock().unwrap();
-                if *stored != title {
-                    *stored = title.clone();
+                if let Some(title) =
+                    crate::terminal_title::store(&mut pty.title.lock().unwrap(), title)
+                {
                     title_update = Some(title);
                 }
             }
-            pty.record_directory(term.pwd());
+            pty.record_terminal_directory(&term);
             if before != after {
                 scroll_changed = Some(after);
                 broadcast_render_scroll_locked(pty, after);

@@ -12,10 +12,14 @@
 // Both neighbours are tool lines whose text is centred the same way in its line, so equal boxes
 // mean equal ink.
 // design/chat-transcript.md "Prompts after tool rows".
+//
+// This file tests the `runs` arm of live-turn-work, not the shipped `line` arm: the tool rows around the
+// steer are finished calls of a turn that still runs, which only `runs` draws (support/liveTurnRuns.ts).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("transcript-prompt-after-tools.test.ts", async () => {
@@ -85,6 +89,7 @@ await requireBrowserLane("transcript-prompt-after-tools.test.ts", async () => {
 
   const open = async (variant: string, theme: string) => {
     const page = await browser.newPage({ viewport: { width: 900, height: 900 }, deviceScaleFactor: 2 });
+    await pinLiveTurnRuns(page);
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
       `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: 720, theme, reducedMotion: "true" })}`,

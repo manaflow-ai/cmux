@@ -10,6 +10,7 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { numberedImageLabels } from "../src/agent-session/acpmux/imageLabel";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -30,12 +31,9 @@ beforeAll(() => {
   host = window.document.querySelector<HTMLElement>("#root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const shot = { id: "a".repeat(64), mimeType: "image/png", name: "Screenshot 2026-10-28.png" };

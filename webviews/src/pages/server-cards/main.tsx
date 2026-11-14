@@ -11,6 +11,7 @@ import { ServerCardsPage } from "./ServerCardsPage";
 import "../shared/pageBase.css";
 import "../../ui/ui.css";
 import "./styles.css";
+import "./add-machine/addMachine.css";
 
 export function mountServerCards(root: HTMLElement, client: PageClient | null = defaultClient()): void {
   const strings = createStrings(table);

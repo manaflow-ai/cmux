@@ -18,6 +18,8 @@ only to the PID this script launched. Run on a GUI host, never the laptop.
 Usage: group-pin-live.py TAG APP OUT_DIR
 """
 import json, os, signal, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 TAG, APP, OUT = sys.argv[1], sys.argv[2], sys.argv[3]
 BINARY = os.path.join(APP, "Contents/MacOS/cmux DEV")
@@ -172,7 +174,7 @@ open(CONFIG, "w").write("{}")
 open(GHOSTTY, "w").write("")
 app = launch()
 try:
-    print("doc:", json.dumps((rpc("debug.sidebar_rows") or {}).get("doc"))[:300], flush=True)
+    safe_print("doc:", json.dumps((rpc("debug.sidebar_rows") or {}).get("doc"))[:300], flush=True)
 
     # gui: the header menu's Pin/Unpin Group ----------------------------------------
     shown, personal = make_group("gui")
@@ -212,11 +214,11 @@ try:
         check("mcp-explicit-state-is-no-toggle", wait(lambda: reads_unpinned(shown), 5), (menu(shown), pinned_section_lists(shown)))
     rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(OUT, "end.png")}, timeout=60)
 finally:
-    print("teardown quit:", json.dumps(rpc("action.run", {"id": "quit", "args": {"endSessions": True}}, timeout=10))[:200])
+    safe_print("teardown quit:", json.dumps(rpc("action.run", {"id": "quit", "args": {"endSessions": True}}, timeout=10))[:200])
     try:
         app.wait(timeout=60)
     except subprocess.TimeoutExpired:
-        print("pid %d did not quit; SIGKILL" % app.pid, flush=True)
+        safe_print("pid %d did not quit; SIGKILL" % app.pid, flush=True)
         os.kill(app.pid, signal.SIGKILL)  # the PID launched here, never a pattern
     subprocess.run([CLI, "server", "stop", "--session", SESSION, "--end-terminals"],
                    env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)

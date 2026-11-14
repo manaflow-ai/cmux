@@ -283,22 +283,12 @@ fn read_prompt_reader<R: Read>(path: &Path, reader: R) -> Result<String> {
     Ok(text)
 }
 
-/// The session named exactly `key` (`NAME` or `HOST/NAME`; its
-/// `_acpmux/info`), None when there is none. `_acpmux/info` also takes a
+/// The session named `key` (`NAME` or `HOST/NAME`; its `_acpmux/info`), in
+/// this case or another, None when there is none. `_acpmux/info` also takes a
 /// prefix of a name: a session it finds by one is not this one.
 pub(super) async fn existing(client: &Client, key: &str) -> Result<Option<Value>> {
-    let (host, name) = match key.split_once('/') {
-        Some((host, name)) => (Some(host), name),
-        None => (None, key),
-    };
     match client.request(method::MUX_INFO, json!({"sessionId": key})).await {
-        // A bare name also finds a peer's session of that name: not this machine's.
-        Ok(v)
-            if v.get("name").and_then(Value::as_str) == Some(name)
-                && v.get("peer").and_then(Value::as_str) == host =>
-        {
-            Ok(Some(v))
-        }
+        Ok(v) if names(&v, key) => Ok(Some(v)),
         Ok(_) => Ok(None),
         Err(e) => {
             let m = e.to_string().to_lowercase();
@@ -309,6 +299,24 @@ pub(super) async fn existing(client: &Client, key: &str) -> Result<Option<Value>
             if none { Ok(None) } else { Err(e) }
         }
     }
+}
+
+/// `info` is the session `key` names whole, in this case or another (Leo, 2026-11-05: "stuff
+/// like that should work better yes"): `--name td2-a --reuse` finds `td2-A` rather than starting
+/// a second session beside it. Never by a prefix or without separators, and a bare name never
+/// names a peer's session of that name.
+fn names(info: &Value, key: &str) -> bool {
+    let (host, name) = match key.split_once('/') {
+        Some((host, name)) => (Some(host), name),
+        None => (None, key),
+    };
+    let whole = |found: &str, typed: &str| found.eq_ignore_ascii_case(typed);
+    let peer = info.get("peer").and_then(Value::as_str);
+    info.get("name").and_then(Value::as_str).is_some_and(|found| whole(found, name))
+        && match (peer, host) {
+            (Some(peer), Some(host)) => whole(peer, host),
+            (peer, host) => peer == host,
+        }
 }
 
 /// Refuses to reuse `info` (the session named `name`) for this launch: it
@@ -682,6 +690,20 @@ mod tests {
             info[k] = v;
             assert!(!never_prompted(&info), "{k}");
         }
+    }
+
+    #[test]
+    fn reuse_finds_a_name_in_another_case_but_never_a_prefix_or_a_peers() {
+        let here = json!({"name": "td2-A"});
+        assert!(names(&here, "td2-A"));
+        assert!(names(&here, "td2-a"));
+        assert!(!names(&here, "td2"));
+        assert!(!names(&here, "td2_a"));
+        let peer = json!({"name": "td2-A", "peer": "Lane-1"});
+        assert!(names(&peer, "lane-1/TD2-a"));
+        assert!(!names(&peer, "td2-a"));
+        assert!(!names(&peer, "lane-2/td2-a"));
+        assert!(!names(&here, "lane-1/td2-a"));
     }
 
     #[test]

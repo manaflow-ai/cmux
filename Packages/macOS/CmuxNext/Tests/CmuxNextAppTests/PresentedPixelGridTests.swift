@@ -7,7 +7,7 @@ import Testing
 /// Every frame of a layout motion puts each pane and divider on the device-pixel grid of the window
 /// (RESIZE VIDEOS, Lawrence 2026-11-02: "resizing columns is still not animating pixel perfect").
 /// The pane springs were rounded to the grid, but the camera offsets (the strip scroll, a row
-/// column's scroll, a scroll area's) and a screen's slide were added after that rounding, and they
+/// column's scroll, a scroll area's) were added after that rounding (as a screen's slide was, until 2026-11-10), and they
 /// are spring values too: every pane edge then sat a fraction of a device pixel off the grid for the
 /// whole motion, so Core Animation resampled the terminal and page contents (soft text, a seam that
 /// flickers between one and two pixels). Frames step at a fixed 120 Hz dt; every check is in window
@@ -169,7 +169,8 @@ struct PresentedPixelGridTests {
         }
     }
 
-    /// A screen switch slides the incoming screen in from the side: its panes stay on the grid while it slides.
+    /// A screen switch shows the incoming screen in place in its own turn (no slide): its panes are on the grid in
+    /// that turn and in every frame after it.
     @Test func aScreenSwitchKeepsEveryPaneOnThePixelGrid() {
         let strip = Strip(screens: [LayoutScreen(id: "s", name: "s", layout: Self.columns(2)),
                                     LayoutScreen(id: "t", name: "t", layout: Self.columns(2, prefix: "t"))],
@@ -178,6 +179,7 @@ struct PresentedPixelGridTests {
         strip.model.selectScreen("t")
         strip.root.syncWithModel()
         #expect(strip.root.screenViews["t"]?.isHidden == false, "the second screen shows")
+        #expect(strip.root.screenViews["t"]?.frame == strip.root.bounds, "in place, not on its way in")
         let off = strip.stepRecordingOffGrid()
         #expect(off.isEmpty, "frames with an edge off the device grid (scale \(strip.scale)): \(off.prefix(4))")
     }

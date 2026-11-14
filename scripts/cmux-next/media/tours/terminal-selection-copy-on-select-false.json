@@ -1,0 +1,240 @@
+{
+  "title": "Terminal: Option- and Shift-drag select text while a program has the mouse; Cmd-C, paste and copy-on-select = false",
+  "env": {
+    "CMUX_NEXT_GHOSTTY_CONFIG": "/tmp/cmux-tour-terminal-selection.ghostty"
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Select"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Show it",
+      "cmux": [
+        "workspace",
+        "name:Select",
+        "focus"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Ghostty config: copy-on-select = false (the app reloads the file it watches)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Select",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "printf 'copy-on-select = false\\n' > /tmp/cmux-tour-terminal-selection.ghostty; echo H4sIAAAAAAACA41WW0/bSBR+9684nZV2x61jkoAqFTaqIhq1bKGtCNqXFAVfxsTFHpuZcWk2or99z1wcGwJV80BO5ty/880Z/nix10ixF+d8j/HvUK/VquL7HiFkCllTFAOZCMY41KK6FlEJahUpECxKJYoMyqqRLICsEuanYqLMeVSAZAVLVF5xUFUjpEfN116rH2z1g5fhN1nxAOoouWEp5BziNZTRDVsal7Be+yGcKFCN4BIwYNwohX6piK5teiynroTK+TXc5Wrlzd+fA+NJleoT+m52PJ9dwGg4HAf672sfIp5CLHQ+hRnrSCrdQl4UtifXsY6F+ZhXRuKGCShyjmaSKWuVFHkdV5FIsUM4Pp1Nz2fvAhM6qRquevC4+iTkCq7RPfQ+sjXq17XpF91RQQ182PFfEq7uRK4YDAaK/VBX/iFcJVc4gJzvpMZ03t2K4aHQQXIJEdQ5SxhUmS2gq/0Irm6v4LbJMYou0wLaYVdlWQhTz8AB9LhMB/8GHUy+Dm5qwKJjPLT4GLyiEmtaseQm1Lzx8lKHhEq2kmCtJJsYiZQwudXJ9VY05Oi8lFp73unJpxlMgJDwW5VzmpH57HTDD4f76f2AGNpxTRkR8WtGD4a+77lRaCcnEu989uXz+QUeCRYmVVnnBaMiJl9/jOKvi7/p1/SVf9T7Sxdn5aVPfO/LdH4xe8ZtPBz+pOHLt377c/STBNpy7nuel7KsGxP1Dz3Aj2Aa8x4IoWg4XZA6NqCTywCSqEYbtqwaVTdqciEa5JymgRH9UKoUVS6BVJFqJBXVnbVxaRBSZxcaIiFqusbFBg3vj0YfzI/xx412uccuH/lkRSNXtG3iOxNpnijai59nwCtlMoK+9/p7MmnvgLXptUs4XiJiTg01JQK6sCTV87MSzlDHCWVd5EqzVVJfJzLayz56hP2IEkW2SkvmqCjoNpIhzYPY1tIHVuB1JGcn87PpxfEH4nosI6RWC97ucJKqXuvZ5FyPZHvVu6kYxyzFvhyMOQ9xnTBeUYdu9J1ptWN4qBLcA5FSgmaptUCyh7haRHS3PdoZo53i29Hw4M3KzvCf9mQ4Xm3F105Egh6s3Hhx8hp2TI2Jl+0WXsr8P0b90OBtm0DQ0LZ3pQLr+wpGfjfZPvE02C6JW3MT2JBaIILkEIYBEL2pnShw7UeS6V/3Xi/SCHWPd/nnT0Dt1saF7h+14dHVNRU3WYa7bQIxsfRSYt3VeLfCCYCeT3fW83pl0NAPGQIewMHwzWv/gZ2GooxUstJgmEWAM+UpDkJQG8N/GNgQXN9jPWnjGV6LqqnpyA9Ths8Ro0yISsgJwlAXUcKIvxPA4bGP7xFxwRab9g7aA//+8hA2Vl4cjsbDyxfi/lGoLTS2cCQ1RZACd/6LRu2m/I1O7SscwA1aYh58F+jDnv3gAQgHu73esLXe0i0n9I220fRES+Iuq2GP1tmM8Cfsj53KkmwnriPKAuNf6jmPnobGtfpLbDp6Zr/Pz42THg9FAx2vlVlINtmzvNjFWwOgfREckpBdveG/2cT9d+dJM9fUWDfV/SvR0cysekMyLT1HMf1hRb+s22fKsov76SG0VzfT+6joXd/ntp/eakW36zpxXHTrsejV+sTL1uHVrmO5XcfB9vTieD59dz49+RTY/a1fRGx3ueT4/85yaVpeLvXbsVy6zu1D4v0Pa8XgkVQLAAA= | base64 -D | gunzip > /tmp/cmux-tour-mouse-tui.py; clear\r"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "A full-screen program reads the mouse (DECSET 1002, SGR); the clipboard is CLEARED",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Select",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "python3 /tmp/cmux-tour-mouse-tui.py\r"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Plain drag: the program gets it (press, drag, release reports); the first-use hint shows",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "action": "drag",
+          "pane": "focused",
+          "by_x": 320,
+          "by_y": 0,
+          "steps": 24
+        }
+      },
+      "wait": 1.0
+    },
+    {
+      "title": "Plain drag copied nothing: clipboard [none]",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Select",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "c"
+      ],
+      "wait": 1.5
+    },
+    {
+      "title": "Option-drag: Ghostty selects text; the program's report count does not move",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "action": "drag",
+          "pane": "focused",
+          "by_x": 320,
+          "by_y": 0,
+          "steps": 24,
+          "modifiers": [
+            "option"
+          ]
+        }
+      },
+      "wait": 2.0
+    },
+    {
+      "title": "copy-on-select = false: the Option-drag copied nothing: clipboard [none]",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Select",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "c"
+      ],
+      "wait": 1.5
+    },
+    {
+      "title": "Cmd-C copies the selection",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "c",
+          "modifiers": [
+            "cmd"
+          ]
+        }
+      },
+      "wait": 1.5
+    },
+    {
+      "title": "After Cmd-C: clipboard [exact], a piece of the marker line",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Select",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "c"
+      ],
+      "wait": 1.5
+    },
+    {
+      "title": "Cmd-V pastes into the program (bracketed paste)",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "v",
+          "modifiers": [
+            "cmd"
+          ]
+        }
+      },
+      "wait": 1.5
+    },
+    {
+      "title": "Shift-drag selects too (Ghostty's own override)",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "action": "drag",
+          "pane": "focused",
+          "by_x": 320,
+          "by_y": 0,
+          "steps": 24,
+          "modifiers": [
+            "shift"
+          ]
+        }
+      },
+      "wait": 2.0
+    },
+    {
+      "title": "Cmd-C again",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "c",
+          "modifiers": [
+            "cmd"
+          ]
+        }
+      },
+      "wait": 1.5
+    },
+    {
+      "title": "After Shift-drag and Cmd-C: clipboard [exact]",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Select",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "c"
+      ],
+      "wait": 1.5
+    }
+  ]
+}

@@ -52,7 +52,8 @@ test("a relayed message is its sender's card, the label only behind Details", ()
   const prompt = incomingPrompt(text, { _meta: { provenance: named }, client: "acpmux-cli#1@build-box" });
   expect(prompt).toEqual({
     kind: "message",
-    message: { name: "build-box/lane-3", text: body, raw: text },
+    // `--from` only names it: acpmux could not verify it, and the line marks that (senderIdentity.ts).
+    message: { name: "build-box/lane-3", text: body, raw: text, unverified: true },
   });
 });
 
@@ -151,4 +152,14 @@ test("a thread's messages fetched when it opens leave the label out", () => {
 
 test("a preview without the label reads as written", () => {
   expect(withoutRelayHead("Merged #36125")).toBe("Merged #36125");
+});
+
+test("a whole message that only starts like a head keeps its body; a cut preview drops the cut head", () => {
+  // A lane's own words, not a broker label: no head closes and no closing line ends it.
+  const text = "[message 1234 from my notes] the canary stays on huge-blue.\nNext: the cap.";
+  const named = { kind: "agent_message", from: "fromAgent", fromName: "build-box/lane-3", to: "s-1" };
+  const prompt = incomingPrompt(text, { _meta: { provenance: named }, client: "acpmux-cli#1@build-box" });
+  expect(prompt?.kind === "message" && prompt.message.text).toBe(text);
+  // A thread's preview cut inside a real head holds none of the message.
+  expect(withoutRelayHead(relayed(body).slice(0, 120))).toBe("");
 });

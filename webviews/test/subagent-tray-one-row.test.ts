@@ -3,8 +3,8 @@
 // misaligned and how much extra space those agent cards take compared to the past one lines we
 // had/how Claude code just has one lines too". Every agent line is one row again, at 760px and at
 // 360px: its title, what it did last muted after it, then its state, time and Stop in their fixed
-// columns. And what needs the person (the failed line here) leads the list, so the list's cap never
-// clips it while the header says "1 failed". In real Chromium (Playwright; CI fails the file when it
+// columns. A failed line leaves the hat (Leo, 2026-11-12: "if these failed, I don't know why they
+// still show up"; runningTray.ts `endedInFailure`): the fixture's failed agent draws no line here. In real Chromium (Playwright; CI fails the file when it
 // cannot launch, requireBrowserLane). CMUX_TRAY_CAPTURE_DIR keeps a still of each width.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
@@ -40,7 +40,7 @@ await requireBrowserLane("subagent-tray-one-row.test.ts", async () => {
 
   for (const width of [760, 360]) {
     for (const theme of ["Apple System Colors", "Apple System Colors Light"]) {
-      test(`four agents: one row each, aligned columns, the failed line first at ${width}px (${theme})`, async () => {
+      test(`four agents: one row each, aligned columns, the failed one gone at ${width}px (${theme})`, async () => {
         const port = (server.httpServer!.address() as { port: number }).port;
         const page = await browser.newPage({
           viewport: { width, height: 620 },
@@ -85,9 +85,9 @@ await requireBrowserLane("subagent-tray-one-row.test.ts", async () => {
               })),
             };
           });
-          expect(geometry.lines).toHaveLength(4);
-          // The failed line leads, then the rest in the tray's own order.
-          expect(geometry.lines[0]!.status).toBe("failed");
+          // Two running and one finished; the failed one left the hat.
+          expect(geometry.lines).toHaveLength(3);
+          expect(geometry.lines.some((line) => line.status === "failed")).toBe(false);
           // Every line is one row, the header's height, and every line is inside the list's box.
           for (const line of geometry.lines) {
             expect(Math.abs(line.line.height - geometry.head.height)).toBeLessThanOrEqual(0.5);

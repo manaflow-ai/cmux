@@ -191,7 +191,7 @@ done
 
 if command -v swift >/dev/null 2>&1 && ((${#paths[@]} > 0)); then
   printf '\nmacOS external app detection:\n'
-  swift - "${paths[@]}" <<'SWIFT'
+  swift - ${paths[@]+"${paths[@]}"} <<'SWIFT'
 import AppKit
 import Foundation
 

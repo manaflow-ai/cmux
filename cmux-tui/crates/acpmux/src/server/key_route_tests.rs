@@ -28,7 +28,8 @@ fn setup_with(local: &[(&str, &str)]) -> Arc<Hub> {
     let hub = Hub::new(config, store);
     let row = crate::hub::RemoteSession {
         peer: "hb".into(),
-        summary: json!({"sessionId": "peer-review-1", "name": "hb/review", "status": "running"}),
+        summary: json!({"sessionId": "peer-review-1", "name": "hb/review", "status": "running"})
+            .into(),
         receipt: SessionReceipt {
             host_id: "hb".into(),
             mux_session_id: "peer-review-1".into(),
@@ -36,7 +37,7 @@ fn setup_with(local: &[(&str, &str)]) -> Arc<Hub> {
             generation: 1,
         },
     };
-    hub.remote_sessions.lock().unwrap().insert("hb/peer-review-1".into(), row);
+    hub.remote_sessions.write().insert("hb/peer-review-1".into(), row);
     hub
 }
 
@@ -92,7 +93,8 @@ async fn a_sub_sessions_whole_name_here_and_on_a_peer_is_refused() {
     let hub = setup_with(&[("local-review-1", "review"), ("local-child-1", "review/child")]);
     let row = crate::hub::RemoteSession {
         peer: "hb".into(),
-        summary: json!({"sessionId": "peer-child-1", "name": "hb/review/child", "status": "idle"}),
+        summary: json!({"sessionId": "peer-child-1", "name": "hb/review/child", "status": "idle"})
+            .into(),
         receipt: SessionReceipt {
             host_id: "hb".into(),
             mux_session_id: "peer-child-1".into(),
@@ -100,7 +102,7 @@ async fn a_sub_sessions_whole_name_here_and_on_a_peer_is_refused() {
             generation: 1,
         },
     };
-    hub.remote_sessions.lock().unwrap().insert("hb/peer-child-1".into(), row);
+    hub.remote_sessions.write().insert("hb/peer-child-1".into(), row);
     let reply = call(&hub, method::MUX_INFO, json!({"sessionId": "review/child"})).await;
     assert_eq!(reply["error"]["data"]["reason"], "session_ambiguous", "{reply}");
     let uses: Vec<&str> = reply["error"]["data"]["choices"]

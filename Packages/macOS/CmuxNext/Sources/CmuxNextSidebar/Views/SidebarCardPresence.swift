@@ -31,7 +31,13 @@ final class SidebarCardPresence {
         self.policy = policy
     }
 
-    var transition: SidebarCardTransition { SidebarCardTransition(policy: policy()) }
+    /// The card's transition under the motion settings; its movement lands at once while the
+    /// card's window is in a live resize or a full screen transition.
+    var transition: SidebarCardTransition {
+        var policy = self.policy()
+        policy.liveResize = policy.liveResize || Motion.isLiveResizing(view?.window)
+        return SidebarCardTransition(policy: policy)
+    }
 
     /// Shows the card (with the entrance) or hides it (after the exit).
     func setShown(_ shown: Bool) {

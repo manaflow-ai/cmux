@@ -14,6 +14,11 @@ struct ScreenFrameInput {
     /// A structural change that snapped waits for the next frame tick, its terminals' new sizes drawn ahead in its turn
     /// (`ScreenContentView+SnapFrame`, CLOSE MOTION 3).
     var snapWaitsForContent = false
+    /// The held snap is a key press's (its terminals' grids went with their sizes): it shows only once its contents drew
+    /// their programs' redraws, or waited as long as they may (``ScreenContentView/heldSnapAwaitsContent()``, RESIZE P0 20).
+    var snapAwaitsPrograms = false
+    /// Frame ticks the held snap waited for its contents.
+    var snapRefreshesWaited = 0
     /// The panes that change took out, shown as they were until it shows.
     var snapDeparted: [PaneID] = []
 }

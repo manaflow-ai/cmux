@@ -29,6 +29,7 @@ set -eu
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 MODE=build
 OUT_ROOT=""
+REPORT_DIR="${CMUX_BUNDLE_REPORT_DIR:-}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --force) MODE=force ;;
@@ -37,13 +38,17 @@ while [ $# -gt 0 ]; do
       [ $# -ge 2 ] || { echo "error: --out-root needs a directory" >&2; exit 2; }
       case "$2" in /*) OUT_ROOT="$2" ;; *) OUT_ROOT="$PWD/$2" ;; esac
       shift ;;
+    --report-dir)
+      [ $# -ge 2 ] || { echo "error: --report-dir needs a directory" >&2; exit 2; }
+      case "$2" in /*) REPORT_DIR="$2" ;; *) REPORT_DIR="$PWD/$2" ;; esac
+      shift ;;
     --from)
       [ $# -ge 2 ] || { echo "error: --from needs a directory" >&2; exit 2; }
       MODE=from
       case "$2" in /*) FROM_ROOT="$2" ;; *) FROM_ROOT="$PWD/$2" ;; esac
       shift ;;
     -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
-    *) echo "usage: $0 [--force | --verify] [--out-root DIR] [--from DIR]" >&2; exit 2 ;;
+    *) echo "usage: $0 [--force | --verify] [--out-root DIR] [--report-dir DIR] [--from DIR]" >&2; exit 2 ;;
   esac
   shift
 done
@@ -71,7 +76,7 @@ missing_tool() {
 }
 
 need_bun() {
-  want="$(python3 -c 'import json, sys; m = (json.load(open(sys.argv[1])).get("devEngines") or {}).get("packageManager") or {}; print(m.get("version", "") if m.get("name") == "bun" else "")' "$ROOT/webviews/package.json" 2>/dev/null || true)"
+  want="$(python3 -I "$ROOT/scripts/webviews_bun_version.py" "$ROOT/webviews/package.json" 2>/dev/null || true)"
   if ! command -v bun >/dev/null 2>&1; then
     missing_tool "the cmux-next web bundles need bun ${want:-(see webviews/package.json devEngines)} or newer; install it: curl -fsSL https://bun.sh/install | bash -s bun-v${want:-<version>}"
   fi
@@ -154,7 +159,7 @@ bun install --frozen-lockfile >/dev/null
 bun scripts/pages/gen-strings.mjs
 cd "$ROOT"
 
-if [ -z "$OUT_ROOT" ] && [ "$MODE" = build ] && current; then
+if [ -z "$OUT_ROOT" ] && [ -z "$REPORT_DIR" ] && [ "$MODE" = build ] && current; then
   echo "web bundles are current ($(cut -c1-12 "$STAMP"))"
   exit 0
 fi
@@ -172,6 +177,11 @@ out() {
 }
 
 rm -f "$STAMP"
+# A report run hands every builder its metafile folder through the environment (bundle-metafile.mjs).
+if [ -n "$REPORT_DIR" ]; then
+  mkdir -p "$REPORT_DIR"
+  export CMUX_BUNDLE_REPORT_DIR="$REPORT_DIR" CMUX_PAGES_METAFILE="$REPORT_DIR/pages.json"
+fi
 "$ROOT/scripts/cmux-next/build-agent-pane-web.sh" --out "$(out "$PANE")"
 "$ROOT/scripts/cmux-next/build-pages-web.sh" --out "$(out "$PAGES")"
 "$ROOT/scripts/cmux-next/build-agent-activity-web.sh" --out "$(out "$ACTIVITY")"

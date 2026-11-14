@@ -33,4 +33,4 @@ button.acpmux-edited-file:active{background:color-mix(in srgb,var(--agent-text) 
 button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:-1.5px}
 /* The file filter is a field: its edge darkens on hover and takes the accent while typing. */
 .acpmux-diff-filter:hover{border-color:color-mix(in srgb,var(--agent-text) 22%,transparent)}
-.acpmux-diff-filter:focus-within{border-color:color-mix(in srgb,var(--agent-accent) 55%,transparent)}
+.acpmux-diff-filter:is(:focus-visible, :has(:focus-visible)){border-color:color-mix(in srgb,var(--agent-accent) 55%,transparent)}

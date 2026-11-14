@@ -3,7 +3,8 @@
 //! destructive actions, answering permissions, and help.
 //!
 //! Keys (also shown with `?`)
-//!   Enter        send prompt        Ctrl-s   send as steer (interrupt)
+//!   Enter        send prompt; steers a running turn when the agent steers
+//!   Ctrl-s       queue the prompt for after the running turn
 //!   Ctrl-t / n   new session        Ctrl-g   cancel turn
 //!   Ctrl-n/p     next / prev        Tab      focus sidebar
 //!   Ctrl-l       pick model         Ctrl-o   pick mode
@@ -135,6 +136,9 @@ pub struct App {
     pub(super) recovery_replayed: HashMap<String, usize>,
     /// Cursor that started the current lag recovery, for the terminal status.
     pub(super) recovery_start: HashMap<String, u64>,
+    /// Older transcript pages requested while the user scrolls to the top.
+    pub(super) history_in_flight: HashSet<String>,
+    pub(super) history_more: HashMap<String, bool>,
     pub input: Editor,
     pub input_images: Vec<PromptImage>,
     pub command: Editor,
@@ -251,11 +255,8 @@ impl App {
         if let Some(d) = self.draft_mut() {
             d.errors.push(e);
         } else if let Some(id) = self.selected_id() {
-            self.transcripts
-                .entry(id)
-                .or_default()
-                .items
-                .push(crate::transcript::Item::Error { text: e });
+            // A paging transcript: an empty attach keeps this one, and it must still page.
+            self.transcripts.entry(id).or_insert_with(Transcript::paging).push_local_error(e);
         }
     }
 
@@ -533,6 +534,46 @@ impl App {
         });
     }
 
+    /// Asks for the page of records before the oldest one shown once the selected
+    /// transcript is scrolled to its top, one page at a time, until the log has no more.
+    pub(super) fn load_older_if_needed(&mut self) {
+        let Some(id) = self.selected_id() else { return };
+        let Some(v) = self.viewport.get(&id) else { return };
+        if v.offset != 0
+            || self.history_in_flight.contains(&id)
+            || self.history_more.get(&id) == Some(&false)
+        {
+            return;
+        }
+        let Some(before) = self.transcripts.get(&id).and_then(Transcript::oldest_seq) else {
+            return;
+        };
+        self.history_in_flight.insert(id.clone());
+        let client = self.client.clone();
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            match client
+                // A read of the log, not a second attach: the view is already subscribed.
+                .request(
+                    method::MUX_EVENTS,
+                    json!({"sessionId": id, "limit": 3000, "beforeSeq": before}),
+                )
+                .await
+            {
+                Ok(v) => {
+                    let events =
+                        v.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
+                    let has_more = v.get("hasMore").and_then(Value::as_bool).unwrap_or(false);
+                    let _ = tx.send(AppMsg::Older { id, events, has_more });
+                }
+                Err(e) => {
+                    let _ = tx.send(AppMsg::OlderFailed { id, error: e.to_string() });
+                }
+            }
+        });
+        self.status = "loading earlier history…".into();
+    }
+
     pub(super) fn refresh_sessions(&self) {
         let client = self.client.clone();
         let tx = self.tx.clone();
@@ -600,6 +641,29 @@ impl App {
         }
     }
 
+    /// The selected session has a turn open: running, or waiting on a permission (the turn still
+    /// takes a steer), by its list row or by its transcript, whichever is newer.
+    pub(super) fn turn_open(&self) -> bool {
+        self.selected_session()
+            .and_then(|s| s.get("status"))
+            .and_then(Value::as_str)
+            .is_some_and(turn_open_status)
+            || self
+                .selected_id()
+                .and_then(|id| self.transcripts.get(&id))
+                .is_some_and(|t| turn_open_status(&t.status))
+    }
+
+    /// Enter steers a prompt into the running turn when the agent steers, as the app's composer does
+    /// (Leo, 2026-11-05: "wt* like no these default enters became queues?"); Ctrl-s queues it. A
+    /// slash command still waits for the turn, so it runs as its own turn, never as a steer.
+    pub(super) fn enter_steers(&self) -> bool {
+        self.turn_open()
+            && !self.on_draft()
+            && self.selected_supports_steer()
+            && !self.editor().text().trim_start().starts_with('/')
+    }
+
     pub(super) fn send_prompt(&mut self, steer: bool) {
         if self.editor().text().trim().is_empty() && self.prompt_images().is_empty() {
             return;
@@ -640,7 +704,7 @@ impl App {
         }
         // Show the message at once; the daemon's echo is matched, not added.
         if let Some(t) = self.transcripts.get_mut(&id) {
-            let queued = t.status == "running" && !steer;
+            let queued = turn_open_status(&t.status) && !steer;
             let shown = if images.is_empty() {
                 text.clone()
             } else if text.is_empty() {
@@ -654,8 +718,10 @@ impl App {
                     images.iter().map(|i| i.name.as_str()).collect::<Vec<_>>().join(", ")
                 )
             };
-            t.items.push(crate::transcript::Item::User { text: shown, steer, queued });
-            t.optimistic.push(text.clone());
+            t.push_optimistic(
+                text.clone(),
+                crate::transcript::Item::User { text: shown, steer, queued },
+            );
             if !steer && !queued {
                 t.status = "running".into();
             }
@@ -713,6 +779,11 @@ impl App {
 
 fn session_route_id(session: &Value) -> Option<String> {
     crate::cli::resolve::routed_id(session).ok()
+}
+
+/// A session or transcript status with a turn still open: running, or waiting on a permission.
+fn turn_open_status(status: &str) -> bool {
+    matches!(status, "running" | "waiting")
 }
 
 #[cfg(test)]
@@ -804,6 +875,74 @@ pub(super) mod interaction_tests {
         assert!(app.selected_supports_steer(), "a steering session does not offer steer");
         app.selected = app.drafts.len() + 1;
         assert!(!app.selected_supports_steer(), "a session that cannot steer offers it");
+    }
+
+    /// Enter on a running turn steers when the agent steers and queues only when it cannot; Ctrl-s
+    /// queues (Leo, 2026-11-05: "wt* like no these default enters became queues?").
+    #[tokio::test]
+    async fn enter_steers_a_running_turn_and_ctrl_s_queues() {
+        let (mut app, mut requests) = app().await;
+        app.sessions = vec![
+            json!({"sessionId": "steers", "status": "running", "steering": true}),
+            json!({"sessionId": "stops", "status": "running", "steering": false}),
+            json!({"sessionId": "idle", "status": "idle", "steering": true}),
+        ];
+        async fn sent(
+            app: &mut App,
+            requests: &mut mpsc::UnboundedReceiver<Value>,
+            row: usize,
+            text: &str,
+            key: KeyEvent,
+        ) -> bool {
+            app.selected = app.drafts.len() + row;
+            app.editor_mut().clear();
+            app.editor_mut().insert_str(text);
+            app.on_key(key);
+            loop {
+                // timeout: a test bound on an in-process request channel; a hang fails the test instead of hanging the suite
+                let msg = tokio::time::timeout(std::time::Duration::from_secs(5), requests.recv())
+                    .await
+                    .unwrap()
+                    .unwrap();
+                if msg["method"] == "session/prompt" {
+                    return msg["params"]["_meta"]["acpmux"]["steer"].as_bool().unwrap();
+                }
+            }
+        }
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        let ctrl_s = KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL);
+        assert!(
+            sent(&mut app, &mut requests, 0, "also this", enter).await,
+            "Enter queued on a steering agent"
+        );
+        assert!(
+            !sent(&mut app, &mut requests, 0, "after this", ctrl_s).await,
+            "Ctrl-s did not queue"
+        );
+        assert!(
+            !sent(&mut app, &mut requests, 0, "/compact", enter).await,
+            "a slash command steered"
+        );
+        assert!(
+            !sent(&mut app, &mut requests, 1, "also this", enter).await,
+            "steered an agent that cannot"
+        );
+        assert!(
+            !sent(&mut app, &mut requests, 2, "hello", enter).await,
+            "steered with no turn running"
+        );
+        // A turn waiting on a permission is still open and takes a steer (#39568 F1).
+        app.sessions[2]["status"] = json!("waiting");
+        assert!(
+            sent(&mut app, &mut requests, 2, "also this", enter).await,
+            "a turn waiting on a permission queued"
+        );
+        // Help and the palette name Enter for Send and Steer, which no keymap binding runs (F3).
+        let steer = actions::def(actions::Action::Steer);
+        assert_eq!(steer.shown_keys(&app.keymap), steer.keys);
+        let queue = actions::def(actions::Action::Queue);
+        assert_eq!(queue.shown_keys(&app.keymap), app.keymap.hints("queue"));
+        assert!(!queue.shown_keys(&app.keymap).is_empty());
     }
 
     #[tokio::test]

@@ -9,6 +9,10 @@
 /// - ``Event/stop`` and ``Event/accountEnded`` are terminal: every parked connect resumes `closed` in the same
 ///   turn, the child's stdin closes, and a later connect fails `closed` with no effect. A new serve is a new
 ///   instance (``CloudService`` makes one per session).
+/// - ``Event/park`` (the machine paused) ends the child and the parked connects the same way, but is not
+///   terminal: the next connect (a resume) launches a fresh child once the parked one exited.
+/// - A child whose stdin this machine closed gets SIGTERM at its stop deadline unless it exited first, so a
+///   relaunch never waits on it for longer than that grace.
 /// - A token is written, and a socket handed out, only as an effect of a transition out of `ready`.
 /// - Connects while a launch is in flight join it: there is never a second child.
 /// - ``ChildID`` is issued (the epoch the child was spawned in), never read from `===`, an inode or a path.
@@ -64,6 +68,8 @@ struct ServeMachine: Sendable {
     enum Event: Equatable, Sendable {
         case connect(WaiterID, keepRefusal: Bool)
         case stop
+        /// The machine paused: end the child, keep the serve.
+        case park
         case accountEnded
         case socketClaimed(Epoch)
         case tokenRead(Epoch, read: ReadID, TokenRead)
@@ -152,6 +158,7 @@ struct ServeMachine: Sendable {
         switch event {
         case .connect(let waiter, let keepRefusal): return connect(waiter, keepRefusal: keepRefusal)
         case .stop: return stop(.closed)
+        case .park: return park()
         case .accountEnded: return stop(.accountEnded)
         case .socketClaimed(let at):
             guard case .claiming(at) = state else { return [] }
@@ -186,8 +193,10 @@ struct ServeMachine: Sendable {
             return [.readToken(at, read: read)]
         case .tokenWritten(let child, let token, let ok): return tokenWritten(child, token: token, ok: ok)
         case .stopDeadline(let child):
-            guard case .stopping(child, _) = state else { return [] }
-            return [.terminate(child: child)]
+            switch state {
+            case .stopping(child, _), .idle(_, alive: .some(child)), .draining(_, child): return [.terminate(child: child)]
+            default: return []
+            }
         }
     }
 
@@ -243,6 +252,25 @@ struct ServeMachine: Sendable {
         } else {
             state = .stopped(reason)
         }
+        effects += resumeAll(.failure(Self.closed))
+        if let child { effects.append(.armStopDeadline(child: child)) }
+        return effects
+    }
+
+    /// Like ``stop(_:)`` but not terminal: the child's stdin closes, the parked connects resume `closed`, and the
+    /// state goes idle with the child exiting, so the next connect drains it and launches a fresh one.
+    private mutating func park() -> [Effect] {
+        if isTerminal { return [] }
+        var effects: [Effect] = []
+        switch state {
+        case .spawning: effects.append(.cancelReadyDeadline)
+        case .ready: effects.append(.cancelRefresh)
+        default: break
+        }
+        let child = self.child
+        epoch &+= 1
+        state = .idle(lastEnd: Self.closed, alive: child)
+        if let child { effects += [.closeStdin(child: child), .release(child: child)] }
         effects += resumeAll(.failure(Self.closed))
         if let child { effects.append(.armStopDeadline(child: child)) }
         return effects
@@ -364,6 +392,7 @@ struct ServeMachine: Sendable {
         epoch &+= 1
         state = .idle(lastEnd: error, alive: child)
         return [.cancelReadyDeadline, .closeStdin(child: child), .release(child: child)] + resumeAll(.failure(error))
+            + [.armStopDeadline(child: child)]
     }
 
     /// The ready child exited (`alive` false) or stopped taking stdin (`alive` true). The refusal is its last
@@ -374,7 +403,7 @@ struct ServeMachine: Sendable {
         let exiting = alive ? child : nil
         state = .idle(lastEnd: ready.refused ?? Self.exited, alive: exiting)
         var effects: [Effect] = [.cancelRefresh]
-        if exiting != nil { effects.append(.closeStdin(child: child)) }
+        if exiting != nil { effects += [.closeStdin(child: child), .armStopDeadline(child: child)] }
         effects.append(.release(child: child))
         if !waiters.isEmpty { effects += launch(draining: exiting) }
         return effects

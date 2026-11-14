@@ -79,6 +79,7 @@ extension CloudAPIClient {
         var body: [String: any Sendable] = [:]
         if let expiresAt { body["expiresAt"] = expiresAt }
         if let maxUses { body["maxUses"] = maxUses }
+        try requireWorker(code: "machine.previews_unsupported")
         return try await send("POST", "\(machinePath)/\(id)/previews/\(port)/links", body: body,
                               timeout: .seconds(30), as: CloudPreviewShareLinkCreated.self)
     }
@@ -86,7 +87,8 @@ extension CloudAPIClient {
     /// Revokes one anonymous preview link. Existing preview cookies are
     /// rejected by the platform on their next request.
     public func revokePreviewShareLink(_ id: String, port: Int, linkID: String) async throws -> CloudPreviewShareLinkRevocation {
-        try await send("DELETE", "\(machinePath)/\(id)/previews/\(port)/links/\(linkID)",
+        try requireWorker(code: "machine.previews_unsupported")
+        return try await send("DELETE", "\(machinePath)/\(id)/previews/\(port)/links/\(linkID)",
                        timeout: .seconds(30), as: CloudPreviewShareLinkRevocation.self)
     }
 }

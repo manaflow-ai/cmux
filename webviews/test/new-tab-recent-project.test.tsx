@@ -11,6 +11,7 @@ import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
 import { mostRecentProject } from "../src/agent-session/acpmux/sessionList";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { teardownDom } from "./support/domTeardown";
 
 const HOME = "/Users/you";
 const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/ws-1";
@@ -85,12 +86,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const noop = () => {};
@@ -366,7 +364,6 @@ test("enabled recent chats show placeholders until the first session list settle
       snapshot={noChat(list)}
       omnibar={EMPTY_OMNIBAR}
       template="threads"
-      pageWidgets={new Set(["chats"])}
       chatsPending={pending}
       lastAgent="claude"
       onAsk={noop}

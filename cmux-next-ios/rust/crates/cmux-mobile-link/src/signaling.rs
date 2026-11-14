@@ -268,6 +268,11 @@ pub enum SignalingError {
     BadUrl(String),
     #[error("signaling connect failed: {0}")]
     Connect(String),
+    /// The service refused the access token (HTTP 401 on the upgrade): an
+    /// expired token, or, when the token was just minted, a revoked session.
+    /// Its own variant so callers branch on it, not on the message.
+    #[error("signaling connect failed: 401 Unauthorized")]
+    Unauthorized,
     #[error("signaling socket is closed")]
     Closed,
 }
@@ -279,6 +284,21 @@ pub enum SignalingError {
 /// whole timeout.
 pub const KEEPALIVE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
 pub const KEEPALIVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(40);
+
+/// The application ping sent beside each WebSocket ping (PROTOCOL.md "Signaling WebSocket"). The
+/// service answers it with `pong` without waking the device's hub, and keeps its time: a Mac that
+/// sleeps leaves its socket half open (still "online"), and these pings stopping is how the
+/// service tells it is asleep (connectivity alerts never page the team for a sleeping Mac). A
+/// WebSocket ping is answered by the runtime and seen by nobody, so it cannot do that.
+pub const APP_PING: &str = "ping";
+/// The service's answer to [`APP_PING`] (0.15.0 and later).
+pub const APP_PONG: &str = "pong";
+
+/// What one keepalive tick sends: the WebSocket ping (its pong proves the path) and the
+/// application ping (its time proves the device awake to the service).
+pub(crate) fn keepalive_signals() -> [Signal; 2] {
+    [Signal::Ping, Signal::Text(APP_PING.to_owned())]
+}
 
 struct Shared {
     device_id: String,
@@ -292,6 +312,10 @@ struct Shared {
     /// them right after `hello`, before a caller could subscribe to `events`.
     mailbox: mpsc::UnboundedSender<Vec<MailboxItem>>,
     closed: Mutex<Option<String>>,
+    /// Application pings sent and not yet answered. A Worker older than 0.15.0 answers each with a
+    /// session-less `bad_request` error frame instead of `pong`: that answer is the ping's, never a
+    /// refusal of a dial in flight, so the reader swallows one such error per ping it sent.
+    pings_unanswered: std::sync::atomic::AtomicU32,
 }
 
 /// A connected signaling socket. Clone to share.
@@ -333,6 +357,18 @@ fn encode_segment(value: &str) -> String {
         .collect()
 }
 
+/// A failed upgrade as a [`SignalingError`]: a 401 is [`SignalingError::Unauthorized`].
+fn connect_error(error: tokio_tungstenite::tungstenite::Error) -> SignalingError {
+    match &error {
+        tokio_tungstenite::tungstenite::Error::Http(response)
+            if response.status() == tokio_tungstenite::tungstenite::http::StatusCode::UNAUTHORIZED =>
+        {
+            SignalingError::Unauthorized
+        }
+        _ => SignalingError::Connect(error.to_string()),
+    }
+}
+
 impl SignalingClient {
     /// Connect with `Authorization: Bearer <token>`.
     pub async fn connect(
@@ -350,9 +386,7 @@ impl SignalingClient {
                 .parse()
                 .map_err(|_| SignalingError::BadUrl("token is not a header value".into()))?,
         );
-        let (socket, _) = tokio_tungstenite::connect_async(request)
-            .await
-            .map_err(|e| SignalingError::Connect(e.to_string()))?;
+        let (socket, _) = tokio_tungstenite::connect_async(request).await.map_err(connect_error)?;
         let (sink, mut source) = socket.split();
         let out = Arc::new(SendQueue::default());
         let (incoming_tx, incoming_rx) = mpsc::unbounded_channel();
@@ -366,6 +400,7 @@ impl SignalingClient {
             events: broadcast::channel(256).0,
             mailbox: mailbox_tx,
             closed: Mutex::new(None),
+            pings_unanswered: std::sync::atomic::AtomicU32::new(0),
         });
         let pinger = Arc::clone(&out);
         tokio::spawn(async move { out.write_out(sink).await });
@@ -384,7 +419,12 @@ impl SignalingClient {
                             pinger.close();
                             break "signaling keepalive timed out".to_owned();
                         }
-                        let _ = pinger.push_signal(Signal::Ping);
+                        for signal in keepalive_signals() {
+                            let is_app_ping = matches!(&signal, Signal::Text(text) if text == APP_PING);
+                            if pinger.push_signal(signal).is_ok() && is_app_ping {
+                                shared.pings_unanswered.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            }
+                        }
                         continue;
                     }
                 };
@@ -536,7 +576,36 @@ impl SignalingClient {
 }
 
 impl Shared {
+    /// Whether `text` answers one of our application pings: `pong` (0.15.0 and later), or the
+    /// session-less `bad_request` an older Worker sends back for it. Each answer settles one ping.
+    fn answers_app_ping(&self, text: &str) -> bool {
+        let unanswered = &self.pings_unanswered;
+        let settle = || {
+            unanswered
+                .fetch_update(
+                    std::sync::atomic::Ordering::Relaxed,
+                    std::sync::atomic::Ordering::Relaxed,
+                    |n| n.checked_sub(1),
+                )
+                .is_ok()
+        };
+        if text == APP_PONG {
+            settle();
+            return true;
+        }
+        if unanswered.load(std::sync::atomic::Ordering::Relaxed) == 0 {
+            return false;
+        }
+        match serde_json::from_str::<SignalMessage>(text) {
+            Ok(SignalMessage::Error { code, session_id: None, .. }) if code == "bad_request" => settle(),
+            _ => false,
+        }
+    }
+
     fn dispatch_text(&self, text: &str, incoming: &mpsc::UnboundedSender<IncomingSession>) {
+        if self.answers_app_ping(text) {
+            return;
+        }
         let message = match serde_json::from_str::<SignalMessage>(text) {
             Ok(message) => message,
             Err(error) => {
@@ -588,6 +657,54 @@ impl Shared {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_keepalive_tick_sends_the_websocket_ping_and_the_application_ping() {
+        use crate::send_queue::Signal;
+        assert_eq!(super::keepalive_signals(), [Signal::Ping, Signal::Text("ping".to_owned())]);
+        // The service's answer is not a signaling message; the reader ignores it.
+        assert!(serde_json::from_str::<super::SignalMessage>("pong").is_err());
+    }
+
+    fn shared_for_test() -> (super::Shared, broadcast::Receiver<SignalingEvent>) {
+        let (mailbox, _rx) = mpsc::unbounded_channel();
+        let events = broadcast::channel(16).0;
+        let rx = events.subscribe();
+        let shared = super::Shared {
+            device_id: "d".into(),
+            inbound: tokio::sync::watch::channel(0).0,
+            opened: std::time::Instant::now(),
+            out: Arc::new(SendQueue::default()),
+            sessions: Mutex::new(HashMap::new()),
+            events,
+            mailbox,
+            closed: Mutex::new(None),
+            pings_unanswered: std::sync::atomic::AtomicU32::new(0),
+        };
+        (shared, rx)
+    }
+
+    #[test]
+    fn an_older_workers_answer_to_the_application_ping_is_not_an_error_of_a_dial() {
+        let (shared, mut events) = shared_for_test();
+        let (incoming, _in_rx) = mpsc::unbounded_channel();
+        let old_answer = r#"{"type":"error","code":"bad_request","message":"invalid JSON"}"#;
+        // A ping is outstanding: its answer from an older Worker is swallowed, once.
+        shared.pings_unanswered.store(1, std::sync::atomic::Ordering::Relaxed);
+        shared.dispatch_text(old_answer, &incoming);
+        assert!(events.try_recv().is_err());
+        // No ping outstanding: the same frame is a real session-less error and reaches the dial.
+        shared.dispatch_text(old_answer, &incoming);
+        assert!(matches!(events.try_recv(), Ok(SignalingEvent::Error { session_id: None, .. })));
+        // An error that names a session is never taken for a ping's answer.
+        shared.pings_unanswered.store(1, std::sync::atomic::Ordering::Relaxed);
+        shared.dispatch_text(r#"{"type":"error","code":"bad_request","message":"x","sessionId":"s1"}"#, &incoming);
+        assert!(matches!(events.try_recv(), Ok(SignalingEvent::Error { session_id: Some(_), .. })));
+        // A 0.15.0 Worker's pong settles a ping and is dropped.
+        shared.dispatch_text("pong", &incoming);
+        assert_eq!(shared.pings_unanswered.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert!(events.try_recv().is_err());
+    }
+
     use super::*;
 
     #[test]

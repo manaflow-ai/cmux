@@ -1,4 +1,4 @@
-title: Open Chrome pages from the New Tab field and the address bar
+title: Open chrome:// pages from the New Tab field and address bar
 category: new
 action: newTab.page | Try it
 

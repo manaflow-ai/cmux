@@ -599,6 +599,29 @@ final class SequenceScroller: NSScroller {
         get { super.knobProportion }
         set { super.knobProportion = fixed?.proportion ?? newValue }
     }
+    /// cmux: AppKit's arrow and page parts of this scroller are buttons with only a subrole, which
+    /// an accessibility client that reads names meets as unnamed controls (goal a11y-baseline:
+    /// the four after Home's Unread Messages filter). Named here; a part reads its attributes
+    /// through these children, so a read while naming gets them unnamed instead of recursing.
+    private var namingParts = false
+    override func accessibilityChildren() -> [Any]? {
+        let children = super.accessibilityChildren()
+        guard !namingParts else { return children }
+        namingParts = true
+        defer { namingParts = false }
+        for case let part as any NSAccessibilityProtocol in children ?? [] where part.accessibilityRole() == .button {
+            guard (part.accessibilityLabel() ?? "").isEmpty, let subrole = part.accessibilitySubrole() else { continue }
+            let name: String? = switch subrole {
+            case .incrementPage: CmuxStrings.scrollerPageDown
+            case .decrementPage: CmuxStrings.scrollerPageUp
+            case .incrementArrow: CmuxStrings.scrollerScrollDown
+            case .decrementArrow: CmuxStrings.scrollerScrollUp
+            default: nil
+            }
+            if let name { part.setAccessibilityLabel(name) }
+        }
+        return children
+    }
     /// AppKit invalidates its own knob rect when the value changes; the drawn bar sits up to
     /// `knobBottomInset` (plus pixel rounding) above it and spans the expanded width, so every
     /// invalidation covers the scroller's full width and 2 pt more at each end. (Without it a

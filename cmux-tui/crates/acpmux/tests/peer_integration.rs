@@ -1073,6 +1073,7 @@ async fn an_app_prompt_forwarded_by_a_peer_waits_for_the_owning_daemons_trust() 
         record: root.join("home").join("trust.json"),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     }));
     let (port, peer_token) = listen_with_peer_token(b.clone(), "trust").await;
     let mut cb = client(b.clone()).await;
@@ -1320,6 +1321,7 @@ async fn an_app_trust_answer_for_a_peers_folder_is_checked_and_recorded_by_the_p
         record: record.clone(),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     }));
     let (port, peer_token) = listen_with_peer_token(b.clone(), "trust-set").await;
     let (relay, from_b) = recording_relay(port).await;
@@ -1405,6 +1407,7 @@ async fn explicit_peer_trust_is_sessionless_and_keeps_each_machines_record_separ
         record: root.join(name).join("trust.json"),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     };
     let a = hub(config(PermissionPolicy::Ask)).await;
     let mut cfg = config(PermissionPolicy::Ask);
@@ -1519,6 +1522,7 @@ async fn explicit_peer_trust_rejects_unknown_invalid_or_ambiguous_selectors_with
         record: record.clone(),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     }));
     let mut local = client(a.clone()).await;
     for method in [method::ACP_TRUST_GET, method::ACP_TRUST_SET] {
@@ -1552,6 +1556,7 @@ async fn explicit_peer_trust_and_session_start_cannot_select_a_third_daemon() {
         record: root.join(name).join("trust.json"),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     };
     let config = || {
         let mut cfg = config(PermissionPolicy::Ask);
@@ -1638,6 +1643,7 @@ async fn explicit_peer_trust_rejects_a_known_disconnected_peer_without_local_wri
         record: record.clone(),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     }));
     // Keep the port reserved but do not listen; no other test can turn this into a live peer.
     let bound = tokio::net::TcpSocket::new_v4().unwrap();
@@ -2325,6 +2331,201 @@ async fn peered_watcher_sees_a_pending_prompt_and_only_the_persons_proof_allows_
     assert_eq!(decided["msg"]["outcome"]["optionId"], "yes", "{decided}");
 }
 
+/// A peer's notices name its session as its list row does: a watcher on A gets the peer's
+/// `_acpmux/permission_pending` and `_acpmux/session_changed` with `qualifiedSessionId` equal to
+/// the row's (`peer/id`), beside the raw `sessionId` and `peer`, so an app that found the prompt
+/// by the row's qualified id matches the live notice and its withdrawal to it.
+#[tokio::test]
+async fn a_peer_sessions_notices_carry_its_rows_qualified_id() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "noticeqid").await;
+    let mut cb = plain(b.clone()).await;
+    let s = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "far-qid"}}}),
+        )
+        .await
+        .unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    cb.call(method::MUX_ATTACH, json!({"sessionId": remote_id, "limit": 0})).await.unwrap();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut watcher = plain(a.clone()).await;
+    let listed = watcher.call(method::MUX_SESSIONS, json!({})).await.unwrap();
+    let row = listed["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["sessionId"] == remote_id.as_str() && r["peer"] == "b")
+        .cloned()
+        .unwrap_or_else(|| panic!("B's session is not listed on A: {listed}"));
+    let qualified = row["qualifiedSessionId"].as_str().expect("the row's qualified id").to_owned();
+    assert_eq!(qualified, format!("b/{remote_id}"), "{row}");
+    watcher.call(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
+
+    cb.next += 1;
+    let prompt_id = cb.next;
+    cb.tx
+        .send(
+            Message::request(
+                prompt_id,
+                method::SESSION_PROMPT,
+                json!({"sessionId": remote_id, "prompt": [{"type": "text", "text": "ask: deploy"}]}),
+            )
+            .to_line(),
+        )
+        .await
+        .unwrap();
+    let pending =
+        watcher.wait(method::MUX_PERMISSION_PENDING, |p| p["sessionId"] == remote_id).await;
+    assert_eq!(pending["peer"], "b", "{pending}");
+    assert_eq!(pending["sessionId"], remote_id.as_str(), "the raw id stays: {pending}");
+    assert_eq!(pending["qualifiedSessionId"], qualified.as_str(), "{pending}");
+    let perm = pending["permissionId"].as_str().expect("the prompt's id").to_owned();
+
+    // Answered on B: A's watcher hears the peer's row change, under the same qualified id.
+    cb.call(
+        method::MUX_PERMISSION_RESPOND,
+        json!({"sessionId": remote_id, "permissionId": perm, "optionId": "no"}),
+    )
+    .await
+    .unwrap();
+    let changed = watcher
+        .wait(method::MUX_SESSION_CHANGED, |p| {
+            p["sessionId"] == remote_id && p["kind"] == "permission_decision"
+        })
+        .await;
+    assert_eq!(changed["peer"], "b", "{changed}");
+    assert_eq!(changed["qualifiedSessionId"], qualified.as_str(), "{changed}");
+    assert_eq!(changed["session"]["qualifiedSessionId"], qualified.as_str(), "{changed}");
+}
+
+/// A peer's chat attached on A by its row's id (`attached_by_row`): B's and A's hubs and
+/// clients, the chat's raw id on B and its row's `qualifiedSessionId` on A.
+struct AttachedPeerChat {
+    _hubs: (Arc<Hub>, Arc<Hub>),
+    cb: C,
+    ca: C,
+    remote_id: String,
+    qualified: String,
+}
+
+impl AttachedPeerChat {
+    /// B's prompt `text` in its chat, sent without waiting for its turn (`_meta` as given).
+    async fn prompt_on_b(&mut self, text: &str, meta: Value) {
+        self.cb.next += 1;
+        let params = json!({"sessionId": self.remote_id, "prompt": [{"type": "text", "text": text}], "_meta": meta});
+        self.cb
+            .tx
+            .send(Message::request(self.cb.next, method::SESSION_PROMPT, params).to_line())
+            .await
+            .unwrap();
+    }
+}
+
+/// B's chat as A lists it, attached by a client of A under the row's `qualifiedSessionId`
+/// (`attach`: the attach's other params, `eventStream` for one).
+async fn attached_by_row(tag: &str, attach: Value) -> AttachedPeerChat {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), tag).await;
+    let mut cb = plain(b.clone()).await;
+    let s = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": tag}}}),
+        )
+        .await
+        .unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = plain(a.clone()).await;
+    let listed = ca.call(method::MUX_SESSIONS, json!({})).await.unwrap();
+    let row = listed["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["sessionId"] == remote_id.as_str() && r["peer"] == "b")
+        .cloned()
+        .unwrap_or_else(|| panic!("B's session is not listed on A: {listed}"));
+    let qualified = row["qualifiedSessionId"].as_str().expect("the row's qualified id").to_owned();
+    assert_eq!(qualified, format!("b/{remote_id}"), "{row}");
+    let mut params = json!({"sessionId": qualified, "limit": 0});
+    for (k, v) in attach.as_object().unwrap() {
+        params[k] = v.clone();
+    }
+    ca.call(method::MUX_ATTACH, params).await.unwrap();
+    AttachedPeerChat { _hubs: (a, b), cb, ca, remote_id, qualified }
+}
+
+/// An event stream attached on A hears the peer chat's `_acpmux/event`s under the row's
+/// `qualifiedSessionId`, beside the raw `sessionId` and `peer`.
+#[tokio::test]
+async fn an_attached_event_stream_hears_a_peer_chats_events_under_its_rows_qualified_id() {
+    let mut chat = attached_by_row("qid-event", json!({"eventStream": true})).await;
+    chat.prompt_on_b("hello", json!({})).await;
+    let end = chat.ca.wait(method::MUX_EVENT, |p| p["kind"] == "turn_end").await;
+    assert_eq!(end["sessionId"], chat.remote_id.as_str(), "the raw id stays: {end}");
+    assert_eq!(end["peer"], "b", "{end}");
+    assert_eq!(end["qualifiedSessionId"], chat.qualified.as_str(), "{end}");
+}
+
+/// A plain attachment on A hears the peer chat's `session/update`s under the row's
+/// `qualifiedSessionId`.
+#[tokio::test]
+async fn an_attached_client_hears_a_peer_chats_session_updates_under_its_rows_qualified_id() {
+    let mut chat = attached_by_row("qid-update", json!({})).await;
+    chat.prompt_on_b("hello", json!({})).await;
+    let update = chat
+        .ca
+        .wait(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "agent_message_chunk")
+        .await;
+    assert_eq!(update["sessionId"], chat.remote_id.as_str(), "the raw id stays: {update}");
+    assert_eq!(update["peer"], "b", "{update}");
+    assert_eq!(update["qualifiedSessionId"], chat.qualified.as_str(), "{update}");
+}
+
+/// A plain attachment on A hears a message to the peer chat (`_acpmux/message`) under the row's
+/// `qualifiedSessionId`.
+#[tokio::test]
+async fn an_attached_client_hears_a_peer_chats_messages_under_its_rows_qualified_id() {
+    let mut chat = attached_by_row("qid-message", json!({})).await;
+    let to = format!("acp:{}", chat.remote_id);
+    let meta = json!({"acpmux": {"promptId": "p-qid", "provenance": {
+        "kind": "agent_message", "from": "acp:qid-sender", "fromName": "qid-sender", "to": to,
+        "msgId": "m-qid", "threadId": "t-qid"}}});
+    chat.prompt_on_b("hello", meta).await;
+    let message = chat.ca.wait(method::MUX_MESSAGE, |p| p["messageId"] == "m-qid").await;
+    assert_eq!(message["sessionId"], chat.remote_id.as_str(), "the raw id stays: {message}");
+    assert_eq!(message["peer"], "b", "{message}");
+    assert_eq!(message["qualifiedSessionId"], chat.qualified.as_str(), "{message}");
+}
+
+/// A plain attachment on A hears the peer chat's prompt (`_acpmux/permission_pending`, `via`
+/// `attach`) under the row's `qualifiedSessionId`, so an app matches it to the row it found.
+#[tokio::test]
+async fn an_attached_client_hears_a_peer_chats_prompt_under_its_rows_qualified_id() {
+    let mut chat = attached_by_row("qid-pending", json!({})).await;
+    chat.prompt_on_b("ask: deploy", json!({})).await;
+    let pending = chat.ca.wait(method::MUX_PERMISSION_PENDING, |p| p["via"] == "attach").await;
+    assert_eq!(pending["sessionId"], chat.remote_id.as_str(), "the raw id stays: {pending}");
+    assert_eq!(pending["peer"], "b", "{pending}");
+    assert_eq!(pending["qualifiedSessionId"], chat.qualified.as_str(), "{pending}");
+    let perm = pending["permissionId"].as_str().expect("the prompt's id").to_owned();
+    chat.cb
+        .call(
+            method::MUX_PERMISSION_RESPOND,
+            json!({"sessionId": chat.remote_id, "permissionId": perm, "optionId": "no"}),
+        )
+        .await
+        .unwrap();
+}
+
 /// Prompt bookmarks of a peer's chat live on the daemon that owns it: A forwards both
 /// `_acpmux/bookmark_set` and `_acpmux/bookmark_get` to B, which checks the seq in its own log.
 #[tokio::test]
@@ -2762,7 +2963,9 @@ async fn lying_peer(says: Lying) -> u16 {
             let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
             let says = says.clone();
             tokio::spawn(async move {
-                while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                // Non-text frames (the client's pings, #38015) are not requests: skip them.
+                while let Some(Ok(frame)) = ws.next().await {
+                    let Ws::Text(text) = frame else { continue };
                     let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
                         continue;
                     };
@@ -3433,7 +3636,9 @@ async fn legacy_models_peer(a_port: u16) -> u16 {
             let Ok(ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
             tokio::spawn(async move {
                 let (mut sink, mut source) = ws.split();
-                while let Some(Ok(Ws::Text(text))) = source.next().await {
+                // Non-text frames (the client's pings, #38015) are not requests: skip them.
+                while let Some(Ok(frame)) = source.next().await {
+                    let Ws::Text(text) = frame else { continue };
                     let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
                         continue;
                     };
@@ -3451,7 +3656,9 @@ async fn legacy_models_peer(a_port: u16) -> u16 {
                             let ask = Message::request(1, "_acpmux/models", json!({})).to_line();
                             back.send(Ws::Text(ask.trim_end().to_owned().into())).await.unwrap();
                             let mut rows = vec![json!({"harness": "old-agent", "models": []})];
-                            while let Some(Ok(Ws::Text(t))) = back.next().await {
+                            // Skip non-text frames: this loop reads A's responses.
+                            while let Some(Ok(frame)) = back.next().await {
+                                let Ws::Text(t) = frame else { continue };
                                 if let Ok(Message::Response { result: Some(r), .. }) =
                                     Message::parse(&t)
                                 {
@@ -4040,4 +4247,249 @@ async fn a_person_viewing_through_a_peer_makes_the_chat_get_a_recap() {
     let mut ca = client(a.clone()).await;
     ca.call("_acpmux/attach", json!({"sessionId": "b/recapped", "limit": 0})).await.unwrap();
     assert!(b.recap_person_seen(&remote_id), "a visible attach through the peer is a person");
+}
+
+/// A relay that carries B's answers to A at `rate` bytes a second, as a saturated uplink does,
+/// and counts them.
+async fn slow_relay(port: u16, rate: u64) -> (u16, Arc<std::sync::atomic::AtomicU64>) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let down = Arc::new(AtomicU64::new(0));
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_port = l.local_addr().unwrap().port();
+    let d = down.clone();
+    tokio::spawn(async move {
+        while let Ok((client, _)) = l.accept().await {
+            let Ok(server) = tokio::net::TcpStream::connect(("127.0.0.1", port)).await else {
+                continue;
+            };
+            let (mut cr, mut cw) = client.into_split();
+            let (mut sr, mut sw) = server.into_split();
+            let d = d.clone();
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 16 * 1024];
+                while let Ok(n) = sr.read(&mut buf).await {
+                    if n == 0 || cw.write_all(&buf[..n]).await.is_err() {
+                        break;
+                    }
+                    d.fetch_add(n as u64, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_micros(n as u64 * 1_000_000 / rate)).await;
+                }
+            });
+            tokio::spawn(async move {
+                let _ = tokio::io::copy(&mut cr, &mut sw).await;
+            });
+        }
+    });
+    (relay_port, down)
+}
+
+/// A durable watch on a chat that lives on a peer reads that chat's log in pages over the link.
+/// A prompt that carried a large image sits in the log: the watch's page held it whole, the
+/// 250 ms read gave up on it over a slow link, and the watch asked for the same page again
+/// every few seconds for good, 1 MB each time (cosmic-gray to huge-blue, 2026-11-10, about
+/// 210 KB/s on a saturated uplink). The watch asks only for the kinds it reads, bounded, and
+/// moves past what the page passed over, so over a slow link it costs a few KB, once, and resolves.
+#[tokio::test]
+async fn a_watch_on_a_peer_chat_never_rereads_a_large_prompt_over_the_link() {
+    use base64::Engine as _;
+    use std::sync::atomic::Ordering;
+    // B runs a chat whose prompt carried a 1.5 MB image no compression shrinks: the prompt's wire
+    // record holds it inline, as on the live daemon.
+    let b = hub(config(PermissionPolicy::ApproveAll)).await;
+    let _ = b.person.install_spawn_key(PERSON_KEY);
+    let mut cb = client(b.clone()).await;
+    let s = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                "_meta": {"acpmux": {"name": "shot", "harness": "fake"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
+    let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
+    while bytes.len() < 1_500_000 {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        bytes.extend_from_slice(&x.to_le_bytes());
+    }
+    let image = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    cb.call(
+        "session/prompt",
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "what is this"},
+            {"type": "image", "mimeType": "image/png", "data": image, "name": "shot.png"}]}),
+    )
+    .await
+    .unwrap();
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "watch-bytes").await;
+    // 256 KB/s: a page holding the image takes 8 s, far past the watch's 250 ms read.
+    let (relay, down) = slow_relay(port, 256 * 1024).await;
+
+    let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    // The daemon's own watch workers: the loop that reads a peer chat's pages for a watch.
+    a.start_watches();
+    a.add_peer("b", &format!("ws://127.0.0.1:{relay}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let me = ca
+        .call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+        .await
+        .unwrap();
+    let me = me["sessionId"].as_str().unwrap().to_owned();
+    for _ in 0..100 {
+        if a.resolve_remote("b/shot").is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(a.resolve_remote("b/shot").is_some(), "A never listed b/shot");
+
+    let before = down.load(Ordering::SeqCst);
+    let added = ca
+        .call(method::MUX_WATCH_ADD, json!({"to": me, "sessions": ["b/shot"], "until": ["closed"]}))
+        .await
+        .unwrap();
+    eprintln!("watch: {added}");
+    let watch = added["id"].as_str().unwrap().to_owned();
+    // A turn on B's chat wakes the watch, as the live chat's turns did; then the chat closes.
+    // The watch resolves only once its pages read through the prompt with the image to the close.
+    cb.call(
+        "session/prompt",
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "again"}]}),
+    )
+    .await
+    .unwrap();
+    cb.call(method::SESSION_CLOSE, json!({"sessionId": id})).await.unwrap();
+    let started = std::time::Instant::now();
+    let mut resolved = false;
+    while started.elapsed() < Duration::from_secs(16) {
+        let ls = ca.call(method::MUX_WATCH_LS, json!({})).await.unwrap();
+        let watches = ls["watches"].as_array().cloned().unwrap_or_default();
+        if !watches.iter().any(|w| w["id"] == watch.as_str() && w["active"] == true) {
+            resolved = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let read = down.load(Ordering::SeqCst) - before;
+    eprintln!(
+        "watch on b/shot: resolved={resolved} after {:?}, {read} bytes over the link",
+        started.elapsed()
+    );
+    assert!(resolved, "the watch never read b/shot through to its close ({read} bytes moved)");
+    assert!(read < 256 * 1024, "the watch read {read} bytes over the link");
+    a.shutdown_all().await;
+    b.shutdown_all().await;
+}
+
+/// A durable watch with `--match` on a peer chat reads the chat's reply chunks for its text. A
+/// reply past the watch's 64 KiB page bound comes as a stub; a stub with no text read as a
+/// non-match, the watch moved past it and never woke. The serving side checks the whole text and
+/// says so, so an 80 KiB reply holding "finished" far past the stub's kept ends still wakes it.
+#[tokio::test]
+async fn a_match_watch_on_a_peer_chat_wakes_on_a_match_inside_a_large_reply() {
+    let b = hub(config(PermissionPolicy::ApproveAll)).await;
+    let _ = b.person.install_spawn_key(PERSON_KEY);
+    let mut cb = client(b.clone()).await;
+    let s = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                "_meta": {"acpmux": {"name": "long", "harness": "fake"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "watch-match").await;
+    let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    a.start_watches();
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let me = ca
+        .call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+        .await
+        .unwrap();
+    let me = me["sessionId"].as_str().unwrap().to_owned();
+    for _ in 0..100 {
+        if a.resolve_remote("b/long").is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(a.resolve_remote("b/long").is_some(), "A never listed b/long");
+    let added = ca
+        .call(
+            method::MUX_WATCH_ADD,
+            json!({"to": me, "sessions": ["b/long"], "until": ["ready"], "match": "finished"}),
+        )
+        .await
+        .unwrap();
+    let watch = added["id"].as_str().unwrap().to_owned();
+    // The fake agent echoes the prompt as one reply chunk: 80 KiB, "finished" in its middle.
+    let text = format!("{}finished{}", "a".repeat(40 * 1024), "b".repeat(40 * 1024));
+    cb.call("session/prompt", json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]}))
+        .await
+        .unwrap();
+    let started = std::time::Instant::now();
+    let mut resolved = false;
+    while started.elapsed() < Duration::from_secs(16) {
+        let ls = ca.call(method::MUX_WATCH_LS, json!({})).await.unwrap();
+        let watches = ls["watches"].as_array().cloned().unwrap_or_default();
+        if !watches.iter().any(|w| w["id"] == watch.as_str() && w["active"] == true) {
+            resolved = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    eprintln!("match watch on b/long: resolved={resolved} after {:?}", started.elapsed());
+    assert!(resolved, "the watch never saw \"finished\" in the 80 KiB reply");
+    a.shutdown_all().await;
+    b.shutdown_all().await;
+}
+
+/// A switch of a peer's chat onto another harness (`session/fork` with `_meta.acpmux.harness`)
+/// goes only to a peer that lists `sessionForkRetarget`: an older build forks on the chat's own
+/// harness and ignores the pick, so the next message would reach the old provider (review of
+/// cmux#41030, F3). It is refused here with `peer.retarget_unsupported`; a plain fork still goes.
+#[tokio::test]
+async fn a_switch_of_a_peer_chat_needs_a_peer_that_takes_one() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let says = Lying {
+        instance: json!("l-run"),
+        sessions: vec![json!({"sessionId": "far-1", "name": "far"})],
+        answers: json!({"sessionId": "far-fork"}),
+        ..Lying::default()
+    };
+    let port = lying_peer(says).await;
+    a.add_peer("old", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while a.resolve_remote("old/far").is_none() {
+        assert!(tokio::time::Instant::now() < deadline, "the peer's chat never arrived");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let mut local = client(a.clone()).await;
+    let reply = local
+        .raw(
+            method::SESSION_FORK,
+            json!({"sessionId": "old/far", "cwd": std::env::temp_dir(), "mcpServers": [],
+                   "_meta": {"acpmux": {"harness": "other", "model": "m-1"}}}),
+        )
+        .await;
+    assert_eq!(reply["error"]["data"]["reason"], "peer.retarget_unsupported", "{reply}");
+    let reply = local
+        .raw(
+            method::SESSION_FORK,
+            json!({"sessionId": "old/far", "cwd": std::env::temp_dir(), "mcpServers": []}),
+        )
+        .await;
+    assert!(reply.get("error").is_none(), "a plain fork still goes to the peer: {reply}");
+    a.peer_by_name("old").unwrap().stop();
 }

@@ -142,7 +142,7 @@ final class OutboundTab {
     /// Same, by tab id: an agent tab's stand-in, then the store's tab that replaces it.
     func made(key: String) {
         names.insert(key)
-        if let real = pane?.services.agentTabs.aliases[key] { names.insert(real) }
+        if let pane { names.insert(pane.services.agentTabs.resolve(key, machine: pane.daemon.machineID)) }
         didName()
     }
 

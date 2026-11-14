@@ -75,6 +75,20 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
+
+
+def _thread_wakes():
+    """thread_wakes.py beside this file (thread names and --attribute-trace), or None: a sparse checkout
+    that copies only this script (cmux-next-frame-pacing.yml) still runs everything but those."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    try:
+        import thread_wakes
+    except ImportError:
+        return None
+    return thread_wakes
+
 _libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
 _libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
 try:
@@ -160,9 +174,23 @@ def owned(app_pid: int, bundle: str):
         if in_bundle(cmd, bundle) is not None:
             _run_pids.add(pid)
             found[pid] = (kind_of(cmd, bundle), cmd)
-        elif _responsible is not None and "com.apple.WebKit." in cmd and _responsible(pid) == app_pid:
+        elif _responsible is not None and "com.apple.WebKit." in cmd and webkit_owned(pid, app_pid):
             found[pid] = (kind_of(cmd, bundle), cmd)
     return found
+
+
+# A direct launch (CMUX_BENCH_LAUNCH=direct) makes the app a child of this script, so macOS holds the
+# script's own responsible process responsible for the app and for its WebKit processes too. Those
+# then count as the app's when they did not run before the launch (`launch` records the ones that did).
+_direct_launch = False
+_webkit_before: set[int] = set()
+
+
+def webkit_owned(pid: int, app_pid: int) -> bool:
+    owner = _responsible(pid)
+    if owner == app_pid:
+        return True
+    return _direct_launch and pid not in _webkit_before and owner == _responsible(app_pid)
 
 
 def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: float = 0):
@@ -203,6 +231,168 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
             "total_footprint_mb": round(sum(r["footprint_mb"] for r in rows), 1),
             "kinds": dict(sorted(kinds.items(), key=lambda item: -item[1]["footprint_mb"])),
             "processes": rows}
+
+
+class _ThreadInfo(ctypes.Structure):
+    # struct proc_threadinfo (sys/proc_info.h); times in nanoseconds.
+    _fields_ = [("user_ns", ctypes.c_uint64), ("system_ns", ctypes.c_uint64), ("cpu_usage", ctypes.c_int32),
+                ("policy", ctypes.c_int32), ("run_state", ctypes.c_int32), ("flags", ctypes.c_int32),
+                ("sleep_time", ctypes.c_int32), ("curpri", ctypes.c_int32), ("priority", ctypes.c_int32),
+                ("maxpriority", ctypes.c_int32), ("name", ctypes.c_char * 64)]
+
+
+def thread_times(pid: int) -> dict:
+    """{thread id: (name, cpu ns)} for one process (PROC_PIDLISTTHREADIDS, PROC_PIDTHREADID64INFO)."""
+    ids = (ctypes.c_uint64 * 4096)()
+    size = _libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(28), ctypes.c_uint64(0), ids, ctypes.sizeof(ids))
+    out = {}
+    for tid in ids[:max(0, size) // 8]:
+        info = _ThreadInfo()
+        if _libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(15), ctypes.c_uint64(tid), ctypes.byref(info),
+                                 ctypes.sizeof(info)) == ctypes.sizeof(info):
+            out[tid] = (info.name.decode(errors="replace") or "?", info.user_ns + info.system_ns)
+    return out
+
+
+def thread_deltas(before: dict, after: dict, seconds: float, top: int = 12) -> list:
+    """The threads that ran in the window, busiest first: name and CPU ms per second."""
+    rows = []
+    for tid, (name, cpu) in after.items():
+        spent = cpu - before.get(tid, (name, 0))[1]
+        if spent > 0:
+            rows.append({"thread": tid, "name": name, "cpu_ms_per_s": round(spent / 1e6 / seconds, 3),
+                         "new": tid not in before})
+    rows.sort(key=lambda row: -row["cpu_ms_per_s"])
+    return rows[:top]
+
+
+def stack_sample(pid: int, seconds: int = 3) -> dict:
+    """`sample PID` for a few seconds, after the measured window (it wakes the target): each thread's
+    header line and the top-of-stack frames, the frames that ran rather than waited."""
+    path = tempfile.mktemp(prefix=f"bench-sample-{pid}-", suffix=".txt")
+    try:
+        subprocess.run(["sample", str(pid), str(seconds), "1", "-mayDie", "-file", path],
+                       capture_output=True, text=True, timeout=seconds + 60)
+        text = open(path, errors="replace").read()
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"error": str(error)[:200]}
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+    threads = [line.strip() for line in text.splitlines() if re.match(r"^\s{4}\d+ Thread_\d+", line)]
+    wakes_lib = _thread_wakes()
+    by_tid = wakes_lib.sample_threads(text) if wakes_lib else {}
+    top, in_top = [], False
+    for line in text.splitlines():
+        if line.startswith("Sort by top of stack"):
+            in_top = True
+            continue
+        if in_top:
+            if not line.strip() or line.startswith("Binary Images"):
+                if top:
+                    break
+                continue
+            top.append(line.strip())
+    return {"threads": threads[:60], "top_of_stack": top[:40], "by_tid": by_tid}
+
+
+class Attribution:
+    """--attribute: who wakes the app and the GPU process in a measured window. Around the window:
+    each thread's CPU time (app and Chromium GPU), the app's wakeup ledger (`debug.wakeups`,
+    reset at the start; its main run loop's timers at the end) and live pages (`debug.cef_pages`);
+    after it, a short stack `sample` of both."""
+
+    def __init__(self, app: "App", app_pid: int, bundle: str, kinds: tuple = ("app", "cef-gpu"), trace_s: int = 0):
+        self.app, self.app_pid, self.bundle, self.kinds = app, app_pid, bundle, kinds
+        self.trace_s = trace_s
+        self.before: dict = {}
+        self.started = 0.0
+
+    def pids(self) -> dict:
+        return {pid: kind for pid, (kind, _cmd) in owned(self.app_pid, self.bundle).items() if kind in self.kinds}
+
+    def start(self):
+        self.app.call("debug.wakeups", {"reset": True}, timeout=30)
+        self.before = {pid: thread_times(pid) for pid in self.pids()}
+        self.started = time.monotonic()
+
+    def finish(self) -> dict:
+        seconds = max(time.monotonic() - self.started, 1e-3)
+        pids = self.pids()
+        threads = {f"{kind}:{pid}": thread_deltas(self.before.get(pid, {}), thread_times(pid), seconds)
+                   for pid, kind in pids.items()}
+        wakeups = self.app.call("debug.wakeups", {"run_loop": True}, timeout=30) or {}
+        ledger = sorted(wakeups.get("ledger") or [], key=lambda e: -(e.get("count") or 0))
+        run_loop = wakeups.get("main_run_loop") or ""
+        timers = [line.strip() for line in run_loop.splitlines() if "CFRunLoopTimer" in line]
+        pages = (self.app.call("debug.cef_pages", timeout=30) or {}).get("pages") or []
+        stacks = {f"{kind}:{pid}": stack_sample(pid) for pid, kind in pids.items()}
+        thread_wakes = _thread_wakes()
+        # Each thread named: its pthread name, else its sample header or first frames (by thread id).
+        for key, rows in threads.items():
+            sampled = stacks.get(key, {}).get("by_tid") or {}
+            for row in rows:
+                row["label"] = thread_wakes.label(row["name"], sampled.get(row["thread"])) if thread_wakes else row["name"]
+        # --attribute-trace: per-thread wakeups from a System Trace after the window (so it is not in
+        # the rusage window), each thread named the same way.
+        wakes = {}
+        for pid, kind in (pids.items() if self.trace_s > 0 else ()):
+            key = f"{kind}:{pid}"
+            if thread_wakes is None:
+                wakes[key] = {"error": "no thread_wakes.py beside bench_memory.py"}
+                continue
+            got = thread_wakes.record(pid, self.trace_s)
+            sampled = stacks.get(key, {}).get("by_tid") or {}
+            if got.get("error"):
+                wakes[key] = {"error": got["error"]}
+                continue
+            wakes[key] = thread_wakes.summarize(got, sampled)
+        for stack in stacks.values():
+            stack.pop("by_tid", None)
+        return {"thread_wakes": wakes, "window_s": round(seconds, 1), "threads": threads,
+                "ledger": [{k: e.get(k) for k in ("owner", "reason", "count")} for e in ledger[:25]],
+                "frame_clients": wakeups.get("active_frame_clients"),
+                "frame_schedulers": [s for s in wakeups.get("frame_schedulers") or [] if s.get("running") or s.get("has_link")],
+                "run_loop_timers": timers[:40],
+                "pages": [{k: p.get(k) for k in ("browser", "origin", "path", "hidden")} for p in pages],
+                "stacks": stacks}
+
+
+def print_attribution(label: str, found: dict):
+    window = found["window_s"]
+    print(f"PERF-ATTR {label} window_s={window}")
+    for key, rows in found["threads"].items():
+        for row in rows:
+            print(f"PERF-ATTR {label} thread {key} tid={row['thread']} name={row.get('label', row['name'])!r} "
+                  f"cpu_ms_per_s={row['cpu_ms_per_s']}"
+                  f"{' new' if row['new'] else ''}")
+    for key, got in (found.get("thread_wakes") or {}).items():
+        if got.get("error"):
+            print(f"PERF-ATTR {label} wakes {key} error={got['error']!r}")
+            continue
+        print(f"PERF-ATTR {label} wakes {key} window_s={got['seconds']} total_wakes_per_s={got['total_wakes_per_s']}")
+        for row in got["threads"][:25]:
+            print(f"PERF-ATTR {label} wakes {key} tid={row['thread']} name={row['label']!r} "
+                  f"wakes_per_s={row['wakes_per_s']} runs_per_s={row['runs_per_s']} cpu_ms_per_s={row['cpu_ms_per_s']}"
+                  f" frames={' > '.join(row['frames'])!r}")
+    for entry in found["ledger"]:
+        print(f"PERF-ATTR {label} ledger owner={entry['owner']} reason={entry['reason']!r} "
+              f"per_s={round((entry['count'] or 0) / window, 2)}")
+    print(f"PERF-ATTR {label} frame_clients={json.dumps(found['frame_clients'])} "
+          f"schedulers={json.dumps(found['frame_schedulers'])}")
+    for timer in found["run_loop_timers"]:
+        print(f"PERF-ATTR {label} timer {timer[:400]}")
+    hidden = sum(1 for p in found["pages"] if p.get("hidden"))
+    print(f"PERF-ATTR {label} pages n={len(found['pages'])} hidden={hidden} "
+          f"shown={json.dumps([(p.get('origin'), p.get('path')) for p in found['pages'] if not p.get('hidden')])}")
+    for key, stack in found["stacks"].items():
+        for line in stack.get("top_of_stack", [])[:25]:
+            print(f"PERF-ATTR {label} top {key} {line}")
+        for line in stack.get("threads", [])[:40]:
+            print(f"PERF-ATTR {label} sthread {key} {line}")
+        if stack.get("error"):
+            print(f"PERF-ATTR {label} sample {key} error={stack['error']}")
+    sys.stdout.flush()
 
 
 def print_sample(result, top: int):
@@ -291,6 +481,9 @@ class App:
 
 
 FAKE_AGENT_ID = "bench-memory-fake"
+# The first prompt of each --fake-agent chat (--chat-prompt); the fake agent echoes it back, so a
+# long one gives the chat a long history to hold.
+CHAT_PROMPT = ""
 
 
 class FakeChats:
@@ -307,8 +500,16 @@ class FakeChats:
         self.app = app
         # The app splits `args` into words like a shell: a fleet step's checkout is under
         # "/Library/Application Support/...", so the path is quoted or the agent never starts.
-        added = app.run("agent.harness.add", id=FAKE_AGENT_ID, name="Memory bench", command=sys.executable,
-                        args=shlex.quote(os.path.abspath(script)), protocol="acp", replace="true")
+        for attempt in range(5):
+            added = app.run("agent.harness.add", id=FAKE_AGENT_ID, name="Memory bench", command=sys.executable,
+                            args=shlex.quote(os.path.abspath(script)), protocol="acp", replace="true")
+            # The action answers "timeout" after 2 s while its work goes on (the harness is still added),
+            # most often just after launch: wait, then try again (it replaces the same id).
+            if "timeout" not in str(added.get("code") or added.get("error") or ""):
+                break
+            time.sleep(5)  # test script: the app is still starting; try again (5 tries)
+        else:
+            added = {}  # five timeouts: the work went on in the app; a missing harness fails `acp new` below
         if added.get("error") or added.get("code"):
             raise SystemExit(f"bench-memory: agent.harness.add: {added.get('message') or added.get('error')}")
         self.env = dict(os.environ, ACPMUX_SOCKET=self.acpmux_socket(bundle))
@@ -329,18 +530,43 @@ class FakeChats:
             time.sleep(1)  # test script: waiting for the app's acpmux to listen
         raise SystemExit("bench-memory: the app's acpmux opened no socket within 90 s")
 
+    def workspace_ids(self) -> set[str]:
+        """The ids of the app's workspaces (`snapshot.get`)."""
+        found: set[str] = set()
+
+        def walk(node):
+            if isinstance(node, dict):
+                value = node.get("id")
+                if isinstance(value, str) and value.startswith("ws_"):
+                    found.add(value)
+                for child in node.values():
+                    walk(child)
+            elif isinstance(node, list):
+                for child in node:
+                    walk(child)
+        walk(self.app.call("snapshot.get", timeout=30))
+        return found
+
     def open(self, index: int) -> str | None:
         """A new workspace on a new answered chat; returns the workspace id."""
         made = subprocess.run([self.app.cli_path, "acp", "new", "--json", "-d", "-m", FAKE_AGENT_ID,
-                               f"memory bench chat {index}"],
+                               f"memory bench chat {index}" + (f"\n\n{CHAT_PROMPT}" if CHAT_PROMPT else "")],
                               capture_output=True, text=True, timeout=120, env=self.env)
         try:
             session = json.loads(made.stdout)["sessionId"]
         except (ValueError, KeyError):
             print(f"   acp new: {(made.stdout + made.stderr).strip()[:300]}", file=sys.stderr)
             return None
+        before = self.workspace_ids()
         response = self.app.action("agent.openSessionWorkspace", session=session)
         created = [item for item in response.get("created", []) if str(item).startswith("ws_")]
+        if not created and "in_progress" in json.dumps(response):
+            # The action answers "timeout" at its deadline while the open goes on (its state
+            # "in_progress"): the workspace it makes is the one that was not there before.
+            deadline = time.monotonic() + 60
+            while not created and time.monotonic() < deadline:
+                time.sleep(1)  # test script: waiting for the open that went on to make its workspace
+                created = sorted(self.workspace_ids() - before)
         if not created:
             print(f"   agent.openSessionWorkspace: {response.get('error') or response}", file=sys.stderr)
             return None
@@ -381,6 +607,28 @@ def remember_chat_tab(workspace: str, response: dict):
         CHAT_TABS[workspace] = tab
 
 
+def chat_tab_of(app: App, workspace: str) -> str | None:
+    """`workspace`'s agent chat tab (kind `conversation`) from `snapshot.get`, or None.
+
+    `agent.openSessionWorkspace` answers with the workspace id only, so a --fake-agent chat has no
+    recorded tab; the restore then pressed `prevSurface`, which leaves a workspace that already shows its
+    chat for its terminal, and the trace bound to a chat that went off screen (first_content_ms null)."""
+    snap = app.call("snapshot.get", timeout=30) or {}
+    if isinstance(snap, dict) and isinstance(snap.get("result"), dict):
+        snap = snap["result"]
+    topology = (snap.get("topology") or snap) if isinstance(snap, dict) else {}
+    for ws in topology.get("workspaces", []) or []:
+        if ws.get("id") != workspace:
+            continue
+        for screen in ws.get("screens", []) or []:
+            for pane in screen.get("panes", []) or []:
+                for tab in pane.get("tabs", []) or []:
+                    ident = str(tab.get("id") or "")
+                    if tab.get("kind") == "conversation" and ident and not ident.startswith("pending_"):
+                        return ident
+    return None
+
+
 def cef_page_count(app: App) -> int | None:
     """Live Chromium pages of cmux's own (`cmux-page://`), from `debug.cef_pages`."""
     pages = (app.call("debug.cef_pages", timeout=30) or {}).get("pages")
@@ -400,6 +648,8 @@ def restore_chats(app: App, workspaces: list[str], count: int) -> dict:
     opens = []
     for workspace in workspaces[:count]:
         tab = CHAT_TABS.get(workspace)
+        # The snapshot's id of the chat tab (it names tabs otherwise than an action's `created`).
+        snapshot_tab = None if tab else chat_tab_of(app, workspace)
         armed = app.call("debug.chat_open_trace", {"action": "arm"}, timeout=30)
         if not isinstance(armed, dict) or armed.get("error"):
             opens.append({"workspace": workspace, "error": f"arm: {armed}"})
@@ -408,16 +658,28 @@ def restore_chats(app: App, workspaces: list[str], count: int) -> dict:
         if not shown.get("error"):
             # No recorded id: the chat is the tab before the terminal the mix added last. The trace
             # binds only when a chat loads, so a wrong guess reads as `live`, never as a restore time.
-            shown = app.run("tab.focus", target=tab) if tab else app.action("prevSurface")
+            if tab:
+                shown = app.run("tab.focus", target=tab)
+            elif snapshot_tab:
+                shown = app.call("action.run", {"action": "palette.goToTab", "target": {"kind": "tab", "id": snapshot_tab},
+                                                "focus": True}, timeout=30) or {}
+            else:
+                shown = app.action("prevSurface")
         trace = app.call("debug.chat_open_trace", {"action": "wait", "timeout_ms": 15000, "settle_ms": 300}, timeout=40) or {}
         frames = trace.get("frames") or []
         opens.append({
-            "workspace": workspace, "tab": tab or "prevSurface",
+            "workspace": workspace, "tab": tab or (snapshot_tab and f"snapshot:{snapshot_tab}") or "prevSurface",
             "error": shown.get("error") or trace.get("error"),
             "timed_out": trace.get("timed_out"),
             "first_content_ms": trace.get("first_content_ms"),
             "first_image_ms": next((ms for ms, surface in frames if surface == "image"), None),
             "longest_empty_ms": trace.get("longest_empty_ms"),
+            # Why a restore read no first content (the trace never bound, the page never reported its paint, a
+            # picture stood in until the wait ended): the marks that ran, the surface changes and the trace's note.
+            "engine": trace.get("engine"),
+            "marks_ms": {k: v for k, v in (trace.get("marks_ms") or {}).items() if v is not None},
+            "frames": frames[:12],
+            "note": trace.get("note"),
         })
     content = [o["first_content_ms"] for o in opens if isinstance(o.get("first_content_ms"), (int, float))]
     empty = [o["longest_empty_ms"] for o in opens if isinstance(o.get("longest_empty_ms"), (int, float))]
@@ -427,6 +689,10 @@ def restore_chats(app: App, workspaces: list[str], count: int) -> dict:
             "first_content_p50_ms": percentile(content, 0.5), "first_content_p95_ms": percentile(content, 0.95),
             "longest_empty_p50_ms": percentile(empty, 0.5), "longest_empty_p95_ms": percentile(empty, 0.95),
             "with_image": sum(1 for o in opens if o.get("first_image_ms") is not None)}
+
+
+# The panes a workspace's recipe asked for that the app refused (the report's `pane_failures`).
+PANE_FAILURES: list[str] = []
 
 
 def open_workspace(app: App, recipe: str, url: str, index: int, chats: FakeChats | None = None):
@@ -468,6 +734,7 @@ def open_workspace(app: App, recipe: str, url: str, index: int, chats: FakeChats
             raise SystemExit(f"bench-memory: unknown kind {kind!r} in --mix")
         if response.get("error") or response.get("code"):
             print(f"   {kind} in {workspace}: {response.get('message') or response.get('error')}", file=sys.stderr)
+            PANE_FAILURES.append(f"{kind} in {workspace}: {response.get('message') or response.get('error')}"[:200])
     return workspace
 
 
@@ -680,6 +947,9 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
     log_path = os.path.join(scratch, "app.log")
     launched_at = time.time()
     if direct:
+        global _direct_launch
+        _direct_launch = True
+        _webkit_before.update(p for p, _, cmd in process_table() if "com.apple.WebKit." in cmd)
         env.setdefault("CMUX_NEXT_TEST_WINDOW_FRAME", "40,40,1400,900")
         with open(log_path, "a") as log:
             child = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
@@ -809,8 +1079,21 @@ def main():
                         help="run with agents.hiddenChats.discard after MINUTES; sample released chats and time their restore")
     parser.add_argument("--restore-chats", type=int, default=10,
                         help="--release-hidden-chats: how many released chats to show again and time")
+    parser.add_argument("--chat-prompt", default="",
+                        help="--fake-agent: text added to each chat's first prompt (echoed back: a chat with history)")
+    parser.add_argument("--attribute", action="store_true",
+                        help="with --measure: name what wakes the app and the GPU process in each window "
+                             "(thread CPU, debug.wakeups ledger and run loop timers, live pages, a stack sample); "
+                             "PERF-ATTR lines")
+    parser.add_argument("--attribute-kinds", default="app,cef-gpu",
+                        help="--attribute: the process kinds whose threads and stacks it reads (PERF-IDLE kind names)")
+    parser.add_argument("--attribute-trace", type=int, default=0, metavar="SECONDS",
+                        help="--attribute: also record SECONDS of System Trace per attributed process after each "
+                             "window, and print each thread's wakeups per second with its name (thread_wakes.py)")
     parser.add_argument("--out")
     args = parser.parse_args()
+    global CHAT_PROMPT
+    CHAT_PROMPT = args.chat_prompt
     if (args.purge_hidden or args.release_hidden_chats > 0) and len([n for n in args.workspaces.split(",") if n]) > 1:
         # A later count's idle sample would follow the earlier purge, not an unpurged app. Checked
         # before the launch, so a refused run leaves no app behind.
@@ -841,8 +1124,17 @@ def main():
 
     def settle_and_sample(label):
         time.sleep(args.settle)  # test script: let the app and its helpers go idle
+        kinds = tuple(kind for kind in args.attribute_kinds.split(",") if kind)
+        attribution = Attribution(app, app_pid, bundle, kinds, args.attribute_trace) if args.attribute and args.measure > 0 else None
+        if attribution:
+            attribution.start()
         result = sample(app_pid, bundle, label, len(opened) + 1, args.measure)
+        if attribution:
+            result["attribution"] = attribution.finish()
+            print_attribution(label, result["attribution"])
+        result["pane_failures"] = len(PANE_FAILURES)
         report["samples"].append(result)
+        report["pane_failures"] = PANE_FAILURES[:20]
         print_sample(result, args.top)
         return result
 

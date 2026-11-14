@@ -4,6 +4,7 @@
 // - Layout: which views are turned on, the one in the pane and the one beside it (split or
 //   sidebar). Client view state: kept in this page's localStorage, nothing reaches the app.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { OWNER_SENTENCE, userMessage } from "../shared/userMessage";
 import {
   ChiefViewsErrors,
   ChiefViewsOps,
@@ -179,7 +180,8 @@ export class ChiefViewsStore {
           [kind]: {
             status: "unavailable",
             configured: configured !== false,
-            message: error.message,
+            // The owner words both for the person (ChiefViewsStrings).
+            message: userMessage(error, { [error.code]: OWNER_SENTENCE }),
             reply,
           },
         });

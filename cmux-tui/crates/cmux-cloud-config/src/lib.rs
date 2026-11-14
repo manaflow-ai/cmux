@@ -16,6 +16,9 @@
 //! - [`identity`]: the install identity's rules that are not key calls: the
 //!   `cmux auth token` mint's team, token claims, transient refusals, install
 //!   key names, share install origins.
+//! - [`keychain`]: the deadline of the app's calls into its own Keychain items,
+//!   and the refusal, naming the item, of a call that misses it (the app FFI's
+//!   gate runs the call on its own thread).
 //! - [`agent_key`]: `vm.agent_key.create` and `cmux vm token create`: the
 //!   request a VM agent key is minted with and how the VM API's answer reads.
 
@@ -23,4 +26,5 @@ pub mod agent_key;
 pub mod auth;
 pub mod config;
 pub mod identity;
+pub mod keychain;
 pub mod origin;

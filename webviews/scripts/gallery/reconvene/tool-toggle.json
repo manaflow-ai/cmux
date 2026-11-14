@@ -1,0 +1,93 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "tool-toggle-now",
+      "entry": "agent-pane.reconvene-tool-toggle",
+      "variant": "now",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "tool-toggle-instant",
+      "entry": "agent-pane.reconvene-tool-toggle",
+      "variant": "instant",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "tool-toggle-quick",
+      "entry": "agent-pane.reconvene-tool-toggle",
+      "variant": "quick",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "tool-toggle-clip",
+      "entry": "agent-pane.reconvene-tool-toggle",
+      "variant": "clip",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "tool-toggle-under-load",
+      "entry": "agent-pane.reconvene-tool-toggle",
+      "variant": "under-load",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "tool-toggle-now-mid40ms",
+      "entry": "agent-pane.reconvene-tool-toggle",
+      "variant": "now",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2,
+      "setup": "(async () => { const q = () => document.querySelector('[data-row-id=\"reconvene-toggle-run\"] button.cv-tool[aria-expanded]'); const wait = (ms) => new Promise((r) => setTimeout(r, ms)); q()?.click(); await wait(600); q()?.click(); await new Promise((r) => requestAnimationFrame(() => r())); for (const a of document.getAnimations()) { a.pause(); a.currentTime = 40; } })()"
+    },
+    {
+      "name": "tool-toggle-instant-mid40ms",
+      "entry": "agent-pane.reconvene-tool-toggle",
+      "variant": "instant",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2,
+      "setup": "(async () => { const q = () => document.querySelector('[data-row-id=\"reconvene-toggle-run\"] button.cv-tool[aria-expanded]'); const wait = (ms) => new Promise((r) => setTimeout(r, ms)); q()?.click(); await wait(600); q()?.click(); await new Promise((r) => requestAnimationFrame(() => r())); for (const a of document.getAnimations()) { a.pause(); a.currentTime = 40; } })()"
+    },
+    {
+      "name": "tool-toggle-quick-mid40ms",
+      "entry": "agent-pane.reconvene-tool-toggle",
+      "variant": "quick",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2,
+      "setup": "(async () => { const q = () => document.querySelector('[data-row-id=\"reconvene-toggle-run\"] button.cv-tool[aria-expanded]'); const wait = (ms) => new Promise((r) => setTimeout(r, ms)); q()?.click(); await wait(600); q()?.click(); await new Promise((r) => requestAnimationFrame(() => r())); for (const a of document.getAnimations()) { a.pause(); a.currentTime = 40; } })()"
+    },
+    {
+      "name": "tool-toggle-clip-mid40ms",
+      "entry": "agent-pane.reconvene-tool-toggle",
+      "variant": "clip",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2,
+      "setup": "(async () => { const q = () => document.querySelector('[data-row-id=\"reconvene-toggle-run\"] button.cv-tool[aria-expanded]'); const wait = (ms) => new Promise((r) => setTimeout(r, ms)); q()?.click(); await wait(600); q()?.click(); await new Promise((r) => requestAnimationFrame(() => r())); for (const a of document.getAnimations()) { a.pause(); a.currentTime = 40; } })()"
+    },
+    {
+      "name": "tool-toggle-under-load-mid40ms",
+      "entry": "agent-pane.reconvene-tool-toggle",
+      "variant": "under-load",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2,
+      "setup": "(async () => { const q = () => document.querySelector('[data-row-id=\"reconvene-toggle-run\"] button.cv-tool[aria-expanded]'); const wait = (ms) => new Promise((r) => setTimeout(r, ms)); q()?.click(); await wait(600); q()?.click(); await new Promise((r) => requestAnimationFrame(() => r())); for (const a of document.getAnimations()) { a.pause(); a.currentTime = 40; } })()"
+    }
+  ]
+}

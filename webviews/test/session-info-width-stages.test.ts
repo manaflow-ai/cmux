@@ -1,13 +1,13 @@
 // Session Info's width stages, chosen by the pane's width (session-info/SessionInfo.tsx sessionInfoStage):
-// wherever the column fits beside the whole panel, a wide pane too, it pushes the chat left by the whole
-// panel, so the chat is centered beside it (Lucas, 2026-11-06: "we need to make sure that the chat is
-// centered when the session info is open"; it floated in a wide gutter before, Leo, 2026-10-31); a short
-// wide pane still floats it in the gutter. It pushes only while the transcript's column keeps its width (Leo, 2026-11-03:
+// where the right gutter holds it, it floats and the chat does not move (Leo, 2026-11-09: "if it has
+// enough space, then don't push the layout ... You only push when you don't have any space left").
+// Where the gutter lacks room, it pushes the chat left by only what the gutter lacks. It pushes only
+// while the transcript's column keeps its width (Leo, 2026-11-03:
 // "the agent chat's horizontal width shouldn't be shifted its position sure but it itself and its text
 // shouldn't be affected by the session info if it would need to be then session info should be an
 // overlay"). Pushed, the page pins the column to its whole-pane width (sessionInfo.css), so it pushes
-// wherever that pinned column fits in the chat beside the panel (Lucas, 2026-11-06: the chat shifts
-// left as Codex's does, and the panel never covers the prompts); everywhere else it lies over the chat
+// wherever that pinned column fits in the chat beside the panel, so the panel never covers the
+// prompts; everywhere else it lies over the chat
 // above the composer, and in a short pane it is a popover (POPOVER_BELOW_HEIGHT). A narrow pane waits
 // for the toggle before it opens (cmuxterm-hq#6137).
 import { expect, test } from "bun:test";
@@ -51,13 +51,14 @@ function stage(paneWidth: number, paneHeight = TALL, placement: SessionInfoPlace
   return { stage: popover ? "popover" : at, room, opensUnasked: !popover && sessionInfoFits(paneWidth) };
 }
 
-test("a wide pane: it pushes the chat by the whole panel, centered beside it", () => {
-  const panel = pushedWidth(1800, WIDTH);
-  expect(stage(1800)).toEqual({ stage: "push", room: panel + 8, opensUnasked: true });
-  // The column's gap on the left is its gap to the panel's margin on the right.
-  const chat = 1800 - (panel + 8);
-  const left = (chat - transcriptColumn(1800, STANDARD).width) / 2;
-  expect(chat - pinnedEnd(1800, panel + 8)).toBeCloseTo(left, 5);
+test("a wide pane: it floats in the right gutter and the chat does not move", () => {
+  expect(stage(1800)).toEqual({ stage: "float", room: 0, opensUnasked: true });
+  expect(stage(1600)).toEqual({ stage: "float", room: 0, opensUnasked: true });
+  // A wider column (its own Text Width) leaves a narrower gutter: it pushes there, by less than the panel.
+  const wide = stage(1600, TALL, "overlay", WIDE);
+  expect(wide.stage).toBe("push");
+  expect(wide.room).toBeGreaterThan(0);
+  expect(wide.room).toBeLessThan(WIDTH + 8);
   // A short wide pane keeps it floating in the free right gutter (its popover rule), moving nothing.
   expect(stage(1800, POPOVER_BELOW_HEIGHT - 1).stage).toBe("float");
 });
@@ -66,6 +67,7 @@ test("where the gutter lacks a little, it pushes the column left at its own widt
   const { stage: at, room } = stage(1420);
   expect(at).toBe("push");
   expect(room).toBeGreaterThan(0);
+  expect(room).toBeLessThan(pushedWidth(1420, WIDTH) + 8);
   expect(pinnedFits(1420, room)).toBe(true);
   expect(pinnedEnd(1420, room)).toBeLessThanOrEqual(1420 - pushedWidth(1420, WIDTH) - 16);
 });

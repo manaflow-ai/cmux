@@ -31,6 +31,17 @@ public nonisolated struct HoverCardTiming {
     /// mid-crossfade (Lawrence 2026-10-28, msg 15501: "card animation needs to be better, if i
     /// move across it very fast"). A deliberate move to the next row comes later and glides.
     public static let sweepInterval: Duration = .milliseconds(150)
+    /// Hover intent for the cold card (goal sidebar-hover-instant; Leo 2026-11-01): a pointer that
+    /// stops on a row or a tab gets its card once it stops, not after `showDelay`, which stays the
+    /// longest wait for a pointer still creeping over one. Stopped means no move for `settleQuiet`
+    /// (a moving mouse or trackpad sends one every display frame, 8 to 16 ms), or two moves at most
+    /// `settleSample` apart slower than `settleSpeed` points per second (a hand easing onto the
+    /// row). A pass over the sidebar or the strip keeps moving faster than that, so it opens
+    /// nothing, the reason for the delay (Lawrence 2026-10-28). Only the default delay settles: a
+    /// delay set in `sidebar.hoverCards.delay` is a fixed wait.
+    public static let settleQuiet: Duration = .milliseconds(40)
+    public static let settleSample: Duration = .milliseconds(50)
+    public static let settleSpeed: Double = 200
 }
 
 extension DesignSettings {

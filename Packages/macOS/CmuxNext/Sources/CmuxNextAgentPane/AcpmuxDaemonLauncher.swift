@@ -68,7 +68,8 @@ nonisolated enum AcpmuxDaemonLauncher {
                 && AcpmuxEnvironment.computerUseKeys.contains(key)
             if !computerUse.contains(key) || developmentCredential { variables[key] = value }
         }
-        if environment.offersSessionTools { variables[AcpmuxEnvironment.offerToolsKey] = "1" }
+        // acpmux offers by default; `0` is how this setting turns them off.
+        variables[AcpmuxEnvironment.offerToolsKey] = environment.offersSessionTools ? "1" : "0"
         if environment.agentPairGuard {
             variables[AcpmuxEnvironment.agentPairCapKey] = String(max(0, environment.agentPairCap))
             variables[AcpmuxEnvironment.agentPairWindowKey] = String(max(0, environment.agentPairWindowSeconds))

@@ -40,4 +40,28 @@ struct TerminalChatTests {
         #expect(WindowRules().terminalChat(agent: nil, session: "x") == .unsupportedHarness)
         #expect(WindowRules().agentHarness("opencode") == nil)
     }
+
+    // Toggle Terminal and Chat (`palette.toggleTerminalChat`): the same session swaps between its
+    // terminal and its chat, both ways, from any tab (the handler refuses a tab that is neither).
+    @Test func toggleTerminalAndChatIsAWorkingAction() {
+        let services = Self.services()
+        AppActions.bind(services)
+        #expect(services.registry.unavailableReason(for: "palette.toggleTerminalChat") == nil)
+    }
+
+    @Test func toggleSwapsASessionBetweenItsTerminalAndItsChat() {
+        let rules = WindowRules()
+        #expect(rules.terminalChatToggle(.init(terminal: true, agent: "claude-code", session: "s-1")) == .toChat(harness: "claude", session: "s-1"))
+        #expect(rules.terminalChatToggle(.init(chat: true, agent: "codex", session: "s-2", running: true)) == .toTerminal(harness: "codex", session: "s-2"))
+        #expect(rules.terminalChatToggle(.init(chat: true, agent: "codex", session: "s-2")) == .resumeInTerminal(harness: "codex", session: "s-2"))
+        #expect(rules.terminalChatToggle(.init(chat: true, agent: "codex", session: "s-2", busy: true)) == .busy)
+        // A second Toggle before the new terminal's hooks report the session resumes nothing.
+        let handOff = WindowRules.HandOff(deadline: 160, tab: "t-2")
+        #expect(rules.terminalChatToggle(.init(chat: true, agent: "codex", session: "s-2", handOff: handOff, handOffOpen: true, now: 100)) == .handingOff(tab: "t-2"))
+        #expect(rules.terminalChatToggle(.init(chat: true, agent: "codex", session: "s-2", handOff: handOff, handOffOpen: true, now: 160)) == .resumeInTerminal(harness: "codex", session: "s-2"))
+        #expect(rules.terminalChatToggle(.init(terminal: true, agent: "claude", session: nil)) == .noSession)
+        #expect(rules.terminalChatToggle(.init(terminal: true, agent: "opencode", session: "x")) == .unsupportedHarness)
+        #expect(rules.terminalChatToggle(.init(chat: true, agent: nil, session: nil)) == .noSession)
+        #expect(rules.terminalChatToggle(.init(agent: "claude", session: "s")) == .notAgentTab)
+    }
 }

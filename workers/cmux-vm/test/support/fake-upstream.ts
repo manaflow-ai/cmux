@@ -40,6 +40,7 @@ export interface UpstreamCall {
 export type UpstreamOperation =
   | "listFirewallRules"
   | "createFirewallRule"
+  | "deleteFirewallRule"
   | "create"
   | "get"
   | "list"
@@ -108,6 +109,8 @@ export function makeFakeUpstream(apiKey: string) {
   const tlsRules = new Map<string, Record<string, unknown>>();
   /** Public egress rules by id, with the VM each names (a create's inline rule has an empty source, as the provider's). */
   const firewallRules = new Map<string, { readonly vmId: string; readonly rule: Record<string, unknown> }>();
+  /** Run one per rule list answered, in order, after the page is cut: a change between two pages. */
+  const afterRuleList: Array<(() => void) | undefined> = [];
   const files = new Map<string, Uint8Array>();
   const fileStats = new Map<string, Record<string, unknown>>();
   const calls: UpstreamCall[] = [];
@@ -219,7 +222,9 @@ export function makeFakeUpstream(apiKey: string) {
         const offset = Number(url.searchParams.get("offset") ?? 0);
         const limit = Number(url.searchParams.get("limit") ?? 100);
         const listed = [...firewallRules.values()].filter((entry) => forVm === null || entry.vmId === forVm).map((entry) => entry.rule);
-        return Response.json({ rules: listed.slice(offset, offset + limit), totalCount: listed.length });
+        const page = Response.json({ rules: listed.slice(offset, offset + limit), totalCount: listed.length });
+        afterRuleList.shift()?.();
+        return page;
       }
       case "createFirewallRule": {
         const body: unknown = await request.json();
@@ -231,6 +236,11 @@ export function makeFakeUpstream(apiKey: string) {
         const rule = { ...fields, id, createdAt: "2026-11-03T00:00:00Z", updatedAt: "2026-11-03T00:00:00Z" };
         firewallRules.set(id, { vmId: ruleVm, rule });
         return Response.json(rule);
+      }
+      case "deleteFirewallRule": {
+        const id = decodeURIComponent(url.pathname.slice("/v5/firewall/rules/".length));
+        if (!firewallRules.delete(id)) return notFound();
+        return new Response(null, { status: 204 });
       }
       case "listTlsRules": {
         // Deliberately return unrelated/shared rules too: the client must verify exact source ownership.
@@ -386,6 +396,7 @@ export function makeFakeUpstream(apiKey: string) {
   const operationOf = (method: string, url: URL): { operation: UpstreamOperation; vmId: string | null } | null => {
     if (url.pathname === "/v5/firewall/rules" && method === "GET") return { operation: "listFirewallRules", vmId: null };
     if (url.pathname === "/v5/firewall/rules" && method === "POST") return { operation: "createFirewallRule", vmId: null };
+    if (url.pathname.startsWith("/v5/firewall/rules/") && method === "DELETE") return { operation: "deleteFirewallRule", vmId: null };
     if (url.pathname === "/v5/tls" && method === "GET") return { operation: "listTlsRules", vmId: null };
     if (url.pathname.startsWith("/v5/tls/") && method === "PUT") return { operation: "replaceTlsRule", vmId: null };
     if (url.pathname === "/v5/vms") return method === "POST" ? { operation: "create", vmId: null } : { operation: "list", vmId: null };
@@ -449,6 +460,7 @@ export function makeFakeUpstream(apiKey: string) {
     calls,
     tlsRules,
     firewallRules,
+    afterRuleList,
     resizeReplies,
     updateReplies,
     /** Makes the next `times` calls of `operation` answer `status`. */

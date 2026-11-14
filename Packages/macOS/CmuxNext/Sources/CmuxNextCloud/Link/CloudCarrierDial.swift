@@ -54,9 +54,13 @@ public struct CloudCarrierDial: Equatable, Sendable {
     }
 
     /// The bridge of one dial through the bundled `cli`: it waits for the answer line as long as the dial's deadline.
+    /// A desktop dial also writes its progress lines before the answer (`CMUX_CARRIER_PROGRESS=1`): the step it
+    /// waits on and how long is left, in the dial's own words, for the connecting card.
     public func bridge(cli: URL, environment: [String: String]) -> DaemonBridge {
-        DaemonBridge(executable: cli.path, arguments: arguments, environment: environment,
-                     replyTimeoutMs: Int32(Self.deadlineMs + Self.answerSlackMs))
+        var environment = environment
+        if service == .desktop { environment["CMUX_CARRIER_PROGRESS"] = "1" }
+        return DaemonBridge(executable: cli.path, arguments: arguments, environment: environment,
+                            replyTimeoutMs: Int32(Self.deadlineMs + Self.answerSlackMs))
     }
 
     /// `cmux carrier serve`'s argv: a 0600 socket at `socket` that dials this machine's `mux` once per
@@ -193,8 +197,8 @@ public struct CloudCarrierDial: Equatable, Sendable {
 
         /// Runs one dial and returns the connected stream; throws why the carrier refused it, or ``fenced``
         /// once ``CloudCarrierStreams/endAll()`` ran after this connector was made (the dial child, if one
-        /// started, is killed then).
-        public func open() async throws -> CloudCarrierStream {
+        /// started, is killed then). `progress` gets the dial's progress text while it dials (a desktop dial's).
+        public func open(progress: @escaping @Sendable (String) -> Void = { _ in }) async throws -> CloudCarrierStream {
             let (streams, generation) = (self.streams, self.generation)
             // A fenced open asks for no token and spawns nothing.
             guard !isFenced else { throw Self.fenced }
@@ -203,7 +207,8 @@ public struct CloudCarrierDial: Equatable, Sendable {
             let (stream, id) = try await Task.detached(priority: .userInitiated) { () throws -> (DaemonBridgeStream, Int?) in
                 var id: Int?
                 do {
-                    let stream = try bridge.openStream { kill in id = streams?.hold(generation: generation, stop: kill) }
+                    let stream = try bridge.openStream(spawned: { kill in id = streams?.hold(generation: generation, stop: kill) },
+                                                       progress: progress)
                     return (stream, id)
                 } catch {
                     if let id { streams?.release(id) }

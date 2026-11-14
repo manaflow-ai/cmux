@@ -70,7 +70,7 @@ pub(super) fn machine_rows(machine: &Value) -> Vec<Value> {
 pub(super) fn find<'a>(machines: &'a [Value], selector: &str) -> Result<Option<&'a Value>, Value> {
     // `name:` is the CLI's escape for a name that is no plain selector (`build_box`).
     let selector = selector.strip_prefix("name:").unwrap_or(selector);
-    let id = selector.strip_prefix("machine:").unwrap_or(selector);
+    let id = super::vm_words::bare_id(selector);
     if let Some(machine) =
         machines.iter().find(|machine| machine.get("id").and_then(Value::as_str) == Some(id))
     {
@@ -141,7 +141,7 @@ pub(super) fn merge(global: &super::GlobalArgs, result: Value) -> Value {
         return result;
     }
     match read(global) {
-        Some(machines) => append(result, rows(&machines)),
+        Some(machines) => append(result, printed(rows(&machines))),
         None => result,
     }
 }
@@ -165,10 +165,22 @@ pub(super) fn for_machine(
     let selector = global.machine.as_deref()?;
     let machines = read(global)?;
     match find(&machines, selector) {
-        Ok(Some(machine)) => Some(Ok(Value::Array(machine_rows(machine)))),
+        Ok(Some(machine)) => Some(Ok(Value::Array(printed(machine_rows(machine))))),
         Ok(None) => None,
         Err(ambiguous) => Some(Err(ambiguous)),
     }
+}
+
+/// Rows as the CLI prints them: each `target` is `vm:ID` (vm_words.rs); MCP keeps the app's.
+fn printed(rows: Vec<Value>) -> Vec<Value> {
+    rows.into_iter()
+        .map(|mut row| {
+            if let Some(Value::String(target)) = row.get_mut("target") {
+                *target = super::vm_words::respell(target);
+            }
+            row
+        })
+        .collect()
 }
 
 #[cfg(test)]

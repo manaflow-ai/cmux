@@ -13,6 +13,29 @@ import Testing
         #expect(await process.waitForExit() == 0)
     }
 
+    /// The input goes in after launch on the feed's queue: `start()` (main-actor code) returns at once
+    /// though the child reads only after a second, and the child still gets every byte.
+    @Test(.timeLimit(.minutes(1))) func startNeverWaitsForTheChildToReadItsInput() async throws {
+        let process = ChildProcess(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", "sleep 1; wc -c"],
+                                   environment: [:], input: Data(repeating: 0x61, count: 16 * 1024))
+        let clock = ContinuousClock()
+        let start = clock.now
+        try process.start()
+        #expect(clock.now - start < .milliseconds(250))
+        defer { process.terminateProcessOnly() }
+        let line: String = try await process.firstLine(within: .seconds(10), label: "stdin count") { $0 }
+        #expect(line.trimmingCharacters(in: .whitespaces) == "16384")
+        #expect(await process.waitForExit() == 0)
+    }
+
+    /// A child that exits without reading its input: no SIGPIPE, no hang.
+    @Test(.timeLimit(.minutes(1))) func aChildThatNeverReadsItsInputJustExits() async throws {
+        let process = ChildProcess(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", "exit 3"],
+                                   environment: [:], input: Data(repeating: 0x61, count: 16 * 1024))
+        try process.start()
+        #expect(await process.waitForExit() == 3)
+    }
+
     @Test func oversizedInitializerInputIsRejectedBeforeLaunch() throws {
         let process = ChildProcess(executable: URL(fileURLWithPath: "/bin/cat"), arguments: [],
                                    environment: [:], input: Data(repeating: 0x61, count: 16 * 1024 + 1))

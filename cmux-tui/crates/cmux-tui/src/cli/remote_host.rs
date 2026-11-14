@@ -37,11 +37,11 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         ["refresh"] => call("refresh", json!({})),
         ["request", permission] => match permission_name(permission) {
             Some(name) => call("request", json!({"permission": name})),
-            None => usage(),
+            None => usage(&global, args),
         },
         ["open-settings", permission] => match permission_name(permission) {
             Some(name) => call("open_settings", json!({"permission": name})),
-            None => usage(),
+            None => usage(&global, args),
         },
         ["restart", worker @ ("computer-use" | "screen-sharing")] => {
             call("restart", json!({"worker": worker, "force": false}))
@@ -64,13 +64,17 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
             print!("{HELP}");
             0
         }
-        _ => usage(),
+        _ => usage(&global, args),
     }
 }
 
-fn usage() -> i32 {
-    eprint!("{HELP}");
-    2
+fn usage(global: &GlobalArgs, args: &[String]) -> i32 {
+    super::scope_usage_failure(
+        global.output,
+        "remote-host",
+        &super::unknown_words("remote-host", args),
+        HELP,
+    )
 }
 
 fn permission_name(word: &str) -> Option<&'static str> {

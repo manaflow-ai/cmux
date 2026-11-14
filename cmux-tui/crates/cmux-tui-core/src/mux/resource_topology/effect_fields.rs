@@ -149,6 +149,34 @@ pub(super) fn validate_effect_fields(
                     "pane split ratio cannot be represented"
                 );
             }
+            // `split-around-v1`: the new pane goes after the wrapped split,
+            // as a split, never as a new column or row.
+            if let Some(around) = fields.get(AROUND_SPLIT_FIELD) {
+                anyhow::ensure!(
+                    around.as_u64().is_some(),
+                    "bad request: around must be a split handle"
+                );
+                anyhow::ensure!(
+                    matches!(direction, "right" | "down"),
+                    "bad request: around needs direction \"right\" or \"down\""
+                );
+                anyhow::ensure!(
+                    !fields.contains_key("viewport_width") && !fields.contains_key("row_height"),
+                    "bad request: around makes a split, not a column or row"
+                );
+            }
+            if let Some(fit) = fields.get(PANE_SPLIT_FIT_FIELD) {
+                anyhow::ensure!(fit.is_boolean(), "bad request: fit must be a boolean");
+                anyhow::ensure!(
+                    fit == &Value::Bool(false)
+                        || (matches!(direction, "left" | "right")
+                            && !fields.contains_key("viewport_width")
+                            && !fields.contains_key("row_height")
+                            && !fields.contains_key("ratio")
+                            && !fields.contains_key(AROUND_SPLIT_FIELD)),
+                    "bad request: fit needs direction left or right and no viewport_width, ratio, row_height or around"
+                );
+            }
             if let Some(width) = fields.get("viewport_width").and_then(Value::as_f64) {
                 anyhow::ensure!(
                     matches!(direction, "left" | "right")

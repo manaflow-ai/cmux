@@ -27,11 +27,13 @@ struct FloatingGlassStyleTests {
     }
 
     /// The confirm dialog's card (the sheet glass the dialog drawing puts under the overlay page)
-    /// uses the same neutral glass and rim.
+    /// uses the same neutral glass; its rim draws unless the picked variant is Apple's Liquid Glass with
+    /// its own edge (``OverlayGlassVariant``).
     @Test func theDialogUsesTheSharedGlass() throws {
         let surface = Glass.makeSurface(.sheet, content: NSView())
         #expect(surface.tone == .neutral)
-        if surface.material != .opaque { #expect(surface.rimView != nil) }
+        let ownEdge = surface.material == .liquidGlass && OverlayGlassVariant.picked == .appKitRegular
+        if surface.material != .opaque { #expect((surface.rimView != nil) == !ownEdge) }
     }
 
     /// The sidebar's bottom-left cards (tips, Update Ready) draw the neutral veil and the rim,

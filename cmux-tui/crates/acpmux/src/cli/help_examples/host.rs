@@ -154,6 +154,34 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         )],
     ),
     (
+        "machine tunnel",
+        &[(
+            "Ask to put this Mac in its team's peer map; a shell is refused, the cmux app does it",
+            "printf '%s\\n' \"$TOKEN\" | acpmux machine tunnel attach",
+        )],
+    ),
+    (
+        "machine tunnel attach",
+        &[(
+            "Ask to put this Mac in its team's peer map; a shell is refused, the cmux app does it",
+            "printf '%s\\n' \"$TOKEN\" | acpmux machine tunnel attach --network team_01",
+        )],
+    ),
+    (
+        "machine tunnel detach",
+        &[(
+            "Ask to take this Mac out of its team's peer map; a shell is refused",
+            "printf '%s\\n' \"$TOKEN\" | acpmux machine tunnel detach",
+        )],
+    ),
+    (
+        "machine tunnel rekey",
+        &[(
+            "Ask for a new WireGuard key for this Mac; a shell is refused",
+            "printf '%s\\n' \"$TOKEN\" | acpmux machine tunnel rekey",
+        )],
+    ),
+    (
         "machine leave",
         &[
             ("Revoke this joined machine and remove its join state", "acpmux machine leave"),
@@ -162,6 +190,20 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "acpmux machine leave --local-only --json",
             ),
         ],
+    ),
+    (
+        "machine leave-intent",
+        &[(
+            "Record that this account signs out, before the daemon leaves",
+            "acpmux machine leave-intent --user-id \"$CMUX_USER_ID\"",
+        )],
+    ),
+    (
+        "machine enroll-self",
+        &[(
+            "Enroll this machine as the signed-in person, the token on stdin",
+            "printf '%s\\n' \"$CMUX_ACCESS_TOKEN\" | acpmux machine enroll-self --access-token-stdin --user-id \"$CMUX_USER_ID\"",
+        )],
     ),
     (
         "machine vault",

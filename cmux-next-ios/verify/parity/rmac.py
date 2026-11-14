@@ -26,13 +26,13 @@ from mac import Mac  # noqa: E402
 # has only the rig modules, so the driver sends that one file next to them.
 rig_mac.REPO = os.path.join(BASE, "repo")
 
-# The team subrouter server over Tailscale, not the mini's loopback proxy: acpmux runs a
+# SR2 over Tailscale (by IP: not every Mac resolves sr2-gateway; the old subrouter on :31415 answers 502), not the mini's loopback proxy: acpmux runs a
 # phone-started Claude in its remote-chain Seatbelt profile, which shuts loopback.
 # PQ_RIG_ENV: extra launch variables for a rig run, as JSON (e.g. {"CMUX_TUI_TEST_DISABLE_RESPAWN": "1"}
 # so a terminal whose host is lost stays dead for the Restart Shell check).
 EXTRA_ENV = json.loads(os.environ.get("PQ_RIG_ENV", "{}"))
 AGENT_ENV = {
-    "ANTHROPIC_BASE_URL": os.environ.get("PQ_ANTHROPIC_BASE_URL", "http://100.89.225.106:31415"),
+    "ANTHROPIC_BASE_URL": os.environ.get("PQ_ANTHROPIC_BASE_URL", "http://100.120.48.119:4016"),
     "ANTHROPIC_API_KEY": "sr-local",
 }
 

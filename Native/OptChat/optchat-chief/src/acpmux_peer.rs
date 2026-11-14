@@ -7,7 +7,8 @@
 //!
 //! - its uid is this process's uid (another user is refused);
 //! - its executable (symlinks resolved) is the acpmux this host runs:
-//!   `ACPMUX_BIN`, else the `acpmux` beside this executable;
+//!   `ACPMUX_BIN` (or the binary it runs, when it is acpmux's wrapper script:
+//!   `acpmux_wrapper`), else the `acpmux` beside this executable;
 //! - or, when its executable is gone (an app update moved and deleted the
 //!   bundle a running acpmux came from), the kernel's code signature of the
 //!   running process is Apple-anchored and has the team ID and identifier of
@@ -46,7 +47,9 @@ pub fn connect(
     RpcClient::over(stream, on_notification)
 }
 
-/// The acpmux executable this host runs, symlinks resolved.
+/// The acpmux executable this host runs, symlinks resolved. An `ACPMUX_BIN` that is acpmux's
+/// wrapper script (an agent's, under a host prefix: [`crate::acpmux_wrapper`]) names the binary
+/// it runs.
 pub fn expected() -> Option<PathBuf> {
     let configured = match crate::cli::env("ACPMUX_BIN") {
         Some(bin) => PathBuf::from(bin),
@@ -56,7 +59,11 @@ pub fn expected() -> Option<PathBuf> {
             .parent()?
             .join("acpmux"),
     };
-    std::fs::canonicalize(configured).ok()
+    let configured = std::fs::canonicalize(configured).ok()?;
+    match crate::acpmux_wrapper::target(&configured) {
+        Some(exe) => std::fs::canonicalize(exe).ok(),
+        None => Some(configured),
+    }
 }
 
 /// Checks the server peer of `stream` against `expected` (None: refused).

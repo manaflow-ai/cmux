@@ -34,18 +34,17 @@ extension SidebarBridge {
     /// personal state, else reorder commands to the owning daemon. The rows
     /// show there at once, as after a drag, until the store holds the move:
     /// a new workspace is never drawn at its daemon slot first (cx-f6i7).
+    // perf-hot: 1-row-map workspace-placement (one new workspace at its slot: its own row is mapped, never every row)
     func place(_ ids: [SidebarWorkspaceID], at position: DropPosition, in sections: [SidebarRowSection]) {
         // On the sidebar document a group is its item (`itm_g_<id>`): the document takes the move, as it takes a
         // drag, with no undo step of its own (the placement belongs to the create or drop that asked for it).
-        let doc = services.sidebarDoc
-        if doc.docMachines.place(ids, at: position, model: model) || doc.handle(.reorder(ids, to: position), bridge: self, undoable: false) {
-            // The mirror already holds this move, but its observed projection normally follows a turn later.
-            // A burst resolves the next slot now: show the current document through the normal rows writer
-            // first, including a refused move's unchanged order. No second pending edit owns its lifetime.
-            if let document = doc.store {
-                document.reshow(live: doc.docMachines.liveRefs())
-                resync()
-            }
+        let doc = services.sidebarDoc, placed = doc.docMachines.place(ids, at: position, model: model)
+        if placed || doc.handle(.reorder(ids, to: position), bridge: self, undoable: false) {
+            // The mirror holds this move, and `docMachines.place` showed the document again (no second reshow). The
+            // observed rows pass follows a turn later; a burst resolves the next slot now, so that pass runs here: its row
+            // feed maps only the rows that changed. `resync()` mapped every row of the window (WORKSPACE LIST 800).
+            if !placed { doc.store?.reshow(live: doc.docMachines.liveRefs()) }
+            if doc.store != nil { sameTurn.syncNow(rows: true) }
             return
         }
         let edit = rows.edits.add(.reorder(ids, to: position))

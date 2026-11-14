@@ -111,8 +111,8 @@ pub struct Draft {
     pub previous_cwd: Option<String>,
 }
 
-pub const POLICIES: [&str; 5] =
-    ["ask", "approve-reads", "approve-edits", "approve-all", "deny-all"];
+pub const POLICIES: [&str; 6] =
+    ["ask", "approve-reads", "approve-edits", "approve-all", "deny-all", "review"];
 
 #[derive(Debug, Clone)]
 pub enum PickTarget {
@@ -150,6 +150,15 @@ pub enum AppMsg {
         after_seq: Option<u64>,
         has_more: bool,
         last_seq: u64,
+    },
+    Older {
+        id: String,
+        events: Vec<Value>,
+        has_more: bool,
+    },
+    OlderFailed {
+        id: String,
+        error: String,
     },
     /// A recovery attach failed.  Keeping this distinct from an ordinary
     /// request error lets the UI clear the in-flight guard and report that a

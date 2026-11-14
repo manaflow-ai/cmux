@@ -11,6 +11,7 @@ import { installChipHost } from "./chips";
 import { resetSummaryCards } from "../../agent-session/acpmux/summary/cardState";
 import { setChatDisplay } from "../../agent-session/acpmux/chatDisplay";
 import { prepareMockTransport } from "../../agent-session/acpmux/mockTransport";
+import { savedComposerLook, setComposerLook } from "../../agent-session/acpmux/composerLook";
 
 type Message = { id?: string; method?: string; params?: Record<string, unknown> };
 
@@ -33,6 +34,9 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   globalThis.__cmuxPaneStrings = strings as never;
   installChipHost(state.chipHost);
   resetSummaryCards();
+  // The variant's look, else the viewer's saved one (the default when none is saved): a browser test
+  // stages a look in localStorage (`cmux.composer.look`) before the page loads, as the app keeps it.
+  setComposerLook(state.composerLook ?? savedComposerLook(), { remember: false });
   // Only the gallery's mock daemon reads these. Clear them between staged variants, so one
   // capture's negative auth cannot leak into the next fixture.
   Object.assign(globalThis, {
@@ -190,6 +194,7 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   // Before the pane's scripts run, as AgentPaneTunables.documentScript sets them in the app.
   for (const [name, value] of Object.entries(state.documentAttributes ?? {}))
     document.documentElement.setAttribute(`data-${name}`, value);
+  if (state.experiments) globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, ...state.experiments };
   // The desktop layer first (the pane's mount.tsx imports it): it inserts desktop.css and the liquid
   // glass (ui/glass/glass.css) on their own, and the pane's sheet, which holds them in the shipped
   // order ahead of the pane's own sheets, must come after so a surface's rules outrank `.ui-glass`

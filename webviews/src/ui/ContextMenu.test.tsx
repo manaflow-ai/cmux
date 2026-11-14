@@ -8,6 +8,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { installNativeMenu, type NativeMenuRequest } from "./nativeMenu";
+import { contextDescription } from "./popupDescriptors";
+import type { PopupHost } from "./popupHost";
+import { UiProvider } from "./UiProvider";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -26,6 +29,10 @@ function installDom(): HTMLElement {
     "MouseEvent",
     "getComputedStyle",
     "IS_REACT_ACT_ENVIRONMENT",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "MutationObserver",
+    "KeyboardEvent",
   ])
     saved.set(key, scope[key]);
   Object.assign(scope, {
@@ -38,6 +45,10 @@ function installDom(): HTMLElement {
     MouseEvent: dom.window.MouseEvent,
     getComputedStyle: dom.window.getComputedStyle,
     IS_REACT_ACT_ENVIRONMENT: true,
+    requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
+    cancelAnimationFrame: (id: number) => clearTimeout(id),
+    MutationObserver: dom.window.MutationObserver,
+    KeyboardEvent: dom.window.KeyboardEvent,
   });
   return dom.window.document.getElementById("root")!;
 }
@@ -222,4 +233,133 @@ test("toggle state reaches the native menu and the page's accessible checkbox", 
   installNativeMenu(null);
   await rightClick(target);
   expect(document.querySelector('[role="menuitemcheckbox"]')?.getAttribute("aria-checked")).toBe("false");
+});
+
+/** A popup host whose declarative native popup answers `shown` (false: it never drew the rows). */
+function nativeHost(shown: boolean, models: unknown[]): PopupHost {
+  return {
+    native: {
+      show: async (model) => {
+        models.push(model);
+        return { shown };
+      },
+      update() {},
+      hide() {},
+      listen: () => () => {},
+    },
+    show: async () => ({}),
+    update() {},
+    hide() {},
+    owner: () => null,
+    listen: () => () => {},
+  };
+}
+
+function renderNative(host: PopupHost): HTMLElement {
+  const container = installDom();
+  root = createRoot(container);
+  const rows = [{ id: "send", label: "Send", shortcut: "↩" }];
+  act(() =>
+    root!.render(
+      <UiProvider container={container} popupHost={host}>
+        <ContextMenu
+          items={[{ id: "send", label: "Send", onSelect: () => {} }]}
+          native={{ model: contextDescription(rows) }}
+        >
+          <button type="button" id="target">
+            Row
+          </button>
+        </ContextMenu>
+      </UiProvider>,
+    ),
+  );
+  return container.querySelector("#target")!;
+}
+
+test("a declarative native menu the host draws leaves nothing in the page", async () => {
+  const models: unknown[] = [];
+  await rightClick(renderNative(nativeHost(true, models)));
+  await act(async () => await Promise.resolve());
+  expect(models.length).toBe(1);
+  expect(document.querySelector(".ui-context-menu")).toBeNull();
+});
+
+test("a declarative native menu the host refuses opens the page's own at the right-click", async () => {
+  const models: unknown[] = [];
+  const target = renderNative(nativeHost(false, models));
+  await rightClick(target);
+  await act(async () => await Promise.resolve());
+  expect(models.length).toBe(1);
+  const menu = document.querySelector<HTMLElement>(".ui-context-menu");
+  expect(menu).not.toBeNull();
+  expect(menu!.style.left).toBe("40px");
+  expect(target.getAttribute("data-popup-open")).toBe("");
+});
+
+test("asChild puts the menu on the child itself: no wrapper, its siblings stay its own", async () => {
+  const ran: string[] = [];
+  const container = installDom();
+  root = createRoot(container);
+  act(() =>
+    root!.render(
+      <div id="row">
+        <ContextMenu asChild items={items(ran)}>
+          <button type="button" id="target">
+            Send
+          </button>
+        </ContextMenu>
+        <span id="mic" />
+      </div>,
+    ),
+  );
+  const target = container.querySelector<HTMLElement>("#target")!;
+  expect(target.parentElement?.id).toBe("row");
+  expect(container.querySelector("#row > #target + #mic")).not.toBeNull();
+  expect(container.querySelector(".ui-context-menu-host")).toBeNull();
+  await rightClick(target);
+  expect(document.querySelector(".ui-context-menu")).not.toBeNull();
+  act(() => document.querySelector<HTMLElement>('[role="menuitem"]')!.click());
+  expect(ran).toEqual(["rename"]);
+});
+
+test("a right-click on the page's own menu stays in the menu, also under asChild", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  act(() =>
+    root!.render(
+      <div id="row">
+        <ContextMenu asChild items={items([])}>
+          <button type="button" id="target">
+            Send
+          </button>
+        </ContextMenu>
+      </div>,
+    ),
+  );
+  const target = container.querySelector<HTMLElement>("#target")!;
+  /// A real secondary click: pointerdown (button 2), then contextmenu, on the same element.
+  const secondary = (at: Element) => {
+    const press = new MouseEvent("pointerdown", { bubbles: true, cancelable: true, button: 2 });
+    const menu = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 });
+    act(() => void at.dispatchEvent(press));
+    act(() => void at.dispatchEvent(menu));
+    return menu;
+  };
+  await rightClick(target);
+  // On a row: the menu stays open and the browser's own menu never opens over it.
+  expect(secondary(document.querySelector('[role="menuitem"]')!).defaultPrevented).toBe(true);
+  expect(document.querySelector(".ui-context-menu")).not.toBeNull();
+  // On the backdrop: the menu closes, as a click there does, and the browser's menu stays shut.
+  expect(secondary(document.querySelector(".ui-context-menu-backdrop")!).defaultPrevented).toBe(true);
+  expect(document.querySelector(".ui-context-menu")).toBeNull();
+  expect(target.hasAttribute("data-popup-open")).toBe(false);
+  // A middle click sends no contextmenu after its pointerdown: the backdrop closes on the press.
+  await rightClick(target);
+  act(
+    () =>
+      void document
+        .querySelector(".ui-context-menu-backdrop")!
+        .dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true, button: 1 })),
+  );
+  expect(document.querySelector(".ui-context-menu")).toBeNull();
 });

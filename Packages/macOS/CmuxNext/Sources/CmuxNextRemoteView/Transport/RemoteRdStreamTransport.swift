@@ -58,6 +58,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         var upstream: RemoteUpstreamConsent?
         /// Why the path closed (the carrier's reason, or rejected bytes); nil until it did.
         var endReason: String?
+        /// The carrier's latest progress text while the path opens; cleared once it is ready.
+        var connectingReason: String?
 
         init(core: RemoteRdSession, input: RemoteRdInput, service: String) {
             self.core = core
@@ -189,6 +191,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     private func carrierEvent(_ event: RemoteRdCarrierEvent) {
         switch event {
         case .ready:
+            engine.connectingReason = nil
             sendControl(.hello(hello))
             sendControl(.start(key: startKey, mode: control ? "control" : "view"))
         case let .data(data):
@@ -196,6 +199,10 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
             ingest(data)
         case let .closed(reason):
             closed(reason: reason)
+        case let .progress(text):
+            guard !engine.handshake.isEnded else { return }
+            engine.connectingReason = text
+            publishStatus()
         }
     }
 
@@ -350,7 +357,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
             upstream = RemoteUpstreamStatus(offered: consent.isOffered, requested: consent.requested, active: consent.active)
         }
         let endReason = engine.handshake.isEnded ? engine.endReason : nil
-        let status = RemoteViewStatus(path: .direct, state: engine.handshake.sessionState, upstream: upstream, endReason: endReason)
+        let status = RemoteViewStatus(path: .direct, state: engine.handshake.sessionState, upstream: upstream, endReason: endReason,
+                                      connectingReason: engine.connectingReason)
         state.withLock { state in
             guard state.status != status else { return }
             state.status = status

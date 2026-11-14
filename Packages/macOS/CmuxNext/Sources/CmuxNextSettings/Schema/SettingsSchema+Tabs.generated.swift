@@ -43,7 +43,7 @@ extension ChromePlacementSetting {
 }
 
 extension PaneToolbarButtonsSetting {
-    /// `tabs.toolbarButtons`: The actions pinned as buttons next to a pane's tab bar "...", in tab bar order (catalog action ids).
+    /// `tabs.toolbarButtons`: The actions pinned as buttons at a pane's tab bar trailing end, in tab bar order (catalog action ids).
     public nonisolated static let configPath = ["tabs", "toolbarButtons"]
     public nonisolated static let fallback: [String] = []
     public nonisolated static let values = ["splitRight", "splitDown", "openDiffViewer", "file.open", "agentPane.searchChats", "toggleSplitZoom"]
@@ -86,12 +86,6 @@ extension NewTerminalWorkspaceSetting {
     /// `newTerminal.opensWorkspace`: Whether New Terminal creates a workspace in the current space instead of a tab in the focused workspace.
     public nonisolated static let configPath = ["newTerminal", "opensWorkspace"]
     public nonisolated static let fallback = false
-}
-
-extension CmdWClosesPinnedTabsSetting {
-    /// `tabs.cmdWClosesPinnedTabs`: Whether the user's Cmd-W closes a pinned tab.
-    public nonisolated static let configPath = ["tabs", "cmdWClosesPinnedTabs"]
-    public nonisolated static let fallback = true
 }
 
 extension VerticalTabsSetting {

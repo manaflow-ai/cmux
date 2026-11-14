@@ -309,7 +309,8 @@ struct AgentPaneNativeSessionInfoTests {
         panel.layoutSubtreeIfNeeded()
         let backing = try #require(panel.backing)
         #expect(backing.frame == panel.bounds)
-        let content = try #require(panel.subviews.firstIndex { $0 is AgentPaneSessionInfoContent })
+        // The content sits in the panel's stage (its pinch magnification), above the glass.
+        let content = try #require(panel.subviews.firstIndex { $0.subviews.contains { $0 is AgentPaneSessionInfoContent } })
         #expect(panel.subviews.firstIndex { $0 === backing }! < content)
         backing.materialOverride = .opaque
         #expect(backing.material == .opaque)
@@ -627,6 +628,29 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(sent == ["fold:context:0"])
     }
 
+    /// A line with a control at its right end keeps its grip in its right inset: the grip's box stays
+    /// inside the line and clear of the control, and still holds every dot (CMUX-298: an icon box centred
+    /// on the dots ran from width - 12 to width + 4).
+    @Test func aGripPastATrailingControlStaysInsideTheLine() throws {
+        let ink = SessionInfoInk(colors: AgentPaneSessionInfoColors(), act: { _, _ in }, rect: { _ in nil })
+        let line = SessionInfoLineView(line: SessionInfoLine(
+            id: "remote", kind: .row, symbol: "cursorarrow.rays", title: "Remote Control", toggle: true,
+            reorderable: true, action: "remote"), ink: ink)
+        let enter = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: .zero, modifierFlags: [], timestamp: 0,
+                                                    windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+        for width in [200, 320] as [CGFloat] {
+            line.frame = CGRect(x: 0, y: 0, width: width, height: 28)
+            line.mouseEntered(with: enter)
+            line.layoutSubtreeIfNeeded()
+            let toggle = try #require(line.subviews.first { $0 is NSSwitch })
+            let grip = try #require(line.subviews.compactMap { $0 as? SessionInfoGripView }.first)
+            let hit = try #require(line.gripHitRect)
+            #expect(hit.maxX <= line.bounds.maxX + 0.5, "the grip's box runs past the line: \(hit) in \(line.bounds)")
+            #expect(hit.minX >= toggle.frame.maxX - 0.5, "the grip's box covers the switch: \(hit), switch \(toggle.frame)")
+            #expect(hit.minX <= grip.frame.minX + 0.5 && grip.frame.maxX <= hit.maxX + 0.5)
+        }
+    }
+
     /// Section headers follow the web panel's SessionInfoSection: a medium-weight title (never the bold
     /// chrome header) on the rows' title column, a chevron after the title that shows on hover, and the
     /// six-dot grip at the header's right edge that shows only on hover. At rest neither glyph draws, no
@@ -796,6 +820,25 @@ struct AgentPaneNativeSessionInfoTests {
         changes.mouseUp(with: try mouse(.leftMouseUp, drop, in: changes))
         #expect(sent == ["move:changes:context"])
         #expect(!changes.isDragging)
+
+        // A drag that starts on the header's title, away from the grip, reorders too (Lucas,
+        // 2026-11-10: "you don't necessarily need to hover on the 6 dot selector").
+        sent.removeAll()
+        let title = NSPoint(x: changes.bounds.minX + 24, y: start.y)
+        #expect(!hit.contains(title))
+        changes.mouseDown(with: try mouse(.leftMouseDown, title, in: changes))
+        changes.mouseDragged(with: try mouse(.leftMouseDragged, NSPoint(x: title.x, y: title.y + (drop.y - title.y) / 2), in: changes))
+        #expect(changes.isDragging)
+        changes.mouseUp(with: try mouse(.leftMouseUp, NSPoint(x: title.x, y: drop.y), in: changes))
+        #expect(sent == ["move:changes:context"])
+
+        // A click on the title, under the drag threshold, still folds the section and moves nothing.
+        sent.removeAll()
+        changes.mouseDown(with: try mouse(.leftMouseDown, title, in: changes))
+        changes.mouseDragged(with: try mouse(.leftMouseDragged, NSPoint(x: title.x + 2, y: title.y + 1), in: changes))
+        #expect(!changes.isDragging)
+        changes.mouseUp(with: try mouse(.leftMouseUp, title, in: changes))
+        #expect(sent == ["fold:changes:1"])
     }
 
     /// A Cloud machine row whose lifetime subtitle wraps puts its title, and its grip, above the row's
@@ -943,6 +986,108 @@ struct AgentPaneNativeSessionInfoTests {
         ]])
         #expect(tooMany == .unsupported("pane.sessionInfo.overlays"))
         #expect(AgentPageOps.methods.values.contains("pane.sessionInfo.overlays"))
+    }
+
+    /// Leo, 2026-11-12: "evidently you zoom in and it doesn't really, you know, it doesn't follow". The
+    /// page reports its trackpad pinch; the request carries it and refuses bad ones.
+    @Test func pinchReportsDecodeAndBadOnesAreRefused() {
+        let request = AgentPaneRequest(body: ["id": "p", "method": "pane.sessionInfo.pinch", "params": [
+            "scale": 2, "left": 300, "top": 40.5,
+        ]])
+        #expect(request == .sessionInfoPinch(AgentPaneSessionInfoPinch(scale: 2, left: 300, top: 40.5)))
+        #expect(String(describing: request) == "sessionInfoPinch")
+        let ended = AgentPaneRequest(body: ["id": "p", "method": "pane.sessionInfo.pinch", "params": [
+            "scale": 1, "left": 0, "top": 0,
+        ]])
+        #expect(ended == .sessionInfoPinch(.none))
+        for bad: [String: Any] in [["scale": 0, "left": 0, "top": 0], ["scale": 2, "left": 0],
+                                   ["scale": 50, "left": 0, "top": 0], ["scale": "2", "left": 0, "top": 0]] {
+            #expect(AgentPaneRequest(body: ["id": "p", "method": "pane.sessionInfo.pinch", "params": bad])
+                == .unsupported("pane.sessionInfo.pinch"))
+        }
+        #expect(AgentPageOps.methods.values.contains("pane.sessionInfo.pinch"))
+    }
+
+    /// Under a pinch the panel shows where the page's content it floats over shows, scaled as it is,
+    /// in either flip and at the page's zoom; with none it is where the page's numbers put it.
+    @Test func pinchMovesAndScalesThePanelWithThePage() {
+        let page = CGRect(x: 0, y: 0, width: 1200, height: 900)
+        let laid = CGRect(x: 872, y: 36, width: 320, height: 400)
+        #expect(AgentPaneView.sessionInfoPinchedFrame(laid, page: page, zoom: 1, pinch: .none, flipped: true) == laid)
+        let pinch = AgentPaneSessionInfoPinch(scale: 2, left: 600, top: 20)
+        // CSS (872, 36) shows at ((872 - 600) * 2, (36 - 20) * 2) = (544, 32), twice as large.
+        #expect(AgentPaneView.sessionInfoPinchedFrame(laid, page: page, zoom: 1, pinch: pinch, flipped: true)
+            == CGRect(x: 544, y: 32, width: 640, height: 800))
+        // Unflipped: the same rect from the page's bottom.
+        let unflipped = CGRect(x: 872, y: 900 - 36 - 400, width: 320, height: 400)
+        #expect(AgentPaneView.sessionInfoPinchedFrame(unflipped, page: page, zoom: 1, pinch: pinch, flipped: false)
+            == CGRect(x: 544, y: 900 - 32 - 800, width: 640, height: 800))
+        // At a page zoom of 1.5 the pinch offsets are CSS pixels, so they scale with it.
+        let zoomed = CGRect(x: 900, y: 54, width: 300, height: 300)
+        #expect(AgentPaneView.sessionInfoPinchedFrame(zoomed, page: page, zoom: 1.5, pinch: pinch, flipped: true)
+            == CGRect(x: (600 - 600) * 2 * 1.5, y: (36 - 20) * 2 * 1.5, width: 600, height: 600))
+    }
+
+    /// Zoomed in, a panel past the page's edge shows only its part on the page, starting where that
+    /// part lies in the whole panel; a panel wholly off the page shows nothing (no null frame).
+    @Test func pinchedPanelPastThePagesEdgeShowsOnlyItsPartOnThePage() throws {
+        let page = CGRect(x: 0, y: 0, width: 1200, height: 900)
+        let full = CGRect(x: 1000, y: 700, width: 640, height: 800)
+        let flipped = try #require(AgentPaneView.sessionInfoShownPart(full, page: page, flipped: true))
+        #expect(flipped.frame == CGRect(x: 1000, y: 700, width: 200, height: 200))
+        // Flipped pane: the bottom 600 points are cut off, so the shown part starts 600 up the panel.
+        #expect(flipped.offset == CGPoint(x: 0, y: 600))
+        let unflipped = try #require(AgentPaneView.sessionInfoShownPart(full, page: page, flipped: false))
+        #expect(unflipped.offset == CGPoint(x: 0, y: 0))
+        let left = try #require(AgentPaneView.sessionInfoShownPart(CGRect(x: -100, y: 0, width: 300, height: 300),
+                                                                   page: page, flipped: true))
+        #expect(left.frame == CGRect(x: 0, y: 0, width: 200, height: 300))
+        #expect(left.offset == CGPoint(x: 100, y: 0))
+        #expect(AgentPaneView.sessionInfoShownPart(CGRect(x: 1300, y: 0, width: 300, height: 300),
+                                                   page: page, flipped: true) == nil)
+    }
+
+    /// The stage shows the content that lies in the panel's shown part.
+    @Test func clippedPanelShowsTheContentThatLiesThere() throws {
+        func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
+        let store = AgentPaneSessionInfoStore()
+        let panel = AgentPaneSessionInfoPanel(store: store)
+        store.update(try Self.model(Self.info()))
+        panel.frame = CGRect(x: 0, y: 0, width: 200, height: 300)
+        panel.magnification = 2
+        panel.contentOffset = CGPoint(x: 100, y: 0)
+        panel.wholeSize = CGSize(width: 300, height: 300)
+        panel.layoutSubtreeIfNeeded()
+        let content = try #require(all(panel).compactMap { $0 as? AgentPaneSessionInfoContent }.first)
+        #expect(content.frame.size == CGSize(width: 150, height: 150))
+        // The panel's left edge shows the content 50 points (100 on screen) in.
+        #expect(panel.convert(CGPoint(x: 50, y: 0), from: content) == CGPoint(x: 0, y: 0))
+    }
+
+    /// A row's anchor on the zoomed screen goes back to the page's layout, where its menus are placed.
+    @Test func pinchedRowAnchorsGoBackToThePagesLayout() {
+        let pinch = AgentPaneSessionInfoPinch(scale: 2, left: 600, top: 20)
+        let shown = CGRect(x: 544, y: 32, width: 100, height: 40)
+        #expect(AgentPaneView.sessionInfoLayoutRect(shown, pinch: pinch) == CGRect(x: 872, y: 36, width: 50, height: 20))
+        #expect(AgentPaneView.sessionInfoLayoutRect(shown, pinch: .none) == shown)
+    }
+
+    /// The panel's content keeps its unzoomed layout and shows magnified: its stage's bounds are
+    /// the panel's size over the pinch's scale, and a line in it lands where it shows.
+    @Test func pinchedPanelDrawsItsContentMagnified() throws {
+        func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
+        let store = AgentPaneSessionInfoStore()
+        let panel = AgentPaneSessionInfoPanel(store: store)
+        store.update(try Self.model(Self.info()))
+        panel.frame = CGRect(x: 0, y: 0, width: 640, height: 600)
+        panel.magnification = 2
+        panel.layoutSubtreeIfNeeded()
+        let content = try #require(all(panel).compactMap { $0 as? AgentPaneSessionInfoContent }.first)
+        #expect(content.frame.size == CGSize(width: 320, height: 300))
+        #expect(panel.convert(content.bounds, from: content).size == CGSize(width: 640, height: 600))
+        panel.magnification = 1
+        panel.layoutSubtreeIfNeeded()
+        #expect(content.frame.size == CGSize(width: 640, height: 600))
     }
 
     /// A popup's viewport rect lands in pane coordinates in either flip and at the page's zoom.

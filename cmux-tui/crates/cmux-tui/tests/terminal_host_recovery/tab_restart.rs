@@ -124,6 +124,55 @@ fn a_manual_restart_brings_back_a_kept_process_exit() {
     echo_value(&harness, surface, "alive", "$$");
 }
 
+/// b2. The automatic respawn reopened the row and its launch failed (no
+/// free PTY after a reboot or a kill of everything): the terminal reads
+/// exited with `restart_failed` and no incarnation, and its tab is parked
+/// (`relaunch.on_show`) so the app starts it on the next show. Restart Shell
+/// Here, and that start on show, must bring it back; both were refused as
+/// `tab-restart-unavailable` forever.
+#[test]
+fn a_manual_restart_brings_back_a_terminal_whose_respawn_launch_failed() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start_unstarted("restart-after-failed-respawn");
+    let mut command = harness.daemon_command();
+    command.env("CMUX_TUI_TEST_RESPAWN_LAUNCH_FAILURES", "1");
+    harness.child = Some(command.spawn().expect("spawn the daemon"));
+    wait_for_socket(&harness.socket);
+    let (terminal_id, incarnation, surface) = start_default_shell(&harness, "failed");
+    send_line(&harness.socket, surface, "echo before-failed-respawn-marker");
+    wait_for_screen(&harness.socket, surface, "before-failed-respawn-marker\n");
+    let old_pid = echo_value(&harness, surface, "first", "$$");
+    let live = tab_named(&harness, "failed");
+    kill_current_shell_and_host(&harness, &terminal_id);
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    let dead = loop {
+        let tab = tab_named(&harness, "failed");
+        if tab["end"]["reason"] == "restart_failed" {
+            break tab;
+        }
+        assert!(Instant::now() < deadline, "the respawn launch never failed: {tab}");
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    assert_eq!(dead["dead"], true, "{dead}");
+    assert_eq!(dead["relaunch"]["on_show"], true, "the tab without a PTY is not parked: {dead}");
+
+    let restarted = restart_tab(&harness, dead["tab_resource_id"].clone());
+    assert_eq!(restarted["ok"], true, "{restarted}");
+    assert_eq!(restarted["data"]["terminal"], live["terminal_resource_id"], "{restarted}");
+    wait_for_respawn(&harness, &terminal_id, &incarnation);
+
+    let tab = tab_named(&harness, "failed");
+    assert_eq!(tab["dead"], false, "{tab}");
+    assert!(tab["relaunch"].is_null(), "the restarted tab stays parked: {tab}");
+    assert_eq!(tab["tab_resource_id"], dead["tab_resource_id"], "the restart made a new tab");
+    let surface = tab["surface"].as_u64().expect("the restarted tab has a surface");
+    let text = wait_for_screen(&harness.socket, surface, "before-failed-respawn-marker");
+    assert!(text.contains("before-failed-respawn-marker"), "the old screen is gone: {text}");
+    assert_ne!(echo_value(&harness, surface, "second", "$$"), old_pid, "the same shell answered");
+    let lines = wait_for_respawn_lines(&harness, &terminal_id, 1);
+    assert_eq!(lines.last().map(|line| line["cause"].clone()), Some("user_restart".into()));
+}
+
 /// c. A tab whose terminal runs is a typed reject and keeps its shell.
 #[test]
 fn a_restart_of_a_running_tab_is_a_typed_reject() {

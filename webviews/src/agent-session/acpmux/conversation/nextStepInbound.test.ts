@@ -83,6 +83,71 @@ describe("a question to the person after another agent's message", () => {
   });
 });
 
+// Leo, 2026-11-06: "It was about you asking a question to me that had a question-answer response and
+// then another message from another agent interrupted you and then there's nothing now." The other
+// agent's message steered into the turn that asked, and the agent answered it, so the ask was no
+// longer the turn's last words: before, it stayed plain prose, with no card and no buttons.
+describe("a question another agent's message cut off inside the same turn", () => {
+  /// Another agent's message acpmux steered into the running turn, as direct.ts draws it once read.
+  const steer = (id: string, text: string) => ({ ...inbound(id, text), steer: "landed" }) as AcpmuxRow;
+  const steered = [
+    prompt("p1", "Why does it stop on lock?"),
+    reply("a1", ASK),
+    steer("m1", "Pushed abc123; CI is running."),
+    reply("a2", "Noted, CI is running."),
+    done("s1"),
+  ];
+
+  test("is an answerable card under the reply that asked it", () => {
+    const shown = turnView(steered, new Set());
+    const [card] = cards(shown);
+    expect(card?.nextStep?.ask.question).toBe("Do you mean computer use, still working while the Mac is locked?");
+    expect(card?.nextStep?.answer).toBeUndefined();
+    const ids = shown.map((each) => each.id);
+    expect(ids.indexOf(card!.id)).toBe(ids.indexOf("a1") + 1);
+    // The asking reply drops the ask's lines, which the card draws; the reply to the message stays whole.
+    expect(shown.find((each) => each.id === "a1")?.text).toBe("Checked the lock path.");
+    expect(shown.find((each) => each.id === "a2")?.text).toBe("Noted, CI is running.");
+  });
+
+  test("waits on the person, and their answer settles it", () => {
+    expect(
+      waitingAsks(turnViewFrom([...steered, inbound("m2", "Green."), reply("a3", "Ok."), done("s2")], new Set())),
+    ).toHaveLength(1);
+    const [card] = cards(turnView([...steered, prompt("p2", "Yes")], new Set()));
+    expect(card?.nextStep?.answer).toBe("Yes");
+  });
+
+  test("the person's own steer after it is their reply: no card", () => {
+    const rows = [
+      prompt("p1", "Why?"),
+      reply("a1", ASK),
+      { ...prompt("p2", "Not that, the other one"), steer: "landed" } as AcpmuxRow,
+      reply("a2", "Ok."),
+      done("s1"),
+    ];
+    expect(cards(turnView(rows, new Set()))).toEqual([]);
+  });
+
+  test("an ask the agent's reply to the message ends on is that one's card, not the cut-off one", () => {
+    const rows = [
+      prompt("p1", "Why?"),
+      reply("a1", ASK),
+      steer("m1", "Ready to post."),
+      reply("a2", "[outward] Should I post the gallery?"),
+      done("s1"),
+    ];
+    expect(cards(turnView(rows, new Set())).map((card) => card.nextStep?.ask.question)).toEqual([
+      "Should I post the gallery?",
+    ]);
+  });
+
+  test("a turn still running draws no card yet", () => {
+    const rows = [prompt("p1", "Why?"), reply("a1", ASK), steer("m1", "Pushed."), reply("a2", "Reading")];
+    expect(cards(turnView(rows, new Set(), { working: true }))).toEqual([]);
+  });
+});
+
 describe("the card's answer", () => {
   test("goes as the person's prompt", async () => {
     const sent: unknown[] = [];

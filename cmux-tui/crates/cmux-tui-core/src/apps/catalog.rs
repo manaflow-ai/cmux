@@ -182,6 +182,11 @@ impl Package {
         self.manifest.pointer("/runtime/main").and_then(Value::as_str).is_some()
     }
 
+    /// The main script's path in the package (`runtime.main`): load errors name it.
+    pub fn main_name(&self) -> Option<String> {
+        self.manifest.pointer("/runtime/main")?.as_str().map(str::to_string)
+    }
+
     /// The app's main script, read when its host starts.
     pub fn main_source(&self) -> Option<String> {
         let main = self.manifest.pointer("/runtime/main")?.as_str()?;

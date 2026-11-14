@@ -19,6 +19,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 
 def load(name: str, path: Path):
@@ -1933,6 +1935,7 @@ class Nightly(unittest.TestCase):
 
 SESSION = "glaeda-session-std-xcode-26.6"
 IOS_SIM = "glaeda-ios-sim"
+SIM_FIRST = "glaeda-sim-xcode-26.6"
 
 
 class IOSDispatch(unittest.TestCase):
@@ -1974,6 +1977,26 @@ class IOSDispatch(unittest.TestCase):
         self.assertEqual(api.calls[-1], "rerun-failed")  # attempt 2 is on Blacksmith: not watched
         self.assertIn("a dispatch of .github/workflows/test-ios.yml", summary)
         self.assertIn(f"queued on {MINI}", summary)
+
+    def test_a_job_on_the_sim_first_label_is_owned(self):
+        # glaeda#1983's sim-first runner: requested alone, it is still an owned label to watch.
+        self.assertEqual(rescue.job_pool(job("x", labels=[SIM_FIRST])), SIM_FIRST)
+        self.assertEqual(rescue.queued_pool(job("x", labels=[SIM_FIRST])), SIM_FIRST)
+        self.assertIsNone(rescue.job_pool(job("x", labels=["glaeda-sim-xcode"])))
+
+    def test_a_job_waiting_on_the_sim_first_label_moves_to_blacksmith(self):
+        # The picker put the simulator job on the sim-first label and no runner took it.
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= 40:
+                found.append(job("screenshots", labels=[SIM_FIRST], created=40))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True)
+        code, summary = run_main(api, clock, payload=e2e_event(path=".github/workflows/ios-screenshots.yml"))
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertIn(f"queued on {SIM_FIRST}", summary)
 
     def test_a_pull_request_waiting_for_the_simulator_label_is_not_cancelled(self):
         # The same wait on a pull request run: check its head and preserve it.
@@ -2467,8 +2490,8 @@ class Workflow(unittest.TestCase):
         # Never from an owned pool it may rescue, and never only from
         # GitHub-hosted: a GitHub billing block must not stop the rescue.
         self.assertEqual(
-            self.doc["jobs"]["rescue"]["runs-on"],
-            '${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}',
+            workflow_jobs.runs_on_cells(self.doc["jobs"]["rescue"]),
+            ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}'],
         )
 
     def test_marker_steps_never_fail_the_changes_job(self):

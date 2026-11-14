@@ -6,6 +6,7 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 import { tableActionsPlace } from "./tableActions.experiment";
+import { TABLE_AFTER_BOLD } from "./tableAfterParagraph.fixture";
 
 // The reply Leo saw (2026-10-20): its first column has no header, and the table spanned the column.
 const audit = `**The tooltip audit** found 321 tooltips in the app:
@@ -108,6 +109,14 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.hover({ selector: ".cv-table-block" });
       },
+    },
+    "after-bold": {
+      note: "Leo's reply (2026-11-08): a table on the line right under a bold line, with no blank line between them, draws as a table of 4 columns and 8 rows, as GFM reads it, never as raw pipe lines.",
+      snapshot: chat([
+        user("Where are the cloud goals?", 2),
+        assistant(TABLE_AFTER_BOLD, 1.9),
+        summary(1.9, { status: "completed", durationMs: 31_000 }),
+      ]),
     },
     unbreakable: {
       note: "Paths break at their slashes and hashes fit: the table stays in the column. Only a wider token scrolls it, with a fading edge.",

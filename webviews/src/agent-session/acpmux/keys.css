@@ -18,3 +18,8 @@ fieldset.acpmux-permission-card {
   margin: 0;
   min-inline-size: 0;
 }
+
+/* Focused from code for its keys (a notification click): the card's own border marks it. */
+fieldset.acpmux-permission-card:focus:not(:focus-visible) {
+  outline: none;
+}

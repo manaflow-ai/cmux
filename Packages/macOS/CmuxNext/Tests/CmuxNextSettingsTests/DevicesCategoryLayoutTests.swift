@@ -12,6 +12,22 @@ struct DevicesCategoryLayoutTests {
         let devices = try #require(Self.categories.first { $0.spec.id == "devices" })
         #expect(!devices.spec.devOnly, "a release build's Settings must list Devices")
         #expect(devices.spec.lead == [.devices])
+        // Server was its own category; its cards (the tailnet card too) follow the device list.
+        #expect(devices.spec.trail == [.server, .tailnet])
+    }
+
+    @Test func mobileKeepsItsPageAndOldServerLinksOpenDevices() throws {
+        let page = SettingsSchemaExport().page { text, key in ["text": text, "key": key as Any] }
+        let categories = try #require(page["categories"] as? [[String: Any]])
+        let ids = categories.compactMap { $0["id"] as? String }
+        // Mobile stays its own page, before Devices (Lucas 2026-11-11).
+        #expect(ids.contains("mobile") && !ids.contains("server"))
+        let mobile = try #require(ids.firstIndex(of: "mobile"))
+        let devicesAt = try #require(ids.firstIndex(of: "devices"))
+        #expect(mobile < devicesAt)
+        let devices = try #require(categories.first { $0["id"] as? String == "devices" })
+        let aliases = devices["aliases"] as? [String] ?? []
+        #expect(!aliases.contains("mobile") && aliases.contains("server"))
     }
 
     @Test func onlyDevelopmentIsDevOnly() {

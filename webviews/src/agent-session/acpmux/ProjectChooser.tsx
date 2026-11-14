@@ -11,6 +11,7 @@ import { ProjectBadge } from "./ProjectBadge";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { chooserRows, type ProjectRepo } from "./projectRepos";
 import { machineColor } from "./machineColor";
+import { emptyFolderLabel } from "./composerContextModel";
 
 /// A folder to start a chat in. `peer` (with its display name `host`) is another machine's folder:
 /// its row carries the machine's computer, in the machine's own color, and its name, and a pick
@@ -84,6 +85,9 @@ export function ProjectChooser({
   const currentKey = current
     ? rowKey({ cwd: current, label: "", ...(currentPeer ? { peer: currentPeer } : {}) })
     : undefined;
+  // No folder is checked whenever the face reads it (no folder and no label of the caller's), so
+  // the menu agrees with the chip. Only `noProject` makes a pick of it change nothing.
+  const noneChecked = noProject || (currentKey === undefined && currentLabel === undefined);
 
   // One row per repository; a lane's worktree or a scratch folder only when the search names it
   // (projectRepos.ts chooserRows).
@@ -98,7 +102,7 @@ export function ProjectChooser({
   }, [shown, onNoProject]);
   const rowsByKey = useMemo(() => new Map(rows.map((row) => [row.key, row])), [rows]);
   const isCurrent = (key: string) =>
-    rowsByKey.has(key) && (key === currentKey || (noProject && key === NO_PROJECT_KEY));
+    rowsByKey.has(key) && (key === currentKey || (noneChecked && key === NO_PROJECT_KEY));
   const typedPath = useMemo(() => {
     const value = query.trim();
     return value.startsWith("/") || value.startsWith("~/") ? value : undefined;
@@ -166,7 +170,8 @@ export function ProjectChooser({
         if (before === picks.current) setBrowseError(browseFailureMessage(error));
       });
   };
-  const label = currentLabel ?? t("composer.chooseFolder");
+  // No folder, never a "Choose folder" prompt (composerContextModel emptyFolderLabel).
+  const label = currentLabel ?? t(emptyFolderLabel);
   return (
     <span className={`acpmux-picker acpmux-project${inline ? " acpmux-project-inline" : ""}`}>
       <button
@@ -174,10 +179,8 @@ export function ProjectChooser({
         type="button"
         className={inline ? "acpmux-project-button" : "acpmux-context-chip acpmux-project-button"}
         aria-label={inline ? `${t("composer.folder")}: ${label}` : t("composer.folder")}
-        aria-haspopup="dialog"
         // tooltip-allow: a truncated project label keeps its full path available.
         title={current}
-        aria-expanded={open}
         {...press}
       >
         {!inline &&
@@ -187,9 +190,13 @@ export function ProjectChooser({
             icon
           ))}
         <span>{label}</span>
-        <ChevronIcon />
+        {/* Inside a sentence ("What should we build in cmux?") the underlined name is the control, with
+            no caret after it, as Codex draws it (Austin 2026-11-11: "We just do exactly what Codex is
+            doing here"). */}
+        {!inline && <ChevronIcon />}
       </button>
       <Popover
+        id={press["aria-controls"]}
         open={open}
         onOpenChange={(next) => (next ? show() : close(true))}
         anchor={open ? trigger.current : null}

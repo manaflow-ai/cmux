@@ -210,8 +210,8 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     expect(w30!).toBeGreaterThan(8);
     expect(w30!).toBeLessThan(25.4);
     expect(w60!).toBeGreaterThan(w30!);
-    // The spring's small overshoot (about 0.8%), then 26 px.
-    expect(w84!).toBeLessThan(26 * 1.012);
+    // Never past 26 px (the spring does not pass its end), then 26 px.
+    expect(w84!).toBeLessThan(26.1);
     expect(Math.round(w120!)).toBe(26);
     const hovered = await page.evaluate(() => {
       const css = getComputedStyle(document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar')!);
@@ -250,9 +250,9 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
       return { over: probe.__over, frames: probe.__frames.filter((frame) => frame.t >= probe.__over) };
     });
     expect(over).toBeGreaterThan(0);
-    // Through the lengths between (no jump from 6 to 26), never past the spring's 0.8% overshoot.
+    // Through the lengths between (no jump from 6 to 26), never past 26 px.
     expect(frames.some((frame) => frame.width > 8 && frame.width < 25)).toBe(true);
-    for (const frame of frames) expect(frame.width).toBeLessThan(26 * 1.012);
+    for (const frame of frames) expect(frame.width).toBeLessThan(26.1);
     // At 26 px once the micro step has run (a frame painted at least 120 ms after the pointer came).
     const late = frames.filter((frame) => frame.t - over >= 140);
     expect(late.length).toBeGreaterThan(0);

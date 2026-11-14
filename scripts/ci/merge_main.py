@@ -183,7 +183,7 @@ def rerun_on_base(repo: Path, failures: list[GuardFailure], base: str, command: 
     try:
         git(repo, "worktree", "add", "--detach", "--quiet", str(tree_path), base)
         results_path = parent / "base.json"
-        # --keep-going: a stateful group keeps every step (select_steps), and
+        # --keep-going: a stateful group keeps its state-handing earlier steps (select_steps), and
         # an unrelated earlier step failing on main must not hide the one asked about.
         args = [*command, "--root", str(tree_path), "--no-stamp", "--keep-going", "--json", str(results_path)]
         for group in sorted({item.group or item.job for item in failures}):

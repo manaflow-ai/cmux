@@ -19,14 +19,14 @@ export { MAX_LINKED_REPOS, ProviderError, type Approved, type CallResult, type C
 // ---------------------------------------------------------------- GitHub App
 
 const GH_API = "https://api.github.com"
-const ghHeaders = (token: string) => ({
+export const ghHeaders = (token: string) => ({
   authorization: `Bearer ${token}`,
   accept: "application/vnd.github+json",
   "x-github-api-version": "2022-11-28",
   "user-agent": "cmux-cloud"
 })
 
-const appJwt = async (env: Env) => {
+export const appJwt = async (env: Env) => {
   const key = await importPKCS8(env.GITHUB_APP_PRIVATE_KEY!, "RS256")
   const now = Math.floor(Date.now() / 1000)
   return new SignJWT({}).setProtectedHeader({ alg: "RS256" }).setIssuer(env.GITHUB_APP_CLIENT_ID!).setIssuedAt(now - 60).setExpirationTime(now + 540).sign(key)
@@ -43,7 +43,7 @@ export const requestInstallationToken = async (env: Env, http: Http, installatio
 export const mintedToken = async (res: Response) => {
   const body = await json(res)
   const perms = (body.permissions && typeof body.permissions === "object" ? body.permissions : {}) as Record<string, unknown>
-  return { token: String(body.token ?? ""), expires_at: Date.parse(String(body.expires_at ?? "")) || Date.now() + 50 * 60_000, permissions: Object.fromEntries(Object.entries(perms).filter((e): e is [string, string] => typeof e[1] === "string")) }
+  return { token: String(body.token ?? ""), expires_at: Date.parse(String(body.expires_at ?? "")), permissions: Object.fromEntries(Object.entries(perms).filter((e): e is [string, string] => typeof e[1] === "string")) }
 }
 
 /** DELETE /installation/token with the token itself: true when GitHub revoked it or it is already dead. */

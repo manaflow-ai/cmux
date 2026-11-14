@@ -4,6 +4,7 @@
 // account. No change stream exists yet, so the page re-reads after its own actions, on a
 // reconnect and on Refresh; it never polls.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { userMessage } from "../shared/userMessage";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import {
   CodeRouterActions,
@@ -168,7 +169,7 @@ export class CodeRouterStore {
 }
 
 function failure(error: unknown): Partial<CodeRouterSnapshot> {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = userMessage(error);
   if (isPageError(error) && error.code === LINK_CLOSED) return { connection: "disconnected", error: message };
   return { error: message };
 }

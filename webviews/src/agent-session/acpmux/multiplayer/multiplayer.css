@@ -100,7 +100,7 @@
   align-items: center;
   gap: var(--ds-space-2);
   min-height: 20px;
-  margin: 0 var(--cv-inset, 0px);
+  margin: 0 var(--cv-inset-end, var(--cv-inset, 0px)) 0 var(--cv-inset, 0px);
   padding: 0 var(--ds-space-3) var(--ds-space-1);
   font-family: var(--cv-font);
   font-size: var(--text-detail);

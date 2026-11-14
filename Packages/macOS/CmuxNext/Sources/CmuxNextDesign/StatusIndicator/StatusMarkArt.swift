@@ -235,7 +235,7 @@ enum StatusMarkArt {
 
     private static func drawSymbol(_ name: String, in context: CGContext, rect: CGRect) {
         let configuration = NSImage.SymbolConfiguration(pointSize: rect.height * 0.8, weight: .semibold)
-        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else { return }
+        guard let image = NSImage.systemSymbol(name, fallback: nil)?.withSymbolConfiguration(configuration) else { return }
         let fit = min(rect.width / image.size.width, rect.height / image.size.height)
         // Whole pixels (both callers draw a mask in pixels), rendered at that size and drawn 1:1.
         // Without a proposed size the symbol rendered at the screen's scale and was resampled into

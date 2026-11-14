@@ -1,0 +1,386 @@
+{
+"total_count": 24,
+"jobs": [
+{
+"name": "runner-preflight",
+"conclusion": "success",
+"created_at": "2026-11-12T09:19:19Z",
+"started_at": "2026-11-12T09:19:20Z",
+"completed_at": "2026-11-12T09:19:27Z",
+"runner_name": "GitHub Actions 1000794860",
+"steps": []
+},
+{
+"name": "nightly-next promotion ${{ needs.promote-nightly-next.outputs.sha }} from ${{ (needs.promote-nightly-next.outputs.current || 'none') }}",
+"conclusion": "skipped",
+"created_at": "2026-11-12T09:19:19Z",
+"started_at": "2026-11-12T09:19:19Z",
+"completed_at": "2026-11-12T09:19:18Z",
+"runner_name": null,
+"steps": []
+},
+{
+"name": "decide",
+"conclusion": "success",
+"created_at": "2026-11-12T09:19:27Z",
+"started_at": "2026-11-12T09:19:29Z",
+"completed_at": "2026-11-12T09:20:01Z",
+"runner_name": "cmux7s-mac-mini-glaeda-nightly-only-4",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T09:19:32Z",
+"completed_at": "2026-11-12T09:19:36Z"
+}
+]
+},
+{
+"name": "find-nightly-next-recovery",
+"conclusion": "success",
+"created_at": "2026-11-12T09:20:01Z",
+"started_at": "2026-11-12T09:20:03Z",
+"completed_at": "2026-11-12T09:21:16Z",
+"runner_name": "cmux15-glaeda-nightly-only-7",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T09:20:06Z",
+"completed_at": "2026-11-12T09:20:12Z"
+}
+]
+},
+{
+"name": "pick-nightly-build-runner",
+"conclusion": "success",
+"created_at": "2026-11-12T09:20:01Z",
+"started_at": "2026-11-12T09:20:03Z",
+"completed_at": "2026-11-12T09:20:34Z",
+"runner_name": "cmux15-glaeda-nightly-only-5",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T09:20:14Z",
+"completed_at": "2026-11-12T09:20:14Z"
+}
+]
+},
+{
+"name": "resolve-nightly-cmux-tui-client",
+"conclusion": "success",
+"created_at": "2026-11-12T09:20:01Z",
+"started_at": "2026-11-12T09:20:03Z",
+"completed_at": "2026-11-12T09:20:36Z",
+"runner_name": "cmux7s-mac-mini-glaeda-nightly-only-3",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T09:20:05Z",
+"completed_at": "2026-11-12T09:20:05Z"
+}
+]
+},
+{
+"name": "build-nightly-remote-daemon",
+"conclusion": "success",
+"created_at": "2026-11-12T09:20:37Z",
+"started_at": "2026-11-12T09:20:38Z",
+"completed_at": "2026-11-12T09:20:46Z",
+"runner_name": "cmux7s-mac-mini-glaeda-nightly-only-3",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T09:20:41Z",
+"completed_at": "2026-11-12T09:20:41Z"
+}
+]
+},
+{
+"name": "resolve-nightly-ghostty-cli-helper",
+"conclusion": "success",
+"created_at": "2026-11-12T09:20:37Z",
+"started_at": "2026-11-12T09:20:38Z",
+"completed_at": "2026-11-12T09:20:45Z",
+"runner_name": "cmux15-glaeda-nightly-only-5",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T09:20:41Z",
+"completed_at": "2026-11-12T09:20:41Z"
+}
+]
+},
+{
+"name": "nightly webview checks",
+"conclusion": "success",
+"created_at": "2026-11-12T09:20:37Z",
+"started_at": "2026-11-12T09:20:38Z",
+"completed_at": "2026-11-12T09:21:31Z",
+"runner_name": "cmux7s-mac-mini-glaeda-nightly-only-4",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T09:20:41Z",
+"completed_at": "2026-11-12T09:20:42Z"
+}
+]
+},
+{
+"name": "build-nightly-app",
+"conclusion": "success",
+"created_at": "2026-11-12T09:20:37Z",
+"started_at": "2026-11-12T09:20:38Z",
+"completed_at": "2026-11-12T09:25:20Z",
+"runner_name": "ultra2-glaeda-nightly-only-xl-2",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T09:20:46Z",
+"completed_at": "2026-11-12T09:20:47Z"
+},
+{
+"name": "Build nightly app (Release)",
+"conclusion": "skipped",
+"started_at": "2026-11-12T09:25:15Z",
+"completed_at": "2026-11-12T09:25:15Z"
+}
+]
+},
+{
+"name": "build-nightly-ghostty-cli-helper",
+"conclusion": "success",
+"created_at": "2026-11-12T09:20:45Z",
+"started_at": "2026-11-12T09:20:47Z",
+"completed_at": "2026-11-12T09:20:55Z",
+"runner_name": "cmux15-glaeda-nightly-only-5",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T09:20:50Z",
+"completed_at": "2026-11-12T09:20:50Z"
+}
+]
+},
+{
+"name": "await-nightly-tree-marker",
+"conclusion": "success",
+"created_at": "2026-11-12T09:25:21Z",
+"started_at": "2026-11-12T09:25:23Z",
+"completed_at": "2026-11-12T09:25:36Z",
+"runner_name": "cmux15-glaeda-nightly-only-4",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T09:25:26Z",
+"completed_at": "2026-11-12T09:25:26Z"
+}
+]
+},
+{
+"name": "attest-nightly-remote-daemon",
+"conclusion": "success",
+"created_at": "2026-11-12T09:25:21Z",
+"started_at": "2026-11-12T09:25:22Z",
+"completed_at": "2026-11-12T09:25:50Z",
+"runner_name": "cmux7s-mac-mini-glaeda-nightly-only-4",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T09:25:26Z",
+"completed_at": "2026-11-12T09:25:27Z"
+}
+]
+},
+{
+"name": "prepare-nightly-variant-primary (arm64)",
+"conclusion": "success",
+"created_at": "2026-11-12T09:25:21Z",
+"started_at": "2026-11-12T09:25:25Z",
+"completed_at": "2026-11-12T09:27:49Z",
+"runner_name": "cmux15-glaeda-nightly-only-5",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T09:25:30Z",
+"completed_at": "2026-11-12T09:25:30Z"
+}
+]
+},
+{
+"name": "prepare-nightly-variant (arm64)",
+"conclusion": "success",
+"created_at": "2026-11-12T09:27:50Z",
+"started_at": "2026-11-12T09:27:51Z",
+"completed_at": "2026-11-12T09:28:01Z",
+"runner_name": "cmux7s-mac-mini-glaeda-nightly-only-3",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T09:27:56Z",
+"completed_at": "2026-11-12T09:27:56Z"
+}
+]
+},
+{
+"name": "pick-nightly-sign-runner",
+"conclusion": "success",
+"created_at": "2026-11-12T09:28:01Z",
+"started_at": "2026-11-12T09:28:03Z",
+"completed_at": "2026-11-12T09:28:38Z",
+"runner_name": "cmux15-glaeda-nightly-only-5",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T09:28:05Z",
+"completed_at": "2026-11-12T09:28:06Z"
+}
+]
+},
+{
+"name": "build-sign-notarize-nightly (arm64)",
+"conclusion": "success",
+"created_at": "2026-11-12T09:28:38Z",
+"started_at": "2026-11-12T09:28:42Z",
+"completed_at": "2026-11-12T09:48:31Z",
+"runner_name": "cmux15-glaeda",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T09:28:46Z",
+"completed_at": "2026-11-12T09:28:48Z"
+},
+{
+"name": "Notarize app ticket through final DMG",
+"conclusion": "success",
+"started_at": "2026-11-12T09:34:35Z",
+"completed_at": "2026-11-12T09:42:46Z"
+}
+]
+},
+{
+"name": "Verify final nightly DMG (arm64)",
+"conclusion": "success",
+"created_at": "2026-11-12T09:48:32Z",
+"started_at": "2026-11-12T09:48:33Z",
+"completed_at": "2026-11-12T09:59:50Z",
+"runner_name": "cmux15-glaeda-nightly-only-4",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T09:48:38Z",
+"completed_at": "2026-11-12T09:56:09Z"
+}
+]
+},
+{
+"name": "Verify signed nightly app (arm64)",
+"conclusion": "success",
+"created_at": "2026-11-12T09:48:32Z",
+"started_at": "2026-11-12T09:48:33Z",
+"completed_at": "2026-11-12T09:56:13Z",
+"runner_name": "cmux7s-mac-mini-glaeda-nightly-only-4",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T09:48:36Z",
+"completed_at": "2026-11-12T09:48:36Z"
+}
+]
+},
+{
+"name": "publish-nightly",
+"conclusion": "success",
+"created_at": "2026-11-12T09:59:50Z",
+"started_at": "2026-11-12T10:01:00Z",
+"completed_at": "2026-11-12T10:08:24Z",
+"runner_name": "cmux15-glaeda",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T10:01:10Z",
+"completed_at": "2026-11-12T10:01:37Z"
+},
+{
+"name": "Upload nightly-next appcasts to R2",
+"conclusion": "success",
+"started_at": "2026-11-12T10:08:12Z",
+"completed_at": "2026-11-12T10:08:14Z"
+}
+]
+},
+{
+"name": "published-build",
+"conclusion": "success",
+"created_at": "2026-11-12T10:08:24Z",
+"started_at": "2026-11-12T10:08:26Z",
+"completed_at": "2026-11-12T10:08:43Z",
+"runner_name": "cmux15-glaeda-nightly-only-5",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T10:08:29Z",
+"completed_at": "2026-11-12T10:08:29Z"
+}
+]
+},
+{
+"name": "keep-published-dsyms",
+"conclusion": "success",
+"created_at": "2026-11-12T10:08:43Z",
+"started_at": "2026-11-12T10:08:47Z",
+"completed_at": "2026-11-12T10:12:36Z",
+"runner_name": "cmux15-glaeda",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T10:08:49Z",
+"completed_at": "2026-11-12T10:10:49Z"
+}
+]
+},
+{
+"name": "publish-nightly-next-github",
+"conclusion": "success",
+"created_at": "2026-11-12T10:08:43Z",
+"started_at": "2026-11-12T10:08:47Z",
+"completed_at": "2026-11-12T10:11:08Z",
+"runner_name": "GitHub Actions 1000796846",
+"steps": []
+},
+{
+"name": "dispatch-published-in",
+"conclusion": "success",
+"created_at": "2026-11-12T10:11:08Z",
+"started_at": "2026-11-12T10:11:09Z",
+"completed_at": "2026-11-12T10:12:52Z",
+"runner_name": "cmux15-glaeda-nightly-only-3",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T10:11:12Z",
+"completed_at": "2026-11-12T10:12:35Z"
+}
+]
+}
+]
+}

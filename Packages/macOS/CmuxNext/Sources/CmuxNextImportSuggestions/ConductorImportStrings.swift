@@ -9,7 +9,7 @@ public nonisolated struct ConductorImportStrings: Sendable {
     static var bundle: Bundle { .module }
 
     public static var previewTitle: String {
-        String(localized: "conductorImport.preview.title", defaultValue: "Import these Conductor workspaces?", table: "ImportSuggestions", bundle: .module)
+        String(localized: "conductorImport.preview.title", defaultValue: "Import these workspaces?", table: "ImportSuggestions", bundle: .module)
     }
     public static var previewButton: String {
         String(localized: "conductorImport.preview.button", defaultValue: "Import", table: "ImportSuggestions", bundle: .module)
@@ -53,40 +53,16 @@ public nonisolated struct ConductorImportStrings: Sendable {
     }
     public static var deadline: String {
         String(localized: "conductorImport.preview.deadline",
-               defaultValue: "Conductor Cloud becomes read-only on November 13 and shuts down on November 20.", table: "ImportSuggestions", bundle: .module)
+               defaultValue: "You can import again later. Workspaces already open here aren’t duplicated.", table: "ImportSuggestions", bundle: .module)
     }
     public static var opened: String {
-        String(localized: "conductorImport.toast.opened", defaultValue: "Your Conductor workspaces are open.", table: "ImportSuggestions", bundle: .module)
+        String(localized: "conductorImport.toast.opened", defaultValue: "Your imported workspaces are open.", table: "ImportSuggestions", bundle: .module)
     }
     public static var allHere: String {
-        String(localized: "conductorImport.toast.allHere", defaultValue: "Every Conductor workspace is already open here.", table: "ImportSuggestions", bundle: .module)
+        String(localized: "conductorImport.toast.allHere", defaultValue: "Every workspace is already open here.", table: "ImportSuggestions", bundle: .module)
     }
     public static var failed: String {
-        String(localized: "conductorImport.toast.failed", defaultValue: "Couldn’t import from Conductor.", table: "ImportSuggestions", bundle: .module)
-    }
-    /// The sidebar's one-time note (``ImportSuggestionState/showsConductorNote(findings:jobs:now:)``).
-    /// It names no other app and no date: the source is named only inside Settings › Import.
-    public static var noteTitle: String {
-        String(localized: "conductorImport.note.title", defaultValue: "Import your workspaces", table: "ImportSuggestions", bundle: .module)
-    }
-    public static var noteDetail: String {
-        String(localized: "conductorImport.note.detail",
-               defaultValue: "Bring sessions from other apps into cmux, in place.",
-               table: "ImportSuggestions", bundle: .module)
-    }
-    public static var noteOpen: String {
-        String(localized: "conductorImport.note.open", defaultValue: "Import…", table: "ImportSuggestions", bundle: .module)
-    }
-    /// The note's x: it never shows again.
-    public static var noteClose: String {
-        String(localized: "conductorImport.note.close", defaultValue: "Don’t Show Again", table: "ImportSuggestions", bundle: .module)
-    }
-    /// The first-run history page's line (``ImportScanner/conductorOnboardingLine(now:)``), which
-    /// names no other app and no date either.
-    public static var onboardingLine: String {
-        String(localized: "conductorImport.onboarding.line",
-               defaultValue: "Workspaces from other apps: import them in place from Settings › Import.",
-               table: "ImportSuggestions", bundle: .module)
+        String(localized: "conductorImport.toast.failed", defaultValue: "Couldn’t import your workspaces.", table: "ImportSuggestions", bundle: .module)
     }
 
     private static func format(_ template: String, _ count: Int) -> String {

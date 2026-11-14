@@ -6,6 +6,7 @@ import CmuxNextHome
 import CmuxNextPages
 import CmuxNextServer
 import CmuxNextSidebar
+import CmuxNextTaskManagerPage
 import Foundation
 import Testing
 
@@ -24,9 +25,8 @@ import Testing
         (.groupEditor, GroupEditorService.engineOptions), (.passwords, .standard),
         (.chiefInspector, .standard), (.debugSettings, .standard), (.homeChannels, PageFactory.homeChannelsEngineOptions),
         (.homeMessages, PageFactory.homeChannelsEngineOptions),
-        (.homeChatColors, HomeChatColorsService.engineOptions),
         (.changelog, .standard), (.coderouter, .standard), (.files, .standard), (.stats, .standard),
-        (.chiefUsage, .standard), (.mobilePairing, .standard), (.agentActivity, .standard), (.github, .standard), (.bookmarks, .standard),
+        (.chiefUsage, .standard), (.mobilePairing, .standard), (.agentActivity, .standard), (.github, .standard), (.bookmarks, .standard), (.taskManager, .standard),
         (.serverCards, WebCardPanel.engineOptions),
     ]
 
@@ -56,8 +56,8 @@ import Testing
         for (page, _) in Self.surfaces {
             let entry = try #require(entries[page.id], "Chromium does not serve \(page.id)")
             #expect(entry.csp == page.csp.header, "\(page.id) gets another CSP in Chromium")
-            // Chromium asks the page host for exactly the page's generated paths.
-            #expect(entry.dynamicPrefixes == page.dynamicPrefixes, "\(page.id) dynamic prefixes")
+            // Shared chunks also pass through the common adapter, including outside the live loop.
+            #expect(entry.dynamicPrefixes == page.dynamicPrefixes.union(["__shared"]), "\(page.id) dynamic prefixes")
         }
     }
 

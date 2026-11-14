@@ -28,7 +28,7 @@ import CmuxNextCompat
 /// a deleted file restores the bundled pages. ``WebDevOverrideWatcher`` keeps ``current`` and
 /// reloads every page and agent pane on a change, in WebKit and in Chromium. Every build reads the
 /// file (Leo, 2026-11-05: "you should be able to just change your app without going through all
-/// this hoopla"); Settings > General > Live Web Reload (`updates.liveWebReload`, on by default,
+/// this hoopla"); Settings > General > cmux Live (`updates.liveWebReload`, on by default,
 /// ``setAllowed(_:)``) turns it off without editing it.
 public nonisolated struct WebDevOverride: Sendable, Equatable {
     /// The Vite server pages load from, nil for none.
@@ -76,16 +76,16 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
 
     private static let state = Mutex(Held())
 
-    /// Whether Live Web Reload (`updates.liveWebReload`) lets `web-dev.json` apply.
+    /// Whether cmux Live (`updates.liveWebReload`) lets `web-dev.json` apply.
     public static var isAllowed: Bool { state.withLock { $0.allowed } }
 
     /// The override in force: what the watcher read from `web-dev.json`, or empty while
-    /// Live Web Reload is off.
+    /// cmux Live is off.
     public static var current: WebDevOverride {
         state.withLock { $0.allowed ? $0.read : WebDevOverride() }
     }
 
-    /// Follows the Live Web Reload setting (`updates.liveWebReload`): off ignores `web-dev.json`
+    /// Follows the cmux Live setting (`updates.liveWebReload`): off ignores `web-dev.json`
     /// without editing it. A change reloads every page and agent pane from where it now loads.
     @MainActor public static func setAllowed(_ on: Bool) {
         let reload = state.withLock { held in
@@ -97,7 +97,7 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
     }
 
     /// The live gallery's server for Gallery Stage: web-dev.json's `gallery`, else ``defaultGallery``.
-    /// Read whatever Live Web Reload says, since no page loads from it.
+    /// Read whatever cmux Live says, since no page loads from it.
     public static var galleryServer: URL? { state.withLock { $0.read.gallery } ?? defaultGallery }
 
     /// Replaces ``current``; returns whether it changed. Ignored unless ``isEnabled``.

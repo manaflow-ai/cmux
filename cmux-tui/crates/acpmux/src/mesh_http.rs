@@ -244,6 +244,25 @@ impl HttpHub {
         })
     }
 
+    /// The hub carrier's relay ticket (`POST /v1/mesh/carrier`, `hub_carrier.rs`): a Register
+    /// ticket for this machine's own slot, or a Connect ticket for `peer`'s. Only a joined
+    /// machine's `cmm_` credential gets one.
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) async fn carrier(
+        &self,
+        peer: Option<&str>,
+    ) -> Result<crate::hub_carrier::CarrierAnswer, String> {
+        let body = match peer {
+            Some(peer) => json!({"peer": peer}),
+            None => json!({}),
+        };
+        let value = self
+            .call(reqwest::Method::POST, "/v1/mesh/carrier", Some(&body), CALL_WAIT)
+            .await
+            .map_err(|e| e.to_string())?;
+        decode(value).map_err(|e| e.to_string())
+    }
+
     /// A token: the one held while it is good, else a new one from the command.
     pub(crate) async fn token(&self, fresh: bool) -> Result<Arc<Zeroizing<String>>, HubError> {
         let mut held = self.token.lock().await;
@@ -336,6 +355,13 @@ impl HttpHub {
             let status = response.status().as_u16();
             if self.credential.as_deref() == Some("join") {
                 if status == 401 {
+                    // A rotation since this request left: the retired credential's 401 says
+                    // nothing about the one on disk now, which is tried once before the relay
+                    // ends. Only a 401 on the current credential is a revoke.
+                    let now = crate::cli::cloud_join::read_join_credential(&self.origin).ok();
+                    if !retry && rotated_since(token.as_str(), now.as_deref()) {
+                        continue;
+                    }
                     let _ = crate::cli::cloud_join::record_auth_result(token.as_str(), true, false);
                     return Err(HubError::refused("revoked: run machine add again"));
                 }
@@ -364,6 +390,11 @@ impl HttpHub {
     }
 }
 
+/// Whether the joined credential on disk (`now`) replaced the one a refused request sent.
+fn rotated_since(sent: &str, now: Option<&str>) -> bool {
+    now.is_some_and(|now| now != sent)
+}
+
 /// The hub's error codes this client acts on or names in a log (the contract leaves `code` a free
 /// string): any other code is dropped, since a free string could carry anything.
 const KNOWN_CODES: &[&str] = &[
@@ -379,6 +410,8 @@ const KNOWN_CODES: &[&str] = &[
     "mesh.too_large",
     "mesh.unavailable",
     "mesh.not_found",
+    "mesh.carrier_unconfigured",
+    "machine.not_found",
     "team.messaging_disabled",
     "team.forbidden",
     "team.unknown_recipient",
@@ -663,6 +696,16 @@ mod tests {
             assert!(error.refused);
             assert_eq!(error.message, expected);
         }
+    }
+
+    #[test]
+    fn a_401_on_a_credential_rotated_since_is_tried_again_with_the_new_one() {
+        // A heartbeat sent with the old credential, answered 401 after the rotation saved the new.
+        assert!(rotated_since("cmm_old", Some("cmm_new")));
+        // The credential on disk is the one refused: a revoke.
+        assert!(!rotated_since("cmm_new", Some("cmm_new")));
+        // No credential on disk (left, or revoked): nothing to try.
+        assert!(!rotated_since("cmm_old", None));
     }
 
     #[test]

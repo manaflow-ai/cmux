@@ -12,6 +12,7 @@ import { act, useRef } from "react";
 import type { Root } from "react-dom/client";
 import { type ComposerAttachment, remoteRecordingAttachment } from "../src/agent-session/acpmux/attachments";
 import { useAttachmentIntake, useSendWhenAttached } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT", "Node"] as const;
@@ -33,13 +34,9 @@ beforeAll(async () => {
   root = createRoot(dom.window.document.getElementById("root")!);
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const long = { mimeType: "audio/wav", path: "/Users/me/cmux/Chat Uploads/u/Recording.wav", byteCount: 96_000_044 };

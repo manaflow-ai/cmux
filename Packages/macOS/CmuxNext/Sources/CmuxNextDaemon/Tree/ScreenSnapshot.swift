@@ -65,6 +65,8 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
     public var pinned: Bool
     /// The screen group this screen belongs to (`screen-groups-v1`).
     public var group: ScreenGroupID?
+    /// Splits whose divider draws no line (`split-divider-visibility-v1`); they still drag.
+    public var hiddenDividers: Set<SplitID>
 
     public init(
         id: ScreenID,
@@ -82,7 +84,8 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
         color: String? = nil,
         icon: String? = nil,
         pinned: Bool = false,
-        group: ScreenGroupID? = nil
+        group: ScreenGroupID? = nil,
+        hiddenDividers: Set<SplitID> = []
     ) {
         self.id = id
         self.resourceID = resourceID
@@ -100,6 +103,7 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
         self.icon = icon
         self.pinned = pinned
         self.group = group
+        self.hiddenDividers = hiddenDividers
     }
 
     enum CodingKeys: String, CodingKey {
@@ -110,6 +114,7 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
         case zoomedPane = "zoomed_pane"
         case viewportBaseWidth = "viewport_base_width"
         case viewportSplits = "viewport_splits"
+        case hiddenDividers = "hidden_dividers"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -130,5 +135,6 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
         pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
         group = try c.decodeIfPresent(ScreenGroupID.self, forKey: .group)
+        hiddenDividers = Set(((try? c.decodeIfPresent([SplitID].self, forKey: .hiddenDividers)) ?? nil) ?? [])
     }
 }

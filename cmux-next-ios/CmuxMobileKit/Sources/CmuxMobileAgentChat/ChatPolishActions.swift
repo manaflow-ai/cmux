@@ -1,4 +1,5 @@
 #if os(iOS)
+import enum CmuxMobileModel.UserFacingError
 import AVFoundation
 import CmuxMobileDesign
 import CmuxSpinner
@@ -94,6 +95,9 @@ public enum AgentChatCopy: String, CaseIterable, Identifiable, Sendable {
                 case .message(_, let markdown):
                     let text = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !text.isEmpty { blocks.append("**Assistant:**\n" + text) }
+                case .steer(let message) where message.incoming == nil:
+                    let text = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !text.isEmpty { blocks.append("**User:**\n" + text) }
                 case .tool(let call):
                     let title = call.title.split(whereSeparator: \.isWhitespace).joined(separator: " ")
                     guard !title.isEmpty else { continue }
@@ -164,7 +168,7 @@ struct ChatCopyChoicesSheet: View {
                 copied = row
                 UIAccessibility.post(notification: .announcement, argument: String(localized: "Copied"))
             } catch {
-                failure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                failure = UserFacingError.message(error, fallback: "Couldn't copy that. Try again.")
             }
             copying = nil
         }

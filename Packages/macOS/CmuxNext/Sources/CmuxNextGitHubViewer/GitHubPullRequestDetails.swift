@@ -75,6 +75,10 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
     public var linked: [Linked]
     /// The signed-in person's GitHub login (the page's "Mine"), empty when the read did not say.
     public var viewer: String = ""
+    /// How many comments and reviews the read got back, counted as ``conversationTotal`` counts them:
+    /// before the empty review wrappers are left out of `conversation`. Below the total, the read
+    /// has only part of the history (review of #38263, F1).
+    public var conversationRead: Int = 0
 
     static let maximumComments = 50
     static let maximumReviews = 30
@@ -197,7 +201,8 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
             mergeMethod: ["merge", "squash", "rebase"].contains(method) ? method : "merge",
             labels: labels, conversation: conversation, conversationTotal: total("comments") + total("reviews"),
             reviewers: reviewers, linked: linked,
-            viewer: ((object["data"] as? [String: Any])?["viewer"] as? [String: Any])?["login"] as? String ?? "")
+            viewer: ((object["data"] as? [String: Any])?["viewer"] as? [String: Any])?["login"] as? String ?? "",
+            conversationRead: nodes("comments", pull).count + nodes("reviews", pull).count)
     }
 
     /// GitHub's rendering of a body (`bodyHTML`: its Markdown and the HTML GitHub allows, sanitized,
@@ -228,6 +233,7 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
         return .object([
             "body": .string(body), "html": .string(html), "headCommit": .string(headCommit), "mergeState": .string(mergeState),
             "mergeMethod": .string(mergeMethod), "conversationTotal": JSONValue(conversationTotal), "viewer": .string(viewer),
+            "conversationRead": JSONValue(conversationRead),
             "labels": .array(labels.map { .object(["name": .string($0.name), "color": .string($0.color)]) }),
             "conversation": .array(conversation.map { entry in
                 .object(["kind": .string(entry.kind), "author": .string(entry.author), "body": .string(entry.body),

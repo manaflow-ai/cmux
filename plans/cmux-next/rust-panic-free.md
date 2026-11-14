@@ -80,7 +80,6 @@ every call in `catch_unwind`).
 | cmux-rd-core | 0 | 0 | 0 | 34 | 0 | 34 | 51 | 17 | src/fec.rs 44, src/upstream.rs 12, src/packetize.rs 9 |
 | cmux-api-compat | 0 | 0 | 0 | 32 | 2 | 34 | 30 | 0 | src/stream.rs 35, src/change.rs 13, src/trie.rs 7 |
 | cmux-theme-tokens | 0 | 0 | 0 | 31 | 1 | 32 | 21 | 2 | src/app_theme.rs 28, src/spec.rs 18, src/colors.rs 3 |
-| cmux-mux2 | 0 | 11 | 0 | 18 | 0 | 29 | 25 | 3 | src/lib.rs 23, src/bin/mux2-verify.rs 15, src/bin/mux2-wrapcheck.rs 14 |
 | cmux-server-core | 0 | 0 | 0 | 26 | 0 | 26 | 29 | 5 | src/pairing/base32.rs 8, src/manifest/time.rs 7, src/pairing/enrollment.rs 7 |
 | cmux-tui-util | 12 | 1 | 0 | 7 | 5 | 25 | 21 | 4 | src/user_settings.rs 27, src/stream_interrupt.rs 13, src/short_id.rs 5 |
 | cmux-tui-image-paste | 22 | 0 | 0 | 0 | 0 | 22 | 11 | 1 | src/image_paste.rs 21, src/image_paste_file.rs 10, src/image_paste_ownership.rs 1 |

@@ -24,7 +24,11 @@ const DESCRIPTION: &str = "Long-poll what changes in cmux instead of polling age
     app read that answers. A kind reset says the daemon restarted, the cursor expired or \
     grew too large: read agents_snapshot again. \
     Events carry ids, states and short titles only (no terminal text, chat text or tool \
-    input); notification text is cut (truncated true). Changes nothing.";
+    input); notification text is cut (truncated true). To wait for one event instead, pass \
+    until (kind.change, e.g. agent.state or workspace.*, a trailing * is a prefix) and/or \
+    match ({\"state\": \"idle\", \"terminal_id\": \"term_1\"}: dotted paths into the event): it \
+    answers only that event with matched true, or timed_out true at the timeout. \
+    Changes nothing.";
 
 pub(super) fn descriptor() -> Value {
     json!({
@@ -62,6 +66,17 @@ fn input_schema() -> Value {
                 "minimum": 0,
                 "maximum": agents::MAX_EVENTS_SECONDS,
                 "default": agents::DEFAULT_EVENTS_SECONDS,
+            },
+            "until": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Wait for the first event named kind.change (notification.created, agent.state); a trailing * matches a prefix (workspace.*).",
+            },
+            "match": {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": {"type": ["string", "number", "boolean", "null"]},
+                "description": "Wait for the first event whose field at each dotted path has this value ({\"state\": \"idle\"}).",
             },
             "limit": {
                 "type": "integer",
@@ -130,9 +145,38 @@ fn words(arguments: &Map<String, Value>) -> Result<(Vec<String>, Option<String>)
         None => {}
         Some(Value::Number(seconds)) => {
             let seconds = seconds.as_f64().unwrap_or(f64::NAN);
+            // A call holds this connection, so even a wait for one event
+            // ends within the long-poll's bound.
+            if seconds > agents::MAX_EVENTS_SECONDS as f64 {
+                return Err(format!(
+                    "{NAME}: timeout_seconds is at most {}",
+                    agents::MAX_EVENTS_SECONDS
+                ));
+            }
             words.push(format!("--timeout={seconds}"));
         }
         Some(_) => return Err(format!("{NAME}: timeout_seconds must be a number")),
+    }
+    if let Some(until) = text("until")? {
+        words.push(format!("--until={until}"));
+    }
+    match arguments.get("match") {
+        None => {}
+        Some(Value::Object(fields)) if !fields.is_empty() => {
+            for (path, value) in fields {
+                let value = match value {
+                    Value::String(text) => text.clone(),
+                    Value::Array(_) | Value::Object(_) => {
+                        return Err(format!(
+                            "{NAME}: match values are strings, numbers or booleans"
+                        ));
+                    }
+                    other => other.to_string(),
+                };
+                words.push(format!("--match={path}={value}"));
+            }
+        }
+        Some(_) => return Err(format!("{NAME}: match must be a nonempty object")),
     }
     match arguments.get("limit") {
         None => {}

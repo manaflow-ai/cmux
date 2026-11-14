@@ -48,7 +48,7 @@ test("beside a counted edit, the failed Write lists as failed", async () => {
   ]);
   await dom.render(await editedCard(row));
   expect(dom.text(".acpmux-edited-title > div")).toBe("Edited 2 files");
-  expect(dom.text(".acpmux-edited-sub")).toBe("+1-1");
+  expect(dom.text(".acpmux-edited-summary-counts")).toBe("+1-1");
   expect(rows()).toEqual([
     [PLAN, "+1-1"],
     [NOTES, "failed"],
@@ -62,7 +62,7 @@ test("an edit after the failed Write keeps its counts, and the file is not marke
   ]);
   await dom.render(await editedCard(row));
   expect(dom.text(".acpmux-edited-title > div")).toBe("Edited notes.txt");
-  expect(dom.text(".acpmux-edited-sub")).toBe("+1-1");
+  expect(dom.text(".acpmux-edited-summary-counts")).toBe("+1-1");
   expect(dom.host().querySelector(".acpmux-edited-failed")).toBeNull();
 });
 
@@ -122,7 +122,7 @@ test("once the checkpoint loads, a failed Write under a path alias of the reposi
   );
   await dom.render(await editedCard(row, load));
   expect(dom.text(".acpmux-edited-title > div")).toBe("Edited notes.txt");
-  expect(dom.text(".acpmux-edited-sub")).toBe("+1-1");
+  expect(dom.text(".acpmux-edited-summary-counts")).toBe("+1-1");
   expect(rows()).toEqual([]);
   expect(dom.host().querySelector(".acpmux-edited-failed")).toBeNull();
 });

@@ -19,6 +19,7 @@ import { formatDuration } from "./chips/replyMediaModel";
 import { PlayTriangle } from "./conversation/icons";
 import { QUEUED_TILES_SHOWN, type QueuedTile, type QueuedVideo, queuedTiles } from "./queuedImagesModel";
 import { RemoveGlyph } from "./composer/RemoveGlyph";
+import { signed } from "../../ui/Typography";
 
 export function QueuedImages({
   images,
@@ -106,7 +107,7 @@ export function QueuedImages({
           );
         })}
       </span>
-      {more > 0 && <span className="acpmux-queued-images-more">{t("multiplayer.more", { count: more })}</span>}
+      {more > 0 && <span className="acpmux-queued-images-more">{signed(t("multiplayer.more", { count: more }))}</span>}
     </span>
   );
 }

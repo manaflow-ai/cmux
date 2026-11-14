@@ -10,8 +10,8 @@ extension NotificationCenterService {
             approvals.answerer = AcpmuxApprovalAnswerer(environment: environment)
         }
         localAgentHost = { [weak services] in services?.agentTabs.localHost }
-        desktop.onApprove = { [weak self] id, surface, allow in
-            self?.answerApproval(banner: id, surface: surface.map(SurfaceID.init(rawValue:)), allow: allow)
+        desktop.onApprove = { [weak self] id, surface, allow, always in
+            self?.answerApproval(banner: id, surface: surface.map(SurfaceID.init(rawValue:)), allow: allow, always: always)
         }
         // A Chief hand's waiting request: the same banner, posted and withdrawn by the hands service (cx-om025).
         services.cloud.hands.texts = AgentApprovalBanners.handTexts
@@ -39,10 +39,10 @@ extension NotificationCenterService {
         }, post: post)
     }
 
-    /// Allow once or Deny on an approval banner of this launch. An answered prompt reads the tab;
-    /// one that ended or changed opens it, where the chat shows what it waits on now.
-    func answerApproval(banner: String, surface: SurfaceID?, allow: Bool) {
-        if banner.hasPrefix("hand-approval."), let hands = services?.cloud.hands {
+    /// Allow once, Always allow (`always`; never on a Chief hand's banner) or Deny on an approval banner of this
+    /// launch. An answered prompt reads the tab; one that ended or changed opens it, where the chat shows what it waits on now.
+    func answerApproval(banner: String, surface: SurfaceID?, allow: Bool, always: Bool = false) {
+        if banner.hasPrefix("hand-approval."), !always, let hands = services?.cloud.hands {
             // task-owner: NotificationCenterService.answerApproval: one hand answer per banner button.
             Task { @MainActor [weak self] in
                 do { try await hands.answer(banner, allow: allow) } catch { self?.note("hand approval \(banner) failed: \(error)") }
@@ -54,8 +54,8 @@ extension NotificationCenterService {
         }
         // task-owner: NotificationCenterService.answerApproval: one answer per banner button.
         Task { @MainActor [weak self] in
-            let answered = await answerer.answer(entry.approval, allow: allow)
-            self?.note("approval \(allow ? "allow" : "deny") \(entry.tab) \(answered ? "answered" : "not answered")")
+            let answered = always ? await answerer.answerAlways(entry.approval) : await answerer.answer(entry.approval, allow: allow)
+            self?.note("approval \(always ? "always" : allow ? "allow" : "deny") \(entry.tab) \(answered ? "answered" : "not answered")")
             guard let self, let services = self.services else { return }
             if !answered { return self.open(surface: surface) }
             if let tab = Self.tab(id: entry.tab, in: services.daemon.store) { self.acknowledge(tab) }

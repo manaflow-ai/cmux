@@ -41,6 +41,17 @@ pub const MAX_AUTO_ARCHIVE_HOURS: i64 = 87_600;
 /// `Item::extra` key of a group: how its members list ([`GroupSort`]):
 /// `"name"` or `"recent"`. Absent: manual, the stored order.
 pub const GROUP_SORT_KEY: &str = "sort";
+/// `Item::extra` key of a group: its own chats-per-project cap, overriding
+/// the `sidebar.chatsPerProject` setting (the group's right-click menu):
+/// `"3"`, `"5"`, `"10"` or `"all"` ([`crate::sidebar_caps::read_cap`]).
+/// Absent: the setting.
+pub const GROUP_ROW_LIMIT_KEY: &str = "row_limit";
+/// `Item::extra` key of a group: how many rows "Show N more" revealed past its
+/// cap (a count; 0 or absent: the cap). Kept with the group so the expanded
+/// state is remembered per project, like its fold (`collapsed`).
+pub const GROUP_REVEALED_KEY: &str = "revealed";
+/// The most rows a group's [`GROUP_REVEALED_KEY`] may name.
+pub const MAX_GROUP_REVEALED: i64 = 1_000_000;
 /// The one Pinned section.
 pub const PINNED_SECTION_ID: &str = "sec_pinned";
 /// The prefix of a machine section id: `sec_m_<session_id>`.
@@ -498,6 +509,21 @@ impl Item {
             .unwrap_or_default()
     }
 
+    /// A group's own cap ([`GROUP_ROW_LIMIT_KEY`], 0 is All); `None` when it
+    /// follows the setting.
+    pub fn group_row_limit(&self) -> Option<u32> {
+        crate::sidebar_caps::read_cap(self.extra.get(GROUP_ROW_LIMIT_KEY)?)
+    }
+
+    /// The rows "Show N more" revealed past a group's cap ([`GROUP_REVEALED_KEY`]).
+    pub fn group_revealed(&self) -> u32 {
+        self.extra
+            .get(GROUP_REVEALED_KEY)
+            .and_then(Value::as_u64)
+            .and_then(|n| u32::try_from(n).ok())
+            .unwrap_or(0)
+    }
+
     /// The label stored with the item (an old tile's workspace name), drawn
     /// while the workspace is closed.
     pub fn label(&self) -> Option<&str> {
@@ -671,6 +697,14 @@ pub struct GroupPatch {
     /// `"name"` or `"recent"`; `"manual"` and null clear it.
     #[serde(default, skip_serializing_if = "Patch::is_keep")]
     pub sort: Patch<String>,
+    /// The group's own cap ([`GROUP_ROW_LIMIT_KEY`]): `"3"`, `"5"`, `"10"`
+    /// or `"all"`; null goes back to the setting.
+    #[serde(default, skip_serializing_if = "Patch::is_keep")]
+    pub row_limit: Patch<Value>,
+    /// The rows revealed past the cap ([`GROUP_REVEALED_KEY`]); 0 and null
+    /// clear it.
+    #[serde(default, skip_serializing_if = "Patch::is_keep")]
+    pub revealed: Patch<i64>,
 }
 
 /// How a group's members list ([`GROUP_SORT_KEY`]). The stored order stays

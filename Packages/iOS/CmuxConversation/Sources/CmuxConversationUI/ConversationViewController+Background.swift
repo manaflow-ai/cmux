@@ -29,7 +29,7 @@ extension ConversationViewController {
     }
 
     private var wantsTopEdgeBlur: Bool {
-        if #available(iOS 26.0, *), options.header.scrollEdge == .system { return true }
+        if #available(iOS 26.0, *), options.header.scrollEdge == .system || !showsHeader { return true }
         return Self.blursTopEdge
     }
 

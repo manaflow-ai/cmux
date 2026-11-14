@@ -53,6 +53,7 @@ fn folder_fixture(name: &str) -> (PathBuf, Config) {
             record: root.join("acpmux").join("trust.json"),
             agent_home: None,
             cmux_worktrees: None,
+            peer_scratch: None,
         },
     };
     (folder, Config { folder_gate: Some(gate), ..Default::default() })

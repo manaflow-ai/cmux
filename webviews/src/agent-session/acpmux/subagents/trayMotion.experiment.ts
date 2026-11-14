@@ -15,7 +15,7 @@ export const trayMotionLook = defineExperiment({
     message: {
       label: "Settle",
       description:
-        "A fade and a 4px rise on the house settle (--cmux-ease-settle over --cmux-motion-settle: cubic-bezier(0.16, 1, 0.3, 1), 265 ms, no overshoot); out quicker on --agent-motion-out.",
+        "A fade and a 4px rise on the house settle (--cmux-ease-settle over --cmux-motion-settle: cubic-bezier(0.16, 1, 0.3, 1), 180 ms, no overshoot); out quicker on --agent-motion-out.",
     },
     tight: {
       label: "Tight fade",

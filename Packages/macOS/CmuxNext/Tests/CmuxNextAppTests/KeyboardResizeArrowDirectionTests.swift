@@ -6,10 +6,11 @@ import CmuxNextBridge
 import CmuxNextTestSupport
 import Testing
 
-/// FRAME OWNER REFACTOR KEYS (lead decision, STATUS 8923; Lawrence asked the lead to decide): Resize Pane Left/Right
-/// (Ctrl-Shift-H/L, Ctrl-Cmd-Left/Right) moves the divider in the arrow's direction, as Ghostty's `resize_split` does,
-/// in a scrolling strip too. One press moves exactly one divider one step; only the two sides of that divider change;
-/// nothing else on screen moves. Before: a strip column with no horizontal split grew or shrank on its own (Right grew
+/// PANE KEYS (plans/cmux-next/pane-keys.md, 2026-11-08): Resize Pane Right (Ctrl-Shift-L, Ctrl-Cmd-Right) makes the
+/// focused column wider and Left narrower, across its right edge, or its left edge for the last column. One press
+/// moves exactly one divider one step; only the two sides of that divider change; nothing else on screen moves.
+/// Between #34123 (FRAME OWNER REFACTOR KEYS, 2026-11-03) and pane-keys the divider moved in the arrow's direction, as
+/// Ghostty's `resize_split` does, so Right shrank the last column and a right dock. Before: a strip column with no horizontal split grew or shrank on its own (Right grew
 /// the focused column): the last column's left edge, the divider a person sees, moved LEFT (the strip kept the column
 /// at the viewport's edge), and the columns after a middle one moved with it. A right dock grew with Right: its inner
 /// edge moved left.
@@ -93,14 +94,15 @@ struct KeyboardResizeArrowDirectionTests {
 
     // MARK: Strip columns
 
-    /// The last column has no right neighbor: its left edge is the divider, and it moves with the arrow.
+    /// The last column has no right neighbor: its left edge is the divider. Right grows the column (the divider moves
+    /// left), Left shrinks it.
     @Test(arguments: [LayoutDirection.right, .left])
     func theLastColumnMovesItsLeftDivider(direction: LayoutDirection) throws {
         let rig = Rig(Self.columns([0.5, 0.5]), focus: "p1")
         defer { rig.window.closeAfterTest() }
         let before = try rig.shown()
         #expect(rig.press("p1", direction))
-        Self.expectOnlyTheDividerMoved(before, try rig.shown(), left: "p0", right: "p1", direction: direction, step: rig.step)
+        Self.expectOnlyTheDividerMoved(before, try rig.shown(), left: "p0", right: "p1", direction: direction == .right ? .left : .right, step: rig.step)
     }
 
     /// A column with a right neighbor moves its right edge, and the columns after the pair stay where they are.
@@ -122,7 +124,7 @@ struct KeyboardResizeArrowDirectionTests {
         let offset = try rig.screen.scroll.target
         #expect(rig.press("p2", direction))
         #expect(try rig.screen.scroll.target == offset, "the press scrolled the strip")
-        Self.expectOnlyTheDividerMoved(before, try rig.shown(), left: "p1", right: "p2", direction: direction, step: rig.step)
+        Self.expectOnlyTheDividerMoved(before, try rig.shown(), left: "p1", right: "p2", direction: direction == .right ? .left : .right, step: rig.step)
     }
 
     /// The divider at the edge of the window (the right neighbor is off screen) cannot move out of it: the press is
@@ -145,12 +147,13 @@ struct KeyboardResizeArrowDirectionTests {
         Self.expectOnlyTheDividerMoved(before, try rig.shown(), left: "p1", right: "p2", direction: .left, step: rig.step)
     }
 
-    /// Every frame of the press's spring: the divider only moves toward the arrow, and the outer edges never move.
+    /// Every frame of the press's spring: the divider only moves one way (Left shrinks the last column: its left edge
+    /// moves right), and the outer edges never move.
     @Test func everyFrameOfThePressMovesTheDividerTowardTheArrow() throws {
         let rig = Rig(Self.columns([0.5, 0.5]), focus: "p1", animates: true)
         defer { rig.window.closeAfterTest() }
         let start = try rig.shown()
-        #expect(PaneResize.press("p1", .right, model: rig.model, view: rig.root))
+        #expect(PaneResize.press("p1", .left, model: rig.model, view: rig.root))
         var last = try #require(start["p0"]).maxX, frames = 0
         while frames < 240, rig.root.advanceFrame(1.0 / 120) {
             rig.root.layoutSubtreeIfNeeded()
@@ -195,7 +198,7 @@ struct KeyboardResizeArrowDirectionTests {
 
     // MARK: Side docks
 
-    /// A right dock's inner edge is its left edge: Right moves it right (the dock shrinks), Left moves it left.
+    /// A right dock's inner edge is its left edge: Right grows the dock (the edge moves left), Left shrinks it.
     @Test(arguments: [LayoutDirection.right, .left])
     func aRightDocksInnerEdgeMovesWithTheArrow(direction: LayoutDirection) throws {
         let dock = LayoutColumn(id: "d", width: 0.3, root: .leaf("pd"), dock: DockColumn(edge: .right, mode: .docked))
@@ -205,7 +208,7 @@ struct KeyboardResizeArrowDirectionTests {
         #expect(rig.press("pd", direction))
         let after = try #require(try rig.shown()["pd"])
         let moved = after.minX - before.minX
-        #expect(direction == .right ? moved > 0 : moved < 0, "Right/Left moved the right dock's inner edge by \(moved)")
+        #expect(direction == .right ? moved < 0 : moved > 0, "Right/Left moved the right dock's inner edge by \(moved)")
         #expect(abs(after.maxX - before.maxX) < 0.01, "the dock left its edge")
     }
 
@@ -271,7 +274,7 @@ struct KeyboardResizeShownStepTests {
     }
 
     /// A side dock's width shows between its minimum and its share of the window (`DockStripGeometry.maxShare`). A
-    /// right dock stored past that share shows at the share: Left (grow) is refused, and Right (shrink) is a whole step
+    /// right dock stored past that share shows at the share: Right (grow) is refused, and Left (shrink) is a whole step
     /// from the width it shows.
     @Test func aDockAtItsShareCapRefusesToGrowAndShrinksAWholeStep() throws {
         let style = LayoutStyle()
@@ -281,9 +284,9 @@ struct KeyboardResizeShownStepTests {
             let geometry = ScreenGeometry.compute(layout, viewport: Self.viewport, style: style)
             return PaneResize.change(for: "pd", direction: direction, in: layout, shown: ShownResizeRange(geometry: geometry, style: style))
         }
-        #expect(change(.left) == nil, "Left grew a dock shown at its share cap: the press changes the model and moves nothing")
-        guard case let .columnWidth(id, width)? = change(.right) else {
-            Issue.record("Right on a right dock made no change")
+        #expect(change(.right) == nil, "Right grew a dock shown at its share cap: the press changes the model and moves nothing")
+        guard case let .columnWidth(id, width)? = change(.left) else {
+            Issue.record("Left on a right dock made no change")
             return
         }
         let before = try #require(ScreenGeometry.compute(layout, viewport: Self.viewport, style: style).columns["d"])
@@ -330,7 +333,9 @@ struct KeyboardResizeShownStepTests {
                 let l0 = try #require(before.columns[left]), r0 = try #require(before.columns[right])
                 let l1 = try #require(placed.columns[left]), r1 = try #require(placed.columns[right])
                 let step = l1.maxX - l0.maxX
-                #expect(direction == .right ? step > 0 : step < 0, "\(pane) \(direction) \(when): the divider moved \(step)")
+                // The last column grows across its left edge: its Right moves the divider left.
+                let dividerRight = (direction == .right) == (pane != "p2")
+                #expect(dividerRight ? step > 0 : step < 0, "\(pane) \(direction) \(when): the divider moved \(step)")
                 #expect(r1.minX - r0.minX == step, "\(pane) \(direction) \(when): the divider's sides moved \(step) and \(r1.minX - r0.minX)")
                 #expect(l1.minX == l0.minX && r1.maxX == r0.maxX,
                         "\(pane) \(direction) \(when): an outer edge moved (\(l0.minX) -> \(l1.minX), \(r0.maxX) -> \(r1.maxX))")
@@ -444,7 +449,7 @@ struct KeyboardResizeTradeAtomicTests {
             // c0's command is answered in its own turn; c1's reply comes later.
             if case .setColumnWidth("c0", _, _, let transaction, .ended) = intent { model.settleTransaction(transaction) }
         }
-        #expect(rig.press("p1", .right))
+        #expect(rig.press("p1", .left))
         let trade = rig.model.screens[0].layout.columns.map(\.width)
         try #require(trade[0] > 0.5 && trade[1] < 0.5, "the press made no trade: \(trade)")
         // A daemon snapshot from before either event.
@@ -467,7 +472,7 @@ struct KeyboardResizeTradeAtomicTests {
             let columns = KeyboardResizeArrowDirectionTests.columns([widths["c0"] ?? 0.5, widths["c1"] ?? 0.5])
             model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))])
         }
-        #expect(rig.press("p1", .right), "a trade the daemon applied in its turn read as refused")
+        #expect(rig.press("p1", .left), "a trade the daemon applied in its turn read as refused")
         let shown = rig.model.screens[0].layout.columns.map(\.width)
         #expect(shown[0] > 0.5 && shown[1] < 0.5, "the applied trade does not show: \(shown)")
     }

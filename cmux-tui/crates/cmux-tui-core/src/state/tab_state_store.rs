@@ -202,13 +202,37 @@ pub(crate) fn read_tab_attention(
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows
         .into_iter()
-        .filter_map(|(tab, stored)| {
-            let value: Value = serde_json::from_str(&stored).ok()?;
-            let reason = value.get("reason")?.as_str()?.to_string();
-            let at_ms = value.get("at_ms").and_then(Value::as_u64).unwrap_or(0);
-            Some((tab, TabAttentionRecord { reason, at_ms }))
-        })
+        .filter_map(|(tab, stored)| Some((tab, attention_record(&stored)?)))
         .collect())
+}
+
+/// A stored attention mark as frontends draw it, or `None` when its JSON
+/// holds no reason.
+fn attention_record(stored: &str) -> Option<TabAttentionRecord> {
+    let value: Value = serde_json::from_str(stored).ok()?;
+    let reason = value.get("reason")?.as_str()?.to_string();
+    let at_ms = value.get("at_ms").and_then(Value::as_u64).unwrap_or(0);
+    Some(TabAttentionRecord { reason, at_ms })
+}
+
+/// The attention mark of one live tab, as [`read_tab_attention`] lists it:
+/// what the presentation cache holds for the tab after a commit that wrote
+/// its mark.
+pub(crate) fn tab_attention_record(
+    connection: &Connection,
+    tab_id: &str,
+) -> anyhow::Result<Option<TabAttentionRecord>> {
+    let stored = connection
+        .query_row(
+            "SELECT s.attention_json FROM tab_state AS s
+             JOIN resource_tabs AS t ON t.public_id = s.tab_id
+             WHERE s.tab_id = ?1 AND s.attention_json IS NOT NULL
+               AND t.deleted_revision IS NULL",
+            [tab_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    Ok(stored.as_deref().and_then(attention_record))
 }
 
 /// A partial tab state update: `None` keeps a field, `Some(None)` clears

@@ -19,7 +19,10 @@ step: recap says in two or three plain sentences what changed and where things s
 what is not done or not verified. When the turn leaves the person a decision (a choice of \
 approach, a go-ahead), add ask, one short question, and actions, one or two answers with your \
 pick first; their click comes back as their next message. Leave ask out when nothing waits on \
-them. Then end the turn without repeating the recap.";
+them. When the person corrected you this turn, or a command failed and a later one worked, add \
+learned: at most three short facts about this project worth keeping in its instructions file \
+(\"Use pnpm, not npm.\", \"Tests need DATABASE_URL set.\"); the person accepts or dismisses each. \
+Leave learned out otherwise. Then end the turn without repeating the recap.";
 /// The most answers the box draws.
 const MAX_ACTIONS: usize = 2;
 /// The longest answer a button takes.
@@ -27,6 +30,9 @@ const MAX_ACTION: usize = 80;
 /// Bounds that keep the box a box; longer text belongs in the answer.
 const MAX_RECAP: usize = 600;
 const MAX_ASK: usize = 200;
+/// The most facts a turn offers (`memory_inbox.rs`), and the longest one.
+pub(crate) const MAX_LEARNED: usize = 3;
+pub(crate) const MAX_FACT: usize = 200;
 
 pub(super) fn tool() -> Value {
     json!({
@@ -37,7 +43,8 @@ pub(super) fn tool() -> Value {
             "properties": {
                 "recap": {"type": "string", "description": "Two or three short sentences: what is now true or changed, then where it stands, including what is not done or not verified."},
                 "ask": {"type": "string", "description": "One short question, only when the next move is the person's call. Leave it out when nothing waits on them."},
-                "actions": {"type": "array", "items": {"type": "string"}, "maxItems": MAX_ACTIONS, "description": "With ask: one or two answers, a few words each, your pick first (\"Yes, open PR\", \"Not now\"). Each is sent as the person's reply when clicked. Without it a question gets Yes and Not now."}
+                "actions": {"type": "array", "items": {"type": "string"}, "maxItems": MAX_ACTIONS, "description": "With ask: one or two answers, a few words each, your pick first (\"Yes, open PR\", \"Not now\"). Each is sent as the person's reply when clicked. Without it a question gets Yes and Not now."},
+                "learned": {"type": "array", "items": {"type": "string"}, "maxItems": MAX_LEARNED, "description": "Only when the person corrected you this turn, or a command failed and a later one worked: up to three one-line facts about this project for its instructions file (\"Use pnpm, not npm.\"). Each is shown to the person to accept or dismiss."}
             },
             "required": ["recap"]
         }
@@ -82,7 +89,35 @@ pub(super) fn check(args: &Value) -> Result<Value, String> {
     if !actions.is_empty() && ask.is_none() {
         return Err("actions answer an ask; add the question, or leave actions out".to_owned());
     }
-    Ok(json!({"recap": recap, "ask": ask, "actions": actions}))
+    let learned: Vec<&str> = match args.get("learned") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(list)) => {
+            let mut out = Vec::new();
+            for item in list {
+                match item.as_str().map(str::trim).filter(|v| !v.is_empty()) {
+                    Some(f) if f.chars().count() <= MAX_FACT && !f.contains('\n') => out.push(f),
+                    _ => {
+                        return Err(format!(
+                            "each learned fact is one line of at most {MAX_FACT} characters"
+                        ));
+                    }
+                }
+            }
+            out
+        }
+        Some(_) => return Err("learned is a list of up to three short facts".to_owned()),
+    };
+    if learned.len() > MAX_LEARNED {
+        return Err(format!("at most {MAX_LEARNED} learned facts"));
+    }
+    let mut shown = serde_json::Map::new();
+    shown.insert("recap".into(), json!(recap));
+    shown.insert("ask".into(), json!(ask));
+    shown.insert("actions".into(), json!(actions));
+    if !learned.is_empty() {
+        shown.insert("learned".into(), json!(learned));
+    }
+    Ok(Value::Object(shown))
 }
 
 pub(super) fn call(args: &Value) -> Value {
@@ -123,9 +158,19 @@ mod tests {
             json!({"recap": "Done.", "actions": ["Yes"]}),
             json!({"recap": "Done.", "ask": "Open?", "actions": "Yes"}),
             json!({"recap": "x".repeat(MAX_RECAP + 1)}),
+            json!({"recap": "Done.", "learned": ["a", "b", "c", "d"]}),
+            json!({"recap": "Done.", "learned": ["two\nlines"]}),
+            json!({"recap": "Done.", "learned": "Use pnpm."}),
         ] {
             assert!(check(&bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn learned_facts_are_kept_trimmed_and_left_out_when_empty() {
+        let shown = check(&json!({"recap": "Done.", "learned": [" Use pnpm, not npm. "]})).unwrap();
+        assert_eq!(shown["learned"], json!(["Use pnpm, not npm."]));
+        assert!(check(&json!({"recap": "Done.", "learned": []})).unwrap().get("learned").is_none());
     }
 
     #[test]

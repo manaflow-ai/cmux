@@ -235,6 +235,6 @@ fn list_as_peers_do(hub: &Hub, peer: &str, id: &str, name: &str) {
     let summary =
         Hub::remote_summary(peer, json!({"sessionId": id, "name": name, "status": "idle"}));
     let receipt = crate::session_identity::SessionReceipt::new(peer, id, None, 1);
-    let row = RemoteSession { peer: peer.into(), summary, receipt };
-    hub.remote_sessions.lock().unwrap().insert(format!("{peer}/{id}"), row);
+    let row = RemoteSession { peer: peer.into(), summary: summary.into(), receipt };
+    hub.remote_sessions.write().insert(format!("{peer}/{id}"), row);
 }

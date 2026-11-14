@@ -2,7 +2,7 @@
 //! `window_history_*`, `window_remote_*`, `window_browser_*`,
 //! `window_files_*`, `window_appearance_*`): their tables and refusals.
 
-use cmux_window_rules::{appearance, browser, files, history, notifications, remote};
+use cmux_window_rules::{appearance, browser, files, history, notifications, remote, screen_share};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -203,6 +203,7 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
             ))?
         }
         b"window_remote_connect_step" => value(remote::connect_step(read(request)?))?,
+        b"window_remote_screen_share" => value(screen_share::plan(&read(request)?))?,
         b"window_browser_fit_actions" => json!({ "actions": browser::fit_actions() }),
         b"window_browser_fit" => {
             let request: Fit = read(request)?;

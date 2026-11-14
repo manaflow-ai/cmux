@@ -9,6 +9,7 @@ import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { JSDOM } from "jsdom";
+import { settleReact } from "../../../test/support/domTeardown";
 
 /// The `_meta.acpmux` keys the cmux host's pane policy lets through on `session/prompt`.
 const policyPath = path.resolve(import.meta.dir, "../../../../cmux-tui/crates/cmux-agent-pane-policy/policy.json");
@@ -26,7 +27,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];
@@ -310,6 +312,57 @@ test("a busy session keeps an unacknowledged eight-image prompt queued with prev
     expect(client.swapHold()).toBe("composer.send-untaken");
   } finally {
     Object.assign(deliveryTiming, timing);
+    client.close?.();
+  }
+});
+
+// Leo, 2026-11-05: "when i send a message it "sends" at least the picture and then it shoots up
+// into the queue". acpmux lists the chat as running before this page saw its turn open (a turn
+// that started before the attach): the composer says the prompt queues, so it shows in the queue
+// from the send on, never first as a sent bubble.
+test("a send while acpmux lists the chat running, before its turn opened here, never draws as sent", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const socket = new MockAcpmuxSocket(() => Promise.resolve());
+  const hooks = socket as unknown as Hooks & {
+    emit(target: string, step: unknown): void;
+    touch(target: string, patch: Record<string, unknown>): void;
+  };
+  const answer = hooks.answer.bind(socket);
+  hooks.answer = (method, params) =>
+    method === "session/prompt" ? new Promise(() => undefined) : answer(method, params);
+  let snapshot: {
+    rows: Row[];
+    isWorking?: boolean;
+    summary?: unknown;
+    queue?: Array<{ id: string; sending?: boolean }>;
+  } = {
+    rows: [],
+  };
+  let drawnSent = false;
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (next) => {
+      snapshot = next as typeof snapshot;
+      if (snapshot.rows.some((row) => row.kind === "user" && row.text === "look at this")) drawnSent = true;
+    },
+    undefined,
+    () => socket as unknown as WebSocket,
+  );
+  const id = mockHost.sessionId!;
+  const shot = { id: "shot", kind: "image" as const, name: "shot.png", mimeType: "image/png", size: 3, data: "YWJj" };
+  try {
+    await settle(() => snapshot.summary !== undefined);
+    hooks.touch(id, { status: "running", indicator: "working" });
+    await settle(() => snapshot.isWorking === true);
+    void client.send("look at this", [shot], "behind-turn").catch(() => undefined);
+    await settle(() => snapshot.queue?.some((entry) => entry.id === "behind-turn") === true);
+    // acpmux took it: its queue row is the record's, no longer sending.
+    hooks.emit(id, { mux: "queued", msg: { promptId: "behind-turn", text: "look at this" } });
+    await settle(() => snapshot.queue?.find((entry) => entry.id === "behind-turn")?.sending !== true);
+    expect(drawnSent).toBe(false);
+    expect(snapshot.queue?.some((entry) => entry.id === "behind-turn")).toBe(true);
+  } finally {
     client.close?.();
   }
 });

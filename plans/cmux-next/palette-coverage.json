@@ -1,0 +1,74 @@
+{
+  "about": "Reviewed exceptions to palette coverage (scripts/cmux-next/palette-coverage.py; cmuxterm-hq goals/palette-all-actions.md): a CLI or menu action, or a hand-built menu, the command palette needs no row for. Each entry is {surface, name, reason}, the reason one line starting \"keep: \" that says why. inventoried names the lists compared.",
+  "inventoried": [
+    "action",
+    "menu"
+  ],
+  "keep": [
+    {
+      "surface": "menu",
+      "name": "terminalPaste",
+      "reason": "keep: every row runs a palette-offered action: terminalCopy, terminalPaste, terminal.selectAll"
+    },
+    {
+      "surface": "menu",
+      "name": "homeBackground",
+      "reason": "keep: every row runs a palette-offered action: home.newMessage, home.newChief, home.createChannel, home.invite, home.inviteToTeam, home.showHiddenConversations, openTeamPicker"
+    },
+    {
+      "surface": "menu",
+      "name": "browserReload",
+      "reason": "keep: every row runs a palette-offered action: browserReload, browserHardReload"
+    },
+    {
+      "surface": "menu",
+      "name": "browserMachineBadge",
+      "reason": "keep: its one row is browser.openOnMachine, palette-offered"
+    },
+    {
+      "surface": "menu",
+      "name": "browserProfileLink",
+      "reason": "keep: a row per browser profile; the palette's browserProfile.openLink picks the same profile"
+    },
+    {
+      "surface": "menu",
+      "name": "bookmarkFolder",
+      "reason": "keep: a row per bookmark; the palette's bookmark.open lists the same bookmarks, and bookmark.openAll opens a folder"
+    },
+    {
+      "surface": "menu",
+      "name": "browserMedia",
+      "reason": "keep: a card per media tab; the palette's browser.media.show lists them and tab.focus shows one"
+    },
+    {
+      "surface": "menu",
+      "name": "browserDevice",
+      "reason": "keep: device choices; the palette's browserDevice (Emulate Device) offers the same list"
+    },
+    {
+      "surface": "menu",
+      "name": "titlebarHistory",
+      "reason": "keep: location rows; the palette's recentlyFocused (Location History), history.reopen and history.show cover them"
+    },
+    {
+      "surface": "menu",
+      "name": "debugSidebarToggleIcon",
+      "reason": "keep: Debug-only icon choices; the same tunable is a Debug setting row in the palette (DebugSettingsService)"
+    },
+    {
+      "surface": "action",
+      "name": "import.list",
+      "reason": "keep: an agent's read of the import cards it may suggest (`cmux import list`); a person imports with the palette's Import from Browser (importFromBrowser)"
+    },
+    {
+      "surface": "action",
+      "name": "import.card",
+      "reason": "keep: an agent presses an import card's button by id (`cmux import card`); a person presses the card itself, and the palette's Import from Browser does the import"
+    },
+    {
+      "surface": "action",
+      "name": "import.suggest",
+      "reason": "keep: an agent asks to show a site's cookie import card (`cmux import suggest`); a person imports with the palette's Import from Browser (importFromBrowser)"
+    }
+  ]
+}

@@ -3,8 +3,11 @@
 // that made the frame, its time and the position ("4 of 12"); the filmstrip under it shows every
 // frame and opens one on a click. The split layout shows it inline; the timeline and grid open it
 // over the page (FrameDialog). Frames load lazily through the host and stay bounded: the viewer
-// keeps the shown frame and its two neighbours, the filmstrip only the thumbnails in view.
-import { createContext, use, useEffect, useRef, useState } from "react";
+// keeps the shown frame and its two neighbours, the filmstrip only the thumbnails in view. A frame
+// whose full size is still on its way shows its thumbnail in the same place, so the stage is never
+// blank. Dragging across the frame or the filmstrip scrubs through the frames, and Full Screen (F)
+// fills the page with the viewer until Escape or the button again.
+import { createContext, use, useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { Dialog } from "../ui/Dialog";
 import { keyedIconProps } from "../ui/DialogButton";
 import {
@@ -69,16 +72,30 @@ function useInView(): [(element: Element | null) => void, boolean] {
 
 /** Left / Right (Home / End) step the shown frames wherever focus is not in a field or a control that
  * moves with the arrows: in the split layout and in the dialog over the timeline or grid alike (only
- * one viewer is ever shown). A chord stays the host's. */
-function useFrameKeys(step: (delta: number) => void) {
-  const latest = useRef(step);
-  latest.current = step;
+ * one viewer is ever shown). F turns Full Screen on or off and Escape leaves it. A chord stays the
+ * host's. */
+function useFrameKeys(step: (delta: number) => void, full: boolean, setFull: ((on: boolean) => void) | undefined) {
+  const latest = useRef({ step, full, setFull });
+  latest.current = { step, full, setFull };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || ownsArrows(event.target)) return;
+      const chord = event.metaKey || event.ctrlKey || event.altKey;
+      const { setFull } = latest.current;
+      if (!chord && setFull && (event.key === "f" || event.key === "F")) {
+        event.preventDefault();
+        setFull(!latest.current.full);
+        return;
+      }
+      if (!chord && event.key === "Escape" && latest.current.full) {
+        event.preventDefault();
+        setFull?.(false);
+        return;
+      }
       const delta = frameKeyStep(event);
-      if (delta === undefined || event.defaultPrevented || ownsArrows(event.target)) return;
+      if (delta === undefined) return;
       event.preventDefault();
-      latest.current(delta);
+      latest.current.step(delta);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -148,6 +165,37 @@ function Chevron({ back }: { back?: boolean }) {
   );
 }
 
+function FullGlyph({ exit }: { exit?: boolean }) {
+  return (
+    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+      <path d={exit ? "M6.5 2.5v4h-4m7-4v4h4m-7 7v-4h-4m7 4v-4h4" : "M2.5 6.5v-4h4m3 0h4v4m-11 3v4h4m3 0h4v-4"} />
+    </svg>
+  );
+}
+
+/** Dragging across the frame scrubs through the frames: right goes later, left earlier, a frame per
+ * step of the stage's width over the frame count (at least 12 px, at most 80 px). */
+function useDragScrub(count: number, index: number, goTo: (index: number) => void) {
+  const drag = useRef<{ x: number; from: number; perFrame: number } | undefined>(undefined);
+  const end = () => {
+    drag.current = undefined;
+  };
+  return {
+    onPointerDown(event: PointerEvent<HTMLElement>) {
+      if (event.button !== 0 || count < 2) return;
+      const width = event.currentTarget.clientWidth || 0;
+      drag.current = { x: event.clientX, from: index, perFrame: Math.min(Math.max(width / count, 12), 80) };
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+    },
+    onPointerMove(event: PointerEvent<HTMLElement>) {
+      const start = drag.current;
+      if (start) goTo(start.from + Math.round((event.clientX - start.x) / start.perFrame));
+    },
+    onPointerUp: end,
+    onPointerCancel: end,
+  };
+}
+
 function CloseGlyph() {
   return (
     <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
@@ -186,12 +234,19 @@ function Filmstrip({
   useEffect(() => {
     current.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, [index]);
+  // A press dragged along the strip shows each frame it passes over.
+  const scrub = (event: PointerEvent<HTMLElement>) => {
+    if (!(event.buttons & 1) || !(event.target instanceof Element)) return;
+    const film = event.target.closest<HTMLElement>("[data-at]");
+    if (film) onPick(Number(film.dataset.at));
+  };
   return (
-    <div className="filmstrip">
+    <div className="filmstrip" onPointerMove={scrub}>
       {frames.map((event, at) => (
         <button
           key={event.seq}
           type="button"
+          data-at={at}
           ref={at === index ? current : undefined}
           className={`film ${event.ok ? "" : "bad"}`}
           aria-current={at === index || undefined}
@@ -226,21 +281,43 @@ export function FrameViewer({
   const frame = event && displayFrame(event);
   const images = useFrameWindow(frames, index, session.id);
   const src = frame && images.get(`${session.id}|${frame.blob}`);
+  // The thumbnail stands in only while the full frame is on its way.
+  const thumb = useFrameImage(frame, "thumb", session.id, !src);
+  const full = state.fullFrame === true;
+  const setFull = (on: boolean) => {
+    if (event || !on) dispatch({ type: "full", on });
+  };
   const goTo = (target: number) => {
     const next = frames[Math.min(Math.max(target, 0), frames.length - 1)];
     if (next && next.seq !== event?.seq) dispatch({ type: "scrub", seq: next.seq });
   };
   const step = (delta: number) => goTo(index + delta);
-  useFrameKeys(step);
+  // With no frame there is nothing to fill the page with, so F stays a plain key (unless it is on).
+  useFrameKeys(step, full, event || full ? setFull : undefined);
+  const drag = useDragScrub(frames.length, index, goTo);
+  const shownSrc = src ?? thumb;
+  // The frame's own shape, fitted in the stage at no more than its own width: the thumbnail and the
+  // full frame fill the same box, so nothing moves when the full one arrives.
+  const box: CSSProperties | undefined =
+    frame && frame.width > 0 && frame.height > 0
+      ? ({ "--frame-ratio": frame.width / frame.height, "--frame-width": `${frame.width}px` } as CSSProperties)
+      : undefined;
+  const image = event && shownSrc && (
+    <img src={shownSrc} alt={stepLabel(event, strings)} draggable={false} data-placeholder={!src || undefined} />
+  );
   return (
-    <div className="viewer" data-inline={!onClose || undefined}>
-      <div className="viewer-stage">
+    <div className="viewer" data-inline={!onClose || undefined} data-full={full || undefined}>
+      <div className="viewer-stage" data-scrubs={frames.length > 1 || undefined} {...drag}>
         {!event ? (
           <span className="viewer-empty">{strings.noFrames}</span>
         ) : frame?.expired ? (
           <span className="viewer-empty">{strings.noFrame}</span>
-        ) : src ? (
-          <img src={src} alt={stepLabel(event, strings)} draggable={false} />
+        ) : image && box ? (
+          <span className="viewer-frame" style={box}>
+            {image}
+          </span>
+        ) : image ? (
+          image
         ) : (
           <span className="viewer-loading" aria-busy="true" />
         )}
@@ -277,6 +354,19 @@ export function FrameViewer({
               {positionText(index, frames.length, strings)}
             </span>
           )}
+          {event && (
+            <button
+              type="button"
+              className="viewer-button"
+              aria-pressed={full}
+              aria-label={full ? strings.exitFullScreen : strings.fullScreen}
+              aria-keyshortcuts="F"
+              title={`${full ? strings.exitFullScreen : strings.fullScreen} F`}
+              onClick={() => setFull(!full)}
+            >
+              <FullGlyph exit={full} />
+            </button>
+          )}
           {onClose && (
             <button
               type="button"
@@ -310,7 +400,8 @@ export function FrameDialog({
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open) dispatch({ type: "close" });
+        // Escape leaves Full Screen first; the next one closes the viewer.
+        if (!open) dispatch(state.fullFrame ? { type: "full", on: false } : { type: "close" });
       }}
       label={`${session.agentName} · ${session.label}`}
       className="ui-glass ui-glass-floats activity-viewer-dialog"

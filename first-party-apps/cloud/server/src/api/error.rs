@@ -16,8 +16,18 @@ pub mod codes {
     pub const PLAN_REQUIRED: &str = "cmux.cloud.plan_required";
     /// `cloud.quota.exceeded`: `details` carries `{limit, used}`.
     pub const QUOTA_EXCEEDED: &str = "cmux.cloud.quota_exceeded";
+    /// `cloud.quota.vm_limit` (cmux-platform#1192): the team holds its provider's VM limit, paused
+    /// machines included; `details` carries `{limit, team_vms, orphans, oldest_vm_age_s}`. Final
+    /// until a machine is deleted.
+    pub const VM_LIMIT: &str = "cmux.cloud.vm_limit";
     /// `cloud.size.locked`: the size needs another plan.
     pub const SIZE_LOCKED: &str = "cmux.cloud.size_locked";
+    /// `cloud.spend_cap.reached`: the team reached its spending cap; `details`
+    /// carries `{spent_usd, cap_usd, period_end, pause_at}`. An admin raises it.
+    pub const SPEND_CAP_REACHED: &str = "cmux.cloud.spend_cap_reached";
+    /// `cloud.member_budget.reached`: the member spent their monthly budget;
+    /// `details` carries `{spent_usd, limit_usd}`. An admin raises it.
+    pub const MEMBER_BUDGET_REACHED: &str = "cmux.cloud.member_budget_reached";
     /// `cloud.provider.unavailable` (retryable).
     pub const PROVIDER_UNAVAILABLE: &str = "cmux.cloud.provider_unavailable";
     /// `cloud.machine.not_bound`: still provisioning, no host yet.
@@ -106,7 +116,10 @@ const WIRE_CODES: &[(&str, &str)] = &[
     ("owner.unreachable", codes::UPSTREAM),
     ("cloud.plan.required", codes::PLAN_REQUIRED),
     ("cloud.quota.exceeded", codes::QUOTA_EXCEEDED),
+    ("cloud.quota.vm_limit", codes::VM_LIMIT),
     ("cloud.size.locked", codes::SIZE_LOCKED),
+    ("cloud.spend_cap.reached", codes::SPEND_CAP_REACHED),
+    ("cloud.member_budget.reached", codes::MEMBER_BUDGET_REACHED),
     ("cloud.provider.unavailable", codes::PROVIDER_UNAVAILABLE),
     ("cloud.machine.not_bound", codes::NOT_BOUND),
     ("cloud.machine.paused", codes::MACHINE_PAUSED),
@@ -204,3 +217,85 @@ impl std::fmt::Display for CloudError {
 }
 
 impl std::error::Error for CloudError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// The team's spending cap refuses a member's start (cmux-platform
+    /// SpendCap.ts): each op that starts a machine declares both codes, which
+    /// map to their own server codes with the backend's details kept.
+    #[test]
+    fn spend_refusals_keep_their_code_and_details() {
+        let details =
+            json!({ "spent_usd": 503.1, "cap_usd": 500.0, "period_end": 1, "pause_at": null });
+        for op in [
+            "cloud.machine.create",
+            "cloud.machine.start",
+            "cloud.snapshot.restore",
+            "cloud.environment.build",
+            "cloud.environment.boot",
+        ] {
+            let cap = CloudError::from_wire_for(
+                op,
+                &WireError {
+                    code: "cloud.spend_cap.reached".into(),
+                    message: "this team has reached its spending cap; an admin can raise it".into(),
+                    details: Some(details.clone()),
+                    retryable: false,
+                },
+            );
+            assert_eq!(cap.code, codes::SPEND_CAP_REACHED, "{op}");
+            assert_eq!(cap.details.as_ref(), Some(&details), "{op}");
+            assert!(!cap.retryable, "{op}");
+            let budget = CloudError::from_wire_for(
+                op,
+                &WireError {
+                    code: "cloud.member_budget.reached".into(),
+                    message: "you have spent your monthly budget".into(),
+                    details: None,
+                    retryable: false,
+                },
+            );
+            assert_eq!(budget.code, codes::MEMBER_BUDGET_REACHED, "{op}");
+        }
+    }
+
+    /// The team's VM limit (cmux-platform#1192) keeps its own code, final, with the held VMs.
+    #[test]
+    fn the_vm_limit_keeps_its_code_and_details() {
+        let details = json!({ "limit": 20, "team_vms": 20, "orphans": 3, "oldest_vm_age_s": 60 });
+        let error = CloudError::from_wire(&WireError {
+            code: "cloud.quota.vm_limit".into(),
+            message: "this team has its limit of 20 machines (paused ones count)".into(),
+            details: Some(details.clone()),
+            retryable: false,
+        });
+        assert_eq!(error.code, codes::VM_LIMIT);
+        assert_eq!(error.upstream_code.as_deref(), Some("cloud.quota.vm_limit"));
+        assert_eq!(error.details.as_ref(), Some(&details));
+        assert!(!error.retryable);
+        // On the /v1/ops path each op that makes or starts a VM declares it, so it is never a
+        // protocol error there.
+        for op in [
+            "cloud.machine.create",
+            "cloud.machine.start",
+            "cloud.snapshot.restore",
+            "cloud.environment.build",
+            "cloud.environment.boot",
+        ] {
+            let error = CloudError::from_wire_for(
+                op,
+                &WireError {
+                    code: "cloud.quota.vm_limit".into(),
+                    message: "this team has its limit of 20 machines (paused ones count)".into(),
+                    details: Some(details.clone()),
+                    retryable: false,
+                },
+            );
+            assert_eq!(error.code, codes::VM_LIMIT, "{op}");
+            assert_eq!(error.details.as_ref(), Some(&details), "{op}");
+        }
+    }
+}

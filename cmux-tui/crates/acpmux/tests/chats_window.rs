@@ -215,7 +215,7 @@ async fn a_window_over_three_thousand_chats_is_sorted_filtered_and_one_change_is
 }
 
 /// acpmux groups its own index into each harness's project folders (`_acpmux/chat_projects`), so
-/// the app relays a few rows to the cmux daemon instead of walking every chat.
+/// the cmux daemon reads a few rows instead of walking every chat.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn chat_projects_are_each_folder_with_its_newest_chat() {
     const N: usize = 120;

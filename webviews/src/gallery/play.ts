@@ -36,6 +36,8 @@ export type PlayContext = {
   /** Opens a point-anchored context menu with a trusted right-click in the matrix runner. */
   contextMenu(target: PlayTarget): Promise<void>;
   hover(target: PlayTarget): Promise<void>;
+  /** Focuses `target` as a key would: the element's own `:focus-visible` decides its ring, which
+   * the focus-ring owner lets show (ui/focusModality.ts). */
   focus(target: PlayTarget): Promise<void>;
   /** Moves a scroll container to an absolute offset or one of its edges. */
   scroll(target: PlayTarget, position: number | "top" | "bottom"): Promise<void>;
@@ -130,6 +132,8 @@ export type StepReport = {
   boxMoves?: BoxMove[];
   /** Durations in ms of the frames over 16.7 ms. */
   longFrames: number[];
+  /** Where the first `LONG_FRAME_PARTS` long frames' time went (`longFramePart`), where the engine says; never judged. */
+  longFrameParts?: string[];
   frameSource: "long-animation-frame" | "raf";
   status: "pass" | "warn" | "fail";
   problems: string[];
@@ -177,6 +181,89 @@ export function judgePopups(popups: PopupMeasure[], viewport: { width: number; h
       );
   }
   return problems;
+}
+
+/** What the stage reads of a Long Animation Frames entry (Chromium's `PerformanceLongAnimationFrameTiming`). */
+export type LongFrameEntry = {
+  startTime: number;
+  duration: number;
+  /** When the frame's rendering began; 0 when it rendered nothing. */
+  renderStart?: number;
+  /** When its style and layout began; 0 when it did none. */
+  styleAndLayoutStart?: number;
+  /** The scripts that ran 5 ms or more in the frame. */
+  scripts?: {
+    invoker?: string;
+    sourceURL?: string;
+    sourceFunctionName?: string;
+    duration: number;
+    forcedStyleAndLayoutDuration?: number;
+  }[];
+};
+
+const ms = (value: number) => `${value.toFixed(1)} ms`;
+
+/** The most long frames of one step that the report says the parts of (`StepReport.longFrameParts`). */
+export const LONG_FRAME_PARTS = 5;
+
+/** The most characters of a script's caller in a long frame's line. */
+const CALLER_CHARS = 80;
+
+/**
+ * A script's caller for a log line. The engine names a whole script by its URL, and a listener on an
+ * element by the element's `src`: a URL keeps its file name only (no path of the machine, no query),
+ * a `data:` URL keeps its scheme only, and the text has a bound.
+ */
+function caller(invoker: string): string {
+  const text = invoker
+    .replace(/data:[^\]\s]*/g, "data:…")
+    .replace(/[a-z][a-z0-9+.-]*:\/\/[^\]\s]*/gi, (url) => url.replace(/[?#].*$/, "").replace(/^.*\//, "") || url);
+  return text.length > CALLER_CHARS ? `${text.slice(0, CALLER_CHARS)}…` : text;
+}
+
+/**
+ * Whether a long frame is a step's: it ended after the step began. The engine reports a frame after
+ * it ends, so a step's observer also hears a frame that ended before the step (the gallery entry's
+ * own module load): that one is not the step's work, and it is not counted or judged in it. A frame
+ * that began before the step and ended in it is the step's: a step with no driver starts inside a
+ * frame callback, so its own frame begins a little before it.
+ */
+export function frameIsOfStep(entry: { startTime: number; duration: number }, stepStart: number): boolean {
+  return entry.startTime + entry.duration > stepStart;
+}
+
+/**
+ * Where a long frame's time went, for the person who reads a red: the time before its render (tasks:
+ * the handlers of real input, timers, a scheduler's work, and the wait for the display's next
+ * refresh), its frame callbacks, and the time from its style and layout to its end (observers and
+ * paint are in it); when it began against the step's start; and its three longest scripts by who
+ * called them. A step with no driver starts inside the frame callback that ended the last settle, so
+ * its own handlers read as frame callbacks and its frame begins a little before the step. A frame
+ * that began one frame or more before the step carries work that is not the step's: read the
+ * scripts. A diagnosis only: `judgeStep` reads `longFrames`.
+ */
+export function longFramePart(entry: LongFrameEntry, stepStart: number): string {
+  const end = entry.startTime + entry.duration;
+  const render = entry.renderStart || end;
+  const layout = entry.styleAndLayoutStart || end;
+  const began = entry.startTime - stepStart;
+  const scripts = [...(entry.scripts ?? [])].sort((a, b) => b.duration - a.duration);
+  const named = scripts.slice(0, 3).map((script) => {
+    const source = [script.sourceFunctionName, script.sourceURL?.replace(/[?#].*$/, "").replace(/^.*\//, "")]
+      .filter(Boolean)
+      .join(" in ");
+    const forced = script.forcedStyleAndLayoutDuration
+      ? `, ${ms(script.forcedStyleAndLayoutDuration)} of it forced style and layout`
+      : "";
+    return `${script.invoker ? caller(script.invoker) : "a script"}${source ? ` (${source})` : ""} ${ms(script.duration)}${forced}`;
+  });
+  return [
+    `${ms(entry.duration)}: ${ms(render - entry.startTime)} before its render, ${ms(layout - render)} frame callbacks, ${ms(end - layout)} from style and layout on`,
+    `began ${ms(Math.abs(began))} ${began < 0 ? "before" : "after"} the step's start`,
+    scripts.length
+      ? `scripts ${ms(scripts.reduce((sum, script) => sum + script.duration, 0))}: ${named.join(", ")}`
+      : "no script of 5 ms or more",
+  ].join("; ");
 }
 
 export function rectDelta(before: Rect | null, after: Rect | null): number {

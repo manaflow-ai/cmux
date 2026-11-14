@@ -109,6 +109,7 @@ impl App {
                 }
                 self.refresh_cell_pixels();
                 self.render_states.clear();
+                self.synchronized_output.clear();
                 self.sidebar_plugin_surface = None;
                 Ok(RenderAction::Draw)
             }

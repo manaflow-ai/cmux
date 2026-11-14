@@ -3,6 +3,7 @@ import { JSDOM } from "jsdom";
 import { measureRailDrag, railDragTargetPainted } from "../../bench/thread-rail-drag.adapter";
 import { RAIL_DRAG_PAGE } from "./actions";
 import { aggregateAdapterAction } from "./adapter-measure";
+import { settleReact } from "../support/domTeardown";
 type Page = Parameters<typeof railDragTargetPainted>[0];
 
 const dom = new JSDOM(
@@ -27,7 +28,8 @@ beforeAll(() => {
   transcript.getBoundingClientRect = () => rect(100, 50, 700, 500);
   bubble.getBoundingClientRect = () => bubbleBox;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, existed] of [
     ["window", saved.hadWindow],
     ["document", saved.hadDocument],

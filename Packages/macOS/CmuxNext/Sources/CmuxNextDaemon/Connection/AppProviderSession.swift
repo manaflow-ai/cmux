@@ -54,6 +54,15 @@ public nonisolated final class AppProviderSession: Sendable {
             AgentInventoryProviderChangedRequest(demandSequence: sequence), timeout: .seconds(15))
     }
 
+    /// Tells readable app subscribers that one registered family changed (`<family>.changed`).
+    /// - Parameter family: A family this carrier registered.
+    /// - Throws: Missing capability, refusal (the family is not this carrier's) or transport failure.
+    public func changed(family: String) async throws {
+        try AppsProviderChangedRequest.requireServed(by: ready.identity)
+        _ = try await DaemonRequestExecutor(transport: ready.transport).perform(
+            AppsProviderChangedRequest(family: family), timeout: .seconds(15))
+    }
+
     /// Answers a routed call on its original provider transport, even after reconnect.
     /// - Parameters:
     ///   - requestID: The supervisor request on this captured carrier.

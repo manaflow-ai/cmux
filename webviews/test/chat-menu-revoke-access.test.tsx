@@ -14,6 +14,7 @@ import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import { configureQuickActions } from "../src/agent-session/acpmux/header/quickActions";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -62,6 +63,7 @@ afterEach(async () => {
   resetSessionInfoState();
   configureQuickActions({});
   setHeaderState({ inspector: false });
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

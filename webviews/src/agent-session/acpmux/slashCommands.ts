@@ -263,7 +263,7 @@ function mapCommandWords(text: string, visit: (word: string, start: number) => s
 
 /// Where `text`'s first word starts, as send reads the prompt: past spaces, line breaks and the
 /// attachments placed in it (U+FFFC, an id, U+FFFC), which send takes out.
-function promptStart(text: string): number {
+export function promptStart(text: string): number {
   let at = 0;
   while (at < text.length) {
     if (/\s/.test(text[at]!)) at++;

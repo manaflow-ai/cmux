@@ -48,6 +48,7 @@ final class MacScreenChromeActions {
     var setQuality: (ScreenQuality) -> Void = { _ in }
     var toggleStats: () -> Void = {}
     var refresh: () -> Void = {}
+    var fullScreen: () -> Void = {}
     var sendKeys: (MacScreenShortcut) -> Void = { _ in }
     var focusScreen: () -> Void = {}
     /// A device hub tab: ask the host for a session of this scope.

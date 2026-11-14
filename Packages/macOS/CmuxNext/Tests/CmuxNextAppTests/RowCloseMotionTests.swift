@@ -57,7 +57,8 @@ struct RowCloseMotionTests {
         let firstStep = after.minY - before.minY, travel = shown.minY - before.minY
         #expect(abs(travel) > 100, "the middle row did not travel: \(before) -> \(shown)")
         #expect(firstStep * travel > 0, "the close's frame did not start the shift: \(before) -> \(after)")
-        #expect(abs(firstStep) < abs(travel) * 0.1, "closing a row jumped the surviving pane: \(before) -> \(after)")
+        // The split spring (0.085 s) moves about 13% in its first 120 Hz frame; a jump is the whole travel.
+        #expect(abs(firstStep) < abs(travel) * 0.15, "closing a row jumped the surviving pane: \(before) -> \(after)")
         #expect(screen.bounds.insetBy(dx: -0.5, dy: -0.5).contains(shown), "the middle row rested off screen: \(shown)")
         #expect(abs(screen.rowOffset(of: "middle") - 400) < 0.5)
         #expect(!screen.hasMotion)

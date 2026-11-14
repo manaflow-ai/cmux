@@ -97,37 +97,70 @@ fn deadline_fanout_workers_are_lazy_and_reclaim_idle_threads() {
     assert!(inner.upgrade().is_none(), "dropped fanout pool retained its executor state");
 }
 
+/// The proof is an order, not a time. The operation blocks on a gate that only this test opens, and the test
+/// opens it only after the fanout's result arrived. So a result can arrive only when the fanout stops waiting at
+/// its deadline; a fanout that joins the operation never returns here. The 30 s receive is the test's safety
+/// limit, not a budget: before, the result had to arrive in 150 ms (a thread start, the 30 ms deadline and a
+/// wake), and a loaded host missed that window with a correct fanout.
 #[test]
 fn cell_pixel_fanout_returns_when_an_operation_ignores_its_deadline() {
-    let gate = Arc::new((Mutex::new(false), Condvar::new()));
-    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    let caller_gate = gate.clone();
-    let caller = std::thread::spawn(move || {
-        let pool = DeadlineFanoutPool::new();
-        let items = vec![1_u8];
-        let deadline = Instant::now() + Duration::from_millis(30);
-        let results = bounded_deadline_map(&pool, &items, deadline, move |item, _| {
-            let (released, changed) = &*caller_gate;
-            let mut released = released.lock().unwrap();
-            while !*released {
-                released = changed.wait(released).unwrap();
-            }
-            *item
+    const SAFETY_LIMIT: Duration = Duration::from_secs(30);
+    // A host can stop the caller past a deadline before the fanout admits the operation. Then the fanout ran
+    // nothing (`Unscheduled`) and that turn proves nothing, so the next turn has a longer deadline. A fanout
+    // that joins fails in the turn where it joins: no turn repeats after a failed check.
+    for deadline_ms in [30_u64, 120, 480, 1_920, 7_680] {
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let caller_gate = gate.clone();
+        let operation_calls = calls.clone();
+        let caller = std::thread::spawn(move || {
+            let pool = DeadlineFanoutPool::new();
+            let items = vec![1_u8];
+            let deadline = Instant::now() + Duration::from_millis(deadline_ms);
+            let results = bounded_deadline_map(&pool, &items, deadline, move |item, _| {
+                operation_calls.fetch_add(1, Ordering::AcqRel);
+                let (released, changed) = &*caller_gate;
+                let mut released = released.lock().unwrap();
+                while !*released {
+                    released = changed.wait(released).unwrap();
+                }
+                *item
+            });
+            let _ = sender.send(results);
         });
-        let _ = sender.send(results);
-    });
 
-    let returned_before_release = receiver.recv_timeout(Duration::from_millis(150)).is_ok();
-    {
-        let (released, changed) = &*gate;
-        *released.lock().unwrap() = true;
-        changed.notify_all();
+        // The gate is closed for all of this receive.
+        let returned = receiver.recv_timeout(SAFETY_LIMIT);
+        let calls_at_return = calls.load(Ordering::Acquire);
+        {
+            let (released, changed) = &*gate;
+            *released.lock().unwrap() = true;
+            changed.notify_all();
+        }
+        caller.join().unwrap();
+
+        let Ok(results) = returned else {
+            panic!(
+                "the fanout did not return in {SAFETY_LIMIT:?} while its operation was blocked: it joined the \
+                 operation after the shared deadline (or the host stopped this test for that long)"
+            );
+        };
+        match results.as_slice() {
+            // Admitted and not complete at the deadline: the caller has the result while the operation is
+            // blocked (or not started yet), and can take the value later.
+            [DeadlineMapResult::Pending(_)] => return,
+            [DeadlineMapResult::Unscheduled] => {
+                assert_eq!(calls_at_return, 0, "an operation that the fanout did not admit ran");
+            }
+            [DeadlineMapResult::Complete(_)] => {
+                panic!("the operation completed while its gate was closed")
+            }
+            _ => panic!("one item gives one result, not {}", results.len()),
+        }
     }
-    caller.join().unwrap();
-
-    assert!(
-        returned_before_release,
-        "fanout joined an operation after its shared deadline elapsed"
+    panic!(
+        "the host passed each deadline, the last one 7.68 s, before the fanout admitted the operation"
     );
 }
 

@@ -6,10 +6,21 @@
 /// single place to extend when a command adds a boolean option. This is the
 /// same distinction Clap models with `ArgAction::SetTrue`, while retaining
 /// cmux's custom forwarding and error text.
+/// Flags that are a switch for one command and take a value for another:
+/// `pane <p> split --right --fit` (a column that shares the window) and
+/// `tab <t> emulate --fit 16:9`. Such a flag takes the next word as its value
+/// only when one follows that is not itself a flag, so `split --right --fit`
+/// and `split --right --fit --json` read it as a switch.
+pub(super) const SWITCH_OR_VALUE_FLAGS: &[&str] = &["fit"];
+
 pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "ack",
+    // `terminal <t> screen read --details`: the screen record's fields, not its text alone.
+    "details",
     // `cloud kill-machine --confirm`: without this it would swallow a following `--json`.
     "confirm",
+    // `settings reset PATH --yes` (`--confirm`'s new spelling): it must not swallow a `--json`.
+    "yes",
     // `setup trust --dry-run`: plan only; without this it would swallow a following `--json`.
     "dry-run",
     // `workspace create --no-focus`: accepted and ignored (creation does not
@@ -17,6 +28,12 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "no-focus",
     // `agent list`: only the agents waiting on the person.
     "needs-me",
+    // `terminal list --agents`: without this it would swallow a following `--json`.
+    "agents",
+    // `pane <p> move --new-screen|--new-tab`: without this it would swallow a
+    // following `--help` or `--json`.
+    "new-screen",
+    "new-tab",
     // `agent list --json`: the agents and their counts by state.
     "counts",
     // `agent message release`: the person's decision on a held message.
@@ -102,6 +119,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "unwrap",
     // `terminal screen wait --new`: only output printed from now on matches.
     "new",
+    // `terminal <t> close --if-unplaced`: end it only when nothing shows it.
+    "if-unplaced",
 ];
 
 /// `--name` ends the command without a value: it needs one, or it is no

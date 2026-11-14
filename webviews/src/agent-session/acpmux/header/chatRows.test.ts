@@ -20,11 +20,33 @@ test("Move to machine lists the host's Cloud targets and Bring Back Local", () =
     { moveTo: (id) => moved.push(id), bringBack: () => back++ },
     t,
   );
-  expect(row?.label).toBe("chatMenu.moveToMachine");
+  expect(row?.label).toBe("composer.moveToMenu");
   expect(row?.children?.map((child) => child.label)).toEqual(["Build Mac", "Review Mac", "composer.bringBackLocal"]);
   for (const child of row?.children ?? []) child.onSelect();
   expect(moved).toEqual(["a", "b"]);
   expect(back).toBe(1);
+});
+
+test("Move to… on a Cloud chat lists this Mac and the other machines, and greyed targets are left out", () => {
+  const moved: string[] = [];
+  const row = moveMachineRow(
+    {
+      move: false,
+      bringBack: true,
+      targets: [
+        { id: "local", label: "", kind: "local" },
+        { id: "vm-b", label: "gpu-box", kind: "cloud" },
+        { id: "vm-c", label: "busy-box", kind: "cloud", reason: "Paused" },
+      ],
+    },
+    { moveTo: (id) => moved.push(id), bringBack: () => moved.push("bringBack") },
+    t,
+  );
+  expect(row?.label).toBe("composer.moveToMenu");
+  // This Mac is a target: Bring Back Local is not listed twice.
+  expect(row?.children?.map((child) => child.label)).toEqual(["composer.thisMac", "gpu-box"]);
+  for (const child of row?.children ?? []) child.onSelect();
+  expect(moved).toEqual(["local", "vm-b"]);
 });
 
 test("a Cloud chat's only move is named for itself, and nowhere to move draws no row", () => {

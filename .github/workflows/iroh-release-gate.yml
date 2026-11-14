@@ -18,7 +18,9 @@ jobs:
       ref: ${{ inputs.ref }}
 
   runner:
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     # Offers the Tailscale version-skew job to the owned Macs. It runs
     # e2e_runner_pool.py, the owned-pool picker: an owned pool on the lane's
     # Xcode pin while CI_PR_POOL_OWNED is 1 and a machine is free now (no
@@ -52,7 +54,9 @@ jobs:
             scripts/ci/e2e_runner_pool.py
             scripts/ci/pr_runner_pool.py
             scripts/ci/github_spend.py
+            scripts/ci/deadline_http.py
             scripts/ci/simple_pool_picker.py
+            scripts/ci/warm_distance.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
 

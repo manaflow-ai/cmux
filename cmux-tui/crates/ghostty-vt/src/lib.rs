@@ -38,14 +38,14 @@ pub use kitty::{
     MAX_KITTY_IMAGE_BYTES, MAX_KITTY_IMAGES, MAX_KITTY_PLACEMENTS,
     kitty_inflight_replay_limit_for_image_bytes,
 };
-pub use kitty_replay::KittyReplayStats;
 pub use mouse::{
     MouseAction, MouseButton, MouseEncoder, MouseEncoders, MouseInput, MouseWireFormat,
 };
 pub use render::{
     ATTR_BLINK, ATTR_BOLD, ATTR_FAINT, ATTR_INVERSE, ATTR_INVISIBLE, ATTR_ITALIC,
     ATTR_STRIKETHROUGH, Cell, CellWidth, ColorSpec, CursorInfo, CursorShape, Dirty,
-    KittyGraphicsFrameDelta, RenderFrame, RenderState, StyledRun, UnderlineStyle, rows_to_runs,
+    KittyGraphicsFrameDelta, RenderFrame, RenderRow, RenderState, StyledRun, UnderlineStyle,
+    rows_to_runs,
 };
 pub use screen_text::{ScreenRowText, ScreenSearch, ScreenTextCell};
 pub use snapshot::{

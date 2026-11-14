@@ -1,5 +1,9 @@
 # CmuxTabsKit
 
+> This package lives in feat-cmux-next (`Packages/iOS/`), the only copy since
+> 2026-11-11. Change it here; the old upstream branch is frozen.
+
+
 CmuxTabsKit gives an iOS 26+ SwiftUI app a Mobile Safari style tab
 experience for any tab content: web pages, terminals, notes, or anything else.
 It came out of the cmux-next iOS browser and has no dependency on cmux

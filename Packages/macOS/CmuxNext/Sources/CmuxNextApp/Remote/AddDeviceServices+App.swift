@@ -24,8 +24,7 @@ extension AddDeviceServices {
             addComputer: { [weak services] address, name in
                 guard let services else { return }
                 let card = services.addMachine
-                card.open(destination: address, name: name, over: NSApp.mainWindow)
-                card.model.perform(.add)
+                card.add(destination: address, name: name, over: NSApp.mainWindow)
                 // task-owner: ends with the enroll this click started
                 Task { @MainActor [weak services] in _ = await card.finished(); await services?.devices.refresh() }
             },
@@ -50,7 +49,6 @@ extension AddDeviceServices {
             copyConcealed: { line in
                 SystemPasswordPasteboard().write(line, markers: [ConcealedPasteboard.concealedType, ConcealedPasteboard.transientType])
             },
-            showMachines: { [weak services] in _ = services?.registry.perform(RightSidebarMode.machines.actionID) },
             signIn: { [weak services] in _ = services?.registry.perform("palette.auth.signIn") },
             // Signed in, the "Any machine" way hands off to Pair Another Machine (the invite code);
             // signed out it keeps the ticket line.

@@ -212,9 +212,10 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
                 if case .hidden(let tab) = services.linkOpener.route(tab: source), services.registry.perform("openBrowser", invocation: .opening(url, behind: tab)) { return }
                 services.externalOpen.perform(.browserTab(url)); return }
             // A link clicked in an agent chat (its chips) reuses the page's tab on the right, as its card's Open does.
-            let fromChat = source.map(services.agentTabs.isAgentTab) ?? false
+            let fromChat = source.map { services.agentTabs.isAgentTab($0) } ?? false
             services.linkOpener.openWeb(url, from: pane, background: background, reusesTab: fromChat)
         }
+        router.openProgramLink = { [weak services] url, source in services?.linkOpener.source(tab: source).map { $0.services.linkOpener.openWeb(url, from: $0, background: true, revealing: true) } ?? false }
     }
 
     /// The tab showing `session`, or nil (the focused pane) for a surface the

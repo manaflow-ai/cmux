@@ -552,3 +552,91 @@ fn raw_socket_report_reaches_the_roster_through_its_journal_echo() {
         .count();
     assert_eq!(echoes, 1);
 }
+
+/// W3-H: an ended session leaves the roster, but the terminal keeps its last
+/// harness session id (and harness) on its snapshot value, so `cmux agent
+/// resume` can bring back an agent that quit.
+#[test]
+fn w3h_an_ended_session_keeps_its_harness_session_id_on_the_terminal() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    let hook = |event: &str| {
+        crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id": "a7fa99e2-fc08-4bca-84f1-95cb4d338f3f"}),
+        )
+        .unwrap()
+    };
+    let terminal_value = |snapshot: &Value| {
+        snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .cloned()
+            .unwrap()
+    };
+    let before = crate::resource_api::public_session_snapshot(&mux).unwrap();
+    assert!(terminal_value(&before).pointer("/extra/agent_session_id").is_none());
+
+    mux.apply_agent_hook_record(&hook("SessionStart"), 1).unwrap();
+    mux.apply_agent_hook_record(&hook("SessionEnd"), 2).unwrap();
+    assert!(settled(&mux).list_agents(Some(surface.id), None).is_empty());
+
+    let after = crate::resource_api::public_session_snapshot(&mux).unwrap();
+    let terminal = terminal_value(&after);
+    assert_eq!(
+        terminal.pointer("/extra/agent_session_id"),
+        Some(&serde_json::json!("a7fa99e2-fc08-4bca-84f1-95cb4d338f3f")),
+        "{terminal}"
+    );
+    assert!(terminal.pointer("/extra/agent").and_then(Value::as_str).is_some(), "{terminal}");
+}
+
+/// W5-R (bench round 4 A6): `daemon restart` lost the harness session ids the
+/// terminals kept (memory only), so an agent that quit before the restart
+/// could not be resumed after it (`agent.no_session`), and a running agent's
+/// row showed no session id until its next turn. The journal's roster keeps
+/// each terminal's hook session; the reopened daemon shows it again.
+#[test]
+fn w5r_kept_harness_session_ids_survive_a_daemon_restart() {
+    let session = "w5r-kept-session";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-w5r-kept-session-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = open_persistent_test_mux(session, &root);
+    let quit = mux.new_workspace(None, None).unwrap().terminal_public_id().cloned().unwrap();
+    let running = mux.new_workspace(None, None).unwrap().terminal_public_id().cloned().unwrap();
+    let quit_session = "a7fa99e2-fc08-4bca-84f1-95cb4d338f3f";
+    let running_session = "102bdca6-3b1f-4e4c-9a51-2f2b1c3d4e5f";
+    append_journal_hook(&mux, &quit, "SessionStart", Some(quit_session));
+    append_journal_hook(&mux, &quit, "SessionEnd", Some(quit_session));
+    append_journal_hook(&mux, &running, "SessionStart", Some(running_session));
+    let _ = settled(&mux);
+    mux.shutdown();
+    drop(mux);
+
+    let reopened = open_persistent_test_mux(session, &root);
+    let _ = settled(&reopened);
+    let snapshot = crate::resource_api::public_session_snapshot(&reopened).unwrap();
+    let kept = |terminal: &TerminalPublicId| {
+        snapshot["terminals"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|value| value["id"] == terminal.as_str())
+            .and_then(|value| value.pointer("/extra/agent_session_id"))
+            .cloned()
+    };
+    assert_eq!(
+        kept(&quit),
+        Some(serde_json::json!(quit_session)),
+        "the agent that quit can be resumed after the restart"
+    );
+    assert_eq!(kept(&running), Some(serde_json::json!(running_session)));
+    reopened.shutdown();
+    drop(reopened);
+    let _ = std::fs::remove_dir_all(root);
+}

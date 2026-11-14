@@ -226,7 +226,14 @@ pub enum Request {
         column: Option<ColumnSpec>,
         #[serde(default)]
         row: Option<RowSpec>,
+        /// `split-around-v1`: the new pane wraps this whole split, whose last pane is
+        /// `target`, instead of splitting `target` alone (Insert New at a divider).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        around: Option<u64>,
     },
+    /// Insert New at the divider of split `split` in `layout` (the tree holding it): the split
+    /// request to send and the divider's new ratio (`divider_insert`).
+    InsertAtDivider { layout: Node, split: u64 },
     /// A lone tab docked into a new leading column holding `leaf`.
     Dock { screen: Screen, leaf: u64, column: ColumnSpec, dock: Value },
     /// A pane taken out of the visible records (a creation the person closed first).
@@ -284,16 +291,26 @@ pub fn respond(request: &Request) -> Value {
         value.map_or(Value::Null, |v| serde_json::to_value(v).unwrap_or(Value::Null))
     }
     match request {
-        Request::Split { screen, target, dir, ratio, leaf, split_id, column, row } => json(split(
-            screen,
-            *target,
-            *dir,
-            *ratio,
-            *leaf,
-            split_id,
-            column.as_ref(),
-            row.as_ref(),
-        )),
+        Request::Split { screen, target, dir, ratio, leaf, split_id, column, row, around } => {
+            json(match around {
+                Some(around) => {
+                    split_around_target(screen, *around, *target, *dir, *ratio, *leaf, split_id)
+                }
+                None => split(
+                    screen,
+                    *target,
+                    *dir,
+                    *ratio,
+                    *leaf,
+                    split_id,
+                    column.as_ref(),
+                    row.as_ref(),
+                ),
+            })
+        }
+        Request::InsertAtDivider { layout, split } => {
+            json(crate::divider_insert::plan(layout, *split))
+        }
         Request::Dock { screen, leaf, column, dock } => {
             json(dock_column(screen, *leaf, column, dock))
         }
@@ -421,6 +438,44 @@ pub fn split(
         columns.push(column);
     }
     Some(Placed { layout, columns, pane_at: after_target(&screen.panes, target) })
+}
+
+/// A split of `target` around the whole split `around` (`split-around-v1`, Insert New at a
+/// divider): every tree that holds `around` (the screen's, its column's, its row's) wraps it, as
+/// cmux-tui's `split_around` does. None when no tree holds `around` with `target` as its last pane.
+fn split_around_target(
+    screen: &Screen,
+    around: u64,
+    target: u64,
+    dir: Dir,
+    ratio: f64,
+    leaf: u64,
+    split_id: &str,
+) -> Option<Placed> {
+    use crate::divider_insert::split_around;
+    let wrap = |node: &Node| split_around(node, around, target, dir, ratio, leaf, split_id);
+    let mut placed = false;
+    let layout = match wrap(&screen.layout) {
+        Some(layout) => {
+            placed = true;
+            layout
+        }
+        None => screen.layout.clone(),
+    };
+    let mut columns = screen.columns.clone();
+    for column in &mut columns {
+        if let Some(wrapped) = wrap(&column.layout) {
+            column.layout = wrapped;
+            placed = true;
+        }
+        for row in &mut column.rows {
+            if let Some(wrapped) = wrap(&row.layout) {
+                row.layout = wrapped;
+                placed = true;
+            }
+        }
+    }
+    placed.then(|| Placed { layout, columns, pane_at: after_target(&screen.panes, target) })
 }
 
 /// New Column (`new-pane-right`, cmux-tui `new_pane_right`): a column holding `leaf` right after
