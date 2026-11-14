@@ -1122,14 +1122,15 @@ async fn reserved_process_stream_delivers_every_byte_to_a_slow_reader() {
     assert_eq!(exit, Some(0));
 }
 
-/// P1-F1 (review of #43048): stdout and stderr have a reader each. Both may
-/// pass the room check at once; each must reserve its chunk, or the second
-/// publishes past the byte limit and evicts output the held reader has not
-/// taken.
+/// P1-F1 (review of #43048): stdout and stderr have a reader each. A read
+/// admitted on one pipe may wait for data while the other fills the log; its
+/// chunk must have been reserved, or it publishes past the byte limit and
+/// evicts output the held reader has not taken.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn reserved_process_stream_keeps_mixed_stdout_and_stderr_for_a_slow_reader() {
-    const EACH: usize = 24 * 1024 * 1024;
+    const STDOUT: usize = 24 * 1024 * 1024;
+    const STDERR: usize = 4 * 1024 * 1024;
 
     let directory = tempdir().unwrap();
     let workspace = WorkspaceService::new();
@@ -1157,11 +1158,12 @@ async fn reserved_process_stream_keeps_mixed_stdout_and_stderr_for_a_slow_reader
     let spawn = WorkspaceRequest::SpawnProcessWithHandle {
         process,
         workspace: workspace_id,
-        // Full chunks on both pipes at once.
+        // The stderr reader is admitted at once and then waits in read()
+        // while stdout fills the log; its first chunk lands on a full log.
         argv: vec![
             "/bin/sh".into(),
             "-c".into(),
-            format!("head -c {EACH} /dev/zero & head -c {EACH} /dev/zero >&2; wait"),
+            format!("(sleep 1; head -c {STDERR} /dev/zero >&2) & head -c {STDOUT} /dev/zero; wait"),
         ],
         cwd: None,
         env: BTreeMap::new(),
@@ -1193,8 +1195,8 @@ async fn reserved_process_stream_keeps_mixed_stdout_and_stderr_for_a_slow_reader
             .await
             .expect("mixed process stream stalled")
             .unwrap_or_else(|error| panic!("after {stdout}+{stderr} bytes: {error}"));
-        // Slower than the child: every taken event lets both readers race.
-        tokio::time::sleep(std::time::Duration::from_micros(500)).await;
+        // Slower than the child, so the log is full when stderr writes.
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         match event.event {
             ProcessEvent::Stdout { data, .. } => stdout += data.decode().unwrap().len(),
             ProcessEvent::Stderr { data, .. } => stderr += data.decode().unwrap().len(),
@@ -1207,7 +1209,7 @@ async fn reserved_process_stream_keeps_mixed_stdout_and_stderr_for_a_slow_reader
             ProcessEvent::Exit { code, .. } => break code,
         }
     };
-    assert_eq!((stdout, stderr), (EACH, EACH));
+    assert_eq!((stdout, stderr), (STDOUT, STDERR));
     assert_eq!(exit, Some(0));
 }
 
