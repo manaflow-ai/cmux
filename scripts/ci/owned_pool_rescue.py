@@ -416,7 +416,6 @@ OWNED_EVERY_ATTEMPT_PATHS = frozenset({
     ".github/workflows/cmux-rd-windows.yml",
     ".github/workflows/macos-cross-parity.yml",
 })
-})
 # cmux-next is the side lane whose placement and retry route are minis-first;
 # other side workflows keep their existing fallback policy.
 CMUX_NEXT_WORKFLOW_PATH = ".github/workflows/cmux-next.yml"
