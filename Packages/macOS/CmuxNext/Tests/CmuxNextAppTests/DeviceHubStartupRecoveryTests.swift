@@ -49,12 +49,14 @@ struct DeviceHubStartupRecoveryTests {
         #expect(shown.devices == .note(try #require(service.settingsModel.state.error)))
         try await clock.waitForSleeper()
         let delay = try #require(clock.sleeperDeadlines.first).offset - clock.now.offset
-        #expect(delay >= .milliseconds(800) && delay <= .milliseconds(1200))
+        // The Rust pacer owns jitter bounds. Here prove the Swift adapter waits
+        // for its injected clock, then retries without a new account event.
+        #expect(count == 1)
+        #expect(clock.sleeperCount == 1)
         clock.advance(by: delay)
         #expect(await events.next() == 2)
         try await clock.waitForSleeper()
-        let second = try #require(clock.sleeperDeadlines.first).offset - clock.now.offset
-        #expect(second >= .milliseconds(1600) && second <= .milliseconds(2400))
+        #expect(clock.sleeperCount == 1)
         service.willSignOut()
         #expect(service.settingsModel.state.error == nil)
         #expect(clock.sleeperCount == 0)
