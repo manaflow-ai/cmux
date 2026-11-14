@@ -113,7 +113,7 @@ impl Supervisor {
                             Err(error) => {
                                 json!({ "handled": false, "app": answered, "error": error.message })
                             }
-                        }))
+                        }));
                     });
                     let key = HostKey { app, preview: false };
                     self.start_run_locked(
