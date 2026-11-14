@@ -2288,7 +2288,9 @@ button.cv-subagent > :last-child {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: color-mix(in srgb, var(--agent-status-success) 70%, var(--agent-muted));
+  /* The line's own muted ink: a line that ended is no success state (Leo, 2026-11-14, on Worked for
+     turning green once done; conversation/finishedInk.test.ts). */
+  color: var(--agent-muted);
 }
 /* In the hat, the time and its check stand one tray gap apart, the gap between a line's time and its
    Stop column (Leo, 2026-11-08, on "47s ✓": "it just feels iffy how it's close the the number"). */
