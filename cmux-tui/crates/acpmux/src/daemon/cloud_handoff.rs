@@ -317,7 +317,7 @@ fn attention_for_record(kind: &str, msg: &Value, session: &str, seq: u64) -> Opt
     let digest = Sha256::digest(format!("{session}\0{key}\0{kind}").as_bytes());
     let event_id =
         format!("attn_{}", digest.iter().take(20).map(|b| format!("{b:02x}")).collect::<String>());
-    Some(json!({
+    let mut event = json!({
         "event_id": event_id,
         "kind": kind,
         "session": session,
@@ -326,7 +326,20 @@ fn attention_for_record(kind: &str, msg: &Value, session: &str, seq: u64) -> Opt
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0),
-    }))
+    });
+    // An ask's one-tap answers (`hub/ask_choices.rs`), each answered by `permission_id` and its
+    // id through `_acpmux/permission_respond` `choiceId`. Only for an ask acpmux can answer: one
+    // with its permission id.
+    if kind != "done"
+        && semantic_id != "record"
+        && let Some(permission) = msg.get("permissionId").and_then(Value::as_str)
+    {
+        let (ask, choices) = crate::hub::ask_choices::choices(&msg["request"]);
+        event["ask"] = json!(ask.name());
+        event["permission_id"] = json!(permission);
+        event["choices"] = choices.iter().map(|c| c.json()).collect();
+    }
+    Some(event)
 }
 
 fn attention_for_event(
@@ -406,6 +419,57 @@ mod attention_tests {
         let first = attention_for_record("turn_result", &done, "s", 2).unwrap();
         let replay = attention_for_record("turn_result", &done, "s", 100).unwrap();
         assert_eq!(first["event_id"], replay["event_id"]);
+    }
+
+    #[test]
+    fn an_ask_carries_its_one_tap_choices_and_a_turn_end_none() {
+        let options = json!([{"optionId": "a1", "kind": "allow_once"},
+            {"optionId": "a2", "kind": "allow_always"}, {"optionId": "r1", "kind": "reject_once"}]);
+        let permission = json!({"permissionId": "perm-1",
+            "request": {"toolCall": {"title": "Write", "kind": "execute"}, "options": options}});
+        let event = attention_for_record("permission_request", &permission, "s", 1).unwrap();
+        assert_eq!(event["ask"], "permission");
+        assert_eq!(event["permission_id"], "perm-1");
+        let ids: Vec<&str> =
+            event["choices"].as_array().unwrap().iter().filter_map(|c| c["id"].as_str()).collect();
+        assert_eq!(ids, ["allow_once", "deny"]);
+        let plan = json!({"permissionId": "perm-2", "request": {"toolCall": {
+            "_meta": {"claude": {"tool": "ExitPlanMode"}}, "rawInput": {"plan": "1. Test"}},
+            "options": [{"optionId": "y", "kind": "allow_once"}, {"optionId": "n", "kind": "reject_once"}]}});
+        let event = attention_for_record("permission_request", &plan, "s", 2).unwrap();
+        assert_eq!(
+            (event["kind"].as_str(), event["ask"].as_str()),
+            (Some("permission"), Some("plan"))
+        );
+        assert_eq!(event["choices"][0]["id"], "approve");
+        // As the hub records it: with its normalized question (`hub/questions.rs`).
+        let asked = json!({"toolCall": {"_meta": {"claude": {"tool": "AskUserQuestion"},
+            "acpmux": {"question": {"harness": "claude", "items": [{"id": "q0", "prompt": "Ship it?",
+                "options": [{"id": "Yes", "label": "Yes"}, {"id": "No", "label": "No"}],
+                "multiSelect": false, "allowsOther": true}]}}}},
+            "options": [{"optionId": "ok", "kind": "allow_once"}]});
+        let question = json!({"permissionId": "perm-3", "request": asked});
+        let event = attention_for_record("permission_request", &question, "s", 3).unwrap();
+        assert_eq!(event["kind"], "question");
+        assert_eq!(
+            event["choices"][1],
+            json!({"id": "option.1", "label": "No", "kind": "answer", "signed": true})
+        );
+        // No permission id: nothing to answer, so no choices.
+        let bare = json!({"request": {"toolCall": {"title": "Write"}, "options": options}});
+        assert!(
+            attention_for_record("permission_request", &bare, "s", 4)
+                .unwrap()
+                .get("choices")
+                .is_none()
+        );
+        let done = attention_for_record(
+            "turn_result",
+            &json!({"status": "completed", "turnId": "t"}),
+            "s",
+            5,
+        );
+        assert!(done.unwrap().get("choices").is_none());
     }
 
     #[test]

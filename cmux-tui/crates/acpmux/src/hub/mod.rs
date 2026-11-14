@@ -24,6 +24,7 @@ pub use prompt_coach::CoachRewriter;
 mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
+pub(crate) mod ask_choices;
 mod asks_below;
 mod atomic_json;
 mod build;
