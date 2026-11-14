@@ -526,8 +526,8 @@ fn th_ten_thousand_random_splits_restore_identical_ops_and_final_replies() {
             place = place.saturating_add(line.len() as u64);
         }
         let checkpoint = split.checkpoint().unwrap();
-        split = State::restore(&checkpoint).unwrap();
-        let mut killed = State::restore(&checkpoint).unwrap();
+        split = checkpoint.restore().unwrap();
+        let mut killed = checkpoint.restore().unwrap();
         for line in &lines[cut..] {
             let ops = split_view.line_at(&mut split, Harness::V1, place, line.len() as u64, line);
             assert_eq!(
@@ -601,7 +601,7 @@ fn claude_split_property_and_final_reply_visibility() {
         for line in &lines[..cut] {
             view.line(&mut state, Harness::Claude, line);
         }
-        state = State::restore(&state.checkpoint().unwrap()).unwrap();
+        state = state.checkpoint().unwrap().restore().unwrap();
         for line in &lines[cut..] {
             view.line(&mut state, Harness::Claude, line);
         }
@@ -846,7 +846,7 @@ fn large_tool_bodies_are_ranges_and_streamed_replies_have_small_checkpoints() {
         };
         let mut s = State::default();
         let ops = t(&mut s, harness, line.as_bytes()).unwrap();
-        assert!(s.checkpoint().unwrap().len() < 1024 * s.open_rows().count());
+        assert!(s.checkpoint().unwrap().translator.len() < 1024 * s.open_rows().count());
         assert!(ops.iter().any(|o|matches!(o.change,Change::Body{source:BodySource::Input(r),..} if r.length>=5*1024*1024)));
         assert!(ops.iter().all(
             |o| !matches!(&o.change,Change::Body{source:BodySource::Text(t),..} if t.len()>16*1024)
@@ -859,7 +859,7 @@ fn large_tool_bodies_are_ranges_and_streamed_replies_have_small_checkpoints() {
         let text = format!("{}\n\n", "y".repeat(1024));
         all.push_str(&text);
         m.line(&mut s, Harness::V1, &chunk(i, &text, "reply"));
-        assert!(s.checkpoint().unwrap().len() < 1024 * s.open_rows().count());
+        assert!(s.checkpoint().unwrap().translator.len() < 1024 * s.open_rows().count());
     }
     let got = m
         .rows
@@ -882,7 +882,7 @@ fn long_fence_continuations_carry_the_marker_and_replay_at_every_chunk() {
     for piece in text.as_bytes().chunks(71) {
         seq += 1;
         m.line(&mut s, Harness::V1, &chunk(seq, std::str::from_utf8(piece).unwrap(), "f"));
-        s = State::restore(&s.checkpoint().unwrap()).unwrap();
+        s = s.checkpoint().unwrap().restore().unwrap();
     }
     assert!(m.rows.values().any(|r| r.fields.get("fence") == Some(&quote("```"))));
     let got = m
@@ -907,8 +907,8 @@ fn malformed_input_is_transactional_and_raw_ranges_preserve_escapes() {
     m.line(&mut s, Harness::V1, &chunk(1, "🙂\n\"\\", "m"));
     assert!(m.visible(m.reply("🙂\n\"\\")));
     let checkpoint = s.checkpoint().unwrap();
-    for n in 0..checkpoint.len() {
-        assert!(State::restore(&checkpoint[..n]).is_err());
+    for n in 0..checkpoint.translator.len() {
+        assert!(State::restore(&checkpoint.translator[..n], &checkpoint.prompts).is_err());
     }
 }
 #[test]
@@ -1068,7 +1068,7 @@ fn checkpoint_and_open_rows_are_bounded_at_both_caps() {
     }
     let (mut s, mut m) = replay(&c.lines);
     assert_eq!(s.open_rows().count(), 97);
-    assert!(s.checkpoint().unwrap().len() < 32 * 1024);
+    assert!(s.checkpoint().unwrap().translator.len() < 32 * 1024);
     let first_tool = m.rows.values().find(|r| r.kind == RowKind::Tool).unwrap().id;
     m.line(
         &mut s,
@@ -1093,7 +1093,7 @@ fn checkpoint_and_open_rows_are_bounded_at_both_caps() {
     assert!(!m.reply("steer-0").open);
     assert_eq!(s.forced_steers, 1);
     assert_eq!(s.prompts.len(), 32);
-    assert_eq!(State::restore(&s.checkpoint().unwrap()).unwrap(), s);
+    assert_eq!(s.checkpoint().unwrap().restore().unwrap(), s);
 }
 #[test]
 fn read_before_text_survives_another_turn_and_nonsteer_echo() {
@@ -1185,7 +1185,7 @@ fn split_text_rows(parts: &[&str]) -> Vec<(String, Option<String>, Option<String
     m.line(&mut s, Harness::V1, &mux(1, "user_message", r#"{"text":"q","turnId":"t"}"#));
     for (i, part) in parts.iter().enumerate() {
         m.line(&mut s, Harness::V1, &chunk(i as u64 + 2, part, "reply"));
-        s = State::restore(&s.checkpoint().unwrap()).unwrap();
+        s = s.checkpoint().unwrap().restore().unwrap();
     }
     m.line(&mut s, Harness::V1, &mux(parts.len() as u64 + 2, "turn_result", r#"{"turnId":"t"}"#));
     m.rows
@@ -1336,7 +1336,9 @@ fn queue_cap_counts_the_1025th_entry_without_holding_it() {
     }
     assert_eq!(state.queue.len(), 1024);
     assert_eq!(state.counters().queue_overflowed, 1);
-    assert!(state.checkpoint().unwrap().len() <= 64 * 1024);
+    let saved = state.checkpoint().unwrap();
+    assert_eq!(saved.prompts.len(), 1024);
+    assert_eq!(saved.restore().unwrap(), state);
 }
 
 #[test]
@@ -1361,7 +1363,7 @@ fn in_turn_ends_with_the_turn_and_a_restore_agrees() {
         t(&mut s, Harness::V1, line.as_bytes()).unwrap();
         // The seed's last line is its turn's result.
         assert_eq!(s.in_turn(), index + 1 < lines.len(), "line {index}");
-        let restored = State::restore(&s.checkpoint().unwrap()).unwrap();
+        let restored = s.checkpoint().unwrap().restore().unwrap();
         assert_eq!(restored.in_turn(), s.in_turn(), "line {index}");
     }
     // A background tool's late update keeps the ended turn's id and starts no turn.
@@ -1386,17 +1388,29 @@ fn full_fixed_width_queue_fits_beside_a_translator_at_its_byte_bound() {
     // Fill metadata, not a retained body, to test the codec's exact boundary.
     // Each field stays under the field cap; the particular names are immaterial.
     let mut n = 0;
-    while MAX_TRANSLATOR_BYTES - state.checkpoint().unwrap().len() > 200 {
+    while MAX_TRANSLATOR_BYTES - state.checkpoint().unwrap().translator.len() > 200 {
         state.group.as_mut().unwrap().field(&format!("padding-{n}"), &"x".repeat(128));
         n += 1;
     }
     state.group.as_mut().unwrap().field("tail", "");
-    let remaining = MAX_TRANSLATOR_BYTES - state.checkpoint().unwrap().len();
+    let remaining = MAX_TRANSLATOR_BYTES - state.checkpoint().unwrap().translator.len();
     assert!(remaining < MAX_KEY_BYTES - 5);
     state.group.as_mut().unwrap().field("tail", &"x".repeat(remaining));
-    let translator = state.checkpoint().unwrap();
+    let translator = state.checkpoint().unwrap().translator;
     assert_eq!(translator.len(), MAX_TRANSLATOR_BYTES);
 
+    fill_queue(&mut state);
+    let saved = state.checkpoint().unwrap();
+    // The queue is absent from serde's translator segment, even when full.
+    assert_eq!(saved.translator, translator);
+    assert_eq!(saved.prompts.len(), MAX_QUEUE_ENTRIES);
+    assert_eq!(saved.translator.len() + 32 * saved.prompts.len(), MAX_STATE_BYTES);
+    assert_eq!(saved.restore().unwrap(), state);
+    state.turn_key.push('x');
+    assert!(matches!(state.checkpoint(), Err(Error::StateTooLarge { .. })));
+}
+
+fn fill_queue(state: &mut State) {
     for n in 0..MAX_QUEUE_ENTRIES as u64 {
         let entry = QueueEntry {
             id_hash: u64::MAX - n,
@@ -1407,23 +1421,65 @@ fn full_fixed_width_queue_fits_beside_a_translator_at_its_byte_bound() {
         };
         state.queue.insert(entry.id_hash, entry);
     }
-    let checkpoint = state.checkpoint().unwrap();
-    assert_eq!(checkpoint.len() - translator.len(), 1024 * 32);
-    assert_eq!(checkpoint.len(), MAX_STATE_BYTES);
-    assert_eq!(State::restore(&checkpoint).unwrap(), state);
-    // The queue is absent from serde's translator segment, even when full.
-    assert_eq!(&checkpoint[..translator.len() - 4], &translator[..translator.len() - 4]);
-    state.turn_key.push('x');
-    assert!(matches!(state.checkpoint(), Err(Error::StateTooLarge { .. })));
+}
+
+/// Every bounded part at its bound at once: the translator's segment, 1,024 waiting prompts
+/// and the open bodies, in one book checkpoint.
+#[test]
+fn a_book_checkpoint_with_every_part_at_its_bound_fits_and_restores_the_queue() {
+    use crate::blobs::{Blobs, Body};
+    use crate::checkpoint::{Checkpoint, Cursor, OpenBody};
+    use crate::log::{Log, Options, RawRange};
+    let mut state = State::default();
+    t(&mut state, Harness::V1, mux(1, "user_message", r#"{"text":"boundary"}"#).as_bytes())
+        .unwrap();
+    let mut n = 0;
+    while MAX_TRANSLATOR_BYTES - state.checkpoint().unwrap().translator.len() > 200 {
+        state.group.as_mut().unwrap().field(&format!("padding-{n}"), &"x".repeat(128));
+        n += 1;
+    }
+    fill_queue(&mut state);
+    let saved = state.checkpoint().unwrap();
+
+    let home = tempfile::tempdir().unwrap();
+    let (mut log, _) = Log::open(home.path(), Options::default()).unwrap();
+    let source = log.append_raw_file(b"test").unwrap();
+    let mut blobs = Blobs::open(home.path()).unwrap();
+    let mut checkpoint = Checkpoint::new(VERSION);
+    checkpoint.last_row = 64;
+    checkpoint.translator = saved.translator.clone();
+    checkpoint.prompts = saved.prompts.clone();
+    checkpoint.cursors.push(Cursor { file: source, place: 100, stamp: 7 });
+    checkpoint.summary = vec![b'x'; 2048];
+    let large = format!("\"{}\"", "x".repeat(1 << 20));
+    for row in 1..=64 {
+        let mut body = Body::new(row).unwrap();
+        blobs.set(&mut body, "text", &large, true).unwrap();
+        for key in ["content", "input", "entries", "source", "images", "title"] {
+            blobs.set(&mut body, key, "null", false).unwrap();
+        }
+        checkpoint.open.push(OpenBody { body, raw: RawRange { file: source, off: 1, len: 99 } });
+    }
+    blobs.sync(checkpoint.open.iter().map(|r| &r.body)).unwrap();
+    let ids = checkpoint.open.iter().map(|r| r.body.row).collect::<Vec<_>>();
+    checkpoint.write(&mut log, &ids).unwrap();
+    assert!(std::fs::metadata(home.path().join("checkpoint")).unwrap().len() <= 96 * 1024);
+    drop(log);
+    let (_, recovered) = Log::open(home.path(), Options::default()).unwrap();
+    let reopened = Checkpoint::from_recovered(&recovered).unwrap();
+    let restored = State::restore(&reopened.translator, &reopened.prompts).unwrap();
+    assert_eq!(restored, state);
+    assert!(restored.queue().eq(state.queue()));
 }
 
 #[test]
 fn unknown_checkpoint_version_requires_replay_from_raw() {
-    let mut checkpoint = State::default().checkpoint().unwrap();
-    // Version 5 included an empty queue map in the serde segment. Version 6
-    // omits it. The actor must rebuild from raw, never guess the older layout.
-    checkpoint[0] = 5;
-    assert_eq!(State::restore(&checkpoint), Err(Error::CheckpointVersion));
-    checkpoint[0] = VERSION as u8 + 1;
-    assert_eq!(State::restore(&checkpoint), Err(Error::CheckpointVersion));
+    let mut checkpoint = State::default().checkpoint().unwrap().translator;
+    // Version 5 included an empty queue map in the serde segment; version 6 put the queue's
+    // records after it; version 7 keeps them in the book's prompt section. The actor must
+    // rebuild from raw, never guess an older layout.
+    for old in [5, 6, VERSION as u8 + 1] {
+        checkpoint[0] = old;
+        assert_eq!(State::restore(&checkpoint, &[]), Err(Error::CheckpointVersion));
+    }
 }

@@ -183,7 +183,7 @@ fn measure_child() {
                 samples.push(start.elapsed().as_nanos());
             }
             let start = Instant::now();
-            let mut restored = State::restore(black_box(&checkpoint)).unwrap();
+            let mut restored = black_box(&checkpoint).restore().unwrap();
             black_box(t(&mut restored, harness, cold_line.as_bytes()).unwrap());
             cold.push(start.elapsed().as_nanos());
         }

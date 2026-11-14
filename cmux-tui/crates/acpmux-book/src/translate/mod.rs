@@ -4,6 +4,7 @@
 mod bench;
 mod blocks;
 mod checkpoint;
+pub use checkpoint::Saved;
 mod claude;
 mod fold;
 mod input;
@@ -15,10 +16,13 @@ use crate::row::{Row, RowKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub const VERSION: u32 = 6;
-pub const MAX_STATE_BYTES: usize = 64 * 1024;
+/// Version 7 keeps the queue's records out of the translator's segment, in the book's own
+/// prompt section; an older book rebuilds from raw.
+pub const VERSION: u32 = 7;
+/// The translator's segment and the queue's records together.
+pub const MAX_STATE_BYTES: usize = MAX_TRANSLATOR_BYTES + 32 * MAX_QUEUE_ENTRIES;
 pub const MAX_TRANSLATOR_BYTES: usize = 32 * 1024;
-const MAX_QUEUE_ENTRIES: usize = 1024;
+const MAX_QUEUE_ENTRIES: usize = crate::checkpoint::MAX_PROMPTS;
 const MAX_KEY_BYTES: usize = 256;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -198,7 +202,8 @@ struct PromptEvent<'a> {
     body: Option<&'a serde_json::value::RawValue>,
     images: Option<&'a serde_json::value::RawValue>,
 }
-fn prompt_hash(key: &str) -> u64 {
+/// The key a waiting prompt's id is kept by in the queue.
+pub fn prompt_hash(key: &str) -> u64 {
     key.bytes().fold(0xcbf29ce484222325, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100000001b3))
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -282,8 +287,8 @@ pub fn translate(
         return Ok(Vec::new());
     }
     state.bound_open_rows(&mut out);
-    // The queue is counted separately from the translator's 32 KiB budget. The
-    // combined checkpoint is at most 64 KiB, including the queue count.
+    // The queue is counted apart from the translator's 32 KiB segment: its records go to the
+    // book's prompt section.
     Ok(out.ops)
 }
 fn bounded(s: &str) -> Result<(), Error> {
@@ -330,6 +335,16 @@ impl State {
     }
     pub fn last_row_id(&self) -> u64 {
         self.last_id
+    }
+    /// The waiting prompts, by id hash. A checkpoint keeps them as [`Saved::prompts`].
+    pub fn queue(&self) -> impl Iterator<Item = &QueueEntry> {
+        self.queue.values()
+    }
+    pub fn queued(&self, id_hash: u64) -> Option<QueueEntry> {
+        self.queue.get(&id_hash).copied()
+    }
+    pub fn queue_len(&self) -> usize {
+        self.queue.len()
     }
     pub fn open_rows(&self) -> impl Iterator<Item = &OwnedRow> {
         self.stored_rows().filter(|row| row.open)

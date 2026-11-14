@@ -716,7 +716,7 @@ fn open_state_from_log(
     }
     let translate = match saved_checkpoint.as_ref() {
         Some(checkpoint) if !checkpoint.translator.is_empty() => {
-            State::restore(&checkpoint.translator)
+            State::restore(&checkpoint.translator, &checkpoint.prompts)
                 .map_err(|_| BookError::Rebuild("translator checkpoint is damaged"))?
         }
         _ => State::default(),
@@ -1125,7 +1125,9 @@ fn checkpoint(state: &mut ActorState) -> Result<(), ChatError> {
     let mut checkpoint = Checkpoint::new(translate::VERSION);
     checkpoint.edition = state.edition;
     checkpoint.boot_id = state.boot_id;
-    checkpoint.translator = state.translate.checkpoint()?;
+    let saved = state.translate.checkpoint()?;
+    checkpoint.translator = saved.translator;
+    checkpoint.prompts = saved.prompts;
     checkpoint.last_row = state.translate.last_row_id();
     checkpoint.folds_len = state.folds.len();
     if state.raw_file != 0 {
