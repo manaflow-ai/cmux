@@ -2200,6 +2200,7 @@ fn new_machine(
 }
 
 /// How long [`list_unread`] waits for the app's `cloud.machines` answer (a main-actor read of its state, no network).
+// timeout: one read of the app's own state for the refusal's detail; no answer leaves the refusal as before.
 const LAST_ERROR_WAIT: Duration = Duration::from_secs(5);
 
 /// `cloud.list_unread`: the app has not loaded its Cloud machines, so nothing was made or started. A list
