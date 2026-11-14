@@ -134,6 +134,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Find, Copy | Files and Links, selection | partial | |
 | Restart Shell Here | overlay and page menu on a dead terminal | works (round 2) | See Tabs. |
 | Reset Terminal, Keep Running After Close | — | not from a phone | Program lifetime stays the Mac's (`set-terminal-keep` not allowlisted). |
+| A clicked terminal link goes to the extension whose link handler (`cmux.opener/1` `options.urls`) matches it (`apps-open-link`; 2026-11-14) | — | not from a phone | The handler is an extension's code on the Mac, and `apps-*` commands are local connections only (`server/apps.rs`): a paired phone may not run app code on the Mac (SECURITY.md, "Remote CLI relay"). A link tapped on the phone opens on the phone. |
 
 ## Browser
 

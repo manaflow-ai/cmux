@@ -48,4 +48,12 @@ public protocol AppsTransport: AnyObject {
     /// connection the daemon verified as the cmux app.
     func run(app: String, op: String, args: AppJSON, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppJSON
     func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine]
+    /// Offers a clicked link to the app whose `cmux.opener/1` matches it (`apps-open-link`; the
+    /// daemon picks the app). The answer is `{handled, app?, error?}`.
+    func openLink(_ url: String, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON
+}
+
+extension AppsTransport {
+    /// A transport with no supervisor link handlers (tests, previews): cmux opens every link itself.
+    public func openLink(_ url: String, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON { ["handled": .bool(false)] }
 }
