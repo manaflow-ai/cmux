@@ -126,7 +126,7 @@ impl Quality {
                 .sum();
             let mse = squared as f64 / pixels.len() as f64;
             let sample = json!({"frame_id":frame_id,"capture_us":capture_us,"identity_verified":true,
-                "identity_method":"capture timestamp and exact encoded access-unit bytes", "roi":[X,Y,WIDTH,HEIGHT],
+                "identity_method":"encode-request key and exact encoded access-unit bytes", "roi":[X,Y,WIDTH,HEIGHT],
                 "squared_error_sum":squared,"pixels":pixels.len(),"mse":mse,
                 "psnr_db":if mse == 0.0 { None } else { Some(10.0*(255.0_f64.powi(2)/mse).log10()) }});
             write_new(&stem.with_extension("decoded.y8"), pixels).ok()?;

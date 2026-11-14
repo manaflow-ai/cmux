@@ -5,109 +5,8 @@ from __future__ import annotations
 
 import json
 import math
-import struct
 import sys
-import zlib
 from pathlib import Path
-
-
-def read_ppm(path: Path):
-    data = path.read_bytes()
-    if not data.startswith(b"P6"):
-        return None
-    pos = 2
-    fields = []
-    while len(fields) < 3:
-        while pos < len(data) and data[pos] in b" \t\r\n":
-            pos += 1
-        if pos < len(data) and data[pos] == 35:
-            pos = data.find(b"\n", pos) + 1
-            continue
-        end = pos
-        while end < len(data) and data[end] not in b" \t\r\n":
-            end += 1
-        fields.append(int(data[pos:end]))
-        pos = end
-    width, height, maximum = fields
-    if maximum != 255:
-        return None
-    while pos < len(data) and data[pos] in b" \t\r\n":
-        pos += 1
-    pixels = data[pos:pos + width * height * 3]
-    return width, height, pixels if len(pixels) == width * height * 3 else None
-
-
-def paeth(a: int, b: int, c: int) -> int:
-    p = a + b - c
-    pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
-    return a if pa <= pb and pa <= pc else b if pb <= pc else c
-
-
-def read_png(path: Path):
-    data = path.read_bytes()
-    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
-        return None
-    pos, chunks, width, height, color, bit_depth = 8, [], None, None, None, None
-    while pos + 8 <= len(data):
-        length = struct.unpack(">I", data[pos:pos + 4])[0]
-        kind = data[pos + 4:pos + 8]
-        body = data[pos + 8:pos + 8 + length]
-        pos += length + 12
-        if kind == b"IHDR":
-            width, height, bit_depth, color = struct.unpack(">IIBB", body[:10])
-            if bit_depth != 8 or color not in (2, 6) or body[10:13] != b"\x00\x00\x00":
-                return None
-        elif kind == b"IDAT":
-            chunks.append(body)
-        elif kind == b"IEND":
-            break
-    if not width or not height:
-        return None
-    raw = zlib.decompress(b"".join(chunks))
-    channels = 3 if color == 2 else 4
-    stride = width * channels
-    rows, cursor, prior = [], 0, bytes(stride)
-    for _ in range(height):
-        filt, row = raw[cursor], bytearray(raw[cursor + 1:cursor + 1 + stride])
-        cursor += stride + 1
-        for i, value in enumerate(row):
-            left = row[i - channels] if i >= channels else 0
-            up = prior[i]
-            upper_left = prior[i - channels] if i >= channels else 0
-            if filt == 1:
-                row[i] = (value + left) & 255
-            elif filt == 2:
-                row[i] = (value + up) & 255
-            elif filt == 3:
-                row[i] = (value + ((left + up) // 2)) & 255
-            elif filt == 4:
-                row[i] = (value + paeth(left, up, upper_left)) & 255
-            elif filt != 0:
-                return None
-        rows.append(bytes(row))
-        prior = row
-    rgb = b"".join(row if channels == 3 else b"".join(row[i:i + 3] for i in range(0, len(row), 4)) for row in rows)
-    return width, height, rgb
-
-
-def psnr(source: Path, viewer: Path):
-    a, b = read_png(source), read_ppm(viewer)
-    if not a or not b or a[:2] != b[:2] or a[2] is None or b[2] is None:
-        return None
-    mse = sum((x - y) ** 2 for x, y in zip(a[2], b[2])) / len(a[2])
-    return None if mse == 0 else round(10 * math.log10((255 * 255) / mse), 3)
-
-
-def psnr_observation(source: Path, viewer: Path):
-    if not source.is_file() or not viewer.is_file():
-        return None, "missing image"
-    a, b = read_png(source), read_ppm(viewer)
-    if not a or not b:
-        return None, "unsupported image"
-    if a[:2] != b[:2] or a[2] is None or b[2] is None:
-        return None, "unpaired dimensions or pixels"
-    value = psnr(source, viewer)
-    return value, "exact match" if value is None else "paired"
 
 
 def number(value):
@@ -115,7 +14,7 @@ def number(value):
 
 
 def main(argv: list[str]) -> int:
-    raw_path, out_path, timing_path, source_path, viewer_path = map(Path, argv[1:6])
+    raw_path, out_path, timing_path = map(Path, argv[1:4])
     result = json.loads(out_path.read_text())
     raw_obj = json.loads(raw_path.read_text()) if raw_path.exists() else {}
     raw_lines = []
@@ -169,6 +68,7 @@ def main(argv: list[str]) -> int:
     mse = sum(r["squared_error_sum"] for r in quality) / sum(r["pixels"] for r in quality) if quality else None
     extra = result.setdefault("extra", {})
     extra["netem_metrics"] = {
+        "first_frame_ms": number(raw_obj.get("first_frame_ms")),
         "attempts": attempts, "frames": frames, "skips": skips, "idrs": idrs,
         "p_frames": frames - idrs if frames is not None else None,
         "bytes": bytes_total,
@@ -183,13 +83,13 @@ def main(argv: list[str]) -> int:
         "psnr_status": "exact match" if mse == 0 else "identity matched luma ROI" if mse is not None else "unmeasured",
         "quality_samples": quality,
         "idr_count_source": "per-encode timing records" if idrs is not None else None,
-        "psnr_source": "source and decoded luma ROI matched by capture key and exact access unit" if quality else None,
+        "psnr_source": "source and decoded luma ROI matched by encode-request key and exact access unit" if quality else None,
     }
     out_path.write_text(json.dumps(result))
     return 0
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 6:
-        raise SystemExit("usage: rd-metrics.py RAW OUT TIMING SOURCE_PNG VIEWER_PPM")
+    if len(sys.argv) != 4:
+        raise SystemExit("usage: rd-metrics.py RAW OUT TIMING")
     raise SystemExit(main(sys.argv))

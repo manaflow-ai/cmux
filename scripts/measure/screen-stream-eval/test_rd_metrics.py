@@ -1,5 +1,6 @@
 """Behavioral checks for the native eval report contract."""
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -16,7 +17,8 @@ class MetricsTests(unittest.TestCase):
             (root / 'timing.jsonl').write_text(''.join(json.dumps(x)+'\n' for x in timing))
             subprocess.run([sys.executable, str(Path(__file__).with_name('rd-metrics.py')),
                             str(root/'raw.json'), str(root/'out.json'), str(root/'timing.jsonl'),
-                            str(root/'missing.png'), str(root/'missing.ppm')], check=True)
+                            *([str(root/'missing.png'), str(root/'missing.ppm')]
+                              if os.environ.get('CMUX_RD_METRICS_LEGACY') else [])], check=True)
             return json.loads((root/'out.json').read_text())['extra']['netem_metrics']
 
     def test_late_frames_are_not_on_time_and_seconds_are_supported(self):

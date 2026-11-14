@@ -12,22 +12,43 @@ rd="$EVAL_BIN/cmux-rd"
 port=4103
 netem_port=4104
 
+record_pid() {
+  local pid=$1 file=$2
+  echo "$pid" >"$file"
+  LC_ALL=C ps -p "$pid" -o lstart= >"$file.start" || true
+}
+
+same_pid() {
+  local file=$1 pid=$2 expected actual
+  expected=$(cat "$file.start" 2>/dev/null) || return 1
+  [[ -n "$expected" ]] || return 1
+  actual=$(LC_ALL=C ps -p "$pid" -o lstart= 2>/dev/null) || return 1
+  [[ "$actual" == "$expected" ]]
+}
+
 stop_pid() {
   local file=$1
   [[ -f "$file" ]] || return 0
   local pid
   pid=$(cat "$file")
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  # A reused PID is not the child this run recorded. Never signal it.
+  if ! same_pid "$file" "$pid"; then
+    rm -f "$file" "$file.start"
+    return 0
+  fi
   kill "$pid" 2>/dev/null || true
   for _ in $(seq 1 50); do
-    kill -0 "$pid" 2>/dev/null || break
+    if ! kill -0 "$pid" 2>/dev/null || ! same_pid "$file" "$pid"; then
+      rm -f "$file" "$file.start"
+      return 0
+    fi
     sleep 0.1
   done
-  kill -9 "$pid" 2>/dev/null || true
-  rm -f "$file"
-}
-
-now_ms() {
-  python3 -c 'import time; print(time.time_ns() // 1_000_000)'
+  if same_pid "$file" "$pid" && kill -0 "$pid" 2>/dev/null; then
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+  rm -f "$file" "$file.start"
 }
 
 host_start() {
@@ -44,7 +65,7 @@ host_start() {
   chmod 700 "$EVAL_STATE/quality"
   CMUX_RD_EVAL_QUALITY="$EVAL_STATE/quality" CMUX_RD_TIMING_LOG="$EVAL_STATE/timing.jsonl" "$rd" host --owner owner --bind "${EVAL_BIND:-127.0.0.1}" ${host_flags[@]+"${host_flags[@]}"} --port "$port" \
     --token-fd 3 3< <(cat "$EVAL_STATE/token") >>"$EVAL_STATE/host.log" 2>&1 &
-  echo $! >"$EVAL_STATE/host.pid"
+  record_pid "$!" "$EVAL_STATE/host.pid"
   for _ in $(seq 1 100); do
     if grep -q listening "$EVAL_STATE/host.log"; then
       if netem_start; then
@@ -77,7 +98,7 @@ netem_start() {
     --upstream-host 127.0.0.1 --upstream-port "$port" \
     --rtt-ms "$EVAL_NETEM_RTT_MS" --loss-pct "${EVAL_NETEM_LOSS_PCT:-0}" \
     --seed "${EVAL_NETEM_SEED:-1}" --stats-path "$EVAL_STATE/netem-stats.json" >>"$EVAL_STATE/netem.log" 2>&1 &
-  echo $! >"$EVAL_STATE/netem.pid"
+  record_pid "$!" "$EVAL_STATE/netem.pid"
   for _ in $(seq 1 100); do
     grep -q 'netem: listening' "$EVAL_STATE/netem.log" && return 0
     kill -0 "$(cat "$EVAL_STATE/netem.pid")" 2>/dev/null || break
@@ -195,17 +216,11 @@ EOF
     seconds=$1 snapshot=$2 go=$3 raw=$4
     ppm="$EVAL_STATE/snapshot.ppm"
     rm -f "$ppm"
-    start_ms=$(now_ms)
-    export EVAL_WINDOW_START_MS="$start_ms"
     bench --input none --duration-s "$seconds" --snapshot "$ppm" \
       >"$raw" 2>"$EVAL_STATE/window.err" &
     pid=$!
     for _ in $(seq 1 200); do
-      if grep -q 'passive: first frame' "$EVAL_STATE/window.err"; then
-        first_ms=$(now_ms)
-        echo $((first_ms - start_ms)) >"$raw.first"
-        break
-      fi
+      grep -q 'passive: first frame' "$EVAL_STATE/window.err" && break
       kill -0 "$pid" 2>/dev/null || break
       sleep 0.1 # bounded wait for the first frame (20 s)
     done
@@ -217,32 +232,27 @@ EOF
     # window-report RAW OUT: the per-second rows on the host's wall clock (EVAL_PEER_WALL_OFFSET_MS).
     raw=$1 out=$2
     if [[ -f "$EVAL_STATE/netem.pid" ]]; then
-      kill -USR1 "$(cat "$EVAL_STATE/netem.pid")"
+      netem_pid=$(cat "$EVAL_STATE/netem.pid")
+      if same_pid "$EVAL_STATE/netem.pid" "$netem_pid"; then
+        kill -USR1 "$netem_pid"
+      fi
     fi
     python3 -I - "$raw" "$out" "${EVAL_PEER_WALL_OFFSET_MS:-0}" <<'EOF'
-import json, os, sys
+import json, sys
 lines = open(sys.argv[1]).read().strip().splitlines()
 if not lines:
     sys.exit("rd: the window viewer printed no report")
 raw = json.loads(lines[-1])
 offset = float(sys.argv[3])
 series = [{"unix_ms": round(s["unix_ms"] + offset), "bytes": s["bytes"], "frames": s["frames"],
-           "duration_ms": s.get("duration_ms"),
+           "duration_ms": s.get("duration_ms", 1000),
            "decode_ms": (s.get("decode_ms") or {}).get("p50"),
            "encode_ms": (s.get("host_stats") or {}).get("encode_ms_p50")} for s in raw["series"]]
-first = None
-try:
-    if os.path.exists(sys.argv[1] + ".first"):
-        first = max(0, int(open(sys.argv[1] + ".first").read().strip()))
-except (ValueError, OSError):
-    first = None
-json.dump({"series": series, "extra": {"first_frame_ms": first, "cpu_pct": raw.get("client_cpu_pct"),
-                                       "decode_errors": raw.get("decode_errors"), "client_cpu_pct": raw.get("client_cpu_pct"),
+json.dump({"series": series, "extra": {"decode_errors": raw.get("decode_errors"), "client_cpu_pct": raw.get("client_cpu_pct"),
                                        "welcome": raw.get("welcome"), "ended": raw.get("ended")}}, open(sys.argv[2], "w"))
 EOF
     python3 -I "$EVAL_ROOT/scripts/measure/screen-stream-eval/rd-metrics.py" \
-      "$raw" "$out" "$EVAL_STATE/timing.jsonl" \
-      "${EVAL_SOURCE_FRAME:-/dev/null}" "${EVAL_VIEWER_FRAME:-/dev/null}"
+      "$raw" "$out" "$EVAL_STATE/timing.jsonl"
     ;;
   *) echo "rd.sh: unknown verb $verb" >&2; exit 2 ;;
 esac

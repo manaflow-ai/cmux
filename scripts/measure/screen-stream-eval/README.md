@@ -103,25 +103,6 @@ Today's targets:
 - `rd-window`: the same window alone as a cmux.rd/1 stream at the same 360 px rung (`cmux-rd host
   --display window:ID --max-width 360 --max-fps 6`), with `cmux-rd bench` as the viewer.
   `rd-window-30` runs it at 30 fps. Both have window rows only.
-- `apple-high` and `apple-standard` open Apple's Screen Sharing.app against the
-  same host and sample the displayed connection for OCR and viewer CPU. They
-  request Standard + Full Quality and Standard + Adaptive Quality respectively;
-  neither is Apple's separate High Performance connection type. Connection
-  identity, readiness and the selected setting still need GUI validation.
-  The current adapter does not observe presented markers, decoded-frame
-  readiness or VNC payload bytes, so key/pointer latency, first-frame
-  latency, decoded FPS, and transport kbps remain explicitly unavailable. The
-  target records sampled screenshot changes separately as `sampled_fps`; this
-  is a normalized observation rate, not decoded transport FPS. The target
-  selects Full Quality for `apple-high` and Adaptive Quality for
-  `apple-standard` directly through the app's View menu and fails closed when
-  that menu cannot be selected. These items are available only in Standard
-  connections ([Apple's macOS 26 guide](https://support.apple.com/en-us/guide/mac-help/mh14066/26/mac/26)).
-  Select Standard during connection setup on the dedicated viewer. Apple
-  targets require a second Mac and explicit `targets=`; the daily loopback
-  defaults remain `rd,webrtc`.
-  Lack of an Apple timestamp API does not prevent measuring presented markers
-  with a common external observer; that observer is not implemented here yet.
 
 The window targets add `extra.process_cpu_pct`, the CPU of the process that captures and encodes,
 over the view. Compare them in one run with `--arg=targets=cu-png,rd-window,rd-window-30`
@@ -134,7 +115,7 @@ appear under `targets.petal` in the same schema.
 ## Results
 
 `artifacts/screen-stream-eval/results.json` (schema `cmux.screen-stream-eval/1`, the docstring of
-`eval.py`) and `summary.md`. For `rd`, each window's additive `extra.netem_metrics` records timing
+`eval.py`) and `summary.md`. For `rd`, each window's additive `extra.netem_metrics` records
 per-encode attempts, emitted frames, skips, IDRs, P frames, received video/FEC bytes and bitrate.
 Decoded FPS counts successful decoder output. On-time FPS counts frames decoded within 100 ms
 of the source's captured display-frame timestamp, joined to decoder completion by the exact
@@ -145,6 +126,8 @@ Quality uses a bounded 128x64 luma ROI, matched by timestamp and exact encoded a
 A source PNG and last viewer image with equal dimensions do not establish frame identity.
 Five source samples at most are recorded per host session, and quality is not extrapolated to
 other scene phases. `evidence.tar.gz` retains raw decode/timing records and matched ROI samples.
+These observations remain under `extra.repeats[].window_netem_metrics` in the target summary.
+There is no unqualified first-repeat or partial-repeat aggregate.
 Each target also leaves its raw files under
 `artifacts/screen-stream-eval/NAME/`, on the worker: the latency JSON and, per repeat N, `window-N.json`, `phases-N.jsonl`,
 `host-N.png`, `viewer-frame-N`, `ocr-N.json`, and the logs, with pairing links redacted.

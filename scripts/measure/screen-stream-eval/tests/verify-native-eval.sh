@@ -8,7 +8,7 @@ work=$(mktemp -d)
 finish() {
   [[ ! -f "$work/bench-after.rs" ]] || cp "$work/bench-after.rs" "$crate/src/bench.rs"
   if [[ -n "${FAST_CHECKS_OUT:-}" ]]; then
-    for file in metrics-before.log hello-before.log; do
+    for file in metrics-before.log hello-before.log cleanup-before.log; do
       [[ ! -f "$work/$file" ]] || cp "$work/$file" "$FAST_CHECKS_OUT/$file"
     done
   fi
@@ -19,13 +19,20 @@ trap finish EXIT
 git fetch --no-tags --depth=1 origin 32a072d97bd66eba4cec3a17ddc0d4ed960db2b7
 cp "$eval_dir/test_rd_metrics.py" "$work/test_rd_metrics.py"
 git show 32a072d97bd66eba4cec3a17ddc0d4ed960db2b7:scripts/measure/screen-stream-eval/rd-metrics.py >"$work/rd-metrics.py"
-if python3 "$work/test_rd_metrics.py" >"$work/metrics-before.log" 2>&1; then
+if CMUX_RD_METRICS_LEGACY=1 python3 "$work/test_rd_metrics.py" >"$work/metrics-before.log" 2>&1; then
   echo 'FAIL: original metrics unexpectedly passed' >&2
   exit 1
 fi
 cat "$work/metrics-before.log"
 python3 "$eval_dir/test_rd_metrics.py"
-python3 "$eval_dir/test_eval.py"
+python3 -m unittest discover -s "$eval_dir" -p 'test_eval*.py'
+python3 "$eval_dir/test_rd_cleanup.py"
+git show 32a072d97bd66eba4cec3a17ddc0d4ed960db2b7:scripts/measure/screen-stream-eval/targets/rd.sh >"$work/rd-before.sh"
+if RD_CLEANUP_SCRIPT="$work/rd-before.sh" python3 "$eval_dir/test_rd_cleanup.py" >"$work/cleanup-before.log" 2>&1; then
+  echo 'FAIL: original cleanup unexpectedly passed' >&2
+  exit 1
+fi
+cat "$work/cleanup-before.log"
 cd "$root/cmux-tui"
 cargo fmt --manifest-path "$crate/Cargo.toml" --check
 cargo clippy --manifest-path "$crate/Cargo.toml" --no-default-features --features bench --all-targets -- -D warnings
