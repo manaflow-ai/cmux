@@ -1434,6 +1434,13 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
      */
     func timings()  -> [TimingMark]
     
+    /**
+     * Milliseconds since the link last received a frame other than a ping
+     * or a pong. With Align Keepalives on, the heartbeat probes a link with
+     * no traffic for a whole beat on the keepalive beat.
+     */
+    func trafficAgoMs()  -> UInt64
+    
     func transport()  -> Transport
     
     /**
@@ -1753,6 +1760,19 @@ open func roamTimings() -> [TimingMark]  {
 open func timings() -> [TimingMark]  {
     return try!  FfiConverterSequenceTypeTimingMark.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_timings(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Milliseconds since the link last received a frame other than a ping
+     * or a pong. With Align Keepalives on, the heartbeat probes a link with
+     * no traffic for a whole beat on the keepalive beat.
+     */
+open func trafficAgoMs() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_traffic_ago_ms(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -4148,6 +4168,18 @@ public func connectWithOptions(baseUrl: String, token: String, teamId: String, d
         )
 }
 /**
+ * Milliseconds from now until the next keepalive beat of `period_ms`, for
+ * the app's own timers (presence, Cloud Chief, the link heartbeat), so
+ * they share the Rust keepalives' instants.
+ */
+public func keepaliveBeatDelayMs(periodMs: UInt64) -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_keepalive_beat_delay_ms(
+        FfiConverterUInt64.lower(periodMs),$0
+    )
+})
+}
+/**
  * The device's network changed or came back (iOS `NWPathMonitor`): every
  * WireGuard link moves onto the new network at once without a redial, and
  * the signaling socket is checked (and replaced when dead) so signaling
@@ -4222,6 +4254,18 @@ public func setCellularPath(cellular: Bool)  {try! rustCall() {
 }
 }
 /**
+ * Settings → Transport → Align Keepalives (off by default): every
+ * keepalive of the phone goes out on the same beats
+ * (`cmux_mobile_link::keepalive`). Read by each dial and by the signaling
+ * socket's next keepalive tick.
+ */
+public func setKeepaliveAlignment(on: Bool)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_keepalive_alignment(
+        FfiConverterBool.lower(on),$0
+    )
+}
+}
+/**
  * Whether this launch should run the cleanup: the marker is missing, not a
  * number, or from an older version of the rules.
  */
@@ -4290,6 +4334,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_connect_with_options() != 39046) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_keepalive_beat_delay_ms() != 42732) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_network_changed() != 41080) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4300,6 +4347,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_cellular_path() != 4068) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_keepalive_alignment() != 23404) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_due() != 41191) {
@@ -4372,6 +4422,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_timings() != 339) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_traffic_ago_ms() != 41941) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_transport() != 62295) {

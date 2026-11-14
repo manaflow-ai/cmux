@@ -15,6 +15,8 @@ public struct FFIMacLinkDialer: MacLinkDialer {
 
     public func dial(_ endpoint: LinkEndpoint, transport: TransportKind, accessToken: String) async throws -> any MacLink {
         let observer = StateObserver()
+        // Settings → Transport → Align Keepalives, read at each dial like Ultra mode.
+        KeepaliveBeat.applySettingToCore()
         do {
             let handle = try await connectWithOptions(
                 baseUrl: endpoint.baseURL.absoluteString,
@@ -35,7 +37,9 @@ public struct FFIMacLinkDialer: MacLinkDialer {
     }
 
     public func prewarm(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] {
-        await CmuxMobileLinkFFI.prewarm(baseUrl: baseURL.absoluteString, token: accessToken, teamId: teamID, deviceId: deviceID)
+        // The signaling socket opened here reads the setting at its ticks.
+        KeepaliveBeat.applySettingToCore()
+        return await CmuxMobileLinkFFI.prewarm(baseUrl: baseURL.absoluteString, token: accessToken, teamId: teamID, deviceId: deviceID)
             .map { ($0.name, $0.millis) }
     }
 
@@ -84,6 +88,8 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
     var connectedPath: LinkPathKind? { handle.path().kind }
 
     var receivedAgo: Duration? { .milliseconds(handle.receivedAgoMs()) }
+
+    var trafficAgo: Duration? { .milliseconds(handle.trafficAgoMs()) }
 
     var timings: [(String, Double)] {
         handle.timings().map { ($0.name, $0.millis) }
