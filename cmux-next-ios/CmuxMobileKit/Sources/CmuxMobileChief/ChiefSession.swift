@@ -220,10 +220,15 @@ public final class ChiefSession {
                 && (message.delivery == .sending || message.delivery?.isFailed == true)
         }
         let carried = unconfirmed.compactMap { message -> ChiefOutbox.Waiting? in
+            // A recording (New Message's first message, or one sent here) is carried too.
+            let audio = message.audioAttachment.flatMap { attachment -> ConversationComposeAudio? in
+                guard let data = attachment.localData, let info = attachment.audio else { return nil }
+                return ConversationComposeAudio(data: data, info: info)
+            }
             let kept = ConversationComposeMessage(text: message.text, images: message.attachments.compactMap { attachment in
                 guard attachment.kind == .image, let data = attachment.localData else { return nil }
                 return ConversationComposeImage(data: data, width: attachment.width, height: attachment.height, mimeType: "image/jpeg")
-            })
+            }, audio: audio)
             // The client id lets the flush skip one the Chief got after all.
             return kept.isEmpty ? nil : ChiefOutbox.Waiting(message: kept, target: outboxTarget, clientID: message.clientMessageID)
         }

@@ -17,6 +17,8 @@ protocol ConversationAudioHost: AnyObject {
     func presentMicrophoneDenied()
     /// Sends a finished recording; false when it could not be sent.
     func sendRecordedAudio(data: Data, info: ConversationAudioInfo) -> Bool
+    /// Whether a send now can go anywhere; false keeps the review up (the host says why).
+    func canSendRecordedAudio() -> Bool
 }
 
 extension ConversationViewController: ConversationAudioHost {
@@ -29,6 +31,8 @@ extension ConversationViewController: ConversationAudioHost {
         // A reply stays in its open thread, as a typed one does.
         store.sendAudio(data: data, info: info, replyToID: replyTarget?.id) != nil
     }
+
+    func canSendRecordedAudio() -> Bool { true }
 }
 
 extension UIViewController {
@@ -279,6 +283,9 @@ final class ConversationAudioComposer {
     }
 
     func send() {
+        // Nowhere to send it yet (New Message with no one in To:): the review stays, so the
+        // recording is not thrown away.
+        guard controller?.canSendRecordedAudio() != false else { return }
         run(.send)
     }
 

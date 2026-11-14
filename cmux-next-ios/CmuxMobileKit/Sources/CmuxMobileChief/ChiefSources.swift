@@ -232,6 +232,7 @@ public final class ChiefSources {
         brainsAvailable = false
         turningOnChief = nil
         turnOnRefusal = nil
+        creatingChief = nil
         pathMonitor?.cancel()
         pathMonitor = nil
         lastPath = nil
@@ -316,7 +317,9 @@ public final class ChiefSources {
     private func apply(_ found: Lookup, userID: String, http: ChiefCloudHTTP) {
         // A Turn On's follow-up read (or any newer one) answered: the card shows what it found.
         turningOnChief = nil
-        creatingChief = nil
+        // Only the create's own read (after it ends) drops the new Chief's row: a wake's read
+        // landing while the create runs would flash Home's old state.
+        if !isChanging { creatingChief = nil }
         // A failed look (no network, a failed read) never takes down a Cloud Chief that works: only an
         // answer does (the list without it: archived or deleted; its brain turned off; no brains here).
         if case let .ready(current) = cloudState, case let .unavailable(_, nil, chiefs, brains) = found,
