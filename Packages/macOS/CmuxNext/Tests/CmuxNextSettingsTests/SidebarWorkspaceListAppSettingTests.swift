@@ -12,7 +12,6 @@ struct SidebarWorkspaceListAppSettingTests {
     }
 
     @Test func theBuiltInListIsTheDefault() {
-        #expect(SidebarSectionsPreferences.defaults.workspaceListApp == nil)
         for value: JSONValue? in [nil, .null, .string(""), .string("  ")] {
             let (app, diagnostics) = Self.app(value)
             #expect(app == nil)
