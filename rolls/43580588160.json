@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43580588160",
+  "recorded_at": "2026-11-14T09:33:48Z",
+  "reason": "cmux-tui eed10d1f28d3 changes the image's cmux-tui (pinned f107a96c78df)",
+  "dry_run": false,
+  "cmux_tui": "eed10d1f28d307872992d48b0956701474a8640f",
+  "fixes": [
+    {
+      "sha": "eed10d1f28d307872992d48b0956701474a8640f",
+      "mergedAt": "2026-11-14T01:03:18-08:00",
+      "subject": "cloud start-chat test: an unread list's last error is named after the list wait (#42872 x #42882) (#42921)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T09:33:48Z",
+    "snapshot_id": "sh-0c4f8e6245fb48cbace724389b4b039a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43580588160): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "aecf6dfbb15f4826b48e3db1f4543feb1caf021e",
+    "image": "cloud-native-auto-eed10d1f-43580588160-1",
+    "revision": "ci-43580588160-1",
+    "at": "2026-11-14T09:33:48Z"
+  },
+  "rolled_back": false
+}
