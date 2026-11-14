@@ -99,12 +99,16 @@ public final class ScreenSharingService {
         public var bundleIdentifier: String
         public var deviceName: String
         public var tokens: any DeviceHubAccountTokenProvider
+        /// The signed-in account: the Macs list it last read draws before the next read (nil: none).
+        public var accountID: String?
 
-        public init(baseURL: URL, bundleIdentifier: String, deviceName: String, tokens: any DeviceHubAccountTokenProvider) {
+        public init(baseURL: URL, bundleIdentifier: String, deviceName: String, tokens: any DeviceHubAccountTokenProvider,
+                    accountID: String? = nil) {
             self.baseURL = baseURL
             self.bundleIdentifier = bundleIdentifier
             self.deviceName = deviceName
             self.tokens = tokens
+            self.accountID = accountID
         }
     }
 
@@ -140,7 +144,7 @@ public final class ScreenSharingService {
         #if DEBUG
         if demoDiscovery != nil { return demoMacs }
         #endif
-        if discovery == .finding { return preferences.lastMacs.filter { $0.platform == .macos }.sorted(by: Self.listOrder) }
+        if discovery == .finding { return preferences.lastMacs(for: configuration.accountID).filter { $0.platform == .macos }.sorted(by: Self.listOrder) }
         guard let hub else { return [] }
         return hub.otherDevices.filter { $0.platform == .macos }.sorted(by: Self.listOrder)
     }
@@ -312,7 +316,7 @@ public final class ScreenSharingService {
             return
         }
         let listed = macs
-        preferences.rememberMacs(listed)
+        preferences.rememberMacs(listed, for: configuration.accountID)
         guard let pending = pendingSelection else { return }
         pendingSelection = nil
         if let mac = listed.first(where: { $0.id == pending.hostID }) {
