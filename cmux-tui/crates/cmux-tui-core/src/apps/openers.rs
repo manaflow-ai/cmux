@@ -89,8 +89,9 @@ pub(super) fn opener_locked(inner: &Inner, url: &str) -> Option<(String, String)
 }
 
 impl Supervisor {
-    /// The app and export a click on `url` goes to now, if any.
-    pub fn opener_for(&self, url: &str) -> Option<(String, String)> {
+    /// The app and export a click on `url` goes to now, if any (tests read the choice without running it).
+    #[cfg(test)]
+    pub(super) fn opener_for(&self, url: &str) -> Option<(String, String)> {
         let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         opener_locked(&inner, url)
     }
