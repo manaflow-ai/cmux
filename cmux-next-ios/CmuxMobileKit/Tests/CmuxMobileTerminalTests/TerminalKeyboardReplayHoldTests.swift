@@ -16,23 +16,30 @@ import Testing
 
     @Test func aShorterGridWhileTheKeyboardRisesWaitsForItToStop() {
         var hold = rising()
-        #expect(hold.arrived(.hostGrid(columns: 53, rows: 26), isTUI: true, heldRows: 40, pageRows: 26).takeHeldFrame == false)
+        let grid = hold.arrived(.hostGrid(columns: 53, rows: 26), isTUI: true, heldRows: 40, pageRows: 26)
+        #expect(grid.takeHeldFrame == false)
         #expect(hold.gridPending)
         // Its reset's held frame waits too (taken when it is fed).
-        #expect(hold.arrived(.output(reset), isTUI: true, heldRows: 40, pageRows: 26).takeHeldFrame == false)
-        #expect(hold.holdsAt(nextIsGrid: true))
+        let resetArrived = hold.arrived(.output(reset), isTUI: true, heldRows: 40, pageRows: 26)
+        #expect(resetArrived.takeHeldFrame == false)
+        let holds = hold.holdsAt(nextIsGrid: true)
+        #expect(holds)
         #expect(hold.holding)
-        #expect(hold.keyboardStopped() == .init(resume: true, takeHeldFrame: true))
+        let stopped = hold.keyboardStopped()
+        #expect(stopped == .init(resume: true, takeHeldFrame: true))
         #expect(!hold.holding && !hold.gridPending && !hold.resetDeferred)
-        #expect(!hold.holdsAt(nextIsGrid: true))
+        let holdsAgain = hold.holdsAt(nextIsGrid: true)
+        #expect(!holdsAgain)
     }
 
     @Test func bytesBeforeTheGridAreNotHeld() {
         var hold = rising()
         _ = hold.arrived(.hostGrid(columns: 53, rows: 26), isTUI: true, heldRows: 40, pageRows: 26)
         // An echo queued ahead of the grid change goes out.
-        #expect(!hold.holdsAt(nextIsGrid: false))
-        #expect(hold.holdsAt(nextIsGrid: true))
+        let atEcho = hold.holdsAt(nextIsGrid: false)
+        #expect(!atEcho)
+        let atGrid = hold.holdsAt(nextIsGrid: true)
+        #expect(atGrid)
     }
 
     @Test func aTallerGridOrAStillKeyboardIsNotHeld() {
@@ -40,7 +47,8 @@ import Testing
         // Keyboard hiding: 26 held, 40 asked; the taller grid swaps in at once.
         _ = hiding.arrived(.hostGrid(columns: 53, rows: 40), isTUI: true, heldRows: 26, pageRows: 40)
         #expect(!hiding.gridPending)
-        #expect(hiding.arrived(.output(reset), isTUI: true, heldRows: 26, pageRows: 40).takeHeldFrame)
+        let hidingReset = hiding.arrived(.output(reset), isTUI: true, heldRows: 26, pageRows: 40)
+        #expect(hidingReset.takeHeldFrame)
         var still = TerminalKeyboardReplayHold()
         _ = still.arrived(.hostGrid(columns: 53, rows: 26), isTUI: true, heldRows: 40, pageRows: 26)
         #expect(!still.gridPending)
@@ -59,13 +67,17 @@ import Testing
         var hold = rising()
         _ = hold.arrived(.hostGrid(columns: 53, rows: 26), isTUI: true, heldRows: 40, pageRows: 26)
         _ = hold.arrived(.output(reset), isTUI: true, heldRows: 40, pageRows: 26)
-        #expect(hold.holdsAt(nextIsGrid: true))
-        #expect(hold.arrived(event, isTUI: true, heldRows: 40, pageRows: 26).release == .init(resume: true, takeHeldFrame: true))
+        let holds = hold.holdsAt(nextIsGrid: true)
+        #expect(holds)
+        let ended = hold.arrived(event, isTUI: true, heldRows: 40, pageRows: 26)
+        #expect(ended.release == .init(resume: true, takeHeldFrame: true))
         #expect(!hold.holding && !hold.gridPending && !hold.resetDeferred)
         // A later reset is not deferred by the old grid.
-        #expect(hold.arrived(.output(reset), isTUI: true, heldRows: 40, pageRows: 26).takeHeldFrame)
+        let later = hold.arrived(.output(reset), isTUI: true, heldRows: 40, pageRows: 26)
+        #expect(later.takeHeldFrame)
         // The keyboard's stop has nothing left to release.
-        #expect(hold.keyboardStopped() == .none)
+        let stopped = hold.keyboardStopped()
+        #expect(stopped == .none)
     }
 
     @Test func aResetBeforeTheQueueReachesTheGridIsReleasedByTheStop() {
@@ -73,7 +85,9 @@ import Testing
         _ = hold.arrived(.hostGrid(columns: 53, rows: 26), isTUI: true, heldRows: 40, pageRows: 26)
         _ = hold.arrived(.output(reset), isTUI: true, heldRows: 40, pageRows: 26)
         // The keyboard stopped before the queue got to the grid.
-        #expect(hold.keyboardStopped() == .init(resume: false, takeHeldFrame: true))
-        #expect(!hold.holdsAt(nextIsGrid: true))
+        let stopped = hold.keyboardStopped()
+        #expect(stopped == .init(resume: false, takeHeldFrame: true))
+        let holds = hold.holdsAt(nextIsGrid: true)
+        #expect(!holds)
     }
 }

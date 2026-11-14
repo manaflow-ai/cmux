@@ -80,12 +80,15 @@ final class TerminalFlickerTrace: NSObject {
 
     private let sample: () -> Sample?
     private var link: CADisplayLink?
-    /// The page as Core Animation last committed it (read after the run
-    /// loop's commit): the frame a display refresh shows. Read on the
-    /// display link itself, the page's own display links (output, present)
-    /// may have changed it in the same refresh, uncommitted, and a held
-    /// frame let go together with the new grid read as one frame without
-    /// either.
+    /// The page as Core Animation last committed it: read first thing when
+    /// the main run loop wakes (after-waiting, before any source runs), so
+    /// every change of the previous pass is committed and nothing of this
+    /// pass is. Read on the display link itself, the page's own display
+    /// links (output, present) may have changed it in the same refresh;
+    /// read before waiting (iOS 26 commits after that observer's order),
+    /// changes not yet committed showed (a held still added this pass read
+    /// at its model place, the area relaid under it read as moved), frames
+    /// the 60 fps video never shows.
     private var committed: Sample?
     private var observer: CFRunLoopObserver?
     private let handle: FileHandle?
@@ -140,8 +143,7 @@ final class TerminalFlickerTrace: NSObject {
         let link = CADisplayLink(target: WeakTick(self), selector: #selector(WeakTick.step(_:)))
         link.add(to: .main, forMode: .common)
         self.link = link
-        // After Core Animation's commit observer (order 2_000_000).
-        let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, 2_000_001) { [weak self] _, _ in
+        let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.afterWaiting.rawValue, true, Int.min) { [weak self] _, _ in
             MainActor.assumeIsolated { self?.committed = self?.sample() }
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
