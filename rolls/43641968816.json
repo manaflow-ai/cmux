@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43641968816",
+  "recorded_at": "2026-11-14T21:27:50Z",
+  "reason": "cmux-tui a4283ed8d473 changes the image's cmux-tui (pinned 2a23032128d0)",
+  "dry_run": false,
+  "cmux_tui": "a4283ed8d473a7721895036aed4588f1989e449a",
+  "fixes": [
+    {
+      "sha": "a4283ed8d473a7721895036aed4588f1989e449a",
+      "mergedAt": "2026-11-14T12:56:05-08:00",
+      "subject": "cmux-next iOS: the phone's workspace list sends known and keeps its tree on unchanged (#43132)"
+    },
+    {
+      "sha": "3fb5df9a12c7a302afe01c41ba84bc4603bcd823",
+      "mergedAt": "2026-11-14T12:44:08-08:00",
+      "subject": "acpmux v2 3d: a page of a chat's turns on the wire, the actor and the client (#43187)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T21:27:50Z",
+    "snapshot_id": "sh-e79adb277eb647a79d4145d892bee6a4",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43641968816): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "bdc654d25596b4493c1f0f04839282e45e9cd52a",
+    "image": "cloud-native-auto-a4283ed8-43641968816-1",
+    "revision": "ci-43641968816-1",
+    "at": "2026-11-14T21:27:50Z"
+  },
+  "rolled_back": false
+}
