@@ -16,7 +16,8 @@ or an old state file names something else.
 
 `CMUX_NEXT_CLOUD_ENV` seeds a bundle's first launch. Once a selection exists,
 use `cloud env set` to change it. The state is stored atomically in
-`~/Library/Application Support/cmux/<bundle-id>/cloud-environment.json`.
+`~/Library/Application Support/cmux-next/<bundle-id>/cloud-environment.json`
+(builds before kept it in classic cmux's `cmux/<bundle-id>`; it moves once).
 The JSON result includes every selected origin, the bundle, and the state path.
 
 Setting the environment saves it even when the app is closed. With a running

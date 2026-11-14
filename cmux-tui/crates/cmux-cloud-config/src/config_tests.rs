@@ -99,6 +99,18 @@ fn only_known_untouched_defaults_keep_their_old_locations() {
     let legacy = production.namespaced_legacy_store.expect("legacy store");
     assert_eq!(legacy.keychain_service, "com.cmuxterm.app.nightly.cmux-next.auth.backend-0");
     assert_eq!(legacy.credentials_subpath.last().map(String::as_str), Some("backend-0"));
+    // Scoped stores are NEXT's own, under `cmux-next`; the unscoped one above is shared with
+    // classic cmux of the same bundle id and stays in classic's folder.
+    assert_eq!(
+        legacy.credentials_subpath,
+        [
+            "Library",
+            "Application Support",
+            "cmux-next",
+            "com.cmuxterm.app.nightly.cmux-next",
+            "backend-0"
+        ]
+    );
 
     let signed_dev = configure(
         selection(
@@ -120,6 +132,7 @@ fn only_known_untouched_defaults_keep_their_old_locations() {
         Some("development-project-fixture")
     );
     assert_eq!(signed_dev.namespaced_legacy_store, None);
+    assert_eq!(signed_dev.storage.credentials_subpath[2], "cmux-next");
     let switched =
         configure(selection("dev", NEXT_DEV_BUNDLE_ID, "backend-1", false, Some("x")), &[], false);
     assert_eq!(switched.storage.keychain_service, "com.cmuxterm.app.debug.next.auth.backend-1");
