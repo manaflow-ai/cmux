@@ -768,14 +768,19 @@ impl WindowsSession {
                 if let (Some(metrics), Some(start)) = (&mut self.metrics, capture_started) {
                     sample(&mut metrics.capture_ms, start);
                 }
-                if changed {
-                    if let Some(req) = self.engine.damage(
+                let request = if changed {
+                    self.engine.damage(
                         0,
                         Rect { x: 0, y: 0, width: self.width, height: self.height },
                         now_us,
-                    ) {
-                        self.encode(stream, &req, &pixels)?;
-                    }
+                    )
+                } else {
+                    // Damage held by the fps cap still needs its due frame when the
+                    // desktop stops changing; no new damage event will wake it.
+                    self.engine.poll(now_us)
+                };
+                if let Some(req) = request {
+                    self.encode(stream, &req, &pixels)?;
                 }
                 let output = self.engine.tick(true, now_us);
                 self.send_output(stream, output)?;
@@ -830,6 +835,9 @@ impl WindowsSession {
         for datagram in out.datagrams {
             write_frame(stream, FRAME_DATAGRAM, &datagram)?;
         }
+        if out.release_all {
+            self.release_all()?;
+        }
         for event in out.inject {
             apply_input(&event, self.width, self.height)?;
             match event {
@@ -853,6 +861,16 @@ impl WindowsSession {
                 }
                 _ => {}
             }
+        }
+        if let Some(req) = out.encode {
+            // Feedback and recovery can open the frame gate. Ignoring this request
+            // leaves a frame marked in flight that was never encoded or sent.
+            let capture_started = self.metrics.as_ref().map(|_| Instant::now());
+            let pixels = self.capture.capture()?.to_vec();
+            if let (Some(metrics), Some(start)) = (&mut self.metrics, capture_started) {
+                sample(&mut metrics.capture_ms, start);
+            }
+            self.encode(stream, &req, &pixels)?;
         }
         Ok(())
     }

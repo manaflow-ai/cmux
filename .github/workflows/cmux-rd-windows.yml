@@ -54,11 +54,17 @@ jobs:
           if (-not $result.capture_encode_ok) { throw 'Windows host selftest did not encode a frame' }
           if ([int]$result.frames -lt 60) { throw 'Windows host selftest captured fewer frames than requested' }
           if ([int]$result.encoded_bytes -le 0) { throw 'Windows host selftest emitted no bytes' }
-          $motion = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
-            '-NoProfile', '-File', "$env:GITHUB_WORKSPACE/.github/scripts/cmux-rd-motion.ps1",
-            '-IntervalMs', '16', '-FullScreen'
-          ) -PassThru
+          $readyName = "cmux-rd-motion-$([guid]::NewGuid())"
+          $ready = [System.Threading.EventWaitHandle]::new($false, [System.Threading.EventResetMode]::ManualReset, $readyName)
+          $motion = $null
           try {
+            $motion = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+              '-NoProfile', '-File', "$env:GITHUB_WORKSPACE/.github/scripts/cmux-rd-motion.ps1",
+              '-IntervalMs', '16', '-FullScreen', '-ReadyEvent', $readyName
+            ) -PassThru
+            if (-not $ready.WaitOne(10000) -or $motion.HasExited) {
+              throw 'Windows motion source did not show its window within 10 seconds'
+            }
             foreach ($size in @(@(1920, 1080), @(3840, 2160))) {
               foreach ($trial in 1..2) {
                 $json = & .\target\release\cmux-rd.exe windows-selftest --loopback 1 `
@@ -74,6 +80,7 @@ jobs:
             }
           } finally {
             if ($motion -and -not $motion.HasExited) { Stop-Process -Id $motion.Id }
+            $ready.Dispose()
           }
 
   live-windows-host:
