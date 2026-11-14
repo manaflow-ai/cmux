@@ -2470,7 +2470,7 @@ tail"#;
     fn live_subscription_without_mirror_delivers_closing_summary() {
         let mut client = ready_mirror();
         let mut sub = Sub::new("plain", "list");
-        sub.view = Some(wire::ListView::Live);
+        sub.view = Some(ListView::Live);
         client.subscribe(sub).unwrap();
         let summary =
             serde_json::json!({"chatId":"a","origin":"local","lastActivity":2,"state":"closed"});
