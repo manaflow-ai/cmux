@@ -19,10 +19,13 @@
 //! journal writer thread, as in a daemon. The counts of one create must be equal at 60 and at 826.
 //!
 //! FULL-PATH row (the lead's condition): the same split when the registry has lost its fold of the
-//! journal, which is its state after a daemon start and after a commit whose receipt did not
-//! come (`abandon_effect_commit`). On his Mac this is the candidate for the 2157 ms: without the
-//! fold the create took the FULL projection, which reads the whole stored topology and every
-//! terminal record and writes one journal value for each resource of the session.
+//! journal, which is its state after a commit whose receipt did not come
+//! (`abandon_effect_commit`) and its state after each daemon start. On his Mac this is the
+//! candidate for the 2157 ms: without the fold the create took the FULL projection, which reads
+//! the whole stored topology and every terminal record and writes one journal value for each
+//! resource of the session. Now a create with no fold states its own workspace only
+//! (`lost_fold_journal`, `scoped_kinds`), and a worker states the session again after the start
+//! in parts of at most 8 workspaces (`restate_parts`).
 //!
 //! FOCUS row (a product defect at the same site, not a cost): an empty workspace made with focus
 //! commits the workspace rows and the active workspace, but its journal record did not state
@@ -53,6 +56,10 @@ use super::workspace_close_cost::session_in;
 use super::*;
 use crate::mux::resource_content::without_crosscheck;
 use crate::walk_counters::walk_counts_for_test;
+
+mod lost_fold_journal;
+mod restate_parts;
+mod scoped_kinds;
 
 /// SELECT statements that a create may run more in one session than in the other for a reason
 /// that is not the session's size (the one-slot sidebar document cache of the process: see
@@ -188,6 +195,12 @@ impl Arms {
     fn each(&self) -> [(&'static str, &CreateCost); 3] {
         [("split", &self.split), ("new tab", &self.tab), ("new workspace", &self.workspace)]
     }
+
+    /// [`Self::each`] and the split of the registry that lost its fold.
+    fn each_and_no_fold(&self) -> [(&'static str, &CreateCost); 4] {
+        let [split, tab, workspace] = self.each();
+        [split, tab, workspace, ("split with no fold", &self.no_fold)]
+    }
 }
 
 struct FileSession {
@@ -231,8 +244,8 @@ fn file_session(workspaces: usize) -> FileSession {
     });
     assert_eq!(mux.with_state(|state| state.workspaces.len()), workspaces);
     assert!(
-        mux.workspace_registry.lock().unwrap().public_fold_seeded(),
-        "the public fold is not seeded: the creates of this test would run the full projection"
+        mux.workspace_registry.lock().unwrap().public_fold_complete_for_test(),
+        "the public fold is not complete: the creates of this test would state the session again"
     );
     FileSession { mux, root, target }
 }
@@ -313,14 +326,14 @@ fn arms(workspaces: usize) -> Arms {
     let (workspace, workspace_surface) = counted_create(&mux, || {
         mux.new_workspace(Some("measured".into()), Some((80, 24))).unwrap()
     });
-    // The registry loses its fold of the journal, as after a daemon start or a commit whose
-    // receipt did not come.
+    // With the fold held, as each create above: the first workspace commit after a lost fold
+    // states each workspace one time (`lost_fold_journal`).
+    let empty = empty_workspace_record(&mux);
+    // The registry loses its fold of the journal, as after a commit whose receipt did not come.
     let other_pane = mux.with_state(|state| state.pane_of(workspace_surface.id).unwrap());
     mux.workspace_registry.lock().unwrap().abandon_effect_commit();
     let (no_fold, no_fold_surface) =
         counted_create(&mux, || mux.split(other_pane, SplitDir::Down, None).unwrap());
-    // The full projection of the split above seeded the fold again.
-    let empty = empty_workspace_record(&mux);
     let arms = Arms { split, tab, workspace, no_fold, empty };
     eprintln!("empty workspace with focus at {workspaces} workspaces: {:?}", arms.empty);
     for (name, cost) in arms.each().into_iter().chain([("split with no fold", &arms.no_fold)]) {
@@ -398,7 +411,10 @@ fn a_create_projects_and_commits_the_same_in_a_bigger_session() {
 fn a_create_walks_no_more_of_the_session_in_a_bigger_session() {
     let (small, large) = measured();
     let mut problems = Vec::new();
-    for ((name, small), (_, large)) in small.each().into_iter().zip(large.each()) {
+    // The split with no fold is here too: its walks are the walks of each split.
+    for ((name, small), (_, large)) in
+        small.each_and_no_fold().into_iter().zip(large.each_and_no_fold())
+    {
         let counts: [(&str, u64, u64); 2] = [
             ("workspaces visited by index rebuilds", small.index_rebuild, large.index_rebuild),
             ("surfaces visited by decoration walks", small.decoration_walk, large.decoration_walk),
@@ -432,8 +448,9 @@ fn a_create_clones_no_more_terminals_in_a_bigger_session() {
     assert_no_problems(problems);
 }
 
+/// The index rebuilds and the decoration walks of this split are counted in
+/// `a_create_walks_no_more_of_the_session_in_a_bigger_session`, with those of each other create.
 #[test]
-#[ignore = "still red: a create with no journal fold runs the full projection (the next PR of create-commit-800 removes this line)"]
 fn a_create_with_no_journal_fold_does_not_project_the_session() {
     let (small, large) = measured();
     let (small, large) = (&small.no_fold, &large.no_fold);
@@ -447,14 +464,12 @@ fn a_create_with_no_journal_fold_does_not_project_the_session() {
             ));
         }
     }
-    let counts: [(&str, u64, u64); 7] = [
+    let counts: [(&str, u64, u64); 5] = [
         ("workspaces stated by the walk", small.workspace_rows, large.workspace_rows),
         ("stored workspace rows read", small.frame_rows, large.frame_rows),
         ("durable changes sent to the journal writer", small.patch_changes, large.patch_changes),
         ("public values built", small.public_deltas, large.public_deltas),
         ("workspace rows written", small.workspace_rows_written(), large.workspace_rows_written()),
-        ("workspaces visited by index rebuilds", small.index_rebuild, large.index_rebuild),
-        ("surfaces visited by decoration walks", small.decoration_walk, large.decoration_walk),
     ];
     for (what, at_small, at_large) in counts {
         if at_small != at_large {

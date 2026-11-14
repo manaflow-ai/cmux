@@ -61,9 +61,31 @@ impl Events {
         let _ = self.tee.set(tee);
     }
 
+    pub(super) fn damaged_snapshot_frames(&self) -> u64 {
+        self.tee.get().map_or(0, |tee| tee.damaged_snapshot_frames())
+    }
+
     fn mark_tee(&self, id: &str) {
         if let Some(tee) = self.tee.get() {
             tee.mark(id);
+        }
+    }
+
+    pub(super) fn mark_remote_tee(&self, peer: &str, id: &str) {
+        if let Some(tee) = self.tee.get() {
+            tee.mark_remote(peer, id);
+        }
+    }
+
+    pub(super) fn origin_tee(&self, id: &str, state: acpmux_book::index::OriginState, since: u64) {
+        if let Some(tee) = self.tee.get() {
+            tee.origin(id, state, since);
+        }
+    }
+
+    pub(super) fn remote_tee_ready(&self) {
+        if let Some(tee) = self.tee.get() {
+            tee.remote_ready();
         }
     }
 
@@ -166,6 +188,9 @@ impl Events {
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         debug_assert!(event.remote.is_some(), "a local event goes through Events::send");
+        if let Some(remote) = event.remote.as_ref() {
+            self.mark_remote_tee(&remote.peer, &event.session_id);
+        }
         self.stamped(event)
     }
 

@@ -165,7 +165,14 @@ fn an_unreadable_cold_comparison_does_not_defer_its_replacement() {
     replacement.title = "restored from the owning chat".into();
     writer.apply(replacement).unwrap();
     writer.sync_batch().unwrap();
-    assert!(writer.log_errors() > before);
+    assert_eq!(writer.log_errors(), before);
+    assert_eq!(hub.damaged_snapshot_frames(), 0, "a comparison does not count damage");
+    writer.start_hydration();
+    while writer.hydration.is_some() {
+        writer.process_batch();
+    }
+    assert_eq!(hub.damaged_snapshot_frames(), 1);
+    assert_eq!(writer.log_errors(), before);
     assert!(writer.retry_log.is_empty());
     assert_eq!(hub.snapshot().seq(), 2);
     assert_eq!(hub.snapshot().get("damaged").unwrap().title, "restored from the owning chat");

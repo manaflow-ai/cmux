@@ -1,4 +1,6 @@
 #if os(iOS)
+import CmuxConversationCore
+import CmuxMobileAgentChat
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxSpinner
@@ -31,6 +33,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// Live: choosing a Mac links it and moves the Mac Chief and Home to it.
     let selectMac: ((String) -> Void)?
     let reconnect: ((String) async -> Void)?
+    /// New Message's "Invite … to <team>": invites the email to the active team.
+    let inviteToTeam: ((String) -> Void)?
     @State private var macText = MacFilterMemo()
     /// The filtered list, built once per change of the rows, search or toggle.
     @State private var listMemo = MacHomeList.Memo()
@@ -51,6 +55,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     public init(store: AppStore, sources: ChiefSources = .shared, feed: MacHomeFeed = .shared, macFilter: MacFilter = MacFilter(),
                 reconnect: ((String) async -> Void)? = nil,
                 selectMac: ((String) -> Void)? = nil,
+                inviteToTeam: ((String) -> Void)? = nil,
                 open: @escaping (HomeConversationRoute) -> Void,
                 @ToolbarContentBuilder leading: () -> Leading) {
         self.store = store
@@ -59,6 +64,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         self.macFilter = macFilter
         self.selectMac = selectMac
         self.reconnect = reconnect
+        self.inviteToTeam = inviteToTeam
         self.open = open
         self.leading = leading()
     }
@@ -400,18 +406,24 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 }
                 .accessibilityIdentifier("home.unread")
                 .accessibilityValue(unreadOnly ? "On" : "Off")
-                // Compose opens the Chief conversation with the keyboard up
-                // (SPEC 1.4): the phone starts no conversations.
-                Button("New Message to Chief", systemImage: "square.and.pencil") {
-                    open(.chiefComposing(sources.primaryPlace))
+                // Compose is the Mac's New Message (user direction 2026-11-11), as
+                // Messages' New Message sheet: To: with the Chiefs and the team.
+                Button("New Message", systemImage: "square.and.pencil") {
+                    newMessage().present()
                 }
                 .accessibilityIdentifier("home.compose")
             }
         }
         .navigationDestination(for: ChiefRoute.self) { route in
             let chief = sources.session(for: route.place)
-            ChiefConversationScreen(session: chief, compose: ChiefComposer(store: store, session: chief, open: open),
-                                    focusesComposer: route.focusesComposer)
+            ChiefConversationScreen(session: chief, compose: chiefComposer(chief), focusesComposer: route.focusesComposer)
+        }
+        .navigationDestination(for: CloudConversationRoute.self) { route in
+            if let session = sources.cloudConversation(route) {
+                ChiefConversationScreen(session: session, options: route.chief == nil ? .people(route.title) : .chief)
+            } else {
+                ContentUnavailableView(String(localized: "Sign in to see this conversation."), systemImage: "cloud")
+            }
         }
         .navigationDestination(for: MacConversationRoute.self) { route in
             MacConversationScreen(route: route, feed: feed, macID: homeMacID, reconnect: reconnect)
@@ -439,22 +451,31 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .task {
             sources.recheck()
             feed.refresh()
+            // After Home's first frames: New Message's views, so the compose tap only presents.
+            await Task.yield()
+            HomeNewMessage.prewarm()
         }
-        .alert("New Chief", isPresented: $namingChief) {
-            TextField("Name", text: $newChiefName)
-                // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                .accessibilityIdentifier("home.chief.newName")
-            Button("Cancel", role: .cancel) {}
-            Button("Create") {
-                let name = newChiefName
-                Task { await sources.createChief(named: name) }
-            }
-            .accessibilityIdentifier("home.chief.newCreate")
-                .keyboardShortcut(.defaultAction)
-        } message: {
-            Text("A new Cloud Chief with its own conversation and memory.")
+        // The system's own alert look (blue Create, white text): Home's neutral tint made the
+        // prominent button's text dark.
+        .background {
+            Color.clear
+                .alert("New Chief", isPresented: $namingChief) {
+                    TextField("Name", text: $newChiefName)
+                        // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .accessibilityIdentifier("home.chief.newName")
+                    Button("Cancel", role: .cancel) {}
+                    Button("Create") {
+                        let name = newChiefName
+                        Task { await sources.createChief(named: name) }
+                    }
+                    .accessibilityIdentifier("home.chief.newCreate")
+                    .keyboardShortcut(.defaultAction)
+                } message: {
+                    Text("A new Cloud Chief with its own conversation and memory.")
+                }
+                .tint(nil)
         }
         // The memo's revision moves only when the shown list does (no comparison of every row per pass).
         .animation(theme.motion.smooth.animation.unlessReduceMotion, value: listMemo.revision)
@@ -597,6 +618,82 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { macFilter.select(.mac(id), in: team.id) }
         // The chosen Mac is linked and focused: its Chief and its Home show.
         if macs.contains(where: { $0.id == id && $0.isOnline }) { selectMac?(id) }
+    }
+
+    /// The Chief conversation's composer: Forward opens Home's New Message.
+    private func chiefComposer(_ chief: ChiefSession) -> ChiefComposer {
+        let composer = ChiefComposer(store: store, session: chief, open: open)
+        composer.newMessage = { newMessage() }
+        return composer
+    }
+
+    /// Home's New Message over Home's people now (``newMessageSnapshot()``).
+    private func newMessage() -> HomeNewMessage {
+        HomeNewMessage(context: HomeNewMessage.Context(
+            store: store, sources: sources, feed: feed, open: open,
+            snapshot: { newMessageSnapshot() }, newChief: newChiefAction, inviteToTeam: inviteToTeam
+        ))
+    }
+
+    /// Who New Message lists, as the Mac's list draws them: the Chiefs, main
+    /// first (the Cloud Chief when there is one, else this Mac's), each tagged
+    /// "Chief · Main · Cloud" or "Chief · <Mac>"; the agent chats of the
+    /// active workspaces for typed text. The team is read by New Message.
+    private func newMessageSnapshot() -> HomeRecipientSnapshot {
+        let chiefWord = String(localized: "Chief")
+        func line(_ tag: String?) -> String { [chiefWord, tag].compactMap { $0 }.joined(separator: " \u{00B7} ") }
+        func entry(_ id: String, _ name: String, _ avatar: String, _ detail: String,
+                   _ kind: HomeRecipientEntry.Kind, _ activity: Date?) -> HomeRecipientEntry {
+            HomeRecipientEntry(contact: ConversationContact(id: id, name: name, initials: avatar, colorHex: "#636366",
+                                                            handles: [HomeNewMessageDirectory.cmuxHandle], detail: detail),
+                               kind: kind, activity: activity)
+        }
+        var chiefs: [HomeRecipientEntry] = []
+        var macChief: HomeRecipientEntry?
+        if sources.isCloudReady {
+            chiefs.append(entry("chief:cloud", primaryName, sources.cloud.avatar, line(chiefTag(main: true, place: String(localized: "Cloud"))),
+                                .chief(.cloud), sources.cloud.lastMessage?.sentAt))
+            for other in sources.cloudChiefs where other.id != sources.cloudChief?.id {
+                guard let conversation = other.mainConversation else { continue }
+                let name = other.displayName.isEmpty ? chiefWord : other.displayName
+                chiefs.append(entry("chief:cloud:\(other.id)", name, homeInitials(name), line(chiefTag(main: false, place: String(localized: "Cloud"))),
+                                    .cloudChief(agentID: other.id, conversation: conversation), nil))
+            }
+        }
+        for row in hiddenRows.visible(feed.rows ?? []) where row.kind == .chief {
+            if isMacChief(row) {
+                macChief = entry("chief:mac", row.title, sources.mac.avatar, line(tag(row)), .chief(.mac), row.activityAt)
+            } else {
+                chiefs.append(entry("chief:mac:\(row.id)", row.title, homeInitials(row.title), line(tag(row)),
+                                    .macChief(MacConversationRoute(conversationID: row.id, chief: row.chief, title: row.title)), row.activityAt))
+            }
+        }
+        if macChief == nil, feed.rows == nil, sources.mac.macName != nil || !sources.isCloudReady {
+            // The Mac's list is not in yet: its Chief stays reachable, as on Home.
+            macChief = entry("chief:mac", chiefWord, sources.mac.avatar, line(chiefTag(main: !sources.isCloudReady, place: macTag)),
+                             .chief(.mac), sources.mac.lastMessage?.sentAt)
+        }
+        if let macChief {
+            // The main Chief leads (the Mac's `HomeChiefRoster.mainFirst`): this Mac's when there is no Cloud Chief.
+            if sources.isCloudReady { chiefs.insert(macChief, at: min(1, chiefs.count)) } else { chiefs.insert(macChief, at: 0) }
+        }
+        var tabs: [HomeRecipientEntry] = []
+        for workspace in store.activeWorkspaces {
+            for tab in workspace.tabs where tab.kind == .agent {
+                // The line under it says where it runs; the name is the tab's own.
+                let name = tab.title
+                tabs.append(entry("tab:\(tab.id)", name, tab.harness == "codex" ? "CX" : String(tab.title.prefix(2)).uppercased(),
+                                  [tab.harness?.capitalized ?? String(localized: "Agent"), workspace.title].joined(separator: " \u{00B7} "),
+                                  .agentTab(AgentChatDestination(workspaceID: workspace.id, tabID: tab.id)), nil))
+            }
+        }
+        let team = store.activeTeam
+        return HomeRecipientSnapshot(
+            chiefs: HomeNewMessageDirectory.withLines(chiefs), team: [], agentTabs: tabs,
+            teamName: inviteToTeam == nil ? nil : team.flatMap { $0.id.hasPrefix("personal-") ? nil : $0.name },
+            canCreateChief: newChiefAction != nil, canInvite: true,
+            openCloudChiefAgent: sources.cloudChief?.id
+        )
     }
 
     /// The first pin's name: the Cloud Chief's own name once it is the default.

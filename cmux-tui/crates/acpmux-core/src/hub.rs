@@ -20,7 +20,11 @@ use tokio::sync::Notify;
 use crate::wire::{Frame, FrameError, FrameKind, Origin, Sub};
 mod compaction;
 mod disk;
+#[cfg(test)]
+mod folder_tests;
+mod folders;
 mod history;
+mod keyed_page;
 mod origins;
 pub use compaction::CompactionStats;
 use history::History;
@@ -56,6 +60,7 @@ pub enum ListItem {
     Summary(SummaryEvent),
     Gone { seq: u64, chat_id: String, origin: String },
     Origin { seq: u64, origin: Origin },
+    Folders { seq: u64, ops: Vec<acpmux_book::index::folders::FolderOp> },
     Lagged { cursor: u64 },
 }
 
@@ -76,7 +81,7 @@ enum UpdateKey {
 #[derive(Default)]
 struct Pending {
     rows: HashMap<(RowKey, Source), PendingUpdate>,
-    controls: std::collections::BTreeMap<UpdateKey, PendingUpdate>,
+    controls: std::collections::BTreeMap<UpdateKey, std::collections::VecDeque<PendingUpdate>>,
 }
 
 impl Pending {
@@ -133,7 +138,27 @@ impl UpdateQueue {
                     REFUSED_ORIGINS.fetch_add(1, Ordering::Relaxed);
                     return Err(HubError::OriginLimit);
                 }
-                pending.controls.insert(key, update);
+                if let UpdateKey::Origin(origin) = &key
+                    && matches!(&update, PendingUpdate::Origin { record } if record.state == OriginState::Removed)
+                {
+                    pending.rows.retain(|(row, _), _| row.origin.as_ref() != origin.as_ref());
+                    let slot = pending.controls.entry(key).or_default();
+                    slot.clear();
+                    slot.push_back(update);
+                } else if let UpdateKey::Origin(_) = &key {
+                    let slot = pending.controls.entry(key).or_default();
+                    if slot.front().is_some_and(|update| matches!(update, PendingUpdate::Origin { record } if record.state == OriginState::Removed)) {
+                        slot.truncate(1);
+                        slot.push_back(update);
+                    } else {
+                        slot.clear();
+                        slot.push_back(update);
+                    }
+                } else {
+                    let slot = pending.controls.entry(key).or_default();
+                    slot.clear();
+                    slot.push_back(update);
+                }
             }
         }
         self.notify.notify_one();
@@ -155,8 +180,12 @@ impl UpdateQueue {
         let Ok(mut pending) = self.pending.lock() else { return Vec::new() };
         let mut batch = Vec::new();
         while batch.len() < limit {
-            let Some(control) = pending.controls.pop_first() else { break };
-            batch.push(control);
+            let Some((key, mut updates)) = pending.controls.pop_first() else { break };
+            let Some(update) = updates.pop_front() else { continue };
+            if !updates.is_empty() {
+                pending.controls.insert(key.clone(), updates);
+            }
+            batch.push((key, update));
         }
         let keys: Vec<_> = pending.rows.keys().take(limit - batch.len()).cloned().collect();
         batch.extend(keys.into_iter().filter_map(|key| {
@@ -186,6 +215,8 @@ pub struct ListReceiver {
     subscriber: Arc<Subscriber>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
     history: Arc<Mutex<History>>,
+    folders: bool,
+    folder_state: Arc<Mutex<folders::FolderState>>,
     published: Arc<ArcSwap<SummaryIndex>>,
 }
 
@@ -217,6 +248,14 @@ impl ListReceiver {
     }
 
     pub fn try_next(&self) -> Option<ListItem> {
+        if self.folders {
+            return match self.try_next_raw(None, crate::wire::MAX_PAGE_BYTES)? {
+                RawRead::Span(span) => folders::decode_item(span.bytes, span.last_seq),
+                RawRead::Lagged => {
+                    Some(ListItem::Lagged { cursor: self.subscriber.state.lock().ok()?.cursor })
+                }
+            };
+        }
         let cursor = {
             let state = self.subscriber.state.lock().ok()?;
             if state.ended {
@@ -247,7 +286,8 @@ impl ListReceiver {
                 }
             }
         };
-        let item = match history::decode(bytes).ok().and_then(|items| items.into_iter().next()) {
+        let decoded = history::decode(bytes).ok().and_then(|items| items.into_iter().next());
+        let item = match decoded {
             Some(item) => item,
             None => {
                 if let Ok(mut state) = self.subscriber.state.lock() {
@@ -259,7 +299,7 @@ impl ListReceiver {
         let seq = match &item {
             ListItem::Summary(event) => event.seq,
             ListItem::Gone { seq, .. } => *seq,
-            ListItem::Origin { seq, .. } => *seq,
+            ListItem::Origin { seq, .. } | ListItem::Folders { seq, .. } => *seq,
             ListItem::Lagged { cursor } => *cursor,
         };
         if let Ok(mut state) = self.subscriber.state.lock() {
@@ -273,6 +313,9 @@ impl ListReceiver {
     /// follows the live tail. A malformed or expired span is reported as a
     /// lag so the connection can open one fresh window.
     pub(crate) fn try_next_raw(&self, through: Option<u64>, max_bytes: usize) -> Option<RawRead> {
+        if self.folders {
+            return self.next_folders(max_bytes);
+        }
         let cursor = {
             let state = self.subscriber.state.lock().ok()?;
             if state.ended {
@@ -348,6 +391,7 @@ pub struct Hub {
     updates: Arc<UpdateQueue>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
     history: Arc<Mutex<History>>,
+    folder_state: Arc<Mutex<folders::FolderState>>,
     page_provider: Arc<Mutex<Option<Arc<dyn PageProvider>>>>,
     sources: Arc<ArcSwap<HashMap<String, Source>>>,
 }
@@ -378,6 +422,7 @@ pub struct HubWriter {
     updates: Arc<UpdateQueue>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
     history: Arc<Mutex<History>>,
+    folder_state: Arc<Mutex<folders::FolderState>>,
     log: Option<IndexLog>,
     log_dirty: bool,
     log_errors: Arc<AtomicU64>,
@@ -481,6 +526,7 @@ impl Hub {
         let updates = Arc::new(UpdateQueue::new());
         let subscribers = Arc::new(Mutex::new(Vec::with_capacity(EVENT_CAPACITY)));
         let history = Arc::new(Mutex::new(History::new()));
+        let folder_state = Arc::new(Mutex::new(folders::FolderState::default()));
         let log_errors = Arc::new(AtomicU64::new(0));
         let compaction_counters = Arc::new(compaction::Counters::default());
         compaction_counters
@@ -493,6 +539,7 @@ impl Hub {
             updates: updates.clone(),
             subscribers: subscribers.clone(),
             history: history.clone(),
+            folder_state: folder_state.clone(),
             page_provider: Arc::new(Mutex::new(None)),
             sources: sources.clone(),
         };
@@ -516,6 +563,7 @@ impl Hub {
             updates,
             subscribers,
             history,
+            folder_state,
             log,
             log_dirty: false,
             log_errors,
@@ -609,6 +657,18 @@ impl Hub {
         self.history.lock().map_or(0, |history| history.encoded_ops())
     }
 
+    #[cfg(test)]
+    pub(crate) fn reset_history_raw_copies(&self) {
+        if let Ok(history) = self.history.lock() {
+            history.reset_raw_copies();
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn history_raw_copies(&self) -> usize {
+        self.history.lock().map_or(0, |history| history.raw_copies())
+    }
+
     pub fn set_page_provider(&self, provider: Arc<dyn PageProvider>) {
         if let Ok(mut slot) = self.page_provider.lock() {
             *slot = Some(provider);
@@ -645,22 +705,32 @@ impl Hub {
         let index = self.snapshot();
         let edition_matches =
             sub.edition.is_none_or(|edition| edition == 0 || edition == index.edition());
-        let resume_cursor =
-            if edition_matches && sub.cursor.is_some() && self.resume_target(cursor)?.is_some() {
-                cursor
-            } else {
-                index.seq()
-            };
+        let resume_cursor = if !folders::is_folders(sub.view)
+            && edition_matches
+            && sub.cursor.is_some()
+            && self.resume_target(cursor)?.is_some()
+        {
+            cursor
+        } else {
+            index.seq()
+        };
         let frame = self.window_frame_at_cursor(sub, &index, resume_cursor)?;
+        let resume_cursor = if folders::is_folders(sub.view) {
+            frame.decode_json::<crate::wire::FolderWindow>()?.cursor
+        } else {
+            resume_cursor
+        };
         let subscriber = Arc::new(Subscriber::new(resume_cursor));
         self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());
         Ok(ListSubscription {
             window: frame,
-            cursor: index.seq(),
+            cursor: if folders::is_folders(sub.view) { resume_cursor } else { index.seq() },
             receiver: ListReceiver {
                 subscriber,
                 subscribers: self.subscribers.clone(),
                 history: self.history.clone(),
+                folder_state: self.folder_state.clone(),
+                folders: folders::is_folders(sub.view),
                 published: self.published.clone(),
             },
         })
@@ -674,12 +744,17 @@ impl Hub {
             return Err(HubError::WrongStream(sub.stream.as_str().to_owned()));
         }
         validate_window(sub)?;
+        if folders::is_folders(sub.view) {
+            return Err(HubError::InvalidParams("folders always starts with a window".into()));
+        }
         let subscriber = Arc::new(Subscriber::new(cursor));
         self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());
         Ok(ListReceiver {
             subscriber,
             subscribers: self.subscribers.clone(),
             history: self.history.clone(),
+            folder_state: self.folder_state.clone(),
+            folders: folders::is_folders(sub.view),
             published: self.published.clone(),
         })
     }
@@ -702,6 +777,9 @@ impl Hub {
         cursor: u64,
     ) -> Result<Frame, HubError> {
         let requested = validate_window(sub)?;
+        if folders::is_folders(sub.view) {
+            return self.folder_window(sub);
+        }
         let (key, side) = match sub.anchor.as_ref() {
             Some(crate::wire::Anchor::List { key, side }) => (
                 Some(book_key(key)),
@@ -765,13 +843,49 @@ impl Hub {
         Ok(frame)
     }
 
+    /// The connection supplies the view held by this sid. Row types cannot
+    /// change during a subscription; a caller opens another sid for chat rows.
+    pub fn page_for_view(
+        &self,
+        request: &crate::wire::Page,
+        held_view: Option<crate::wire::ListView>,
+    ) -> Result<Frame, HubError> {
+        if folders::is_folders(held_view) != folders::is_folders(request.view) {
+            return Err(HubError::InvalidPage);
+        }
+        self.page(request)
+    }
+
     pub fn page(&self, request: &crate::wire::Page) -> Result<Frame, HubError> {
         if request.stream.as_str() != "list" {
             return Err(HubError::WrongStream(request.stream.as_str().to_owned()));
         }
+        if matches!(request.view, Some(crate::wire::ListView::Live))
+            && request.filter.as_ref().is_some_and(|filter| {
+                filter.family.is_some()
+                    || filter.forks.is_some()
+                    || filter.folder.is_some()
+                    || filter.cold
+            })
+        {
+            return Err(HubError::InvalidParams("table filters require the all view".into()));
+        }
         let max = request.max_bytes as usize;
         if max > crate::wire::MAX_PAGE_BYTES || max <= 8192 + request.sid.len() {
             return Err(HubError::InvalidPage);
+        }
+        if request.view == Some(crate::wire::ListView::Live)
+            && request.filter.as_ref().is_some_and(|filter| {
+                filter.family.is_some()
+                    || filter.forks.is_some()
+                    || filter.folder.is_some()
+                    || filter.cold
+            })
+        {
+            return Err(HubError::InvalidPage);
+        }
+        if folders::is_folders(request.view) {
+            return self.folder_page(request);
         }
         if let Some(keys) = request.keys.as_ref() {
             if keys.is_empty()
@@ -781,42 +895,7 @@ impl Hub {
             {
                 return Err(HubError::InvalidPage);
             }
-            let index = self.snapshot();
-            let mut rows = Vec::with_capacity(keys.len());
-            let mut missing = Vec::new();
-            let mut unknown = Vec::new();
-            let provider = self.page_provider.lock().ok().and_then(|slot| slot.clone());
-            for key in keys {
-                let row_key = book_key(key).row;
-                if let Some(row) = index.get_row(&row_key) {
-                    rows.push(row);
-                } else if let Some(row) =
-                    provider.as_ref().map(|provider| provider.row(&row_key)).transpose()?.flatten()
-                {
-                    rows.push(row);
-                } else if key.origin == "local" {
-                    missing.push(key.clone());
-                } else {
-                    unknown.push(key.clone());
-                }
-            }
-            let reply = crate::wire::PageResult {
-                sid: request.sid.clone(),
-                rows: rows.iter().map(Arc::as_ref).collect::<Vec<_>>(),
-                has_before: false,
-                has_after: false,
-                cold_unread: false,
-                before_key: None,
-                after_key: None,
-                missing,
-                unknown,
-                rest: Vec::new(),
-            };
-            let frame = Frame::json(FrameKind::Page, &reply)?;
-            if frame.encoded_len() > max {
-                return Err(HubError::InvalidPage);
-            }
-            return Ok(frame);
+            return self.keyed_page(request, keys);
         }
         let (key, side) = match request.side() {
             Some((side, crate::wire::Position::List(key))) => (
@@ -826,14 +905,9 @@ impl Hub {
                     crate::wire::PageSide::After => ReadSide::After,
                 },
             ),
-            None if request.before.is_none()
-                && request.after.is_none()
-                && request.filter.as_ref().is_some_and(|filter| {
-                    filter.family.is_some() || filter.folder.is_some() || filter.forks.is_some()
-                }) =>
-            {
-                (None, ReadSide::After)
-            }
+            // A bounded page without an anchor starts a mirror walk at the
+            // head. Filters may narrow it, but they are not required.
+            None if request.before.is_none() && request.after.is_none() => (None, ReadSide::After),
             _ => return Err(HubError::InvalidPage),
         };
         let index = self.snapshot();
@@ -866,6 +940,7 @@ impl Hub {
             has_before: page.has_before,
             has_after: page.has_after,
             cold_unread: page.cold_unread,
+            deeper: page.deeper.into_iter().map(wire_key).collect(),
             before_key: page.before_key.map(wire_key),
             after_key: page.after_key.map(wire_key),
             missing: Vec::new(),
@@ -896,6 +971,11 @@ fn wire_key(key: SortKey) -> crate::wire::ListKey {
 }
 
 fn validate_window(sub: &Sub) -> Result<usize, HubError> {
+    if folders::is_folders(sub.view)
+        && (sub.filter.is_some() || !matches!(sub.anchor, None | Some(crate::wire::Anchor::End)))
+    {
+        return Err(HubError::InvalidWindow);
+    }
     if sub.filter.as_ref().is_some_and(|filter| {
         filter.family.is_some() || filter.forks.is_some() || filter.folder.is_some() || filter.cold
     }) {
@@ -941,8 +1021,17 @@ impl HubWriter {
             )?;
             return Ok(event);
         }
-        self.check_source(source, &summary.origin)?;
         let current = self.published.load_full();
+        self.check_source(source, &summary.origin)?;
+        if summary.origin != "local"
+            && !self.origins.releasing
+            && self.origins.ended.contains_key(summary.origin.as_str())
+            && current
+                .origin(&summary.origin)
+                .is_some_and(|origin| origin.state == OriginState::Removed)
+        {
+            return Ok(SummaryEvent { seq: current.seq(), summary: Arc::new(summary) });
+        }
         // Latest wins even if an earlier version never reached the log.
         self.retry_log.remove(&key);
         if summary.origin != "local" && !summary.is_live() && current.get_row(&key).is_none() {
@@ -997,9 +1086,14 @@ impl HubWriter {
         }
         self.persist(source, &record, &key)?;
         let next = self.published.load_full().apply_summary(record.seq, record.summary.clone());
+        let folder_ops = next.folder_changes(
+            &current,
+            current.get_row(&key).as_deref(),
+            next.get_row(&key).as_deref(),
+        );
         let summary = Arc::new(record.summary.clone());
         let event = SummaryEvent { seq: record.seq, summary };
-        self.published.store(Arc::new(next));
+        self.publish_folder_index(next, &folder_ops);
         self.record_history(ListItem::Summary(event.clone()));
         self.publish(event.clone());
         Ok(event)
@@ -1032,6 +1126,16 @@ impl HubWriter {
             return Ok(false);
         }
         self.check_source(source, origin)?;
+        if !self.origins.releasing
+            && self.origins.ended.contains_key(origin)
+            && self
+                .published
+                .load()
+                .origin(origin)
+                .is_some_and(|record| record.state == OriginState::Removed)
+        {
+            return Ok(false);
+        }
         self.apply_remove(source, &key)
     }
 
@@ -1061,7 +1165,8 @@ impl HubWriter {
         let Some(next) = current.remove_row(seq, key) else {
             return Ok(false);
         };
-        self.published.store(Arc::new(next));
+        let folder_ops = next.folder_changes(&current, current.get_row(key).as_deref(), None);
+        self.publish_folder_index(next, &folder_ops);
         self.record_history(ListItem::Gone {
             seq,
             chat_id: key.chat_id.to_string(),
@@ -1095,8 +1200,6 @@ impl HubWriter {
         if let Ok(mut history) = self.history.lock()
             && history.append(&item).is_err()
         {
-            // The durable index is still valid; no cursor may cross a gap
-            // in the optional resume cache.
             self.log_errors.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -1196,6 +1299,8 @@ mod compaction_gate;
 mod compaction_tests;
 #[cfg(test)]
 mod disk_gates;
+#[cfg(test)]
+mod folder_gates;
 #[cfg(test)]
 mod kin_tests;
 #[cfg(test)]
