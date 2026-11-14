@@ -1975,10 +1975,10 @@ fn wait_timeout(request: &Request, machine_id: &str, session: &str, answer: Valu
 const LIST_LOAD_WAIT: Duration = Duration::from_secs(60);
 
 /// The pause between reads of a machine list the app has not loaded yet.
-const LIST_LOAD_PAUSE: Duration = Duration::from_secs(2);
+const LIST_LOAD_POLL: Duration = Duration::from_secs(2);
 
 /// `listed`, or while it says `loaded: false` for a signed-in app, the app's list read again
-/// [`LIST_LOAD_PAUSE`] apart until it is loaded, for at most [`LIST_LOAD_WAIT`] and what is left of
+/// [`LIST_LOAD_POLL`] apart until it is loaded, for at most [`LIST_LOAD_WAIT`] and what is left of
 /// `deadline`. A read that fails keeps the last answer; the caller's checks then refuse on what it says.
 fn loaded_list(runner: &mut dyn Runner, mut listed: Value, deadline: Deadline) -> Value {
     let unloaded = |list: &Value| {
@@ -1991,7 +1991,7 @@ fn loaded_list(runner: &mut dyn Runner, mut listed: Value, deadline: Deadline) -
         if left.is_zero() || deadline.passed(runner) {
             break;
         }
-        let pause = deadline.bound(runner, LIST_LOAD_PAUSE.min(left));
+        let pause = deadline.bound(runner, LIST_LOAD_POLL.min(left));
         runner.pause(pause);
         if runner.now() >= until || deadline.passed(runner) {
             break;

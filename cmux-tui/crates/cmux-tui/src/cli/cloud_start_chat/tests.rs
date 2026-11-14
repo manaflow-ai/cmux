@@ -855,7 +855,7 @@ fn only_lists(fake: &Fake) -> bool {
 
 /// An app just launched answers its machine list `loaded: false` until its first read lands (the
 /// production chat probe on 2026-11-14 got `cloud.list_unread` right after sign-in). start-chat reads it
-/// again, [`LIST_LOAD_PAUSE`] apart, and starts once it is loaded; a list still unread after
+/// again, [`LIST_LOAD_POLL`] apart, and starts once it is loaded; a list still unread after
 /// [`LIST_LOAD_WAIT`] (or `--timeout`) is `cloud.list_unread` with nothing started; a signed-out list is
 /// not waited for.
 #[test]
@@ -872,7 +872,7 @@ fn a_machine_list_the_app_loads_late_is_waited_for_within_its_bound() {
     assert!(matches!(outcome, Outcome::Done(_)), "{outcome:?}: {:?}", fake.ran);
     let verbs: Vec<&str> = fake.ran.iter().map(|step| step[1].as_str()).collect();
     assert_eq!(verbs[..4], ["list-machines", "list-machines", "list-machines", "start-session"]);
-    assert_eq!(fake.paused, LIST_LOAD_PAUSE * 2);
+    assert_eq!(fake.paused, LIST_LOAD_POLL * 2);
 
     // Never loaded: refused once the wait is over. It ends within the first read, the wait, and one
     // read started just before the wait ran out (5 s each in `Fake`).
@@ -891,7 +891,7 @@ fn a_machine_list_the_app_loads_late_is_waited_for_within_its_bound() {
     );
 
     // `--timeout` shorter than the wait bounds it.
-    let mut fake = Fake::new(unloaded_lists(unloaded.clone()));
+    let mut fake = Fake::new(unloaded_lists(unloaded));
     let began = fake.clock;
     let asked = request(&["--prompt", "x", "--wait", "--timeout", "12"]);
     let Outcome::Failed { .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
