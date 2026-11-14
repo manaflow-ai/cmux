@@ -239,7 +239,7 @@ mod cmd_server;
 mod cmd_sizing;
 mod size_lease;
 use cmd_sizing::{optional_surface_size, paired_surface_size};
-pub use size_lease::{SIZE_LEASE_CAPABILITY, SIZE_LEASE_V2_CAPABILITY};
+pub use size_lease::SIZE_LEASE_CAPABILITY;
 mod cmd_subscribe;
 mod cmd_tabs;
 mod cmd_terminal_io;

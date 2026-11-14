@@ -753,7 +753,6 @@ impl ClientRegistry {
                     || capability == SHARED_SIZING_CAPABILITY
                     || capability == SIZING_VIEW_DETACH_CAPABILITY
                     || capability == super::SIZE_LEASE_CAPABILITY
-                    || capability == super::SIZE_LEASE_V2_CAPABILITY
                     || capability == HOST_GRID_VIEW_CAPABILITY
                     || capability == OPEN_DEVICE_KINDS_CAPABILITY
                     || capability == TERMINAL_COLOR_OVERRIDES_CAPABILITY
