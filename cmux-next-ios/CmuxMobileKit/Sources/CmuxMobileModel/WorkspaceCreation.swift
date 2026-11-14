@@ -104,9 +104,13 @@ public struct WorkspaceCreationError: Error, Hashable, Sendable, LocalizedError 
     /// The message is written for the person (the phone's own words, or the Mac's
     /// reason it shows them too), so a toast shows it as is.
     public var isForPerson: Bool
-    public init(_ message: String, isForPerson: Bool = false) {
+    /// New Task in a terminal: the agent's command may already run on the Mac (it was typed,
+    /// or its reply was lost), so the task is never handed back to be started again.
+    public var mayHaveStarted: Bool
+    public init(_ message: String, isForPerson: Bool = false, mayHaveStarted: Bool = false) {
         self.message = message
         self.isForPerson = isForPerson
+        self.mayHaveStarted = mayHaveStarted
     }
     public var errorDescription: String? { message }
 }
@@ -592,6 +596,10 @@ public final class WorkspaceCreator {
     public var taskRefusal: String?
     /// Placeholders of refused tasks and where their task went (the failure toast says so).
     @ObservationIgnored var refusedTasks: [String: RefusedTaskPlace] = [:]
+    /// A started task's copy on the drafts list while its workspaces are being made, by
+    /// placeholder: kept on disk so a phone killed meanwhile still has the task; deleted once
+    /// every workspace of it is made or refused.
+    var sendingCopies: [String: UUID] = [:]
     /// The saved New Task drafts (the drafts list).
     public let taskDrafts: TaskDraftStore
     /// The task (without its agents) whose draft the composer was given back, while it holds it.
@@ -802,6 +810,7 @@ public final class WorkspaceCreator {
             }
             phases[placeholder.id] = .created(real.id)
             taskOrigins[placeholder.id] = nil
+            settleSendingCopy(placeholder.id)
             // The workspace stands from here: a task that doesn't reach its chat is reported,
             // never handed back as a draft (that would start a second agent on it).
             // A terminal launch typed its command when the workspace was made: nothing to send.
@@ -813,8 +822,15 @@ public final class WorkspaceCreator {
             phases[placeholder.id] = .failed(message)
             // The Mac's own words, as the person's reason: written for them, said as is; else
             // quoted as the Mac's ("Authentication required" from the agent's start).
-            let isForPerson = (error as? WorkspaceCreationError)?.isForPerson == true
-            restoreTaskDraft(after: placeholder.id, reason: isForPerson ? message : "The Mac said: \(message)")
+            let refusal = error as? WorkspaceCreationError
+            if refusal?.mayHaveStarted == true {
+                // The agent may be running it: never handed back (a second Start runs it twice).
+                taskOrigins[placeholder.id] = nil
+                refusedTasks[placeholder.id] = .mayHaveStarted
+            } else {
+                restoreTaskDraft(after: placeholder.id, reason: refusal?.isForPerson == true ? message : "The Mac said: \(message)")
+            }
+            settleSendingCopy(placeholder.id)
             onFailure?(placeholder, message)
         }
     }

@@ -194,7 +194,12 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             for attachment in attachments {
                 guard let data = attachment.data else { continue }
                 let name = attachment.kind == .image ? "photo-\(attachment.id.prefix(8)).jpg" : attachment.name
-                paths.append(try await AcpmuxSessionSource.upload(.data(data), name: name, cwd: cwd, link: macLink, macName: macName))
+                do {
+                    paths.append(try await AcpmuxSessionSource.upload(.data(data), name: name, cwd: cwd, link: macLink, macName: macName))
+                } catch {
+                    // The phone's own words ("Couldn't send <file>…"), not the Mac's.
+                    throw WorkspaceCreationError(AcpmuxSessionSource.message(error), isForPerson: true)
+                }
             }
         }
         // One line: `cd` to the folder, then the agent only if that worked (never in another folder).
@@ -273,7 +278,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                     let tree = try? await sync.listNow()
                     if let made = tree?.workspaces.first(where: { $0.tabs.contains { $0.id == opening } }) { return made }
                     throw WorkspaceCreationError("The task may have started on the Mac: \(uncertain.message). Check its workspaces before starting it again.",
-                                                 isForPerson: true)
+                                                 isForPerson: true, mayHaveStarted: true)
                 } catch {
                     // The phone reports this start as failed (its draft comes back): the
                     // workspace goes too, with nothing running in it.
@@ -281,6 +286,15 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                         _ = try? await client.request("close-workspace", params: ["key": made.id])
                     }
                     throw error
+                }
+                // Typed: the agent runs from here, so no failure below hands the task back.
+                do {
+                    let tree = try await sync.listNow()
+                    if let made = tree.workspaces.first(where: { $0.tabs.contains { $0.id == opening } }) { return made }
+                    throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
+                } catch {
+                    throw WorkspaceCreationError("The task started on the Mac, but its workspace didn't show here: \(AcpmuxSessionSource.message(error)). Check its workspaces before starting it again.",
+                                                 isForPerson: true, mayHaveStarted: true)
                 }
             }
             if request.start == .browser {

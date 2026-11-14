@@ -532,6 +532,7 @@ final class ShellModel {
         let text = switch creator.refusedTaskPlace(placeholder.id) {
         case .composer: "Couldn't start the task on \(mac). It's back in New Task."
         case .drafts: "Couldn't start the task on \(mac). It's saved in Drafts."
+        case .mayHaveStarted: "The task may have started on \(mac). Check its workspaces before starting it again."
         case nil: "Couldn't create a workspace on \(mac)"
         }
         toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: text)

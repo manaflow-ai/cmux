@@ -353,8 +353,13 @@ extension WorkspaceCreator {
             begin(request, placeholder: placeholder, focus: picks.count == 1)
             made.append(placeholder)
         }
-        // Sent: it leaves the drafts list. The next task starts with the same agents and place.
+        // Sent: it leaves the drafts list. Until its workspaces are made, a copy under another id
+        // stays on disk (hidden from the list), so a phone killed meanwhile keeps the task.
         taskDrafts.delete([draft.id])
+        var copy = draft
+        copy.id = UUID()
+        taskDrafts.save(copy)
+        for placeholder in made { sendingCopies[placeholder.id] = copy.id }
         rememberTaskLaunch(draft.launch)
         taskDraft = TaskDraft(picks: draft.picks, macID: draft.macID, directory: draft.directory, launch: draft.launch)
         taskRefusal = nil
@@ -418,10 +423,17 @@ extension WorkspaceCreator {
 
     /// Whether `placeholderID` was a New Task workspace the Mac refused (its task is back in the
     /// composer or in the drafts list).
-    public func wasRefusedTask(_ placeholderID: String) -> Bool { refusedTasks[placeholderID] != nil }
+    public func wasRefusedTask(_ placeholderID: String) -> Bool {
+        guard let place = refusedTasks[placeholderID] else { return false }
+        return place != .mayHaveStarted
+    }
 
     /// Where a refused New Task went: back in the composer, or into the drafts list.
-    public enum RefusedTaskPlace: Hashable, Sendable { case composer, drafts }
+    public enum RefusedTaskPlace: Hashable, Sendable {
+        case composer, drafts
+        /// Not handed back: the agent's command may already run in a terminal on the Mac.
+        case mayHaveStarted
+    }
 
     /// Where `placeholderID`'s refused task went; nil when it was not a refused New Task.
     public func refusedTaskPlace(_ placeholderID: String) -> RefusedTaskPlace? { refusedTasks[placeholderID] }
@@ -490,7 +502,17 @@ extension WorkspaceCreator {
     }
 
     /// The drafts list's rows: the saved drafts but the one the composer holds.
-    public var otherTaskDrafts: [SavedTaskDraft] { taskDrafts.drafts.filter { $0.id != taskDraft.id } }
+    public var otherTaskDrafts: [SavedTaskDraft] {
+        let sending = Set(sendingCopies.values)
+        return taskDrafts.drafts.filter { $0.id != taskDraft.id && !sending.contains($0.id) }
+    }
+
+    /// `placeholderID`'s workspace was made or refused: its task's sending copy goes once no
+    /// other workspace of that task is still being made.
+    func settleSendingCopy(_ placeholderID: String) {
+        guard let copy = sendingCopies.removeValue(forKey: placeholderID) else { return }
+        if !sendingCopies.values.contains(copy) { taskDrafts.delete([copy]) }
+    }
 
     /// "Claude", "Codex", else the harness capitalized; "Agent" for the Mac's default.
     public static func agentTitle(_ harness: String) -> String {

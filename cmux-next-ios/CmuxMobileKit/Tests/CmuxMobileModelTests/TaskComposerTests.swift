@@ -142,6 +142,39 @@ import Testing
         #expect(Set(creator.taskDrafts.drafts.map(\.prompt)) == ["Try this", "Try again"])
     }
 
+    /// Review 2026-11-14 (high): a terminal task whose command was typed, or may have been, is
+    /// never handed back, whatever fails after: a second Start would run it twice.
+    @Test func aTerminalTaskThatMayHaveStartedIsNeverHandedBack() async throws {
+        let (_, creator, backend) = make()
+        backend.result = { _ in
+            .failure(WorkspaceCreationError("The task started on the Mac, but its workspace didn't show here.", isForPerson: true,
+                                            mayHaveStarted: true))
+        }
+        var failures: [String] = []
+        creator.onFailure = { _, message in failures.append(message) }
+        let made = creator.startTask(TaskDraft(prompt: "Run the migrations", picks: [TaskAgentPick(harness: "claude")], launch: .terminal))
+        await creator.settle()
+        #expect(failures.count == 1)
+        #expect(creator.taskDraft.prompt.isEmpty && creator.taskRefusal == nil)
+        #expect(creator.taskDrafts.drafts.isEmpty)
+        #expect(creator.refusedTaskPlace(made[0].id) == .mayHaveStarted)
+        #expect(!creator.wasRefusedTask(made[0].id))
+    }
+
+    /// Review 2026-11-14 (medium): while its workspaces are made, a started task stays on disk
+    /// (a phone killed meanwhile keeps it), hidden from Drafts; it goes once they are made.
+    @Test func aStartedTaskIsKeptOnDiskUntilItsWorkspacesAreMade() async throws {
+        let (_, creator, backend) = make()
+        backend.holds = true
+        creator.startTask(Self.chat(TaskDraft(prompt: "Keep me", picks: [TaskAgentPick(harness: "claude")])))
+        await Task.yield()
+        #expect(creator.taskDrafts.drafts.map(\.prompt) == ["Keep me"])
+        #expect(creator.otherTaskDrafts.isEmpty)
+        backend.release()
+        await creator.settle()
+        #expect(creator.taskDrafts.drafts.isEmpty)
+    }
+
     /// Review 2026-11-12: one refused agent of several brings back only that agent, so the
     /// next Start doesn't run the task again on the agent that already has it.
     @Test func onlyTheRefusedAgentComesBack() async throws {
@@ -332,9 +365,11 @@ import Testing
         creator.taskDraft.prompt = "Ship it"
         creator.saveTaskDraft()
         #expect(creator.taskDrafts.drafts.count == 1)
+        let id = creator.taskDraft.id
         creator.startTask(creator.taskDraft)
-        #expect(creator.taskDrafts.drafts.isEmpty)
+        #expect(creator.taskDrafts.entry(id) == nil)
         await creator.settle()
+        #expect(creator.taskDrafts.drafts.isEmpty)
     }
 
     @Test func aDraftWithPhotosResumesWithThem() async throws {
