@@ -4624,16 +4624,16 @@ fn schema_seven_resumes_interrupted_sensitive_receipt_cleanup() {
 }
 
 #[test]
-fn schema_seven_migrates_latest_agent_and_preserves_it_after_tombstone() {
-    assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(7);
+fn schema_seven_migrates_latest_agent_and_ends_it_at_the_tombstone() {
+    assert_schema_migrates_latest_agent_and_ends_it_at_the_tombstone(7);
 }
 
 #[test]
-fn schema_eight_migrates_latest_agent_and_preserves_it_after_tombstone() {
-    assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(8);
+fn schema_eight_migrates_latest_agent_and_ends_it_at_the_tombstone() {
+    assert_schema_migrates_latest_agent_and_ends_it_at_the_tombstone(8);
 }
 
-fn assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(legacy_schema: u32) {
+fn assert_schema_migrates_latest_agent_and_ends_it_at_the_tombstone(legacy_schema: u32) {
     let root = temp_root(&format!("schema-{legacy_schema}-agent-projection"));
     let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
     let terminal = terminal_resource(TERMINAL_ONE);
@@ -4750,12 +4750,13 @@ fn assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(legacy_s
             &json!([]),
         )
         .unwrap();
-    assert_eq!(migrated.resource_agent_projection_count_for_test().unwrap(), 1);
-    assert_eq!(migrated.public_projections().unwrap().agents.len(), 1);
+    // The tombstone ends the record in its transaction (`spec/resource-api-v2.md`, "Agent").
+    assert_eq!(migrated.resource_agent_projection_count_for_test().unwrap(), 0);
+    assert!(migrated.public_projections().unwrap().agents.is_empty());
     drop(migrated);
 
-    // Re-running the legacy migration recovers the durable projection from the
-    // latest report even though its terminal is already tombstoned.
+    // Re-running the legacy migration must not bring the record back from the
+    // latest report: its terminal is tombstoned.
     Connection::open(&database)
         .unwrap()
         .execute_batch(&format!(
@@ -4765,8 +4766,8 @@ fn assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(legacy_s
         ))
         .unwrap();
     let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
-    assert_eq!(reopened.resource_agent_projection_count_for_test().unwrap(), 1);
-    assert_eq!(reopened.public_projections().unwrap().agents.len(), 1);
+    assert_eq!(reopened.resource_agent_projection_count_for_test().unwrap(), 0);
+    assert!(reopened.public_projections().unwrap().agents.is_empty());
     drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }

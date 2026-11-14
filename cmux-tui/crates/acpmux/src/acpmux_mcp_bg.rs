@@ -46,7 +46,7 @@ pub(super) fn tools() -> Vec<Value> {
                 "fromByte": {"type": "integer", "minimum": 0},
                 "maxBytes": {"type": "integer", "minimum": 1, "maximum": 1048576}},
                 "required": ["id"]}}),
-        json!({"name": "bg_stop", "description": "Stop a background task: SIGTERM to its process group, then SIGKILL to the group 5 s later; returns once it ended.",
+        json!({"name": "bg_stop", "description": "Stop a background task: SIGTERM to every process it started (its process group and those that left it), then SIGKILL to them 5 s later; returns once it ended.",
             "inputSchema": {"type": "object", "properties": {"id": id, "description": description}, "required": ["id"]}}),
         json!({"name": "run_wait", "description": "Wait for a GitHub Actions run, or a pull request's checks, in the background, and get one message in this chat when it is done: passed, or failed with the failed jobs named. Returns at once with a background task id (bg_output reads it meanwhile). Use it instead of polling CI yourself. Needs the gh CLI.",
             "inputSchema": {"type": "object", "properties": {

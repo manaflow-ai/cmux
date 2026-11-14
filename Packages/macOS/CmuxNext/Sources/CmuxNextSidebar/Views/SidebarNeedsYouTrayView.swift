@@ -117,7 +117,7 @@ final class SidebarNeedsYouTrayView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let blocked = !tray.items.isEmpty
-        backing.backgroundColor = (Palette.sidebarBackground.usingColorSpace(.sRGB) ?? Palette.windowBackground).withAlphaComponent(1).cgColor
+        backing.backgroundColor = SidebarStyle.ground.withAlphaComponent(1).cgColor
         layer?.backgroundColor = nil
         tintFill.backgroundColor = (blocked ? Palette.attention.withAlphaComponent(0.08) : Palette.badgeFill).cgColor
         layer?.borderColor = (blocked ? Palette.attention.withAlphaComponent(0.4) : Palette.separator).cgColor

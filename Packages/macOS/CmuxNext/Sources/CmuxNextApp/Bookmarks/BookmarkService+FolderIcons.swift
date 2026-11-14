@@ -70,7 +70,7 @@ extension BookmarkService {
             for await landed in ObservationStream({ [weak self] in self?.landedAwaitedFolderIcons() ?? [] }) {
                 guard let self else { return }
                 guard !landed.isEmpty else { continue }
-                // The bar and manager pages follow `bookmarkIconRevision` and ask again.
+                // The bars and the manager page follow `bookmarkIconRevision` and ask again.
                 awaitedFolderIcons.subtract(landed)
             }
         }

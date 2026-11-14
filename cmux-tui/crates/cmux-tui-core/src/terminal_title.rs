@@ -236,14 +236,25 @@ pub(crate) struct TitleTracker {
 impl TitleTracker {
     /// `data` with the title sequences libghostty-vt cannot apply rewritten
     /// into the `OSC 2` that applies them; borrowed when nothing changed.
+    // perf-hot: 0.1ns/byte terminal-output-scan (every output byte, host and daemon)
     pub(crate) fn rewrite<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
         let mut out: Option<Vec<u8>> = None;
         let mut copied = 0;
-        for (index, &byte) in data.iter().enumerate() {
+        let mut index = 0;
+        while let Some(rest) = data.get(index..) {
+            // On the ground only an ESC starts a sequence: jump to the next one.
+            if self.state == ScanState::Ground {
+                let Some(offset) = memchr::memchr(0x1b, rest) else { break };
+                index = index.saturating_add(offset);
+            }
+            let Some(&byte) = data.get(index) else { break };
+            index = index.saturating_add(1);
             let Some(title) = self.step(byte) else { continue };
-            let out = out.get_or_insert_with(|| Vec::with_capacity(data.len() + title.len() + 6));
-            out.extend_from_slice(&data[copied..=index]);
-            copied = index + 1;
+            let out = out.get_or_insert_with(|| {
+                Vec::with_capacity(data.len().saturating_add(title.len()).saturating_add(6))
+            });
+            out.extend_from_slice(data.get(copied..index).unwrap_or_default());
+            copied = index;
             out.extend_from_slice(b"\x1b]2;");
             out.extend_from_slice(&title);
             out.push(0x07);
@@ -251,7 +262,7 @@ impl TitleTracker {
         match out {
             None => Cow::Borrowed(data),
             Some(mut out) => {
-                out.extend_from_slice(&data[copied..]);
+                out.extend_from_slice(data.get(copied..).unwrap_or_default());
                 Cow::Owned(out)
             }
         }
@@ -401,6 +412,98 @@ fn clip_utf8(bytes: &[u8], max: usize) -> &[u8] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl TitleTracker {
+        /// For the scan bench in `terminal_metadata`.
+        pub(crate) fn rewrite_reference_for_bench<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
+            self.rewrite_reference(data)
+        }
+
+        /// The byte-at-a-time scan [`TitleTracker::rewrite`] replaced.
+        fn rewrite_reference<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
+            let mut out: Option<Vec<u8>> = None;
+            let mut copied = 0;
+            for (index, &byte) in data.iter().enumerate() {
+                let Some(title) = self.step(byte) else { continue };
+                let out =
+                    out.get_or_insert_with(|| Vec::with_capacity(data.len() + title.len() + 6));
+                out.extend_from_slice(&data[copied..=index]);
+                copied = index + 1;
+                out.extend_from_slice(b"\x1b]2;");
+                out.extend_from_slice(&title);
+                out.push(0x07);
+            }
+            match out {
+                None => Cow::Borrowed(data),
+                Some(mut out) => {
+                    out.extend_from_slice(&data[copied..]);
+                    Cow::Owned(out)
+                }
+            }
+        }
+    }
+
+    /// Output that reaches every state of the tracker: titles with BEL and
+    /// ST, pushes and pops with every parameter form, OSC 1 before and after
+    /// an OSC 0/2, cancels, ESC inside a CSI and an OSC, an over-long CSI,
+    /// C0 controls inside a CSI, non-UTF-8 bytes and an over-long title.
+    fn adversarial_output() -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(b"plain \x1b[1;31mred\x1b[0m\x1b]1;icon\x07\x1b[22;0t");
+        out.extend_from_slice(
+            b"\x1b]2;one\x1b\\\x1b[22t\x1b]0;two\x07\x1b[23;2t\x1b[23t\x1b[23;1t",
+        );
+        out.extend_from_slice(b"\x1b[2\x1b[22;0t\x1b]2;x\x18\x1b]2;y\x1a\x1b]2;z\x1b[23t");
+        out.extend_from_slice(b"\x1b[11111111111111111111;0t\x1b[2\n2;0t\x1b[?22t\x1b[23;0t");
+        out.extend_from_slice(b"\xff\xfe\x9d\x1b\x1b]1;late icon\x07\x1b]2;");
+        out.extend(std::iter::repeat_n(b'w', MAX_TITLE_BYTES + 20));
+        out.extend_from_slice("\u{e9}\x07\x1b[22;0t\x1b]2;\u{2500}\x07\x1b[23;0ttail".as_bytes());
+        out
+    }
+
+    fn rewritten(chunks: &[&[u8]], reference: bool) -> (Vec<Vec<u8>>, String) {
+        let mut tracker = TitleTracker::default();
+        let out = chunks
+            .iter()
+            .map(|chunk| {
+                if reference {
+                    tracker.rewrite_reference(chunk).into_owned()
+                } else {
+                    tracker.rewrite(chunk).into_owned()
+                }
+            })
+            .collect();
+        (out, format!("{tracker:?}"))
+    }
+
+    /// The jumping scan rewrites exactly what the byte-at-a-time scan did
+    /// and ends in the same state, for every split of adversarial output,
+    /// for empty chunks and for deterministic random byte soup.
+    #[test]
+    fn title_scan_matches_the_byte_at_a_time_reference() {
+        let stream = adversarial_output();
+        for at in 0..=stream.len() {
+            let chunks: [&[u8]; 3] = [&stream[..at], b"", &stream[at..]];
+            assert_eq!(rewritten(&chunks, false), rewritten(&chunks, true), "split at {at}");
+        }
+        let alphabet = b"\x1b\x07\x18\x1a\\[]t;0123\n\xff";
+        let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+        for _ in 0..2_000 {
+            let mut soup = Vec::new();
+            for _ in 0..64 {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                soup.push(alphabet[(seed % alphabet.len() as u64) as usize]);
+                if seed.is_multiple_of(7) {
+                    soup.extend_from_slice(b"plain text ");
+                }
+            }
+            let at = (seed as usize) % (soup.len() + 1);
+            let chunks: [&[u8]; 2] = [&soup[..at], &soup[at..]];
+            assert_eq!(rewritten(&chunks, false), rewritten(&chunks, true), "soup {soup:?}");
+        }
+    }
 
     fn run(tracker: &mut TitleTracker, chunks: &[&[u8]]) -> Vec<u8> {
         chunks.iter().flat_map(|chunk| tracker.rewrite(chunk).into_owned()).collect()

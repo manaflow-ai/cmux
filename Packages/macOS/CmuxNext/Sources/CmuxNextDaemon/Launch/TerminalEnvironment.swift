@@ -80,12 +80,12 @@ public struct TerminalEnvironment: Sendable {
         return env
     }
 
-    /// The terminal identity Ghostty exports to every shell it starts
-    /// (`ghostty/src/termio/Exec.zig`, `Subprocess.init`), so programs in a
-    /// cmux-next terminal choose the same color depth and theme branch as in
-    /// Ghostty. The daemon's terminal is ghostty-vt, so the Ghostty names are
-    /// truthful. The app passes this as an override, which wins over the
-    /// login shell's `TERM`/`COLORTERM`/`TERM_PROGRAM` (those stay excluded).
+    /// The terminal identity the app hands every shell, modeled on what
+    /// Ghostty exports (`ghostty/src/termio/Exec.zig`, `Subprocess.init`), so
+    /// programs in a cmux-next terminal choose the same color depth and theme
+    /// branch as in Ghostty. The app passes this as an override, which wins
+    /// over the login shell's `TERM`/`COLORTERM`/`TERM_PROGRAM` (those stay
+    /// excluded).
     ///
     /// - `TERM=xterm-256color`, the entry every ssh target, VM and container
     ///   has. An installed `xterm-ghostty` on this Mac does not select it:
@@ -98,11 +98,13 @@ public struct TerminalEnvironment: Sendable {
     ///   protocol, synchronized output and graphics by querying the terminal
     ///   and `TERM_PROGRAM`, and truecolor by `COLORTERM`.
     /// - `COLORTERM=truecolor`: 24-bit SGR is parsed and drawn losslessly.
-    /// - `TERM_PROGRAM=ghostty` identifies the terminal for feature detection
-    ///   (neovim and others). `TERM_PROGRAM_VERSION` stays unset because cmux
-    ///   forwards TUI mouse reports instead of providing Ghostty's native
-    ///   selection path; advertising a Ghostty version makes Codex disable its
-    ///   copy-on-select fallback.
+    /// - `TERM_PROGRAM=cmux` names the terminal (user, 2026-11-11). The daemon
+    ///   sets it again with cmux's `TERM_PROGRAM_VERSION` on every terminal
+    ///   child (`cmux_pty::TERMINAL_IDENTITY`), so no libghostty version goes
+    ///   out here: a Ghostty version makes Codex and Claude turn off their
+    ///   copy-on-select fallback (cmux#22585). Claude Code and Codex key
+    ///   Ghostty features on `TERM_PROGRAM=ghostty`, so the `claude`/`codex`
+    ///   wrappers start them with that name (`agent_terminal_identity`).
     /// - `GHOSTTY_RESOURCES_DIR`: themes and shell-integration lookups.
     /// Whether `xterm-ghostty` is in a terminfo directory ncurses searches by default.
     public static func hasInstalledGhosttyTerminfo(
@@ -130,7 +132,7 @@ public struct TerminalEnvironment: Sendable {
         prefersGhosttyTerm: Bool = false,
         fileExists: (String) -> Bool = { FileManager.checked.fileExists(atPath: $0) }
     ) -> [String: String] {
-        var env = ["TERM": "xterm-256color", "COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty"]
+        var env = ["TERM": "xterm-256color", "COLORTERM": "truecolor", "TERM_PROGRAM": "cmux"]
         env["TERM"] = term(prefersGhosttyTerm: prefersGhosttyTerm, fileExists: fileExists)
         if let resourcesDirectory, !resourcesDirectory.isEmpty { env["GHOSTTY_RESOURCES_DIR"] = resourcesDirectory }
         return env

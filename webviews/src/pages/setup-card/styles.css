@@ -1,0 +1,13 @@
+/* The card floats on Home's chat column: the page itself draws nothing around it. Home's slot
+ * stops above the message box, so on a short pane or at a large chat zoom the card scrolls. */
+html,
+body {
+  background: transparent;
+  margin: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.setup-card-frame {
+  display: flex;
+  justify-content: center;
+}

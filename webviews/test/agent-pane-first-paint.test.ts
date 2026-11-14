@@ -20,6 +20,7 @@ import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { HANDOFF_OPS } from "../src/agent-session/acpmux/handoff/protocol";
 import { PERMISSION_GROUP_OPS } from "../src/agent-session/acpmux/permissions/protocol";
 import { askOnSingleCard } from "../src/agent-session/acpmux/permissionKeys";
+import { settleReact } from "./support/domTeardown";
 
 const START = Date.UTC(2026, 10, 1, 9, 0, 0);
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -31,7 +32,8 @@ beforeAll(() => {
   scope.document = dom.window.document;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   if (saved.had) Object.assign(scope, { window: saved.window, document: saved.document });
   else {
     delete scope.window;

@@ -4,6 +4,7 @@
 //! generator's normalization), and a proxy may answer with HTML. [`ApiError`]
 //! keeps the status, the tag, the code and the message, whatever came back.
 
+use cmux_cloud_machine::refusals;
 use futures::StreamExt;
 use serde_json::Value;
 
@@ -24,8 +25,14 @@ pub struct ApiError {
     /// A message for a person: the body's `message`, or what went wrong.
     pub message: String,
     /// Whether the same call (with the same idempotency key) may succeed if
-    /// sent again: no answer, a 429, a 503, or a 502/504 from a proxy.
+    /// sent again: the body's own `retryable` (cmux-platform#1192 sends one on
+    /// every refusal); with none, the platform's table for its code
+    /// ([`cmux_cloud_machine::refusals`]); with neither, a 429, a 502, 503 or
+    /// 504 from a proxy, or no answer at all.
     pub retryable: bool,
+    /// How long a rate limit (429) asks to wait before the same call again:
+    /// its `retryAfterSeconds` or Retry-After, else the platform's default.
+    pub retry_after: Option<std::time::Duration>,
 }
 
 impl std::fmt::Display for ApiError {
@@ -43,6 +50,11 @@ impl std::error::Error for ApiError {}
 impl ApiError {
     /// Reads an answer with `status` and `body`.
     pub fn from_status(status: u16, body: &[u8]) -> Self {
+        Self::from_answer(status, None, body)
+    }
+
+    /// Reads an answer with `status`, its Retry-After header and `body`.
+    pub fn from_answer(status: u16, retry_after: Option<&str>, body: &[u8]) -> Self {
         let parsed: Option<Value> = serde_json::from_slice(body).ok();
         let field = |name: &str| {
             parsed
@@ -61,12 +73,17 @@ impl ApiError {
                 text.chars().take(500).collect()
             }
         });
+        let code = field("code");
+        let facts = refusals::Facts::read(parsed.as_ref(), retry_after);
+        let handling = refusals::handling(status, code.as_deref(), facts.retryable);
         Self {
             status: Some(status),
             tag: field("_tag"),
-            code: field("code"),
+            code,
             message,
-            retryable: matches!(status, 429 | 502 | 503 | 504),
+            retryable: handling != refusals::Handling::Final,
+            retry_after: (handling == refusals::Handling::RetryAfter)
+                .then(|| std::time::Duration::from_secs(facts.wait_s())),
         }
     }
 
@@ -78,6 +95,7 @@ impl ApiError {
             code: None,
             message: format!("could not reach the Cloud API: {error}"),
             retryable: true,
+            retry_after: None,
         }
     }
 
@@ -89,6 +107,7 @@ impl ApiError {
             code: Some("cloud.client.unreadable".to_owned()),
             message: format!("the Cloud API sent an answer this cmux cannot read: {what}"),
             retryable: false,
+            retry_after: None,
         }
     }
 
@@ -97,6 +116,7 @@ impl ApiError {
         match error {
             Error::ErrorResponse(response) => {
                 let status = response.status().as_u16();
+                let retry_after = retry_after_header(response.headers());
                 let mut stream = response.into_inner().into_inner();
                 let mut body = Vec::new();
                 while body.len() < MAX_ERROR_BODY {
@@ -105,10 +125,11 @@ impl ApiError {
                         _ => break,
                     }
                 }
-                Self::from_status(status, &body)
+                Self::from_answer(status, retry_after.as_deref(), &body)
             }
             Error::UnexpectedResponse(mut response) => {
                 let status = response.status().as_u16();
+                let retry_after = retry_after_header(response.headers());
                 let mut body = Vec::new();
                 while body.len() < MAX_ERROR_BODY {
                     match response.chunk().await {
@@ -116,13 +137,17 @@ impl ApiError {
                         _ => break,
                     }
                 }
-                Self::from_status(status, &body)
+                Self::from_answer(status, retry_after.as_deref(), &body)
             }
             Error::CommunicationError(e) | Error::ResponseBodyError(e) => Self::unreachable(&e),
             Error::InvalidResponsePayload(_, e) => Self::unreadable(e),
             other => Self::unreadable(other),
         }
     }
+}
+
+fn retry_after_header(headers: &reqwest::header::HeaderMap) -> Option<String> {
+    headers.get(reqwest::header::RETRY_AFTER)?.to_str().ok().map(str::to_owned)
 }
 
 fn append_capped(body: &mut Vec<u8>, chunk: &[u8]) {
@@ -155,6 +180,45 @@ mod tests {
         );
         assert_eq!(e.code.as_deref(), Some("cloud.provider.unavailable"));
         assert!(e.retryable);
+    }
+
+    /// Every code of cmux-platform's refusal table (cmux-platform#1192), as #1192 answers it:
+    /// the body's `retryable` decides, not the status (a busy machine's 409 is retried, a final
+    /// 503 is not, a cap's 403 never).
+    #[test]
+    fn every_platform_refusal_is_retried_as_its_body_says() {
+        use cmux_cloud_machine::refusals::{Handling, PLATFORM};
+        for refusal in PLATFORM {
+            let body = serde_json::json!({
+                "_tag": "MachineRefusal", "code": refusal.code, "message": "m",
+                "retryable": refusal.retryable,
+            });
+            let e = ApiError::from_status(refusal.status, body.to_string().as_bytes());
+            assert_eq!(
+                e.retryable,
+                refusal.handling() != Handling::Final,
+                "{} {}",
+                refusal.status,
+                refusal.code
+            );
+        }
+        let limited = ApiError::from_answer(
+            429,
+            Some("7"),
+            br#"{"_tag":"MachineRateLimited","code":"cloud.rate_limited","retryable":true,"retryAfterSeconds":42}"#,
+        );
+        assert_eq!(limited.retry_after, Some(std::time::Duration::from_secs(42)));
+        let header_only = ApiError::from_answer(429, Some("7"), b"");
+        assert_eq!(header_only.retry_after, Some(std::time::Duration::from_secs(7)));
+        assert!(header_only.retryable, "no body: the status decides");
+        let busy = ApiError::from_status(409, br#"{"code":"cloud.machine.busy","retryable":true}"#);
+        assert_eq!(busy.retry_after, None, "only a rate limit waits a window");
+        // A 503 that says it is final.
+        let e = ApiError::from_status(
+            503,
+            br#"{"code":"machine.placement_unavailable","retryable":false,"cause":"x: y"}"#,
+        );
+        assert!(!e.retryable);
     }
 
     #[test]

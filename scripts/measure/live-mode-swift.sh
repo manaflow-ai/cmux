@@ -3,7 +3,7 @@
 # tagged DEV app the normal way (scripts/reload.sh --tag), opens it with three workspaces, then runs
 # its driver (scripts/measure/live-mode-swift.py, from the step's checkout): `live-mode.py start`
 # builds the live code build of the same commit and restarts into it, a Swift body
-# (HomeConversationPage.updateLayer) is patched in, and `live-mode.py stop` restarts into the normal build.
+# (HomeHostView.updateLayer) is patched in, and `live-mode.py stop` restarts into the normal build.
 # result.json has both restart times and whether every workspace, tab and running terminal was kept.
 #   scripts/measure/live-mode-swift.sh OUT     (OUT: result.json, the live code log, a snapshot)
 set -euo pipefail

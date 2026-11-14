@@ -5,6 +5,7 @@ import type { AcpmuxRow } from "./model";
 import type { PermissionDecision } from "./permissions/protocol";
 import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "./perf";
 import { openPicker, pickerLabels } from "./pickerOpeners";
+import { takeNativePosts } from "./native";
 import type { StreamOptions } from "./streamDebug";
 import type { LoadRunOptions, LoadTickOptions } from "./loadDebug";
 import { shownPresence } from "./multiplayer/livePresenceModel";
@@ -17,6 +18,7 @@ import { queuedRowsState } from "./queuedRowsState";
 import { composerAttachmentsState } from "./composerAttachmentsState";
 import { cloudSignedInForDebug } from "./cloudMachines";
 import type { SeedSnapshotFields } from "./waitingSteersFixture";
+import type { PasteProbeOptions } from "./pasteProbe";
 
 // `window.cmuxAcpmuxDebug`, called by the DEBUG `debug.agent_pane` socket
 // method. The first measurement call turns on measurement (acpmuxPerf.enabled);
@@ -85,6 +87,13 @@ export type AcpmuxDebug = {
   loadRun(options?: LoadRunOptions): Promise<Record<string, unknown>>;
   /** Scrolls it while a tool call runs and another chat changes, and counts row renders (loadDebug.ts). */
   loadTick(options?: LoadTickOptions): Promise<Record<string, unknown>>;
+  /** Committed renders per component since the last call (perf.ts `renders`: `row:<id>`, `content:<id>`,
+   * `mount:<id>`), then counts from zero; the first call turns measurement on (transcript bench PROBE=1). */
+  renders(): Record<string, number>;
+  /** Requests the page posted to the native host by method since the last call (native.ts), then counts from zero. */
+  nativePosts(): Record<string, number>;
+  /** Pastes a Retina screenshot into the composer and times each step until its chip shows (pasteProbe.ts). */
+  pasteProbe(options?: PasteProbeOptions): Promise<Record<string, unknown>>;
 };
 
 const NO_AUTOMATION = { error: "the page has no automation host" };
@@ -165,6 +174,7 @@ export function createAcpmuxDebug(
         workedTurnRows,
         incomingRows,
         linkRows,
+        LINKED_GITHUB_PULL_REQUEST,
         organizationRows,
         toolSummaryRows,
         SUBAGENT_TRAY_STEPS,
@@ -191,8 +201,8 @@ export function createAcpmuxDebug(
             ? workedTurnRows(Date.now() - 60_000)
             : fixture === "incoming"
               ? incomingRows(Date.now() - 120_000)
-              : fixture === "link"
-                ? linkRows(Date.now() - 30_000)
+              : fixture === "link" || fixture === "github-link"
+                ? linkRows(Date.now() - 30_000, fixture === "link" ? undefined : LINKED_GITHUB_PULL_REQUEST)
                 : fixture === "organization"
                   ? organizationRows(Date.now() - 120_000)
                   : fixture === "tool-summary"
@@ -316,12 +326,14 @@ export function createAcpmuxDebug(
 
     typingStats() {
       acpmuxPerf.enable();
-      return typingSummary(acpmuxPerf.typing);
+      // With what the keys asked of the app since the reset (native.ts).
+      return { ...typingSummary(acpmuxPerf.typing), native_posts: takeNativePosts() };
     },
 
     resetTyping() {
       acpmuxPerf.enable();
       acpmuxPerf.typing.length = 0;
+      takeNativePosts();
       return { keys: 0 };
     },
 
@@ -393,6 +405,9 @@ export function createAcpmuxDebug(
             // absent/unknown state that still offers the sign-in action.
             cloudSignedIn: cloudSignedInForDebug(),
             focused: document.hasFocus(),
+            // The transcript's scroll offset and height in CSS pixels (null with no transcript drawn): a swap
+            // to another tab and back reads the same offset (scripts/cmux-next/media/tours/terminal-chat-swap.json).
+            ...transcriptScroll(),
           }
         : NO_AUTOMATION;
     },
@@ -432,6 +447,10 @@ export function createAcpmuxDebug(
       return layoutWatch(options);
     },
 
+    async pasteProbe(options = {}) {
+      const { pasteProbe } = await import("./pasteProbe");
+      return pasteProbe(options);
+    },
     async idleProbe(options = {}) {
       const { idleProbe } = await import("./idleProbe");
       return idleProbe(options);
@@ -454,6 +473,24 @@ export function createAcpmuxDebug(
       const { loadTick } = await import("./loadDebug");
       return loadTick({ sessionId: () => host.sessionId?.(), rowIds: () => host.rowIds?.() ?? [] }, options);
     },
+    renders() {
+      acpmuxPerf.enable();
+      const out = Object.fromEntries(acpmuxPerf.renders);
+      acpmuxPerf.resetRenders();
+      return out;
+    },
+    nativePosts() {
+      return takeNativePosts();
+    },
+  };
+}
+
+/// The transcript's `.acpmux-scroll` offset and scroll height, rounded to CSS pixels; null with none drawn.
+function transcriptScroll() {
+  const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+  return {
+    scrollTop: scroller ? Math.round(scroller.scrollTop) : null,
+    scrollHeight: scroller ? Math.round(scroller.scrollHeight) : null,
   };
 }
 

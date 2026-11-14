@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Live check: a pane's tab bar ends in one hover "…", and `tabs.toolbarButtons` pins actions next to it.
+"""Live check: a pane's tab bar has no trailing controls by default, and `tabs.toolbarButtons` pins actions there.
 
   scripts/cmux-next/pane-toolbar-pins-live.py --app PATH --tag <tag> [--out DIR] [--no-checks]
 
@@ -8,12 +8,11 @@ Launches the tagged app (no activation, automation socket, its own cmux.json hol
 
   1. launch moves `tabs.hiddenButtons` to `tabs.toolbarButtons` (the buttons the old row showed)
      and removes the old key; then the test resets the file to `{}`;
-  2. default: no button but "…", faded (alpha 0) while the pointer is away from the tab bar, and
-     revealed while it is over the tab bar's tabs (debug.pointer_hover), like the strip's "+";
-  3. "…"'s menu lists what opens in the pane, the pane's actions and Show in Tab Bar, nothing checked;
-  4. `tabs.toolbarButtons: ["splitDown", "splitRight"]` shows those two buttons before "…" in the
-     order written, faded at rest and revealed on hover; the menu leaves them out and checks them
-     under Show in Tab Bar;
+  2. default: no button and no "…" (user 2026-11-13: "get rid of these buttons"): the bar takes no width;
+  3. the tab bar's right-click lists the pane's actions (More), Search Tabs and Show in Tab Bar, nothing checked;
+  4. `tabs.toolbarButtons: ["splitDown", "splitRight"]` shows those two buttons in the order written,
+     faded at rest and revealed on hover (debug.pointer_hover), like the strip's "+"; Show in Tab
+     Bar checks them;
   5. the toolbar keeps its width while faded (no layout shift when it appears).
 
 Window snapshots of each state (light and dark), with crops of the first pane's tab bar, go to
@@ -23,6 +22,7 @@ import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -131,13 +131,19 @@ def snapshot(name, pane):
 
 
 def menu_rows(pane):
-    return (pane.get("toolbar") or {}).get("more_menu") or []
+    """The tab bar's right-click rows, More's flattened in: what the removed "…" offered lives there."""
+    rows = []
+    for row in (pane.get("toolbar") or {}).get("tab_bar_menu") or []:
+        rows.append(row)
+        if isinstance(row, dict) and "More" in row:
+            rows.extend(r for r in row["More"] if not isinstance(r, dict))
+    return rows
 
 
 def show_in_tab_bar(rows):
     for row in rows:
-        if isinstance(row, dict) and row:
-            return next(iter(row.values()))
+        if isinstance(row, dict) and "Show in Tab Bar" in row:
+            return row["Show in Tab Bar"]
     return None
 
 
@@ -156,7 +162,7 @@ app = subprocess.Popen([BINARY], env={
     "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
     "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800"},
     stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-print(f"app pid {app.pid}, scratch {SCRATCH}, out {opts.out}", flush=True)
+safe_print(f"app pid {app.pid}, scratch {SCRATCH}, out {opts.out}", flush=True)
 
 try:
     if not quiet_wait(lambda: os.path.exists(SOCKET) and panes(), 180):
@@ -164,7 +170,7 @@ try:
         raise SystemExit(1)
     # 1. The launch migration (after the first frames settle).
     migrated = quiet_wait(lambda: "toolbarButtons" in (read_config().get("tabs") or {}) and read_config(), 30) or read_config()
-    print("migrated config", json.dumps(migrated), flush=True)
+    safe_print("migrated config", json.dumps(migrated), flush=True)
     check((migrated.get("tabs") or {}) == {"toolbarButtons": ["splitRight", "openDiffViewer", "file.open", "toggleSplitZoom"]},
           f"launch moves tabs.hiddenButtons [splitDown] to tabs.toolbarButtons and drops the old key: {migrated}")
     write_config({})
@@ -176,26 +182,25 @@ try:
     frame = rpc("debug.window_frame") or {}
     height = (frame.get("frame") or [0, 0, 1200, 800])[3] if isinstance(frame, dict) else 800
 
-    # 2. Default: "…" only (no Search Tabs chevron), hidden at rest (tabs.restingControlOpacity 0), shown over the tabs.
+    # 2. Default: no trailing controls at all (no "…", no Search Tabs chevron), so the bar takes no width.
     hover(None)
     pane = quiet_wait(lambda: (lambda p: p if p.get("toolbar") and not p["toolbar"]["revealed"] else None)(first()), 10) or first()
-    print("rest", json.dumps(pane.get("toolbar")), flush=True)
+    safe_print("rest", json.dumps(pane.get("toolbar")), flush=True)
     tool = pane.get("toolbar") or {}
-    check(tool.get("buttons") == [] and (tool.get("more_alpha") or 0) == 0,
-          f"default at rest: no buttons, \"…\" hidden: {tool}")
+    check(tool.get("buttons") == [] and (tool.get("frame") or [0, 0, 0, 0])[2] == 0,
+          f"default at rest: no buttons and no width: {tool}")
     rest_width = (tool.get("frame") or [0, 0, 0, 0])[2]
     snapshot("default-rest", pane)
-    print("hover", hover(strip_point(pane, height)), flush=True)
-    pane = quiet_wait(lambda: (lambda p: p if (p.get("toolbar") or {}).get("revealed") else None)(first()), 10) or first()
+    safe_print("hover", hover(strip_point(pane, height)), flush=True)
+    pane = first()
     tool = pane.get("toolbar") or {}
-    check(tool.get("revealed") is True, f"hovering the tab bar's tabs reveals \"…\": {tool.get('revealed')}")
-    check((tool.get("frame") or [0, 0, 0, 0])[2] == rest_width, "\"…\" keeps its width when it appears")
+    check((tool.get("frame") or [0, 0, 0, 0])[2] == rest_width, "hovering the tab bar shows nothing new and takes no width")
     snapshot("default-hover", pane)
-    # 3. The menu.
+    # 3. The tab bar's right-click.
     rows = menu_rows(pane)
-    print("menu", json.dumps(rows, ensure_ascii=False), flush=True)
-    check("Split Right" in rows and "Split Down" in rows, "\"…\" offers Split Right and Split Down")
-    check(any(str(r).startswith("Search Tabs") for r in rows), f"\"…\" offers Search Tabs (was the bar's chevron): {rows}")
+    safe_print("menu", json.dumps(rows, ensure_ascii=False), flush=True)
+    check("Split Right" in rows and "Split Down" in rows, "the tab bar's right-click offers Split Right and Split Down")
+    check(any(str(r).startswith("Search Tabs") for r in rows), f"the tab bar's right-click offers Search Tabs: {rows}")
     pins = show_in_tab_bar(rows) or []
     check(bool(pins) and not any(str(r).startswith("✓") for r in pins), f"Show in Tab Bar lists the pinnable actions, none checked: {pins}")
     with open(os.path.join(opts.out, "menu-default.json"), "w") as f:
@@ -206,7 +211,7 @@ try:
     write_config({"tabs": {"toolbarButtons": ["splitDown", "splitRight"]}})
     pane = quiet_wait(lambda: (lambda p: p if len((p.get("toolbar") or {}).get("buttons") or []) > 1 else None)(first()), 20) or first()
     tool = pane.get("toolbar") or {}
-    print("pinned rest", json.dumps(tool, ensure_ascii=False), flush=True)
+    safe_print("pinned rest", json.dumps(tool, ensure_ascii=False), flush=True)
     check(tool.get("buttons") == ["Split Down", "Split Right"],
           f"pinned: Split Down and Split Right in the order written, no Search Tabs: {tool.get('buttons')}")
     check(tool.get("revealed") is False, "pinned buttons wait for the pointer too")
@@ -219,8 +224,7 @@ try:
           "hovering reveals the pinned buttons in place")
     snapshot("pinned-hover", pane)
     rows = menu_rows(pane)
-    print("menu pinned", json.dumps(rows, ensure_ascii=False), flush=True)
-    check("Split Right" not in rows and "Split Down" not in rows, "the menu leaves out the pinned actions")
+    safe_print("menu pinned", json.dumps(rows, ensure_ascii=False), flush=True)
     pins = show_in_tab_bar(rows) or []
     check("✓ Split Right" in pins and "✓ Split Down" in pins, f"Show in Tab Bar checks the pinned actions: {pins}")
     with open(os.path.join(opts.out, "menu-pinned.json"), "w") as f:

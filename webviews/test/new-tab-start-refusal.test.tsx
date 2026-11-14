@@ -6,6 +6,7 @@ import type { Root } from "react-dom/client";
 import { translate as t } from "../src/agent-session/acpmux/i18n";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, { had: boolean; value: unknown }>();
@@ -71,6 +72,7 @@ afterEach(async () => {
 afterAll(async () => {
   // The pane marked the page as the mock daemon's (App.tsx): later files see a plain page again.
   (await import("../src/agent-session/acpmux/newtab/chatStore")).markMockPage(false);
+  await settleReact();
   dom.window.close();
   for (const [key, entry] of saved) {
     if (entry.had) scope[key] = entry.value;
@@ -252,9 +254,9 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
       () =>
         trust
           ? !!host.querySelector(".acpmux-trust-ask-primary")
-          : [...host.querySelectorAll('[role="alert"]')].some((node) =>
-              node.textContent?.includes("agent unavailable"),
-            ),
+          : // The refusal says why in plain words, its raw words under Details (newtab/StartFailure.tsx).
+            !!host.querySelector('[role="alert"]') &&
+            !!host.querySelector("[data-error-detail]")?.textContent?.includes("agent unavailable"),
       "inline refusal",
     );
     expect(starts[0]._meta.acpmux.peer).toBe(remoteStart ? "devbox" : undefined);

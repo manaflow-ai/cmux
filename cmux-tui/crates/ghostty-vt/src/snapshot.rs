@@ -239,8 +239,9 @@ pub fn reencode_ready(complete: &[u8]) -> Result<Vec<u8>> {
 }
 
 /// A terminal restored from a COMPLETE snapshot (with its unfinished escape
-/// sequence retained), freed on drop. It has no callbacks and is never
-/// written to: callers only read it.
+/// sequence retained), freed on drop. It has no callbacks; callers read it,
+/// change an option on it, or (`alternate_replay`) write one mode reset to
+/// it in the ground state, never program output.
 pub(crate) struct DecodedTerminal(sys::GhosttyTerminal);
 
 impl DecodedTerminal {

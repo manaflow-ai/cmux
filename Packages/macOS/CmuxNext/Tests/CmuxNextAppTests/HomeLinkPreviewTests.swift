@@ -33,9 +33,9 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         let file = dir.appendingPathComponent("REPORT.md")
         try "# Report\n\nPushed 3 commits.\n".write(to: file, atomically: true, encoding: .utf8)
-        #expect(HomeLinkPreview.firstLines(file.path, folder: false) == ["# Report", "Pushed 3 commits."])
-        #expect(HomeLinkPreview.firstLines(dir.path, folder: true) == ["REPORT.md"])
-        #expect(HomeLinkPreview.firstLines(dir.appendingPathComponent("gone.md").path, folder: false) == nil)
+        #expect(HomeLinkPreviewProvider.firstLines(file.path, folder: false) == ["# Report", "Pushed 3 commits."])
+        #expect(HomeLinkPreviewProvider.firstLines(dir.path, folder: true) == ["REPORT.md"])
+        #expect(HomeLinkPreviewProvider.firstLines(dir.appendingPathComponent("gone.md").path, folder: false) == nil)
 
         let services = AppServices(environment: AppEnvironment.current([:]))
         let provider = HomeLinkPreviewProvider(services: services)

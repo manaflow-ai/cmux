@@ -23,9 +23,12 @@ function load() {
   )
 }
 
+// Writes run one after another: the host may finish two calls in any order, and an older list
+// landing last would drop the newer item.
+let writing = Promise.resolve()
 function save(next) {
   setItems(next)
-  if (saving) cmux.storage.set("items", next).catch(() => (saving = false))
+  if (saving) writing = writing.then(() => cmux.storage.set("items", next)).catch(() => (saving = false))
 }
 
 function add(text) {

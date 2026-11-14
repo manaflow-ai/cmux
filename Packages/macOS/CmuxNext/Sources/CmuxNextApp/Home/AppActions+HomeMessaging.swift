@@ -57,15 +57,11 @@ extension AppActions {
     /// focused). `draft` is already the store's draft of `id`: a new view restores it, the view
     /// that shows `id` now takes it at once.
     private static func openToWrite(_ id: ConversationID, draft: String?, _ services: AppServices) {
-        if !services.home.dock.isClassic, let dock = HomeDockTab.view(services), dock.mode == .messages, let messages = dock.messages {
-            // The docked Messages page opens it and puts the draft in its message box in one call.
-            return withDock(services) { _ in messages.show(HomeDockSelection(conversation: id.rawValue), focus: true, draft: draft) }
-        }
-        guard services.home.dock.isClassic, let page = homePage(services) else {
-            services.registry.perform("home.openConversation", invocation: ActionInvocation(arguments: ["conversation": .string(id.rawValue)], origin: .user))
-            return
-        }
-        page.show(HomeDockSelection(conversation: id.rawValue), focus: true, draft: draft)
+        services.registry.perform("home.openConversation",
+                                  invocation: ActionInvocation(arguments: ["conversation": .string(id.rawValue)], origin: .user))
+        guard let draft, let page = shownPage(services), page.shown == id, let host = page.host,
+              let transcript = HomePageTab.transcript(in: host) else { return }
+        transcript.showDraft(draft)
     }
 
     /// The text a selection row sends: the menu's `text` (a page, Markdown, a bubble), else the

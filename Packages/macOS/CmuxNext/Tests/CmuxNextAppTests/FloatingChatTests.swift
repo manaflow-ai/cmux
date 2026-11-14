@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextDesign
 import CmuxNextTestSupport
 import Foundation
 import Testing

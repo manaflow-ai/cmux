@@ -26,6 +26,40 @@ fn mode(path: &Path) -> u32 {
 }
 
 #[test]
+fn loading_an_absent_chat_needs_only_search_access_to_the_sessions_root() {
+    let temp = TempDir::new();
+    let root = temp.0.join("sessions");
+    let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o300)).unwrap();
+    if std::fs::read_dir(&root).is_ok() {
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        eprintln!("skipped: this user reads a directory without its read bit");
+        return;
+    }
+    let loaded = store.load("absent");
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(matches!(loaded, Ok(None)), "an absent chat failed to load: {loaded:?}");
+}
+
+#[test]
+fn listing_an_absent_sessions_root_needs_only_search_access_to_its_parent() {
+    let temp = TempDir::new();
+    let parent = temp.0.join("state");
+    let root = parent.join("sessions");
+    let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+    std::fs::remove_dir(&root).unwrap();
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o300)).unwrap();
+    if std::fs::read_dir(&parent).is_ok() {
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o700)).unwrap();
+        eprintln!("skipped: this user reads a directory without its read bit");
+        return;
+    }
+    let listed = store.list();
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(listed.unwrap().is_empty(), "an absent sessions root listed chats");
+}
+
+#[test]
 fn local_store_makes_existing_state_private_and_writes_private_events() {
     let temp = TempDir::new();
     let root = temp.0.join("sessions");
@@ -108,7 +142,10 @@ fn local_store_refuses_a_symlinked_existing_session() {
     std::fs::create_dir_all(&outside).unwrap();
     std::os::unix::fs::symlink(&outside, root.join("linked-session")).unwrap();
     let store = LocalStore::new(root, 64 * 1024).unwrap();
-    assert!(store.list().is_err());
+    // Never read through: left out of the list and counted unread, without hiding other chats
+    // (`store/list_entry_tests.rs`).
+    assert!(store.list().unwrap().is_empty());
+    assert_eq!(store.unlisted(), ["linked-session"]);
 }
 
 #[cfg(target_os = "macos")]

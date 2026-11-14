@@ -53,7 +53,8 @@ nonisolated extension MotionPolicy {
     }
 
     /// Seconds of `token`; 0 applies at once: speed off, Reduce Motion (Chrome's strip is 0 ms
-    /// under it), a live resize, or tabOpen with `ui.animations.newTab` off.
+    /// under it), a policy made for a window in a live resize (``MotionGate/duration(_:in:)``; the
+    /// window-free policy never has one), or tabOpen with `ui.animations.newTab` off.
     public func duration(_ token: MotionTween) -> TimeInterval {
         cmux_motion_tween_seconds(token.rawValue, ffi)
     }
@@ -66,7 +67,7 @@ extension MotionGate {
 }
 
 /// One scalar on a tween (cmux-motion `TweenValue`, stepped through the app
-/// FFI). Pure: the caller passes the duration (`Motion.tabs.duration(token)`).
+/// FFI). Pure: the caller passes the duration (`Motion.tabs.duration(token, in: window)`).
 public nonisolated struct TweenValue: Equatable, Sendable {
     public private(set) var value: CGFloat
     public private(set) var target: CGFloat

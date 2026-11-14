@@ -100,6 +100,9 @@ SOURCES = "Packages/macOS/CmuxNext/Sources/"
 SWIFT_SOURCES = f":(glob){SOURCES}**/*.swift"
 TESTS = "Packages/macOS/CmuxNext/Tests/"
 SWIFT_TESTS = f":(glob){TESTS}**/*.swift"
+# The iPhone app's sources (CmuxMobileKit and TabsKit): only the phone-width rule reads them.
+IOS_SOURCES = ("cmux-next-ios/CmuxMobileKit/Sources/", "Packages/iOS/CmuxTabsKit/Sources/")
+SWIFT_IOS = tuple(f":(glob){prefix}**/*.swift" for prefix in IOS_SOURCES)
 # Where a shipped build's settings live: the release and nightly pipelines, the release script, build
 # settings files and the app's package manifest.
 SHIPPED_BUILD = (".github/workflows/", "scripts/build-sign-upload.sh", "Packages/macOS/CmuxNext/Package.swift")
@@ -586,9 +589,10 @@ def lex_cache_dir(repo: Path) -> Path | None:
 
 
 def in_diff_scope(path: str) -> bool:
-    """PATH is one of check()'s diff pathspecs (SWIFT_SOURCES, SWIFT_TESTS, SHIPPED_BUILD_SPECS), so its blobs are read
+    """PATH is one of check()'s diff pathspecs (SWIFT_SOURCES, SWIFT_TESTS, SWIFT_IOS, SHIPPED_BUILD_SPECS), so its blobs are read
     while the content diff runs. A path this misses is read after the diff (check()'s late read)."""
-    return ((path.startswith((SOURCES, TESTS)) and path.endswith(".swift")) or path.startswith(".github/workflows/")
+    return ((path.startswith((SOURCES, TESTS, *IOS_SOURCES)) and path.endswith(".swift"))
+            or path.startswith(".github/workflows/")
             or path in ("scripts/build-sign-upload.sh", "Packages/macOS/CmuxNext/Package.swift")
             or path.endswith(".xcconfig") or path.split("/")[-1] == "project.pbxproj")
 
@@ -2129,6 +2133,19 @@ RULES = (
          "// index-allow: <why the index is valid here>",
          line_rule(r"\.(clickedRow|clickedColumn|selectedColumn)\b|\bitem\(atRow:|\bselectedRow\(inColumn:",
                    "index-allow:")),
+    Rule("phone-width", "An iPhone layout that assumes a phone's width: a grid with a fixed column count "
+         "(`GridItem(...), count: N`, two or more literal `GridItem(.flexible())`) or a literal iPhone screen width "
+         "(375, 390, 393, 402, 414, 428, 430, 440) as a width",
+         "an unfolded foldable iPhone's window grows to about 800 pt (nearly square) with no rotation: a fixed "
+         "column count stretches each column to twice its size, and a literal phone width lays out or draws a "
+         "page at the wrong size (Leo, 2026-11-10: \"make it work for iPhone Duo as well\")",
+         "columns from the width: `GridItem(.adaptive(minimum:maximum:))`, or a count computed from the live width "
+         "(TabsKit `OverviewLayout.columns(width:)`); a size from the view's own bounds or `onGeometryChange`, "
+         "and a readable cap (`.frame(maxWidth:)`) where text would run edge to edge",
+         "// width-allow: <why this size never lays out live content (a placeholder frame replaced at layout)>",
+         line_rule(r"\bGridItem\(.*\)\s*,\s*count:\s*\d|\[\s*GridItem\(\.flexible\b[^\]]*\bGridItem\(\.flexible\b"
+                   r"|\bwidth:\s*(375|390|393|402|414|428|430|440)\b", "width-allow:"),
+         scope=IOS_SOURCES),
     Rule("undo-text-write", "Undo turned on for a text view (`allowsUndo = true`)",
          "AppKit's `string` setter replaces the text without telling the undo manager: a typing action keeps its "
          "range into the old text and Cmd-Z raises NSRangeException (#24912)",
@@ -2188,6 +2205,7 @@ PACKAGE_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
 # The seams themselves (and Mutex, which reports contended waits) wrap the raw primitives on purpose.
 BLOCKING_SEAMS = (SOURCES + "CmuxNextCompat/Threading/", SOURCES + "CmuxNextCompat/Mutex.swift")
 BLOCKING_ALLOW = re.compile(r"//\s*blocking-allow:\s*\S")
+MAIN_ACTOR_URL_ALLOW = re.compile(r"//\s*main-actor-url-allow:\s*\S")
 FILE_OPS = (r"fileExists|isReadableFile|isWritableFile|isExecutableFile|createDirectory|removeItem|contentsOfDirectory|"
             r"subpathsOfDirectory|enumerator|createFile|contents|contentsEqual|attributesOfItem|attributesOfFileSystem|"
             r"setAttributes|moveItem|copyItem|linkItem|replaceItemAt|destinationOfSymbolicLink|createSymbolicLink|"
@@ -2449,6 +2467,48 @@ def blocking_on_main(changes: list[FileChange], moved: collections.Counter) -> l
     return changed_debt(outside_seams(changes), judge)
 
 
+URL_APPEND = re.compile(r"\.(?:appendingPathComponent\s*\(|appending\s*\(\s*path\s*:)")
+URL_HINT = re.compile(r"(?:^|,)\s*(?:isDirectory\s*:|directoryHint\s*:\s*\.(?:isDirectory|notDirectory|inferFromPath)\b)")
+
+
+def main_actor_url_append(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Ratchet URL joins whose call spans changed, including a removed hint on a continuation line.
+
+    Mask literals/comments with the shared lexer, then judge each call separately. A hint in a nested
+    argument or a later chained call does not cover this call. Scan each version's isolation once.
+    Synchronous nonisolated helpers still need caller review: lexical isolation is not an executor hop.
+    """
+    def debt(version: Version, changed: list[Added]) -> list[Added]:
+        if not changed or not any("appending" in line for line in version.lines):
+            return []
+        text = observation_text(version)
+        main = main_actor_scope().main_actor_lines(version.lines, version.main_default)
+        touched = {line.number - 1 for line in changed}
+        out = []
+        for call in URL_APPEND.finditer(text.code):
+            start = text.line(call.start())
+            if not main[start] or escaped(version.lines, start, MAIN_ACTOR_URL_ALLOW):
+                continue
+            opening = text.code.index("(", call.start())
+            closing = matching(text.code, opening)
+            stop = text.line(min(closing, len(text.code) - 1))
+            if not any(line in touched for line in range(start, stop + 1)):
+                continue
+            # Keep only top-level arguments: a nested call's directory hint is not this call's hint.
+            arguments, at = [], opening + 1
+            while at < closing:
+                if text.code[at] in "([{":
+                    at = matching(text.code, at) + 1
+                    arguments.append("_")
+                else:
+                    arguments.append(text.code[at])
+                    at += 1
+            if not URL_HINT.search("".join(arguments)):
+                out.append(Added(version.path, start + 1, version.lines[start]))
+        return out
+    return resolve([(debt(*blocking_sides(c)[0]), debt(*blocking_sides(c)[1])) for c in changes])
+
+
 def maybe_blocking_on_main(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
     """Added blocking calls (raw or seam) that may run on main through a caller-isolated async function
     (may_run_on_main): warnings only."""
@@ -2603,6 +2663,13 @@ BLOCKING_RULES = (
          "(`FileManager.checked`, `Data(blockingContentsOf:)`, `.blockingWait()`) are for code that runs off main",
          "// blocking-allow: <why this cannot leave the main thread, and its reviewed allowBlocking reason>",
          blocking_on_main),
+    Rule("main-actor-url-append", "A URL append without `directoryHint`/`isDirectory` in main-actor code",
+         "Foundation may stat the path to infer whether the appended component is a directory; on a slow or network "
+         "volume that synchronous lstat stalls the main actor",
+         "move the lookup off the main actor, and use `appending(path: ..., directoryHint: .isDirectory/.notDirectory)` "
+         "or `appendingPathComponent(_:isDirectory:)` when a main-actor URL must be built",
+         "// main-actor-url-allow: <why this is a non-file URL and cannot probe the filesystem>",
+         main_actor_url_append),
     Rule("raw-blocking", "A raw blocking primitive (file read/write, `.write(to:)`, `FileManager.default.<disk op>`, "
          "`.wait()`, `.sync {`, `waitUntilExit()`, `readToEnd()`, sync XPC, `posix_spawn`, `fork()`) instead of its "
          "checked seam",
@@ -2995,7 +3062,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     """([(rule, every hit, measurements and warning hits included)], warnings) for what HEAD adds over BASE."""
     # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse. No
     # inter-hunk context: a user's diff.interHunkContext would join nearby hunks with unchanged lines between them.
-    specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SHIPPED_BUILD_SPECS]
+    specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SWIFT_IOS, *SHIPPED_BUILD_SPECS]
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
     # The content diff and the blob read each decompress the same objects: on the slowest real pushes (242 files,
     # load 37) each took 0.7-1 s one after the other. The changed paths come first from a cheap name-only diff, so
@@ -3371,7 +3438,10 @@ def main(argv: list[str] | None = None) -> int:
     started = time.monotonic()
     push_range = load_push_range()
     try:
-        own = push_range.given_range(repo, args.base, args.head) if args.base else push_range.own_range(repo, args.head)
+        # A run by hand fetches the shared base first, as a push does (push_range.manual_range); a failed fetch is
+        # in the note describe() prints, so a stale base is named, not used silently.
+        manual = getattr(push_range, "manual_range", None) or push_range.own_range
+        own = push_range.given_range(repo, args.base, args.head) if args.base else manual(repo, args.head)
     except ValueError as error:
         raise SystemExit(f"guardrails: {error}")
     print(f"guardrails: judging {own.describe()}")

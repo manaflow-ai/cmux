@@ -14,6 +14,7 @@ import { plainLine, readableChange } from "../src/pages/changelog/readableChange
 import { AREA_ROWS, addedLine, sheetRows } from "../src/pages/changelog/SheetPage";
 import type { ReleaseNotes } from "../src/pages/changelog/types";
 import { denseDay, longAreaDay } from "../src/pages/changelog/whatsNewFixtures";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "location", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -32,11 +33,8 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 async function mount(notes: ReleaseNotes[], rows: number) {

@@ -176,6 +176,12 @@ fn auth_rules_answer_from_what_the_app_read() {
             {"id": "p", "title": "Personal", "kind": "personal", "active": false, "plan": null},
         ]})
     );
+    let (_, own) = call(
+        c"cloud_auth_team_rows",
+        &json!({"teams": [{"id": "d", "name": "leo@cmux.com's Team"}], "active": "d", "ownEmail": "leo@cmux.com"}),
+    );
+    assert_eq!(own["rows"][0]["title"], "Personal");
+    assert_eq!(own["rows"][0]["kind"], "personal");
     let (_, keys) = call(
         c"cloud_auth_launch_keys",
         &json!({"environment": {"CMUX_DEV_AUTH_PROFILE": "agent", "HOME": "/h"}}),

@@ -26085,6 +26085,138 @@
         }
       }
     },
+    "handlers.refusal.agentRemoteStart.untrustedSource": {
+      "comment": "A Cloud start from a folder this Mac does not trust: its copy on the Cloud machine is trusted only when this Mac trusts the folder. %1$@ is the folder on this Mac, %2$@ the same folder as one shell word.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac doesn't trust %1$@, so its copy on a Cloud machine isn't trusted either. Trust it on this Mac (Trust Folder in a chat in that folder, or `cmux setup trust %2$@`), then start the chat again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac は %1$@ を信頼していないため、Cloud マシン上のそのコピーも信頼されません。この Mac で信頼してから（そのフォルダのチャットで「フォルダを信頼」、または `cmux setup trust %2$@`）、チャットをもう一度開始してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذا الـ Mac لا يثق في %1$@، لذا فإن نسخته على جهاز Cloud ليست موثوقة أيضًا. اجعله موثوقًا على هذا الـ Mac (Trust Folder في دردشة داخل ذلك المجلد، أو `cmux setup trust %2$@`)، ثم ابدأ الدردشة مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj Mac ne vjeruje folderu %1$@, pa ni njegova kopija na Cloud mašini nije pouzdana. Označite ga kao pouzdan na ovom Macu (Trust Folder u chatu u tom folderu ili `cmux setup trust %2$@`), pa ponovo pokrenite chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Mac betror ikke %1$@, så kopien på en Cloud-maskine er heller ikke betroet. Betro mappen på denne Mac (Trust Folder i en chat i mappen, eller `cmux setup trust %2$@`), og start chatten igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Mac vertraut %1$@ nicht, daher ist auch die Kopie auf einem Cloud-Rechner nicht vertrauenswürdig. Vertraue dem Ordner auf diesem Mac (Trust Folder in einem Chat in diesem Ordner oder `cmux setup trust %2$@`) und starte den Chat dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este Mac no confía en %1$@, así que su copia en una máquina de Cloud tampoco es de confianza. Confía en ella en este Mac (Trust Folder en un chat de esa carpeta o `cmux setup trust %2$@`) y vuelve a iniciar el chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce Mac n’approuve pas %1$@, donc sa copie sur une machine Cloud n’est pas approuvée non plus. Approuvez-le sur ce Mac (Trust Folder dans une discussion de ce dossier, ou `cmux setup trust %2$@`), puis relancez la discussion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo Mac non considera attendibile %1$@, quindi nemmeno la sua copia su una macchina Cloud lo è. Rendilo attendibile su questo Mac (Trust Folder in una chat in quella cartella, oppure `cmux setup trust %2$@`), poi avvia di nuovo la chat."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac នេះមិនទុកចិត្ត %1$@ ទេ ដូច្នេះច្បាប់ចម្លងរបស់វានៅលើម៉ាស៊ីន Cloud ក៏មិនត្រូវបានទុកចិត្តដែរ។ ទុកចិត្តវានៅលើ Mac នេះ (Trust Folder ក្នុងការជជែកក្នុងថតនោះ ឬ `cmux setup trust %2$@`) រួចចាប់ផ្ដើមការជជែកម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac은 %1$@을(를) 신뢰하지 않으므로 Cloud 머신에 있는 사본도 신뢰되지 않습니다. 이 Mac에서 신뢰한 다음(해당 폴더의 채팅에서 Trust Folder 또는 `cmux setup trust %2$@`) 채팅을 다시 시작하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Macen stoler ikke på %1$@, så kopien på en Cloud-maskin er heller ikke klarert. Stol på mappen på denne Macen (Trust Folder i en chat i mappen, eller `cmux setup trust %2$@`), og start chatten på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten Mac nie ufa folderowi %1$@, więc jego kopia na maszynie Cloud też nie jest zaufana. Oznacz go jako zaufany na tym Macu (Trust Folder w czacie w tym folderze lub `cmux setup trust %2$@`), a potem uruchom czat ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este Mac não confia em %1$@, então a cópia dela em uma máquina do Cloud também não é confiável. Confie nela neste Mac (Trust Folder em um chat nessa pasta ou `cmux setup trust %2$@`) e inicie o chat novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот Mac не доверяет папке %1$@, поэтому её копия на машине Cloud тоже не доверенная. Доверьтесь ей на этом Mac (Trust Folder в чате в этой папке или `cmux setup trust %2$@`), затем снова запустите чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac เครื่องนี้ไม่เชื่อถือ %1$@ สำเนาบนเครื่อง Cloud จึงไม่ได้รับความเชื่อถือด้วย ให้เชื่อถือบน Mac เครื่องนี้ (Trust Folder ในแชทในโฟลเดอร์นั้น หรือ `cmux setup trust %2$@`) แล้วเริ่มแชทอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac %1$@ klasörüne güvenmiyor, bu yüzden bir Cloud makinesindeki kopyası da güvenilir değil. Bu Mac'te ona güvenin (o klasördeki bir sohbette Trust Folder veya `cmux setup trust %2$@`), sonra sohbeti yeniden başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей Mac не довіряє теці %1$@, тож її копія на машині Cloud теж не довірена. Довіртеся їй на цьому Mac (Trust Folder у чаті в цій теці або `cmux setup trust %2$@`), а потім знову запустіть чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac này không tin cậy %1$@, nên bản sao của nó trên máy Cloud cũng không được tin cậy. Hãy tin cậy nó trên Mac này (Trust Folder trong một cuộc trò chuyện ở thư mục đó, hoặc `cmux setup trust %2$@`), rồi bắt đầu lại cuộc trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这台 Mac 不信任 %1$@，所以它在 Cloud 机器上的副本也不受信任。请先在这台 Mac 上信任它（在该文件夹的聊天中点 Trust Folder，或运行 `cmux setup trust %2$@`），然后重新开始聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這台 Mac 不信任 %1$@，所以它在 Cloud 機器上的副本也不受信任。請先在這台 Mac 上信任它（在該資料夾的聊天中點 Trust Folder，或執行 `cmux setup trust %2$@`），然後重新開始聊天。"
+          }
+        }
+      }
+    },
     "handlers.refusal.agentRemoteStart.harnessRefused": {
       "extractionState": "manual",
       "localizations": {

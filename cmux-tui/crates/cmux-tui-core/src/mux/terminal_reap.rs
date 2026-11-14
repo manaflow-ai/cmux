@@ -501,7 +501,8 @@ impl Mux {
             }
         }
         // One projection and one commit for every terminal with a runtime
-        // (O(N), nx-scale 1b); the per-terminal close takes the rest.
+        // and every ended or pending one with none (O(N), nx-scale 1b); the
+        // per-terminal close takes what the batch must not decide.
         let mutation = WorkspaceMutation::daemon_local(END_TERMINALS_MUTATION_ORIGIN);
         let one_by_one = match self.end_terminals_in_one_commit(&to_close, &mutation) {
             Ok(batch) => {

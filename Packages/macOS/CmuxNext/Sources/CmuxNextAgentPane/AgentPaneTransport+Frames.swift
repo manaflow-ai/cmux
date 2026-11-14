@@ -205,6 +205,7 @@ extension AgentPaneTransport {
                 sentFirst = true
                 localAppToken = nil
             }
+            drainedBatches &+= 1
             for outcome in batch.outcomes { complete(outcome) }
             switch batch.next {
             case nil:
@@ -230,6 +231,21 @@ extension AgentPaneTransport {
         for waiter in waiting { waiter.resume() }
     }
 
+    /// Waits until the send line is empty, as long as it keeps moving: each `quiet` window in which
+    /// the line hands over at least one batch earns another, up to `limit` in all. A line slowed by a
+    /// busy daemon is waited for; one that stops moving for `quiet` is not. True when it drained.
+    func lineDrained(quiet: Duration, limit: Duration) async -> Bool {
+        let end = ContinuousClock.now + limit
+        var seen = drainedBatches
+        // wakeup-allow: each pass waits on the drain's own signal, at most `quiet`; it ends at `limit` or when the line stops moving.
+        while true {
+            let left = ContinuousClock.now.duration(to: end)
+            if await lineDrained(within: min(quiet, max(left, .zero))) { return true }
+            guard drainedBatches != seen, ContinuousClock.now < end else { return false }
+            seen = drainedBatches
+        }
+    }
+
     /// Waits until the send line is empty (every frame handed over before now sent or refused), at
     /// most `within`; true when it is. `sandbox.run` waits on it, so a start or open the page handed
     /// over first is counted (``AcpmuxPaneReplacements``) before the send is admitted.
@@ -251,15 +267,21 @@ extension AgentPaneTransport {
     /// The person proof (acpmux `hub/person.rs`, cx-fcaq), sent right after the page's first frame
     /// and before any other: the HMAC of the daemon's challenge from the `initialize` reply under
     /// the key this app gave the daemon on ``socketPath``. The key itself never crosses the
-    /// socket. No challenge (a remote wire, an older daemon) or no key: no proof, so the pane is
-    /// not the person and the daemon refuses its allows.
+    /// socket. No challenge (a remote wire, an older daemon): no proof, nothing to report.
+    ///
+    /// No key, or a proof the daemon refused, leaves the pane unproven: the daemon records each
+    /// prompt typed here as an unverified sender's, and the agent reads it as not the person's
+    /// (Leo, 2026-11-10: "Oh, it's turned me into an unverified sender."). That is never silent: the
+    /// pane says so (``onPersonProof``) and gets the key to the daemon again (``recoverPersonProof``).
     private func provePerson(socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async {
         guard let socketPath else { return }
         guard let challenge = await socket.personChallenge() else { return }
         guard self.socket === socket else { return }
+        let connection = current
         guard let proof = AcpmuxPersonKey.proof(socketPath: socketPath, transport: .app, nonce: challenge.nonce,
                                                 connection: challenge.connection) else {
-            Self.logger.error("agent pane transport: no person key for this daemon; allows stay refused")
+            Self.logger.error("agent pane transport: no person key for this daemon; reconnecting identity")
+            personProofSettled(false, connection: connection)
             return
         }
         let id = ids.hostID()
@@ -267,15 +289,18 @@ extension AgentPaneTransport {
         let frame: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": "_acpmux/person_prove",
                                     "params": ["proof": proof]]
         guard let data = try? JSONSerialization.data(withJSONObject: frame), let text = String(data: data, encoding: .utf8) else { return }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            ids.whenAnswered(id) { continuation.resume() }
+        let proven = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            ids.whenResult(id) { continuation.resume(returning: $0) }
             if let error = socket.send(text) {
                 ids.cancel(id)
-                continuation.resume()
+                continuation.resume(returning: false)
                 Self.logger.error("agent pane transport: person proof not sent: \(error.rawValue, privacy: .public)")
             }
         }
         if self.socket === socket, personProofID == id { personProofID = nil }
+        guard self.socket === socket, !socket.isClosed else { return }
+        if !proven { Self.logger.error("agent pane transport: acpmux refused the person proof; reconnecting identity") }
+        personProofSettled(proven, connection: connection)
     }
 
     /// The most frames one off-main pass takes (so a long line still yields between passes).

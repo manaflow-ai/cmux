@@ -16,6 +16,17 @@ final class KeyInputView: UIView, UIKeyInput {
     }
 
     override var canBecomeFirstResponder: Bool { true }
+
+    /// The keyboard went away, however it was hidden (the toolbar button,
+    /// the bar's hide key, an iPad's hide key).
+    var onResign: (() -> Void)?
+
+    override func resignFirstResponder() -> Bool {
+        let wasFocused = isFirstResponder
+        let resigned = super.resignFirstResponder()
+        if wasFocused, resigned { onResign?() }
+        return resigned
+    }
     override var inputAccessoryView: UIView? { bar }
 
     /// The latched ⌃⌥⌘ for a click (they release after it, as after a key);

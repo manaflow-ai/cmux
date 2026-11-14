@@ -35,7 +35,6 @@ struct PaletteToggleStateTests {
         let services = AppServices(environment: AppEnvironment.current([:]))
         let suite = "cmux-palette-toggle-state-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(testSuiteName: suite))
-        services.rightSidebarDefaults = defaults
         services.windows.ordersWindowsIn = false
         AppActions.bind(services)
         let controller = try #require(services.windows.openWindow(workspaces: ["palette-toggle-ws"]))
@@ -56,17 +55,6 @@ struct PaletteToggleStateTests {
             #expect(model.isHidden != wasHidden)
             #expect(Self.state("toggleSidebar", w.services) == !model.isHidden, "the row does not say whether the sidebar shows")
         }
-    }
-
-    @Test func rightSidebarRowFollowsTheRightSidebar() throws {
-        let w = try Self.window()
-        defer { w.close() }
-        #expect(Self.state("toggleRightSidebar", w.services) == false)
-        #expect(w.services.registry.perform("toggleRightSidebar"))
-        #expect(w.controller.rightSidebar.isVisible)
-        #expect(Self.state("toggleRightSidebar", w.services) == true)
-        #expect(w.services.registry.perform("toggleRightSidebar"))
-        #expect(Self.state("toggleRightSidebar", w.services) == false)
     }
 
     /// Entering full screen is an animated AppKit transition a test window cannot make; the row

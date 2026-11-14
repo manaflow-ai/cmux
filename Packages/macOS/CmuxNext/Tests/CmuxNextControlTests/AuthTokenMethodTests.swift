@@ -56,6 +56,18 @@ import Testing
         #expect(ControlMethod.authTokenError(AuthTokenRefusal(code: "bad_reply"), team: nil).code == "unavailable")
     }
 
+    /// Leo's NIGHTLY, 2026-11-11: `cmux whoami` (no `--team`) said "refused a token for team -". The refusal
+    /// names the team the mint was for, the app's own team too.
+    @Test func aRefusalForTheAppsOwnTeamNamesThatTeam() {
+        let own = AuthTokenRefusal(code: "forbidden", detail: "auth.forbidden", team: "team_0123456789abcdef0123")
+        let error = ControlMethod.authTokenError(own, team: nil)
+        #expect(error.code == "forbidden")
+        #expect(error.message.contains("team_0123456789abcdef0123"))
+        #expect(!error.message.contains("team -"))
+        // The team the mint was for wins over the asked one.
+        #expect(ControlMethod.authTokenError(own, team: team).message.contains("team_0123456789abcdef0123"))
+    }
+
     @Test func authTokenIsACloudFeatureMethod() {
         #expect(ActionFeature(controlMethod: "auth.token") == .cloud)
         #expect(ActionFeature(controlMethod: "auth.status") == nil)

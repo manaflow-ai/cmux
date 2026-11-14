@@ -8,8 +8,9 @@
 //! `start`: the stream offset of the snapshot it continues) + frames in the
 //! segment format (`start offset (u64 LE) | compressed length (u32 LE) | raw
 //! length (u32 LE) | gzip`). The writer appends one frame per changed
-//! terminal per pass (write(2) only; an fsync at most every
-//! [`super::TAIL_SYNC_INTERVAL`]). A snapshot is the compaction: it records
+//! terminal per pass (write(2) only; the tails written since their last
+//! sync are synced together every [`super::TAIL_SYNC_INTERVAL`], and each
+//! at quit). A snapshot is the compaction: it records
 //! its stream offset, and the tail file goes once the snapshot is in place.
 //! A frame cut by a crash ends the read.
 //!
@@ -53,7 +54,7 @@ pub(super) fn remove(directory: &Path, terminal_id: &TerminalPublicId) {
 
 /// Append `bytes` (stream offsets `start..`) to the tail that continues the
 /// snapshot at `base` of `generation`; the file is created with its header
-/// when absent. `sync`: fsync the file after the write.
+/// when absent. `sync`: fsync the file after the write (the quit pass).
 pub(super) fn append(
     directory: &Path,
     terminal_id: &TerminalPublicId,
@@ -88,11 +89,35 @@ pub(super) fn append(
     Ok(())
 }
 
-/// Fsync a tail written without one.
+/// Fsync a tail written without one (the quit pass; F_FULLFSYNC on macOS).
 pub(super) fn sync(directory: &Path, terminal_id: &TerminalPublicId) {
     if let Ok(file) = fs::File::open(path(directory, terminal_id)) {
         let _ = file.sync_data();
     }
+}
+
+/// The sync of a tail written without one while the daemon runs, every
+/// [`super::TAIL_SYNC_INTERVAL`]; whether a file was synced. On macOS it is
+/// F_BARRIERFSYNC, not the F_FULLFSYNC of [`sync`]: the file's bytes go to
+/// the drive, in order before later writes, and the drive's cache is not
+/// flushed (0.5 ms against 3.9 ms on a Mac mini,
+/// `terminal_host_runtime/sys/unix/barrier_sync.rs`). A power loss can so
+/// take back output the drive still held in its cache; terminal output is
+/// not structure, and the registry's WAL runs the same way
+/// (`workspace_registry/wal_durability.rs`). It falls back to the full sync
+/// where the file system refuses the barrier; fdatasync elsewhere.
+pub(super) fn sync_ordered(directory: &Path, terminal_id: &TerminalPublicId) -> bool {
+    let Ok(file) = fs::File::open(path(directory, terminal_id)) else { return false };
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::fd::AsRawFd;
+        // SAFETY: fcntl on a descriptor this File owns, with no pointer
+        // argument.
+        if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_BARRIERFSYNC) } != -1 {
+            return true;
+        }
+    }
+    file.sync_data().is_ok()
 }
 
 /// One tail frame: its stream offset and raw bytes.
@@ -227,23 +252,15 @@ fn header_extent(file: &Path) -> Option<(String, u64, u64)> {
     Some((generation, base, end))
 }
 
-/// The snapshot `snapshot` (stream offset `snapshot_end`) with the tail
-/// bytes after it: the screen the terminal had at the end of its tail, as a
-/// bounded replay that fits a respawn seed. The snapshot alone when no tail
+/// The snapshot `snapshot` with `tail`, the tail bytes after its end
+/// ([`bytes_after`]): the screen the terminal had at the end of its tail, as
+/// a bounded replay that fits a respawn seed. The snapshot alone when no tail
 /// continues it.
-pub(super) fn restore(
-    directory: &Path,
-    terminal_id: &TerminalPublicId,
-    generation: &str,
-    snapshot_end: Option<u64>,
-    snapshot: TerminalReplay,
-) -> TerminalReplay {
-    let Some(snapshot_end) = snapshot_end else { return snapshot };
-    let tail = bytes_after(directory, terminal_id, generation, snapshot_end);
+pub(super) fn restore(snapshot: TerminalReplay, tail: &[u8]) -> TerminalReplay {
     if tail.is_empty() {
         return snapshot;
     }
-    rebuild(&snapshot, &tail).unwrap_or(snapshot)
+    rebuild(&snapshot, tail).unwrap_or(snapshot)
 }
 
 fn rebuild(snapshot: &TerminalReplay, tail: &[u8]) -> Option<TerminalReplay> {
@@ -328,7 +345,7 @@ mod tests {
         let tail = b"third\r\nfourth\r\nfifth\r\nsixth\r\n";
         append(&directory, &id, "g", 15, 15, tail, false).unwrap();
         source.vt_write(tail);
-        let restored = restore(&directory, &id, "g", Some(15), snapshot);
+        let restored = restore(snapshot, &bytes_after(&directory, &id, "g", 15));
         let mut rebuilt = ghostty_vt::Terminal::new(40, 5, 1_000_000, Default::default()).unwrap();
         rebuilt.vt_write(&restored.bytes);
         assert_eq!(rebuilt.plain_text().unwrap(), source.plain_text().unwrap());
@@ -357,7 +374,7 @@ mod tests {
             tail.extend_from_slice(b"\x1b\\");
         }
         append(&directory, &id, "g", 7, 7, &tail, false).unwrap();
-        let restored = restore(&directory, &id, "g", Some(7), snapshot);
+        let restored = restore(snapshot, &bytes_after(&directory, &id, "g", 7));
         let mut rebuilt = ghostty_vt::Terminal::new(40, 5, 1_000_000, Default::default()).unwrap();
         rebuilt.vt_write(&restored.bytes);
         let text = rebuilt.plain_text().unwrap();

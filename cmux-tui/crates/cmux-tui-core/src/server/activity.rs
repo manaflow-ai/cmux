@@ -154,13 +154,14 @@ impl ActivityStream {
     ) -> anyhow::Result<Value> {
         let times = {
             let mut state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
+            // Closed connections leave before the cap counts (and at their
+            // disconnect, and at the next send).
+            state.subscribers.retain(|_, w| w.is_open());
             anyhow::ensure!(
                 state.subscribers.len() < MAX_SUBSCRIBERS
                     || state.subscribers.contains_key(&client),
                 "too many activity subscribers"
             );
-            // Closed connections leave here or at the next send; no disconnect hook.
-            state.subscribers.retain(|_, w| w.is_open());
             state.mux = Arc::downgrade(mux);
             state.subscribers.insert(client, writer.clone());
             self.shared.subscribed.store(true, Ordering::SeqCst);
@@ -178,7 +179,9 @@ impl ActivityStream {
         Ok(json!({ "activity": snapshot(mux, times) }))
     }
 
-    fn disconnect(&self, client: u64) {
+    /// The connection ended: its subscription goes (the worker also drops
+    /// one whose send fails).
+    pub(super) fn disconnect(&self, client: u64) {
         let mut state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
         if state.subscribers.remove(&client).is_some() && state.subscribers.is_empty() {
             self.shared.subscribed.store(false, Ordering::SeqCst);

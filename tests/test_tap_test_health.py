@@ -10,6 +10,13 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -152,7 +159,7 @@ class WebPositiveExport(unittest.TestCase):
         marker = "tap-test/v1 " + json.dumps(row)
         self.assertEqual(reds.read(marker).crashes, [])
         self.assertEqual(reds.read(marker).failed, set())
-        self.assertEqual(excuse.signature(base.failed_job(1, 10, base.HEAD), marker)[2], set())
+        self.assertEqual(base.placed_signature(base.failed_job(1, 10, base.HEAD), marker)[2], set())
 
 
 class QuarantineEvidence(unittest.TestCase):
@@ -278,10 +285,29 @@ class RequiredWebVerdict(unittest.TestCase):
                     self.assertEqual(checked.returncode, expected, checked.stdout + checked.stderr)
 
 
+BUILD = "Build package and tests"
+
+
 class BaseRedConsumer(unittest.TestCase):
-    def fake(self):
+    """The head job's log is framed like a real one (base.framed_steps and base.framed_log: "Set up job", a STEP_START
+    line per step, "Complete job"): quarantined_only reads the failed step's lines by the log's step order
+    (step_owners), never by a step's name or its whole-second times alone."""
+
+    STEPS = [(BUILD, "success", 3, 9), (base.TEST_STEP, "failure", 10, 20)]
+
+    def lines(self, test_lines, build_lines=(), extra=()):
+        return [(BUILD, 3, "##[group]Run swift build --build-tests"), *((BUILD, 8, line) for line in build_lines),
+                (base.TEST_STEP, 10, f"##[group]{base.TEST_STEP}"),
+                *((base.TEST_STEP, 19, line) for line in test_lines),
+                (base.TEST_STEP, 19.5, "##[error]Process completed with exit code 1."), *extra]
+
+    def frame(self, github, lines, steps=None, columns=True):
+        github.jobs[1]["steps"] = base.framed_steps(steps or self.STEPS)
+        github.logs[1] = base.framed_log(lines, JOB, columns=columns)
+
+    def fake(self, columns=True):
         github = base.FakeGitHub()
-        github.logs[1] = base.log(JOB, base.TEST_STEP, *HEAD.splitlines())
+        self.frame(github, self.lines(HEAD.splitlines()), columns=columns)
         github.logs[2] = SUMMARY
         github.jobs[2]["conclusion"] = "success"
         original = github.json
@@ -302,65 +328,90 @@ class BaseRedConsumer(unittest.TestCase):
         for extra in ["step", "error"]:
             github = self.fake()
             if extra == "step":
-                github.jobs[1]["steps"].append({"name": "Compile", "status": "completed", "conclusion": "failure"})
+                self.frame(github, self.lines(HEAD.splitlines(), extra=[
+                    ("Compile", 21, "##[group]Run swift build"), ("Compile", 22, "error: missing symbol"),
+                    ("Compile", 22, "##[error]Process completed with exit code 1.")]),
+                    self.STEPS + [("Compile", "failure", 21, 23)])
             else:
-                github.logs[1] += "\n##[error]unrelated compile error: missing symbol"
+                self.frame(github, self.lines(HEAD.splitlines() + ["##[error]unrelated compile error: missing symbol"]))
             with self.subTest(extra=extra), self.assertRaises(excuse.Refused):
                 excuse.judge(base.REPO, "feat-cmux-next", base.HEAD, [10], github, flake_state=state())
 
     def test_bun_diagnostic_is_covered_but_another_error_is_not(self):
-        text = "\n".join(["bun test v1.3.0", "test/a.test.ts:", "error: Expected ready",
-                           "(fail) first [1ms]", "0 pass", "1 fail"])
-        snapshot = state(text)
+        text = ["bun test v1.3.0", "test/a.test.ts:", "error: Expected ready", "(fail) first [1ms]", "0 pass", "1 fail"]
+        snapshot = state("\n".join(text))
         github = self.fake()
-        github.logs[1] = base.log(JOB, base.TEST_STEP, *text.splitlines())
+        self.frame(github, self.lines(text))
         self.assertIn(ISSUE, excuse.judge(base.REPO, "feat-cmux-next", base.HEAD, [10], github,
                                         flake_state=snapshot)[0])
-        github.logs[1] += "\nerror: Failed to compile another package"
+        self.frame(github, self.lines(text + ["error: Failed to compile another package"]))
         with self.assertRaises(excuse.Refused):
             excuse.judge(base.REPO, "feat-cmux-next", base.HEAD, [10], github, flake_state=snapshot)
 
     def test_every_failed_step_needs_its_own_named_quarantine_evidence(self):
-        for other in ["second step", "passed step", "unlabelled"]:
+        for other in ["second step", "passed step", "unframed"]:
             github = self.fake()
             if other == "second step":
-                github.jobs[1]["steps"].append({"name": "Other tests", "conclusion": "failure"})
-                github.logs[1] += "\n" + base.log(JOB, "Other tests", "##[error]Process completed with exit code 1.")
+                self.frame(github, self.lines(HEAD.splitlines(), extra=[
+                    ("Other tests", 21, "##[group]Run swift test --filter Other"),
+                    ("Other tests", 22, "##[error]Process completed with exit code 1.")]),
+                    self.STEPS + [("Other tests", "failure", 21, 23)])
             elif other == "passed step":
-                github.logs[1] = base.log(JOB, "Passed tests", *HEAD.splitlines())
-                github.logs[1] += "\n" + base.log(JOB, base.TEST_STEP, "##[error]Process completed with exit code 1.")
+                self.frame(github, self.lines([], build_lines=HEAD.splitlines()))
             else:
                 github.logs[1] = HEAD
             with self.subTest(other=other), self.assertRaises(excuse.Refused):
                 excuse.judge(base.REPO, "feat-cmux-next", base.HEAD, [10], github, flake_state=state())
 
-    def test_raw_actions_job_logs_use_unambiguous_recorded_step_times(self):
-        def timed():
-            github = self.fake()
-            for step, (start, end) in zip(github.jobs[1]["steps"], [(0, 5), (5, 30), (31, 45)]):
-                step.update(started_at=f"2026-10-07T02:10:{start:02}Z",
-                            completed_at=f"2026-10-07T02:10:{end:02}Z")
-            github.logs[1] = "\n".join("2026-10-07T02:10:37.8032610Z " + line for line in HEAD.splitlines())
-            return github
-        github = timed()
-        self.assertIn(ISSUE, excuse.judge(base.REPO, "feat-cmux-next", base.HEAD, [10], github,
+    def test_raw_actions_job_logs_place_lines_by_the_logs_step_order(self):
+        # The job-log endpoint has stamps and no step column.
+        self.assertIn(ISSUE, excuse.judge(base.REPO, "feat-cmux-next", base.HEAD, [10], self.fake(columns=False),
                                         flake_state=state())[0])
-        for change in ["other failed step", "passed step", "boundary second", "missing time", "duplicate name"]:
-            github = timed()
-            steps = github.jobs[1]["steps"]
-            if change == "other failed step":
-                steps.append({"name": "Other tests", "conclusion": "failure",
-                              "started_at": "2026-10-07T02:10:46Z", "completed_at": "2026-10-07T02:10:50Z"})
-                github.logs[1] += "\n2026-10-07T02:10:49Z ##[error]Process completed with exit code 1."
-            elif change == "passed step":
-                github.logs[1] = github.logs[1].replace("02:10:37.", "02:10:20.")
-            elif change == "boundary second":
-                steps[1]["completed_at"] = "2026-10-07T02:10:37Z"
-                steps[2]["started_at"] = "2026-10-07T02:10:37Z"
-            elif change == "missing time":
-                del steps[1]["completed_at"]
-            else:
-                steps[1]["name"] = steps[2]["name"]
+        tests = "Package tests"
+        excused = {
+            # The test step starts the second after the build step ends: its lines are its own.
+            "next second": (self.lines(HEAD.splitlines()), [(BUILD, "success", 3, 9),
+                                                            (base.TEST_STEP, "failure", 10, 20)]),
+            # Two steps share a name; the failing one printed the quarantined failure.
+            "duplicate name": ([(tests, 3, "##[group]Run swift test --filter Smoke"), (tests, 4, SUMMARY),
+                                (tests, 10, "##[group]Run swift test"), *((tests, 19, line) for line in HEAD.splitlines()),
+                                (tests, 19.5, "##[error]Process completed with exit code 1.")],
+                               [(tests, "success", 3, 9), (tests, "failure", 10, 20)]),
+        }
+        for change, (lines, steps) in excused.items():
+            github = self.fake(columns=False)
+            self.frame(github, lines, steps, columns=False)
+            with self.subTest(change=change):
+                self.assertIn(ISSUE, excuse.judge(base.REPO, "feat-cmux-next", base.HEAD, [10], github,
+                                                flake_state=state())[0])
+        refused = {
+            "other failed step": (self.lines(HEAD.splitlines(), extra=[
+                ("Other tests", 21, "##[group]Run swift test --filter Other"),
+                ("Other tests", 22, "##[error]Process completed with exit code 1.")]),
+                self.STEPS + [("Other tests", "failure", 21, 23)]),
+            "passed step": (self.lines([], build_lines=HEAD.splitlines()), self.STEPS),
+            # The passing step printed the quarantined failure in the second the failing step starts.
+            "passed step, boundary second": ([(BUILD, 3, "##[group]Run swift build --build-tests"),
+                                              *((BUILD, 10.1, line) for line in HEAD.splitlines()),
+                                              (base.TEST_STEP, 10.4, f"##[group]{base.TEST_STEP}"),
+                                              (base.TEST_STEP, 19.5, "##[error]Process completed with exit code 1.")],
+                                             [(BUILD, "success", 3, 10), (base.TEST_STEP, "failure", 10, 20)]),
+            # Two steps share a name; the passing one printed it and the failing one names no test.
+            "duplicate name, passing one": ([(tests, 3, "##[group]Run swift test --filter Smoke"),
+                                             *((tests, 4, line) for line in HEAD.splitlines()),
+                                             (tests, 10, "##[group]Run swift test"),
+                                             (tests, 19.5, "##[error]Process completed with exit code 1.")],
+                                            [(tests, "success", 3, 9), (tests, "failure", 10, 20)]),
+            "missing time": (self.lines(HEAD.splitlines()), None),
+            # The test step starts in the second the build step ends: its header could be either step's.
+            "boundary second": (self.lines(HEAD.splitlines()), [(BUILD, "success", 3, 10),
+                                                                (base.TEST_STEP, "failure", 10, 20)]),
+        }
+        for change, (lines, steps) in refused.items():
+            github = self.fake(columns=False)
+            self.frame(github, lines, steps, columns=False)
+            if change == "missing time":
+                del github.jobs[1]["steps"][2]["completed_at"]
             with self.subTest(change=change), self.assertRaises(excuse.Refused):
                 excuse.judge(base.REPO, "feat-cmux-next", base.HEAD, [10], github, flake_state=state())
 

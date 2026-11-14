@@ -15,6 +15,7 @@ import type { AcpmuxRow } from "../model";
 import type { Subagent } from "../subagents/subagentFold";
 import { backgroundRunRowId } from "./backgroundRuns";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
+import { backgroundTurnLook, drawsBackgroundTurnLines } from "./backgroundTurnLook.experiment";
 
 /// The turn every variant starts with: a prompt, the reply and its footer row.
 const opening = [
@@ -134,7 +135,11 @@ export default agentPaneEntry({
     "background-update-hover": {
       note: '"Background update" under the pointer: its words light all the way through, as a tool row\'s do; its clock stays (Leo, 2026-11-09).',
       snapshot: chat([...opening, ...quiet("lone-bg", 8), next]),
-      play: async (ctx) => ctx.hover({ selector: "button.cv-background-turn .cv-agent-activity__sentence" }),
+      play: async (ctx) => {
+        // The line look's line (backgroundTurnLook.experiment.ts); the inline look draws none.
+        if (!drawsBackgroundTurnLines()) return;
+        await ctx.hover({ selector: "button.cv-background-turn .cv-agent-activity__sentence" });
+      },
     },
     "background-tasks-run-hover": {
       note: '"3 background tasks finished" under the pointer: its words light all the way through, as a tool row\'s do (Leo, 2026-11-09).',
@@ -145,7 +150,11 @@ export default agentPaneEntry({
         ...quiet("lone-run-c", 7, "task_notification"),
         next,
       ]),
-      play: async (ctx) => ctx.hover({ selector: "button.cv-background-turn .cv-agent-activity__sentence" }),
+      play: async (ctx) => {
+        // The line look's line (backgroundTurnLook.experiment.ts); the inline look draws none.
+        if (!drawsBackgroundTurnLines()) return;
+        await ctx.hover({ selector: "button.cv-background-turn .cv-agent-activity__sentence" });
+      },
     },
     "subagent-finished-hover": {
       note: '"Subagent finished" with the pointer on its name: only the name chip lights, the line opens nothing (Leo, 2026-11-05: "subagents need to have their clickable bit be highlighted instead of the whole line click").',
@@ -176,5 +185,10 @@ export default agentPaneEntry({
         next,
       ]),
     },
+  },
+  // Compare arms: the turn's calls inline (default, Leo 2026-11-11) and the line look these variants first drew.
+  experiment: {
+    definition: backgroundTurnLook,
+    script: [{ name: "hover the first row", run: async (ctx) => ctx.hover({ selector: ".cv-tool" }) }],
   },
 });

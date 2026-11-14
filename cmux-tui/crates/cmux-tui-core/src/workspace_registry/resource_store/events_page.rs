@@ -8,6 +8,29 @@ impl WorkspaceRegistry {
     }
 }
 
+/// The changes of the resource event committed at `revision`, as its journal
+/// record states them; `None` when the journal holds no record of that
+/// revision. A mutation whose ledger row names its change instead of storing
+/// it answers a retry from here (`window_record.put`).
+pub(crate) fn query_resource_event_changes_at(
+    connection: &Connection,
+    revision: u64,
+) -> anyhow::Result<Option<Value>> {
+    let sequence = connection
+        .query_row(
+            "SELECT sequence FROM journal_event_index WHERE resource_revision = ?1 LIMIT 1",
+            [i64::try_from(revision).context("resource revision exceeds SQLite range")?],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?;
+    let Some(sequence) = sequence else { return Ok(None) };
+    let sequence = u64::try_from(sequence).context("resource event sequence is negative")?;
+    let record = session_journal::query_session_journal_sequences(connection, &[sequence])?
+        .into_iter()
+        .next();
+    Ok(record.and_then(|record| record.payload.get("changes").cloned()))
+}
+
 /// The resource events after `revision` (one page), read on `connection`.
 ///
 /// Shared by the registry (its own connection, under the registry lock) and
@@ -25,29 +48,30 @@ pub(crate) fn query_resource_events_after(
             "cursor.invalid: revision {revision} is ahead of current revision {head_revision}"
         );
     }
-    let oldest_revision = connection
-        .query_row(
-            "SELECT MIN(resource_revision) FROM journal_event_index
-             WHERE resource_revision IS NOT NULL",
-            [],
-            |row| row.get::<_, Option<i64>>(0),
-        )?
-        .map(|revision| {
-            u64::try_from(revision).context("stored resource event revision is negative")
-        })
-        .transpose()?;
-    if oldest_revision.is_some_and(|oldest| revision < oldest.saturating_sub(1))
-        || (oldest_revision.is_none() && revision < head_revision)
-    {
-        anyhow::bail!(
-            "cursor.gap: revision {revision} is older than retained history at {oldest_revision:?}"
-        );
-    }
-    // A wake for a commit with no resource event (terminal output) reads
-    // nothing more.
+    // A wake for a commit with no resource event (an agent hook, a
+    // terminal's journal record) reads nothing more: a cursor at the head
+    // has no gap, because the oldest retained revision is never past it.
     let indexed = if revision == head_revision {
         Vec::new()
     } else {
+        let oldest_revision = connection
+            .query_row(
+                "SELECT MIN(resource_revision) FROM journal_event_index
+                 WHERE resource_revision IS NOT NULL",
+                [],
+                |row| row.get::<_, Option<i64>>(0),
+            )?
+            .map(|revision| {
+                u64::try_from(revision).context("stored resource event revision is negative")
+            })
+            .transpose()?;
+        if oldest_revision.is_some_and(|oldest| revision < oldest.saturating_sub(1))
+            || oldest_revision.is_none()
+        {
+            anyhow::bail!(
+                "cursor.gap: revision {revision} is older than retained history at {oldest_revision:?}"
+            );
+        }
         let mut statement = connection.prepare(
             "SELECT resource_revision, sequence FROM journal_event_index
              WHERE resource_revision > ?1
@@ -107,10 +131,5 @@ pub(crate) fn query_resource_events_after(
         });
         expected_revision = expected_revision.saturating_add(1);
     }
-    Ok(ResourceEventPage {
-        generation: generation.to_owned(),
-        head_revision,
-        oldest_revision,
-        batches,
-    })
+    Ok(ResourceEventPage { generation: generation.to_owned(), head_revision, batches })
 }

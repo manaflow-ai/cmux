@@ -33,6 +33,8 @@ public final class OverlaySurfaceView: NSView {
     /// How the glass is tinted: the theme's tint, or the shared neutral glass
     /// (``FloatingGlassStyle``) with its rim.
     public let tone: OverlayTone
+    /// The gallery variant the floating glass takes (``OverlayGlassVariant/picked`` by default).
+    public let glassVariant: OverlayGlassVariant
     /// The neutral glass's specular rim; nil for the theme tone and on the opaque material.
     public private(set) var rimView: GlassRimView?
     private let reduceTransparency: ReduceTransparency
@@ -59,16 +61,6 @@ public final class OverlaySurfaceView: NSView {
     }
 
     private var blending: NSVisualEffectView.BlendingMode { samplesBehindWindow ? .behindWindow : .withinWindow }
-
-    /// Draws the frosted blur where this Mac would draw Liquid Glass (Reduce Transparency still
-    /// draws the solid surface). Set it, with `samplesBehindWindow`, for a surface on a clear
-    /// window that floats over another window (the page overlay host over a Chromium page):
-    /// Liquid Glass there has nothing in its own window to refract, and its lens bends the clear
-    /// pixels into a dark, heavy 1 px outline (Lawrence 2026-10-31, the Import Cookies banner:
-    /// "border here looks bad"). The blur samples the page behind the window instead.
-    public var prefersBlurToLiquidGlass = false {
-        didSet { if prefersBlurToLiquidGlass != oldValue { refreshMaterial() } }
-    }
 
     /// Clear Liquid Glass with no tint: the surface shows what is under it, marked only by the
     /// glass's lens (and a shadow its owner draws). For a piece of the window picked up over its
@@ -110,19 +102,21 @@ public final class OverlaySurfaceView: NSView {
     /// `material` pins one material (tests, previews); nil follows
     /// `reduceTransparency` on this Mac.
     /// `tone` picks the theme tint (default) or the shared neutral glass with a rim.
+    /// `glassVariant` is the look of floating neutral glass (toasts, dialogs, sheets); other tones ignore it.
     public init(material: OverlayMaterial? = nil, interactive: Bool = false,
                 cornerRadius: CGFloat = Metrics.panelCornerRadius,
                 card: Bool = false,
                 reduceTransparency: ReduceTransparency = .shared, tone: OverlayTone = .theme,
-                activeLook: ActiveLookScope? = nil) {
+                activeLook: ActiveLookScope? = nil, glassVariant: OverlayGlassVariant = .picked) {
         self.tone = tone
+        self.glassVariant = glassVariant
         self.activeLook = activeLook
         materialOverride = material
         isInteractive = interactive
         isCard = card
         self.cornerRadius = cornerRadius
         self.reduceTransparency = reduceTransparency
-        self.material = material ?? Self.systemMaterial(reduceTransparency)
+        self.material = material ?? Self.systemMaterial(reduceTransparency, frost: tone.style?.castsShadow == true && glassVariant.prefersFrost)
         super.init(frame: .zero)
         wantsLayer = true
         contentView.translatesAutoresizingMaskIntoConstraints = true
@@ -150,8 +144,7 @@ public final class OverlaySurfaceView: NSView {
 
     /// Re-reads the material from this Mac's settings (Reduce Transparency).
     public func refreshMaterial() {
-        var next = materialOverride ?? Self.systemMaterial(reduceTransparency)
-        if prefersBlurToLiquidGlass, materialOverride == nil, next == .liquidGlass { next = .vibrancy }
+        let next = materialOverride ?? Self.systemMaterial(reduceTransparency, frost: floatingVariant?.prefersFrost == true)
         guard next != material else { return }
         material = next
         rebuild()
@@ -159,10 +152,15 @@ public final class OverlaySurfaceView: NSView {
 
     /// This Mac's material; `Glass.isLiquidGlassAvailable` also carries the
     /// Debug legacy-material switch.
-    private static func systemMaterial(_ reduceTransparency: ReduceTransparency) -> OverlayMaterial {
-        OverlayMaterial.select(liquidGlassAvailable: Glass.isLiquidGlassAvailable,
-                               reduceTransparency: reduceTransparency.isEnabled)
+    /// `frost`: the frosted blur stands where Liquid Glass would (``OverlayGlassVariant/frost``).
+    private static func systemMaterial(_ reduceTransparency: ReduceTransparency, frost: Bool) -> OverlayMaterial {
+        let system = OverlayMaterial.select(liquidGlassAvailable: Glass.isLiquidGlassAvailable,
+                                            reduceTransparency: reduceTransparency.isEnabled)
+        return frost && system == .liquidGlass ? .vibrancy : system
     }
+
+    /// The variant when this is floating neutral glass (a style that casts a shadow), else nil.
+    private var floatingVariant: OverlayGlassVariant? { tone.style?.castsShadow == true ? glassVariant : nil }
 
     private func rebuild() {
         // Moving the content out of the window resigns a focused field in it; it takes the keys back after.
@@ -238,7 +236,8 @@ public final class OverlaySurfaceView: NSView {
 
     /// The neutral tone's rim, above the material and the content; none on the opaque material.
     private func installRim() {
-        guard let style = tone.style, material != .opaque, !drawsNoMaterial else {
+        guard let style = tone.style, material != .opaque, !drawsNoMaterial,
+              material != .liquidGlass || floatingVariant?.drawsRim != false else {
             rimView?.removeFromSuperview()
             rimView = nil
             return
@@ -298,7 +297,8 @@ public final class OverlaySurfaceView: NSView {
             let veil = tone.style.map { Palette.veil(of: $0) }
             switch material {
             case .liquidGlass:
-                (materialView as? GlassPanelView)?.tintColor = isClear ? nil : veil ?? overlayTint
+                let untinted = tone.style.map { floatingVariant?.tintsGlass($0) == false } ?? false
+                (materialView as? GlassPanelView)?.tintColor = isClear || untinted ? nil : veil ?? overlayTint
                 if let card {
                     tintView?.layer?.backgroundColor = card.tint.nsColor.cgColor
                     tintView?.layer?.borderColor = Borders.color(card.rim.nsColor).cgColor

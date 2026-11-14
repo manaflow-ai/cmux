@@ -18,6 +18,11 @@ namespace cmux_shim {
 constexpr uint32_t kPermissionGeolocation = 1u << 8;
 constexpr uint32_t kPermissionNotifications = 1u << 15;
 
+// The key of the notification entry in a site's CEF_CONTENT_SETTING_TYPE_PERMISSION_AUTOBLOCKER_DATA
+// dictionary (blink::GetPermissionString(PermissionType::NOTIFICATIONS)): Chromium's counts of that
+// site's ignored and dismissed notification prompts, and the start of a block they caused.
+constexpr char kNotificationsAutoblockKey[] = "Notifications";
+
 // The kinds the host asks about in its prompt bar.
 constexpr uint32_t kHostPermissions = kPermissionGeolocation;
 

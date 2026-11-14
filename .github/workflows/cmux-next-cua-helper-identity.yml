@@ -17,6 +17,9 @@ on:
       - "tests/test_cmux_cua_build_cache_safety.py"
       - "tests/test_cmux_cua_dev_helper_identity.py"
       - ".github/workflows/cmux-next-cua-helper-identity.yml"
+      - "cmux-tui/rust-toolchain.toml"
+      - "scripts/lib/rust-targets.sh"
+      - "tests/git_fixture_env.py"
   push:
     branches: [feat-cmux-next]
     paths:
@@ -26,6 +29,9 @@ on:
       - "tests/test_cmux_cua_build_cache_safety.py"
       - "tests/test_cmux_cua_dev_helper_identity.py"
       - ".github/workflows/cmux-next-cua-helper-identity.yml"
+      - "cmux-tui/rust-toolchain.toml"
+      - "scripts/lib/rust-targets.sh"
+      - "tests/git_fixture_env.py"
   workflow_dispatch:
 
 permissions: {}

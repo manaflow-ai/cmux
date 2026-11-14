@@ -46,6 +46,8 @@ public final class CloudAuth {
     /// Who is signed in and in which team, nil signed out: a change means the account's data (its
     /// machines, its team's lists) belongs to someone else now. Observable (both halves are).
     public var accountKey: String? { isSignedIn ? "\(user?.id ?? "")|\(teamID ?? "")" : nil }
+    /// The account and team a sandboxed Run is sent under now (``CloudAPIClient/runningAs(_:)``), nil signed out.
+    public var runAccount: CloudAPIClient.RunAccount? { isSignedIn ? user.map { .init(user: $0.id, team: teamID) } : nil }
 
     /// How a launch signs in from the credentials it was given (Rust's `LaunchSignIn`, cmux-cloud-config `auth`).
     struct LaunchSignIn: Equatable, Codable {

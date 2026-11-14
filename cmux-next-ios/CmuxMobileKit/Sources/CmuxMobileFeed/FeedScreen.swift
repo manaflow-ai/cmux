@@ -178,7 +178,9 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                     .accessibilityAddTraits(store.filter == filter ? .isSelected : [])
                 }
             }
-            .padding(.horizontal, 20)
+            // 16 pt: the first chip's capsule shares a left edge with the rows' avatars
+            // (FeedRowLayout's avatar x) and the navigation bar's leading button.
+            .padding(.horizontal, 16)
         }
         .scrollIndicators(.hidden)
         .trailingOverflowFade(width: 32)
@@ -248,6 +250,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             Image(systemName: store.filter == .all ? "bubble.left.and.text.bubble.right" : "line.3.horizontal.decrease")
                 .font(.system(size: 28))
                 .padding(.bottom, 10)
+                .accessibilityHidden(true)
             Text(store.filter == .all ? "No events" : "No matching events").font(.headline)
             Text(store.filter == .all ? "Agent updates, questions and finished tasks show up here." : "Try another filter.")
                 .font(.subheadline)
@@ -310,7 +313,7 @@ private struct FeedFilterMenu: View {
                     guard let mark = FeedRouting.shared.markAllNotificationsRead else { return }
                     Task {
                         do { _ = try await mark() } catch {
-                            markFailure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                            markFailure = UserFacingError.message(error)
                         }
                     }
                 }
@@ -323,7 +326,7 @@ private struct FeedFilterMenu: View {
                     Button("Clear All Notifications", systemImage: "clear", role: .destructive) {
                         Task {
                             do { try await clear() } catch {
-                                clearFailure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                                clearFailure = UserFacingError.message(error)
                             }
                         }
                     }

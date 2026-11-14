@@ -347,7 +347,7 @@ struct LayoutScrollModifierTests {
     // MARK: one owner decision (review 1 of pl-scroll)
 
     /// Command held at the touch and released before the gesture begins: the layout owns the
-    /// gesture from the touch, says so to the content inside it (the Chromium swipe asks this, not
+    /// gesture from the touch, says so to the content inside it (a page's swipe asks this, not
     /// the modifier keys), keeps every event, its zero-delta start included, and gets its end.
     @Test func aCommandTouchOwnsTheWholeGestureAndTellsThePaneContent() throws {
         let w = Window(modifier: .command)
@@ -377,7 +377,7 @@ struct LayoutScrollModifierTests {
         let content = try #require(w.provider.views["top"])
         #expect(!w.scroll(at: top, phase: .mayBegin))
         #expect(!w.scroll(at: top, dx: -20, phase: .began))
-        #expect(!content.isScrollGestureTakenByEnclosingView, "a Chromium page may swipe Back or Forward")
+        #expect(!content.isScrollGestureTakenByEnclosingView, "the page may swipe Back or Forward")
         #expect(!w.scroll(at: top, phase: .ended))
     }
 
@@ -773,7 +773,7 @@ struct LayoutScrollModifierTests {
         #expect(!Self.scroll(w.root, from: page, at: p2, phase: .ended))
     }
 
-    /// The seam CEFSwipeNavigation reads: a Chromium pane's `CEFHostView`, inside the pane content
+    /// The layout-claim seam (`isScrollGestureTakenByEnclosingView`): a Chromium pane's `CEFHostView`, inside the pane content
     /// the layout hosts, reports a gesture the layout claimed at its touch, and only that one.
     @Test func aChromiumHostViewInAPaneSeesTheLayoutsClaim() throws {
         let provider = Panes()

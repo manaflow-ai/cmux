@@ -81,6 +81,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     var sidebarHidden = false {
         didSet {
             toolbarBand.showSidebarState(hidden: sidebarHidden)
+            if sidebarHidden { endSidebarHoverHold() } // before the band hears of it: no hover holds a hidden sidebar (msg 29542)
             collapsedBand.setSidebarHidden(sidebarHidden)
             applyTitlebarButtonsMode()
             // With tab bars at the bottom the card's top follows who holds the lights (`mainPaneTopInset`).
@@ -90,16 +91,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// Opens the collapsed band while the top-left corner is hovered.
     let collapsedBand: CollapsedBandReveal
     let sidebarFloat: SidebarFloat // the hidden sidebar floats from the window's edge (`sidebar.floatOnHover`)
-    /// The right sidebar (`WindowController+RightSidebar`), on the edge
-    /// opposite the sidebar; nil until it first shows.
-    var rightPanel: RightSidebarView? {
-        didSet {
-            guard rightPanel !== oldValue else { return }
-            oldValue?.removeFromSuperview()
-            if let rightPanel { addSubview(rightPanel, positioned: .below, relativeTo: titlebarBandBlocker) }
-            needsLayout = true
-        }
-    }
     /// A fullscreen page has the whole window (`WindowRootView+MainPane`): the content host
     /// fills it, and the chrome around it hides.
     var presentsPage = false {
@@ -112,15 +103,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     ]
     /// The chrome views `presentsPage` hid.
     var pagePresentationHidden: [NSView] = []
-    /// The right sidebar's on-screen width (0 while hidden): the main pane
-    /// is inset by it (`applyMainPane`).
-    var rightPanelWidth: CGFloat = 0 {
-        didSet {
-            guard rightPanelWidth != oldValue else { return }
-            applyMainPane()
-            layoutSubtreeIfNeeded()
-        }
-    }
 
     /// - Parameter sidebar: The window's sidebar.
     /// - Parameter reduceTransparency: The user's Reduce Transparency
@@ -179,10 +161,13 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         applyTokens()
         setUpTitlebarReveal()
         setUpCollapsedBandReveal()
-        sidebarFloat.install(in: self) { [weak self] in self?.applySidebarRail() }
+        sidebarFloat.install(in: self) { [weak self] in
+            if let self, sidebarHidden, !sidebar.model.isFloating { endSidebarHoverHold() } // an ended float leaves no hover
+            self?.applySidebarRail()
+        }
         tokenObservation = Task { [weak self] in
             for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, Metrics.trafficLightInset,
-                                           TopRowSpacing.buttonSide, TitlebarToolbarBand.width, Metrics.space2, Metrics.space3,
+                                           TopRowSpacing.buttonSide, Metrics.space2, Metrics.space3,
                                            DesignSettings.shared.titlebar == .minimal ? 1 : 0,
                                            DesignSettings.shared.titlebarButtons == .hover ? 1 : 0,
                                            DesignSettings.shared.sidebarSections.controlsOnHover ? 1 : 0,
@@ -306,14 +291,14 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         if let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) {
             (window as? ShellWindow)?.noteTrafficLights(lights)
             let local = convert(lights, from: nil)
-            // The toggle's glyph sits as far right of the lights as they sit from the window's edge (`TopRowSpacing`).
-            (lightsMaxX, lead) = (local.maxX, TopRowSpacing.leadingGap(lightsInset: min(local.minX, bounds.maxX - local.maxX), glyphWidth: toolbarBand.sidebarToggle.image?.size.width ?? 0))
+            // One ink gap before the toggle's glyph and between glyphs (`TopRowSpacing.glyphGap`).
+            (lightsMaxX, lead) = (local.maxX, TopRowSpacing.leadingGap(gap: TopRowSpacing.glyphGap, leadingInk: toolbarBand.slots.leadingInk))
             midY = WindowTitlebar.topRowLine(in: window).map { bounds.maxY - $0.centerY } ?? local.midY
         }
         let presence = toolbarBandPresence
         let bandHeight = TopRowSpacing.buttonSide
         let fullBand = CGRect(x: lightsMaxX + lead, y: midY - bandHeight / 2,
-                              width: TitlebarToolbarBand.width, height: bandHeight)
+                              width: toolbarBand.slots.width, height: bandHeight)
         let presenceChanged = toolbarBand.presence != presence
         toolbarBand.presence = presence
         toolbarBand.frame = WindowTitlebar.alignedFrame(CGRect(x: lightsMaxX + lead * presence, y: fullBand.minY,
@@ -328,7 +313,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         if presenceChanged { onToolbarBandPresenceChange?() }
         layoutTitlebarReveal(rowHeight: rowHeight, fullBandMaxX: fullBandMaxX)
         sidebarFloat.layout(in: self, rowHeight: rowHeight, sidebarHidden: sidebarHidden, side: sidebarSide, cornerRadius: mainPaneCornerRadius)
-        layoutRightPanel(rowHeight: rowHeight)
         layoutTitlebarAccessories(midY: midY)
     }
 

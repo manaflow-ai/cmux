@@ -165,6 +165,18 @@ pub(super) fn validate_effect_fields(
                     "bad request: around makes a split, not a column or row"
                 );
             }
+            if let Some(fit) = fields.get(PANE_SPLIT_FIT_FIELD) {
+                anyhow::ensure!(fit.is_boolean(), "bad request: fit must be a boolean");
+                anyhow::ensure!(
+                    fit == &Value::Bool(false)
+                        || (matches!(direction, "left" | "right")
+                            && !fields.contains_key("viewport_width")
+                            && !fields.contains_key("row_height")
+                            && !fields.contains_key("ratio")
+                            && !fields.contains_key(AROUND_SPLIT_FIELD)),
+                    "bad request: fit needs direction left or right and no viewport_width, ratio, row_height or around"
+                );
+            }
             if let Some(width) = fields.get("viewport_width").and_then(Value::as_f64) {
                 anyhow::ensure!(
                     matches!(direction, "left" | "right")

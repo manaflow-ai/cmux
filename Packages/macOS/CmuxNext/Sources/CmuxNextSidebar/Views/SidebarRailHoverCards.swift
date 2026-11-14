@@ -35,6 +35,8 @@ final class SidebarRailHoverCards: HoverCardSource {
     // MARK: HoverCardSource
 
     var hoverCardWindow: NSWindow? { rail?.window }
+    /// The sidebar's rows and owner cards share one card that morphs between them.
+    var hoverCardGroup: HoverCardGroup? { .sidebar }
 
     func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? {
         guard let rail, let window = rail.window, !rail.isHiddenOrHasHiddenAncestor else { return nil }

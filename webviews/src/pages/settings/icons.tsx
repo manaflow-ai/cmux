@@ -26,6 +26,27 @@ const paths: Record<string, ReactNode> = {
     </>
   ),
   house: <path d="M2.4 7.4 8 2.6l5.6 4.8M3.8 6.2v7.2h3V10h2.4v3.4h3V6.2" />,
+  "sidebar.left": (
+    <>
+      <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" />
+      <path d="M6 2.8v10.4M3.4 5.4h1M3.4 7.2h1" />
+    </>
+  ),
+  "rectangle.split.2x1": (
+    <>
+      <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" />
+      <path d="M8 2.8v10.4" />
+    </>
+  ),
+  "plus.square": (
+    <>
+      <rect x="2.2" y="2.2" width="11.6" height="11.6" rx="2.4" />
+      <path d="M8 5.4v5.2M5.4 8h5.2" />
+    </>
+  ),
+  "bubble.left": (
+    <path d="M8 2.6c3.3 0 5.8 2 5.8 4.6S11.3 11.8 8 11.8c-.6 0-1.2-.1-1.8-.2L3 13.2l.8-2.6C2.8 9.7 2.2 8.5 2.2 7.2 2.2 4.6 4.7 2.6 8 2.6Z" />
+  ),
   keyboard: (
     <>
       <rect x="1.4" y="3.6" width="13.2" height="8.8" rx="1.6" />
@@ -127,6 +148,8 @@ const paths: Record<string, ReactNode> = {
     </>
   ),
   chevron: <path d="m4.5 6.2 3.5 3.6 3.5-3.6" />,
+  // A pop-up button's caret: a small down chevron, centered on the box (Settings menus, Lucas 2026-11-12).
+  "chevron.popup": <path d="m4.75 6.4 3.25 3.25 3.25-3.25" />,
   pawprint: (
     <>
       <path d="M8 8.6c-2 0-3.4 1.7-3.4 3.2 0 1 .8 1.6 1.7 1.6.7 0 1.1-.4 1.7-.4s1 .4 1.7.4c.9 0 1.7-.6 1.7-1.6 0-1.5-1.4-3.2-3.4-3.2Z" />

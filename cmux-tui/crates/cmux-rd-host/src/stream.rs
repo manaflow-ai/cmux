@@ -46,8 +46,7 @@ pub struct SessionCfg {
     pub upstream_record: Option<std::path::PathBuf>,
     /// Most bytes one session records (`--upstream-record-max-mb`, default 1024).
     pub upstream_record_max_bytes: u64,
-    /// Frames the engine may have unacknowledged (1 on the development carriers; a hub
-    /// session sizes it to its path's round trip).
+    /// Frames the engine may have unacknowledged before a hybrid path reports its RTT.
     pub frames_in_flight: u32,
     /// After injected input, frames skip the frame-rate cap for a short window
     /// (`--input-frame-now 1`; the engine's `input_frame_now`).
@@ -62,6 +61,7 @@ pub struct MediaSession {
     desktop: Box<dyn Desktop>,
     au: Vec<u8>,
     engine: MediaEngine,
+    max_fps: u32,
     /// Upstream media the viewer opened (rd change C4).
     upstreams: Upstreams<Box<dyn UpstreamSink>>,
     deferred_error: Option<String>,
@@ -99,7 +99,14 @@ impl Timing {
         }
     }
 
-    fn frame(&mut self, shown: Option<(u64, u64)>, release_us: u64, encoded_us: u64) {
+    fn frame(
+        &mut self,
+        shown: Option<(u64, u64)>,
+        release_us: u64,
+        encoded_us: u64,
+        encoded_bytes: usize,
+        idr: bool,
+    ) {
         use std::io::Write;
         let line = serde_json::json!({
             "input_us": self.input_us.take(),
@@ -108,13 +115,21 @@ impl Timing {
             "damage_us": self.damage_us.take(),
             "release_us": release_us,
             "encoded_us": encoded_us,
+            "encoded_bytes": encoded_bytes,
+            "idr": idr,
         });
         let _ = writeln!(self.out, "{line}");
     }
 }
 
-/// No feedback for this long ends the session.
-const LIVENESS_NS: u64 = 3_000_000_000;
+/// Keep the ticket and session alive while a viewer reattaches after a network
+/// drop. The viewer's reconnect path can take longer than a short transport
+/// blip, including a phone waking from sleep; the session is still bounded.
+const REATTACH_GRACE_NS: u64 = 90_000_000_000;
+
+fn viewer_silent_too_long(silent_us: u64) -> bool {
+    silent_us > REATTACH_GRACE_NS / 1000
+}
 
 fn now_us() -> u64 {
     now_ns() / 1000
@@ -166,6 +181,7 @@ impl MediaSession {
             desktop,
             au: Vec::new(),
             engine,
+            max_fps: cfg.max_fps,
             upstreams: Upstreams::new(sink, negotiated_caps),
             deferred_error: None,
             stats_frames_sent: 0,
@@ -211,9 +227,10 @@ impl MediaSession {
             if let Some(e) = self.deferred_error.take() {
                 return format!("encode/send failed: {e}");
             }
-            // The viewer sends feedback at least every second; silence means it is gone.
-            if self.engine.silent_for_us(now_us()) > LIVENESS_NS / 1000 {
-                return "viewer silent for 3 s".into();
+            // The viewer sends feedback at least every second. Keep the ticket
+            // alive through a full network drop so the viewer can reattach.
+            if viewer_silent_too_long(self.engine.silent_for_us(now_us())) {
+                return "viewer silent for 90 s".into();
             }
             let now = now_us();
             if let Some(req) = self.engine.poll(now) {
@@ -224,7 +241,7 @@ impl MediaSession {
             let timeout = self.engine.next_deadline_us().map(|t| t.saturating_sub(now_us()) * 1000);
             let stats_in = self.next_stats_ns.saturating_sub(now_ns());
             // The engine's deadline covers held frames and input held behind a gap.
-            let timeout = timeout.map_or(stats_in, |t| t.min(stats_in)).min(LIVENESS_NS);
+            let timeout = timeout.map_or(stats_in, |t| t.min(stats_in)).min(REATTACH_GRACE_NS);
             // Timed input work: a press waiting behind the agent's held button, the person
             // master going idle.
             let wake = if table.may_inject_input(session, viewer) {
@@ -246,6 +263,11 @@ impl MediaSession {
             incoming.clear();
             if let Err(reason) = carrier.receive(&mut incoming) {
                 return reason;
+            }
+            if let Some(rtt_us) = carrier.take_path_rtt_us() {
+                let frames_in_flight =
+                    cmux_rd_engine::frames_in_flight_for(rtt_us, self.max_fps).max(2);
+                self.engine.set_frames_in_flight(frames_in_flight);
             }
             for item in incoming.drain(..) {
                 match item {
@@ -334,7 +356,7 @@ impl MediaSession {
         let t0 = now_ns();
         let idr = self.desktop.encode(req.force_idr, t_capture_us as i64, &mut self.au)?;
         if let Some(timing) = self.timing.as_mut() {
-            timing.frame(self.desktop.picked_times(), t_capture_us, now_us());
+            timing.frame(self.desktop.picked_times(), t_capture_us, now_us(), self.au.len(), idr);
         }
         self.encode_ms.push_back((now_ns() - t0) as f64 / 1e6);
         if self.encode_ms.len() > 120 {
@@ -451,5 +473,16 @@ impl MediaSession {
             loss_pct: stats.loss * 100.0,
         };
         let _ = carrier.send_control(&stats);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::viewer_silent_too_long;
+
+    #[test]
+    fn viewer_silence_allows_the_ninety_second_reattach_window() {
+        assert!(!viewer_silent_too_long(90_000_000));
+        assert!(viewer_silent_too_long(90_000_001));
     }
 }

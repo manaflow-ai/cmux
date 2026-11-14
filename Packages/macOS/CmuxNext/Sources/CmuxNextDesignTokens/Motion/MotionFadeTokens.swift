@@ -51,6 +51,10 @@ public nonisolated enum MotionFade: String, Sendable, CaseIterable {
     /// A hibernated tab's dotted ring fading in (Chromium `TabIcon` discard
     /// animation, 1 s). Reduce Motion caps it at one crossfade.
     case hibernateRing
+    /// A finished mark settling in once (a sidebar row's spinner turning into its done mark):
+    /// it grows to full size from an accent tint, one shot, under 350 ms at normal speed
+    /// (`MotionGate.settleAnimation`). Snaps under Reduce Motion.
+    case settle
 
     /// Seconds at `MotionSpeed.fast` (`MotionTunables`; overridable in
     /// Debug Settings).

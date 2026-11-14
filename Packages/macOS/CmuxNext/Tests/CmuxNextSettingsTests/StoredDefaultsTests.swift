@@ -43,6 +43,28 @@ import Testing
         #expect(try await settings.file.value(at: ChromeStyleSetting.configPath) == .string("card"))
     }
 
+    /// #41072 review: turning a login consent off in Settings stores the no (false is the schema's default), so a
+    /// DEV or NIGHTLY build, which reads no answer as yes, stops carrying the Codex login; the stored-defaults pass
+    /// keeps it too.
+    @Test func aLoginConsentsNoIsStoredAndStopsTheCarry() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller("{}")
+        let consent = CloudCodexSignInConsentSetting()
+        let answer = { consent.consent(file: settings.fileRoot, effective: settings.snapshot.root, managed: false, copiesWithoutConsent: true) }
+        #expect(answer() == true, "never asked: a dogfood build carries it")
+        for path in [CloudCodexSignInConsentSetting.configPath, CloudLoginCopyConsentSetting.configPath] {
+            let descriptor = try #require(SettingsSchema.descriptor(for: path))
+            try await settings.setSetting(descriptor, to: .bool(true), by: .user)
+            try await settings.setSetting(descriptor, to: .bool(false), by: .user)
+            #expect(try await settings.file.value(at: path) == .bool(false))
+        }
+        #expect(answer() == false, "turned off in Settings: no carry")
+        let report = try await settings.forgetStoredDefaults(marker: try marker(), formerDefaults: [:])
+        #expect(report?.dropped[CloudCodexSignInConsentSetting.key] == nil)
+        #expect(try await settings.file.value(at: CloudCodexSignInConsentSetting.configPath) == .bool(false))
+        #expect(answer() == false)
+    }
+
     /// MDM recommends another style, which fills the key when the file leaves it out, so only a
     /// stored default keeps the person's pick.
     @Test func aRecommendedValueKeepsAnExplicitDefault() async throws {

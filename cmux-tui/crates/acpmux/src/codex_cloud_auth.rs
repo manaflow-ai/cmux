@@ -31,6 +31,13 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// The public placeholder every guest sends (`agent-auth.sh` `cmux_aa_placeholder`).
+/// An owner's cmux Cloud machine whose image has the own-or-team script, under `root`.
+pub(crate) fn owner_cloud_image_at(root: &Path) -> bool {
+    root.join("etc/cmux/agent-auth.sh").is_file()
+        && std::fs::read(root.join("etc/cmux/vm-kind"))
+            .is_ok_and(|b| String::from_utf8_lossy(b.get(..64).unwrap_or(&b)).trim() == "owner")
+}
+
 pub const PLACEHOLDER_KEY: &str = "cmux-vm-edge-placeholder";
 /// What the launch gains in own mode.
 pub const OWN_PROVIDER_ARGS: [&str; 2] = ["-c", "model_provider=\"openai\""];
@@ -51,14 +58,18 @@ impl Inputs<'_> {
         (self.var)("CODEX_HOME").map(PathBuf::from).unwrap_or_else(|| self.home.join(".codex"))
     }
 
-    fn owner_cloud_image(&self) -> bool {
-        self.root.join("etc/cmux/agent-auth.sh").is_file()
-            && std::fs::read(self.root.join("etc/cmux/vm-kind"))
-                .is_ok_and(|b| String::from_utf8_lossy(b.get(..64).unwrap_or(&b)).trim() == "owner")
+    pub(crate) fn owner_cloud_image(&self) -> bool {
+        owner_cloud_image_at(self.root)
     }
 
     fn choice(&self) -> Option<&'static str> {
-        let text = std::fs::read_to_string(self.home.join(".config/cmux/agent-auth/codex")).ok()?;
+        self.choice_for("codex")
+    }
+
+    /// The mode `cr use` recorded for `agent` (`~/.config/cmux/agent-auth/<agent>`).
+    pub(crate) fn choice_for(&self, agent: &str) -> Option<&'static str> {
+        let text =
+            std::fs::read_to_string(self.home.join(".config/cmux/agent-auth").join(agent)).ok()?;
         mode(text.lines().next().unwrap_or(""))
     }
 
@@ -74,10 +85,15 @@ impl Inputs<'_> {
     /// login shell sources ([`Self::model_plane_file`]). The daemon's login-env import keeps no `CMUX_` name, so on a
     /// Cloud machine the env alone never has it, and every Codex with no sign-in was put in own mode
     /// with no login ("no-team-plane"), then failed on its missing `OPENAI_API_KEY`.
-    fn team_origin(&self) -> Option<String> {
+    pub(crate) fn team_origin(&self) -> Option<String> {
         (self.var)("CMUX_CODEROUTER_URL")
-            .or_else(|| file_var(&self.model_plane_file(), "CMUX_CODEROUTER_URL"))
+            .or_else(|| self.model_plane_var("CMUX_CODEROUTER_URL"))
             .filter(|u| u.starts_with("https://"))
+    }
+
+    /// `key` from the model-plane env file a login shell sources ([`Self::model_plane_file`]).
+    pub(crate) fn model_plane_var(&self, key: &str) -> Option<String> {
+        file_var(&self.model_plane_file(), key)
     }
 
     /// The model-plane env file a login shell sources (`agent-config.sh`): the per-home copy when it

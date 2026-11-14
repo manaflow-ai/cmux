@@ -81,6 +81,8 @@ struct PersonMaster {
     keyboard: u16,
     /// The core pointer the agent's XTest drives (0 when not found).
     core: u16,
+    /// Its paired keyboard, whose focus the window manager and apps set (0 when not found).
+    core_keyboard: u16,
 }
 
 /// Whether this injector holds the person master.
@@ -194,6 +196,19 @@ impl Injector {
             hold: HoldGuard::default(),
             unsupported: 0,
         })
+    }
+
+    /// Gives the person's keyboard the focus the core keyboard has. A master keyboard made
+    /// with XIChangeHierarchy has a focus of its own, and window managers and apps set only
+    /// the core keyboard's (XSetInputFocus), so without this the person's keys reach no
+    /// window (CMUX-572: 0 of 20 key presses arrived on an Xvfb desktop).
+    fn follow_core_focus(&self, m: PersonMaster) -> Res<()> {
+        if m.core_keyboard == 0 {
+            return Ok(());
+        }
+        let focus = self.conn.xinput_xi_get_focus(m.core_keyboard)?.reply()?.focus;
+        self.conn.xinput_xi_set_focus(focus, x11rb::CURRENT_TIME, m.keyboard)?;
+        Ok(())
     }
 
     fn fake(&self, ty: u8, detail: u8, x: i32, y: i32) -> Res<()> {
@@ -459,6 +474,9 @@ impl Injector {
         match event {
             InputEvent::Key { usage, down } => match hid_to_x(*usage) {
                 Some(code) => {
+                    if let (true, Some(m)) = (*down, person) {
+                        self.follow_core_focus(m)?;
+                    }
                     self.fake(if *down { KEY_PRESS_EVENT } else { KEY_RELEASE_EVENT }, code, 0, 0)?;
                     if *down {
                         self.keys.insert(code);
@@ -583,16 +601,16 @@ fn pick_master(devices: &[(u16, DeviceType, u16, Vec<u8>)], name: &str) -> Optio
     let (pointer, _, keyboard, _) = devices.iter().find(|(_, ty, _, n)| {
         *ty == DeviceType::MASTER_POINTER && n.as_slice() == want.as_bytes()
     })?;
-    let core = devices
+    let (core, core_keyboard) = devices
         .iter()
         .find(|(_, ty, _, n)| {
             *ty == DeviceType::MASTER_POINTER && n.as_slice() == b"Virtual core pointer"
         })
-        .map_or(0, |(id, ..)| *id);
+        .map_or((0, 0), |(id, _, paired, _)| (*id, *paired));
     devices
         .iter()
         .any(|(id, ty, _, _)| id == keyboard && *ty == DeviceType::MASTER_KEYBOARD)
-        .then_some(PersonMaster { pointer: *pointer, keyboard: *keyboard, core })
+        .then_some(PersonMaster { pointer: *pointer, keyboard: *keyboard, core, core_keyboard })
 }
 
 /// Removes the person master; its slaves go back to the core devices.
@@ -654,7 +672,7 @@ mod tests {
         ];
         assert_eq!(
             pick_master(&rows, PERSON_MASTER),
-            Some(PersonMaster { pointer: 11, keyboard: 12, core: 2 })
+            Some(PersonMaster { pointer: 11, keyboard: 12, core: 2, core_keyboard: 3 })
         );
         assert_eq!(pick_master(&rows, "agent"), None);
         assert_eq!(pick_master(&rows[..3], PERSON_MASTER), None);
@@ -663,7 +681,7 @@ mod tests {
     #[test]
     fn person_property_is_versioned_json() {
         let v: serde_json::Value = serde_json::from_str(&person_property(
-            PersonMaster { pointer: 11, keyboard: 12, core: 2 },
+            PersonMaster { pointer: 11, keyboard: 12, core: 2, core_keyboard: 3 },
             0x40_0001,
             true,
             1_700_000_000_000,
@@ -781,6 +799,55 @@ mod tests {
         }
         assert_eq!(g.push(release(), t, || true).len(), HOLD_QUEUE_MAX + 1);
         assert!(!g.waiting());
+    }
+
+    /// On a real Xvfb: an app focuses its window the usual way (core SetInputFocus), and
+    /// the person's keys reach it through the person master. Before the person keyboard
+    /// followed the core focus they reached no window (CMUX-572). The window sits away from
+    /// the person's pointer, so only the focus can route the key there.
+    #[test]
+    #[ignore = "needs Xvfb; run with --ignored on a Linux host"]
+    fn person_master_keys_reach_the_window_the_core_focus_names() {
+        use x11rb::protocol::xproto::{CreateWindowAux, EventMask, InputFocus, WindowClass};
+        use x11rb::protocol::Event;
+        let xvfb = Xvfb::start();
+        let display = xvfb.display.clone();
+        let (app, screen) = x11rb::connect(Some(&display)).unwrap();
+        let root = app.setup().roots[screen].root;
+        let win = app.generate_id().unwrap();
+        app.create_window(
+            0,
+            win,
+            root,
+            10,
+            10,
+            100,
+            100,
+            0,
+            WindowClass::INPUT_OUTPUT,
+            0,
+            &CreateWindowAux::new().event_mask(EventMask::KEY_PRESS),
+        )
+        .unwrap();
+        app.map_window(win).unwrap();
+        app.set_input_focus(InputFocus::PARENT, win, x11rb::CURRENT_TIME).unwrap();
+        app.sync().unwrap();
+
+        let mut person = Injector::new(&display).unwrap();
+        person.apply(&InputEvent::Pointer { x: 700, y: 500 }).unwrap();
+        person.apply(&InputEvent::Key { usage: 0x0007_0004, down: true }).unwrap();
+        person.apply(&InputEvent::Key { usage: 0x0007_0004, down: false }).unwrap();
+        person.conn.sync().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut pressed = false;
+        while !pressed && Instant::now() < deadline {
+            while let Some(event) = app.poll_for_event().unwrap() {
+                pressed |= matches!(event, Event::KeyPress(k) if k.event == win);
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        person.release_all().unwrap();
+        assert!(pressed, "the person's key press reached the focused window");
     }
 
     /// On a real Xvfb: the person's XTest moves the person master, not the core pointer,

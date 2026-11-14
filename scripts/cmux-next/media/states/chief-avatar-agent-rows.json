@@ -1,0 +1,89 @@
+{
+ "title": "Chief avatar while agent rows arrive, fold and open (team Chief chat)",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Home fixture conversation",
+   "rpc": {
+    "method": "debug.home_native_fixture.open",
+    "params": {}
+   },
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Agent run step 1 in a team Chief chat",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "agent_messages",
+     "group": true,
+     "step": 1
+    }
+   },
+   "wait": 3
+  },
+  {
+   "title": "Agent run step 2 in a team Chief chat",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "agent_messages",
+     "group": true,
+     "step": 2
+    }
+   },
+   "wait": 3
+  },
+  {
+   "title": "Agent run step 3 in a team Chief chat",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "agent_messages",
+     "group": true,
+     "step": 3
+    }
+   },
+   "wait": 3
+  },
+  {
+   "title": "Agent run step 4 in a team Chief chat",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "agent_messages",
+     "group": true,
+     "step": 4
+    }
+   },
+   "wait": 3
+  },
+  {
+   "title": "Open the fold",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "agent_messages",
+     "open": true
+    }
+   },
+   "wait": 3
+  },
+  {
+   "title": "Close the fold",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "agent_messages",
+     "open": true
+    }
+   },
+   "wait": 3
+  }
+ ]
+}

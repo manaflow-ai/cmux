@@ -165,7 +165,9 @@ await requireBrowserLane("transcript-cached-rows-browser.test.ts", async () => {
                   visible.length === 0 ||
                   visible.some((row) => {
                     const style = getComputedStyle(row);
-                    return Number(style.opacity) < 1 || !row.textContent?.trim();
+                    // A turn's footer is its icon buttons alone, with no time (TurnRows.tsx
+                    // TurnFooter, Codex parity): drawn, not blank.
+                    return Number(style.opacity) < 1 || (!row.textContent?.trim() && !row.querySelector("button"));
                   });
                 if (phase === "return") {
                   const target = Math.abs(scroller.scrollTop - end()) < 1;

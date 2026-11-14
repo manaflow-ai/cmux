@@ -232,6 +232,23 @@
         "web/app/sitemap.ts",
         "web/app/lib/agent-page-paths.ts"
       ]
+    },
+    {
+      "path": ".github/review-bot-rules/native-chrome-layer.md",
+      "description": "Source-of-truth cmux review rule for which layer draws a surface: native chrome and Home are AppKit, only the agent chat pane and full tab pages are React.",
+      "scope": [
+        "Packages/macOS/CmuxNext/Sources/**/*.swift",
+        "webviews/src/**",
+        "scripts/cmux-next/react-pages.tsv"
+      ]
+    },
+    {
+      "path": "plans/cmux-next/language-layers.md",
+      "description": "The cmux NEXT layer rule and its decision test (Swift, React or Rust).",
+      "scope": [
+        "Packages/macOS/CmuxNext/Sources/**/*.swift",
+        "webviews/src/**"
+      ]
     }
   ]
 }

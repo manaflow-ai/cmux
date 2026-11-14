@@ -12,13 +12,12 @@ import Foundation
 /// service fans changes out to the chromes of the changed profile; no chrome
 /// observes anything itself.
 extension BookmarkService {
-    /// Wires a new browser page's chrome (`TabContentCache.onBrowserEntryCreated`). Its bar is only
-    /// a strip until the tab is in a window: then it borrows a bar page (``barPages``).
+    /// Wires a new browser page's chrome (`TabContentCache.onBrowserEntryCreated`): its native bar
+    /// reads the tab's profile through the app (``BookmarksBarHostSource``).
     func attach(_ entry: BrowserEntry) {
         let key = entry.tab.id.rawValue
-        let bar = BookmarksBarHostView(tabKey: key, pages: barPages, profile: { [weak self] in
-            self?.profile(ofTab: key) ?? BrowserProfileRecord.defaultID
-        })
+        let bar = BookmarksBarView()
+        bar.source = BookmarksBarHostSource(host: services, tabKey: key)
         chromes[key] = WeakChrome(entry: entry, bar: bar)
         entry.state.onPageURLChange = { [weak self, weak entry] url in if let self, let entry { updateStar(entry, url: url) } }
         entry.state.onBookmarkStar = { [weak self] anchor in self?.starPressed(tab: key, anchor: anchor) }
@@ -45,15 +44,15 @@ extension BookmarkService {
 
     var isBarShown: Bool { showsBar }
 
-    /// A tab's bar shows while the setting is on and its profile fills one (#38046). Its page reads
-    /// the daemon's rows itself and follows their changes: the app only attaches or detaches it.
-    private func updateBar(_ bar: BookmarksBarHostView, entry: BrowserEntry) {
+    /// A tab's bar shows while the setting is on and its profile fills one (#38046); off its window it rebuilds when attached.
+    private func updateBar(_ bar: BookmarksBarView, entry: BrowserEntry) {
         let shown = showsBar && tree(profile(of: entry.tab.profileID)).fillsBookmarksBar
-        if (entry.state.accessory?.view === bar) != shown { entry.state.accessory = shown ? (bar, BookmarksBarHostView.height) : nil }
+        if shown { bar.reload() }
+        if (entry.state.accessory?.view === bar) != shown { entry.state.accessory = shown ? (bar, BookmarksBarView.height) : nil }
     }
 
     /// The bar of tab `key`, for diagnostics.
-    func bar(ofTab key: String) -> BookmarksBarHostView? { chromes[key]?.bar }
+    func bar(ofTab key: String) -> BookmarksBarView? { chromes[key]?.bar }
 
     private func updateStar(_ entry: BrowserEntry, url: URL?) {
         guard Self.canBookmark(url) else { return entry.state.bookmarkStar = .hidden }

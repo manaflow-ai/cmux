@@ -130,13 +130,16 @@ fn list_resources(
 ) -> Result<Value, ResourceError> {
     let path = mux.resolve_resource_path(scope, selectors)?;
     // A pane or tab list inside one workspace reads that workspace's rows
-    // only, under the registry lock alone (CLI-1: the whole snapshot held
-    // both global locks for each CLI `tab list`); every other list reads
-    // the session snapshot.
-    let snapshot = match &path.workspace {
-        Some(workspace) if matches!(collection, "panes" | "tabs") => {
+    // only (CLI-1: the whole snapshot held both global locks for each CLI
+    // `tab list`). A path with no workspace is the session (a scope below
+    // it resolves its workspace): the list builds its own collection, not
+    // the session snapshot. Only a screen list reads the snapshot.
+    let snapshot = match (&path.workspace, collection) {
+        (Some(workspace), "panes" | "tabs") => {
             crate::resource_api::public_workspace_topology(mux, workspace)?
         }
+        (None, "panes") => return crate::resource_api::public_panes(mux).map(Value::Array),
+        (None, "tabs") => return crate::resource_api::public_tabs(mux).map(Value::Array),
         _ => public_session_snapshot(mux)?,
     };
     let path_index = SnapshotPathIndex::new(&snapshot);
@@ -158,14 +161,16 @@ fn malformed_collection(operation: &str, collection: &str) -> ResourceError {
     )
 }
 
-struct SnapshotPathIndex<'a> {
+/// Where each screen, pane and tab of a snapshot is, made one time for a
+/// list's filter.
+pub(super) struct SnapshotPathIndex<'a> {
     workspace_by_screen: HashMap<&'a str, &'a str>,
     screen_by_pane: HashMap<&'a str, &'a str>,
     pane_by_tab: HashMap<&'a str, &'a str>,
 }
 
 impl<'a> SnapshotPathIndex<'a> {
-    fn new(snapshot: &'a Value) -> Self {
+    pub(super) fn new(snapshot: &'a Value) -> Self {
         let workspace_by_screen = snapshot["screens"]
             .as_array()
             .into_iter()
@@ -187,7 +192,12 @@ impl<'a> SnapshotPathIndex<'a> {
         Self { workspace_by_screen, screen_by_pane, pane_by_tab }
     }
 
-    fn contains(&self, collection: &str, value: &Value, path: &ResolvedResourcePath) -> bool {
+    pub(super) fn contains(
+        &self,
+        collection: &str,
+        value: &Value,
+        path: &ResolvedResourcePath,
+    ) -> bool {
         if collection == "terminals" {
             let has_structural_scope = path.workspace.is_some()
                 || path.screen.is_some()
@@ -257,7 +267,8 @@ fn get_resource(
         _ => None,
     }
     .ok_or_else(|| ResourceError::not_found(collection.trim_end_matches('s'), "<resolved>"))?;
-    find_snapshot(&public_session_snapshot(mux)?, collection, &id)
+    let rows = crate::resource_api::scoped_get::snapshot_holding(mux, &path, collection, &id)?;
+    find_snapshot(&rows, collection, &id)
 }
 
 fn pane_neighbor(mux: &Mux, request: ParsedResourceRequest) -> Result<Value, ResourceError> {
@@ -265,9 +276,8 @@ fn pane_neighbor(mux: &Mux, request: ParsedResourceRequest) -> Result<Value, Res
     let neighbor = mux
         .resource_pane_neighbor_selected(&request.selectors, direction)
         .map_err(resource_operation_error)?;
-    let pane = neighbor
-        .map(|id| find_snapshot(&public_session_snapshot(mux)?, "panes", id.as_str()))
-        .transpose()?;
+    let rows = |id: &_| crate::resource_api::scoped_get::snapshot_holding_pane(mux, id);
+    let pane = neighbor.map(|id| find_snapshot(&rows(&id)?, "panes", id.as_str())).transpose()?;
     Ok(json!({"pane":pane}))
 }
 

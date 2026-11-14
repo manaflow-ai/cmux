@@ -156,13 +156,12 @@
   },
   {
    "title": "Clay Orange: Home chat",
-   "cmux": [
-    "action",
-    "run",
-    "home.show"
-   ],
+   "rpc": {
+    "method": "debug.home_native_fixture.open",
+    "params": {}
+   },
    "wait": 2.5,
-   "optional": "the Chief's daemon may not start on this runner"
+   "optional": "the Home fixture is DEBUG only"
   },
   {
    "title": "Clay Orange dark: Home chat",

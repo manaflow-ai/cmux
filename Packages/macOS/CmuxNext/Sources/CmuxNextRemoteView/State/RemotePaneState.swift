@@ -37,6 +37,8 @@ public nonisolated struct RemotePaneState: Sendable, Hashable {
     public var reconnecting = false
     /// The toggle, or Take over / Hand back.
     public var modeControl = RemoteModeControl.toggle
+    /// Whether the path counts as high latency, held so one sample does not flip it.
+    public var latency = RemoteLatencyHold()
 
     public init(hostName: String, requestedMode: RemoteControlMode = .control, interactiveMaxRttMs: Int = 80) {
         self.hostName = hostName
@@ -46,8 +48,12 @@ public nonisolated struct RemotePaneState: Sendable, Hashable {
 
     public var sessionState: RemoteSessionState { status?.state ?? .connecting }
 
-    /// The path's RTT is above the interactive limit (section 2.1).
-    public var isHighLatency: Bool {
+    /// The path's RTT has stayed above the interactive limit (section 2.1) for
+    /// ``RemoteLatencyHold/sustain``; it counts as low again only after as long under it.
+    public var isHighLatency: Bool { latency.high }
+
+    /// The latest RTT sample is above the interactive limit (``latency`` holds it over time).
+    public var sampleOverLimit: Bool {
         guard let rtt = status?.rttMs else { return false }
         return rtt > interactiveMaxRttMs
     }

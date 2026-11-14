@@ -31,6 +31,9 @@ import math
 import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = Path(__file__).resolve().parents[1]
 OWNER = "manaflow-ai"
@@ -295,7 +298,7 @@ def resolve_labels(runs_on, owner: str = OWNER, variables: Mapping[str, Iterable
     if isinstance(runs_on, dict):
         raise ValueError(f"runs-on group/labels mappings are not modelled: {runs_on!r}")
     text = str(runs_on).strip()
-    whole = re.fullmatch(r"\$\{\{(.*)\}\}", text, re.DOTALL)
+    whole = gh_expressions.EXPRESSION.fullmatch(text)
     if whole is None:
         if "${{" in text:
             raise ValueError(f"runs-on mixes text and an expression: {text!r}")
@@ -323,15 +326,28 @@ def unwrap_fork_pool_reads(value: str) -> str:
 
 # A job that holds signing or release material (scripts/ci/runner_routing_table.py's `sensitive`). It keeps its
 # route under runner trust policy: a RUNNER_POOLS read would let whoever writes that variable choose the machine
-# that holds the keys.
+# that holds the keys. The signing tools and uploads; the signing secrets are read through workflow_jobs in
+# holds_signing_material (SIGNING_SECRET_PREFIXES), in every form GitHub accepts.
 SIGNING_JOB = re.compile(
-    r"secrets\.(?:APPLE|SIGN|CMUX_RELEASE|NOTARY)|codesign|notarytool|signing-keychain|gh release upload"
+    r"codesign|notarytool|signing-keychain|gh release upload"
     r"|softprops/action-gh-release", re.IGNORECASE)
 
 
+SIGNING_SECRET_PREFIXES = ("APPLE", "SIGN", "CMUX_RELEASE", "NOTARY")
+
+
 def holds_signing_material(job) -> bool:
+    """A signing tool or upload in the job, or a signing secret read in any form workflow_jobs knows
+    (`secrets['APPLE_X']`, lowercase, `toJSON(secrets)`, `secrets: inherit`), not only `secrets.APPLE_X`."""
+    import sys
     import yaml
-    return SIGNING_JOB.search(yaml.safe_dump(job)) is not None
+    if str(Path(__file__).resolve().parent) not in sys.path:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import workflow_jobs
+    if SIGNING_JOB.search(yaml.safe_dump(job)) is not None:
+        return True
+    names = workflow_jobs.secret_names(job)
+    return workflow_jobs.ALL_SECRETS in names or any(name.startswith(SIGNING_SECRET_PREFIXES) for name in names)
 
 
 def declared_pools(root: Path = ROOT) -> dict[str, list[str]]:

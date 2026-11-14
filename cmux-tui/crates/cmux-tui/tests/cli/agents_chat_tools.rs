@@ -26,7 +26,12 @@ fn acpmux_config(doomed: bool) -> Value {
 
 /// A machine whose acpmux runs the test agent, its work folder trusted.
 fn machine(name: &str) -> Daemon {
-    let daemon = Daemon::start_with(name, None, Some(acpmux_config(true)));
+    machine_with(name, acpmux_config(true))
+}
+
+/// `machine`, its acpmux running `config`.
+fn machine_with(name: &str, config: Value) -> Daemon {
+    let daemon = Daemon::start_with(name, None, Some(config));
     let work = fs::canonicalize(daemon.dir.join("work")).unwrap();
     let trust = json!({work.to_str().unwrap(): "trusted"});
     fs::write(daemon.dir.join("acpmux/trust.json"), trust.to_string()).unwrap();
@@ -1043,4 +1048,75 @@ fn cmux_chat_here_checks_its_files_before_it_starts_a_chat() {
         .unwrap_or_else(|_| panic!("{}", String::from_utf8_lossy(text)));
     assert_ne!(output.status.code(), Some(0), "{answer}");
     assert_eq!(error_of(&answer)["code"], "attach.not_found", "{answer}");
+}
+
+/// acpmux's stand-in Claude Code: a prompt `peer-hold: <JSON>` writes the
+/// `system/peer_message_hold` line Claude Code 2.1.322 writes for another
+/// session's message it holds instead of giving it to the model.
+const FAKE_CLAUDE: &str =
+    concat!(env!("CARGO_MANIFEST_DIR"), "/../acpmux/tests/fake_claude_auto.py");
+
+/// Bench round 6 (W7-A): a chat's Claude Code held another session's message
+/// and nothing showed it. `chat state` (and the `agents_chat_state` tool that
+/// runs it) shows each held message as `held_messages`, from acpmux's
+/// `heldMessages`, until Claude Code says it was dropped.
+#[test]
+fn w7a_chat_state_shows_the_messages_a_chat_s_claude_code_holds() {
+    let mut config = acpmux_config(false);
+    config["harnesses"]["claude"] =
+        json!({"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"});
+    config["titles"] = json!({"generate": false});
+    let daemon = machine_with("chat-held", config);
+    let workspace = workspace(&daemon);
+    let caller = chat(&daemon, Some(&workspace));
+    let held_by = chat_of(&daemon, Some(&workspace), "claude");
+    let no_app = daemon.dir.join("no-app.sock");
+    let as_caller = || {
+        let mut command = cmux(&daemon, Some(&caller));
+        command.arg("--app-socket").arg(&no_app);
+        command
+    };
+    let (code, state) = chat_json(as_caller(), &["state", &held_by]);
+    assert_eq!(code, Some(0), "{state}");
+    assert_eq!(state["result"]["held_messages"], json!([]), "nothing held yet: {state}");
+
+    let prompt = |line: Value| {
+        let prompted = Acp::connect(&daemon).call(
+            "session/prompt",
+            json!({"sessionId": held_by,
+                   "prompt": [{"type": "text", "text": format!("peer-hold: {line}")}]}),
+        );
+        assert!(prompted.get("error").is_none(), "{prompted}");
+    };
+    // State until `done` holds, for up to twenty seconds.
+    let state_until = |done: &dyn Fn(&Value) -> bool| {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            let (code, state) = chat_json(as_caller(), &["state", &held_by]);
+            assert_eq!(code, Some(0), "{state}");
+            if done(&state["result"]["held_messages"]) {
+                return state;
+            }
+            assert!(Instant::now() < deadline, "held_messages never got there: {state}");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    };
+    prompt(json!({"state": "held", "message_uuid": "m-1", "from": "uds:/tmp/cc-socks/1.sock",
+                  "from_name": "alpha", "cause": "mode-mismatch"}));
+    let state = state_until(&|held| held.as_array().is_some_and(|rows| !rows.is_empty()));
+    let held = state["result"]["held_messages"].as_array().unwrap();
+    assert_eq!(held.len(), 1, "{state}");
+    assert_eq!(held[0]["messageUuid"], "m-1", "{state}");
+    assert_eq!(held[0]["fromName"], "alpha", "{state}");
+    assert_eq!(held[0]["cause"], "mode-mismatch", "{state}");
+
+    // The same over MCP, as another agent reads it.
+    let (_, results) = mcp(&daemon, &caller, &[("agents_chat_state", json!({"target": held_by}))]);
+    assert_eq!(results[0]["isError"], false, "{}", results[0]);
+    let over_mcp = &results[0]["structuredContent"]["result"]["held_messages"];
+    assert_eq!(over_mcp[0]["fromName"], "alpha", "{}", results[0]);
+
+    // Claude Code dropped it: it leaves the state.
+    prompt(json!({"state": "dropped", "message_uuid": "m-1", "outcome": "expired"}));
+    state_until(&|held| held == &json!([]));
 }

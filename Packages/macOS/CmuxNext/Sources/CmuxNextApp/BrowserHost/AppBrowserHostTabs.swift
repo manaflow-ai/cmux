@@ -17,7 +17,7 @@ import WebKit
 /// machine drive tabs this machine's store owns. The tab list comes from one
 /// observation per workspace (`listed`); the getters read it, each listed
 /// tab and the live pages, which are observable, plus `pageInstalls` (a page
-/// was created); visibility is pushed with `refreshTabs()`.
+/// was created); visibility is pushed with `refreshTabs(_:)` for the tabs that changed.
 final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, AutomationTabProvider, ProviderAgentMarking, ProviderTabOpening {
     private weak var services: AppServices?
     /// Extension access depends on manifests read from disk: computed again
@@ -29,8 +29,8 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// its own workspace only. The provider's one tracking read every pane's tab list, so each New Tab key cancelled
     /// and re-armed it over the whole session in the key's turn (CMD-T BUDGET 2026-11-10).
     private var listed: ObservedItemsFeed<WorkspaceModel, WorkspaceTabs>?
-    /// The tabs `providerTabs` listed last, by id (`access(forTab:)` of the same pass).
-    private var announced: [String: TabModel] = [:]
+    /// The tabs `providerTabs` listed last, by id (`access(forTab:)` of the same pass; `providerTab(_:)`).
+    private var announced: [String: (model: TabModel, workspace: String)] = [:]
 
     init(services: AppServices) {
         self.services = services
@@ -70,20 +70,21 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
 
     var providerTabs: [ProviderTab] {
         guard let services else { return [] }
-        let cache: TabContentCache = services.cache
-        _ = cache.pageInstalls.revision
+        _ = services.cache.pageInstalls.revision
         let tabs = localBrowserTabs
-        announced = Dictionary(tabs.map { ($0.model.id, $0.model) }, uniquingKeysWith: { first, _ in first })
-        return tabs.map { entry in
-            let tab = entry.model
-            let page = cache.existingBrowser(tab.id)?.tab
-            return ProviderTab(
-                targetID: tab.id, engine: Self.engine(of: tab, page: page), workspace: entry.workspace,
-                // A listed tab is not incognito; no lookup of its workspace by id (that reads the session's tab list).
-                profile: (page?.profileID ?? services.browserProfiles.engineProfile(for: tab, incognito: false)).rawValue.uuidString,
-                url: page?.state.url?.absoluteString ?? tab.url ?? "about:blank",
-                title: page?.state.title ?? tab.titleText, visible: cache.isRendering(tab.id), inputScale: (page as? CEFTab)?.emulationInputScale ?? 1, touch: (page as? CEFTab)?.emulationTouch ?? false)
-        }
+        announced = Dictionary(tabs.map { ($0.model.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return tabs.map { Self.providerTab($0, services) }
+    }
+    /// One listed tab, from that tab's own facts now (a show or a hide names its tab: no walk of the list).
+    func providerTab(_ targetID: String) -> ProviderTab? { services.flatMap { services in announced[targetID].map { Self.providerTab($0, services) } } }
+    private static func providerTab(_ entry: (model: TabModel, workspace: String), _ services: AppServices) -> ProviderTab {
+        let tab = entry.model, cache: TabContentCache = services.cache, page = cache.existingBrowser(tab.id)?.tab
+        return ProviderTab(
+            targetID: tab.id, engine: engine(of: tab, page: page), workspace: entry.workspace,
+            // A listed tab is not incognito; no lookup of its workspace by id (that reads the session's tab list).
+            profile: (page?.profileID ?? services.browserProfiles.engineProfile(for: tab, incognito: false)).rawValue.uuidString,
+            url: page?.state.url?.absoluteString ?? tab.url ?? "about:blank",
+            title: page?.state.title ?? tab.titleText, visible: cache.isRendering(tab.id), inputScale: (page as? CEFTab)?.emulationInputScale ?? 1, touch: (page as? CEFTab)?.emulationTouch ?? false)
     }
 
     /// The engine that renders the tab now: a Chromium record shown in
@@ -103,7 +104,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         let cache: TabContentCache = services.cache
         let override = cache.agentMayUseExtensionTab(targetID)
         let page = cache.existingBrowser(targetID)?.tab
-        let model = announced[targetID] // as `providerTabs`, same pass: no id lookup in the session; the list's turn on purpose (sent with the announce)
+        let model = announced[targetID]?.model // as `providerTabs`, same pass: no id lookup in the session; the list's turn on purpose (sent with the announce)
         let profile = page?.profileID ?? model.map { services.browserProfiles.engineProfile(for: $0, incognito: false) } ?? .default
         guard let store = (page as? any BrowserExtensionActionHosting)?.extensionStore ?? cache.cef.extensionStore(for: profile) else {
             accessMemo[targetID] = nil

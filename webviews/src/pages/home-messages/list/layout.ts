@@ -101,8 +101,7 @@ export function listMetrics(width: number) {
 
 export type ListMetrics = ReturnType<typeof listMetrics>;
 
-/** The header's sizes at the native Compact density with the default text; `headerSizes` gives
- * them at the sidebar's density and text size. */
+/** The header's sizes (the native Compact density with the default text). */
 export const HEADER = {
   band: 52,
   topMargin: 1,
@@ -114,27 +113,7 @@ export const HEADER = {
   side: 30,
   chipHeight: 24,
   chipGap: 6,
-  chipPadding: 10,
-  textStep: 0,
 } as const;
-
-/** The header's sizes under `sidebar.density` and `sidebar.textSize` (the host's
- * `HomeMessagesHeaderMetrics`: a bigger density or text size grows the circle, the search field and
- * the chip, as the native `HomeSidebarHeaderMetrics` did); the band stays one height. */
-export type HeaderSizes = { -readonly [K in keyof typeof HEADER]: number };
-
-export function headerSizes(metrics?: {
-  side: number;
-  chipHeight: number;
-  chipGap: number;
-  chipPadding: number;
-  textStep: number;
-}): HeaderSizes {
-  if (!metrics) return { ...HEADER };
-  // A circle never outgrows the band it sits in.
-  const side = Math.min(Math.max(metrics.side, 16), HEADER.band - 2 * HEADER.topMargin);
-  return { ...HEADER, ...metrics, side };
-}
 
 export interface HeaderLayout {
   compact: boolean;
@@ -160,25 +139,16 @@ export function headerLayout(
   searchOpen: boolean,
   windowControls: Rect | null,
   filterOn: boolean,
-  sizes: HeaderSizes = HEADER,
 ): HeaderLayout {
-  const base = headerRow(Math.max(0, width), searchOpen, windowControls, sizes);
+  const base = headerRow(Math.max(0, width), searchOpen, windowControls);
   if (!filterOn || base.buttonsCovered) return base;
   const inset = base.compact ? HEADER.edge : HEADER.inset;
-  const filterChip = { x: inset, y: base.listTop, width: Math.max(0, width - 2 * inset), height: sizes.chipHeight };
-  return { ...base, filterChip, listTop: filterChip.y + filterChip.height + sizes.chipGap };
+  const filterChip = { x: inset, y: base.listTop, width: Math.max(0, width - 2 * inset), height: HEADER.chipHeight };
+  return { ...base, filterChip, listTop: filterChip.y + filterChip.height + HEADER.chipGap };
 }
 
-/** The controls of a header (search, its circle, the Unread toggle, the chip): the rest of the
- * band moves the window (HomeWindowDragStrip). */
-export function headerControls(header: HeaderLayout): Rect[] {
-  return [header.search, header.searchIcon, header.filter, header.filterChip].filter(
-    (r) => r.width > 0 && r.height > 0,
-  );
-}
-
-function headerRow(width: number, searchOpen: boolean, controls: Rect | null, sizes: HeaderSizes): HeaderLayout {
-  const side = sizes.side;
+function headerRow(width: number, searchOpen: boolean, controls: Rect | null): HeaderLayout {
+  const side = HEADER.side;
   const y = Math.round((HEADER.band - side) / 2);
   const compact = width < COMPACT_BELOW;
   const underLights = controls ? Math.ceil(controls.y + controls.height + HEADER.rowGap) : null;

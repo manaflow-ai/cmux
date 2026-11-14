@@ -1,5 +1,5 @@
 {
-  "title": "Home New Message: To: lists the Chiefs, New Chief and the Team",
+  "title": "Home New Message: Chiefs and Team sections, New Chief, alike Chiefs told apart; a new Chief's focus question",
   "steps": [
     {
       "title": "Launch",
@@ -17,14 +17,26 @@
       "optional": "the Chief's daemon may not start on this runner"
     },
     {
-      "title": "To: lists Chiefs, New Chief and the Team",
-      "cmux": [
-        "action",
-        "run",
-        "home.newMessage"
-      ],
+      "title": "A new Chief beside others asks what to focus on",
+      "rpc": {
+        "method": "debug.home.sidebar_fixture",
+        "params": {
+          "intro": "askFocus"
+        }
+      },
       "wait": 2,
-      "optional": "New Message needs the Home page in this build"
+      "optional": "needs a Chief conversation shown"
+    },
+    {
+      "title": "To: lists Chiefs, New Chief and the Team",
+      "rpc": {
+        "method": "debug.home.sidebar_fixture",
+        "params": {
+          "new_message": 4
+        }
+      },
+      "wait": 2,
+      "optional": "debug fixture is DEBUG only"
     },
     {
       "title": "Dark",

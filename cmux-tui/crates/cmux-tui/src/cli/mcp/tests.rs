@@ -1593,6 +1593,16 @@ fn code_mode_server(fake: Fake) -> Server<Fake> {
     server
 }
 
+/// The family names `cmux_exec`'s description lists ("Families: app, pane, ...").
+/// Names only: a count there would move the always-loaded description, and with it
+/// the chat's cached prompt, each time the app's action catalog changes (#39276).
+fn exec_families(listed: &Value) -> Vec<String> {
+    let text = listed["description"].as_str().unwrap();
+    let (_, rest) = text.split_once("Families: ").unwrap_or_else(|| panic!("{text}"));
+    let names = rest.split_once('.').map_or(rest, |(names, _)| names);
+    names.split(", ").map(str::to_owned).collect()
+}
+
 #[test]
 fn code_mode_lists_only_exec_and_a_script_reaches_every_tool() {
     let mut server = code_mode_server(Fake::with_actions());
@@ -1627,7 +1637,10 @@ fn code_mode_lists_only_exec_and_a_script_reaches_every_tool() {
         typo["error"]["message"], "unknown tool: cmux_exce; did you mean cmux_exec?",
         "{typo}"
     );
-    assert!(tools[0]["description"].as_str().unwrap().contains("app (3)"));
+    // The app's actions show as their family, by name only (no count).
+    let families = exec_families(&tools[0]);
+    assert!(families.iter().any(|family| family == "app"), "{families:?}");
+    assert!(families.iter().all(|family| !family.contains('(')), "{families:?}");
 
     // Docs returns a matching tool's schema, best match first: the daemon's
     // tool before the app action that does the same.

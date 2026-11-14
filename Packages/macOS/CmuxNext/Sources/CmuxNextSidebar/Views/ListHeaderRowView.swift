@@ -1,8 +1,9 @@
 import AppKit
 import CmuxNextDesign
 
-/// Projects and Recents' header (`SidebarRowKey.listHeader`): "Projects" or "Recents" in the group header's quiet
-/// style, as the ChatGPT app's sidebar titles its lists. A label only: no menu, no fold, no drop target.
+/// A list's header (`SidebarRowKey.listHeader`): "Projects" or "Recents", in the sidebar's
+/// quiet heading style, as the ChatGPT and Codex apps' sidebars title their lists. A label only: no menu, no fold, no
+/// drop target.
 final class ListHeaderRowView: SidebarRowView {
     private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
 
@@ -12,11 +13,15 @@ final class ListHeaderRowView: SidebarRowView {
     }
 
     func configure(_ header: SidebarListHeader, count: Int) {
-        name.setString(header == .projects ? Strings.projects : Strings.recents)
+        let title = switch header {
+        case .projects: Strings.projects
+        case .recents: Strings.recents
+        }
+        name.setString(title)
         name.setFont(SidebarStyle.headerFont)
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
-        setAccessibilityLabel("\(name.stringValue), \(Strings.groupCount(count))")
+        setAccessibilityLabel("\(title), \(Strings.groupCount(count))")
         needsLayout = true
     }
 

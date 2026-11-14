@@ -145,8 +145,8 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     expect(() => daemonEnvLines({ A: "has space" })).toThrow();
   });
 
-  test("--agent-tools is a dev-only bake option", () => {
-    expect(bakeOptionsFromArgv(["bun", "bake.ts", "--tag", "t"]).agentTools).toBe(false);
+  test("Cloud Native bakes include the desktop closure by default", () => {
+    expect(bakeOptionsFromArgv(["bun", "bake.ts", "--tag", "t"]).agentTools).toBe(true);
     expect(bakeOptionsFromArgv(["bun", "bake.ts", "--tag", "t", "--agent-tools"]).agentTools).toBe(true);
     expect(() => bakeOptionsFromArgv(["bun", "bake.ts", "--tag", "t", "--agent-tools", "--promotion"])).toThrow(/dev snapshots only/);
   });

@@ -18,7 +18,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chromium, type CDPSession } from "playwright";
+import { chromium } from "./browsers";
+import type { CDPSession } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { perfRow } from "./perfRow";
 import { addStabilityProbe, cpuSession, measureIdle, settledAt } from "./stability";
@@ -128,9 +129,6 @@ try {
   releases.push(() => statics.stop(true));
   const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${A}`;
   const browser = await chromium.launch({
-    ...(process.env.CMUX_CHROME_HEADLESS_SHELL
-      ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
-      : { channel: "chrome" }),
     headless: true,
   });
   releases.push(() => browser.close());

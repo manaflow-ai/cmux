@@ -84,9 +84,6 @@ struct ChiefTeleportNoticeTests {
         #expect(model.phase == .idle)
         #expect(model.shownPhase == .moving("cmux Cloud"))
         #expect(model.notice() == "Chief is moving to cmux Cloud…")
-        // The chip's face (the native chip and the Messages page's header chip read it).
-        let moving = model.chipFace(saysAway: true)
-        #expect((moving.tone, moving.text, moving.glyph) == ("running", "Moving to cmux Cloud…", "moving"))
         #expect(model.menu().rows.map(\.state) == [.current, .busy], "no second move starts while one runs")
         let menu = ChiefTeleportMenuBuilder(model: model).makeMenu()
         #expect(menu.items.map(\.title).contains("Moving to cmux Cloud…"))
@@ -98,8 +95,5 @@ struct ChiefTeleportNoticeTests {
         #expect(model.shownPhase == .idle)
         #expect(model.notice() == nil)
         #expect(model.menu().rows.map(\.state) == [.current, .available])
-        let here = model.chipFace(saysAway: true)
-        #expect((here.tone, here.glyph) == ("here", "thisMac"))
-        #expect(here.label == "Chief location: \(here.text)")
     }
 }

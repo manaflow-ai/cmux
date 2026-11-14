@@ -1,5 +1,5 @@
 // The right sidebar's Machines section (cmux-page://cmux.machines/): its ops, answered by the app's
-// MachineSectionPageProvider (CmuxNextApp/RightSidebar), which reads the machine registry, each
+// MachineSectionPageProvider (CmuxNextServer/AddMachine), which reads the machine registry, each
 // machine's last check, the person's hub-joined machines and the section's layout tunable.
 
 export const MachinesOps = {

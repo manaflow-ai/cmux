@@ -92,6 +92,101 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
         onSignIn: async () => undefined,
       },
     },
+    "folder-too-big-repos": {
+      note: "A parent of many repositories, too big to copy, refused before any machine: each repository inside it starts the same prompt there, or start with no folder. No Retry.",
+      props: {
+        start: {
+          ...begun,
+          folder: "Projects",
+          state: "failed",
+          code: "cloud_folder_too_big",
+          refusedHere: true,
+          message:
+            "~/Projects is too big to copy to a Cloud machine (at least 20.1 GB in 323,831 files). It holds repositories of its own: pick one to start in, or start without a folder.",
+          tooBig: {
+            folder: "~/Projects",
+            repos: ["cmux", "cmux-platform-docs", "dotfiles", "leo-workspace", "paint", "work/api", "work/web"].map(
+              (name) => ({
+                name,
+                path: `/Users/me/Projects/${name}`,
+              }),
+            ),
+            more: false,
+          },
+        },
+        onPickRepo: () => undefined,
+        onPickFolder: () => undefined,
+        onStartWithoutFolder: () => undefined,
+      },
+    },
+    "folder-too-big-more": {
+      note: "More repositories inside than the card lists: Pick a folder joins them.",
+      props: {
+        start: {
+          ...begun,
+          folder: "src",
+          state: "failed",
+          code: "cloud_folder_too_big",
+          refusedHere: true,
+          message:
+            "~/src is too big to copy to a Cloud machine (at least 20 GB in 51,204 files). It holds repositories of its own: pick one to start in, or start without a folder.",
+          tooBig: {
+            folder: "~/src",
+            repos: Array.from({ length: 24 }, (_, index) => ({
+              name: `service-${String(index + 1).padStart(2, "0")}`,
+              path: `/Users/me/src/service-${index + 1}`,
+            })),
+            more: true,
+          },
+        },
+        onPickRepo: () => undefined,
+        onPickFolder: () => undefined,
+        onStartWithoutFolder: () => undefined,
+      },
+    },
+    "folder-too-big-short-pane": {
+      note: "Twenty-four repositories in a short pane: the list scrolls inside four rows, so Pick a folder and Start without a folder stay in view.",
+      height: 260,
+      props: {
+        start: {
+          ...begun,
+          folder: "src",
+          state: "failed",
+          code: "cloud_folder_too_big",
+          refusedHere: true,
+          message:
+            "~/src is too big to copy to a Cloud machine (at least 20 GB in 51,204 files). It holds repositories of its own: pick one to start in, or start without a folder.",
+          tooBig: {
+            folder: "~/src",
+            repos: Array.from({ length: 24 }, (_, index) => ({
+              name: `service-${String(index + 1).padStart(2, "0")}`,
+              path: `/Users/me/src/service-${index + 1}`,
+            })),
+            more: true,
+          },
+        },
+        onPickRepo: () => undefined,
+        onPickFolder: () => undefined,
+        onStartWithoutFolder: () => undefined,
+      },
+    },
+    "folder-too-big-plain": {
+      note: "A plain folder too big to copy with no repository inside: the limit, Pick a folder, Start without a folder.",
+      props: {
+        start: {
+          ...begun,
+          folder: "Downloads",
+          state: "failed",
+          code: "cloud_folder_too_big",
+          refusedHere: true,
+          message:
+            "~/Downloads is too big to copy to a Cloud machine (at least 20 GB in 1,204 files; a copy sends at most 20 GB or 500,000 files). Pick a smaller folder, or start without a folder.",
+          tooBig: { folder: "~/Downloads", repos: [], more: false },
+        },
+        onPickFolder: () => undefined,
+        onStartWithoutFolder: () => undefined,
+      },
+    },
     "spend-cap": {
       note: "The team's spending cap refused the machine: an admin can raise it; Run on This Mac sends the same prompt here.",
       props: {
@@ -120,6 +215,63 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
         },
         onRunHere: () => undefined,
         onDismiss: () => undefined,
+      },
+    },
+    "cloud-disabled": {
+      note: "Cloud is off in the app (cloud_disabled): a sentence, never the raw code; Run on This Mac sends the same prompt here, Not now leaves the draft.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          code: "cloud_disabled",
+          message: "Cloud is off in this app right now, so this chat can't start on a Cloud machine.",
+        },
+        onRunHere: () => undefined,
+        onDismiss: () => undefined,
+      },
+    },
+    "folder-not-open": {
+      note: "The pane refused a folder that isn't open in this tab: Pick a folder grants one and sends again, or start without a folder.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          code: "transport.path_outside_roots",
+          refusedHere: true,
+          message: "This folder isn't open in this tab; pick it to send it to Cloud.",
+        },
+        onPickFolder: () => undefined,
+        onStartWithoutFolder: () => undefined,
+      },
+    },
+    "start-failed-retry": {
+      note: "A start that failed on its way with no retry flag (the agent didn't start): Retry sends it again under the same key, Run on This Mac beside it.",
+      props: {
+        start: {
+          ...begun,
+          ...known,
+          state: "failed",
+          code: "cloud_start_failed",
+          message: "Claude Code did not start on paint-dev.",
+          machineStartedAt: timing.startedAt,
+          machineFinishedAt: timing.finishedAt,
+          harnessStartedAt: timing.finishedAt,
+        },
+        onRetry: () => undefined,
+        onRunHere: () => undefined,
+      },
+    },
+    "chat-starting-here": {
+      note: "A chat is already starting in this tab (unavailable_now): Open a new Cloud chat carries the same prompt and folder there.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          code: "unavailable_now",
+          refusedHere: true,
+          message: "A chat is already starting in this tab. Open a new chat to start one in Cloud.",
+        },
+        onOpenNewCloudChat: () => undefined,
       },
     },
     "signing-in": {

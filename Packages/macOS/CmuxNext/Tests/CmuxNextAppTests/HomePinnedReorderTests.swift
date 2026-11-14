@@ -11,13 +11,13 @@ import Foundation
 import Testing
 
 /// Reordering the pinned grid of Home's conversation list by drag (the user, 2026-11-05: "reordering
-/// pinned stuff in imessage doesnt work"). A drop on the Messages page runs `HomeSidebarSource.place`
-/// with the slot the tile landed on, over the pins people have:
+/// pinned stuff in imessage doesnt work"). The list is wired as the Home page wires it (a drop runs
+/// `HomeSidebarSource.place`, then the list redraws from the source), over the pins people have:
 /// the main Chief, other Chiefs and a DM pinned with the local owner, a conversation no owner
 /// lists yet pinned on this Mac, and a Chief no owner lists (pinned by default). Every drop must
 /// land exactly where the tile was drawn, the main Chief included, and the order must be the same after a relaunch.
 @MainActor
-@Suite(.serialized) struct HomePinnedReorderTests {
+@Suite(.serialized, .closesItsWindows) struct HomePinnedReorderTests {
     static let maya = CmuxHomeCore.ConversationID("conv_maya")
     static let now = Date(timeIntervalSince1970: 1_800_010_000)
 
@@ -33,13 +33,14 @@ import Testing
         return HomeLaunchListTests.storeRows() + mirror.inboxRows(log: IntentLog())
     }
 
-    /// One launch of Home's list: the owners and this Mac's pin store (`defaults`). The list is drawn by
-    /// the React Messages page now; a drop there runs `HomeSidebarSource.place` with the slot it landed
-    /// on, which is what `drag(from:to:)` does here.
+    /// One launch of Home's list: the owners, this Mac's pin store (`defaults`), the list view.
     @MainActor final class Home {
         let local = HomeInboxSource(owners: ["local"])
         let cloud = HomeInboxSource(owners: ["cloud"])
         let source: HomeSidebarSource
+        let view: HomeSidebarView
+        let window: NSWindow
+        var list: SidebarController { view.list.controller }
 
         /// `replies`: the owners' answers (the last launch's edited rows on a relaunch).
         init(defaults: UserDefaults, replies: (local: HomeInboxRequest.Response, cloud: HomeInboxRequest.Response)) {
@@ -51,9 +52,22 @@ import Testing
             source.reloadPins()
             local.accept(replies.local)
             cloud.accept(replies.cloud)
+            (view, window) = HomeLaunchListTests.host()
+            let source = source
+            // The Home page's wiring (TopHomePageView.wireList): place, then redraw in the same turn.
+            view.onPlacePinned = { [unowned self] id, index in
+                source.place(id, at: index)
+                show()
+            }
+            show()
+            view.layoutSubtreeIfNeeded()
+            list.tile(force: true)
         }
 
+        func show() { view.update(source.model(now: HomePinnedReorderTests.now)) }
+
         var grid: [CmuxHomeCore.ConversationID] { source.model(now: HomePinnedReorderTests.now).pinned.map(\.id) }
+        var drawn: [CmuxHomeCore.ConversationID] { list.pinnedIDs.map { CmuxHomeCore.ConversationID($0) } }
 
         /// The owners' rows as this launch left them (what each owner answers after the writes).
         var replies: (local: HomeInboxRequest.Response, cloud: HomeInboxRequest.Response)? {
@@ -61,9 +75,21 @@ import Testing
             return (local, cloud)
         }
 
-        /// Drops the tile at `from` of the grid on slot `to`, as the page's drop does.
-        func drag(from: Int, to: Int) {
-            source.place(grid[from], at: to)
+        /// Presses the tile drawn at `from`, drags it over the tile drawn at `to` and lets go.
+        /// - Returns: The pointer's offset from where the lifted tile was drawn after the move.
+        @discardableResult
+        func drag(from: Int, to: Int) -> CGSize? {
+            let start = list.tileRect(from), end = list.tileRect(to)
+            #expect(list.beginPinDrag(at: CGPoint(x: start.midX, y: start.midY)), "a press on a pinned tile lifts it")
+            let pointer = CGPoint(x: end.midX + 3, y: end.midY - 2)
+            list.movePinDrag(to: pointer)
+            let follow = list.pinDragState.ghost.map {
+                CGSize(width: pointer.x - $0.position.x - list.pinDragState.grab.width,
+                       height: pointer.y - $0.position.y - list.pinDragState.grab.height)
+            }
+            list.endPinDrag()
+            view.layoutSubtreeIfNeeded()
+            return follow
         }
     }
 
@@ -89,19 +115,33 @@ import Testing
     @Test(arguments: [(0, 4), (3, 0), (4, 0), (0, 1), (1, 2), (2, 3), (3, 1)])
     func aDroppedTileLandsWhereItWasDrawn(from: Int, to: Int) throws {
         let home = try Home(defaults: Self.defaults(), replies: HomeLaunchListTests.liveReplies())
+        defer { home.window.close() }
         let before = home.grid
         try #require(before.count == 5, "five pinned tiles: \(before)")
-        home.drag(from: from, to: to)
+        #expect(home.drawn == before)
+        let follow = try #require(home.drag(from: from, to: to), "the drag lifts a tile")
+        #expect(abs(follow.width) < 0.01 && abs(follow.height) < 0.01, "the lifted tile follows the pointer")
         let expected = Self.moved(before, from: from, to: to)
         #expect(home.grid == expected, "the drop of tile \(from) on slot \(to) left \(home.grid), not \(expected)")
+        #expect(home.drawn == expected, "the list draws the new order")
     }
 
     @Test func theMainChiefCanBeDroppedAfterTheOtherPins() throws {
         let home = try Home(defaults: Self.defaults(), replies: HomeLaunchListTests.liveReplies())
+        defer { home.window.close() }
         let main = CmuxHomeCore.ConversationID("conv_agent_hosted")
         let at = try #require(home.grid.firstIndex(of: main), "the main Chief is pinned")
         home.drag(from: at, to: home.grid.count - 1)
         #expect(home.grid.last == main, "the main Chief stays where it was dropped: \(home.grid)")
+    }
+
+    @Test func theDropLandsAtOnceWithTheListsMotionOff() throws {
+        let home = try Home(defaults: Self.defaults(), replies: HomeLaunchListTests.liveReplies())
+        defer { home.window.close() }
+        home.drag(from: 0, to: 2)
+        let moving = home.list.tileLayers.filter { !($0.animationKeys() ?? []).isEmpty }
+        #expect(moving.isEmpty, "no tile animates after the drop: \(moving.map { $0.animationKeys() ?? [] })")
+        #expect(home.list.pinDragState.ghost == nil, "the lifted tile is gone at the drop")
     }
 
     @Test func theNewOrderIsKeptAfterARelaunch() throws {
@@ -111,7 +151,9 @@ import Testing
         first.drag(from: 1, to: 3)
         let order = first.grid
         let replies = try #require(first.replies)
+        first.window.close()
         let relaunched = Home(defaults: defaults, replies: replies)
+        defer { relaunched.window.close() }
         #expect(relaunched.grid == order, "after a relaunch the grid is \(relaunched.grid), not \(order)")
     }
 
@@ -124,9 +166,13 @@ import Testing
         let before = home.grid
         try #require(before.count == 5, "five pinned tiles: \(before)")
         home.source.setPinned(true, before[index])
+        home.show()
         #expect(home.grid == before, "pinning tile \(index) again left \(home.grid), not \(before)")
+        #expect(home.drawn == before, "the list draws the same order")
         let replies = try #require(home.replies)
+        home.window.close()
         let relaunched = Home(defaults: defaults, replies: replies)
+        defer { relaunched.window.close() }
         #expect(relaunched.grid == before, "after a relaunch the grid is \(relaunched.grid), not \(before)")
     }
 

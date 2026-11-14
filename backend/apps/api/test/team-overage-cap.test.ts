@@ -18,10 +18,18 @@ const V2_BP = 11_000
 const stub = (team: string) => testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)) as any
 const modelFact = (usd: number) => ({ key: `model:${crypto.randomUUID()}`, meter: "model.spend_usd", quantity: usd, source: "coderouter", observed_at: Date.now() })
 const machineFact = (usd: number) => ({ key: `cloud:machine_${crypto.randomUUID()}:1:2026-11:${Math.round(usd * M)}`, meter: "cloud.machine_usd", quantity: usd, source: "cloud", observed_at: Date.now(), user: userIdFor(testEnv.STACK_PROJECT_ID, "cap-machine-creator") })
-/** A fresh billable mark, as the usage sync writes it under v2 (markup pinned): the period started an hour ago, ends in 30 days. */
-const markBillable = (team: string, mode: "per_seat" | "per_team", seats: number, includedUsd: number, markupBp: number | null = V2_BP) =>
-  stub(team).markBillable(team, `sub_${crypto.randomUUID()}`, nowS() + 30 * 86_400, { period_start: nowS() - 3600, mode, seats, included_usd: includedUsd, ...(markupBp === null ? {} : { markup_bp: markupBp }) })
 const nowS = () => Math.floor(Date.now() / 1000)
+/**
+ * A fresh billable mark, as the usage sync writes it under v2 (markup pinned): the period started an hour ago, ends in
+ * 30 days. Returns the period end it wrote (ms): a test compares against that, never a second read of the clock, which
+ * can cross a second boundary in between (base run 351621ce, 2026-11-11: period_end 1797007231000 vs 1797007232000).
+ */
+const markBillable = async (team: string, mode: "per_seat" | "per_team", seats: number, includedUsd: number, markupBp: number | null = V2_BP): Promise<number> => {
+  const now = nowS()
+  const end = now + 30 * 86_400
+  await stub(team).markBillable(team, `sub_${crypto.randomUUID()}`, end, { period_start: now - 3600, mode, seats, included_usd: includedUsd, ...(markupBp === null ? {} : { markup_bp: markupBp }) })
+  return end * 1000
+}
 const setCap = async (t: string, usd: number) => expect((await post("/v1/ops", t, { op: "usage.cap.set", params: { cap_usd: usd }, idempotency_key: crypto.randomUUID(), origin: "cli" })).ok).toBe(true)
 
 describe("model overage markup (billing-catalog.ts billedLevelMicros)", () => {
@@ -100,10 +108,10 @@ describe("the team spending cap (UsageMeterDO.teamCap)", () => {
     // No mark yet: seats unknown, no default.
     await meter.record(team, [machineFact(1)])
     expect(await meter.teamCap(team, true, "v2")).toMatchObject({ state: "under", cap_usd: null })
-    await markBillable(team, "per_seat", 2, 25)
+    const periodEnd = await markBillable(team, "per_seat", 2, 25)
     const under = await meter.teamCap(team, true, "v2")
     expect(under).toMatchObject({ state: "under", spent_usd: 1, cap_usd: 100 })
-    expect(under.period_end).toBe((nowS() + 30 * 86_400) * 1000)
+    expect(under.period_end).toBe(periodEnd)
     // 49 models + 1 machine = 50 = the pool, at cost.
     await meter.record(team, [modelFact(49)])
     expect(await meter.teamCap(team, true, "v2")).toMatchObject({ state: "under", spent_usd: 50 })
@@ -186,7 +194,7 @@ describe("the team spending cap (UsageMeterDO.teamCap)", () => {
     await setCap(t, 20)
     // 19.5 at cost is under the cap (and the test ceiling, 25); billed with a 10 USD pool it is 10 + 9.5 x 1.1 = 20.45.
     await stub(team).record(team, [modelFact(19.5)])
-    await markBillable(team, "per_seat", 1, 10)
+    const periodEnd = await markBillable(team, "per_seat", 1, 10)
     expect(teamCapApplies("v2")).toBe(true)
     // Without the cap (v1: route.ts passes no set) the call is reserved as today; the hard cap (A18) still allows it.
     expect((await stub(team).check(team)).allowed).toBe(true)
@@ -194,7 +202,7 @@ describe("the team spending cap (UsageMeterDO.teamCap)", () => {
     await stub(team).settleCall(team, "cap-v1", null)
     // Under v2: refused in the reservation's transaction, with the period's billed spend and end.
     const refused = await stub(team).reserveUser(team, "user_b", "cap-v2", 1_000, 200 * M, undefined, "per_team", true, "v2")
-    expect(refused).toMatchObject({ ok: false, team_cap: true, cap_usd: 20, period_end: (nowS() + 30 * 86_400) * 1000 })
+    expect(refused).toMatchObject({ ok: false, team_cap: true, cap_usd: 20, period_end: periodEnd })
     expect(refused.spent_usd).toBeCloseTo(20.45, 6)
   })
 

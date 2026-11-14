@@ -282,3 +282,11 @@ test("the tray line names a subagent by its task, then its name, and Subagent on
   );
   expect(subagentDisplayName(t, { id: "a", name: "Reviewer", task: "Review the tray motion diff" })).toBe("Reviewer");
 });
+
+test("a sub-session whose last turn was stopped says when, which its Resume reads", () => {
+  const lastTurn = (status: string) => ({ lastTurn: { status, endedAt: 42 }, startedBy: "chat" });
+  expect(subsessionInfo(summary("a", lastTurn("cancelled"))).stoppedAt).toBe(42);
+  expect(subsessionInfo(summary("b", lastTurn("completed"))).stoppedAt).toBeUndefined();
+  // Only a sub-session's stop resumes: a chat no parent started does not.
+  expect(subsessionInfo(summary("c", { lastTurn: { status: "cancelled", endedAt: 42 } })).stoppedAt).toBeUndefined();
+});

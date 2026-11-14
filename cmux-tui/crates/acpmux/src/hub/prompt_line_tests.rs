@@ -404,3 +404,27 @@ async fn context_inventory_a_prompt_while_the_agent_answers_a_fork_is_not_in_the
         "the fork shows a prompt its agent never read: {prompts:?}"
     );
 }
+
+/// A prompt of one plain text block logs its text once: no `inlineParts` that repeat it; a paste,
+/// a second block or an attachment keep them (cmuxterm-hq#9263).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_plain_text_prompt_logs_its_text_once() {
+    let hub = hub();
+    let session = hub
+        .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() })
+        .await
+        .unwrap();
+    let plain = vec![json!({"type": "text", "text": "fold this"})];
+    hub.append_prompt(&session, json!({"text": "fold this"}), &plain, None);
+    let pasted =
+        vec![json!({"type": "text", "text": "a paste", "_meta": {"cmux": {"pasted": true}}})];
+    hub.append_prompt(&session, json!({"text": "a paste"}), &pasted, None);
+    let two = vec![json!({"type": "text", "text": "one"}), json!({"type": "text", "text": "two"})];
+    hub.append_prompt(&session, json!({"text": "one\ntwo"}), &two, None);
+    let records = hub.events(&session.id, 0, 100).unwrap();
+    let prompts: Vec<_> = records.iter().filter(|e| e.kind == "user_message").collect();
+    assert!(prompts[0].msg.get("inlineParts").is_none(), "{}", prompts[0].msg);
+    assert_eq!(hub.logged_prompt_blocks(&session, &prompts[0].msg), Some(plain));
+    assert_eq!(prompts[1].msg["inlineParts"][0]["pasted"], true);
+    assert_eq!(prompts[2].msg["inlineParts"].as_array().map(Vec::len), Some(2));
+}

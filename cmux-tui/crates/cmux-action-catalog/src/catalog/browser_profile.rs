@@ -287,6 +287,47 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "browserProfile.move",
+        group: GROUP,
+        title: t("BrowserProfileActions", "action.browserProfile.move", "Move Browser Profile to Position…"),
+        keywords: &["browser", "profile", "chrome", "cookies", "account", "person", "move", "reorder", "order", "position"],
+        category: "browser",
+        symbol: "arrow.up.arrow.down",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::INDEX_2],
+        targets: &["browser-profile"],
+        cli_name: "action browser-profile-move",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "browserProfile.setProxy",
+        group: GROUP,
+        title: t("BrowserProfileActions", "action.browserProfile.setProxy", "Set Browser Profile Proxy…"),
+        keywords: &["browser", "profile", "chrome", "cookies", "account", "person", "proxy", "socks", "socks5", "http", "network", "vpn"],
+        category: "browser",
+        symbol: "network",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::PROXY_SCHEME, args::PROXY_HOST, args::PORT],
+        targets: &["browser-profile"],
+        cli_name: "action browser-profile-set-proxy",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "browserProfile.clearProxy",
+        group: GROUP,
+        title: t("BrowserProfileActions", "action.browserProfile.clearProxy", "Remove Browser Profile Proxy"),
+        keywords: &["browser", "profile", "chrome", "cookies", "account", "person", "proxy", "direct", "network", "reset", "clear"],
+        category: "browser",
+        symbol: "network.slash",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        targets: &["browser-profile"],
+        cli_name: "action browser-profile-clear-proxy",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "browserProfile.manageExtensions",
         group: GROUP,
         title: t("BrowserProfileActions", "action.browserProfile.manageExtensions", "Manage Extensions in Browser Profile…"),

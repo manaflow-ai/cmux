@@ -6,6 +6,7 @@ import type { UsedLook } from "./quickModelMenuModel";
 import type { Play } from "../../gallery/play";
 import { BUNDLED_MODEL_CATALOG } from "./modelCatalogData";
 import { topModelsFor } from "./topModels";
+import { setModelMenuWidth } from "./modelMenuWidth";
 import { mergeModelCatalog } from "./modelCatalog";
 import { type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
 import { SOL_SEARCH_CATALOG, SOL_SEARCH_QUERY } from "../../gallery/fixtures/modelSearch";
@@ -133,6 +134,34 @@ const recommendationPlay =
 
 // These direct ModelPicker inputs omit top rather than borrowing the bundled harness lists.
 const fallbackRecommendationCatalog = familyRecommendationCatalog.map(({ top: _top, ...entry }) => entry);
+
+/// Claude Code's own list on Nov 9 (`list_models`, through the gateway): Fable 5.2 shipped before
+/// cmux's catalog knew it, so it has no catalog family. It leads the Fable line; Fable 5.1 folds.
+const liveFable52Rows: [id: string, name: string, family?: string][] = [
+  ["claude-opus-5-5", "Opus 5.5", "Opus"],
+  ["claude-fable-5-2", "Fable 5.2"],
+  ["claude-fable-5-1", "Fable 5.1", "Fable"],
+  ["claude-fable-5", "Fable 5", "Fable"],
+  ["claude-sonnet-5-5", "Sonnet 5.5", "Sonnet"],
+  ["claude-haiku-5-5", "Haiku 5.5", "Haiku"],
+  ["claude-opus-5", "Opus 5", "Opus"],
+  ["claude-sonnet-5", "Sonnet 5", "Sonnet"],
+  ["claude-opus-4-8", "Opus 4.8", "Opus"],
+];
+const liveFable52: ModelPickerProps = {
+  ...base,
+  catalog: [
+    {
+      id: "claude",
+      name: "Claude Code",
+      top: liveFable52Rows.map(([id]) => id),
+      models: liveFable52Rows.map(([id, name, family]) => ({ id, name, ...(family ? { family } : {}) })),
+    },
+  ],
+  harness: "claude",
+  model: "claude-opus-5-5",
+  label: "Opus 5.5",
+};
 
 const familyRecommendationsClaude: ModelPickerProps = {
   ...base,
@@ -353,8 +382,18 @@ const openQuick: Play = async (ctx) => {
 };
 
 /// The columns menu: a menu with a harness rail.
-const openColumns: Play = async (ctx) => {
+const openColumns = async (ctx: Parameters<Play>[0], width?: number) => {
+  // The menu's width is kept for every composer (modelMenuWidth.ts): each state opens at the
+  // default unless it names a dragged width, so one state's drag never carries into the next.
+  setModelMenuWidth(width);
   await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cols [role=listbox] [role=option]") !== null);
+};
+
+/// Opens the columns at a dragged width on OpenCode's tab, whose provider-prefixed names are the longest.
+const openOpenCodeAt = async (ctx: Parameters<Play>[0], width: number) => {
+  await openColumns(ctx, width);
+  await ctx.click({ selector: '.acpmux-cols-tab[aria-label="OpenCode"]' });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cols [role=listbox] [role=option]") !== null);
 };
 
@@ -601,6 +640,13 @@ export default componentEntry<GalleryProps>({
       props: familyRecommendationsCodex,
       play: recommendationPlay(["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6.1-luna", "gpt-6-astra"], ["gpt-6-sol"]),
     },
+    "live-list-new-release": {
+      props: liveFable52,
+      play: recommendationPlay(
+        ["claude-opus-5-5", "claude-fable-5-2", "claude-sonnet-5-5", "claude-haiku-5-5"],
+        ["claude-fable-5-1", "claude-fable-5", "claude-opus-5", "claude-sonnet-5", "claude-opus-4-8"],
+      ),
+    },
     // Without top, keep each family's newest release in source order, then older versions newest-first.
     "family-recommendations-claude-fallback": {
       props: { ...familyRecommendationsClaude, catalog: fallbackRecommendationCatalog },
@@ -691,6 +737,23 @@ export default componentEntry<GalleryProps>({
     "quick-menu-widest-name": {
       props: { ...quick, catalog: [...quick.catalog, ...openCode] },
       play: openColumns,
+      note: "Fit width (ships): as wide as the longest name of every tab, up to 40em; each name on one line. At the narrow width the window caps it and a longer name wraps.",
+    },
+    // A width the person dragged to, narrower than OpenCode's longest names: they wrap onto a second
+    // line instead of ending in an ellipsis (Lawrence 2026-11-05: "cant see full model name").
+    "quick-menu-dragged-narrow": {
+      props: { ...quick, catalog: [...quick.catalog, ...openCode] },
+      play: (ctx) => openOpenCodeAt(ctx, 300),
+      note: "Dragged narrower (300px, ships): a name longer than the column wraps; nothing is clipped.",
+    },
+    "quick-menu-dragged-narrow-ellipsis": {
+      props: { ...quick, catalog: [...quick.catalog, ...openCode] },
+      play: async (ctx) => {
+        await openOpenCodeAt(ctx, 300);
+        for (const name of ctx.document.querySelectorAll<HTMLElement>(".acpmux-cols-body .acpmux-cols-name"))
+          Object.assign(name.style, { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" });
+      },
+      note: "Not shipped: the same width with #40103's ellipsis, where a long name's end is cut.",
     },
     // A short window with many accounts (Lawrence: "model picker too tall"): the account card
     // stays inside the window and its list scrolls to the final row.

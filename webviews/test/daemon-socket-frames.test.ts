@@ -47,6 +47,13 @@ afterEach(() => {
   scope.WebSocket = saved;
 });
 
+/// Answers the connect's first command (`identify`, its probe that the daemon reads frames).
+function answerProbe(socket: Socket) {
+  const probe = JSON.parse(socket.sent.at(-1) ?? "{}");
+  expect(probe.cmd).toBe("identify");
+  socket.frame(JSON.stringify({ id: probe.id, ok: true, data: { capabilities: [] } }));
+}
+
 const invalidFrames = ["null", "true", "7", '"text"', "[]", "["];
 
 test("pairing ignores non-object frames and still accepts the credential", async () => {
@@ -65,6 +72,8 @@ test("pairing ignores non-object frames and still accepts the credential", async
   expect(credentials).toEqual([]);
   socket.frame(JSON.stringify({ pairing: { code: "123456", expires_in: 45 } }));
   socket.frame(JSON.stringify({ paired: { credential: "test-credential" } }));
+  await Promise.resolve();
+  answerProbe(socket);
   await connecting;
   expect(challenges).toEqual([["123456", 45]]);
   expect(credentials).toEqual(["test-credential"]);
@@ -74,11 +83,13 @@ test("invalid frames preserve pending replies and subsequent events", async () =
   const connecting = DaemonSocket.connect("ws://localhost", { origin: true });
   const socket = Socket.latest;
   socket.emit("open");
+  await Promise.resolve();
+  answerProbe(socket);
   const client = await connecting;
   const events: Record<string, unknown>[] = [];
   client.onEvent((event) => events.push(event));
   const reply = client.request("identify");
-  const request = JSON.parse(socket.sent[0]);
+  const request = JSON.parse(socket.sent.at(-1)!);
   for (const data of invalidFrames) expect(() => socket.frame(data)).not.toThrow();
   expect(events).toEqual([]);
   socket.frame(JSON.stringify({ id: request.id, ok: true, data: { name: "test" } }));

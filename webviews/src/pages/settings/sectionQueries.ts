@@ -4,6 +4,7 @@
 // options) finds them in the cache: no card mounts empty and fills in a frame later.
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { categoryById, homes, categoryOf } from "./categories";
+import { personalizationPartOf } from "./personalizationParts";
 import type { AgentsState, ChannelsState, SharesState, TailnetState } from "./ops";
 import { settingsKeys } from "./queries";
 import type { SettingsStore } from "./store";
@@ -76,6 +77,11 @@ export function sharesQuery(store: SettingsStore) {
 
 /** The section a route shows: the focused key's home, else the path's category or schema section. */
 export function routeSection(section: string | undefined, focus: string | undefined | null): string {
+  // Personalization is the one page that draws the theme, background, density, Chief pet and sounds
+  // rows: a link to one of them (a search result, the CLI, the palette, MCP) opens it there, and a
+  // link to Personalization with any key stays on it.
+  if ((focus && personalizationPartOf(focus)) || (section && categoryOf(section) === "personalization"))
+    return "personalization";
   const home = focus ? homes.get(focus) : undefined;
   return home?.category ?? categoryOf(section);
 }

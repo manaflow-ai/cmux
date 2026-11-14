@@ -68,7 +68,7 @@ public struct HomeComposer {
     }
 
     /// The owner's refusal as the sheet says it.
-    public func outcome(for error: any Error, naming: String) -> HomeComposeOutcome {
+    func outcome(for error: any Error, naming: String) -> HomeComposeOutcome {
         // Sent, but no answer came (the store resends it, or gave up): a state, not a reason to show.
         if error is HomeSendState { return .cloudUnreachable }
         guard let rejection = error as? HomeRejection else { return .refused(describe(error)) }

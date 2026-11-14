@@ -38,6 +38,8 @@ class FixtureTests(unittest.TestCase):
         for kind in matrix.WORKSPACES:
             if kind == "big-plain":
                 continue  # 128 MiB of random blobs; its shape is the plain folder's
+            if kind in matrix.REFUSED_CELLS:
+                continue  # refused before any copy: no manifest is compared, and 21 GiB of zeros is no fixture to hash
             folder, note = matrix.build_fixture(kind, self.root, self.args, "cmxcanarytest")
             if folder is None:
                 self.assertTrue(note.startswith("skipped"), kind)
@@ -45,6 +47,15 @@ class FixtureTests(unittest.TestCase):
             expected = matrix.local_manifest(folder, "cmxcanarytest")
             if not expected["left_out"] or set(expected["left_out"]) == {"symlink"}:
                 self.assertEqual(remote_manifest(folder)["sha256"], expected["sha256"], kind)
+
+    def test_a_parent_of_repositories_is_no_repository_and_holds_each(self):
+        for kind in ("parent-repos", "huge-parent-repos"):
+            folder, _ = matrix.build_fixture(kind, self.root, self.args, "")
+            self.assertFalse((folder / ".git").exists(), kind)
+            for name in matrix.PARENT_REPOS:
+                self.assertTrue((folder / name / ".git").is_dir(), (kind, name))
+        self.assertEqual((self.root / "huge-parent-repos/disk.img").stat().st_size, matrix.HUGE_PLAIN_BYTES)
+        self.assertEqual(set(matrix.REFUSED_CELLS), {"huge-plain", "huge-parent-repos"})
 
     def test_secrets_are_left_out_and_the_canary_is_found_where_it_is(self):
         folder, _ = matrix.build_fixture("secrets", self.root, self.args, "cmxcanarytest")
@@ -69,6 +80,17 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(matrix.skipped("keys.rs", False, self.root, "keys.rs"), "")
         self.assertEqual(matrix.skipped("target", True, self.root, "target"), "")
 
+    def test_a_claude_start_passes_a_login_only_when_asked(self):
+        self.assertEqual(self.args.login, "")
+        self.assertEqual(matrix.start_login("claude", self.args.login), [])
+        self.assertEqual(matrix.start_login("claude", "none"), ["--login", "none"])
+        self.assertEqual(matrix.start_login("codex", "none"), [])
+
+    def test_a_stale_machine_list_refusal_is_asked_again(self):
+        self.assertTrue(matrix.list_unread("cloudStartSession unavailable: Couldn't read your Cloud machines, so claude "
+                                           "didn't start: a machine named x may already exist."))
+        self.assertFalse(matrix.list_unread("claude on x waits for your one-time OK to copy your Claude login"))
+
     def test_verdict_and_grid(self):
         cell = {"workspace": "secrets", "agent": "claude", "start_exit": 0, "hash_match": True,
                 "reply": {"form_ok": True, "word_ok": True, "canary_in_reply": False, "text": "MATRIX_OK"},
@@ -80,15 +102,194 @@ class FixtureTests(unittest.TestCase):
 
 class LaunchTests(unittest.TestCase):
     def test_socket_travels_only_as_the_next_knob(self):
-        argv = matrix.launch_argv("/Applications/cmux.app", "/tmp/cmux-debug-t.sock", None, "staging")
+        argv = matrix.launch_argv("/Applications/cmux.app", "/tmp/cmux-debug-t.sock", None, "staging", "/tmp/c.json")
         envs = [argv[i + 1] for i, word in enumerate(argv) if word == "--env"]
-        self.assertEqual(envs, ["CMUX_NEXT_SOCKET_PATH=/tmp/cmux-debug-t.sock"])
+        self.assertEqual(envs, ["CMUX_NEXT_SOCKET_PATH=/tmp/cmux-debug-t.sock", "CMUX_NEXT_CONFIG_FILE=/tmp/c.json"])
         self.assertEqual(argv[-3:], ["--args", "--cloud-backend", "staging"])
 
     def test_credentials_sign_the_launched_app_in(self):
-        argv = matrix.launch_argv("/Applications/cmux.app", "/tmp/s.sock", "/tmp/creds.json", "prod")
+        argv = matrix.launch_argv("/Applications/cmux.app", "/tmp/s.sock", "/tmp/creds.json", "prod", "/tmp/c.json")
         self.assertIn("CMUX_DEV_AUTH_REPLACE_SESSION=1", argv)
         self.assertFalse(any(word.startswith("CMUX_SOCKET_PATH=") for word in argv))
+
+
+class GrantTests(unittest.TestCase):
+    APP = ["--app", "/Applications/cmux.app", "--cloud-backend", "staging",
+           "--expected-api-origin", "https://example.invalid", "--out", "/tmp/x"]
+
+    def test_grant_only_for_the_launched_app(self):
+        with self.assertRaises(SystemExit):
+            matrix.parse_args(["--cli", "/bin/true", "--out", "/tmp/x", "--grant-claude-login"])
+        self.assertTrue(matrix.parse_args([*self.APP, "--grant-claude-login"]).grant_claude_login)
+
+    def test_the_consent_lives_only_in_the_runs_own_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = matrix.scratch_config(Path(folder), True)
+            self.assertEqual(json.loads(path.read_text()), {"cloud": {"useMyClaudeLoginOnMyCloudMachines": True}})
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(json.loads(matrix.scratch_config(Path(folder), False).read_text()), {})
+
+    def test_an_app_run_never_reads_the_shared_file_and_cleans_up(self):
+        m = matrix.Matrix(matrix.parse_args([*self.APP, "--grant-claude-login"]))
+        config = Path(m.env["CMUX_NEXT_CONFIG_FILE"])
+        self.assertTrue(config.is_file())
+        self.assertNotIn(".config/cmux", str(config))
+        m.quit()
+        self.assertFalse(config.exists())
+
+
+class TrustTests(unittest.TestCase):
+    """A fixture is trusted on this Mac before its cell, as a person does: an untrusted folder's Cloud start is
+    refused before any machine (#41079), which turned every cell red at 0.0 s. Every decision the run writes is
+    put back at teardown, so the person's trust.json is as it was (#41547 review F1)."""
+
+    # `cmux --json setup trust FOLDER [--level L]` over a JSON record at $FAKE_TRUST, answering as the real one
+    # does: `recorded` (the level before), `written` (the folder whose record changed; absent when it held it).
+    FAKE = """#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+store = os.environ["FAKE_TRUST"]
+if os.environ.get("FAKE_FAIL"):
+    print(json.dumps({"code": "failed", "message": "no daemon"})); sys.exit(1)
+assert args[:3] == ["--json", "setup", "trust"], args
+folder = args[3]
+level = args[args.index("--level") + 1] if "--level" in args else "trusted"
+record = json.load(open(store)) if os.path.exists(store) else {}
+before = record.get(folder)
+report = {"folder": folder, "recorded": before}
+if before != (None if level == "unknown" else level):
+    if level == "unknown":
+        record.pop(folder, None)
+    else:
+        record[folder] = level
+    with open(store, "w") as f:
+        json.dump(record, f, sort_keys=True)
+    report["written"] = folder
+print(json.dumps({"ok": True, "result": report}))
+"""
+
+    def matrix_with_fake(self, folder: Path, **env) -> "matrix.Matrix":
+        cli = folder / "cmux"
+        cli.write_text(self.FAKE)
+        cli.chmod(0o755)
+        m = matrix.Matrix(matrix.parse_args(["--cli", str(cli), "--out", "/tmp/x"]))
+        m.env.update({"FAKE_TRUST": str(folder / "trust.json"), **env})
+        return m
+
+    def test_a_run_leaves_trust_json_as_it_was(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = Path(folder) / "trust.json"
+            store.write_text(json.dumps({"/kept": "trusted", "/fixtures/dirty": "untrusted"}, sort_keys=True))
+            before = store.read_bytes()
+            m = self.matrix_with_fake(Path(folder))
+            for name in ("small-repo", "dirty", "secrets"):
+                self.assertEqual(m.trust(Path("/fixtures") / name), "")
+            self.assertEqual(json.loads(store.read_text())["/fixtures/small-repo"], "trusted")
+            self.assertEqual(m.forget_trust(), [])
+            self.assertEqual(json.loads(store.read_bytes()), json.loads(before))
+            self.assertEqual(m.trusted, [])
+
+    def test_a_folder_already_trusted_is_left_trusted(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = Path(folder) / "trust.json"
+            store.write_text(json.dumps({"/fixtures/small-repo": "trusted"}))
+            m = self.matrix_with_fake(Path(folder))
+            self.assertEqual(m.trust(Path("/fixtures/small-repo")), "")
+            m.forget_trust()
+            self.assertEqual(json.loads(store.read_text()), {"/fixtures/small-repo": "trusted"})
+
+    def test_a_trust_that_fails_is_the_cells_failure_and_records_nothing(self):
+        with tempfile.TemporaryDirectory() as folder:
+            m = self.matrix_with_fake(Path(folder), FAKE_FAIL="1")
+            note = m.trust(Path(folder) / "small-repo")
+            self.assertTrue(note.startswith("fail: trust: "), note)
+            self.assertIn("no daemon", note)
+            self.assertEqual(m.trusted, [])
+
+
+class StopTests(unittest.TestCase):
+    def test_a_cancelled_run_starts_no_more_cell_work(self):
+        import threading
+        m = matrix.Matrix(matrix.parse_args(["--cli", "/bin/sleep", "--out", "/tmp/x"]))
+        m.stop()
+        self.assertTrue(m.run_cell("small-repo", "claude", Path("/tmp"), "", word="w", canary="",
+                                   read_only=False)["result"].startswith("skipped"))
+        answer = []
+        worker = threading.Thread(target=lambda: answer.append(m.cmux("600")))
+        worker.start()
+        worker.join(5)
+        self.assertEqual(answer[0][0], 130)
+
+    def test_stop_ends_the_calls_cells_wait_on(self):
+        import threading
+        import time
+        m = matrix.Matrix(matrix.parse_args(["--cli", "/bin/sleep", "--out", "/tmp/x"]))
+        answer = []
+        worker = threading.Thread(target=lambda: answer.append(m.cmux("600", timeout=600)))
+        worker.start()
+        deadline = time.monotonic() + 5
+        while not m.children and time.monotonic() < deadline:
+            time.sleep(0.05)
+        started = time.monotonic()
+        m.stop()
+        worker.join(10)
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertNotEqual(answer[0][0], 0)
+
+
+    def test_a_child_started_while_stopping_is_ended_too(self):
+        import threading
+        import time
+        m = matrix.Matrix(matrix.parse_args(["--cli", "/bin/sleep", "--out", "/tmp/x"]))
+        real = matrix.subprocess.Popen
+
+        def popen_then_stop(*args, **kwargs):  # stop() lands after the check, before registration
+            child = real(*args, **kwargs)
+            m.stop()
+            return child
+        matrix.subprocess.Popen = popen_then_stop
+        try:
+            answer = []
+            worker = threading.Thread(target=lambda: answer.append(m.cmux("600", timeout=600)))
+            started = time.monotonic()
+            worker.start()
+            worker.join(10)
+        finally:
+            matrix.subprocess.Popen = real
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertNotEqual(answer[0][0], 0)
+
+    def test_sigterm_while_the_main_thread_holds_the_lock_does_not_deadlock(self):
+        import os
+        import signal
+        import threading
+        import time
+        m = matrix.Matrix(matrix.parse_args(["--cli", "/bin/sleep", "--out", "/tmp/x"]))
+
+        class Cancelled(Exception):
+            pass
+
+        def handler(signum, frame):
+            m.stop()
+            raise Cancelled
+        previous = signal.signal(signal.SIGTERM, handler)
+        answer = []
+        worker = threading.Thread(target=lambda: answer.append(m.cmux("600", timeout=600)))
+        worker.start()
+        deadline = time.monotonic() + 5
+        while not m.children and time.monotonic() < deadline:
+            time.sleep(0.05)
+        started = time.monotonic()
+        try:
+            with self.assertRaises(Cancelled):
+                with m.lock:  # as launch(), sweep() and kill() hold it
+                    os.kill(os.getpid(), signal.SIGTERM)
+                    time.sleep(5)
+        finally:
+            signal.signal(signal.SIGTERM, previous)
+        worker.join(10)
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertNotEqual(answer[0][0], 0)
 
 
 if __name__ == "__main__":

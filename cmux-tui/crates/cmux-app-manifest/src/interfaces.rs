@@ -15,6 +15,8 @@ macro_rules! interfaces {
 }
 
 interfaces! {
+    "cmux.composer.command/1" => "cmux.composer.command",
+    "cmux.composer.mention/1" => "cmux.composer.mention",
     "cmux.chat.widget/1" => "cmux.chat.widget",
     "cmux.contact.provider/1" => "cmux.contact.provider",
     "cmux.credential.provider/1" => "cmux.credential.provider",
@@ -24,7 +26,6 @@ interfaces! {
     "cmux.feed.source/1" => "cmux.feed.source",
     "cmux.fs.provider/1" => "cmux.fs.provider",
     "cmux.hovercard/1" => "cmux.hovercard",
-    "cmux.newtab.widget/1" => "cmux.newtab.widget",
     "cmux.opener/1" => "cmux.opener",
     "cmux.palette.scope/1" => "cmux.palette.scope",
     "cmux.pane/1" => "cmux.pane",

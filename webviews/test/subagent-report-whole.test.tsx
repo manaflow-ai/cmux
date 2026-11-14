@@ -21,6 +21,7 @@ import {
 } from "../src/agent-session/acpmux/conversation/markdownCut";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
+import { settleReact } from "./support/domTeardown";
 
 // The report from Leo's screenshot, long enough that acpmux's 240-character cut lands in the
 // bold span of the first list item.
@@ -102,7 +103,7 @@ function render(
   views: Record<string, AcpmuxRow[]> = {},
   readReply?: (id: string) => Promise<string | undefined>,
   opened: string[] = [],
-  arm?: "preview",
+  arm: "preview" | "disclosure" = "disclosure",
 ): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>");
   for (const key of GLOBALS) saved.set(key, scope[key]);
@@ -142,9 +143,10 @@ const click = async (element: Element) =>
     element.dispatchEvent(new dom!.window.MouseEvent("click", { bubbles: true }));
   });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

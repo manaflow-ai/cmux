@@ -9,6 +9,7 @@ import { isNoRepository } from "../src/agent-session/acpmux/changes/gitWrite";
 import { useGitWrite, type GitWrite } from "../src/agent-session/acpmux/changes/useGitWrite";
 import type { ChangesSource } from "../src/agent-session/acpmux/changes/model";
 import { NativeError } from "../src/agent-session/acpmux/nativeError";
+import { settleReact } from "./support/domTeardown";
 
 const notARepository = () =>
   new NativeError({
@@ -51,6 +52,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

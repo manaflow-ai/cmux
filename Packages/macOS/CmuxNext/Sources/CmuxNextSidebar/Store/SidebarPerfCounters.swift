@@ -30,6 +30,13 @@ import Foundation
 ///   lays out none, at 50 rows as at 200 (SIDEBAR INSERT: a create's row becoming its workspace's row).
 /// - `stuck_header_updates`: finds of the stuck project header (`SidebarListView.followStuckHeader`): one per scroll
 ///   frame, at 30 rows as at 3,000 (SIDEBAR-STICKY).
+/// - `rows_walked`: listed rows a structural stage read to show a change: the nodes handed to `SidebarModel.setSections`
+///   (it arranges and compares each), the nodes a list splice compared (`spliceInsertion`, `spliceRemoval`) and the
+///   rows the scroll rule read (`viewport_rows`). One closed or new row must walk the rows that changed, at 60
+///   workspaces as at 826 (WORKSPACE LIST 800).
+/// - `viewport_rows`: rows the list's scroll rule read to keep what the user sees (`ListViewportChange` over the shown
+///   and the new `SidebarLayout`): the rows in view and the rows that left or came beside them, never every listed
+///   row (SIDEBAR ROW CHANGE stage 1). Counted in `rows_walked` too.
 /// - `rows_made`: rows mapped from their stores (`SidebarRowFeed.Make.rows`), by the feed (its due rows) or by a caller
 ///   with no feed (every row it lists): one new workspace maps its own row, at 60 workspaces as at 826 (WORKSPACE LIST 800).
 /// - `slot_rows`: rows `SidebarSection.withoutPlaceholders` walked and copied (a new workspace's slot rule).
@@ -59,6 +66,10 @@ nonisolated enum SidebarPerfCounters {
         /// A scroll frame or pass that found the stuck project header (`SidebarListView.followStuckHeader`): one per
         /// frame, whatever the group's size.
         case stuckHeaderUpdates = "stuck_header_updates"
+        /// Listed rows a structural stage read (model set, list splice compare, list viewport) to show a change.
+        case rowsWalked = "rows_walked"
+        /// Rows the list's scroll rule read (the anchor, the settle): the rows in view, at any list length.
+        case viewportRows = "viewport_rows"
         /// Rows mapped from their stores, with or without a feed (`SidebarRowFeed.Make.rows`).
         case rowsMade = "rows_made"
         /// Rows the slot rule's placeholder filter walked (`SidebarSection.withoutPlaceholders`).
@@ -75,6 +86,15 @@ nonisolated enum SidebarPerfCounters {
     static func add(_ counter: Counter, _ amount: Int = 1) {
         guard amount != 0 else { return }
         counts.withLock { $0[counter, default: 0] += amount }
+    }
+
+    /// Rows the list's scroll rule read: `viewport_rows`, and `rows_walked` (a structural stage's rows).
+    static func addViewportRows(_ amount: Int) {
+        guard amount != 0 else { return }
+        counts.withLock {
+            $0[.viewportRows, default: 0] += amount
+            $0[.rowsWalked, default: 0] += amount
+        }
     }
 
     /// The current count of `counter`.

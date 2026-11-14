@@ -353,11 +353,16 @@ fn spool_message(text: String) -> Result<(String, Option<Arc<MessageFile>>), Str
         .tempdir()
         .map_err(|e| format!("cannot spool message: {e}"))?;
     let path = spool.path().join("message.txt");
-    let mut open = std::fs::OpenOptions::new();
-    open.read(true).write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
-    let mut file = open.open(&path).map_err(|e| format!("cannot spool message: {e}"))?;
+    // A temporary folder, not the home: `home_fs` opens it by path, as before. The detector
+    // reads the spool's path as the home's (#41462 review F2), and going through `home_fs`
+    // keeps it a rule with no exception.
+    let mut file = crate::home_fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)
+        .map_err(|e| format!("cannot spool message: {e}"))?;
     // The MCP parser already owns text. Move it here, without another full copy,
     // then release it as soon as the spool is ready for the chunked uploader.
     for chunk in text.as_bytes().chunks(crate::hub::file_uploads::CHUNK_BYTES) {
@@ -759,7 +764,9 @@ pub(super) async fn relay(
         std::env::var(SESSION_ENV).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
     });
     // The subagent that made the call (`subagent_call.rs`), named to the relay as a label.
-    let from = crate::cli::send_relay::RelaySender::new(from, sub);
+    // parse_item already validated the explicit class; aliases use the canonical wire value.
+    let class = target.item.class.as_deref().and_then(crate::prompt_class::PromptClass::parse);
+    let from = crate::cli::send_relay::RelayMetadata::new(from, sub, class);
     let (session, text) = (target.key.clone(), target.text.clone());
     let deadline = tokio::time::Instant::now() + RELAY_WAIT;
     let done = tokio::task::spawn_blocking(move || {

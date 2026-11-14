@@ -18,6 +18,9 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
         /// A machine whose daemon can be reached (or soon will be).
         public var isLive: Bool { CloudMachineRules.statuses.live.contains(self) }
 
+        /// Paused, or a pause the server accepted: nothing should dial it until a person resumes it.
+        public var isPaused: Bool { self == .paused || self == .pausing }
+
         /// A pause, resume or delete is on its way.
         public var isChanging: Bool { CloudMachineRules.statuses.changing.contains(self) }
 

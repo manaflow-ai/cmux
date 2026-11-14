@@ -8,7 +8,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use cmux_app_host::{FromHost, ToHost};
+use cmux_app_host::{FatalReason, FromHost, ToHost};
 use serde_json::{Value, json};
 
 use super::catalog::Sources;
@@ -52,7 +52,12 @@ fn scripted_app_host() {
                 });
             }
             ToHost::Init { .. } => send(FromHost::Ready { runtime: "scripted".into() }),
-            ToHost::Mount { mount, export, .. } => {
+            ToHost::Mount { mount, export, ctx } => {
+                // `timeout`: the render runs past its entry deadline, every time.
+                if ctx["timeout"] == true {
+                    send(FromHost::Fatal { reason: FatalReason::Interrupt, entry: "mount".into() });
+                    std::process::exit(70);
+                }
                 if export == "renderFail" {
                     send(FromHost::Mounted { mount, error: Some("render failed".into()) });
                     continue;
@@ -60,7 +65,7 @@ fn scripted_app_host() {
                 if export == "renderLive" {
                     send(FromHost::Subscribe {
                         sub: 1,
-                        stream: "workspace.changed".into(),
+                        stream: ctx["stream"].as_str().unwrap_or("workspace.changed").into(),
                         filter: json!({}),
                     });
                 }
@@ -109,14 +114,23 @@ fn scripted_app_host() {
                     .find(|(c, _)| *c == cb)
                     .map(|(_, m)| m.clone())
                     .unwrap_or_default();
+                // One node per call: two answers in one frame stay two ops
+                // when the supervisor coalesces them (budget.rs).
                 send(FromHost::Scene {
                     mount,
-                    ops: json!([{ "op": "update", "id": "n1", "props": { "result": { "ok": ok, "body": body } } }]),
+                    ops: json!([{ "op": "update", "id": format!("r{cb}"), "props": { "result": { "ok": ok, "body": body } } }]),
                 });
             }
-            ToHost::Run { cb, export, gesture, .. } => {
+            ToHost::Run { cb, export, gesture, args } => {
                 if export == "crash" {
                     std::process::exit(70);
+                }
+                if export == "openLink" {
+                    // An opener (`cmux.opener/1`): the link it was asked to open.
+                    send(FromHost::Log {
+                        level: "info".into(),
+                        message: format!("open {}", args["url"]),
+                    });
                 }
                 if let Some(gesture) = &gesture {
                     send(FromHost::Log {
@@ -248,7 +262,7 @@ fn write_app(root: &Path, dir: &str, id: &str, scopes: Value) {
     let mut manifest = json!({
         "manifestVersion": 2, "id": id, "name": "Demo", "version": "1.0.0", "description": "d",
         "engines": { "cmux": "^2.0" }, "runtime": { "main": "dist/main.js" }, "catalog": "catalog.json",
-        "implements": { "cmux.section/1": { "export": "render", "title": "Demo" }, "cmux.session.info.section/1": { "export": "renderSession", "title": "Session", "symbol": "info.circle", "options": { "maxRows": 8 } }, "cmux.status/1": { "export": "renderFail" }, "cmux.palette.scope/1": { "export": "renderLive" }, "cmux.newtab.widget/1": { "export": "renderWidget", "title": "Clock", "symbol": "clock", "options": { "size": "wide" } } },
+        "implements": { "cmux.section/1": { "export": "render", "title": "Demo" }, "cmux.session.info.section/1": { "export": "renderSession", "title": "Session", "symbol": "info.circle", "options": { "maxRows": 8 } }, "cmux.status/1": { "export": "renderFail" }, "cmux.palette.scope/1": { "export": "renderLive" } },
         "scopes": scopes, "files": ["dist/", "catalog.json"]
     });
     if !id.starts_with("local/") {
@@ -302,7 +316,7 @@ fn fixture_safe(defaults: &[&str], idle: Duration, root: TempDir, safe_mode_env:
             &bundled,
             "demo",
             "cmux/demo",
-            json!({ "workspace:read": "r", "workspace:write": "w", "storage:local": "s", "net:api.example.com": "n", "actions:run": "a", "terminal:write": "t", "integration:github:read": "g" }),
+            json!({ "workspace:read": "r", "workspace:write": "w", "storage:local": "s", "net:api.example.com": "n", "actions:run": "a", "terminal:write": "t", "integration:github:read": "g", "settings:read": "s" }),
         );
         write_app(
             &state.join("apps/local"),
@@ -474,64 +488,6 @@ fn session_info_panels_lists_only_visible_installed_apps() {
 }
 
 #[test]
-fn new_tab_widgets_list_with_the_layout_and_start_no_host() {
-    const WIDGET: &str = "cmux.newtab.widget/1";
-    let f = fixture();
-    let list = || {
-        f.supervisor
-            .store_call(CLIENT, "apps.panels.list", json!({ "interface": WIDGET }), Origin::Script)
-            .unwrap()
-    };
-    assert_eq!(list(), json!({ "panels": [], "layout": [] }));
-
-    f.install("cmux/demo");
-    let hosts = || f.supervisor.inner.lock().unwrap().hosts.len();
-    let before = hosts();
-    assert_eq!(
-        list()["panels"],
-        json!([{
-            "app": "cmux/demo", "section": WIDGET, "title": "Clock", "symbol": "clock", "size": "wide"
-        }])
-    );
-    // R1: listing a page's widgets reads the catalog only; a host starts on a mount.
-    assert_eq!(hosts(), before);
-
-    let layout = json!(["clock", "app:cmux/demo#cmux.newtab.widget/1"]);
-    let set = |origin: Origin, layout: Value| {
-        f.supervisor.store_call(
-            CLIENT,
-            "apps.panels.layout.set",
-            json!({ "interface": WIDGET, "layout": layout, "idempotency_key": "layout-1" }),
-            origin,
-        )
-    };
-    assert_eq!(set(Origin::Script, layout.clone()).unwrap_err().code, "apps.origin");
-    assert_eq!(set(Origin::User, json!(["clock", "clock"])).unwrap_err().code, "bad-request");
-    assert_eq!(set(Origin::User, layout.clone()).unwrap()["layout"], layout);
-    assert_eq!(list()["layout"], layout);
-    let saved: Value =
-        serde_json::from_slice(&std::fs::read(f.state.join("apps-newtab-layout.json")).unwrap())
-            .unwrap();
-    assert_eq!(saved["layout"], layout);
-
-    // Session Info keeps its listing (no interface named), and a sidebar section is no page panel.
-    let session =
-        f.supervisor.store_call(CLIENT, "apps.panels.list", json!({}), Origin::Script).unwrap();
-    assert_eq!(session["panels"][0]["section"], "cmux.session.info.section/1");
-    assert!(session.get("layout").is_none());
-    let refused = f
-        .supervisor
-        .store_call(
-            CLIENT,
-            "apps.panels.list",
-            json!({ "interface": "cmux.section/1" }),
-            Origin::Script,
-        )
-        .unwrap_err();
-    assert_eq!(refused.code, "apps.panels.interface");
-}
-
-#[test]
 fn unverified_apps_start_sandboxed_with_read_scopes() {
     let f = fixture();
     f.install("local/spy");
@@ -555,6 +511,7 @@ fn default_apps_are_installed_with_required_scopes() {
             "actions:run",
             "integration:github:read",
             "net:api.example.com",
+            "settings:read",
             "storage:local",
             "terminal:write",
             "workspace:read",
@@ -672,6 +629,31 @@ fn daemon_events_reach_subscribed_apps() {
     assert!(lines["lines"].as_array().unwrap().iter().any(|l| l["message"] == "event 1"));
 }
 
+/// `settings.changed` and `theme.changed` reach an app granted `settings:read` (their declared
+/// `reads` op is `settings.get`, not a `settings.list`/`theme.list` family op), and only that app.
+#[test]
+fn settings_and_theme_events_reach_apps_that_read_settings() {
+    for stream in ["settings.changed", "theme.changed"] {
+        let f = fixture();
+        f.install("cmux/demo");
+        f.install("local/spy");
+        f.mount("d", "cmux/demo", "cmux.palette.scope/1", json!({ "stream": stream }));
+        f.mount("s", "local/spy", "cmux.palette.scope/1", json!({ "stream": stream }));
+        f.supervisor.logs(CLIENT, "cmux/demo", true);
+        f.supervisor.publish(stream, json!({}));
+        f.wait(stream, |e| e["event"] == "apps-log" && e["message"] == "event 1");
+        let heard = |app: &str| {
+            f.supervisor.logs(CLIENT, app, false)["lines"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|line| line["message"] == "event 1")
+        };
+        assert!(heard("cmux/demo"), "{stream}: the app granted settings:read");
+        assert!(!heard("local/spy"), "{stream}: an app without settings:read");
+    }
+}
+
 #[test]
 fn rejects_and_noops_still_settle() {
     let f = fixture();
@@ -765,9 +747,12 @@ fn view_state_ops_need_a_live_token_for_this_app_spent_once() {
         .unwrap();
     let mut results = Vec::new();
     while results.len() < 2 {
+        // Both answers may come in one coalesced batch.
         let update =
             f.wait("call result", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
-        results.push(update["ops"][0]["props"]["result"].clone());
+        for op in update["ops"].as_array().into_iter().flatten() {
+            results.push(op["props"]["result"].clone());
+        }
     }
     // Answers arrive in any order: a refusal is immediate, an accepted call
     // answers from its worker thread.
@@ -1059,10 +1044,16 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
     assert_eq!(granted["grants"], json!(["terminal:backend", "workspace:read"]));
 }
 
+#[path = "supervisor_chat_widget_tests.rs"]
+mod chat_widgets;
+#[path = "supervisor_composer_tests.rs"]
+mod composer;
 #[path = "supervisor_inventory_demand_tests.rs"]
 mod inventory_demand;
 #[path = "supervisor_local_reload_tests.rs"]
 mod local_reload;
+#[path = "supervisor_opener_tests.rs"]
+mod openers;
 #[path = "supervisor_provider_changed_tests.rs"]
 mod provider_changed;
 #[path = "supervisor_provider_tests.rs"]
@@ -1076,3 +1067,9 @@ mod subscriptions;
 
 #[path = "supervisor_run_lifecycle_tests.rs"]
 mod run_lifecycle;
+
+#[path = "supervisor_rollback_tests.rs"]
+mod rollback_tolerance;
+
+#[path = "supervisor_budget_tests.rs"]
+mod budget;

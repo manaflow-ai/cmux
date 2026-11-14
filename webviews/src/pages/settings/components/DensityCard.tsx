@@ -30,6 +30,7 @@ import {
 } from "../density";
 import { t } from "../strings";
 import { SettingRow } from "./SettingRow";
+import { rangeFill } from "../format";
 
 const EXACT: ReadonlyArray<keyof typeof PAIRS> = ["sidebarRowHeight", "tabHeight", "itemCornerRadius", "iconSize"];
 
@@ -107,6 +108,7 @@ function Slider({
         max={range.max}
         step={step}
         value={value}
+        style={rangeFill(value, range.min, range.max)}
         onChange={(event) => onChange(Number(event.target.value))}
       />
       <output>{value}</output>

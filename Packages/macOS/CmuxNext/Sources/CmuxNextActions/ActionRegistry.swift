@@ -67,6 +67,9 @@ public final class ActionRegistry {
     /// leaves the palette, menus and context menus, and a run is refused with this reason (the
     /// person's own choice, not `DisabledFeatures`). The App installs it.
     @ObservationIgnored public var settingOffReason: @MainActor (ActionID) -> String? = { _ in nil }
+    /// Debug-only actions: offered to the person only while Internal Developer Mode is on, to scripts
+    /// wherever developer tools exist (`DebugActionGate`). The App installs the setting's read.
+    @ObservationIgnored public var debugActions = DebugActionGate()
     /// The person's arrangement of each right-click menu (cmux.json `contextMenus.layouts`,
     /// ``ContextMenuLayout``); a menu without one is drawn as generated.
     public var contextMenuLayouts: [ActionMenuContext: ContextMenuLayout] = [:]
@@ -376,20 +379,29 @@ public final class ActionRegistry {
 
     /// Whether the action applies in `context` (default: the current one): policy allows it, its
     /// required context is present, and it is not debug-only without developer tools (`DevTools`).
+    /// A debug-only action is offered to the person only while Internal Developer Mode is on (`debugActions`).
     public func isAvailable(_ id: ActionID, in context: ActionContext? = nil) -> Bool {
+        isAvailable(id, in: context, debugActionsOffered: debugActions.offeredToPerson)
+    }
+
+    /// `isAvailable(_:in:)`, with whether debug-only actions are offered to this run decided by the caller.
+    private func isAvailable(_ id: ActionID, in context: ActionContext?, debugActionsOffered: Bool) -> Bool {
         guard let descriptor = descriptor(for: id) else { return isBound(id) }
         return ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil && settingOffReason(descriptor.id) == nil
-            && Self.isAvailable(descriptor, in: context ?? self.context)
+            && Self.isAvailable(descriptor, in: context ?? self.context, debugActionsOffered: debugActionsOffered)
     }
 
     /// `isAvailable(_:in:)` with the facts the invocation's explicit target
     /// implies (`ActionContext.implied(by:)`).
+    /// A run through the control socket (the CLI, MCP) reaches a debug-only action wherever developer
+    /// tools exist; Internal Developer Mode only decides what the person is offered (`DebugActionGate`).
     public func isAvailable(_ id: ActionID, for invocation: ActionInvocation) -> Bool {
+        let debug = invocation.viaControlSocket ? debugActions.devTools : debugActions.offeredToPerson
         let base = (invocation.keyContext ?? context).union(ActionContext.implied(by: invocation))
         // Asked only when the target is explicit and the run lacks a required fact.
         guard invocation.target != nil, let required = descriptor(for: id)?.requires, !base.isSuperset(of: required),
-              let facts = targetContext?(invocation) else { return isAvailable(id, in: base) }
-        return isAvailable(id, in: base.union(facts))
+              let facts = targetContext?(invocation) else { return isAvailable(id, in: base, debugActionsOffered: debug) }
+        return isAvailable(id, in: base.union(facts), debugActionsOffered: debug)
     }
 
     /// `isAvailable(_:for:)` for a run from outside the app (the CLI, MCP): a `pane:` or `tab:`
@@ -404,11 +416,14 @@ public final class ActionRegistry {
               let targetContext else { return isAvailable(id, for: invocation) }
         let base = (invocation.keyContext ?? context).union(ActionContext.implied(by: invocation))
             .subtracting(.decidedByPaneOrTabTarget)
-        return isAvailable(id, in: base.union(targetContext(invocation).intersection(.decidedByPaneOrTabTarget)))
+        let debug = invocation.viaControlSocket ? debugActions.devTools : debugActions.offeredToPerson
+        return isAvailable(id, in: base.union(targetContext(invocation).intersection(.decidedByPaneOrTabTarget)),
+                           debugActionsOffered: debug)
     }
 
-    public static func isAvailable(_ descriptor: ActionDescriptor, in context: ActionContext) -> Bool {
-        if descriptor.isDebugOnly && !DevTools.isEnabled { return false }
+    /// `debugActionsOffered`: whether this run may reach a debug-only action (`DebugActionGate`).
+    public static func isAvailable(_ descriptor: ActionDescriptor, in context: ActionContext, debugActionsOffered: Bool) -> Bool {
+        if descriptor.isDebugOnly && !debugActionsOffered { return false }
         return context.isSuperset(of: descriptor.requires)
     }
 
@@ -445,7 +460,7 @@ public final class ActionRegistry {
     /// while Merge Workspace Into… (which acts on a workspace) still asks
     /// for the other workspace, unless the argument names the target itself
     /// (`isSuppliedByTarget`: New Workspace in Space… on a right-clicked Space).
-    static func target(of invocation: ActionInvocation, supplies argument: ActionArgument, for descriptor: ActionDescriptor) -> Bool {
+    public static func target(of invocation: ActionInvocation, supplies argument: ActionArgument, for descriptor: ActionDescriptor) -> Bool {
         guard case .target(let kind) = argument.kind, let target = invocation.target else { return false }
         return target.kind == kind && (argument.isSuppliedByTarget || !descriptor.targets.contains(kind))
     }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { FakeHost } from "../../../cmux-tui/crates/cmux-app-host/js/test/fake-host.ts"
+import { FakeHost } from "cmux-extension-sdk/testing"
 import { scanCalls } from "./l10n-scan.ts"
 
 const dir = join(import.meta.dir, "..")

@@ -1,3 +1,5 @@
+public import CmuxNextCompat
+
 /// The sidebar section settings in cmux.json (`sidebar.sectionLook`,
 /// `sidebar.topBandMaxShare`, `sidebar.bottomBandMaxShare`,
 /// `sidebar.pinnedBandsScroll` and
@@ -40,6 +42,10 @@ public nonisolated enum SidebarGroupBy: String, Hashable, Sendable, CaseIterable
 }
 
 public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
+    /// The document projection overrides from `sidebar.sections` and
+    /// `sidebar.workspaces`. The document remains the persistence owner;
+    /// these values only choose what the native view projects.
+    public var projection = SidebarProjectionCustomization.defaults
     /// A `SectionsLookVariant` raw value (CmuxNextSidebar); unknown = quiet.
     public var look: String
     /// Share of the sidebar height the band above the list takes before it
@@ -122,9 +128,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// and keeps every stored color (Lawrence 2026-10-22: "need to be able to remove all
     /// workspace colors"). On by default.
     public var showColors = true
-    /// `workspaceColors.indicatorStyle` (#25653): a workspace's color as its row's dot (the
-    /// default), a leading rail or the whole row's fill. `showColors` off draws none of them.
-    public var workspaceColorIndicator: WorkspaceColorIndicatorStyle = .dot
+    /// `workspaceColors.indicatorStyle` (#25653): a workspace's color as its row's dot, a leading
+    /// rail (the default, as in classic: Lawrence 2026-11-09, "red dot on left feels weird") or the
+    /// whole row's fill. `showColors` off draws none of them.
+    public var workspaceColorIndicator: WorkspaceColorIndicatorStyle = .leftRail
     /// `sidebar.showLocalMachine`: with more than one machine listed, this Mac's workspace rows
     /// carry its machine mark too. Off by default (Leo 2026-10-20): only another machine's rows
     /// are marked, since that is the news; this Mac is where a row runs unless it says otherwise.

@@ -3,7 +3,7 @@
 // update cost more as the transcript grew, 1.9x and 2.9x from 50 to 5,000 rows).
 import { expect, test } from "bun:test";
 import { LayeredMap } from "../src/agent-session/acpmux/conversation/layeredMap";
-import { PrefixFlatCache, prefixFlatMap } from "../src/agent-session/acpmux/conversation/prefixFlatMap";
+import { keptPrefix, PrefixFlatCache, prefixFlatMap } from "../src/agent-session/acpmux/conversation/prefixFlatMap";
 import { rowPresence, type RowPresenceHints } from "../src/agent-session/acpmux/conversation/rowPresence";
 import { withoutQuietThoughts } from "../src/agent-session/acpmux/conversation/thoughts";
 import {
@@ -338,11 +338,41 @@ test("the pane's per-snapshot passes read only the rows an update changed", asyn
   // The groups and reports are found from the tail alone; each ended subagent's line is still
   // placed again per update (its group, its agent and the rows right after it: about a dozen
   // fields per group, 333 groups here), never the rows between groups. Grows with groups, not rows.
+  // Each group's compact start line (#42247, runningTray.ts `startedLine`) reads its group's agents
+  // once more per update, so about 14 fields per group (measured 14,028 reads).
   const lines = new Map();
   readsOnlyTheTail(
     "withSubagentLines",
     (rows) => withSubagentLines(rows, lines),
-    333 * 3 * 13,
+    333 * 3 * 15,
     (rows) => rows.map((each) => [each.id, each.kind]),
   );
+});
+
+test("the prefix passes hold no rows of a chat that closed", async () => {
+  // The passes are module state shared by every chat; holding a closed 35,000-row chat's arrays
+  // there kept it in memory until newer passes pushed it out (review of #40592).
+  const { composerRows } = await import("../src/agent-session/acpmux/composer/composerView");
+  const { subagentsIn } = await import("../src/agent-session/acpmux/subagents/subagentRows");
+  const cache = new PrefixFlatCache<AcpmuxRow, string>((each) => [each.id]);
+  const open = (): WeakRef<readonly AcpmuxRow[]>[] => {
+    const first = mixedHistory(2000);
+    const next = [...first, row("live", { text: "x" })];
+    for (const rows of [first, next]) {
+      cache.read(rows);
+      composerRows(rows);
+      subagentsIn(rows);
+      keptPrefix(first, rows);
+    }
+    // The passes reused the first snapshot's work for the next one.
+    expect(cache.read(next).items.length).toBe(next.length);
+    return [new WeakRef(first), new WeakRef(next)];
+  };
+  const closed = [...open(), ...open()];
+  for (let pass = 0; pass < 4; pass += 1) {
+    // A turn of the event loop between collections: a WeakRef holds its target until the job ends.
+    await new Promise((resolve) => setImmediate(resolve));
+    Bun.gc(true);
+  }
+  expect(closed.filter((ref) => ref.deref() !== undefined).length).toBe(0);
 });

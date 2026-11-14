@@ -301,7 +301,7 @@ mod hook_callback_tests;
 mod inbound;
 // What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
 mod logged_bodies;
-pub use logged_bodies::leave_out_bodies;
+pub use logged_bodies::{PROMPT_BODY_KEPT_UNDER, leave_out_bodies, leave_out_prompt_bodies};
 // What the log keeps of Claude's raw system/init lines (`logged_init.rs`).
 mod logged_init;
 pub use logged_init::{InitSections, LoggedInit};
@@ -324,6 +324,9 @@ mod result_images;
 pub(crate) use result_images::result_images;
 #[cfg(test)]
 mod result_images_tests;
+// A prompt Claude Code queued behind a turn of its own (`queued_prompt_tests.rs`).
+#[cfg(test)]
+mod queued_prompt_tests;
 #[cfg(test)]
 mod steer_now_tests;
 // Other sessions' messages steered into one step go in as one line (`steer_batch.rs`).
@@ -440,6 +443,10 @@ pub struct SpawnPlan {
     pub args: Vec<String>,
 }
 
+/// Moves Claude Code's per-machine system prompt sections into the first user message, so
+/// every chat on every folder shares one cached system prompt (`spawn_plan`).
+pub const EXCLUDE_DYNAMIC_FLAG: &str = "--exclude-dynamic-system-prompt-sections";
+
 /// Build the claude command line. `resume` reopens an existing Claude
 /// session (or forks it); `fresh_id` pins the id of a brand-new one so acpmux
 /// knows it before the first turn.
@@ -495,6 +502,16 @@ pub fn spawn_plan(
     if !profile.argv.iter().any(|a| a == "--thinking-display") {
         args.push("--thinking-display".into());
         args.push("summarized".into());
+    }
+    // Claude Code's default system prompt carries per-machine sections (cwd, env info, memory
+    // paths, git status), so two chats in two folders shared no cached system prompt: every new
+    // chat wrote its system prompt to the prompt cache again. This flag moves those sections into
+    // the first user message, after the shared prefix. Measured with one harness (two fresh
+    // `claude -p` chats in two repos, Claude Code 2.1.312): the second chat read 24,079 tokens
+    // from cache and wrote 7,795 without it, read 25,595 and wrote 6,048 with it (Leo,
+    // 2026-11-09: "if we're doing th eproper cutting edge stuff"). A profile may pin it itself.
+    if !profile.argv.iter().any(|a| a == EXCLUDE_DYNAMIC_FLAG) {
+        args.push(EXCLUDE_DYNAMIC_FLAG.into());
     }
     // A later --model wins over one the profile pins in its argv.
     if let Some(m) = model.filter(|m| !m.is_empty() && *m != "default") {
@@ -561,6 +578,10 @@ pub struct Translator {
     /// The `uuid` of the turn's prompt line until Claude Code echoes it
     /// (`isReplay` carries the line's `uuid`).
     prompt_echo: Mutex<Option<String>>,
+    /// Claude Code queued the turn's prompt line behind a turn of its own (`command_lifecycle`
+    /// `queued` for the line's uuid) and has not started it yet: a model turn's result meanwhile
+    /// is that other turn's, never the prompt's (`queued_prompt_tests.rs`).
+    prompt_queued: AtomicBool,
     /// The `/rename` lines written and not yet answered, oldest first (`live_name.rs`).
     renaming: Mutex<std::collections::VecDeque<live_name::Rename>>,
     /// Prompts still unanswered when the next one went out: acpmux ended
@@ -776,6 +797,7 @@ impl Translator {
             in_turn: AtomicBool::new(false),
             turn_output: AtomicBool::new(false),
             prompt_echo: Mutex::new(None),
+            prompt_queued: AtomicBool::new(false),
             renaming: Mutex::new(std::collections::VecDeque::new()),
             abandoned: Mutex::new(Vec::new()),
             steers: Mutex::new(std::collections::VecDeque::new()),

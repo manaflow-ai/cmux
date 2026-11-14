@@ -2,17 +2,17 @@
 // `HomeHeaderPanels`): quiet icon buttons, no pill at rest, the theme's hover pill, the accent
 // glyph when on, left to right in the panels' order. Each opens a panel beside Home and, clicked
 // again, closes it (Leo 2026-10-20: "Use top-right toggle buttons ... Nothing opens by default").
-// The host says which show and which are on (`cmux.home.messages.headerPanels`); a click is
-// `cmux.home.messages.headerPanels.toggle {id}`, which runs the panel's action as the person's own.
+// The host says which show and which are on (`cmux.home.headerPanels.state`); a click is
+// `cmux.home.headerPanels.toggle {id}`, which runs the panel's action as the person's own.
 import { Icon } from "../../../../agent-session/acpmux/icons/Icon";
 import { Tooltip } from "../../../../ui/Tooltip";
 import type { Strings } from "../strings";
 import "../cards.css";
 
 /** A click on toggle `id` (page → host): the panel's action, with its arguments for this chat. */
-export const HEADER_PANEL_TOGGLE_OP = "cmux.home.messages.headerPanels.toggle";
+export const HEADER_PANEL_TOGGLE_OP = "cmux.home.headerPanels.toggle";
 /** The host's state of every toggle for this chat (host → page), after every change. */
-export const HEADER_PANEL_STATE_EVENT = "cmux.home.messages.headerPanels";
+export const HEADER_PANEL_STATE_EVENT = "cmux.home.headerPanels.state";
 
 /** One header panel (the Swift `HomeHeaderPanel` entry): its icon closed and open, its name. */
 export interface HeaderPanel {

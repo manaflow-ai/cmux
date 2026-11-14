@@ -15,7 +15,27 @@ import CmuxNextDesign
 final class AgentPaneSessionInfoPanel: NSView {
     let store: AgentPaneSessionInfoStore
     private let content: AgentPaneSessionInfoContent
+    /// Holds the content at its unzoomed size and draws it ``magnification`` times larger: its bounds
+    /// are its frame's size over the magnification. The panel's own layer (its edge, its cut-outs'
+    /// mask) stays in pane points.
+    private let stage = NSView()
     private let edge = AgentPaneSessionInfoEdge()
+    /// How much larger than its layout the content shows: the page's trackpad pinch
+    /// (``AgentPaneSessionInfoPinch``), 1 with none.
+    var magnification: CGFloat = 1 {
+        didSet { if magnification != oldValue { needsLayout = true } }
+    }
+    /// Where the panel's frame starts in the whole pinched panel, points from its left and bottom
+    /// edges: nonzero while the page's edge cuts the panel off, so the part on screen shows the content
+    /// that lies there.
+    var contentOffset: CGPoint = .zero {
+        didSet { if contentOffset != oldValue { needsLayout = true } }
+    }
+    /// The whole pinched panel's size, points, while the page's edge cuts it off; nil when the
+    /// panel's frame is all of it.
+    var wholeSize: CGSize? {
+        didSet { if wholeSize != oldValue { needsLayout = true } }
+    }
     /// The glass under the content while the panel lies over the chat's column; nil over the
     /// pane's empty gutter, where the content stands on the pane itself.
     private(set) var backing: OverlaySurfaceView?
@@ -25,8 +45,12 @@ final class AgentPaneSessionInfoPanel: NSView {
         content = AgentPaneSessionInfoContent(store: store)
         super.init(frame: .zero)
         content.translatesAutoresizingMaskIntoConstraints = true
-        content.autoresizingMask = [.width, .height]
-        addSubview(content)
+        stage.translatesAutoresizingMaskIntoConstraints = true
+        // The content can be larger than the stage (a panel the page's edge cuts off): only the stage's part draws.
+        stage.wantsLayer = true
+        stage.layer?.masksToBounds = true
+        stage.addSubview(content)
+        addSubview(stage)
         edge.autoresizingMask = [.height, .maxXMargin]
         addSubview(edge)
         let draw = store.redraw
@@ -73,7 +97,7 @@ final class AgentPaneSessionInfoPanel: NSView {
             glass.translatesAutoresizingMaskIntoConstraints = true
             glass.autoresizingMask = [.width, .height]
             glass.frame = bounds
-            addSubview(glass, positioned: .below, relativeTo: content)
+            addSubview(glass, positioned: .below, relativeTo: stage)
             backing = glass
         } else if !overChat, let glass = backing {
             glass.removeFromSuperview()
@@ -99,10 +123,23 @@ final class AgentPaneSessionInfoPanel: NSView {
         applyEdge()
     }
 
+    /// A new size lays the stage out again: its bounds are the size over the magnification, which
+    /// autoresizing does not keep.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
+    }
+
     override func layout() {
         super.layout()
         backing?.frame = bounds
-        content.frame = bounds
+        stage.frame = bounds
+        let scale = max(0.1, magnification)
+        stage.bounds = CGRect(x: contentOffset.x / scale, y: contentOffset.y / scale,
+                              width: bounds.width / scale, height: bounds.height / scale)
+        // The whole panel's content, of which the stage shows the part on screen.
+        let whole = wholeSize ?? bounds.size
+        content.frame = CGRect(x: 0, y: 0, width: whole.width / scale, height: whole.height / scale)
         edge.frame = CGRect(x: 0, y: 0, width: AgentPaneSessionInfoEdge.width, height: bounds.height)
         applyHoles()
     }
@@ -208,7 +245,7 @@ extension NSView {
 @MainActor final class AgentPaneSessionInfoStore {
     var info: AgentPaneSessionInfoModel? { didSet { if info != oldValue { redraw() } } }
     var colors = AgentPaneSessionInfoColors() { didSet { if colors != oldValue { redraw() } } }
-    /// Points per CSS pixel: the page's zoom.
+    /// Points per CSS pixel on screen: the page's zoom times its trackpad pinch.
     var zoom: CGFloat = 1
     /// The width a drag of the left edge gives the panel before the page hears it, CSS pixels.
     var dragWidth: Double?

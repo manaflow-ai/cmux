@@ -167,8 +167,6 @@ transitions); and what the file uses when it declares no view.
 | `CmuxNextApp/Checklist/WorkspaceTodoRow.swift` | 67 | 1 |  | 0 | views |
 | `CmuxNextApp/Handlers/BrowserDownloadsPopup.swift` | 468 | 4 | NSHosting | 0 | views |
 | `CmuxNextApp/Handlers/ChiefMemoryPageService.swift` | 176 | 0 | NSHosting | 0 | bridge |
-| `CmuxNextApp/RightSidebar/DockSectionHostView.swift` | 63 | 0 | NSHosting | 0 | bridge |
-| `CmuxNextApp/RightSidebar/DockSectionListView.swift` | 35 | 1 |  | 0 | views |
 | `CmuxNextApp/RightSidebar/MachineSectionHostView.swift` | 52 | 0 | NSHosting | 0 | bridge |
 | `CmuxNextApp/SleepyMode/SleepyOverlayWindows.swift` | 71 | 0 | NSHosting | 0 | bridge |
 | `CmuxNextApp/SleepyMode/SleepySceneView.swift` | 91 | 1 |  | 2 | views |

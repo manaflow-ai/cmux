@@ -184,7 +184,7 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: head-migrations
-          path: head-migrations
+          path: ${{ runner.temp }}/head-migrations
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -201,8 +201,8 @@ jobs:
         run: |
           (cd trusted/backend && bun install --frozen-lockfile)
           cd trusted/backend/db
-          bun migrate.ts --env staging --dir "$GITHUB_WORKSPACE/head-migrations"
-          bun migrate.ts --env staging --dir "$GITHUB_WORKSPACE/head-migrations" --verify
+          bun migrate.ts --env staging --dir "$RUNNER_TEMP/head-migrations"
+          bun migrate.ts --env staging --dir "$RUNNER_TEMP/head-migrations" --verify
 
   apply-production:
     needs: apply-staging
@@ -219,7 +219,7 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: head-migrations
-          path: head-migrations
+          path: ${{ runner.temp }}/head-migrations
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -238,8 +238,8 @@ jobs:
         run: |
           (cd trusted/backend && bun install --frozen-lockfile)
           cd trusted/backend/db
-          bun migrate.ts --env production --confirm-production --dir "$GITHUB_WORKSPACE/head-migrations"
-          bun migrate.ts --env production --dir "$GITHUB_WORKSPACE/head-migrations" --verify
+          bun migrate.ts --env production --confirm-production --dir "$RUNNER_TEMP/head-migrations"
+          bun migrate.ts --env production --dir "$RUNNER_TEMP/head-migrations" --verify
 
   gate:
     name: backend migrations applied
@@ -291,7 +291,7 @@ jobs:
         if: needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target'
         with:
           name: head-migrations
-          path: head-migrations
+          path: ${{ runner.temp }}/head-migrations
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         if: needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target'
         with:
@@ -316,8 +316,8 @@ jobs:
           (cd trusted/backend && bun install --frozen-lockfile)
           cd trusted/backend/db
           ok=1
-          CMUX_NEXT_PG_MIGRATOR_URL="$STAGING_URL" bun migrate.ts --env staging --verify --dir "$GITHUB_WORKSPACE/head-migrations" || ok=0
-          CMUX_NEXT_PG_MIGRATOR_URL="$PROD_URL" bun migrate.ts --env production --verify --dir "$GITHUB_WORKSPACE/head-migrations" || ok=0
+          CMUX_NEXT_PG_MIGRATOR_URL="$STAGING_URL" bun migrate.ts --env staging --verify --dir "$RUNNER_TEMP/head-migrations" || ok=0
+          CMUX_NEXT_PG_MIGRATOR_URL="$PROD_URL" bun migrate.ts --env production --verify --dir "$RUNNER_TEMP/head-migrations" || ok=0
           if [ "$ok" = 0 ]; then
             echo "::error::migrations are not applied (or the database has migrations this tree lacks). Merge the base, then add the label backend:apply-migrations; merging deploys."
             exit 1

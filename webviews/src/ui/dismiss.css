@@ -1,0 +1,23 @@
+/* The shared close × (ui/DismissButton.tsx). A hover-revealed one keeps its room at rest and only
+   fades: its card's text is laid out beside it either way, so revealing it moves nothing. */
+.ui-dismiss {
+  flex: none;
+}
+.ui-dismiss[data-reveal="hover"] {
+  opacity: 0;
+  transition: opacity var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+[data-dismiss-host]:is(:hover, :focus-within) .ui-dismiss[data-reveal="hover"],
+[data-dismiss-host]:is(:has([data-popup-open]), :focus-within) .ui-dismiss[data-reveal="hover"],
+.ui-dismiss[data-reveal="hover"]:focus-visible {
+  opacity: 1;
+}
+/* Pointerless (touch) has no hover to reveal it: it shows at rest. */
+@media (hover: none) {
+  .ui-dismiss[data-reveal="hover"] {
+    opacity: 1;
+  }
+}
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .ui-dismiss[data-reveal="hover"] {
+  transition: none;
+}

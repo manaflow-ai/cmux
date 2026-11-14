@@ -13,11 +13,11 @@ import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-SPEC = importlib.util.spec_from_file_location("build_names", HERE.parent / "build_names.py")
-assert SPEC and SPEC.loader
-build_names = importlib.util.module_from_spec(SPEC)
-sys.modules["build_names"] = build_names
-SPEC.loader.exec_module(build_names)
+# Imported by name, never loaded by path: one module object per file, so a test that patches it
+# patches what every other test reads (tests/test_script_module_loads.py).
+if str(HERE.parent) not in sys.path:
+    sys.path.insert(0, str(HERE.parent))
+import build_names  # noqa: E402
 
 VECTORS = json.loads((HERE.parents[2] / "schemas" / "build-identity" / "vectors.json").read_text())
 

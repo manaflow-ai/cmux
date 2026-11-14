@@ -42,14 +42,14 @@ extension HomeService {
                 // Cancelled: the newer ensure_home owns the in-flight flag.
                 guard let self, !Task.isCancelled else { return }
                 homeWorkspaceID = home
-                settleHomeEnsure(generation)
+                settleHomeEnsure(generation); DebugTimings.markLaunch("home.ensure_home")
+                async let chiefTab: Void = ensureChiefTab(connection, home: home) // beside the dock steps: Home's first page waits for both
                 homeWorkspaceStep = await (HomeDock.classic ? "ensured \(home)" : dock.ensure(connection, store: services.machines.local.store, home: home) {
                     TabMoves.toNewDockColumn($0, anchor: $1, edge: .left, role: .agentChat, respawn: $2, pinned: $3, services: services,
                                              completion: $4) })
-                // Each window's own Home is docked on every connect too (cmux#27880); before the
-                // Chief's tab, which can wait long for the Chief's owner.
-                if !HomeDock.classic { await services.windowHomes.ensureDocks(connection) }
-                try await ensureChiefTab(connection, home: home)
+                // Each window's own Home is docked on every connect too (cmux#27880), never behind the Chief's owner.
+                DebugTimings.markLaunch("home.dock_ensured"); if !HomeDock.classic { await services.windowHomes.ensureDocks(connection) }
+                DebugTimings.markLaunch("home.window_docks"); try await chiefTab
             } catch is CancellationError {
             } catch {
                 self?.settleHomeEnsure(generation)
@@ -79,11 +79,11 @@ extension HomeService {
         return nil
     }
 
-    /// The chief conversation: the oldest conversation with the mux in the
-    /// Chief owner, else one created under a fixed key.
-    private func chiefConversation(_ connection: DaemonConnection) async throws -> String {
+    /// The chief conversation: the oldest conversation with the mux in `listed` (the Chief owner's
+    /// list the caller just read; a second read held a fresh launch's Home a round trip longer), else one created under a fixed key.
+    private func chiefConversation(_ connection: DaemonConnection, listed: [ConversationSummary]) async throws -> String {
         let client = ConversationClient(connection)
-        if let existing = HomeChiefName.select(from: try await client.list()) {
+        if let existing = HomeChiefName.select(from: listed) {
             // One-time rename to the chief's name (N1); a failure keeps the old title.
             if let rename = HomeChiefName.migration(for: existing) {
                 do { _ = try await client.op(rename) } catch {
@@ -133,11 +133,11 @@ extension HomeService {
         // The same sign-in also reads the Home list's Chiefs: the list hides an archived Chief's rows by them
         // (the page's own read can come before sign-in, and a docked Home never makes the page).
         if let read = await readCloudChiefs() { setCloudChiefs(read); await directory.refreshChiefs() }
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else { return }; DebugTimings.markLaunch("home.cloud_chiefs_read")
         // The local Chief keeps the tab until its history is in the Hosted Chief (``HostedChiefMigration/pending``).
         hostedChief.start(cloudChiefs.hosted)
         // The default Chief is this Mac's while its optchat-chief runs (HomeService+ChiefDefault).
-        await refreshLocalChiefRunning()
+        await refreshLocalChiefRunning(); DebugTimings.markLaunch("home.local_chief_read")
         let cloud = tabChiefs
         let shown = cloudChief
         // Local conversations live in the Chief home's owner, not this build's
@@ -148,17 +148,17 @@ extension HomeService {
         if shown == nil {
             homeWorkspaceStep = "waiting for the chief owner \(self.chief.home.session)"
             owner = await chiefConnection()
-            guard owner != nil, !Task.isCancelled else { return }
+            guard owner != nil, !Task.isCancelled else { return }; DebugTimings.markLaunch("home.chief_owner_ready")
         } else {
             owner = chief.supports(DaemonCapability.localConversations.rawValue) ? chief.connection : nil
         }
         var listedAll: [ConversationSummary] = []
-        if let owner { listedAll = try await ConversationClient(owner).list() }
+        if let owner { listedAll = try await ConversationClient(owner).list() }; DebugTimings.markLaunch("home.chief_listed")
         let known = Set(listedAll.map(\.id))
         let listed = HomeChiefName.select(from: listedAll)
         // The local Chief is looked up (never created) while a cloud Chief has the tab.
-        let localChief = if shown == nil, let owner { try await chiefConversation(owner) } else { listed?.id }
-        let localHasHistory = shown == nil || (listed?.lastSeq ?? 0) > 0
+        let localChief = if shown == nil, let owner { try await chiefConversation(owner, listed: listedAll) } else { listed?.id }
+        DebugTimings.markLaunch("home.chief_conversation"); let localHasHistory = shown == nil || (listed?.lastSeq ?? 0) > 0
         // A teleported Chief's tab is the conversation where it answers now (HomeService+ChiefRoster).
         let followed = chiefFollow.conversation
         if let followed { followedChiefConversations.insert(followed) }
@@ -216,17 +216,17 @@ extension HomeService {
 
     /// The view of conversation tab `tab`, made on first show. Opening Home
     /// starts the local mux's brain host once per launch.
-    func tabView(for tab: TabModel) -> HomeConversationPage? {
+    func tabView(for tab: TabModel) -> HomeHostView? {
         guard tab.kind == .conversation, let conversation = tab.snapshot.conversation?.conversation else { return nil }
         if let view = tabViews[tab.id] { return view }
-        guard let view = HomeConversationPage.make(services: services, conversation: conversation) else { return nil }
+        let view = HomeHostView(services: services, conversation: conversation)
         tabViews[tab.id] = view
         // A cloud Chief's brain runs in the cloud or on its server: no local brain host for its tab.
         if cloudChiefs.chief(for: conversation) == nil { homeDidOpen(asked: true) }
         return view
     }
 
-    func existingTabView(_ key: String) -> HomeConversationPage? { tabViews[key] }
+    func existingTabView(_ key: String) -> HomeHostView? { tabViews[key] }
 
     /// The strip title of conversation tab `tab`: its conversation's title.
     func tabTitle(for tab: TabModel) -> String {
@@ -242,6 +242,6 @@ extension HomeService {
 
     /// The tab closed: its view goes with it.
     func releaseTabView(_ key: String) {
-        tabViews.removeValue(forKey: key)?.close()
+        tabViews.removeValue(forKey: key)
     }
 }

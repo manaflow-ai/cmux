@@ -46,7 +46,7 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerRadius = OmnibarStyle.chipCornerRadius
+        layer?.cornerRadius = OmnibarStyle.chipButtonCornerRadius
         layer?.cornerCurve = .continuous
         translatesAutoresizingMaskIntoConstraints = false
         image.translatesAutoresizingMaskIntoConstraints = false
@@ -74,6 +74,12 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func layout() {
+        super.layout()
+        // The bar's height can change live (density, `browser.omnibar.height`): the corner follows it.
+        layer?.cornerRadius = OmnibarStyle.chipButtonCornerRadius
+    }
 
     /// The badge takes the whole press (not its image or label) and the first
     /// one in a browser window that is not key: one click acts, as Chrome's

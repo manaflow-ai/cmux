@@ -96,6 +96,8 @@ public actor AgentSessionAttachClient {
         var vmKind = false
         /// `agent-session-start-model-v1`.
         var model = false
+        /// `agent-session-start-mode-v1`.
+        var startMode = false
         /// `agent-session-trust-vm-kind-v1`.
         var trustVMKind = false
         /// `agent-session-children-v1`.
@@ -176,6 +178,10 @@ public actor AgentSessionAttachClient {
     /// An explicit `model` requires `agent-session-start-model-v1`; older daemons retain the
     /// existing cwd/harness start when no model was requested.
     ///
+    /// `startMode`: the person's mode pick, sent only to the caller's own Cloud VM (`ownerLink`)
+    /// whose daemon lists `agent-session-start-mode-v1`. An older machine starts without it, in
+    /// its own start mode, and the chat's reported mode then names that.
+    ///
     /// `ownerLink`: set for a Cloud machine (from the app's own record of it, never the guest's).
     /// A chat starts there only while it gives the same link id before the connection and as the
     /// start is sent (the link's attach answer said the signed-in caller owns the machine, and
@@ -186,7 +192,7 @@ public actor AgentSessionAttachClient {
     /// that same connection, checked before it: if it ended meanwhile the start fails, never
     /// goes out over a new one.
     public func start(cwd: String?, harness: String?, homeConfirmed: Bool = false, personKey: PersonKey? = nil,
-                      ownerLink: OwnerLink? = nil, model: String? = nil) async throws -> String {
+                      ownerLink: OwnerLink? = nil, model: String? = nil, startMode: String? = nil) async throws -> String {
         guard mode == .attach else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot start a chat")
         }
@@ -200,11 +206,12 @@ public actor AgentSessionAttachClient {
         }
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: homeConfirmed, personKey: personKey,
                                       servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind,
-                                      model: model, servesModel: served.model)
+                                      model: model, servesModel: served.model,
+                                      startMode: startMode, servesStartMode: served.startMode)
         guard !transport.isClosed else {
             throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the start was sent")
         }
-        let data = try await call("agent-session-start", params, on: transport)
+        let data = try await call("agent-session-start", params, timeout: Self.startTimeout, on: transport)
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let session = object["session"] as? String, !session.isEmpty else {
             throw AgentSessionAttachError(code: "agent_session.refused", message: "agent-session-start answered no session")
@@ -247,7 +254,8 @@ public actor AgentSessionAttachClient {
     /// does not advertise is never sent (its `deny_unknown_fields` would refuse the start).
     static func startParams(cwd: String?, harness: String?, homeConfirmed: Bool, personKey: PersonKey?,
                             servesKeyedReason: Bool, callerOwnsVM: Bool, servesVMKind: Bool,
-                            model: String? = nil, servesModel: Bool = false) -> [String: any Sendable] {
+                            model: String? = nil, servesModel: Bool = false,
+                            startMode: String? = nil, servesStartMode: Bool = false) -> [String: any Sendable] {
         var params: [String: any Sendable] = [:]
         if let cwd { params["cwd"] = cwd }
         if let harness { params["harness"] = harness }
@@ -258,6 +266,9 @@ public actor AgentSessionAttachClient {
             if let instance = personKey.instance { params["person_instance"] = instance }
         }
         if callerOwnsVM, servesVMKind { params["vm_kind"] = "owner" }
+        // The mode pick goes only with the owner word: the daemon applies it on the caller's own
+        // Cloud VM and nowhere else.
+        if callerOwnsVM, servesVMKind, servesStartMode, let startMode, !startMode.isEmpty { params["mode"] = startMode }
         return params
     }
 
@@ -549,6 +560,13 @@ public actor AgentSessionAttachClient {
         (try? await liveConnection())?.1.login ?? false
     }
 
+    /// How long a chat start may wait for its machine: the daemon there waits on acpmux as long as acpmux
+    /// still answers, up to 15 minutes (`START_PATIENCE`, agent_session_start.rs), and answers
+    /// `agent_session.timeout` itself when acpmux goes silent; this is that ceiling plus the carrier. A
+    /// link that drops fails the start at once, as before. Was the client's 75 s, which a harness starting in
+    /// a big folder on a busy machine passed (cmux#40385's matrix).
+    static let startTimeout: Duration = .seconds(16 * 60)
+
     /// How long each login step may wait, past the daemon's own wait for it: start waits for the
     /// CLI's sign-in page (30 s), saving a key for its CLI (75 s), and finish for the person's
     /// approval in the browser (Codex, 15 min).
@@ -768,6 +786,7 @@ public actor AgentSessionAttachClient {
                             keyedReason: identity.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue),
                             vmKind: identity.supports(DaemonCapability.agentSessionStartVMKind.rawValue),
                             model: identity.supports(DaemonCapability.agentSessionStartModel.rawValue),
+                            startMode: identity.supports(DaemonCapability.agentSessionStartMode.rawValue),
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
                             fork: identity.supports(DaemonCapability.agentSessionFork.rawValue),

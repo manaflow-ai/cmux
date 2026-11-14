@@ -109,6 +109,28 @@ async fn restart_interrupts_a_blocked_writer_and_bounds_the_close() {
     assert_eq!(before.elapsed(), CLOSE_BUDGET);
 }
 
+/// A connection that ended (its reader too slow, `outbound.rs`) stops its writer even while a
+/// frame waits on a client that reads nothing: what is left gets [`LAST_FRAMES_WAIT`], then the
+/// close its [`CLOSE_BUDGET`]. The socket is never held open by a frozen client.
+#[tokio::test(start_paused = true)]
+async fn a_stop_ends_a_writer_blocked_on_a_client_that_reads_nothing() {
+    let (ours, _unread) = tokio::io::duplex(64);
+    let socket = WebSocketStream::from_raw_socket(ours, Role::Server, None).await;
+    let (sink, _source) = socket.split();
+    let (out, outbound) = mpsc::channel(2);
+    let (stop, stopped) = oneshot::channel();
+    out.send("x".repeat(1 << 20)).await.unwrap();
+    out.send("the last line".to_owned()).await.unwrap();
+    drop(out);
+    let shutdown = WsShutdown::default();
+    let task = tokio::spawn(write(sink, outbound, stopped, shutdown, Default::default()));
+    tokio::task::yield_now().await;
+    stop.send(()).unwrap();
+    let before = tokio::time::Instant::now();
+    task.await.unwrap();
+    assert_eq!(before.elapsed(), LAST_FRAMES_WAIT + CLOSE_BUDGET);
+}
+
 #[tokio::test]
 async fn late_writer_sees_restart_but_normal_connection_close_has_no_restart_code() {
     for restarting in [true, false] {

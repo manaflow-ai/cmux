@@ -504,20 +504,20 @@ pub async fn start(hub: &Arc<Hub>, home: &Path) -> Option<PathBuf> {
 #[cfg(unix)]
 pub async fn bind(path: &Path) -> anyhow::Result<tokio::net::UnixListener> {
     use anyhow::Context;
-    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    use std::os::unix::fs::PermissionsExt;
     cmux_unix_socket::check_path(path)?;
     if let Some(parent) = path.parent() {
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent)?;
+        crate::home_fs::create_dir_all(parent, 0o700)?;
     }
     if path.exists() {
         if tokio::net::UnixStream::connect(path).await.is_ok() {
             anyhow::bail!("another acpmux daemon serves the carrier socket {}", path.display());
         }
-        std::fs::remove_file(path)?;
+        crate::home_fs::remove_file(path)?;
     }
     let listener =
         tokio::net::UnixListener::bind(path).with_context(|| format!("bind {}", path.display()))?;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    crate::home_fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     tracing::info!("carrier socket listening on {}", path.display());
     Ok(listener)
 }
@@ -644,6 +644,7 @@ pub async fn serve_attested(
         None,
         None,
         Some(who),
+        None,
     )
     .await
 }

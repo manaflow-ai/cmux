@@ -58,3 +58,278 @@ fn a_read_past_the_saved_last_seq_gets_the_logs_tail_before_the_log_loads() {
         .unwrap_err();
     assert!(past.message.contains("cursor_future"), "{}", past.message);
 }
+
+/// A reader that pages forward on its own (a durable watch on a peer chat, `hub/watch_events.rs`)
+/// bounds each page, but a page always carries its first record: a 300 KB tool output was the
+/// whole page every time it was asked, past the reader's deadline, and its cursor never moved.
+/// With `recordMaxBytes` a record past it goes as a stub that keeps its seq, kind and short
+/// fields, and every page moves on.
+#[test]
+fn a_page_bounded_per_record_moves_past_a_record_larger_than_the_page() {
+    let store = MemoryStore::default();
+    let meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "c", "name": "chat", "harness": "fake",
+        "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+        "lastSeq": 4, "eventCount": 4,
+    }))
+    .unwrap();
+    store.save(&meta).unwrap();
+    let huge = "o".repeat(300 * 1024);
+    let record = |seq: u64, dir: &str, kind: &str, msg: Value| EventRecord {
+        seq,
+        at: seq,
+        dir: dir.into(),
+        kind: kind.into(),
+        msg,
+        host_seq: None,
+    };
+    let update = |update: Value| {
+        json!({"jsonrpc": "2.0", "method": "session/update",
+        "params": {"sessionId": "c", "update": update}})
+    };
+    let log = [
+        record(
+            1,
+            "in",
+            "tool_call",
+            update(json!({"sessionUpdate": "tool_call", "toolCallId": "t"})),
+        ),
+        record(
+            2,
+            "in",
+            "tool_call_update",
+            update(json!({"sessionUpdate": "tool_call_update",
+            "toolCallId": "t", "content": [{"type": "content", "content": {"type": "text", "text": huge}}]})),
+        ),
+        record(
+            3,
+            "mux",
+            "permission_request",
+            json!({"permissionId": "p1", "turnId": "u1",
+            "toolCall": {"content": [{"type": "text", "text": huge}]}}),
+        ),
+        record(4, "mux", "turn_result", json!({"turnId": "u1", "pendingPermissions": 1})),
+    ];
+    for rec in &log {
+        store.append("c", rec).unwrap();
+    }
+    let mut config = crate::config::Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let hub = Hub::new(config, Box::new(store));
+    // A watch's page of a peer chat (`watch_events::remote_page`).
+    let budget = 64 * 1024;
+    let ask = |after: u64| {
+        json!({"sessionId": "c", "afterSeq": after, "limit": 256,
+        "kinds": ["tool_call", "tool_call_update", "permission_request", "turn_result"],
+        "maxBytes": budget, "recordMaxBytes": budget})
+    };
+    let (mut after, mut pages, mut seen) = (0, 0, Vec::new());
+    loop {
+        let page = handle(&hub, method::MUX_EVENTS, &ask(after), None).unwrap();
+        pages += 1;
+        let events = page["events"].as_array().unwrap();
+        assert!(!events.is_empty() && pages <= 4, "page {pages} after {after} moved nothing");
+        for e in events {
+            let bytes = e.to_string().len();
+            assert!(bytes <= budget, "seq {} came whole: {bytes} bytes", e["seq"]);
+            seen.push(e.clone());
+        }
+        after = page["pageThrough"].as_u64().unwrap();
+        if page["hasMore"] != true {
+            break;
+        }
+    }
+    assert_eq!(seen.iter().map(|e| e["seq"].as_u64().unwrap()).collect::<Vec<_>>(), [1, 2, 3, 4]);
+    // The stubs say what they left out, and keep what names them.
+    let msg = |i: usize| seen[i]["msg"].clone();
+    assert!(seen[1].to_string().contains("omitted"), "{}", seen[1]);
+    assert_eq!(seen[1]["kind"], "tool_call_update");
+    assert_eq!(msg(2)["permissionId"], "p1", "{}", seen[2]);
+    assert_eq!(msg(2)["turnId"], "u1");
+    assert_eq!(msg(3)["pendingPermissions"], 1, "a small record goes whole");
+}
+
+/// One page of chat `c`, holding `log`, as a durable watch on a peer asks for it.
+fn watch_page(log: &[EventRecord], ask: Value) -> Value {
+    let store = MemoryStore::default();
+    let meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "c", "name": "chat", "harness": "fake",
+        "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+        "lastSeq": log.len(), "eventCount": log.len(),
+    }))
+    .unwrap();
+    store.save(&meta).unwrap();
+    for rec in log {
+        store.append("c", rec).unwrap();
+    }
+    let mut config = crate::config::Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let hub = Hub::new(config, Box::new(store));
+    let mut params = json!({"sessionId": "c", "afterSeq": 0, "limit": 256,
+        "kinds": ["agent_message_chunk", "permission_request", "turn_result"],
+        "maxBytes": 64 * 1024, "recordMaxBytes": 64 * 1024});
+    params.as_object_mut().unwrap().extend(ask.as_object().unwrap().clone());
+    handle(&hub, method::MUX_EVENTS, &params, None).unwrap()
+}
+
+/// A stub is a stub of its own size: a record of 300 short fields made an 81 KB "stub", past
+/// the page it was cut for. It keeps its ids first, then fields while they fit, and says it
+/// left some out.
+#[test]
+fn a_stub_stays_under_its_own_budget_and_keeps_its_ids() {
+    let mut msg = serde_json::Map::new();
+    for n in 0..300 {
+        msg.insert(format!("field{n:03}"), json!("f".repeat(256)));
+    }
+    msg.insert("permissionId".into(), json!("p1"));
+    msg.insert("toolCall".into(), json!({"content": "x".repeat(70 * 1024)}));
+    let rec = EventRecord {
+        seq: 1,
+        at: 1,
+        dir: "mux".into(),
+        kind: "permission_request".into(),
+        msg: Value::Object(msg),
+        host_seq: None,
+    };
+    let page = watch_page(&[rec], json!({}));
+    let stub = &page["events"][0]["msg"];
+    let bytes = stub.to_string().len();
+    assert!(bytes <= 8 * 1024, "the stub is {bytes} bytes");
+    assert_eq!(stub["permissionId"], "p1");
+    assert_eq!(stub.pointer("/_meta/acpmux/omitted/truncated"), Some(&json!(true)));
+}
+
+/// A durable watch with `--match` reads a peer's reply chunks for its text: an 80 KiB reply
+/// holding "finished" came as a stub with no text, and the watch moved past it and never woke.
+/// The serving side checks the whole text, past the stub's kept ends too.
+#[test]
+fn a_stubbed_reply_chunk_says_whether_its_whole_text_matched() {
+    let text = format!("{}finished{}", "a".repeat(40 * 1024), "b".repeat(40 * 1024));
+    let chunk = EventRecord {
+        seq: 1,
+        at: 1,
+        dir: "in".into(),
+        kind: "agent_message_chunk".into(),
+        msg: json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "c",
+            "update": {"sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": text}}}}),
+        host_seq: None,
+    };
+    let done = EventRecord {
+        seq: 2,
+        at: 2,
+        dir: "mux".into(),
+        kind: "turn_result".into(),
+        msg: json!({"turnId": "u1"}),
+        host_seq: None,
+    };
+    let log = [chunk, done];
+    let page = watch_page(&log, json!({"match": "finished"}));
+    let omitted = &page["events"][0]["msg"]["_meta"]["acpmux"]["omitted"];
+    assert_eq!(omitted["matched"], true, "{omitted}");
+    assert!(omitted["textHead"].as_str().unwrap().starts_with("aaa"));
+    assert!(omitted["textTail"].as_str().unwrap().ends_with("bbb"));
+    assert!(page["events"][0]["msg"].to_string().len() <= 8 * 1024);
+    assert_eq!(page["events"][1]["msg"]["turnId"], "u1");
+    let page = watch_page(&log, json!({"match": "never said"}));
+    assert_eq!(page["events"][0]["msg"]["_meta"]["acpmux"]["omitted"]["matched"], false);
+}
+
+/// Codex review of #40885, F1: `_acpmux/events` took a `match` of any length, and every stub keeps
+/// that much of its text's ends, so one multi-megabyte pattern defeated the page bounds. A match
+/// past `MAX_MATCH_BYTES` is refused, as `watch_add` refuses it.
+#[test]
+fn a_match_past_the_cap_is_refused() {
+    let hub = hard_stopped();
+    let pattern = "m".repeat(4 << 20);
+    let err = handle(&hub, method::MUX_EVENTS, &json!({"sessionId": "c", "match": pattern}), None)
+        .expect_err("a 4 MiB match was taken");
+    assert!(err.message.contains("match is at most"), "{}", err.message);
+    // The longest one taken still reads.
+    let longest = "m".repeat(crate::hub::MAX_MATCH_BYTES);
+    handle(&hub, method::MUX_EVENTS, &json!({"sessionId": "c", "match": longest}), None).unwrap();
+}
+
+/// The phone's older page of a chat with a 2 MB command log in it (cmux-next-ios
+/// `chat_older_page`): a page always carries its first record whole, so the page was the 256 KiB
+/// asked plus the whole log, on the wire and in the parse. With `toolOutputMaxBytes` the log goes
+/// cut to its head, marked with the record's size and seq, and a read of that one seq (the
+/// person opening the output) gets it whole. A reader that does not ask gets it whole as before.
+#[test]
+fn a_page_cuts_an_oversized_tool_output_and_the_record_reads_whole_on_its_own() {
+    let store = MemoryStore::default();
+    let meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "c", "name": "chat", "harness": "fake",
+        "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+        "lastSeq": 3, "eventCount": 3,
+    }))
+    .unwrap();
+    store.save(&meta).unwrap();
+    let log: String = (0..60_000).map(|i| format!("step {i} ok\n")).collect();
+    assert!(log.len() > 600 * 1024);
+    let update = |update: Value| {
+        json!({"jsonrpc": "2.0", "method": "session/update",
+        "params": {"sessionId": "c", "update": update}})
+    };
+    let records = [
+        (1, "mux", "user_message", json!({"turnId": "u1", "text": "build it"})),
+        (
+            2,
+            "in",
+            "tool_call",
+            update(
+                json!({"sessionUpdate": "tool_call", "toolCallId": "t", "title": "swift build"}),
+            ),
+        ),
+        (
+            3,
+            "in",
+            "tool_call_update",
+            update(json!({"sessionUpdate": "tool_call_update", "toolCallId": "t",
+            "status": "completed",
+            "content": [{"type": "content", "content": {"type": "text", "text": log}}]})),
+        ),
+    ];
+    for (seq, dir, kind, msg) in records {
+        let rec =
+            EventRecord { seq, at: seq, dir: dir.into(), kind: kind.into(), msg, host_seq: None };
+        store.append("c", &rec).unwrap();
+    }
+    let mut config = crate::config::Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let hub = Hub::new(config, Box::new(store));
+    let older = |cut: Option<u64>| {
+        let mut ask = json!({"sessionId": "c", "beforeSeq": 4, "limit": 400,
+            "maxBytes": 256 * 1024, "kinds": ["transcript"]});
+        if let Some(cut) = cut {
+            ask["toolOutputMaxBytes"] = json!(cut);
+        }
+        handle(&hub, method::MUX_EVENTS, &ask, None).unwrap()
+    };
+
+    let whole = older(None);
+    assert!(whole.to_string().len() > log.len(), "a reader that does not ask reads the log whole");
+
+    let page = older(Some(64 * 1024));
+    assert_eq!(seqs(&page), [1, 2, 3]);
+    let wire = page.to_string().len();
+    assert!(wire < 96 * 1024, "the page is {wire} bytes");
+    let cut = &page["events"][2]["msg"]["params"]["update"];
+    assert_eq!(cut["_meta"]["acpmux"]["cut"]["seq"], 3);
+    assert!(cut["_meta"]["acpmux"]["cut"]["bytes"].as_u64().unwrap() > log.len() as u64);
+    let head = cut["content"][0]["content"]["text"].as_str().unwrap();
+    assert!(log.starts_with(head) && !head.is_empty());
+
+    // The person opens the output: that one record, whole.
+    let full = handle(
+        &hub,
+        method::MUX_EVENTS,
+        &json!({"sessionId": "c", "afterSeq": 2, "limit": 1}),
+        None,
+    )
+    .unwrap();
+    assert_eq!(seqs(&full), [3]);
+    let update = &full["events"][0]["msg"]["params"]["update"];
+    assert_eq!(update["content"][0]["content"]["text"].as_str(), Some(log.as_str()));
+    assert!(update.pointer("/_meta/acpmux/cut").is_none());
+}

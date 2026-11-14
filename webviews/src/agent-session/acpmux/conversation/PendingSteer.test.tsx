@@ -6,6 +6,7 @@ import { PendingSteer } from "./PendingSteer";
 import { markSentNow, NewestSteerContext, SteerChatContext, takesSteersBack } from "./pendingSteerModel";
 import { TurnActionsContext } from "./turnActions";
 import type { AcpmuxRow } from "../model";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -41,6 +42,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

@@ -520,7 +520,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private(set) var store: AgentChatStore
     private let surface: AgentChatSurface
     var context: ChatRowContext { lookup.context }
-    private var builder: ChatTranscriptBuilder
+    private(set) var builder: ChatTranscriptBuilder
     private let dataSource: UICollectionViewDiffableDataSource<Int, String>
     /// The rows by id and their environment, for the cells.
     private let lookup: ChatRowLookup
@@ -545,13 +545,30 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         var generation: Int
         var ids: [String]
         var items: [ChatTranscriptLayout.Item]
+        /// The rows the items were weighed for.
+        var rows: [ChatRow]
     }
     /// Rows that arrived live (after the replayed history): they fade in when first shown.
     private var fadeIn: Set<String> = []
+    /// Older turns that came in above the rows shown and were weighed for holding (`reload`):
+    /// each is held out at most once, until its native rows are laid out.
+    private var heldOnce: Set<String> = []
     private var loaded = false
     /// Applies (tests and the rig's log).
     private(set) var applies = 0
+    /// The main actor's time in `reload`, in all (the scroll-up bench, `chat_scroll_fill_ui`: a
+    /// page that lands between two frames costs the frame after it).
+    private(set) var reloadTime: Duration = .zero
+    /// Older history is read ahead as the reader scrolls (`readAheadIfNear`). Off, only the oldest
+    /// row coming into view asks (`willDisplay`): the trigger before the read-ahead, which the
+    /// scroll-up bench measures as its before.
+    var readsAhead = true
     private(set) var lastReconfigured = 0
+    /// Rows a reload weighed in full: compared, estimated, given a layout item (tests: a token
+    /// weighs the rows it changed, not every row of its turn).
+    private(set) var rowsWeighed = 0
+    /// Rows offered to the warm-up (tests: once each, not every row on every reload).
+    private(set) var warmUpOffers = 0
 
     init(store: AgentChatStore, surface: AgentChatSurface) {
         self.store = store
@@ -585,6 +602,9 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             self?.environmentChanged()
         }
         MemoryPressure.shared.register(self) { [weak self] in self?.relieveMemoryPressure() }
+        // This list keeps the store's window while it shows it (`spillIfResting`); the store
+        // keeps it on its own once the list goes (`AgentChatStore.boundsMemoryOffScreen`).
+        store.shown(by: self)
         observe()
         reload()
     }
@@ -592,6 +612,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// The tab's session was replaced: show the new store's turns.
     func show(store: AgentChatStore) {
         guard store !== self.store else { return }
+        self.store.hidden(by: self)
+        store.shown(by: self)
         self.store = store
         lookup.context = ChatRowContext(store: store, surface: surface)
         builder = ChatTranscriptBuilder(diffs: store.diffs)
@@ -604,6 +626,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         shownIDs = []
         shownTurns = [:]
         fadeIn = []
+        heldOnce = []
         loaded = false
         observe()
         reload()
@@ -625,7 +648,23 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// The transcript controller's scroll handling (follow mode, the jump button, the keyboard).
     weak var scrollDelegate: (any UIScrollViewDelegate)?
 
-    func scrollViewDidScroll(_ scrollView: UIScrollView) { scrollDelegate?.scrollViewDidScroll?(scrollView) }
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        scrollDelegate?.scrollViewDidScroll?(scrollView)
+        readAheadIfNear()
+    }
+
+    /// Older history is read well before the top shows: within `AgentChatStore.readAheadScreens`
+    /// screens of the oldest row, on every scroll step and after every reload (a page that
+    /// landed and still leaves the reader near the top asks for the next). The source holds one
+    /// more page ahead, so a fling up meets rows, never an empty top. Not on the tab grid's
+    /// card, which holds its transcript.
+    private func readAheadIfNear() {
+        guard readsAhead, loaded, !surface.holdsTranscript, store.hasEarlierHistory, !store.isLoadingEarlier else { return }
+        let screen = collectionView.bounds.height
+        guard screen > 0 else { return }
+        let above = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
+        store.readAhead(screensAbove: max(above, 0) / screen)
+    }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { scrollDelegate?.scrollViewWillBeginDragging?(scrollView) }
 
@@ -775,7 +814,10 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                 self.observe()
                 // Held (the page is a card on the tab grid): no reload per token;
                 // the release or a held refresh reloads once with what arrived.
-                if surface.holdsTranscript, surface.heldRefresh == self.appliedHeldRefresh { return }
+                if surface.holdsTranscript, surface.heldRefresh == self.appliedHeldRefresh {
+                    surface.noteHeldChange()
+                    return
+                }
                 self.appliedHeldRefresh = surface.heldRefresh
                 self.reload()
             }
@@ -787,6 +829,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private var shownDisclosures = -1
 
     func reload() {
+        let reloadStart = ContinuousClock.now
+        defer { reloadTime += reloadStart.duration(to: .now) }
         // A disclosure opened or closed, or a file was marked viewed: shown rows may change
         // their cell type or their drawing.
         let disclosures = surface.disclosures.revision
@@ -824,6 +868,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         var ids: [String] = []
         var seen: Set<String> = []
         var changed: [String] = []
+        // Rows weighed in full this reload (new, changed or re-laid out): the warm-up's offers.
+        var weighed: [String] = []
         var items: [ChatTranscriptLayout.Item] = []
         ids.reserveCapacity(shownIDs.count + 4)
         items.reserveCapacity(shownIDs.count + 4)
@@ -839,6 +885,17 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         var missing: [String] = []
         // The newest rows on the first reload with a width: laid out as their revision is set below.
         var prime = Set<String>()
+        // Older turns that arrived above the rows shown (a page read ahead as the reader scrolls
+        // up) go in once their native rows are laid out off the main thread, at their real
+        // heights: rows put in at estimates and resized after moved the content under a fling.
+        // Each turn is held once at most; any later reload shows it as it is.
+        var holdable = Set<String>()
+        if loaded, lookup.layouts.environment != nil, let top = shownIDs.first.flatMap({ rows[$0]?.turnID }),
+           let topIndex = built.firstIndex(where: { $0.turnID == top }) {
+            for turn in built[..<topIndex] where heldOnce.insert(turn.turnID).inserted { holdable.insert(turn.turnID) }
+        }
+        var heldRows: [String] = []
+        var heldMissing: [String] = []
         if !primed, lookup.layouts.environment != nil {
             primed = true
             for turn in built.reversed() where prime.count < 24 {
@@ -854,7 +911,14 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             }
             var turnIDs: [String] = []
             var turnItems: [ChatTranscriptLayout.Item] = []
-            for var row in turn.rows {
+            var turnRows: [ChatRow] = []
+            turnIDs.reserveCapacity(turn.rows.count)
+            turnItems.reserveCapacity(turn.rows.count)
+            turnRows.reserveCapacity(turn.rows.count)
+            // The turn as last shown: a row at the same place with the same content keeps its
+            // layout item (a streamed token changes the answer's last block, not the ones above it).
+            let previous = shownTurns[turn.turnID]
+            for (position, var row) in turn.rows.enumerated() {
                 // Ids are unique by construction; a repeat from a misbehaving source still
                 // must not reach the snapshot (a duplicate identifier traps).
                 if !seen.insert(row.id).inserted {
@@ -863,6 +927,15 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                     row.id = "\(row.id)~\(n)"
                     seen.insert(row.id)
                 }
+                if let previous, position < previous.rows.count, previous.ids[position] == row.id, previous.rows[position] == row,
+                   rows[row.id] == row, !forced.contains(row.id), !prime.contains(row.id) {
+                    turnIDs.append(row.id)
+                    turnItems.append(previous.items[position])
+                    turnRows.append(row)
+                    continue
+                }
+                rowsWeighed += 1
+                weighed.append(row.id)
                 if rows[row.id] != row {
                     let isNew = rows[row.id] == nil
                     if !isNew { changed.append(row.id) }
@@ -891,14 +964,26 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                 turnIDs.append(row.id)
                 turnItems.append(.init(id: row.id, revision: revision, gap: row.gap, estimate: estimate, exact: exact,
                                        fold: lookup.fold(row)))
+                turnRows.append(row)
             }
-            shownTurns[turn.turnID] = ShownTurn(generation: turn.generation, ids: turnIDs, items: turnItems)
+            if holdable.contains(turn.turnID) {
+                let unlaid = turnIDs.filter { id in
+                    guard let row = rows[id], lookup.eligible(row) else { return false }
+                    return !lookup.layouts.has(id, revision: revisions[id] ?? 0, expanded: lookup.expanded(id))
+                }
+                if !unlaid.isEmpty {
+                    heldRows += turnIDs
+                    heldMissing += unlaid
+                    continue
+                }
+            }
+            shownTurns[turn.turnID] = ShownTurn(generation: turn.generation, ids: turnIDs, items: turnItems, rows: turnRows)
             ids += turnIDs
             items += turnItems
         }
         layout.trailingGap = ChatTranscriptBuilder.trailingGap(after: built.last?.rows.last)
-        if ids.count < rows.count {
-            let live = Set(ids)
+        if ids.count + heldRows.count < rows.count {
+            let live = Set(ids).union(heldRows)
             rows = rows.filter { live.contains($0.key) }
             revisions.retain(live)
             lookup.layouts.retain(live)
@@ -907,6 +992,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             lookup.shownPool = lookup.shownPool.filter { live.contains($0.key) }
             let turnIDs = Set(turns.map(\.id))
             shownTurns = shownTurns.filter { turnIDs.contains($0.key) }
+            heldOnce.formIntersection(turnIDs)
         }
         applies += 1
         lastReconfigured = changed.count
@@ -931,9 +1017,13 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
             snapshot.appendSections([0])
             snapshot.appendItems(ids)
-            let shown = Set(shownIDs)
-            snapshot.reconfigureItems(reconfigure.filter { shown.contains($0) })
-            snapshot.reloadItems(reloadIDs.filter { shown.contains($0) })
+            // Only rows in both the old and the new snapshot: a reconfigure or reload of one the new
+            // snapshot leaves out traps. `session-start` is the first turn's row, so when an older
+            // page lands it moves into that page's first turn, which may be held until its rows are
+            // laid out (`holdable`): it was shown and changed, and is not in `ids` this time.
+            let both = Set(shownIDs).intersection(ids)
+            snapshot.reconfigureItems(reconfigure.filter { both.contains($0) })
+            snapshot.reloadItems(reloadIDs.filter { both.contains($0) })
             shownIDs = ids
             dataSource.apply(snapshot, animatingDifferences: false)
         } else if !changed.isEmpty {
@@ -949,9 +1039,14 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             collectionView.contentOffset.y += top - anchor.top
         }
         loaded = true
+        if !heldMissing.isEmpty { prepare(heldMissing, urgent: true) }
         if !missing.isEmpty { prepare(missing, urgent: false) }
-        queueWarmUp(ids)
+        queueWarmUp(weighed)
         spillIfResting()
+        // After the layout pass that places what this reload put in.
+        if store.hasEarlierHistory, !store.isLoadingEarlier {
+            Task { @MainActor [weak self] in self?.readAheadIfNear() }
+        }
     }
 
     /// Applies a disclosure change the list has not reloaded for yet (its observation reloads on
@@ -1083,6 +1178,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     }
 
     private func queueWarmUp(_ ids: [String]) {
+        warmUpOffers += ids.count
         for id in ids where lookup.isNativeCandidate(id) {
             guard let key = lookup.rows[id]?.nativeReuseKey, warmedKinds.insert(key).inserted else { continue }
             warmQueue.append(id)
@@ -1134,7 +1230,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// The id the store marks replayed for this row (`TurnRow.id`, or the turn's).
     private static func storeID(_ row: ChatRow) -> String {
         if case .block = row.kind, let hash = row.id.firstIndex(of: "#") { return String(row.id[..<hash]) }
-        if row.id.hasPrefix("u-") { return row.turnID }
+        // A prompt and the Chief's view over it (`cx-`) are the turn's.
+        if row.id.hasPrefix("u-") || row.id.hasPrefix("cx-") { return row.turnID }
         return row.id
     }
 }
@@ -1228,6 +1325,8 @@ final class ChatRowLookup {
             for call in calls { hasher.combine(disclosures.isOpen("tool-\(call.id)")) }
         case .thought:
             hasher.combine(disclosures.isOpen("thought-\(row.id)"))
+        case .chiefContext:
+            hasher.combine(disclosures.isOpen("chiefContext-\(row.id)"))
         case .whoElse(let id, _):
             hasher.combine(disclosures.isOpen(WhoElseCard.disclosureKey(id)))
         case .edit(let call, _):
@@ -1372,7 +1471,7 @@ extension ChatRow {
         }
     }
 
-    static let hostedReuseKeys = ["prompt", "incoming", "block", "thought", "tool", "toolGroup", "edit", "plan", "permission", "question",
+    static let hostedReuseKeys = ["prompt", "chiefContext", "incoming", "block", "thought", "tool", "toolGroup", "edit", "plan", "permission", "question",
                                   "subagents", "working", "editedFiles", "stopped", "failed", "actions", "nextStep", "whoElse", "other"]
 
     /// The SwiftUI reuse pool: one per kind, so a reused cell keeps its view structure.
@@ -1380,6 +1479,7 @@ extension ChatRow {
         switch kind {
         case .sessionStart: "other"
         case .prompt: "prompt"
+        case .chiefContext: "chiefContext"
         case .incoming: "incoming"
         case .steer(let message): message.incoming == nil ? "prompt" : "incoming"
         case .block: "block"
@@ -1436,6 +1536,7 @@ extension ChatRow {
         }
         switch kind {
         case .sessionStart: return 46
+        case .chiefContext: return 24
         case .prompt(let text, let attachments, _, _):
             // A reply's leading quote draws as its own block, 6 above the reply (UserBubble).
             let drawn = NextStepAsk.replyQuote(text).map { (lines($0.quote) + lines($0.body)) * perLine + 6 } ?? lines(text) * perLine

@@ -10,6 +10,7 @@ import { deliverHandoffFailure, useDictation, type Dictation, type DictationFiel
 import { dictationSourceName, handoffFailure } from "./dictationSources";
 import { NativeError } from "./nativeError";
 import { translate } from "./i18n";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -19,6 +20,7 @@ const saved = new Map<string, unknown>();
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -98,4 +100,21 @@ test("a hand-off the shortcut asked for and the host refused shows the same noti
   const dictation = await mount(async () => undefined);
   await act(async () => deliverHandoffFailure({ code: "dictation.accessibility" }));
   expect(dictation.current!.notice?.message).toBe(handoffFailure("dictation.accessibility", "chatgpt", translate));
+});
+
+// Audit 2026-11-12: a refused start printed the host's error message ("Request failed", a Swift
+// description) on the notice. It says "Dictation is not available." and logs the rest.
+test("a refused dictation start says it plainly, never the host's error text", async () => {
+  const warn = console.warn;
+  console.warn = () => undefined;
+  try {
+    const dictation = await mount(async (method) => {
+      if (method === "dictation.toggle") throw new Error("AVAudioEngine error -10868");
+    });
+    await act(async () => dictation.current!.toggle());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(dictation.current!.notice?.message).toBe(translate("dictation.unavailable"));
+  } finally {
+    console.warn = warn;
+  }
 });

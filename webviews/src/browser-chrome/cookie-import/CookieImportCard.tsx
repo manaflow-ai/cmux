@@ -2,7 +2,9 @@
 // BrowserCookieImportCard, which floats it on the window's overlay and draws the toast surface's
 // glass under it). Leo, 2026-11-08: "i dont like this. 1. looks bad. 2. not glass. 3. talks about
 // too much irrelevant shit". It is a toast now: the browser's icon, one line, and the toast's
-// clear-text answers (Don't Show Again quiet, Import bold) with the close button as Not Now. Keep in
+// clear-text answers. Lawrence 2026-11-09 (msg 26162, "ugly flat gray, washed-out text"): it draws in the
+// dialog card's grammar now (the overlay dialog's buttons): the line in the title's weight, Don't Show
+// Again quiet text, Not Now a gray button and Import the filled primary, every answer labelled. Keep in
 // sync is Settings > Browser > Import (`browser.import.cookieSync`, on by default), not a line here.
 // It never takes focus, so Return and Escape stay the page's; every answer closes it (the host does).
 import { Button } from "../../ui/Button";
@@ -35,23 +37,15 @@ export function CookieImportCard({ model, onChoice, look = "toast", glass = true
         {title}
         <span className="ci-toast-answers">
           {model.neverTitle ? (
-            <button type="button" className="ci-action" data-quiet onClick={choose("never")}>
+            <button type="button" className="ci-action" data-role="quiet" onClick={choose("never")}>
               {model.neverTitle}
             </button>
           ) : null}
-          <button type="button" className="ci-action" onClick={choose("import")}>
-            {model.importTitle}
+          <button type="button" className="ci-action" data-role="cancel" onClick={choose("notNow")}>
+            {model.notNowTitle}
           </button>
-          <button
-            type="button"
-            className="ci-close"
-            aria-label={model.notNowTitle}
-            title={model.notNowTitle}
-            onClick={choose("notNow")}
-          >
-            <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
-              <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
+          <button type="button" className="ci-action" data-role="default" onClick={choose("import")}>
+            {model.importTitle}
           </button>
         </span>
       </section>

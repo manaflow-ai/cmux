@@ -9,6 +9,7 @@ import type { Root } from "react-dom/client";
 import { translateNewTab } from "../src/agent-session/acpmux/newtab/strings";
 import { recentChatCards, type ChatCard } from "../src/agent-session/acpmux/newtab/screenModel";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
+import { settleReact } from "./support/domTeardown";
 
 const NOW = Date.UTC(2026, 10, 9, 12);
 const cold = {
@@ -95,7 +96,8 @@ afterEach(async () => {
   root = undefined;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, { had, value }] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];

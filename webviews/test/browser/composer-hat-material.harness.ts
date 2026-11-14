@@ -10,6 +10,10 @@ import "../../src/agent-session/acpmux/composerStates.css";
 import "../../src/agent-session/acpmux/composerLocation.css";
 import "../../src/agent-session/acpmux/subagents/subagents.css";
 import "../../src/agent-session/acpmux/bottomStack.css";
+import "../../src/agent-session/acpmux/TaskGoalStrip.css";
+import "../../src/agent-session/acpmux/question/hatQuestions.css";
+import "../../src/agent-session/acpmux/conversation/NextStepCard.css";
+import "../../src/agent-session/acpmux/conversation/PendingAsks.css";
 
 document.body.style.margin = "0";
 for (const dock of document.querySelectorAll<HTMLElement>(".acpmux-dock")) {

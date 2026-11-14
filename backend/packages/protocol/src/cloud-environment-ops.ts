@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { APPROVAL, APPROVAL_DOC, CloudMachine, CloudMachineSize, KEY, LIMITED, MachineName, PROVIDER, SPEND_CAP, SnapshotId, cloudMutation, cloudRead } from "./cloud-machine-ops.ts"
+import { APPROVAL, APPROVAL_DOC, CloudMachine, CloudMachineSize, KEY, LIMITED, MachineName, PROVIDER, SPEND_CAP, SnapshotId, VM_LIMIT, cloudMutation, cloudRead } from "./cloud-machine-ops.ts"
 import { Revision, UserId } from "./schemas.ts"
 import { isPattern } from "./json-checks.ts"
 
@@ -103,7 +103,7 @@ export const CloudEnvironmentBuildOp = cloudMutation(
   "money",
   EnvironmentParams,
   Schema.Struct({ environment: CloudEnvironment, built: Schema.Boolean }),
-  [NOT_FOUND, SECRETS, "cloud.environment.busy", "cloud.plan.required", "cloud.quota.exceeded", ...SPEND_CAP, ...LIMITED, ...PROVIDER, ...APPROVAL],
+  [NOT_FOUND, SECRETS, "cloud.environment.busy", "cloud.plan.required", "cloud.quota.exceeded", ...SPEND_CAP, ...VM_LIMIT, ...LIMITED, ...PROVIDER, ...APPROVAL],
   "Build the environment's snapshot: a builder machine from the deployment's image clones the repo, runs the setup script, and is snapshotted and deleted. Answers at once with status building (built: true); the build takes minutes, and cloud.environment.list shows ready or failed with the log tail. A snapshot that still matches answers built: false and changes nothing. The new snapshot counts against max_saved (cloud.quota.exceeded {resource: saved}); it replaces the previous one when it is ready. One build per environment at a time (cloud.environment.busy). A money op: a signed-in person only; limited per team." + KEY + APPROVAL_DOC,
   "cloud environment build",
   true
@@ -113,7 +113,7 @@ export const CloudEnvironmentBoot = cloudMutation(
   "money",
   Schema.Struct({ environment: EnvironmentId, name: Schema.optionalKey(MachineName), size: CloudMachineSize }),
   Schema.Struct({ machine: CloudMachine, boot: Schema.Literals(["snapshot", "cold"]) }),
-  [NOT_FOUND, SECRETS, "cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...SPEND_CAP, ...LIMITED, ...PROVIDER, ...APPROVAL],
+  [NOT_FOUND, SECRETS, "cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...SPEND_CAP, ...VM_LIMIT, ...LIMITED, ...PROVIDER, ...APPROVAL],
   "Create a machine in the environment (the plan checks of cloud.machine.create). boot snapshot: it boots the environment's ready snapshot and runs nothing. boot cold (no build yet, or a stale one): it boots the deployment's image and starts the setup on the machine in the background (~/.cmux/environment-build.log; ~/.cmux/environment.json when it finished). A money op: a signed-in person only; limited per team." + KEY + APPROVAL_DOC,
   "cloud environment boot",
   true

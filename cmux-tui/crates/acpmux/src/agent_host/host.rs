@@ -7,7 +7,7 @@ use crate::rpc::Message;
 use std::collections::VecDeque;
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 use tokio::sync::mpsc;
 
@@ -104,14 +104,11 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
     // session's start is over.
     crate::cpu_class::start_at_normal(&mut cmd);
     // Bind before the harness starts, so a failure leaves nothing running.
-    let _ = std::fs::remove_file(&spec.socket);
+    let _ = crate::home_fs::remove_file(&spec.socket);
     let listener = UnixListener::bind(&spec.socket)
         .with_context(|| format!("bind {}", spec.socket.display()))?;
     cleanup.paths.push(spec.socket.clone());
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&spec.socket, std::fs::Permissions::from_mode(0o600))?;
-    }
+    crate::home_fs::set_mode(&spec.socket, 0o600)?;
     let mut child = cmd.spawn().map_err(|e| {
         // Both a missing folder and a missing program fail as ENOENT: say which.
         if e.kind() == std::io::ErrorKind::NotFound && !spec.cwd.exists() {
@@ -157,14 +154,13 @@ struct StartCleanup {
 impl Drop for StartCleanup {
     fn drop(&mut self) {
         for path in &self.paths {
-            let _ = std::fs::remove_file(path);
+            let _ = crate::home_fs::remove_file(path);
         }
     }
 }
 
 fn lock_live_file(path: &Path) -> Result<std::fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
-    let file = std::fs::OpenOptions::new()
+    let file = crate::home_fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create_new(true)
@@ -173,7 +169,7 @@ fn lock_live_file(path: &Path) -> Result<std::fs::File> {
         .with_context(|| format!("create {}", path.display()))?;
     // SAFETY: flock on a descriptor this function owns.
     if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-        let _ = std::fs::remove_file(path);
+        let _ = crate::home_fs::remove_file(path);
         bail!("lock {}", path.display());
     }
     Ok(file)
@@ -449,7 +445,8 @@ impl Started {
         {
             let tx = events_tx.clone();
             tokio::spawn(async move {
-                let mut lines = BufReader::new(stdout).lines();
+                // Lossy: a line that is not UTF-8 never ends the pipe (`lossy_lines`).
+                let mut lines = crate::lossy_lines::LossyLines::new(BufReader::new(stdout));
                 while pace_rx.recv().await.is_some() {
                     let next = lines.next_line().await.ok().flatten();
                     let done = next.is_none();
@@ -462,7 +459,7 @@ impl Started {
         {
             let tx = events_tx.clone();
             tokio::spawn(async move {
-                let mut lines = BufReader::new(stderr).lines();
+                let mut lines = crate::lossy_lines::LossyLines::new(BufReader::new(stderr));
                 loop {
                     let next = lines.next_line().await.ok().flatten();
                     let done = next.is_none();
@@ -1292,11 +1289,6 @@ fn record_present(spec: &SpawnSpec, nonce: &str) -> bool {
             .is_some_and(|hosts| names_this_host(&record_path(hosts, &spec.session_id), nonce))
 }
 
-/// Watches the directories that hold this host's record (kqueue on macOS,
-/// inotify on Linux; `record_watch.rs`; no polling). When the record is gone
-/// (the daemon's home was deleted, or a daemon removed the record), no daemon
-/// can ever adopt this host: it ends like SIGTERM. Every event only triggers a
-/// stat; a record rewritten in place (write, then rename) is still present.
 /// The file a host notes each SIGTERM it ends on: `agent-host-signals.log` in the acpmux home
 /// (the parent of `hosts/`, or of `hosts/pool/` for a pooled host). Hosts write no other log, so
 /// without it nothing said who ended a host (manaflow-ai/cmuxterm-hq#6338).
@@ -1323,40 +1315,52 @@ fn note_term(log: &Path, session: &str, sender: Option<i32>) {
         chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
         std::process::id()
     );
-    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(log) {
+    if let Ok(mut file) = crate::home_fs::OpenOptions::new().create(true).append(true).open(log) {
         let _ = file.write_all(line.as_bytes());
     }
 }
 
+/// Watches this host's record (`record_watch.rs` `RecordWatch`; kqueue on macOS, inotify on
+/// Linux; no polling). When the record is gone (the daemon's home was deleted, a daemon removed
+/// the record, or a newer host of the session wrote its own), no daemon can ever adopt this host:
+/// it ends like SIGTERM. A record rewritten in place (write, then rename) is still present. It
+/// was already gone when the watch began (the home deleted right after the start): it ends now.
 fn watch_record(
     spec: &SpawnSpec,
     nonce: &str,
     tx: mpsc::Sender<Event>,
-) -> Option<super::record_watch::DirWatch> {
+) -> Option<super::record_watch::RecordWatch> {
     let watched = spec.clone();
     let own = nonce.to_owned();
-    let term = tx.clone();
     let mut dirs = vec![spec.hosts_dir.clone()];
     if spec.hosts_dir.file_name().and_then(|n| n.to_str()) == Some(POOL_DIR_NAME)
         && let Some(hosts) = spec.hosts_dir.parent()
     {
         dirs.push(hosts.to_path_buf());
     }
-    let watch = super::record_watch::DirWatch::start(&dirs, move || {
-        if record_present(&watched, &own) {
-            return false;
-        }
-        // The watch thread is not a runtime thread: a blocking send never
-        // drops the end when the event queue is full.
-        let _ = term.blocking_send(Event::Term);
-        true
-    });
-    // The record may have gone before the watch began (the home deleted
-    // right after the start): check once now.
-    if !record_present(spec, nonce) {
-        let _ = tx.try_send(Event::Term);
-    }
-    watch
+    let session = spec.session_id.clone();
+    let record_dirs = dirs.clone();
+    let files = move || {
+        record_dirs
+            .iter()
+            .map(|dir| record_path(dir, &session))
+            .filter(|path| path.exists())
+            .collect::<Vec<_>>()
+    };
+    super::record_watch::RecordWatch::start(
+        dirs,
+        files,
+        move || record_present(&watched, &own),
+        move || {
+            // On the watch thread, not a runtime thread: a blocking send never drops the end
+            // when the event queue is full. The check at the start runs on the runtime.
+            if tokio::runtime::Handle::try_current().is_ok() {
+                let _ = tx.try_send(Event::Term);
+            } else {
+                let _ = tx.blocking_send(Event::Term);
+            }
+        },
+    )
 }
 
 /// This user may chdir into `dir` (search permission, what a spawn's chdir needs).

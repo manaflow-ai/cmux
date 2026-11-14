@@ -1,4 +1,5 @@
 import { INFERENCE_PERSONAL_PLAN_IDS, INFERENCE_TEAM_PLAN_IDS } from "@cmux/protocol"
+import { readStackTeam } from "../cloud-vm-plan.ts"
 import type { TeamState } from "../domains/team.ts"
 import { memberLimit } from "../domains/team-ai-limit.ts"
 import type { StackServer } from "../stack-server.ts"
@@ -91,7 +92,8 @@ export const inferencePlanOf = async (sql: SqlStorage, state: TeamState | null, 
   }
   if (!team || team.id !== entity || team.deleted_at !== undefined || team.kind !== "stack" || !team.stack_team) return { ok: true, paid: false, user_limit_usd: limit }
   const stackTeam = team.stack_team
-  const r = await read(async (s) => (await s.getTeam(stackTeam))?.plan ?? null)
+  // The one shared-team read (cloud-vm-plan.ts readStackTeam): the grant it sees also refreshes the grant copy a delete carries.
+  const r = await read(async (s) => (await readStackTeam(sql, s, stackTeam, now))?.plan ?? null)
   return r.ok ? { ok: true, paid: teamPlanPaid(r.plan), user_limit_usd: limit, plan: r.plan } : { ok: false, reason: "unavailable" }
 }
 

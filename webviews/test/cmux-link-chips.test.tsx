@@ -27,6 +27,7 @@ import { SubsessionContext, SubsessionStore } from "../src/agent-session/acpmux/
 import { openOfferChat, openSenderChat } from "../src/agent-session/acpmux/rows/rowActions";
 import { chipSelectionText, selectionHtml } from "../src/agent-session/acpmux/conversation/selectionCopy";
 import { htmlMarkdown } from "../src/agent-session/acpmux/richClipboard";
+import { teardownDom } from "./support/domTeardown";
 
 const HEX = "16c92e4354fcaf05540386720d78e251";
 const WORKSPACE = `cmux-nightly://workspace/ws_${HEX}`;
@@ -103,14 +104,10 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-afterAll(() => {
+afterAll(async () => {
   setLinkPlaces([]);
   setPageChats(undefined);
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const place = (title: string, extra: Record<string, unknown> = {}) => ({
@@ -719,7 +716,8 @@ async function composer(typed: string) {
 const titled = () =>
   [...host.querySelectorAll<HTMLElement>(".is-titled[data-title]")].map((node) => [
     node.dataset.title,
-    node.textContent,
+    // The chip's link: the draft's text, hidden beside it (composer/deeplinkTitles.ts).
+    node.dataset.link,
   ]);
 
 test("the draft draws a known link as its chip and sends the link as pasted", async () => {
@@ -793,8 +791,10 @@ test("the draft's chip carries its kind's icon as a mask image", async () => {
   await composer(`See ${WORKSPACE}`);
   const chip = host.querySelector<HTMLElement>(".is-titled[data-title]")!;
   expect(chip.hasAttribute("data-icon")).toBe(true);
-  expect(chip.getAttribute("style")).toContain('--cmux-link-icon: url("data:image/svg+xml,');
-  expect(decodeURIComponent(chip.getAttribute("style")!)).toContain("<path");
+  // The icon is drawn by the chip's front, before the link's hidden text (composer/deeplinkTitles.ts).
+  const front = host.querySelector<HTMLElement>(".is-titled-start[data-icon]")!;
+  expect(front.getAttribute("style")).toContain('--cmux-link-icon: url("data:image/svg+xml,');
+  expect(decodeURIComponent(front.getAttribute("style")!)).toContain("<path");
 });
 
 // ---------------------------------------------------------------------------------------------
