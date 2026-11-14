@@ -442,7 +442,7 @@ fn a_resume_replays_what_it_missed_then_a_state_frame_and_two_mebibytes_get_a_wi
         let frame = client
             .until(&mut Vec::new(), |frame| {
                 let sid = frame.decode_json::<Value>().ok()?["sid"].as_str()?.to_owned();
-                (sid == "s3").then(|| frame.kind)
+                (sid == "s3").then_some(frame.kind)
             })
             .await;
         assert_eq!(frame, FrameKind::Window);

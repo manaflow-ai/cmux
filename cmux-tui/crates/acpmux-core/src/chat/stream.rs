@@ -418,12 +418,15 @@ fn open_rows(state: &mut ActorState) -> Result<Vec<OpenRow>, ChatError> {
     Ok(out)
 }
 
+/// An open row as sent: its encoded row, and its body's length when the body was left out.
+type OpenRowOut = (Vec<u8>, Option<u64>);
+
 /// One open row's text: its body inline when it fits `left`, else `{}` and the body's length.
 fn open_row(
     state: &ActorState,
     id: u64,
     left: &mut usize,
-) -> Result<Option<(Vec<u8>, Option<u64>)>, ChatError> {
+) -> Result<Option<OpenRowOut>, ChatError> {
     let Some(row) = state.translate.open_rows().find(|row| row.id == id) else {
         return Ok(None);
     };

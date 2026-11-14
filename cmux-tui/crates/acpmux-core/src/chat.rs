@@ -261,17 +261,17 @@ impl ChatHandle {
 
     /// Queues `request`, or gives it back with why it was refused, so its reply is answered at
     /// once with the reason.
-    fn send(&self, request: Request) -> Result<(), (ChatError, Request)> {
+    fn send(&self, request: Request) -> Result<(), Box<(ChatError, Request)>> {
         if *self.health.borrow() == crate::life::Health::Failed {
-            return Err((ChatError::Failed, request));
+            return Err(Box::new((ChatError::Failed, request)));
         }
         let bytes = request.bytes();
         {
             let Ok(mut queued) = self.queued.lock() else {
-                return Err((ChatError::Closed, request));
+                return Err(Box::new((ChatError::Closed, request)));
             };
             if queued.saturating_add(bytes) > MAILBOX_BYTES {
-                return Err((ChatError::MailboxFull, request));
+                return Err(Box::new((ChatError::MailboxFull, request)));
             }
             *queued = queued.saturating_add(bytes);
         }
@@ -283,24 +283,24 @@ impl ChatHandle {
         if let Ok(mut queued) = self.queued.lock() {
             *queued = queued.saturating_sub(bytes);
         }
-        Err(refused)
+        Err(Box::new(refused))
     }
 
     /// Wakes the actor to read one bounded source chunk.
     pub fn wake(&self) -> Result<(), ChatError> {
-        self.send(Request::Wake).map_err(|(error, _)| error)
+        self.send(Request::Wake).map_err(|refused| refused.0)
     }
 
     pub fn close(&self) -> Result<(), ChatError> {
         let (reply_tx, reply_rx) = mpsc::channel();
-        self.send(Request::Close { reply: reply_tx }).map_err(|(error, _)| error)?;
+        self.send(Request::Close { reply: reply_tx }).map_err(|refused| refused.0)?;
         reply_rx.recv().map_err(|_| ChatError::Response)?
     }
 
     /// A `sub`: its window, its resume or `not_ready` comes from the actor through `ticket`'s
     /// sink. Refused, the ticket says nothing and the error is the caller's to send.
     pub fn subscribe(&self, sub: stream::ChatSub, ticket: stream::Ticket) -> Result<(), ChatError> {
-        match self.send(Request::Sub { sub: Box::new(sub), ticket }) {
+        match self.send(Request::Sub { sub: Box::new(sub), ticket }).map_err(|refused| *refused) {
             Ok(()) => Ok(()),
             Err((error, Request::Sub { ticket, .. })) => {
                 ticket.forget();
@@ -312,17 +312,20 @@ impl ChatHandle {
 
     /// The connection gave a stopped subscription credit again.
     pub fn resume(&self, conn: u64, sid: &str, cursor: u64) -> Result<(), ChatError> {
-        self.send(Request::Resume { conn, sid: sid.to_owned(), cursor }).map_err(|(error, _)| error)
+        self.send(Request::Resume { conn, sid: sid.to_owned(), cursor })
+            .map_err(|refused| refused.0)
     }
 
     pub fn end(&self, conn: u64, sid: &str) -> Result<(), ChatError> {
-        self.send(Request::End { conn, sid: sid.to_owned() }).map_err(|(error, _)| error)
+        self.send(Request::End { conn, sid: sid.to_owned() }).map_err(|refused| refused.0)
     }
 
     /// A `page`, answered through `reply`; refused, it is answered at once.
     pub fn page(&self, page: Page, person: stream::PersonId, reply: Reply) {
         let request = Request::Page { page: Box::new(page), person, reply };
-        if let Err((error, Request::Page { reply, .. })) = self.send(request) {
+        if let Err(refused) = self.send(request)
+            && let (error, Request::Page { reply, .. }) = *refused
+        {
             reply.error(error.code(), &error.to_string());
         }
     }
@@ -330,14 +333,16 @@ impl ChatHandle {
     /// A `blob`, answered through `reply`; refused, it is answered at once.
     pub fn blob(&self, blob: Blob, reply: Reply) {
         let request = Request::Blob { blob: Box::new(blob), reply };
-        if let Err((error, Request::Blob { reply, .. })) = self.send(request) {
+        if let Err(refused) = self.send(request)
+            && let (error, Request::Blob { reply, .. }) = *refused
+        {
             reply.error(error.code(), &error.to_string());
         }
     }
 
     #[cfg(test)]
     fn set_person(&self, person: Person) -> Result<(), ChatError> {
-        self.send(Request::SetPerson(person)).map_err(|(error, _)| error)
+        self.send(Request::SetPerson(person)).map_err(|refused| refused.0)
     }
 }
 

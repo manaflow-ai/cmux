@@ -374,8 +374,7 @@ async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
                 let result = process_frame(
                     &state,
                     source.clone(),
-                    &frame,
-                    class,
+                    (&frame, class),
                     &mut hello_seen,
                     surfaces,
                     &daemon_id,
@@ -462,8 +461,7 @@ fn known_control(frame: &Frame, state: &ConnectionState) -> bool {
 fn process_frame(
     state: &Arc<std::sync::Mutex<ConnectionState>>,
     source: Arc<dyn Source>,
-    frame: &Frame,
-    class: Class,
+    (frame, class): (&Frame, Class),
     hello_seen: &mut bool,
     surfaces: &[String],
     daemon_id: &str,
