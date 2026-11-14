@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43596150736",
+  "recorded_at": "2026-11-14T12:50:19Z",
+  "reason": "cmux-tui 084542437c3f changes the image's cmux-tui (pinned e278a7120066)",
+  "dry_run": false,
+  "cmux_tui": "084542437c3f96f3fc158bcd6a4e94418c8ad158",
+  "fixes": [
+    {
+      "sha": "084542437c3f96f3fc158bcd6a4e94418c8ad158",
+      "mergedAt": "2026-11-14T04:22:25-08:00",
+      "subject": "v2 client: preserve v1 status and derived state (#43028)"
+    },
+    {
+      "sha": "9e1b832c6e04ccb3e3b2268c309717f28bec648b",
+      "mergedAt": "2026-11-14T04:05:25-08:00",
+      "subject": "Extension SDK: every first-party extension forks against cmux-extension-sdk (fork-check gaps empty) (#43005)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T12:50:19Z",
+    "snapshot_id": "sh-3bf85056f95d47ccbbe2c689c7be4bc3",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43596150736): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "de2736d6586e0247affbaaffd361b9ae96eb764b",
+    "image": "cloud-native-auto-08454243-43596150736-1",
+    "revision": "ci-43596150736-1",
+    "at": "2026-11-14T12:50:19Z"
+  },
+  "rolled_back": false
+}
