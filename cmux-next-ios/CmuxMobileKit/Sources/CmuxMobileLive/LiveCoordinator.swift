@@ -336,9 +336,15 @@ public final class LiveCoordinator {
     }
 
     /// The tab's chat opens on another source (the Mac's tree bound it, its kept records were
-    /// read): its store is built again from `makeSource`.
+    /// read): its store is built again from `makeSource`. A chat still holding prompts sent while
+    /// it loaded gets that store now, not when it is next opened: the prompts go to its new
+    /// source (sent, or back in its composer with why) instead of expiring into a store that
+    /// is gone, which would lose them.
     func chatSessionChanged(id: String, macID: String) {
         AgentSessionDirectory.shared.invalidate(id: id, macID: macID)
+        let key = AgentSessionDirectory.key(id: id, macID: macID)
+        guard let pending = pendingSources[key], !pending.held.isEmpty else { return }
+        _ = AgentSessionDirectory.shared.store(for: pending.summary)
     }
 
     /// The Mac's acpmux source for `session`; one that drops a kept copy too old to catch up from
