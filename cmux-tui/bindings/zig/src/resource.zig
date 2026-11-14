@@ -6528,7 +6528,8 @@ fn encodeSessionJournalOptions(
     }
 
     const filter = options.filter;
-    if (filter.kinds.len > 64 or
+    // The bounds of `JournalFilter` in the request catalog.
+    if (filter.kinds.len > 256 or
         filter.classes.len > 4 or
         filter.subjects.len > 64)
     {

@@ -63,6 +63,7 @@ run_group acpmux-book book_gates
 core_gates() {
   run_core replay_frame_gate
   run_core replay_append_gate
+  run_core replay_open_hold_gate
   run_core single_encode_gate
   run_core list_window_gate_measures_running_subscriptions_at_both_sizes
   run_core pr05b_compaction_keeps_writing_through_one_million_changes
@@ -83,6 +84,12 @@ acpmux_lib_gates() {
   run_acpmux_lib live_view_gate
   run_acpmux_lib keyed_page_gate
   run_acpmux_lib hub_row_submit_gate
+  run_acpmux_lib v2_pr03b_tee_append_added
+  run_acpmux_lib v2_pr03b_append_on_off
+  run_acpmux_lib v2_pr03b_catchup_ack
+  # Row 7b: rows by key, and the CLI and MCP list callers.
+  run_acpmux_lib v2_pr07b_info_rows
+  run_acpmux_lib v2_pr07b_callers
 }
 run_group acpmux-lib acpmux_lib_gates
 
