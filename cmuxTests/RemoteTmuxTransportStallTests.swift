@@ -105,6 +105,12 @@ import Testing
         let clock = ManualClock()
         connection.transportLiveness.now = { clock.now }
         let harness = Harness(connection: connection, clock: clock, root: root)
+        // Startup output still queued in the reader counts as an answer to any probe, so let it be
+        // ingested before a test starts moving the clock.
+        let drained = await AppKitTestEventPump().waitUntil(timeout: .seconds(10)) {
+            connection.stdoutPipeReader?.hasUndeliveredOutput != true
+        }
+        try #require(drained, "the transport's startup output must be ingested")
         harness.receiveOutput()
         return harness
     }
