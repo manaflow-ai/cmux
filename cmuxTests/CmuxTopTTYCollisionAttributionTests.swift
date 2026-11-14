@@ -19,7 +19,8 @@ struct CmuxTopTTYCollisionAttributionTests {
     private let surfaceID = UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000002")!
 
     private let appPID = 3000
-    private let foreignParentPID = 9000
+    // Above the macOS PID limit, so it can never be the test host, which is launch evidence.
+    private let foreignParentPID = 109_000
     private let shellPID = 4001
     private let shellChildPID = 4002
     private let detachedPID = 4003

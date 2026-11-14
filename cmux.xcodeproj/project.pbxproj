@@ -1738,6 +1738,7 @@
 		C7A5090000000000000005A2 /* CmuxTopSnapshotScopeCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A5090000000000000005A1 /* CmuxTopSnapshotScopeCacheTests.swift */; };
 		C7A509000000000000000002 /* CmuxTopSnapshotScopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A509000000000000000001 /* CmuxTopSnapshotScopeTests.swift */; };
 		EC81A214C9CD0AA8F1D5FDF4 /* CmuxTopTTYCollisionAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD38A422E92A103776448E9 /* CmuxTopTTYCollisionAttributionTests.swift */; };
+		055DE4229CF834DF66395E5D /* CmuxTopTTYLaunchEvidenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC3A84D988B7499C8AD3F4D3 /* CmuxTopTTYLaunchEvidenceTests.swift */; };
 		A11004000000000000000004 /* CmuxTopTTYOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11004000000000000000003 /* CmuxTopTTYOwnership.swift */; };
 		D9F800000000000000000001 /* CmuxTuiRemoteRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9F800000000000000000002 /* CmuxTuiRemoteRouting.swift */; };
 		D9F800000000000000000003 /* CmuxTuiRemoteRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9F800000000000000000002 /* CmuxTuiRemoteRouting.swift */; };
@@ -6459,6 +6460,7 @@
 		C7A5090000000000000005A1 /* CmuxTopSnapshotScopeCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopSnapshotScopeCacheTests.swift; sourceTree = "<group>"; };
 		C7A509000000000000000001 /* CmuxTopSnapshotScopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopSnapshotScopeTests.swift; sourceTree = "<group>"; };
 		DFD38A422E92A103776448E9 /* CmuxTopTTYCollisionAttributionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTopTTYCollisionAttributionTests.swift"; sourceTree = "<group>"; };
+		CC3A84D988B7499C8AD3F4D3 /* CmuxTopTTYLaunchEvidenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTopTTYLaunchEvidenceTests.swift"; sourceTree = "<group>"; };
 		A11004000000000000000003 /* CmuxTopTTYOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopTTYOwnership.swift; sourceTree = "<group>"; };
 		D9F800000000000000000002 /* CmuxTuiRemoteRouting.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CmuxTuiRemoteRouting.swift; sourceTree = "<group>"; };
 		C7BCD9ABC9D6C13310D39A98 /* CmuxTuiRemoteTreeRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTuiRemoteTreeRendering.swift; sourceTree = "<group>"; };
@@ -14348,6 +14350,7 @@
 				A6FA6CA3BD8C6FB44634D416 /* WorkspaceContentViewVisibilityTests+AgentIndex.swift */,
 				C978CC3C2D3FCCE66696C72C /* CLIKiroGlobalHooksTests.swift */,
 				B88325A2907EB7D69739349B /* ClaudeBackgroundWorkDrainTests.swift */,
+				CC3A84D988B7499C8AD3F4D3 /* CmuxTopTTYLaunchEvidenceTests.swift */,
 				91976133DC2141C541E5AABF /* GhosttyRightClickActionTests.swift */,
 				A7799EB5BD69203749106FE2 /* RemoteTmuxTabOrderFollowsTmuxTests.swift */,
 				4189B3FB78ACEE79AE12B1AA /* ChiefDisabledHomeTests.swift */,
@@ -18910,6 +18913,7 @@
 					C7A5090000000000000005A2 /* CmuxTopSnapshotScopeCacheTests.swift in Sources */,
 					C7A509000000000000000002 /* CmuxTopSnapshotScopeTests.swift in Sources */,
 				EC81A214C9CD0AA8F1D5FDF4 /* CmuxTopTTYCollisionAttributionTests.swift in Sources */,
+				055DE4229CF834DF66395E5D /* CmuxTopTTYLaunchEvidenceTests.swift in Sources */,
 				D01100800000000000000008 /* CmuxTuiSurfaceProviderRegistryDiscoveryTests.swift in Sources */,
 				7A1D4C000000000000000106 /* CmuxTuiSurfaceProviderRegistryPollingTests.swift in Sources */,				2C636EB7DCD3184EE9E94E31 /* CmuxTuiSurfaceProviderTests.swift in Sources */,
 				44909912C73D2B3DB8C715F4 /* CmuxTuiSurfaceProviderTests+LinkCancellation.swift in Sources */,
