@@ -60,8 +60,12 @@ import Testing
         let replacements = [CloudCarrierServe(connector: connector, socket: socket, leases: leases) { _ in },
                             CloudCarrierServe(connector: connector, socket: socket, leases: leases) { _ in }]
         let connects = replacements.map { serve in Task { try await serve.socketPath() } }
-        try await Task.sleep(for: .milliseconds(300))
-        for serve in replacements { #expect(await serve.state == .claiming(1)) }
+        // Both wait on the lease the first serve's child still holds.
+        deadline = ContinuousClock.now + .seconds(5)
+        for serve in replacements {
+            while await serve.state != .claiming(1), ContinuousClock.now < deadline { await Task.yield() }
+            #expect(await serve.state == .claiming(1))
+        }
         try Data().write(to: folder.appendingPathComponent("go"))
         // One of them gets ready; the other is still waiting for the socket.
         deadline = ContinuousClock.now + .seconds(5)
@@ -71,7 +75,8 @@ import Testing
             try await Task.sleep(for: .milliseconds(10))
         }
         let winner = try #require(ready)
-        try await Task.sleep(for: .milliseconds(300))
+        // The winner's child holds the lease until it exits, so the other is still claiming (the `overlap` line
+        // below catches a second child that ran anyway).
         let waiting = try #require(replacements.first { $0 !== winner })
         #expect(await waiting.state == .claiming(1), "both replacements claimed the socket")
         // The winner stops; its child exits and the other launches.
