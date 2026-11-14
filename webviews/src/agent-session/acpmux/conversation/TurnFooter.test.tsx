@@ -166,7 +166,7 @@ test("a finished turn paged in without its prompt has its action row, at the hei
       version: 1,
       at,
       kind: "activity",
-      items: [{ kind: "tool", text: "", tool: { toolCallId: id, title: "ls", kind: "execute", status: "completed" } }],
+      items: [{ kind: "tool", text: "", tool: { id, title: "ls", kind: "execute", status: "completed" } }],
     }) as AcpmuxRow;
   const reply = (id: string, at: number, text: string) =>
     ({ id, version: 1, at, kind: "assistant", text }) as AcpmuxRow;
@@ -181,7 +181,8 @@ test("a finished turn paged in without its prompt has its action row, at the hei
     [reply("a", 2, "I'll check the installed apps."), work("w", 3), summary("s", 5)],
   ]) {
     const whole = [{ id: "p", version: 1, at: 1, kind: "user", text: "Check" } as AcpmuxRow, ...body, next];
-    const paged = body.slice(1).concat(next);
+    // The page starts after the prompt: the turn's rows and the next prompt, its own prompt not yet in.
+    const paged = [...body, next];
     const footerHeight = (rows: AcpmuxRow[]) => {
       const drawn = turnView(rows, new Set(), options);
       const at = drawn.findIndex((row) => row.id === "s");
