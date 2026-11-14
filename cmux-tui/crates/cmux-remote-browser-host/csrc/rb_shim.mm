@@ -28,6 +28,7 @@
 #include "include/cef_jsdialog_handler.h"
 #include "include/cef_load_handler.h"
 #include "include/cef_parser.h"
+#include "include/cef_request_context.h"
 #include "include/cef_request_handler.h"
 #include "include/cef_resource_request_handler.h"
 #include "include/cef_task.h"
@@ -871,6 +872,50 @@ int rb_shim_open_tab(int request,
   settings.background_color = 0xFFFFFFFF;
   auto view = CefBrowserView::CreateBrowserView(
       new Client(request), url, settings, nullptr, nullptr,
+      new BrowserViewDelegate());
+  CefRefPtr<CefWindow> window = CefWindow::CreateTopLevelWindow(
+      new WindowDelegate(view, width_dip, height_dip));
+  return window ? 1 : 0;
+}
+
+int rb_shim_set_tab_screen(int browser_id,
+                           int width_dip,
+                           int height_dip,
+                           double scale) {
+  if (!g_rp.set_screen || !g_rp.set_screen(width_dip, height_dip, scale)) {
+    return 0;
+  }
+  // A shared host's tabs each have their own viewer: only this tab's window
+  // takes the new size.
+  auto window = Windows().find(browser_id);
+  if (width_dip > 0 && height_dip > 0 && window != Windows().end()) {
+    window->second->SetSize(CefSize(width_dip, height_dip));
+  }
+  return 1;
+}
+
+int rb_shim_open_tab_in(int request,
+                        const char* url,
+                        int width_dip,
+                        int height_dip,
+                        const char* cache_dir) {
+  if (!url || !cache_dir || width_dip <= 0 || height_dip <= 0) {
+    return 0;
+  }
+  // The tab's own request context: a cache path of its own (under the root
+  // cache path) is a profile of its own, so cookies, storage and the HTTP
+  // cache are this tab's alone, as when each tab had a host.
+  CefRequestContextSettings context_settings;
+  CefString(&context_settings.cache_path) = cache_dir;
+  CefRefPtr<CefRequestContext> context =
+      CefRequestContext::CreateContext(context_settings, nullptr);
+  if (!context) {
+    return 0;
+  }
+  CefBrowserSettings settings;
+  settings.background_color = 0xFFFFFFFF;
+  auto view = CefBrowserView::CreateBrowserView(
+      new Client(request), url, settings, nullptr, context,
       new BrowserViewDelegate());
   CefRefPtr<CefWindow> window = CefWindow::CreateTopLevelWindow(
       new WindowDelegate(view, width_dip, height_dip));

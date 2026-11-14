@@ -33,15 +33,20 @@ fn bundle(dir: &Path) -> PathBuf {
     let cef = if cef.join("Release").is_dir() { cef.join("Release") } else { cef };
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let app = dir.join("cmux-remote-browser-host.app");
-    let status = Command::new("/bin/bash")
+    let out = Command::new("/bin/bash")
         .arg(repo.join("scripts/cmux-next/bundle-remote-browser-host.sh"))
         .arg(env!("CARGO_BIN_EXE_cmux-remote-browser-host"))
         .arg(&cef)
         .arg(&app)
-        .stdout(Stdio::null())
-        .status()
+        .output()
         .expect("bundle");
-    assert!(status.success(), "bundle-remote-browser-host.sh failed");
+    assert!(
+        out.status.success(),
+        "bundle-remote-browser-host.sh {cef:?} failed: {}\n{}\n{:?}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr),
+        std::fs::read_dir(&cef).map(|d| d.flatten().map(|e| e.file_name()).collect::<Vec<_>>()),
+    );
     app.join("Contents/MacOS/cmux-remote-browser-host")
 }
 
