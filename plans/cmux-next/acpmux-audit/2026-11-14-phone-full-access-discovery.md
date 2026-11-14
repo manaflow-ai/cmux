@@ -11,7 +11,7 @@ missing advertisement through a real daemon connection; the registry test
 also verifies the wire method exists. The iPhone regression tests cover the
 consumed-draft retry and an approval refusal followed by successful recovery.
 
-## Proof preconditions and localized pairing copy
+## Proof preconditions and pairing ceremony
 
 A recovery proof must establish its initial permission state through the supported
 off command and read it back: new phones now inherit Full access on. The proof
@@ -19,6 +19,9 @@ uses its own daemon home and refuses ambiguous or revoked phone records.
 Detector: `tests/test_owner_access_proof.py`, followed by the real paired simulator
 proof; a hardcoded receipt flag alone is not evidence.
 
-Both pairing strings now carry every locale already in the catalog. Detector:
-`localization_catalog.py check --base-root ... --base-baseline ...`; the original
-PR added 16 missing required locale entries, and the corrected catalog adds none.
+New phones inherit Full access on (#42732), so pairing keeps the standard Allow
+action and does not ask for the same grant twice. The redundant Full-access
+button, copy and pending-setting path are removed. The phone recovery action
+remains for an explicit-off setting. Detector: `pairingPromptKeepsOneAllowAction`
+checks the phone and Mac pairing sheets; the real proof captures the sheet and
+requires its single Allow action before exercising explicit-off recovery.

@@ -22,7 +22,6 @@ extension IPhoneHostService {
     /// daemon and acpmux), so `debug.dialog` automation may not press it.
     public static let pairDialogIdentifier = "cmux.dialog.iphonePair"
     static let allowButton = "allow"
-    static let allowFullAccessButton = "allowFullAccess"
     static let denyButton = "deny"
 
     /// Loads the list of the signed-in user (none while signed out; the stored list stays). The list is
@@ -165,8 +164,7 @@ extension IPhoneHostService {
             pairDialog = nil
             // A dismissal (the app quit) decides nothing: the request stays in Settings.
             guard !answer.isDismissal else { return }
-            decide(request, allow: answer.button == Self.allowButton || answer.button == Self.allowFullAccessButton,
-                   fullAccess: answer.button == Self.allowFullAccessButton)
+            decide(request, allow: answer.button == Self.allowButton)
         }
         // A dialog that ended at once (no place to show it) is not open.
         if CmuxDialogCenter.shared.record(dialogID) != nil { pairDialog = (dialogID, request) }
@@ -193,21 +191,18 @@ extension IPhoneHostService {
 
     static func pairDialogSpec(_ request: MobileHostPairRequest, account: String) -> CmuxDialogSpec {
         var lines = [request.isMachine ? IPhoneHostStrings.machinePairBody(account) : IPhoneHostStrings.pairBody(account)]
-        if !request.isMachine { lines.append(IPhoneHostStrings.pairFullAccessBody) }
         if let registered = request.registeredAt { lines.append(IPhoneHostStrings.deviceRegistered(registered)) }
         lines.append(IPhoneHostStrings.pairKey(MobileHostPairedDevices.fingerprint(request.isMachine ? request.identityKey : request.approvalKey)))
-        var buttons = [CmuxDialogButton(id: Self.denyButton, title: IPhoneHostStrings.pairDeny, role: .cancel),
+        let buttons = [CmuxDialogButton(id: Self.denyButton, title: IPhoneHostStrings.pairDeny, role: .cancel),
                        CmuxDialogButton(id: Self.allowButton, title: IPhoneHostStrings.pairAllow, role: .default)]
-        if !request.isMachine { buttons.append(CmuxDialogButton(id: Self.allowFullAccessButton, title: IPhoneHostStrings.pairAllowFullAccess)) }
         return CmuxDialogSpec(title: IPhoneHostStrings.pairTitle(Self.displayName(request), key: request.shortFingerprint),
                               lines: lines, buttons: buttons, identifier: Self.pairDialogIdentifier)
     }
 
-    private func decide(_ request: MobileHostPairRequest, allow: Bool, fullAccess: Bool = false) {
+    private func decide(_ request: MobileHostPairRequest, allow: Bool) {
         prompts.answer(id: request.phoneDeviceID, allowed: allow, at: Date())
         if prompts.pending.isEmpty { quietAttention() }
         Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) \(allow ? "allowed" : "denied", privacy: .public)")
-        if allow && fullAccess && !request.isMachine { pendingFullAccessPhones.insert(request.phoneDeviceID) }
         savePaired { list in
             if allow { list.approve(request, at: Date()) } else { list.deny(request) }
         }
@@ -285,30 +280,8 @@ extension IPhoneHostService {
         sync.phoneCredentialsChanged = { credentials in
             // task-owner: one hop to the supervisor actor; setPhoneCredentials replaces the whole set
             Task { await supervisor.setPhoneCredentials(credentials) }
-            Task { @MainActor [weak self] in
-                await self?.applyPendingFullAccess(available: Set(credentials.keys))
-            }
         }
         return sync
-    }
-
-    /// Applies the pairing prompt's Full-access choice after acpmux has issued the phone record.
-    /// The list lookup binds the setting to the record created for this phone, never to a caller
-    /// supplied id or a same-named machine.
-    private func applyPendingFullAccess(available: Set<String>) async {
-        let pending = pendingFullAccessPhones.intersection(available)
-        guard !pending.isEmpty, let environment = dependencies?.acpmuxEnvironment,
-              let line = await AcpmuxPersonLine.open(environment), line.isPerson else { return }
-        defer { line.close() }
-        guard let result = await line.call("_acpmux/pair_list", [:]),
-              let devices = result["devices"] as? [[String: Any]] else { return }
-        for phone in pending {
-            let name = MobileHostPairedDevices.acpmuxRecordName(phone)
-            guard let device = devices.first(where: { $0["name"] as? String == name && $0["role"] as? String == "phone" }),
-                  let id = device["id"] as? String,
-                  await line.call("_acpmux/pair_set", ["id": id, "fullAccess": true]) != nil else { continue }
-            pendingFullAccessPhones.remove(phone)
-        }
     }
 
     /// hostd's `devices` line and acpmux's approvers follow the list.

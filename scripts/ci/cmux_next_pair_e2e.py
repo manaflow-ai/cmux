@@ -542,13 +542,12 @@ def discovery_ask(mac_log, phone_log, since, status, rpc, note, screens):
     took = asked_at - live_at if asked_at is not None and live_at is not None else None
     pending = (status().get("host") or {}).get("pending") or []
     dialogs = [d for d in (rpc("debug.dialog").get("dialogs") or []) if d.get("identifier") == "cmux.dialog.iphonePair"]
-    full_access_prompt = False
+    simple_pairing_prompt = False
     if dialogs:
         dialog = dialogs[0]
         safe = {"title": dialog.get("title"), "lines": dialog.get("lines") or [],
                 "buttons": [{"id": b.get("id"), "title": b.get("title")} for b in dialog.get("buttons", [])]}
-        full_access_prompt = any("Full access" in str(line) for line in safe["lines"]) or any(
-            "Full access" in str(button["title"]) for button in safe["buttons"])
+        simple_pairing_prompt = [button["id"] for button in safe["buttons"]] == ["deny", "allow"]
         Path(screens, "pairing-dialog.json").write_text(json.dumps(safe, indent=2) + "\n")
         window = dialog.get("window")
         if isinstance(window, int) and window > 0:
@@ -558,11 +557,11 @@ def discovery_ask(mac_log, phone_log, since, status, rpc, note, screens):
     press = rpc("debug.dialog", {"id": dialogs[0]["id"], "press": "allow"}) if dialogs else {}
     # The prompt answers only to the person: a scripted press that is not refused is a failure.
     refused = not dialogs or bool(press.get("error"))
-    ok = took is not None and took <= 15 and bool(pending) and refused and full_access_prompt
+    ok = took is not None and took <= 15 and bool(pending) and refused and simple_pairing_prompt
     note(f"- discovery, Allow request: {'phone ' + m.group(1) + ' asked (' + m.group(2) + ')' if m else 'NO request'}"
          f"{f' {took:.1f} s after the phone went live (logged times)' if took is not None else ' (no logged time)' if m else ' in 60 s'}; the page lists "
          f"{len(pending)} waiting phone(s); {len(dialogs)} pairing prompt(s) open"
-         f"; Full access choice {'present' if full_access_prompt else 'MISSING'}"
+         f"; single Allow action {'present' if simple_pairing_prompt else 'MISSING'}"
          f"{(': ' + repr(dialogs[0].get('title'))) if dialogs else ' (none on screen: no frontmost window in a step)'}; "
          f"a scripted Allow is refused: {press.get('error') or press or 'no prompt to press'}"
          f" -> {'PASS' if ok else 'FAIL (needs a request within 15 s of the phone going live, a waiting row and a refused scripted Allow)'}")
