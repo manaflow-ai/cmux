@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43644773229",
+  "recorded_at": "2026-11-14T21:57:12Z",
+  "reason": "cmux-tui 6d932fb873b8 changes the image's cmux-tui (pinned 52daad6a127e)",
+  "dry_run": false,
+  "cmux_tui": "6d932fb873b8ef8c2366e9a7d433b86b27765871",
+  "fixes": [
+    {
+      "sha": "6d932fb873b8ef8c2366e9a7d433b86b27765871",
+      "mergedAt": "2026-11-14T13:26:47-08:00",
+      "subject": "holder: a 50-tab crash test and a noisy-neighbour echo test, holder vs per-terminal hosts (CMUX-571) (#43192)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T21:57:12Z",
+    "snapshot_id": "sh-b1bed9c01c1748eeafcddf1c289e3329",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43644773229): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "cce908d51876383de517475e75ded4ba1c559f25",
+    "image": "cloud-native-auto-6d932fb8-43644773229-1",
+    "revision": "ci-43644773229-1",
+    "at": "2026-11-14T21:57:12Z"
+  },
+  "rolled_back": false
+}
