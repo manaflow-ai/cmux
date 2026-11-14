@@ -87,6 +87,10 @@ struct TerminalHistoryWindowBench {
         }
         for line in out { print(line) }
         #expect(out.count == shapes.count)
+        // The fleet step keeps no test stdout; it prints failure messages. A
+        // run that asks for the bench by name gets its lines that way (the
+        // bench then reads as failed: its numbers are the result).
+        for line in out { Issue.record(Comment(rawValue: line)) }
     }
 }
 #endif
