@@ -562,6 +562,15 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
+        pr: "5h",
+        name: "v2.pr05h.hub_row_submit",
+        done_when: "The tee's turn for one changed hub row (its mark drained to one submit) with 2,048 book rows and 11,000 closed rows against one book row and an empty index: p95 within 1.2x, the sides alternating rounds.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
         pr: "5g",
         name: "v2.pr05g.rebuild_cost",
         done_when: "A rebuild walk costs at most 1.2x a first start at 11,000 sessions against 20.",
@@ -1007,8 +1016,10 @@ pub fn print_report_with_mode(
 mod tests {
     use super::*;
 
-    /// A row of a PR whose other rows are written, held for a gate a later PR adds.
-    const WAITS_ON_ANOTHER_PR: &[&str] = &["v2.pr04.chat_stopped_reader"];
+    /// A row of a PR whose other rows are written, held for a gate a later PR adds. PR 4b's
+    /// two are held by plain tests of the client today and have no gate line yet.
+    const WAITS_ON_ANOTHER_PR: &[&str] =
+        &["v2.pr04.chat_stopped_reader", "v2.pr04b.bytes_held", "v2.pr04b.credit_slow_taker"];
 
     /// A gate name as a source spells it. A `{..}` hole is a name built by `format!`.
     const NAME_IN_SOURCE: &str = r"v2\.pr[0-9]+[a-z]?\.(?:[a-z0-9_]|\{[^{}]*\})+";
