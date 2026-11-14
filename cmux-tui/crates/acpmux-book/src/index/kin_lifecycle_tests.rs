@@ -319,3 +319,43 @@ fn child_before_parent_and_parent_cycle_keep_child_handles_bounded() {
         .unwrap();
     assert!(page.rows.len() <= 2);
 }
+
+#[test]
+fn deep_handle_refresh_matches_a_fresh_table_at_the_64_level_edge() {
+    let root = row("deep-root", 0);
+    let mut chain = vec![root.clone()];
+    let mut parent = root;
+    for depth in 0..66 {
+        let mut child = row(format!("deep-{depth:02}"), depth + 1);
+        child.parent = Some(parent.key());
+        parent = child.clone();
+        chain.push(child);
+    }
+    let mut leaf = row("deep-leaf", 100);
+    leaf.parent = Some(parent.key());
+
+    let mut index = SummaryIndex::new();
+    for (seq, row) in chain.iter().cloned().enumerate() {
+        index = index.apply(seq as u64 + 1, row);
+    }
+    index = index.apply(chain.len() as u64 + 1, leaf.clone());
+
+    let mut fresh = SummaryIndex::new();
+    for (seq, row) in chain.iter().cloned().chain(std::iter::once(leaf)).enumerate() {
+        fresh = fresh.apply(seq as u64 + 1, row);
+    }
+
+    for depth in [62, 63, 64] {
+        let key = RowKey::new("local", format!("deep-{depth:02}"));
+        let filter = ListFilter::family(key);
+        let actual =
+            index.read_page(None, ReadSide::After, false, 128, 256 * 1024, Some(&filter)).unwrap();
+        let expected =
+            fresh.read_page(None, ReadSide::After, false, 128, 256 * 1024, Some(&filter)).unwrap();
+        assert_eq!(
+            actual.rows.iter().map(|row| row.key()).collect::<Vec<_>>(),
+            expected.rows.iter().map(|row| row.key()).collect::<Vec<_>>(),
+            "stale handle at chain depth {depth}",
+        );
+    }
+}

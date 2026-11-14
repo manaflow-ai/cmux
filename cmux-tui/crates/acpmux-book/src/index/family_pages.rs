@@ -1,10 +1,12 @@
 //! A bounded preorder walk over hot parent edges (decisions 137 and 140).
 
-use super::{ChildSet, IndexPage, ListFilter, RowKey, SortKey, Summary, SummaryIndex};
+use super::{
+    ChildSet, IndexPage, ListFilter, MAX_KIN_DEPTH, RowKey, SortKey, Summary, SummaryIndex,
+};
 use std::io;
 use std::sync::Arc;
 
-const MAX_DEPTH: usize = 64;
+const MAX_DEPTH: usize = MAX_KIN_DEPTH;
 
 #[derive(Debug)]
 pub struct CursorGone;
