@@ -16,9 +16,9 @@ use std::ffi::OsStr;
 use std::path::{Component, Path};
 
 #[cfg(not(unix))]
-pub(super) use by_path::Tree;
+pub(super) use by_path::{Entry, Stat, Tree, kind_in, stat_of};
 #[cfg(unix)]
-pub(super) use through_folders::Tree;
+pub(super) use through_folders::{Entry, Stat, Tree, kind_in, stat_of};
 
 /// Folders above one entry; a path with more has no entry.
 const MAX_DEPTH: usize = 128;
@@ -78,6 +78,11 @@ mod through_folders {
         libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
     const FILE_FLAGS: libc::c_int =
         libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
+    /// Bytes of a link's target text that count.
+    const MAX_TARGET_BYTES: usize = 4096;
+
+    /// What the system says of an entry or of an open file.
+    pub(in crate::git_ops) type Stat = libc::stat;
 
     /// A work tree, as its open folders.
     pub(in crate::git_ops) struct Tree {
@@ -108,9 +113,10 @@ mod through_folders {
         Ok(unsafe { OwnedFd::from_raw_fd(fd) })
     }
 
-    /// What `name` in `folder` is; `None` when nothing has that name.
-    fn kind_at(folder: RawFd, name: &CStr) -> Option<Kind> {
-        let mut stat = MaybeUninit::<libc::stat>::uninit();
+    /// What the system says of `name` in `folder`, with no link followed;
+    /// `None` when nothing has that name.
+    fn stat_at(folder: RawFd, name: &CStr) -> Option<Stat> {
+        let mut stat = MaybeUninit::<Stat>::uninit();
         // SAFETY: a live descriptor, a NUL-terminated name and room for one `stat`.
         let result = unsafe {
             libc::fstatat(folder, name.as_ptr(), stat.as_mut_ptr(), libc::AT_SYMLINK_NOFOLLOW)
@@ -119,13 +125,34 @@ mod through_folders {
             return None;
         }
         // SAFETY: the call succeeded, so it filled the `stat`.
-        let stat = unsafe { stat.assume_init() };
-        Some(match stat.st_mode & libc::S_IFMT {
+        Some(unsafe { stat.assume_init() })
+    }
+
+    /// What `stat` is of.
+    pub(in crate::git_ops) fn kind_in(stat: &Stat) -> Kind {
+        match stat.st_mode & libc::S_IFMT {
             libc::S_IFREG => Kind::File,
             libc::S_IFDIR => Kind::Folder,
             libc::S_IFLNK => Kind::Link,
             _ => Kind::Other,
-        })
+        }
+    }
+
+    /// What `name` in `folder` is; `None` when nothing has that name.
+    fn kind_at(folder: RawFd, name: &CStr) -> Option<Kind> {
+        stat_at(folder, name).map(|stat| kind_in(&stat))
+    }
+
+    /// What the system says of an open file.
+    pub(in crate::git_ops) fn stat_of(file: &File) -> Option<Stat> {
+        let mut stat = MaybeUninit::<Stat>::uninit();
+        // SAFETY: a live descriptor and room for one `stat`.
+        let result = unsafe { libc::fstat(file.as_raw_fd(), stat.as_mut_ptr()) };
+        if result != 0 {
+            return None;
+        }
+        // SAFETY: the call succeeded, so it filled the `stat`.
+        Some(unsafe { stat.assume_init() })
     }
 
     impl Tree {
@@ -179,6 +206,27 @@ mod through_folders {
             kind_at(self.folder.as_raw_fd(), &self.name)
         }
 
+        /// What the system says of the entry itself: a link is not followed.
+        pub(in crate::git_ops) fn stat(&self) -> Option<Stat> {
+            stat_at(self.folder.as_raw_fd(), &self.name)
+        }
+
+        /// The target text of the entry, a link.
+        pub(in crate::git_ops) fn link_target(&self) -> Option<Vec<u8>> {
+            let mut target = vec![0_u8; MAX_TARGET_BYTES];
+            // SAFETY: a live descriptor, a NUL-terminated name and a buffer of the length given.
+            let length = unsafe {
+                libc::readlinkat(
+                    self.folder.as_raw_fd(),
+                    self.name.as_ptr(),
+                    target.as_mut_ptr().cast::<libc::c_char>(),
+                    target.len(),
+                )
+            };
+            target.truncate(usize::try_from(length).ok()?);
+            Some(target)
+        }
+
         /// The entry, a regular file, open for a read. The open follows no
         /// link and waits on no FIFO, and the open file is looked at, not
         /// its name.
@@ -194,12 +242,15 @@ mod through_folders {
 
 #[cfg(not(unix))]
 mod by_path {
-    use std::fs::File;
+    use std::fs::{File, Metadata};
     use std::io;
     use std::marker::PhantomData;
     use std::path::{Path, PathBuf};
 
     use super::{Kind, NoEntry};
+
+    /// What the system says of an entry or of an open file.
+    pub(in crate::git_ops) type Stat = Metadata;
 
     /// A work tree, as its top folder.
     pub(in crate::git_ops) struct Tree {
@@ -212,10 +263,10 @@ mod by_path {
         tree: PhantomData<&'a Tree>,
     }
 
-    /// What `path` is; `None` when nothing is there.
-    fn kind_of(path: &Path) -> Option<Kind> {
-        let kind = std::fs::symlink_metadata(path).ok()?.file_type();
-        Some(if kind.is_symlink() {
+    /// What `stat` is of.
+    pub(in crate::git_ops) fn kind_in(stat: &Stat) -> Kind {
+        let kind = stat.file_type();
+        if kind.is_symlink() {
             Kind::Link
         } else if kind.is_dir() {
             Kind::Folder
@@ -223,7 +274,17 @@ mod by_path {
             Kind::File
         } else {
             Kind::Other
-        })
+        }
+    }
+
+    /// What `path` is; `None` when nothing is there.
+    fn kind_of(path: &Path) -> Option<Kind> {
+        std::fs::symlink_metadata(path).ok().map(|stat| kind_in(&stat))
+    }
+
+    /// What the system says of an open file.
+    pub(in crate::git_ops) fn stat_of(file: &File) -> Option<Stat> {
+        file.metadata().ok()
     }
 
     impl Tree {
@@ -254,6 +315,17 @@ mod by_path {
         /// What the entry is; `None` when nothing has its name.
         pub(in crate::git_ops) fn kind(&self) -> Option<Kind> {
             kind_of(&self.path)
+        }
+
+        /// What the system says of the entry itself: a link is not followed.
+        pub(in crate::git_ops) fn stat(&self) -> Option<Stat> {
+            std::fs::symlink_metadata(&self.path).ok()
+        }
+
+        /// The target text of the entry, a link.
+        pub(in crate::git_ops) fn link_target(&self) -> Option<Vec<u8>> {
+            let target = std::fs::read_link(&self.path).ok()?;
+            Some(target.as_os_str().as_encoded_bytes().to_vec())
         }
 
         /// The entry, a regular file, open for a read.
@@ -338,6 +410,29 @@ mod tests {
         let mut again = Tree::open(&root).unwrap();
         assert_eq!(kind(&mut again, "real/deep/file"), Err(NoEntry::Link));
         assert_eq!(text(&mut again, "real/deep/file"), None);
+
+        std::fs::remove_dir_all(top).unwrap();
+    }
+
+    #[test]
+    fn work_tree_entry_gives_a_link_by_its_target_text_and_a_file_by_one_stat_entry() {
+        let top = fresh_folder();
+        let root = top.join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("file"), "inside").unwrap();
+        std::os::unix::fs::symlink("to/a/place", root.join("link")).unwrap();
+        let mut tree = Tree::open(&root).unwrap();
+
+        let link = tree.entry(Path::new("link")).unwrap();
+        assert_eq!(link.stat().map(|stat| kind_in(&stat)), Some(Kind::Link));
+        assert_eq!(link.link_target().as_deref(), Some(b"to/a/place".as_slice()));
+        // The entry of a name and the entry of the open file are of one file.
+        let file = tree.entry(Path::new("file")).unwrap();
+        let (named, open) = (file.stat().unwrap(), stat_of(&file.open_file().unwrap()).unwrap());
+        assert_eq!(kind_in(&named), Kind::File);
+        assert_eq!(kind_in(&open), Kind::File);
+        assert_eq!((named.st_ino, named.st_dev, named.st_size), (open.st_ino, open.st_dev, 6));
+        assert!(tree.entry(Path::new("none")).unwrap().stat().is_none());
 
         std::fs::remove_dir_all(top).unwrap();
     }

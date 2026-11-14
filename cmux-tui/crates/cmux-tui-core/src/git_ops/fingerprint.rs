@@ -12,8 +12,9 @@
 //! `git status` does not list is covered by HEAD's id.
 //!
 //! A listed path is looked at and read only through the real folders of the
-//! work tree (`entry`): a link in a folder's place leads nowhere, in a work
-//! tree that was made so and when the link comes after git's listing.
+//! work tree (`work_tree_entry`): a link in a folder's place leads nowhere,
+//! in a work tree that was made so and when the link comes after git's
+//! listing.
 
 use std::path::{Path, PathBuf};
 
@@ -22,15 +23,11 @@ use cmux_git::run::{self, GitFailure};
 use serde_json::{Map, Value, json};
 use sha2::{Digest as _, Sha256};
 
+use super::work_tree_entry::{Kind, Tree};
 use super::{MAX_SMALL_OUTPUT_BYTES, OpenError, Repository, clamp, git_failed, open_failed};
 use crate::resource::ResourceError;
 
 mod content;
-#[cfg(unix)]
-mod entry;
-#[cfg(not(unix))]
-#[path = "fingerprint/entry_by_path.rs"]
-mod entry;
 
 const OPERATION: &str = "git.fingerprint";
 /// git output read from the listing run. Entries past it are not seen, as
@@ -102,7 +99,7 @@ pub(super) fn read(directory: &Path, fields: &Map<String, Value>) -> Result<Valu
     // record that a cut listing lost.
     records.pop();
     digest.put(if listing.truncated { b"cut".as_slice() } else { b"whole".as_slice() });
-    let tree = entry::Tree::open(&repository.root).ok_or_else(|| {
+    let tree = Tree::open(&repository.root).ok_or_else(|| {
         ResourceError::operation_failed(
             OPERATION,
             "the work tree's folder cannot be opened",
@@ -209,7 +206,7 @@ fn entry(
 /// The work tree side of the entries of one read.
 struct WorkTree<'a> {
     repository: &'a Repository,
-    tree: entry::Tree,
+    tree: Tree,
     files: content::Reader,
     submodules: usize,
 }
@@ -229,12 +226,12 @@ impl WorkTree<'_> {
         let relative = path_from_bytes(path);
         // A path with a link, a file or nothing in a folder's place is not
         // in the work tree.
-        let Some(entry) = self.tree.entry(&relative) else { return Ok(b"none".to_vec()) };
+        let Ok(entry) = self.tree.entry(&relative) else { return Ok(b"none".to_vec()) };
         let path = self.repository.root.join(&relative);
         if !submodule {
             return Ok(self.files.token(&path, &entry));
         }
-        if content::kind_of(&entry) != Some(content::Kind::Folder) {
+        if entry.kind() != Some(Kind::Folder) {
             return Ok(b"submodule none".to_vec());
         }
         self.submodule_head(&path)

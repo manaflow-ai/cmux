@@ -13,8 +13,9 @@
 //! folder of build output that no ignore rule covers costs one `lstat` a
 //! file, never a read.
 //!
-//! Each file is looked at and read as an [`Entry`]: through the open folders
-//! of the work tree, never through a link in a folder's place.
+//! Each file is looked at and read as an [`Entry`] of the daemon's one walk
+//! of a work tree (`git_ops/work_tree_entry.rs`): through the open folders of
+//! the work tree, never through a link in a folder's place.
 
 use std::collections::HashMap;
 use std::io::{ErrorKind, Read as _};
@@ -24,7 +25,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest as _, Sha256};
 
-use super::entry::{self, Entry, Stat};
+use crate::git_ops::work_tree_entry::{Entry, Kind, Stat, kind_in, stat_of};
 
 /// Files one read gives a content hash.
 const MAX_FILES: usize = 8192;
@@ -36,15 +37,6 @@ const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_KEPT: usize = 65536;
 /// git's bound for a racy entry on a file system with coarse time stamps.
 const RACY: Duration = Duration::from_secs(2);
-
-/// What a stat entry names.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum Kind {
-    File,
-    Folder,
-    Link,
-    Special,
-}
 
 /// What `lstat` says of a file, as far as a write to the file moves it.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -120,12 +112,6 @@ fn seen(stat: &Stat) -> (Kind, Stamp) {
             if seconds < 0 { UNIX_EPOCH.checked_sub(whole) } else { UNIX_EPOCH.checked_add(whole) };
         second?.checked_add(Duration::from_nanos(u64::try_from(nanoseconds).ok()?))
     }
-    let kind = match stat.st_mode & libc::S_IFMT {
-        libc::S_IFREG => Kind::File,
-        libc::S_IFDIR => Kind::Folder,
-        libc::S_IFLNK => Kind::Link,
-        _ => Kind::Special,
-    };
     let node = Node {
         changed_seconds: i64::try_from(wide(stat.st_ctime)).unwrap_or(0),
         changed_nanoseconds: i64::try_from(wide(stat.st_ctime_nsec)).unwrap_or(0),
@@ -138,27 +124,13 @@ fn seen(stat: &Stat) -> (Kind, Stamp) {
         modified: time(wide(stat.st_mtime), wide(stat.st_mtime_nsec)),
         node,
     };
-    (kind, stamp)
+    (kind_in(stat), stamp)
 }
 
 #[cfg(not(unix))]
 fn seen(stat: &Stat) -> (Kind, Stamp) {
-    let kind = stat.file_type();
-    let kind = if kind.is_symlink() {
-        Kind::Link
-    } else if kind.is_dir() {
-        Kind::Folder
-    } else if kind.is_file() {
-        Kind::File
-    } else {
-        Kind::Special
-    };
-    (kind, Stamp { size: stat.len(), modified: stat.modified().ok(), node: Node::default() })
-}
-
-/// What `entry` is in the work tree; `None` when nothing is there.
-pub(super) fn kind_of(entry: &Entry<'_>) -> Option<Kind> {
-    entry.stat().map(|stat| seen(&stat).0)
+    let stamp = Stamp { size: stat.len(), modified: stat.modified().ok(), node: Node::default() };
+    (kind_in(stat), stamp)
 }
 
 struct Kept {
@@ -230,7 +202,7 @@ impl Reader {
                 return token;
             }
             Kind::Folder => return b"folder".to_vec(),
-            Kind::Special => return b"special".to_vec(),
+            Kind::Other => return b"special".to_vec(),
         }
         if let Some(hash) =
             self.within_bounds(stamp.size).then(|| self.hash(path, entry, stamp)).flatten()
@@ -283,8 +255,8 @@ impl Reader {
 /// FIFO, and reads the file's extent at the open, so appends cannot keep it
 /// running.
 fn hash_file(entry: &Entry<'_>) -> Option<([u8; 32], u64, Stamp)> {
-    let file = entry.open()?;
-    let (Kind::File, stamp) = seen(&entry::stat_of(&file)?) else { return None };
+    let file = entry.open_file().ok()?;
+    let (Kind::File, stamp) = seen(&stat_of(&file)?) else { return None };
     let mut file = file.take(stamp.size.min(MAX_FILE_BYTES));
     let mut hasher = Sha256::new();
     let mut buffer = vec![0_u8; 64 * 1024];
