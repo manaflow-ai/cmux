@@ -1675,8 +1675,22 @@ jobs:
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-27
       - name: Start the slow checks in the background
+        env:
+          # The job's own cap (the same expression as its timeout-minutes; tests/test_run_checks_concurrently.py).
+          JOB_TIMEOUT_MINUTES: ${{ github.repository_owner == 'manaflow-ai' && needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && !contains(needs.portable-placement.outputs.linux_jobs, ' checks ') && contains(needs.portable-placement.outputs.mini_jobs, ' checks ') && needs.portable-placement.outputs.mini_runner != '' && 35 || 15 }}
         run: |
-          scripts/ci/run-checks-concurrently.sh --start "$RUNNER_TEMP/background-checks" --jobs "$(getconf _NPROCESSORS_ONLN)" <<'CHECKS'
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-27c
+          # A check still running POOL_TAIL_SECONDS before the cap stops with its name, so the job ends in a verdict.
+          # The job clock starts when the runner writes the event file (Set up job), before the runner hook's wait.
+          POOL_TAIL_SECONDS=300
+          job_start="$(python3 -c 'import os, sys; print(int(os.path.getmtime(sys.argv[1])))' "$GITHUB_EVENT_PATH" 2>/dev/null \
+            || date +%s)"
+          now="$(date +%s)"
+          # A stale or future event file (not this job's) is no clock: count from now.
+          (( job_start <= now && now - job_start < JOB_TIMEOUT_MINUTES * 60 )) || job_start="$now"
+          deadline=$(( job_start + JOB_TIMEOUT_MINUTES * 60 - POOL_TAIL_SECONDS ))
+          scripts/ci/run-checks-concurrently.sh --start "$RUNNER_TEMP/background-checks" --jobs "$(getconf _NPROCESSORS_ONLN)" \
+            --deadline-at "$deadline" <<'CHECKS'
             [no-process-scan]
             python3 -I scripts/cmux-next/check-no-process-scan.py "$GITHUB_WORKSPACE"
             [state-roots]
