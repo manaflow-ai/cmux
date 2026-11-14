@@ -772,7 +772,7 @@ fn output_read_projects_a_live_reconnect_snapshot_at_the_same_cursor() {
     // The host reconnect replaces the screen while the raw stream cursor is
     // still at the prefix. These bytes are deliberately not appended: they
     // are the host's no-tap interval, recovered only by the live snapshot.
-    mux.output_store.stream_gap(&terminal);
+    mux.output_store.stream_gap(&terminal, &Arc::from(INCARNATION));
     surface.apply_stream_output_for_test(b"3\r\n4\r\n").unwrap();
     let recovered = mux.terminal_output_read(&terminal, Some(prefix_end), 1 << 20).unwrap();
     assert_eq!(recovered["start_offset"], "0", "{recovered}");
@@ -783,12 +783,19 @@ fn output_read_projects_a_live_reconnect_snapshot_at_the_same_cursor() {
     assert_eq!(&recovered_lines[..4], ["1", "2", "3", "4"], "{recovered}");
     assert!(recovered_lines[4..].iter().all(|line| line.is_empty()), "{recovered}");
 
-    // Once the explicit snapshot cut has been delivered, a normal read at
-    // its cursor is empty and does not project the screen repeatedly.
+    // A second reader at the same cursor receives the same projection rather
+    // than racing the first reader and losing the no-tap interval.
+    let repeated = mux.terminal_output_read(&terminal, Some(prefix_end), 1 << 20).unwrap();
+    assert_eq!(repeated["start_offset"], "0", "{repeated}");
+    assert_eq!(repeated["next_offset"], prefix_end.to_string(), "{repeated}");
+    assert_eq!(repeated["complete"], true, "{repeated}");
+
+    // The projection remains idempotent for a retry at the same cursor. The
+    // client replaces its held text when start_offset returns to zero.
     let drained = mux.terminal_output_read(&terminal, Some(prefix_end), 1 << 20).unwrap();
-    assert_eq!(drained["start_offset"], prefix_end.to_string(), "{drained}");
+    assert_eq!(drained["start_offset"], "0", "{drained}");
     assert_eq!(drained["next_offset"], prefix_end.to_string(), "{drained}");
-    assert_eq!(drained["text"], "", "{drained}");
+    assert_eq!(drained["complete"], true, "{drained}");
 
     mux.shutdown();
     drop(mux);

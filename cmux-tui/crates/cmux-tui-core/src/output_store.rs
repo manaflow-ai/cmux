@@ -919,21 +919,16 @@ impl OutputStore {
     }
 
     /// Whether a reconnect snapshot must be projected before raw reads resume.
+    /// The flag remains set for this stream generation: the projection is
+    /// idempotent (offset 0 replaces a client's held text), and retaining it
+    /// lets concurrent or retried readers recover without a client identity or
+    /// an acknowledgement token.
     pub(crate) fn stream_gap_pending(&self, terminal_id: &TerminalPublicId) -> bool {
         self.logs
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .get(terminal_id)
             .is_some_and(|log| log.state.lock().unwrap_or_else(PoisonError::into_inner).gap_pending)
-    }
-
-    /// Mark the reconnect snapshot as delivered after a coherent live capture.
-    pub(crate) fn clear_stream_gap_pending(&self, terminal_id: &TerminalPublicId) {
-        if let Some(log) =
-            self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id).cloned()
-        {
-            log.state.lock().unwrap_or_else(PoisonError::into_inner).gap_pending = false;
-        }
     }
 
     /// Retained output at or after `after`, at most `max_bytes` (never less
@@ -1005,30 +1000,27 @@ impl OutputStore {
 
     /// The daemon's terminal was replaced from its host's snapshot (a host
     /// reconnect): bytes the host wrote while the daemon had no tap never
-    /// came through [`Self::append`]. Snapshot mode: the tail must not
-    /// continue across that gap; its unwritten bytes fall back to a snapshot
-    /// of the replaced terminal, asked for at the next pass. (Full mode's
-    /// segment files never had the gap's bytes either, and their offsets stay
-    /// contiguous, so a full-mode rebuild after a reconnect lacks them: not
-    /// changed here.)
-    pub(crate) fn stream_gap(&self, terminal_id: &TerminalPublicId) {
-        if !self.tail_enabled() {
-            return;
-        }
-        let Some(log) =
-            self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id).cloned()
-        else {
-            return;
-        };
+    /// came through [`Self::append`]. The next output read projects the
+    /// replaced terminal from offset zero; this applies to every persistence
+    /// mode and also creates a log for a re-adopted terminal with no tail yet.
+    pub(crate) fn stream_gap(&self, terminal_id: &TerminalPublicId, generation: &Arc<str>) {
+        // Re-adopted terminals may not have an in-memory log yet. Creating it
+        // here consumes the persisted cursor, so an idle terminal's screen is
+        // still recoverable even before its first post-adoption append.
+        let log = self.log(terminal_id, generation);
         let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.fall_back_to_snapshot();
+        if self.tail_enabled() {
+            state.fall_back_to_snapshot();
+        }
         state.gaps += 1;
         state.gap_pending = true;
         let wait = state.retry_wait();
         drop(state);
-        match wait {
-            Some(wait) => self.mark_log_dirty_after(&log, wait),
-            None => self.mark_log_dirty(&log),
+        if self.tail_enabled() {
+            match wait {
+                Some(wait) => self.mark_log_dirty_after(&log, wait),
+                None => self.mark_log_dirty(&log),
+            }
         }
     }
 

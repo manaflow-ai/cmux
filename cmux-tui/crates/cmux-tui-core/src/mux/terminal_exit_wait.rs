@@ -35,7 +35,6 @@ impl Mux {
             return Ok(None);
         };
         let text = render_terminal_output_plain(std::iter::once(replay.as_slice()), cols, rows)?;
-        self.output_store.clear_stream_gap_pending(terminal_id);
         Ok(Some(terminal_output_read_result(text, 0, end, true)))
     }
 

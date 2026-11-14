@@ -322,7 +322,7 @@ impl HostedReader {
             // The output store's tail must not continue across that gap
             // either: the next snapshot takes the replaced screen.
             if let Some(terminal_id) = pty.terminal_public_id.as_deref() {
-                reconnect_mux.output_store.stream_gap(terminal_id);
+                reconnect_mux.output_store.stream_gap(terminal_id, &pty.journal_generation);
             }
             reconnect_mux
                 .reconcile_deferred_cell_pixel_ack(surface.id, replacement_snapshot.cell_pixels);
