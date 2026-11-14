@@ -27,6 +27,8 @@ final class HomeClientViewCache {
     private(set) var drafts: [ConversationID: String] = [:]
     private(set) var draftAttachments: [ConversationID: [HomeCachedDraftAttachment]] = [:]
     private(set) var scrollAnchors: [ConversationID: HomeScrollAnchor] = [:]
+    /// The Chief conversation Home showed last (``HomeCacheSnapshot/chief``).
+    private(set) var chief: ConversationID?
     private var pendingWrite: Task<Void, Never>?
     /// The newest state handed to the cache actor (``writeNow()``), awaited by ``flush()``.
     private var lastWrite: Task<Void, Never>?
@@ -71,6 +73,13 @@ final class HomeClientViewCache {
         scheduleWrite()
     }
 
+    /// Keeps the Chief conversation Home shows; the same one is no change.
+    func setChief(_ id: ConversationID?) {
+        guard chief != id else { return }
+        chief = id
+        scheduleWrite()
+    }
+
     /// Runs `body` (a restore) with writes suppressed, after taking the
     /// snapshot's client state.
     func restore(_ snapshot: HomeCacheSnapshot, _ body: () -> Void) {
@@ -79,6 +88,7 @@ final class HomeClientViewCache {
         drafts = snapshot.drafts
         draftAttachments = snapshot.draftAttachments ?? [:]
         scrollAnchors = snapshot.scroll
+        chief = snapshot.chief
         body()
     }
 
@@ -150,6 +160,7 @@ final class HomeClientViewCache {
         state.drafts = drafts
         state.draftAttachments = draftAttachments
         state.scroll = scrollAnchors
+        state.chief = chief
         sequence &+= 1
         return (state, sequence)
     }

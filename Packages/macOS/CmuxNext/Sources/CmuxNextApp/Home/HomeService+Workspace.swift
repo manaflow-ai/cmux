@@ -79,20 +79,11 @@ extension HomeService {
         return nil
     }
 
-    /// The chief conversation: the oldest conversation with the mux in `listed` (the Chief owner's
-    /// list the caller just read; a second read held a fresh launch's Home a round trip longer), else one created under a fixed key.
+    /// The chief conversation (``HomeChiefName/conversation(_:listed:user:mux:mark:renameFailed:)``).
     private func chiefConversation(_ connection: DaemonConnection, listed: [ConversationSummary]) async throws -> String {
-        let client = ConversationClient(connection)
-        if let existing = HomeChiefName.select(from: listed) {
-            // One-time rename to the chief's name (N1); a failure keeps the old title.
-            if let rename = HomeChiefName.migration(for: existing) {
-                do { _ = try await client.op(rename) } catch {
-                    logger.error("chief rename: \(String(describing: error), privacy: .public)")
-                }
-            }
-            return existing.id
-        }
-        return try await client.create(HomeChiefName.createRequest(user: Self.localUser, mux: Self.mux)).conversation.id
+        try await HomeChiefName.conversation(ConversationClient(connection), listed: listed, user: Self.localUser, mux: Self.mux,
+                                             mark: { DebugTimings.markLaunch("home.\($0)") },
+                                             renameFailed: { [logger] in logger.error("chief rename: \(String(describing: $0), privacy: .public)") })
     }
 
     /// The signed-in user's cloud Chiefs (the Hosted Chief, made when this
@@ -162,8 +153,10 @@ extension HomeService {
         // A teleported Chief's tab is the conversation where it answers now (HomeService+ChiefRoster).
         let followed = chiefFollow.conversation
         if let followed { followedChiefConversations.insert(followed) }
-        guard let chief = followed ?? cloud.chiefTab(local: localChief, localHasHistory: localHasHistory, choice: hostedChief.choice,
-                                                     prefersLocal: prefersLocalChief), HomeDock.classic else { return }
+        let resolved = followed ?? cloud.chiefTab(local: localChief, localHasHistory: localHasHistory, choice: hostedChief.choice,
+                                                  prefersLocal: prefersLocalChief)
+        homeStore.rememberChief(resolved.map { .init($0) })  // the next launch draws it first; the cached one ends (CMUX-571)
+        guard let chief = resolved, HomeDock.classic else { return }
         homeWorkspaceStep = "waiting for the home workspace in the tree"
         // The tree reports a just-created home after its event; wait for it
         // (this task is cancelled by the next connection).
