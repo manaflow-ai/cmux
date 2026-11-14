@@ -1153,7 +1153,8 @@ async fn dispatch_request_with_identity(
     }
     // Rows by key (`info.rs`) are answered here, a peer's from its mirror: never forwarded, and
     // refused when they name one session beside them.
-    let rows_by_key = m == method::MUX_INFO && params.get("sessionIds").is_some();
+    let rows_by_key =
+        m == method::MUX_INFO && params.get("sessionIds").is_some_and(|keys| !keys.is_null());
     // A session that lives on a peer (`peer_forward.rs`).
     if !rows_by_key
         && let Some(reply) = super::peer_forward::forward(hub, conn, m, &params).await

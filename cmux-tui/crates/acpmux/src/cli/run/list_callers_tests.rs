@@ -223,6 +223,7 @@ async fn every_form_on(daemon: Daemon, peer_closed: bool) {
         vec!["--tag", "area=acpmux"],
         vec!["--since", "5m"],
         vec!["chat-*"],
+        vec!["local/c-live-0", "--json"],
         vec!["far/*", "--json"],
         vec!["--machine", "far", "--json"],
         vec!["--machine", "local"],

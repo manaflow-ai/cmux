@@ -80,6 +80,9 @@ acpmux_lib_gates() {
   run_acpmux_lib walk_rss_gate
   run_acpmux_lib live_view_gate
   run_acpmux_lib keyed_page_gate
+  # Row 7b: rows by key, and the CLI and MCP list callers.
+  run_acpmux_lib v2_pr07b_info_rows
+  run_acpmux_lib v2_pr07b_callers
 }
 run_group acpmux-lib acpmux_lib_gates
 

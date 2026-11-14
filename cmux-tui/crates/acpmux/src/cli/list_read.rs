@@ -190,9 +190,11 @@ pub(crate) fn extra(summary: &Summary, key: &str) -> Option<Value> {
         .and_then(|mut extra| extra.remove(key))
 }
 
-/// Whether the summary's chat waits on a permission: its count is held whole.
+/// Whether the summary's chat may wait on a permission: its count is above 0, or the summary
+/// does not hold it (a summary whose `extra` was bounded away holds `{}`), so only the fetched
+/// row may judge it.
 pub(crate) fn pending(summary: &Summary) -> bool {
-    extra(summary, "pendingPermissions").and_then(|n| n.as_u64()).unwrap_or(0) > 0
+    extra(summary, "pendingPermissions").and_then(|n| n.as_u64()).is_none_or(|n| n > 0)
 }
 
 /// Whether the summary's chat is closed: the one thing its `state` decides.
@@ -201,14 +203,19 @@ pub(crate) fn closed(summary: &Summary) -> bool {
 }
 
 /// The summary as the row `select::name_matches` reads (its name, id, peer and qualified id),
-/// or `None` when its name was cut and only the fetched row may judge it.
+/// or `None` when only the fetched row may judge it: its name was cut, or the summary does not
+/// hold one (its `extra` bounded away).
 pub(crate) fn name_probe(summary: &Summary) -> Option<Value> {
-    let name = extra(summary, "name");
-    if name.as_ref().and_then(Value::as_str).is_some_and(|n| n.ends_with('…')) {
+    let name = extra(summary, "name")?;
+    if name.as_str().is_none_or(|n| n.ends_with('…')) {
         return None;
     }
     let mut probe = json!({"name": name, "sessionId": summary.chat_id});
-    if summary.origin != "local" {
+    if summary.origin == "local" {
+        // This daemon's rows are `local/ID` (`SessionReceipt::qualified_id`).
+        probe["qualifiedSessionId"] =
+            json!(format!("{}/{}", crate::session_identity::LOCAL_HOST_ID, summary.chat_id));
+    } else {
         probe["peer"] = json!(summary.origin);
         probe["qualifiedSessionId"] =
             extra(summary, "qualifiedSessionId").unwrap_or_else(|| json!(row_key(summary)));
