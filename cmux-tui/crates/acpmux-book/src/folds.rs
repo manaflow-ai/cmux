@@ -18,6 +18,57 @@ pub struct Folds {
     stopped: bool,
 }
 
+/// Read-only view of the derived fold boundaries. Unlike [`Folds`], opening this
+/// view never truncates or writes the index, so a chat read can keep one handle
+/// for all candidates in a window.
+pub(crate) struct Reader {
+    file: File,
+    len: u64,
+}
+
+impl Reader {
+    pub(crate) fn open(path: &Path) -> Result<Option<Self>, Error> {
+        let file = match File::open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(Error::Io(error)),
+        };
+        let len = file.metadata()?.len();
+        if !len.is_multiple_of(ENTRY_BYTES) {
+            return Err(Error::Corrupt("fold index is not an entry boundary"));
+        }
+        Ok((len != 0).then_some(Self { file, len }))
+    }
+
+    fn refresh(&mut self) -> Result<(), Error> {
+        let len = self.file.metadata()?.len();
+        if !len.is_multiple_of(ENTRY_BYTES) {
+            return Err(Error::Corrupt("fold index is not an entry boundary"));
+        }
+        self.len = len;
+        Ok(())
+    }
+
+    pub(crate) fn containing(&mut self, row_id: u64) -> Result<Option<Entry>, Error> {
+        self.refresh()?;
+        let count = self.len / ENTRY_BYTES;
+        let mut lo = 0u64;
+        let mut hi = count;
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            let (group, last) = read_entry_at(&self.file, mid.saturating_mul(ENTRY_BYTES))?;
+            if row_id < group {
+                hi = mid;
+            } else if row_id > last {
+                lo = mid.saturating_add(1);
+            } else {
+                return Ok(Some(Entry { group, last }));
+            }
+        }
+        Ok(None)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Entry {
     pub group: u64,
@@ -122,6 +173,25 @@ fn read_entry(file: &mut File) -> Result<(u64, u64), Error> {
     file.read_exact(&mut group)?;
     file.read_exact(&mut last)?;
     Ok((u64::from_le_bytes(group), u64::from_le_bytes(last)))
+}
+
+fn read_entry_at(file: &File, offset: u64) -> Result<(u64, u64), Error> {
+    let mut bytes = [0u8; ENTRY_BYTES as usize];
+    let read = crate::fsio::read_at(file, &mut bytes, offset)?;
+    if read != bytes.len() {
+        return Err(Error::Corrupt("short fold entry"));
+    }
+    let group = bytes
+        .get(..8)
+        .and_then(|bytes| bytes.try_into().ok())
+        .map(u64::from_le_bytes)
+        .ok_or(Error::Corrupt("short fold group"))?;
+    let last = bytes
+        .get(8..)
+        .and_then(|bytes| bytes.try_into().ok())
+        .map(u64::from_le_bytes)
+        .ok_or(Error::Corrupt("short fold end"))?;
+    Ok((group, last))
 }
 
 #[cfg(test)]

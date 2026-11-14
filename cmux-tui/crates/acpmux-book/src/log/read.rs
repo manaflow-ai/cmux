@@ -14,7 +14,6 @@ use super::record::{Check, HEADER_LEN, HEADER_LEN_U32, HEADER_LEN_U64, Header};
 use super::{Error, Log, RawRange, SEQ_STRIDE};
 use serde_json::Value;
 use std::collections::BTreeMap;
-use std::fs;
 use std::ops::Range;
 
 /// The most rows one window, page or resume returns.
@@ -166,13 +165,11 @@ impl Log {
         requested.min(cap)
     }
 
-    fn fold_entry(&self, row_id: u64) -> Result<Option<crate::folds::Entry>, Error> {
-        let len = fs::metadata(&self.folds_path).map_or(0, |meta| meta.len());
-        if len == 0 {
-            return Ok(None);
+    fn fold_entry_mut(&mut self, row_id: u64) -> Result<Option<crate::folds::Entry>, Error> {
+        if self.fold_reader.is_none() {
+            self.fold_reader = crate::folds::Reader::open(&self.folds_path)?;
         }
-        let mut folds = crate::folds::Folds::open(&self.folds_path, len)?;
-        folds.containing(row_id)
+        self.fold_reader.as_mut().map_or(Ok(None), |reader| reader.containing(row_id))
     }
 
     /// Walks rowIds from `start`, up or down, collecting settled rows into `out` until the
@@ -246,7 +243,7 @@ impl Log {
         let fold = if fold_hint.is_some_and(|fold| (fold.group..=fold.last).contains(&row_id)) {
             *fold_hint
         } else {
-            let found = self.fold_entry(row_id)?;
+            let found = self.fold_entry_mut(row_id)?;
             *fold_hint = found;
             found
         };
@@ -301,7 +298,7 @@ impl Log {
     }
 
     fn normalize_anchor(&mut self, id: u64, open_folds: &[u64]) -> Result<u64, Error> {
-        let Some(fold) = self.fold_entry(id)? else { return Ok(id) };
+        let Some(fold) = self.fold_entry_mut(id)? else { return Ok(id) };
         if open_folds.contains(&fold.group) || id == fold.group {
             return Ok(id);
         }
@@ -576,7 +573,7 @@ impl Log {
         max_bytes: usize,
         group: u64,
     ) -> Result<Window, Error> {
-        let Some(fold) = self.fold_entry(group)? else {
+        let Some(fold) = self.fold_entry_mut(group)? else {
             return Err(Error::InvalidInput("fold is not in folds.idx"));
         };
         let (start, up) = match edge {

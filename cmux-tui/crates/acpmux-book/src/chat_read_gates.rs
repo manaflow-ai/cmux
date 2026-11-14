@@ -1,8 +1,6 @@
-use crate::blobs::{Blobs, Body};
-use crate::log::{Anchor, Log, MAX_BLOB_READ, MAX_FRAME_BYTES, Options, RawRange};
-use crate::testkit::open;
+use crate::log::{Anchor, MAX_BLOB_READ, MAX_FRAME_BYTES};
+use crate::testkit::{BlobFixture, blob_fixture, folded_book};
 use std::io::Write;
-use std::path::Path;
 use std::time::Instant;
 
 fn emit(name: &str, small: u64, god: u64) {
@@ -22,26 +20,14 @@ fn percentile(samples: &[u64]) -> u64 {
     sorted[(sorted.len().saturating_mul(95) / 100).min(sorted.len().saturating_sub(1))]
 }
 
-fn folded_book(path: &Path, rows: u64) -> Log {
-    let (mut log, _) = Log::open(path, Options::default()).unwrap();
-    for id in 2..=rows {
-        log.append_settled(id, 1, RawRange::NONE, b"{}").unwrap();
-    }
-    let group = format!("{{\"body\":{{\"out\":[[2,2],[{} ,{}]]}}}}", rows, rows);
-    log.append_settled(1, 1, RawRange::NONE, group.as_bytes()).unwrap();
-    let mut folds = crate::folds::Folds::open(&path.join("folds.idx"), 0).unwrap();
-    folds.append(1, rows).unwrap();
-    folds.sync().unwrap();
-    log
-}
-
-fn fold_sample(path: &Path, rows: u64) -> u64 {
-    let mut log = folded_book(path, rows);
+fn fold_sample(
+    log: &mut crate::log::Log,
+    bytes: &mut Vec<u8>,
+    ranges: &mut Vec<std::ops::Range<usize>>,
+) -> u64 {
     let start = Instant::now();
     let window = log.read_window(Anchor::End, 400, MAX_FRAME_BYTES, &[]).unwrap();
-    let mut bytes = Vec::new();
-    let mut ranges = Vec::new();
-    log.fill(&window.rows, &mut bytes, &mut ranges).unwrap();
+    log.fill(&window.rows, bytes, ranges).unwrap();
     start.elapsed().as_nanos() as u64
 }
 
@@ -49,11 +35,19 @@ fn fold_sample(path: &Path, rows: u64) -> u64 {
 #[ignore]
 fn v2_pr03c_fold_window() {
     let root = tempfile::tempdir().unwrap();
+    let mut small_log = folded_book(&root.path().join("small"), 10);
+    let mut god_log = folded_book(&root.path().join("god"), 100_000);
+    let mut small_bytes = Vec::new();
+    let mut small_ranges = Vec::new();
+    let mut god_bytes = Vec::new();
+    let mut god_ranges = Vec::new();
+    let _ = fold_sample(&mut small_log, &mut small_bytes, &mut small_ranges);
+    let _ = fold_sample(&mut god_log, &mut god_bytes, &mut god_ranges);
     let mut small = Vec::new();
     let mut god = Vec::new();
-    for round in 0..5 {
-        small.push(fold_sample(&root.path().join(format!("small-{round}")), 10));
-        god.push(fold_sample(&root.path().join(format!("god-{round}")), 100_000));
+    for _ in 0..5 {
+        small.push(fold_sample(&mut small_log, &mut small_bytes, &mut small_ranges));
+        god.push(fold_sample(&mut god_log, &mut god_bytes, &mut god_ranges));
     }
     let small = percentile(&small);
     let god = percentile(&god);
@@ -64,41 +58,35 @@ fn v2_pr03c_fold_window() {
     );
 }
 
-fn blob_sample(bytes: usize) -> u64 {
-    let root = tempfile::tempdir().unwrap();
-    let mut log = open(root.path()).0;
-    log.write_blob(1, &vec![b'x'; bytes]).unwrap();
+fn blob_sample(fixture: &mut BlobFixture, settled: &mut Vec<u8>, open: &mut Vec<u8>) -> u64 {
     let start = Instant::now();
-    let mut out = Vec::new();
-    let range = log
-        .read_blob_range(1, bytes.saturating_sub(MAX_BLOB_READ) as u64, MAX_BLOB_READ, &mut out)
+    let range = fixture.log.read_blob_range(1, fixture.offset, MAX_BLOB_READ, settled).unwrap();
+    assert_eq!(range.end.saturating_sub(range.start), settled.len() as u64);
+    let total = fixture
+        .blobs
+        .read_open_range(&fixture.body, "text", fixture.offset, MAX_BLOB_READ, open)
         .unwrap();
-    assert_eq!(range.end.saturating_sub(range.start), out.len() as u64);
-    let mut blobs = Blobs::open(root.path()).unwrap();
-    let mut body = Body::new(2).unwrap();
-    let value = format!("\"{}\"", "x".repeat(bytes));
-    blobs.set(&mut body, "text", &value, false).unwrap();
-    let mut open_out = Vec::new();
-    blobs
-        .read_open_range(
-            &body,
-            "text",
-            bytes.saturating_sub(MAX_BLOB_READ) as u64,
-            MAX_BLOB_READ,
-            &mut open_out,
-        )
-        .unwrap();
+    assert_eq!(total.saturating_sub(fixture.offset), open.len() as u64);
     start.elapsed().as_nanos() as u64
 }
 
 #[test]
 #[ignore]
 fn v2_pr03c_blob_range() {
+    let root = tempfile::tempdir().unwrap();
+    let mut small_fixture = blob_fixture(&root.path().join("small"), 300 * 1024);
+    let mut god_fixture = blob_fixture(&root.path().join("god"), 100 * 1024 * 1024);
+    let mut small_settled = Vec::with_capacity(MAX_BLOB_READ);
+    let mut small_open = Vec::with_capacity(MAX_BLOB_READ);
+    let mut god_settled = Vec::with_capacity(MAX_BLOB_READ);
+    let mut god_open = Vec::with_capacity(MAX_BLOB_READ);
+    let _ = blob_sample(&mut small_fixture, &mut small_settled, &mut small_open);
+    let _ = blob_sample(&mut god_fixture, &mut god_settled, &mut god_open);
     let mut small = Vec::new();
     let mut god = Vec::new();
     for _ in 0..5 {
-        small.push(blob_sample(300 * 1024));
-        god.push(blob_sample(100 * 1024 * 1024));
+        small.push(blob_sample(&mut small_fixture, &mut small_settled, &mut small_open));
+        god.push(blob_sample(&mut god_fixture, &mut god_settled, &mut god_open));
     }
     let small = percentile(&small);
     let god = percentile(&god);

@@ -1,7 +1,8 @@
 //! What the tests and the bench share: row texts that are the same for the same rowId, and
 //! reading a log back.
 
-use crate::log::{Anchor, Edge, Log, Options, RawRange, Recovered, RowRef, Side};
+use crate::blobs::{Blobs, Body};
+use crate::log::{Anchor, Edge, Log, MAX_BLOB_READ, Options, RawRange, Recovered, RowRef, Side};
 use crate::row::{Row, RowKind};
 use std::path::Path;
 
@@ -38,6 +39,40 @@ pub(crate) fn text(id: u64) -> Vec<u8> {
 
 pub(crate) fn open(dir: &Path) -> (Log, Recovered) {
     Log::open(dir, Options::default()).expect("the book opens")
+}
+
+/// A settled book whose last turn is represented by one closed fold. The group
+/// and visible rows are identical at both gate sizes, so the reply has the same
+/// bytes while the hidden turn grows from 10 to 100,000 rows.
+pub(crate) fn folded_book(path: &Path, rows: u64) -> Log {
+    let (mut log, _) = Log::open(path, Options::default()).expect("the folded book opens");
+    for id in 2..=rows {
+        log.append_settled(id, 1, RawRange::NONE, b"{}").expect("the folded row appends");
+    }
+    log.append_settled(1, 1, RawRange::NONE, br#"{"body":{"out":[[2,3]]}}"#)
+        .expect("the fold group appends");
+    let mut folds = crate::folds::Folds::open(&path.join("folds.idx"), 0).expect("fold index");
+    folds.append(1, rows).expect("the fold boundary appends");
+    folds.sync().expect("the fold boundary syncs");
+    log
+}
+
+pub(crate) struct BlobFixture {
+    pub(crate) log: Log,
+    pub(crate) blobs: Blobs,
+    pub(crate) body: Body,
+    pub(crate) offset: u64,
+}
+
+/// Builds both settled and open large bodies before a gate's timed rounds.
+pub(crate) fn blob_fixture(path: &Path, bytes: usize) -> BlobFixture {
+    let (mut log, _) = open(path);
+    log.write_blob(1, &vec![b'x'; bytes]).expect("the settled body writes");
+    let mut blobs = Blobs::open(path).expect("the open body store opens");
+    let mut body = Body::new(2).expect("the open body row");
+    let value = format!("\"{}\"", "x".repeat(bytes));
+    blobs.set(&mut body, "text", &value, false).expect("the open body writes");
+    BlobFixture { log, blobs, body, offset: bytes.saturating_sub(MAX_BLOB_READ) as u64 }
 }
 
 /// Settles rows `from..=to` in id order, each with [`text`].

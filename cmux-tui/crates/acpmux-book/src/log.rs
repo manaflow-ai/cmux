@@ -447,6 +447,8 @@ pub struct Log {
     /// Path to the derived closed-fold index. The actor owns the writer; reads open a short-lived
     /// descriptor so appends made after this log opened are visible immediately.
     pub(crate) folds_path: PathBuf,
+    /// Read-only fold descriptor, opened lazily so a book with no folds does no I/O.
+    pub(crate) fold_reader: Option<crate::folds::Reader>,
     /// Older segments open for reading, the most recently used first.
     readers: Vec<(u32, File)>,
     /// The record being written; at most a row text and its 44 bytes.
@@ -881,6 +883,7 @@ impl Log {
             rows,
             seqs,
             folds_path,
+            fold_reader: None,
             readers: Vec::new(),
             scratch: Vec::new(),
             last_seq,
