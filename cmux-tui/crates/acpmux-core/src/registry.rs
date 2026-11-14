@@ -114,18 +114,28 @@ impl Registry {
         }
     }
 
+    /// The running actor's mailbox. A finished actor is joined and its slot leaves the map, so a
+    /// chat whose actor ended holds no slot.
     pub fn get(&self, id: &str) -> Option<ChatHandle> {
         let slot = self.entries().slots.get(id).cloned()?;
         let mut state = slot.lock();
-        if state.actor.as_ref().is_some_and(ChatActor::is_finished) {
-            let dead = state.actor.take();
-            drop(state);
-            if let Some(dead) = dead {
-                dead.join();
-            }
-            return None;
+        if !state.actor.as_ref().is_some_and(ChatActor::is_finished) {
+            return state.actor.as_ref().map(|actor| actor.handle.clone());
         }
-        state.actor.as_ref().map(|actor| actor.handle.clone())
+        // A start that finds the slot removed goes to the map again (`start`).
+        state.removed = true;
+        let dead = state.actor.take();
+        drop(state);
+        {
+            let mut entries = self.entries();
+            if entries.slots.get(id).is_some_and(|found| Arc::ptr_eq(found, &slot)) {
+                entries.slots.remove(id);
+            }
+        }
+        if let Some(dead) = dead {
+            dead.join();
+        }
+        None
     }
 
     /// Takes the chat's slot out of the map and joins its actor, if one runs.
@@ -215,6 +225,31 @@ mod tests {
         assert!(registry.evict("chat"));
         assert!(registry.is_empty());
         assert!(registry.get("chat").is_none());
+    }
+
+    /// cmux#43078: a lookup that joins a finished actor drops its slot, so the map does not grow
+    /// with chats whose actors ended.
+    #[test]
+    fn a_lookup_that_joins_a_finished_actor_drops_its_slot() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Registry::new();
+        let other = registry.hydrate(config(dir.path(), "other")).unwrap();
+        let before = registry.len();
+        let config = config(dir.path(), "chat");
+        let handle = registry.hydrate(config.clone()).unwrap();
+        assert_eq!(registry.len(), before + 1);
+        handle.close().unwrap();
+        let started = Instant::now();
+        while registry.get("chat").is_some() {
+            assert!(started.elapsed() < Duration::from_secs(10), "the closed actor never ended");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(registry.len(), before, "the joined actor's slot is gone");
+        assert!(registry.get("other").is_some() && other.wake().is_ok(), "another chat's stays");
+        let (_, started) = registry.start(config).unwrap();
+        assert!(started, "a later lookup starts the chat again");
+        assert_eq!(registry.len(), before + 1);
+        assert!(registry.evict("chat") && registry.evict("other"));
     }
 
     #[test]
