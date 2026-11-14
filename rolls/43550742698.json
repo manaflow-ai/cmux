@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43550742698",
+  "recorded_at": "2026-11-14T03:23:41Z",
+  "reason": "cmux-tui 8c95f58582fc changes the image's cmux-tui (pinned cc23a3b1ed21)",
+  "dry_run": false,
+  "cmux_tui": "8c95f58582fc2732877c9c3b421af90add98de81",
+  "fixes": [
+    {
+      "sha": "8c95f58582fc2732877c9c3b421af90add98de81",
+      "mergedAt": "2026-11-13T20:52:28-06:00",
+      "subject": "acpmux: two list tee test helpers have the cfg of their users, so macOS clippy is clean"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T03:23:41Z",
+    "snapshot_id": "sh-181397b4569047918124a7f4b035f05c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43550742698): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9c2353f1997f2bf81ec45a060a96433d5e252628",
+    "image": "cloud-native-auto-8c95f585-43550742698-1",
+    "revision": "ci-43550742698-1",
+    "at": "2026-11-14T03:23:41Z"
+  },
+  "rolled_back": false
+}
