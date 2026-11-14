@@ -428,6 +428,12 @@
       "title" : "Seconds Between Retries",
       "type" : "number"
     },
+    "agents.board.enabled" : {
+      "default" : false,
+      "description" : "New agent sessions keep a ledger of what they build, the decisions they make and the evidence for each state, shown on the Agent Board. Uses more tokens: one more skill in every session, and extra steps to record and capture evidence.",
+      "title" : "Agent Board",
+      "type" : "boolean"
+    },
     "agents.cacheCompact.enabled" : {
       "default" : false,
       "description" : "When a Claude chat sits idle, compact it while its prompt cache is still warm, so the next message doesn't reread the whole context uncached. Costs one model call per compaction, read from the cache.",

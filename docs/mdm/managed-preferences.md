@@ -106,6 +106,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.guidance.codex` | boolean | `true` |  | cmux Guidance for Codex. New Codex chats are told how cmux shows their work: the plan checklist, side sessions, session links and the closing recap. |
 | `agents.guidance.otherAgents` | boolean | `true` |  | cmux Guidance for Other Agents. Other agents (Gemini, OpenCode and the ones you added) get the same guidance about how cmux shows their work. |
 | `agents.guidance.userSkills` | boolean | `true` |  | Your Skills in Every Chat. Skills you put in ~/.config/cmux/skills, one folder each with a SKILL.md, reach every new agent chat. |
+| `agents.board.enabled` | boolean | `false` |  | Agent Board. New agent sessions keep a ledger of what they build, the decisions they make and the evidence for each state, shown on the Agent Board. Uses more tokens: one more skill in every session, and extra steps to record and capture evidence. |
 | `agents.autoRetry.enabled` | boolean | `true` |  | Retry Automatically. When a model is rate limited or out of capacity, or the connection drops, the chat tries again by itself. Retry on the error card always works. |
 | `agents.autoRetry.intervalSeconds` | real | `0` | 0 to 3600 | Seconds Between Retries. How long the chat waits before each try. 0 waits longer after each failed try: 10 seconds, 1 minute, 5 minutes, then 20 minutes. |
 | `agents.autoRetry.attempts` | real | `4` | 1 to 12 | Retries per Error. How many times the chat tries again before it stops and waits for you. |
