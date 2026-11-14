@@ -81,6 +81,12 @@ fn the_tables_are_sorted_with_one_line_a_kind() {
             "usage_update",
         ]
     );
+    // Decision 241: a kind split by its event has a line for the kind too, and each event's says why.
+    for (kind, event, draw) in kinds::EVENTS {
+        assert!(kinds::find(MUX, kind).is_some(), "{kind}");
+        assert!(!event.is_empty());
+        assert!(!matches!(draw, Draw::Not(why) if why.is_empty()));
+    }
 }
 
 #[test]

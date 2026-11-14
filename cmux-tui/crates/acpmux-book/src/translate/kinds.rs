@@ -302,6 +302,16 @@ pub(super) const UPDATES: &[Kind] = &[
     not("user_message_chunk", "the prompt is the mux user_message's row"),
 ];
 
+/// A kind whose `event` decides what it is (decision 241): its line above is the kind's for the
+/// page-state hold, which names kinds; these name each event. None is counted as unknown.
+#[cfg_attr(not(test), allow(dead_code, reason = "the table's own words, read by its tests"))]
+pub(super) const EVENTS: &[(&str, &str, Draw)] = &[
+    ("subsession", "limits", Draw::PageState),
+    ("subsession", "started", Draw::Not(SUB)),
+    ("subsession", "turn_ended", Draw::Not(SUB)),
+];
+const SUB: &str = "PR 4: the sub row of the `acpmux run --parent` call it stands for";
+
 /// Every other `in` and `out` record: requests, responses and the harness's own lines.
 #[cfg_attr(not(test), allow(dead_code, reason = "the table's own words, read by its tests"))]
 pub(super) const PROTOCOL: &str =
