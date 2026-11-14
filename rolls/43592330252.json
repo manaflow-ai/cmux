@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43592330252",
+  "recorded_at": "2026-11-14T12:04:13Z",
+  "reason": "cmux-tui e40249b71eda changes the image's cmux-tui (pinned 6f486d5a62c8)",
+  "dry_run": false,
+  "cmux_tui": "e40249b71edacb302d8ce6a8bf9663165c6b02ab",
+  "fixes": [
+    {
+      "sha": "e40249b71edacb302d8ce6a8bf9663165c6b02ab",
+      "mergedAt": "2026-11-14T03:35:12-08:00",
+      "subject": "CMUX-572: update encoder layer ceiling with bitrate target (#42994)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T12:04:13Z",
+    "snapshot_id": "sh-166368469da44cf49987191ed0cce16d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43592330252): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "2beeb1c49c8c497d05ec77feeff530e4ae57fa70",
+    "image": "cloud-native-auto-e40249b7-43592330252-1",
+    "revision": "ci-43592330252-1",
+    "at": "2026-11-14T12:04:13Z"
+  },
+  "rolled_back": false
+}
