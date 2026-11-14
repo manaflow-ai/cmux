@@ -885,31 +885,31 @@ struct TestGate {
 #[async_trait::async_trait]
 impl acpmux::hub_carrier::CmuxTuiGate for TestGate {
     async fn admit(&self, port: u16) -> Result<SocketAddr, acpmux::hub_carrier::ServiceRefusal> {
-        let consent = json!({
-            "consentRequired": true,
-            "consent": {"control": if self.granted.load(Ordering::SeqCst) { "granted" } else { "none" }},
-        });
+        let control = if self.granted.load(Ordering::SeqCst) { "granted" } else { "none" };
+        let consent = json!({"consentRequired": true, "consent": {"control": control}});
         acpmux::cmux_tui_service::admit(Some(&self.daemon.to_string()), &consent, port)
     }
 }
 
-/// `cmux remote exec|cp|connect --via-machine` end to end: a cmux remote daemon on B's loopback,
-/// reached from A only through A's acpmux socket (`_acpmux/remote.pipe`) and the hub carrier's
-/// relay, with the remote protocol's own enrollment and Noise inside. B refuses until its owner
-/// grants control, and never reaches a port it did not name.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn hub_carrier_a_machine_reaches_another_machines_remote_daemon_through_the_pipe() {
-    use cmux_remote::connection::{ClientConnection, ClientConnectionConfig, ReconnectPolicy};
-    use cmux_remote::crypto::{ClientAuthMode, StaticIdentity};
+/// B: a cmux remote daemon on loopback behind its hub carrier; A: an acpmux daemon whose unix
+/// socket pipes to B (`_acpmux/remote.pipe`), the relay between them in process.
+struct PipeFixture {
+    auth: Arc<cmux_remote::identity::AuthDatabase>,
+    accepted: tokio::sync::mpsc::Receiver<Arc<cmux_remote::daemon::ServerConnection>>,
+    daemon: SocketAddr,
+    dialer: Arc<cmux_remote::provider::MachinePipeDialer>,
+    gate: Arc<TestGate>,
+    carrier_a: Arc<HubCarrier>,
+    carrier_b: Arc<HubCarrier>,
+    _serving: acpmux::hub_carrier::HubServe,
+    _dirs: (tempfile::TempDir, tempfile::TempDir),
+}
+
+async fn pipe_fixture() -> PipeFixture {
     use cmux_remote::daemon::{RemoteDaemon, serve_direct_websocket};
     use cmux_remote::identity::AuthDatabase;
-    use cmux_remote::provider::{
-        ConnectRequest, Dialer, DirectWebSocketProvider, MachinePipeDialer, TransportProvider,
-    };
     use cmux_remote::session::SessionLimits;
-    use cmux_remote_protocol::{FrameFlags, Lane, LanePolicy, SessionId};
 
-    let _ = HERMETIC;
     let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let relay_address = relay_listener.local_addr().unwrap();
     let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
@@ -923,14 +923,15 @@ async fn hub_carrier_a_machine_reaches_another_machines_remote_daemon_through_th
     });
     let route = format!("relay+ws://{relay_address}");
 
-    // B: a cmux remote daemon on loopback, and the carrier serving B's slot.
     let state = tempfile::tempdir().unwrap();
     let auth = AuthDatabase::load_or_create(state.path(), "machine-b", false).unwrap();
-    let (daemon, mut accepted) = RemoteDaemon::new(auth.clone(), SessionLimits::default());
+    let (daemon, accepted) = RemoteDaemon::new(auth.clone(), SessionLimits::default());
     let server = serve_direct_websocket(daemon, "127.0.0.1:0".parse().unwrap(), 65_535, false)
         .await
         .unwrap();
     let daemon_address = server.local_addr();
+    // The listener lives as long as the test's runtime.
+    std::mem::forget(server);
     let (key_a, key_b) = (random_key(), random_key());
     let fast = Timings {
         control: Duration::from_secs(5),
@@ -949,13 +950,12 @@ async fn hub_carrier_a_machine_reaches_another_machines_remote_daemon_through_th
     let gate = Arc::new(TestGate { daemon: daemon_address, granted: AtomicBool::new(false) });
     carrier_b.set_cmux_tui_gate(gate.clone());
     let nothing = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
-    let _serving = carrier_b.serve(nothing);
+    let serving = carrier_b.serve(nothing);
 
-    // A: its daemon's unix socket and its carrier, with a route to B named `mac`.
     let a = hub();
     let carrier_a = HubCarrier::new(
         Arc::new(FixedTickets {
-            relay: route.clone(),
+            relay: route,
             peers: vec![public(&key_b)],
             asked: AtomicU64::new(0),
         }),
@@ -967,37 +967,54 @@ async fn hub_carrier_a_machine_reaches_another_machines_remote_daemon_through_th
     let home = tempfile::tempdir().unwrap();
     let socket = home.path().join("acpmux.sock");
     let listener = acpmux::server::bind_unix(&socket).await.unwrap();
-    tokio::spawn(acpmux::server::serve_unix(a.clone(), listener));
-    let dialer = Arc::new(MachinePipeDialer::new(socket.clone(), "mac".into()));
+    tokio::spawn(acpmux::server::serve_unix(a, listener));
+    let dialer = Arc::new(cmux_remote::provider::MachinePipeDialer::new(socket, "mac".into()));
+    PipeFixture {
+        auth,
+        accepted,
+        daemon: daemon_address,
+        dialer,
+        gate,
+        carrier_a,
+        carrier_b,
+        _serving: serving,
+        _dirs: (state, home),
+    }
+}
 
-    // Until B's owner grants control, the pipe says so, and B's daemon is never reached.
-    let refused = tokio::time::timeout(
-        Duration::from_secs(20),
-        dialer.dial("127.0.0.1", daemon_address.port()),
-    )
-    .await
-    .unwrap()
-    .err()
-    .expect("no consent, no daemon");
-    assert!(refused.to_string().contains("consent_required"), "{refused}");
-    gate.granted.store(true, Ordering::SeqCst);
-    // A port B did not name is never reached, consent or not.
-    let refused = dialer.dial("127.0.0.1", 22).await.err().expect("not the named port");
-    assert!(refused.to_string().contains("service.port"), "{refused}");
+/// One remote-protocol connection to B's daemon through the pipe: with `invitation`, a new
+/// device the owner approves; without, `identity` as an enrolled device.
+async fn connect_through_pipe(
+    fixture: &PipeFixture,
+    identity: &cmux_remote::crypto::StaticIdentity,
+    invitation: bool,
+) -> cmux_remote::connection::ClientConnection {
+    use cmux_remote::connection::{ClientConnection, ClientConnectionConfig, ReconnectPolicy};
+    use cmux_remote::crypto::ClientAuthMode;
+    use cmux_remote::provider::{ConnectRequest, DirectWebSocketProvider, TransportProvider};
+    use cmux_remote::session::SessionLimits;
+    use cmux_remote_protocol::{LanePolicy, SessionId};
 
-    // The remote protocol through the pipe: an invitation the owner approves, then frames.
-    let endpoint = url::Url::parse(&format!("ws://{daemon_address}/v1/link")).unwrap();
-    let invitation = auth.create_invitation(Duration::from_secs(60), vec![]).await.unwrap();
-    let approver = tokio::spawn({
-        let auth = auth.clone();
-        async move {
+    let endpoint = url::Url::parse(&format!("ws://{}/v1/link", fixture.daemon)).unwrap();
+    let auth = if invitation {
+        let invitation =
+            fixture.auth.create_invitation(Duration::from_secs(60), vec![]).await.unwrap();
+        let auth = fixture.auth.clone();
+        tokio::spawn(async move {
             let pending = auth.wait_for_pending(Duration::from_secs(20)).await.unwrap();
             auth.approve(&pending[0].invitation_id).await.unwrap();
+        });
+        ClientAuthMode::Invitation {
+            id: invitation.id.clone(),
+            secret: zeroize::Zeroizing::new(invitation.secret_bytes().unwrap()),
         }
-    });
-    let session = SessionId([91; 16]);
-    let started = std::time::Instant::now();
-    let group = DirectWebSocketProvider::with_dialer(65_535, dialer.clone())
+    } else {
+        ClientAuthMode::Enrolled
+    };
+    let mut session = [0u8; 16];
+    getrandom::fill(&mut session).unwrap();
+    let session = SessionId(session);
+    let group = DirectWebSocketProvider::with_dialer(65_535, fixture.dialer.clone())
         .connect(ConnectRequest {
             endpoint,
             session,
@@ -1006,18 +1023,14 @@ async fn hub_carrier_a_machine_reaches_another_machines_remote_daemon_through_th
         })
         .await
         .unwrap();
-    let secret = invitation.secret_bytes().unwrap();
-    let client = tokio::time::timeout(
+    tokio::time::timeout(
         Duration::from_secs(30),
         ClientConnection::connect(
             group,
             ClientConnectionConfig {
-                identity: StaticIdentity::generate().unwrap(),
-                expected_daemon: Some(auth.identity().public_key()),
-                auth: ClientAuthMode::Invitation {
-                    id: invitation.id,
-                    secret: zeroize::Zeroizing::new(secret),
-                },
+                identity: identity.clone(),
+                expected_daemon: Some(fixture.auth.identity().public_key()),
+                auth,
                 device_name: "lane-vm".into(),
                 session,
                 lane_policy: LanePolicy::Isolated,
@@ -1028,11 +1041,38 @@ async fn hub_carrier_a_machine_reaches_another_machines_remote_daemon_through_th
     )
     .await
     .expect("connect through the pipe timed out")
-    .unwrap();
-    approver.await.unwrap();
-    let connected = started.elapsed();
-    let daemon_client =
-        tokio::time::timeout(Duration::from_secs(10), accepted.recv()).await.unwrap().unwrap();
+    .unwrap()
+}
+
+/// `cmux remote exec|cp|connect --via-machine` end to end: a cmux remote daemon on B's
+/// loopback, reached from A only through A's acpmux socket and the hub carrier's relay, with the
+/// remote protocol's own enrollment and Noise inside. B refuses until its owner grants control,
+/// and never reaches a port it did not name.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_machine_reaches_another_machines_remote_daemon_through_the_pipe() {
+    use cmux_remote::provider::Dialer;
+    use cmux_remote_protocol::{FrameFlags, Lane};
+
+    let _ = HERMETIC;
+    let mut fixture = pipe_fixture().await;
+    let port = fixture.daemon.port();
+    let refused =
+        tokio::time::timeout(Duration::from_secs(20), fixture.dialer.dial("127.0.0.1", port))
+            .await
+            .unwrap()
+            .err()
+            .expect("no consent, no daemon");
+    assert!(refused.to_string().contains("consent_required"), "{refused}");
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let refused = fixture.dialer.dial("127.0.0.1", 22).await.err().expect("not the named port");
+    assert!(refused.to_string().contains("service.port"), "{refused}");
+
+    let identity = cmux_remote::crypto::StaticIdentity::generate().unwrap();
+    let client = connect_through_pipe(&fixture, &identity, true).await;
+    let daemon_client = tokio::time::timeout(Duration::from_secs(10), fixture.accepted.recv())
+        .await
+        .unwrap()
+        .unwrap();
     client
         .send(Lane::Interactive, 1, bytes::Bytes::from_static(b"keys"), FrameFlags::empty())
         .await
@@ -1044,9 +1084,78 @@ async fn hub_carrier_a_machine_reaches_another_machines_remote_daemon_through_th
         .await
         .unwrap();
     assert_eq!(client.receive().await.unwrap().unwrap().payload, screen.as_slice());
-    assert!(carrier_b.stats().accepted.load(Ordering::Relaxed) >= 1, "B took the circuits");
+    assert!(fixture.carrier_b.stats().accepted.load(Ordering::Relaxed) >= 4, "a circuit a lane");
+    assert!(fixture.carrier_a.stats().dials.load(Ordering::Relaxed) >= 4);
+}
+
+fn percentile(samples: &mut [Duration], p: f64) -> Duration {
+    samples.sort();
+    samples[((samples.len() - 1) as f64 * p).round() as usize]
+}
+
+/// Connect and throughput numbers of the relayed pipe on loopback (run on demand:
+/// `cargo test -p acpmux --features hub-carrier --test hub_carrier pipe_numbers -- --ignored
+/// --nocapture`). The relay is in process, so they measure the carrier's own cost, not a network.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "numbers on demand"]
+async fn hub_carrier_pipe_numbers() {
+    use cmux_remote_protocol::{FrameFlags, Lane};
+
+    let _ = HERMETIC;
+    let mut fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let identity = cmux_remote::crypto::StaticIdentity::generate().unwrap();
+    let enrolled = connect_through_pipe(&fixture, &identity, true).await;
+    let _ = fixture.accepted.recv().await.unwrap();
+    let _ = enrolled.close().await;
+    let mut connects = Vec::new();
+    for _ in 0..20 {
+        let started = std::time::Instant::now();
+        let client = connect_through_pipe(&fixture, &identity, false).await;
+        connects.push(started.elapsed());
+        let _ = fixture.accepted.recv().await.unwrap();
+        let _ = client.close().await;
+    }
+    let client = connect_through_pipe(&fixture, &identity, false).await;
+    let daemon_client = fixture.accepted.recv().await.unwrap();
+    let mut echoes = Vec::new();
+    for i in 0..20u64 {
+        let started = std::time::Instant::now();
+        client
+            .send(Lane::Interactive, i, bytes::Bytes::from_static(b"k"), FrameFlags::empty())
+            .await
+            .unwrap();
+        let frame = daemon_client.receive().await.unwrap().unwrap();
+        daemon_client.send(Lane::Interactive, i, frame.payload, FrameFlags::empty()).await.unwrap();
+        let _ = client.receive().await.unwrap().unwrap();
+        echoes.push(started.elapsed());
+    }
+    let chunk = vec![0xa5u8; 256 * 1024];
+    let total: usize = 64 << 20;
+    let started = std::time::Instant::now();
+    let sender = tokio::spawn(async move {
+        for i in 0..(total / chunk.len()) as u64 {
+            daemon_client
+                .send(Lane::Bulk, i, bytes::Bytes::from(chunk.clone()), FrameFlags::empty())
+                .await
+                .unwrap();
+        }
+        daemon_client
+    });
+    let mut received = 0usize;
+    while received < total {
+        received += client.receive().await.unwrap().unwrap().payload.len();
+    }
+    let elapsed = started.elapsed();
+    let _ = sender.await;
     eprintln!(
-        "remote pipe over the relay: connected (4 lanes, invitation) in {connected:?}, A dialed {} circuits",
-        carrier_a.stats().dials.load(Ordering::Relaxed)
+        "PIPE-NUMBERS relayed connect_ms p50={:.1} p95={:.1} n=20; echo_ms p50={:.2} p95={:.2} n=20; \
+         down_mibs={:.1} ({} MiB)",
+        percentile(&mut connects, 0.5).as_secs_f64() * 1e3,
+        percentile(&mut connects, 0.95).as_secs_f64() * 1e3,
+        percentile(&mut echoes, 0.5).as_secs_f64() * 1e3,
+        percentile(&mut echoes, 0.95).as_secs_f64() * 1e3,
+        (total as f64 / (1 << 20) as f64) / elapsed.as_secs_f64(),
+        total >> 20,
     );
 }

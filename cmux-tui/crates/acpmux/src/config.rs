@@ -1711,7 +1711,8 @@ impl Config {
     /// Set a host-wide session resource setting from the CLI. `default`,
     /// `none`, and `clear` remove an override and restore the computed default.
     /// `acpmux config --set KEY=VALUE`: a permission-mode key
-    /// (`set_permission_mode`), `remote_daemon` (a loopback `host:port`, or `none`), else a
+    /// (`set_permission_mode`), `remote_daemon` (a loopback `host:port`, or `none`),
+    /// `transport.wireguard` (`true`/`false`), else a
     /// session resource limit (`set_session_resource`).
     pub fn set(&mut self, key: &str, value: &str) -> Result<()> {
         if self.set_permission_mode(key, value)? {
@@ -1725,6 +1726,16 @@ impl Config {
             self.remote_daemon = match value.to_ascii_lowercase().as_str() {
                 "" | "none" | "clear" | "off" => None,
                 _ => Some(loopback_daemon_address(value)?.to_string()),
+            };
+            return Ok(());
+        }
+        // The hub carrier runs on the WireGuard transport's key lock (`hub_carrier.rs`): a
+        // headless machine turns it on from the CLI.
+        if matches!(key.trim().to_ascii_lowercase().as_str(), "transport.wireguard") {
+            self.transport.wireguard = match value.trim().to_ascii_lowercase().as_str() {
+                "true" | "on" | "1" => true,
+                "false" | "off" | "0" => false,
+                _ => anyhow::bail!("transport.wireguard must be true or false"),
             };
             return Ok(());
         }

@@ -229,5 +229,8 @@ mod tests {
         assert!(config.set("remote_daemon", "example.com:7781").is_err());
         config.set("remoteDaemon", "none").unwrap();
         assert_eq!(config.remote_daemon, None);
+        config.set("transport.wireguard", "true").unwrap();
+        assert!(config.transport.wireguard, "the hub carrier needs the transport's key lock");
+        assert!(config.set("transport.wireguard", "maybe").is_err());
     }
 }
