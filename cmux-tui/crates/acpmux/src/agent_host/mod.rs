@@ -271,6 +271,10 @@ pub struct Adopt {
     pub replay_from: u64,
     /// A pidfd comes as the fifth descriptor.
     pub pidfd: bool,
+    /// The start nonce the harness was started with (its `HOST_MARK`): what it started is found
+    /// by it, whatever host holds it now.
+    #[serde(default)]
+    pub harness_mark: Option<String>,
 }
 
 /// A host's own end once no daemon controls it (`SpawnSpec::orphan_exit`). Hosts outlive their

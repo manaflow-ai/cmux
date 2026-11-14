@@ -58,6 +58,9 @@ pub(crate) struct CustodyReply {
     /// adopted this host (a restart) logged at least that far.
     #[serde(default)]
     pub acked_o: u64,
+    /// [`Adopt::harness_mark`]: the nonce the harness carries as its `HOST_MARK`.
+    #[serde(default)]
+    pub harness_mark: Option<String>,
 }
 
 /// The harness's start time, for its identity next to its pid (macOS: seconds and microseconds
@@ -383,6 +386,7 @@ impl HostFds {
         socket: OwnedFd,
         spec: &SpawnSpec,
         acked_o: u64,
+        harness_mark: &str,
     ) -> std::io::Result<()> {
         let stream = std::os::unix::net::UnixStream::from(socket);
         let reply = CustodyReply {
@@ -390,6 +394,7 @@ impl HostFds {
             harness_start: self.harness_start,
             pidfd: self.pidfd.is_some(),
             acked_o,
+            harness_mark: Some(harness_mark.to_owned()),
         };
         write_sync_frame(&stream, &reply)?;
         let mut fds = vec![
@@ -411,7 +416,13 @@ pub(crate) fn refuse(socket: OwnedFd) {
     let stream = std::os::unix::net::UnixStream::from(socket);
     let _ = write_sync_frame(
         &stream,
-        &CustodyReply { spec: None, harness_start: None, pidfd: false, acked_o: 0 },
+        &CustodyReply {
+            spec: None,
+            harness_start: None,
+            pidfd: false,
+            acked_o: 0,
+            harness_mark: None,
+        },
     );
 }
 
@@ -447,6 +458,8 @@ pub struct Custody {
     pub record: HostRecord,
     /// [`CustodyReply::acked_o`].
     pub acked_o: u64,
+    /// [`CustodyReply::harness_mark`].
+    pub harness_mark: Option<String>,
     harness_start: Option<u64>,
     stdin: OwnedFd,
     stdout: OwnedFd,
@@ -506,6 +519,7 @@ pub fn take(record: &HostRecord) -> Result<Option<Custody>> {
         spec,
         record: record.clone(),
         acked_o: reply.acked_o,
+        harness_mark: reply.harness_mark,
         harness_start: reply.harness_start,
         stdin: next()?,
         stdout: next()?,
@@ -546,6 +560,7 @@ pub async fn respawn(
             max_out_id,
             replay_from,
             pidfd: custody.pidfd.is_some(),
+            harness_mark: custody.harness_mark.clone(),
         }),
     });
     let mut fds = vec![

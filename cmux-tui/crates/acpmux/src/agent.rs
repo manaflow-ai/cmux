@@ -236,6 +236,9 @@ struct Hosted {
     custody: std::sync::Mutex<Option<Arc<crate::agent_host::custody::Custody>>>,
     /// The ring offset after the last stdout line whose entries are all in the session log.
     logged_o: std::sync::atomic::AtomicU64,
+    /// The start nonce the harness carries (`HOST_MARK`) when a replacement host holds it now
+    /// (`custody.rs`): its processes are found by it, not by the current host's nonce.
+    harness_mark: std::sync::Mutex<Option<String>>,
 }
 
 /// An answer [`Hosted::unlogged_answers`] keeps until the host logs it back.
@@ -2178,7 +2181,8 @@ impl ChildAgent {
     #[cfg(unix)]
     pub(crate) async fn harness_processes(&self) -> Vec<crate::agent_host::tree::Started> {
         if let Some(record) = self.host_record() {
-            let nonce = record.start_nonce;
+            let mark = self.hosted.as_ref().and_then(|h| h.harness_mark.lock_or_recover().clone());
+            let nonce = mark.unwrap_or(record.start_nonce);
             return tokio::task::spawn_blocking(move || {
                 crate::agent_host::tree::marked(crate::agent_host::HOST_MARK, &nonce)
             })
@@ -2470,6 +2474,7 @@ impl ChildAgent {
                 #[cfg(unix)]
                 custody: std::sync::Mutex::new(None),
                 logged_o: std::sync::atomic::AtomicU64::new(0),
+                harness_mark: std::sync::Mutex::new(None),
                 exited: std::sync::atomic::AtomicBool::new(false),
                 exit_seen: std::sync::atomic::AtomicBool::new(false),
                 exit: tokio::sync::Notify::new(),
@@ -2665,6 +2670,9 @@ impl ChildAgent {
                     {
                         // A daemon that adopted the host logged at least what it acknowledged.
                         hosted.logged_o.fetch_max(custody.acked_o, Ordering::SeqCst);
+                        if custody.harness_mark.as_ref().is_some_and(|m| *m != nonce) {
+                            *hosted.harness_mark.lock_or_recover() = custody.harness_mark.clone();
+                        }
                         *hosted.custody.lock_or_recover() = Some(Arc::new(custody));
                     }
                 }

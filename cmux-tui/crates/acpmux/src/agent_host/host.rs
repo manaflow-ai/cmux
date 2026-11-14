@@ -1524,9 +1524,16 @@ impl State {
         if !constant_time_eq(token.as_bytes(), self.record.owner_token.as_bytes()) {
             return;
         }
+        // The nonce the harness was started with: this host's, or the first host's.
+        let mark = self
+            .holder
+            .as_ref()
+            .and_then(|h| h.adopt.as_ref())
+            .and_then(|a| a.harness_mark.clone())
+            .unwrap_or_else(|| self.record.start_nonce.clone());
         match self.holder.as_ref().filter(|_| self.exit_h.is_none() && !self.stdout_done) {
             Some(holder) => {
-                if let Err(e) = holder.fds.send(sock, &self.spec, self.acked_o) {
+                if let Err(e) = holder.fds.send(sock, &self.spec, self.acked_o, &mark) {
                     tracing::warn!("agent holder: custody not handed over: {e}");
                 }
             }
