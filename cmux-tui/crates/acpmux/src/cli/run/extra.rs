@@ -853,12 +853,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 .into())
             }
         }
-        Command::Host(PeerCmd::LeaveIntent { user_id }) => {
-            crate::cli::cloud_join::record_leave_intent(&user_id).await?;
+        Command::Host(PeerCmd::LeaveIntent { user_id, signed_out_at }) => {
+            let recorded =
+                crate::cli::cloud_join::record_leave_intent(&user_id, signed_out_at).await?;
             if json_out {
-                print_json(&json!({ "recorded": true }));
-            } else {
+                print_json(&json!({ "recorded": recorded }));
+            } else if recorded {
                 println!("recorded");
+            } else {
+                println!("not recorded: that account signed in again since");
             }
             Ok(())
         }

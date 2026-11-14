@@ -176,7 +176,6 @@ import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
 import { MachineLinkStatus } from "./MachineLinkStatus";
 import { peerLink, type PeerLink } from "./peerLink";
-import { composerHoldsDraft } from "./conversation/wakeFolds";
 import {
   emojiMatches,
   emojiTrigger,
@@ -242,6 +241,10 @@ export type ComposerHandle = {
   /// Adds a chip after the ones held, leaving the prompt as typed (the floating chat's Include
   /// focused tab); one with the same id is replaced. Nothing changes when it holds the most it can.
   attach(attachment: ComposerAttachment): void;
+  /// Reads `files` into chips as files of gesture `kind` (`external`: files another app sent to the
+  /// chat, composer/externalAttach.ts), the way a drop's are: the host may say where each is and
+  /// which app it came from, and saves what the composer can't attach.
+  attachFiles(files: File[], kind: DroppedKind): void;
   /// Adds a chip the host is still making (a long dictation recording it sends to the chat's
   /// machine): a pending tile a send waits for, which becomes the chip `make` answers, or fails with
   /// `failure` and Retry; the send keeps waiting until Retry makes it or its × takes it out
@@ -279,8 +282,6 @@ export type ComposerWake = {
   attachments?: ComposerAttachment[];
   shell?: boolean;
   shellText?: string;
-  /// Typed text or chips: only read by the host's hidden-chat release, never handed back.
-  holdsDraft?: boolean;
 };
 
 type Props = {
@@ -1026,6 +1027,9 @@ function ComposerFrame({
         });
       },
       attachLater,
+      attachFiles(files, kind) {
+        if (files.length) void attach(files, true, kind);
+      },
       detach(ids) {
         setAttachments((current) => current.filter((chip) => !ids.includes(chip.id)));
         // Their places in the text go with them: no empty atom stays in the draft.
@@ -1061,8 +1065,6 @@ function ComposerFrame({
           attachments,
           shell: shellRef.current.shell,
           shellText: shellRef.current.shellText,
-          // A release agents.hiddenChats.discard alone makes keeps a page holding a draft (AgentPaneWakeState.swift).
-          holdsDraft: composerHoldsDraft(field.current?.value() ?? textRef.current, attachments),
         };
       },
       async settleDraft() {
@@ -1126,7 +1128,7 @@ function ComposerFrame({
         }
       },
     }),
-    [setAttachments, attachLater, attachRefused],
+    [setAttachments, attachLater, attachRefused, attach],
   );
   useEffect(() => {
     if (!draft) return;
