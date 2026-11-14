@@ -32,6 +32,7 @@ mod mutation;
 mod push;
 mod target;
 mod user_run;
+mod work_tree_entry;
 mod worktree;
 mod worktree_apply;
 mod worktree_include;
@@ -69,6 +70,9 @@ pub(crate) const FILES_LIST_CAPABILITY: &str = "git-files-list-v1";
 /// Advertised in identify: the session host owns `diff.comments.list`,
 /// `save` and `delete`.
 pub(crate) const DIFF_COMMENTS_CAPABILITY: &str = diff_comments::CAPABILITY;
+
+/// Advertised in identify: the session host answers `diff.comments.send`.
+pub(crate) const DIFF_COMMENTS_SEND_CAPABILITY: &str = diff_comments::SEND_CAPABILITY;
 
 /// Advertised in identify: the session host answers `git.branches`.
 pub(crate) const BRANCHES_CAPABILITY: &str = "git-branches-v1";

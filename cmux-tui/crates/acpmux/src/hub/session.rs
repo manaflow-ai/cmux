@@ -129,6 +129,36 @@ pub struct Session {
     /// step (`queue.rs` `queue_slot`): two prompts that come together never both find the chat
     /// free. A leaf lock, held for no await.
     pub(super) admit: StdMutex<()>,
+    /// Set under `admit` while a journal restore holds the chat (`journal_restore.rs`): a prompt
+    /// admitted meanwhile waits for `restore_done` before it takes its place, so nothing it logs
+    /// (its `queued` record, its turn) goes between the restore's check and its settle.
+    pub(super) restoring: AtomicBool,
+    pub(super) restore_done: tokio::sync::Notify,
+    /// A restore that stopped short holds this chat until the owner's next try (`journal_restore.rs`):
+    /// the number of the hold, so its lapse ends only the hold it was set for. `restoring` stays
+    /// set while it is held. Taken under `admit`; a leaf lock.
+    pub(super) restore_lease: StdMutex<Option<u64>>,
+    /// Its log was read for a journal restore with its recovery still to run (`log_load.rs`
+    /// `load_session_log_for_restore`): the restore runs it after its records, or when it is
+    /// refused or its hold lapses.
+    pub(super) recovery_pending: AtomicBool,
+    /// Records appended while a journal restore owns this chat, kept until it ends
+    /// (`restore_writer.rs`); Some from its admission. Taken under `append_lock`.
+    pub(super) parked: StdMutex<Option<Vec<super::restore_writer::Parked>>>,
+    /// Records kept while a restore owned this chat that the store refused when it ended: they
+    /// go in first, in order, at the next append (`restore_writer.rs`). Taken under
+    /// `append_lock`.
+    pub(super) unparked: StdMutex<Vec<super::restore_writer::Parked>>,
+    /// Records kept here that a drain stored in the journal before a flush of it succeeded:
+    /// every write of the kept list on disk holds them until one does, or a crash could lose a
+    /// record from both (review of #37284 at 23e76b07, F1). Taken under `append_lock`.
+    pub(super) unflushed: StdMutex<Vec<super::restore_writer::Parked>>,
+    /// The kept list an earlier run left on disk is read back (`Hub::take_back_kept`), or there
+    /// was none: until it is, the chat is not caught up and its log not read (review of #37284 at
+    /// 23e76b07, F2). Taken under `append_lock`.
+    pub(super) kept_read: AtomicBool,
+    /// The restore try whose thread writes this chat meanwhile (0: none).
+    pub(super) restore_token: AtomicU64,
     /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop
     /// settles the logical turn before its cancel reaches the harness; keeping this lock until
     /// that cancel is handed to the child prevents the next turn's prompt from overtaking it.
@@ -275,6 +305,14 @@ pub struct Session {
     /// files while the directory is being removed. Shared with the audit writer, which drops an
     /// entry of this copy that reaches it after the purge, even once a new chat took the id.
     pub(super) purged: Arc<AtomicBool>,
+    /// v1's last seq of the chat that its store took, as v2's book tee saw it (`book_tee.rs`): the
+    /// hint of the chat's v1 source. Only the tee's hook raises it, after the store took the line.
+    pub(super) book_hint: Arc<AtomicU64>,
+    /// The last seq v1 found for the chat when it loaded it: a book's first open in this daemon's
+    /// life asks `holds` against it (`v1_source.rs`).
+    pub(super) found_at_start: u64,
+    /// A source of the chat's book was opened in this daemon's life (`V1Log::opened`).
+    pub(super) book_opened: Arc<AtomicBool>,
     /// Set before a purge when the same chat, brought back under this id, replaces this copy
     /// (`transfer_in.rs`): its uploads stay, since the returning chat's prompts name them, and the
     /// purge record says `replaced` so the app keeps what it holds for the chat too.
@@ -429,8 +467,17 @@ pub struct Session {
     pub(super) silent_turn: StdMutex<Option<String>>,
     /// The turn cap's timer for the running turn (`turn_cap.rs`); the next turn aborts it.
     pub(super) turn_cap_timer: StdMutex<Option<tokio::task::AbortHandle>>,
-    /// Other agents' messages to this chat, in threads (`inbox.rs`).
-    pub(super) inbox: StdMutex<super::inbox::Inbox>,
+    /// Other agents' messages to this chat, in threads (`inbox.rs`). Read through
+    /// [`Session::inbox`], which restores it from the log on first use: a chat's log load no
+    /// longer reads its whole inbox history ahead of its first prompt (`restore_point.rs`).
+    pub(super) inbox_state: StdMutex<super::inbox::Inbox>,
+    /// Whether [`Self::inbox_state`] holds what the log says (`Hub::restore_inbox`).
+    pub(super) inbox_loaded: AtomicBool,
+    /// Held while the inbox is restored, so it is read once.
+    pub(super) inbox_load: StdMutex<()>,
+    /// The hub that restores the inbox ([`Session::inbox`]): set once the hub has its self-weak
+    /// (a runtime-backed hub). A session without one restores its inbox with its log, as before.
+    pub(super) hub_ref: std::sync::OnceLock<std::sync::Weak<Hub>>,
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,
@@ -483,6 +530,24 @@ pub struct Session {
 }
 
 impl Session {
+    /// The chat's inbox, restored from its log first when its log is read and nothing has read
+    /// the inbox yet. The log load warms it in the background (`log_load.rs`); a reader that comes
+    /// first reads it here, once. Before its log is read a chat's inbox holds what came since, as
+    /// before: a reader of many chats (`turn_coming`) never reads their logs.
+    pub(super) fn inbox(&self) -> std::sync::MutexGuard<'_, super::inbox::Inbox> {
+        if !self.inbox_loaded.load(Ordering::Acquire) && self.log_loaded.load(Ordering::SeqCst) {
+            let _loading = self.inbox_load.lock().unwrap_or_else(|e| e.into_inner());
+            if !self.inbox_loaded.load(Ordering::Acquire) {
+                // No hub to read it with: its log load restored it (`Hub::load_session_log`).
+                if let Some(hub) = self.hub_ref.get().and_then(std::sync::Weak::upgrade) {
+                    hub.restore_inbox(self);
+                    self.inbox_loaded.store(true, Ordering::Release);
+                }
+            }
+        }
+        self.inbox_state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// The fencing epoch currently held by this session owner.
     pub(crate) fn ownership_epoch(&self) -> u64 {
         self.ownership_epoch.load(Ordering::SeqCst)

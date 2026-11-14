@@ -41,6 +41,35 @@ commits landed faster than a release builds (20 to 45 minutes) no release
 ever had the tip's sources: the pin did not move from 23:42 to 03:37 UTC on
 2026-11-10, with the release of a6741b51 published at 01:08 and never pinned.
 
+## Catalog exports after a re-pin
+
+`regenerate-action-exports.sh` runs `ActionSurfaceParityTests`, `ActionCatalogDumpTests`
+and `LinkExportTests` together against one pinned app FFI. Its patch and every base-autofix
+carrier include `action-surfaces.json`, `action-catalog.json`, `actions.md` and `links.json`.
+The cached pack recipe changes when that set changes; a pack missing any member is refused.
+
+The publication detector is the existing `cmux-action-catalog` `swift_parity` integration
+suite. `base-autofix-push.sh` runs it on the final candidate immediately before each push,
+including a candidate rebuilt after the base moves. Build scripts and tests run without
+the publication token or injected Git authorization headers. Failure stops publication: neither an
+old green result nor regenerated files alone prove the candidate consistent. A re-pin whose
+`AWAITING_REPIN` or field/shortcut marker is stale needs that marker reconciled in a reviewed
+change; automation never filters out the disagreement.
+
+This closes the partial-export failure in base-autofix run `43540827406`: the surface report
+acquired an action while the full catalog dump stayed old. Regression coverage executes the
+real regeneration and push scripts with process-boundary fixtures, verifies that all changed
+exports travel together, and checks that a failed parity command leaves the remote unchanged
+(`regenerate-action-exports.test.sh`, `base-autofix-action-exports.test.sh`,
+`base-autofix-push.test.sh`, `test_base_autofix_pushed_exports.py`).
+
+Registering a missed export in `generated_outputs.py` is ownership repair when its literal
+path already exists on the base. `generated_files_guard.py` checks that distinction;
+new export paths and widened patterns still fail. Its regression tests cover both cases
+(guard run `43580150976` misclassified the existing catalog dump as a new committed file).
+The PR-size generated-output list must carry the same export set; `test_ci_pr_size.py`
+checks every tracked registered output against it (run `43581204521` caught the missing dump).
+
 ## The pin check on the tip
 
 An FFI commit's release can only be built from that pushed commit, so after
@@ -104,7 +133,12 @@ release workflow's push paths, the router, `build_class.py` and
    red of such a PR (`scripts/ci/base_red_excuse.py`, the step-A rule). After
    the merge, `app-ffi-release.yml` publishes the release and the re-pin bot
    opens the re-pin pull request (branch `app-ffi-repin`). The merge queue
-   merges the re-pin first.
+   merges the re-pin first. A function that step A adds to a header is not
+   port drift (`scripts/cmux-next/ffi_caller_ratchet.py`) while the pinned
+   release lacks it: the app cannot call it yet, so the check prints a note,
+   not a finding. From the re-pin on, it needs its Swift caller, which is
+   step B. A re-pin, the bot's or one by hand, is never refused by the
+   check.
 2. **Step B: the Swift change,** after the re-pin merges. Its FFI inputs then
    equal the pinned source, so the pin check passes.
 

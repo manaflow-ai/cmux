@@ -2,6 +2,7 @@
 flake (it passed run again alone) or fails on the merge base too; a crash, a cut-short binary, a compile error or a
 test the base passes is the change's own red."""
 import importlib.util
+import posixpath
 import re
 import subprocess
 import sys
@@ -33,6 +34,23 @@ def binary(*results, total=None):
 
 def log(*binaries):
     return "\n\n".join(binaries) + "\n"
+
+
+def starts_a_test(source):
+    """Whether a plain `cargo test` starts a test of this Rust file: a `#[test]` or `#[tokio::test]` whose block of
+    attributes holds no `#[ignore]`."""
+    lines = [line.strip() for line in source.splitlines()]
+    for n, line in enumerate(lines):
+        if not re.match(r"#\[(?:tokio::)?test\b", line):
+            continue
+        first = last = n
+        while first > 0 and lines[first - 1].startswith("#["):
+            first -= 1
+        while last + 1 < len(lines) and lines[last + 1].startswith("#["):
+            last += 1
+        if not any(attribute.startswith("#[ignore") for attribute in lines[first:last + 1]):
+            return True
+    return False
 
 
 HEAD = log(
@@ -238,6 +256,57 @@ class Scope(unittest.TestCase):
                 with self.subTest(event=event, path=path):
                     self.assertTrue(any(glob_matches(glob, path) for glob in globs),
                                     f"cmux-tui-spec.yml's {event} paths miss {path}, an input of acpmux's tests")
+
+    def test_the_job_runs_the_tests_of_every_acpmux_crate_acpmux_is_built_from(self):
+        # The job ran `-p acpmux` alone and no hosted job ran the other acpmux-* crates' tests: cmux#42834 changed
+        # what acpmux-book answers and left acpmux-core's test of the old answer red on the base, and cmux#42906
+        # left two more (repaired by cmux#42943). A new acpmux-* path dependency, direct or through another crate,
+        # or a new tests/*.rs of one, joins the job's `suites`. acpmux's own tests/ are not asked for: most of them
+        # run in other jobs.
+        dirs, _ = verdict.crate_inputs(ROOT, self.CRATE)
+        crates = [d for d in dirs if posixpath.basename(d).startswith("acpmux")]
+        self.assertIn("cmux-tui/crates/acpmux-core", crates)
+        workflow = (ROOT / ".github/workflows/cmux-tui-spec.yml").read_text()
+        suites = re.search(r"^ +suites=\(([^)]*)\)$", workflow, re.M).group(1).split()
+        named = {flag: {suites[n + 1] for n, word in enumerate(suites[:-1]) if word == flag}
+                 for flag in ("-p", "--test")}
+        self.assertIn("--lib", suites)
+        with verdict.git_tree.GitTree(ROOT) as tree:
+            for crate in crates:
+                name = posixpath.basename(crate)
+                with self.subTest(crate=name):
+                    self.assertIn(name, named["-p"], f"cmux-tui-spec.yml's acpmux tests job runs no test of {name}: "
+                                                     f"add `-p {name}` to its suites")
+                    if crate == self.CRATE:
+                        continue
+                    targets = {posixpath.basename(path)[:-3] for path in tree.files(f"{crate}/tests", ".rs")
+                               if posixpath.dirname(path) == f"{crate}/tests"}
+                    self.assertEqual(targets - named["--test"], set(),
+                                     f"cmux-tui-spec.yml's acpmux tests job misses {name}'s tests/ files: add "
+                                     "`--test NAME` to its suites for each")
+            # acpmux's own tests/v2_*.rs. tests/v2_gate_home.rs is the only test build of the v2 gate registry
+            # (benches/v2/mod.rs) and no hosted job ran it: cmux#42725 made the report refuse a run that leaves a
+            # measured row out, and two of the file's tests stayed red on the base. A v2_* file joins `suites`
+            # unless every test in it is #[ignore]d (a release gate cmux-ci runs by name).
+            found = []
+            for path in tree.files(f"{self.CRATE}/tests", ".rs"):
+                name = posixpath.basename(path)[:-3]
+                if posixpath.dirname(path) != f"{self.CRATE}/tests" or not name.startswith("v2_"):
+                    continue
+                found.append(name)
+                with self.subTest(target=name):
+                    self.assertTrue(name in named["--test"] or not starts_a_test(tree.text(path)),
+                                    f"cmux-tui-spec.yml's acpmux tests job misses acpmux's tests/{name}.rs, which "
+                                    f"holds a test a plain run starts: add `--test {name}` to its suites")
+            self.assertIn("v2_gate_home", found)
+
+    def test_a_file_of_ignored_gates_starts_no_test(self):
+        gate = '#[test]\n#[ignore = "release gate"]\nfn a() {}\n'
+        self.assertFalse(starts_a_test(gate))
+        self.assertFalse(starts_a_test('#[ignore]\n#[tokio::test(flavor = "multi_thread")]\nasync fn a() {}\n'))
+        self.assertFalse(starts_a_test("fn helper() {}\n"))
+        self.assertTrue(starts_a_test(gate + "\n#[test]\nfn b() {}\n"))
+        self.assertTrue(starts_a_test("    #[tokio::test]\n    async fn c() {}\n"))
 
 
 class Cli(unittest.TestCase):

@@ -2,7 +2,8 @@
 //! (`sidebar_drop`) and sidebar section layout reducer (`sidebar_layout`),
 //! plus `cmux-tasks-core`'s optimistic Tasks preview (`tasks_preview`),
 //! the group hover card's summary (`group_hover_summary`), the sidebar's
-//! launch order hold (`sidebar_launch_order`), the app sidebar
+//! launch order hold (`sidebar_launch_order`), a workspace row's own layout
+//! (`sidebar_row_layout`), the app sidebar
 //! bridge's decision rules (`sidebar_bridge`), the store's
 //! optimistic overlay rules (`optimistic`: where a pending split, column,
 //! row or dock shows, what a hidden pane leaves, where a moved tab or
@@ -25,7 +26,9 @@
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
 //! `cloud_identity_*`: the install identity's rules;
-//! `cloud_vm_agent_key_*`: the VM agent-key mint's request and answer),
+//! `cloud_vm_agent_key_*`: the VM agent-key mint's request and answer;
+//! `cmux_keychain_bounded`, [`keychain`]: the app's calls into its own
+//! Keychain items, each on a thread of Rust's within its deadline),
 //! `cmux-cloud-handlers`' Cloud action rules (`cloud_handler_*`: argument
 //! checks, decisions, result fields and answer text),
 //! `cmux-cloud-tasks`' follower of the app's cloud tasks (`cloud_task_*`: one
@@ -78,6 +81,7 @@ pub mod drag_handle;
 pub mod focus;
 mod imessage;
 pub mod input;
+pub mod keychain;
 pub mod scroll;
 pub mod shown_resize;
 pub mod sidebar_caps;
@@ -241,6 +245,21 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&sidebar_launch_order::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_row_layout" => {
+                use cmux_layout_reducer::sidebar_row_layout;
+                let request: sidebar_row_layout::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_row_layout::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_section_customization" => {
+                let request: cmux_layout_reducer::sidebar_section_customization::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_layout_reducer::sidebar_section_customization::respond(
+                    &request,
+                ))
+                .map_err(|_| ERR_INVALID)?
+            }
             b"group_hover_summary" => {
                 let request: cmux_layout_reducer::group_hover_summary::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
@@ -380,6 +399,25 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 );
                 serde_json::to_vec(&serde_json::json!({ "check": check }))
                     .map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_start_list_wait" => {
+                #[derive(serde::Deserialize)]
+                #[serde(rename_all = "camelCase")]
+                struct Request {
+                    elapsed_ms: u64,
+                    #[serde(default)]
+                    deadline_left_ms: Option<u64>,
+                    loaded: bool,
+                    signed_in: bool,
+                }
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let next = cmux_cloud_start_core::list_wait::list_wait(
+                    std::time::Duration::from_millis(request.elapsed_ms),
+                    request.deadline_left_ms.map(std::time::Duration::from_millis),
+                    request.loaded,
+                    request.signed_in,
+                );
+                serde_json::to_vec(&next).map_err(|_| ERR_INVALID)?
             }
             b"cloud_start_uploads" => {
                 let request: cmux_cloud_start_core::start::Folder =

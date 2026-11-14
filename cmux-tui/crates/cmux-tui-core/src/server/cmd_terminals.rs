@@ -4,6 +4,7 @@
 //! renderer grants. Each function is one `Command` arm of
 //! `handle_command_with_cancellation`.
 
+use super::Command;
 use super::MutationRequest;
 use super::frontend_shell;
 use super::get_surface;
@@ -426,10 +427,6 @@ pub(super) fn process_info(mux: &Arc<Mux>, surface: SurfaceId) -> anyhow::Result
         "foreground_executable": surface
             .process_id()
             .and_then(platform::foreground_process_name),
-        // The program the job runs (a shell script's own name, `man` on
-        // macOS, where `foreground_executable` reads `sh`). The phone scrolls
-        // a pager with cursor keys only when this names one.
-        "foreground_program": surface.process_id().and_then(platform::foreground_program),
     }))
 }
 
@@ -637,3 +634,25 @@ fn ensure_workspace(
 #[cfg(test)]
 #[path = "create_terminal_workspace_tests.rs"]
 mod create_terminal_workspace_tests;
+
+impl Command {
+    /// The commands whose reply names one terminal or view by `surface` and
+    /// `terminal_id`: with `terminal-public-ids-v1` they carry its public ids.
+    pub(super) fn names_a_terminal_view(&self) -> bool {
+        matches!(
+            self,
+            Self::Run { .. }
+                | Self::ResolveTerminal { .. }
+                | Self::NewTab { .. }
+                | Self::NewBrowserTab { .. }
+                | Self::NewWorkspace { .. }
+                | Self::CreateTerminal { .. }
+                | Self::NewScreen(_)
+                | Self::NewPane { .. }
+                | Self::NewPaneRight(_)
+                | Self::Split(_)
+                | Self::MoveTerminal { .. }
+                | Self::NewRow(_)
+        )
+    }
+}

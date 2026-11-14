@@ -21,6 +21,19 @@ public struct AgentSessionSummary: Hashable, Sendable, Identifiable {
     /// unbound/standalone source, which then disables shared thumbnail caching.
     public var accountID: String
 
+    /// The harness as people name it ("Claude", "Codex", "OpenCode"), never a raw id: the
+    /// composer's model menu nests the models under it, as the Mac's does.
+    public var harnessDisplayName: String {
+        switch harness.lowercased() {
+        case "claude": "Claude"
+        case "claude-cr": "Claude (CodeRouter)"
+        case "codex": "Codex"
+        case "opencode": "OpenCode"
+        case "": "Agent"
+        default: harness.prefix(1).uppercased() + harness.dropFirst()
+        }
+    }
+
     public init(
         id: String, name: String, harness: String, agentName: String, cwd: String, workspaceTitle: String,
         macName: String, branch: String? = nil, status: Status = .idle, macID: String = "", accountID: String = ""
@@ -264,11 +277,23 @@ public protocol AgentSessionSource: AnyObject {
     /// The bytes of an attachment a recorded prompt names but this phone does not hold (an
     /// image another device or an earlier launch sent), or nil when the source can't read it.
     func attachmentData(_ attachment: AgentAttachment) async -> Data?
+    /// The whole record of a tool call output the Mac sent cut (``ACPToolOutputCut``), as the
+    /// update it made, or nil when the source can't read it (the person opens it again to retry).
+    func fullToolOutput(_ cut: ACPToolOutputCut) async -> ACPToolCallUpdate?
     /// The source reads the chat's history before its first records arrive (a chat that exists
     /// on the Mac): the chat opens on a loading state until ``AgentSessionEvent/historyLoading(_:)``
     /// says it caught up, instead of the empty new-chat screen. Sources that hold the whole
     /// history at once (mocks, an unbound tab) return false.
     var loadsHistory: Bool { get }
+    /// The Mac is starting this chat now (a workspace this phone is creating): its loading
+    /// state says "Starting <agent>…", not "Loading chat…".
+    var isStarting: Bool { get }
+    /// This phone is sending the chat's first message (New Task): until it shows in the
+    /// transcript, the chat is still starting, never the empty new-chat prompt. Observable.
+    var awaitsFirstPrompt: Bool { get }
+    /// The source can't reach its Mac now (a dropped link): a chat still loading says it is
+    /// connecting, not starting. Observable.
+    var isOffline: Bool { get }
     /// The chat reached the oldest turn it shows: read the page before it, delivered as
     /// ``AgentSessionEvent/earlierPage(_:hasEarlier:)``. Sources that hold the whole history do nothing.
     func loadEarlierHistory()
@@ -299,8 +324,12 @@ public protocol AgentSessionSource: AnyObject {
 
 extension AgentSessionSource {
     public func attachmentData(_ attachment: AgentAttachment) async -> Data? { nil }
+    public func fullToolOutput(_ cut: ACPToolOutputCut) async -> ACPToolCallUpdate? { nil }
     public func loadEarlierHistory() {}
     public var loadsHistory: Bool { false }
+    public var isStarting: Bool { false }
+    public var awaitsFirstPrompt: Bool { false }
+    public var isOffline: Bool { false }
 }
 
 extension AgentSessionSource {
@@ -369,6 +398,45 @@ public final class DisconnectedAgentSource: AgentSessionSource {
                                    reason: "Mac offline. Not sent.")
         default:
             event = .clientError(message)
+        }
+        for continuation in continuations { continuation.yield(event) }
+    }
+}
+
+/// The chat of a workspace this phone is still creating (New Task, New Agent Chat): the Mac is
+/// starting its session, so the chat says "Starting <agent>…" (``isStarting``) and holds its
+/// composer's sends with why, until the workspace is listed and its real source replaces this.
+@MainActor
+public final class StartingAgentSource: AgentSessionSource {
+    public let summary: AgentSessionSummary
+    private var continuations: [AsyncStream<AgentSessionEvent>.Continuation] = []
+
+    public init(summary: AgentSessionSummary) {
+        self.summary = summary
+    }
+
+    /// Replaced by the chat's real source once its workspace is listed: its readers end.
+    isolated deinit {
+        for continuation in continuations { continuation.finish() }
+    }
+
+    public var loadsHistory: Bool { true }
+    public var isStarting: Bool { true }
+
+    public func events() -> AsyncStream<AgentSessionEvent> {
+        let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream()
+        continuations.append(continuation)
+        return stream
+    }
+
+    public func send(_ intent: AgentClientIntent) {
+        let reason = summary.harness.isEmpty ? "The chat is still starting. Send again in a moment."
+            : "\(summary.agentName) is still starting. Send again in a moment."
+        let event: AgentSessionEvent
+        if case .prompt(let text, let attachments, _, let promptID, _) = intent {
+            event = .promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: reason)
+        } else {
+            event = .clientError(reason)
         }
         for continuation in continuations { continuation.yield(event) }
     }

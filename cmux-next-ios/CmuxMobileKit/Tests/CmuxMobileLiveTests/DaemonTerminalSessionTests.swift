@@ -295,7 +295,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         let session = DaemonTerminalSession(surface: 7) {
             DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
         }
-        // A frozen clock: a slow host must not age these sends past `inputStallLimit`.
+        // A fixed clock keeps detached-input expiration out of this test.
         session.now = { 1000 }
         session.start { _ in }
         try await waitUntil { session.isAttached }
@@ -326,7 +326,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             return DaemonClient(channel: channel)
         }
         var events: [TerminalSessionEvent] = []
-        // A frozen clock: a slow host must not age these sends past `inputStallLimit`.
+        // A fixed clock keeps detached-input expiration out of this test.
         session.now = { 1000 }
         session.start { events.append($0) }
         try await waitUntil { session.isAttached }
@@ -382,7 +382,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             DaemonClient(channel: GatedChannel(try await link.openChannel(service: "daemon", args: [:]), gate: gate))
         }
         var events: [TerminalSessionEvent] = []
-        // A frozen clock: a slow host must not age these sends past `inputStallLimit`.
+        // A fixed clock keeps detached-input expiration out of this test.
         session.now = { 1000 }
         session.start { events.append($0) }
         try await waitUntil { session.isAttached }
@@ -517,7 +517,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
         }
         session.tailProbeDelay = .milliseconds(30)
-        // A frozen clock: a slow host must not age these sends past `inputStallLimit`.
+        // A fixed clock keeps detached-input expiration out of this test.
         session.now = { 1000 }
         session.start { _ in }
         try await waitUntil { session.isAttached }
@@ -525,6 +525,34 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         let count = { (cmd: String) in daemon.recorded.filter { $0["cmd"] as? String == cmd }.count }
         try await waitUntil { count("ping") >= 3 }
         #expect(count("send") == 1)
+    }
+
+    /// An input ACK can disarm a probe while that probe's ping write is still
+    /// blocked in the link. Cancelling that probe must preserve the healthy
+    /// channel so the next keystroke can use it.
+    @Test(.timeLimit(.minutes(1))) func anInputAckDisarmsABlockedProbeWithoutClosingTheChannel() async throws {
+        let channel = ProbeCancellationChannel()
+        let session = DaemonTerminalSession(surface: 7) {
+            DaemonClient(channel: channel)
+        }
+        session.tailProbeDelay = .milliseconds(20)
+        session.start { _ in }
+        defer {
+            session.stop()
+            channel.releasePing()
+        }
+        try await waitUntil { session.isAttached }
+
+        session.send(Data("a".utf8))
+        var started = channel.pingStarted.makeAsyncIterator()
+        _ = await started.next()
+        channel.releaseInputAck()
+        try await waitUntil { session.inputsInFlight == 0 }
+        #expect(!channel.closed)
+
+        session.send(Data("b".utf8))
+        try await waitUntil { channel.inputCount >= 2 }
+        #expect(!channel.closed)
     }
 
     @Test func anAnsweredSendSendsNoTailProbe() async throws {
@@ -547,23 +575,39 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     /// TUI scroll tail: a lost reply must not stop input after a few frames
     /// (later sends keep the reverse direction moving, so the loss is
     /// repaired by duplicate ACKs): at least 32 sends may be unanswered.
-    @Test func manyUnansweredSendsStillGoOut() async throws {
+    @Test(.timeLimit(.minutes(1))) func manyUnansweredSendsStillGoOut() async throws {
         let daemon = FakeTerminalDaemon()
         daemon.unansweredSends = true
-        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let (written, didWrite) = AsyncStream<Void>.makeStream()
+        let link = MockMacLink { service, line in
+            let replies = daemon.respond(service, line)
+            for data in line.split(separator: 0x0A) {
+                if let request = try? JSONSerialization.jsonObject(with: Data(data)) as? [String: Any],
+                   request["cmd"] as? String == "send" { didWrite.yield(()) }
+            }
+            return replies
+        }
         let session = DaemonTerminalSession(surface: 7) {
             DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
         }
-        session.tailProbeDelay = .seconds(60)
-        session.now = { 1000 }  // a frozen clock: no send ages past the stall limit
+        // This test owns the window, not expiry. Keep both timers outside its
+        // one-minute hang guard; short request expiry has its own regression.
+        session.inputRequestDeadline = .seconds(120)
+        session.tailProbeDelay = .seconds(120)
+        session.now = { 1000 }  // detached-input expiration is not under test
         session.start { _ in }
+        defer { session.stop(); didWrite.finish() }
         try await waitUntil { session.isAttached }
+        try #require(session.isAttached)
+        var writes = written.makeAsyncIterator()
         let sends = { daemon.recorded.filter { $0["cmd"] as? String == "send" }.count }
         let cap = DaemonTerminalSession.maxInputInFlight
         #expect(cap >= 32)
         for n in 1...cap {
             session.send(Data("x".utf8))
-            try await waitUntil { sends() == n }
+            let received = await writes.next()
+            try #require(received != nil, "write stream ended: \(session.lastError ?? "none")")
+            try #require(sends() == n)
         }
         // The cap still holds: the next one waits for an answer.
         session.send(Data("y".utf8))
@@ -571,10 +615,9 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         #expect(sends() == cap)
     }
 
-    /// Review: a stalled link (the oldest unanswered send older than
-    /// `inputStallLimit`) holds new keys instead of writing them to arrive
-    /// late; they go once the stall clears.
-    @Test func aStalledLinkHoldsNewKeys() async throws {
+    /// One lost reply must not block later keystrokes after 500 ms. Request
+    /// deadlines settle it; only the bounded in-flight window applies.
+    @Test func anOldUnansweredSendDoesNotBlockLaterKeys() async throws {
         let daemon = FakeTerminalDaemon()
         daemon.unansweredSends = true
         let link = MockMacLink { service, line in daemon.respond(service, line) }
@@ -589,10 +632,43 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         let sends = { daemon.recorded.filter { $0["cmd"] as? String == "send" }.count }
         session.send(Data("a".utf8))
         try await waitUntil { sends() == 1 }
-        clock += session.inputStallLimit + 0.1
+        clock += 0.6
         session.send(Data("b".utf8))
-        for _ in 0..<10 where sends() <= 1 { try await Task.sleep(for: .milliseconds(10)) }
-        #expect(sends() == 1)
+        try await waitUntil { sends() == 2 }
+        #expect(sends() == 2)
+        session.stop()
+    }
+
+    @Test func lostFallbackReplyTimesOutAndNewInputWorksAfterReattach() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.unansweredSends = true
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let session = DaemonTerminalSession(surface: 7) {
+            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+        }
+        session.inputRequestDeadline = .milliseconds(50)
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        session.send(Data("a".utf8))
+        try await waitUntil { events.contains(.inputNotSent(bytes: 1)) }
+        #expect(session.inputsInFlight == 0)
+        daemon.unansweredSends = false
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        session.send(Data("b".utf8))
+        try await waitUntil {
+            daemon.recorded.last { $0["cmd"] as? String == "send" }?["bytes"] as? String == Data("b".utf8).base64EncodedString()
+        }
+        let sent = daemon.recorded.filter { $0["cmd"] as? String == "send" }
+        #expect(sent.count == 2, "the uncertain first keystroke is never replayed")
+        session.stop()
+    }
+
+    @Test func timedOutOrCancelledWritesAreNeverClassifiedAsSafeToReplay() {
+        #expect(DaemonTerminalSession.inputDeliveryUncertain(LinkError(code: "write_timeout", message: "partial write")))
+        #expect(DaemonTerminalSession.inputDeliveryUncertain(CancellationError()))
+        #expect(!DaemonTerminalSession.inputDeliveryUncertain(LinkError(code: "not_written", message: "not submitted")))
     }
 
     /// TUI fast scroll: what one main-queue turn queues (a scroll frame's
@@ -1240,6 +1316,76 @@ final class GatedChannel: LinkChannel, @unchecked Sendable {
     }
     func receive() async throws -> Data? { try await inner.receive() }
     func close(code: String, reason: String) async { await inner.close(code: code, reason: reason) }
+}
+
+/// A daemon channel that holds the first input reply and blocks the probe's
+/// ping write. It lets the regression deliver the input ACK while cancellation
+/// is inside `DaemonClient.submit("ping")`.
+final class ProbeCancellationChannel: LinkChannel, @unchecked Sendable {
+    let id: UInt32 = 1
+    private let daemon = FakeTerminalDaemon()
+    private let lock = NSLock()
+    private let stream: AsyncStream<Data>
+    private let continuation: AsyncStream<Data>.Continuation
+    private var iterator: AsyncStream<Data>.Iterator
+    private let pingGate: AsyncStream<Void>.Continuation
+    private let pingRelease: AsyncStream<Void>.Continuation
+    private let pingReleaseStream: AsyncStream<Void>
+    let pingStarted: AsyncStream<Void>
+    private var heldInputID: String?
+    private var count = 0
+    private(set) var closed = false
+
+    var inputCount: Int { lock.withLock { count } }
+
+    init() {
+        (stream, continuation) = AsyncStream.makeStream()
+        iterator = stream.makeAsyncIterator()
+        let (started, startedContinuation) = AsyncStream<Void>.makeStream()
+        pingStarted = started
+        pingGate = startedContinuation
+        let (releaseStream, releaseContinuation) = AsyncStream<Void>.makeStream()
+        pingRelease = releaseContinuation
+        pingReleaseStream = releaseStream
+        daemon.unansweredSends = true
+    }
+
+    func send(_ data: Data) async throws {
+        for line in data.split(separator: 0x0A) {
+            let lineData = Data(line)
+            guard let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  let command = object["cmd"] as? String else { continue }
+            if command == "ping" {
+                pingGate.yield(())
+                var release = pingReleaseStream.makeAsyncIterator()
+                _ = await release.next()
+                continue
+            }
+            if command == "send" {
+                lock.withLock {
+                    count += 1
+                    if heldInputID == nil { heldInputID = object["id"] as? String }
+                }
+            }
+            for reply in daemon.respond("daemon", lineData) { continuation.yield(reply) }
+        }
+    }
+
+    func receive() async throws -> Data? { await iterator.next() }
+
+    func releaseInputAck() {
+        let id = lock.withLock { heldInputID }
+        guard let id else { return }
+        daemon.unansweredSends = false
+        continuation.yield(FakeTerminalDaemon.line(["id": id, "ok": true, "data": [:]]))
+    }
+
+    func releasePing() { pingRelease.yield(()) }
+
+    func close(code: String, reason: String) async {
+        lock.withLock { closed = true }
+        continuation.finish()
+    }
 }
 
 final class ChannelLog: @unchecked Sendable {
