@@ -16,6 +16,8 @@ public nonisolated enum BrowserChromeMetric: String, CaseIterable, Sendable {
     case closeInk
     /// The hover square's distance from the pill's trailing edge.
     case closeTrailing
+    /// The hover square's fill, in percent of the tab's most-contrasting ink (pressed is 2 less).
+    case closeHoverOpacity
     /// The omnibar's page-info chip's distance from the bar's leading edge.
     case chipLeading
     /// Where the URL's text starts in the bar.
@@ -39,6 +41,7 @@ public nonisolated enum BrowserChromeMetric: String, CaseIterable, Sendable {
         case .closeCorner: "Close corner"
         case .closeInk: "Close ink"
         case .closeTrailing: "Close to tab end"
+        case .closeHoverOpacity: "Close hover fill %"
         case .chipLeading: "Omnibar chip inset"
         case .textOrigin: "Omnibar text start"
         }
@@ -53,12 +56,13 @@ public nonisolated enum BrowserChromeMetric: String, CaseIterable, Sendable {
         case .closeCorner: "Corner of the x's hover square. Helium: 4."
         case .closeInk: "Side of the x's ink. Helium: 8."
         case .closeTrailing: "Hover square to the pill's trailing edge. Helium: 6."
+        case .closeHoverOpacity: "Hover fill, percent of the tab's ink; pressed is 2 less, no fade. Helium: 16."
         case .chipLeading: "Bar edge to the page-info chip. Helium: 2."
         case .textOrigin: "Bar edge to the URL's text. Helium: 31."
         }
     }
 
-    /// The slider's range in points.
+    /// The slider's range in points (percent for ``closeHoverOpacity``).
     var range: ClosedRange<Double> {
         switch self {
         case .rowHeight: 16...48
@@ -66,6 +70,7 @@ public nonisolated enum BrowserChromeMetric: String, CaseIterable, Sendable {
         case .closeSize, .closeInk: 4...28
         case .closeCorner, .closeTrailing, .chipLeading: 0...16
         case .textOrigin: 10...60
+        case .closeHoverOpacity: 0...40
         }
     }
 }

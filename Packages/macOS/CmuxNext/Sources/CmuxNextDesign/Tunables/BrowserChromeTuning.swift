@@ -71,6 +71,7 @@ public nonisolated enum BrowserChromeTuning {
         case .closeCorner: return half(share(14, of: row) * 4 / 14)
         case .closeInk: return share(8, of: row)
         case .closeTrailing: return share(6, of: row)
+        case .closeHoverOpacity: return 16 // tab_close_button.cc's highlight opacity, at every density
         case .chipLeading: return chipLeading(bar: row, chromeColumn: chromeColumn)
         case .textOrigin: return textOrigin(bar: row, chromeColumn: chromeColumn)
         }
