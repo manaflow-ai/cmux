@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import json
 import re
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import workflow_jobs
 from job_lists_routing import (
@@ -708,6 +710,55 @@ def fork_pull_request_gate_error(
     return None
 
 
+def excludes_fork_pull_request(condition: object) -> bool:
+    """Prove a job cannot start on a fork PR; unknown conditions stay checked.
+
+    Only evaluate facts guaranteed by a fork pull_request event. In particular,
+    a same-repository comparison somewhere in an OR is not itself a gate.
+    """
+    if isinstance(condition, bool):
+        return not condition
+    if not isinstance(condition, str) or not condition.strip():
+        return False
+    source = condition.strip()
+    if source.startswith("${{") and source.endswith("}}"):
+        source = source[3:-2].strip()
+
+    def known(node: tuple) -> bool | None:
+        kind = node[0]
+        if kind in ("and", "or"):
+            values = [known(child) for child in node[1]]
+            decisive = kind == "or"
+            if decisive in values:
+                return decisive
+            if all(value is not None for value in values):
+                return not decisive
+        elif kind == "not":
+            value = known(node[1])
+            return None if value is None else not value
+        elif kind == "literal" and node[1] in ("true", "false"):
+            return node[1] == "true"
+        elif kind == "cmp" and node[1] in ("==", "!="):
+            left, right = node[2:]
+            if left == ("ref", "github.repository"):
+                left, right = right, left
+            if (left == ("ref", "github.event.pull_request.head.repo.full_name")
+                    and right == ("ref", "github.repository")):
+                return node[1] == "!="
+            if right == ("ref", "github.event_name"):
+                left, right = right, left
+            if (left == ("ref", "github.event_name") and right[0] == "literal"
+                    and right[1].startswith("'")):
+                event = right[1][1:-1].replace("''", "'").lower()
+                return (event == "pull_request") == (node[1] == "==")
+        return None
+
+    try:
+        return known(parse_expression(source)) is False
+    except ExpressionSyntaxError:
+        return False
+
+
 def pull_request_workflows() -> list[Path]:
     result: list[Path] = []
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
@@ -1128,9 +1179,23 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         failures = []
         for path in fork_exercised_workflows():
             text = path.read_text(encoding="utf-8")
+            excluded_jobs = {
+                name for name, body in workflow_jobs.jobs(text).items()
+                if excludes_fork_pull_request(body.get("if"))
+            }
+            job = None
+            in_jobs = False
             dispatch_inputs_are_empty = not has_workflow_call_trigger(text)
             for number, line in enumerate(text.splitlines(), start=1):
                 if line.lstrip().startswith("#"):
+                    continue
+                if line and not line.startswith(" "):
+                    in_jobs = line.strip() == "jobs:"
+                    job = None
+                header = JOB_HEADER.match(line) if in_jobs else None
+                if header:
+                    job = header.group(1)
+                if job in excluded_jobs:
                     continue
                 if not (
                     OWNED_RUNNER_VARIABLE.search(line)
@@ -1152,6 +1217,46 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                     failures.append(f"{path.name}:{number} {error}: {line.strip()}")
         self.assertEqual(failures, [])
         self.assertGreater(checked, 0)
+
+    def test_job_condition_proves_fork_exclusion_without_trusting_unknowns(self) -> None:
+        same = "github.event.pull_request.head.repo.full_name == github.repository"
+        pr = "github.event_name == 'pull_request'"
+        manual = "github.event_name == 'workflow_dispatch'"
+        for condition in (same, f"{manual} || ({pr} && {same})",
+                          f"success() && ({same})", f"${{{{ {same} }}}}",
+                          f"!({pr})", False):
+            with self.subTest(excluded=condition):
+                self.assertTrue(excludes_fork_pull_request(condition))
+        for condition in (None, "", True, pr, f"{same} || always()",
+                          f"({manual} || {pr}) && (vars.ALLOW || {same})",
+                          f"!({same})", "github.repository_owner == 'manaflow-ai'",
+                          "inputs.trusted", "'false'", f"{same} ||", f"{same} || true"):
+            with self.subTest(still_checked=condition):
+                self.assertFalse(excludes_fork_pull_request(condition))
+
+    def test_job_gate_does_not_exempt_sibling_or_workflow_env(self) -> None:
+        safe = ("${{ github.event_name == 'pull_request' && "
+                "github.event.pull_request.head.repo.full_name != github.repository && "
+                "'macos-26' || vars.MACOS_RUNNER_PR }}")
+        unsafe = "${{ vars.MACOS_RUNNER_PR }}"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "proof.yml"
+            for sibling, env, passes in ((safe, "", True), (unsafe, "", False),
+                                         (safe, f"env:\n  guarded:\n    LABEL: {unsafe}\n", False)):
+                with self.subTest(sibling=sibling, env=env):
+                    path.write_text(
+                        env + "on:\n  pull_request:\njobs:\n  guarded:\n"
+                        "    if: >-\n      github.event_name == 'workflow_dispatch' ||\n"
+                        "      (github.event_name == 'pull_request' &&\n"
+                        "       github.event.pull_request.head.repo.full_name == github.repository)\n"
+                        f"    runs-on: {unsafe}\n  sibling:\n    runs-on: {sibling}\n"
+                    )
+                    with patch(__name__ + ".fork_exercised_workflows", return_value=[path]):
+                        if passes:
+                            self.test_fork_pull_requests_into_manaflow_ai_never_reach_an_owned_runner_label()
+                        else:
+                            with self.assertRaises(AssertionError):
+                                self.test_fork_pull_requests_into_manaflow_ai_never_reach_an_owned_runner_label()
 
     def test_pull_request_xcode_pin_follows_the_same_repository_lane(self) -> None:
         """A fork PR leaves MACOS_RUNNER_PR, so it must leave its Xcode pin too.
