@@ -190,7 +190,7 @@ final class TerminalSurfaceView: UIView {
     /// Kept before the Ghostty surface exists too.
     private(set) var isShown = false
     /// DIAGNOSTIC (memory bisect, not for merge): CMUX_MOBILE_DIAG=focus,draw,pace.
-    static let diag = ProcessInfo.processInfo.environment["CMUX_MOBILE_DIAG"] ?? "draw"
+    static let diag = ProcessInfo.processInfo.environment["CMUX_MOBILE_DIAG"] ?? ""
     /// `isShown` changed. The screen paces a hidden page's output by it
     /// (`TerminalViewController.feedsHidden`).
     var onShownChange: ((Bool) -> Void)?
