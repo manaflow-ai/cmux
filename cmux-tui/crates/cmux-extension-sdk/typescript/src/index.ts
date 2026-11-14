@@ -79,6 +79,50 @@ export function command<A, R>(run: (args: A, ctx: { app: string; gesture?: strin
 }
 
 // ---------------------------------------------------------------------------------------------
+// Composer places. These are data in the manifest, not exports: cmux's daemon reads them and
+// answers the agent chat composer, so a save of cmux-app.json updates the composer live.
+
+/**
+ * A slash command in the agent chat composer (`cmux.composer.command/1`). Picking `/name` in the
+ * `/` menu writes `insert` over the typed `/word`.
+ *
+ *     // cmux-app.json: "implements": { "cmux.composer.command/1": { "options": { "commands": [
+ *     //   { "name": "standup", "description": "Ask for today's standup", "insert": "Write my standup notes." } ] } } }
+ */
+export interface ComposerCommand {
+  /** What the person types after `/`: lowercase letters, digits, `-` and `_`, at most 32. */
+  name: string
+  /** The menu row's sentence. */
+  description?: string
+  /** What follows the command, shown after its name (`<ticket>`). */
+  hint?: string
+  /** The text written over the typed `/word`. */
+  insert: string
+}
+
+/** The `options` of `cmux.composer.command/1`. */
+export interface ComposerCommandOptions {
+  commands: ComposerCommand[]
+}
+
+/** An item the person names with `@` in the composer (`cmux.composer.mention/1`); the daemon ranks them for a query. */
+export interface ComposerMention {
+  id: string
+  /** What the row shows and what a query matches. */
+  label: string
+  detail?: string
+  /** What the mention writes; the label when absent. */
+  insert?: string
+}
+
+/** The `options` of `cmux.composer.mention/1`. */
+export interface ComposerMentionOptions {
+  /** The word that narrows `@` to this provider (`@ticket:`). */
+  prefix: string
+  items: ComposerMention[]
+}
+
+// ---------------------------------------------------------------------------------------------
 // Events. An event is an invalidation with no payload; the live lists below re-read on it.
 
 /** The streams an extension can subscribe to, with the read op (and so the scope) each needs. */

@@ -35,6 +35,8 @@ public protocol AppsTransport: AnyObject {
     func list() async throws(AppsTransportError) -> AppsListReply
     /// Visible Session Info app sections (`cmux.apps.panels.list`).
     func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel]
+    /// The composer's extension slash commands and mention providers (`apps.composer.list`).
+    func composerPlaces() async throws(AppsTransportError) -> AppJSON
     /// `apps-set`; returns the app's record after the commit.
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord
     func mount(app: String, interface: String, mountID: String, context: AppJSON) async throws(AppsTransportError)
@@ -48,4 +50,10 @@ public protocol AppsTransport: AnyObject {
     /// connection the daemon verified as the cmux app.
     func run(app: String, op: String, args: AppJSON, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppJSON
     func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine]
+}
+
+extension AppsTransport {
+    /// The agent chat composer's extension places (`apps.composer.list`): the reply as the daemon
+    /// wrote it, `{commands, mentions}`. A transport that does not serve them lists none.
+    public func composerPlaces() async throws(AppsTransportError) -> AppJSON { .object([:]) }
 }

@@ -723,6 +723,7 @@ import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
 import { runResume } from "./resumeCommand";
+import { useExtensionCommands, withExtensionCommands } from "./composer/extensionCommands";
 import {
   CMUX_PASS_THROUGH,
   CmuxCommandRefused,
@@ -7292,6 +7293,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       throw error;
     }
   };
+  // Extension slash commands (`cmux.composer.command/1`), as the daemon lists them.
+  const extensionCommands = useExtensionCommands();
   const composerSnapshot = useMemo(() => {
     const enabledCmuxActions = new Set<CmuxCommand["action"]>([
       "import",
@@ -7313,7 +7316,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (snapshot.sessionId && !isSideSession && !quick) enabledCmuxActions.add("btw");
     const withCommands = {
       ...snapshot,
-      commands: mergedCommands(snapshot.commands, enabledCmuxActions),
+      commands: withExtensionCommands(mergedCommands(snapshot.commands, enabledCmuxActions), extensionCommands),
       ...(keptStopping && { stopping: true as const }),
       // The Quick Composer's send never forks (it has no review to show), so its model menu
       // holds no pick of another harness either (review of #37196: it drew the hold, then sent
@@ -7347,6 +7350,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     keptStopping,
     cloudPicked,
     cloudModePick,
+    extensionCommands,
   ]);
   // What the composer draws from: the same object while nothing it shows changed (composer/composerView.ts),
   // so a tool call or another row added to the transcript does not draw the composer again.
@@ -13369,7 +13373,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   template={screenTemplate(shownTemplate(newTab))}
                   {...(newTab.allChats === false ? { allChats: false } : {})}
                   {...(newTab.suggestionOrder ? { suggestionOrder: newTab.suggestionOrder } : {})}
-                  snapshot={commandSession ? { ...newTabSnapshot, commands: pendingCommands ?? [] } : newTabSnapshot}
+                  snapshot={
+                    commandSession
+                      ? { ...newTabSnapshot, commands: withExtensionCommands(pendingCommands ?? [], extensionCommands) }
+                      : newTabSnapshot
+                  }
                   {...(newTabFixError ? { fixError: newTabFixError } : {})}
                   omnibar={newTab.omnibar}
                   location={newTab.location}

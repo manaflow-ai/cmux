@@ -182,6 +182,14 @@
       "propertyNames": {
         "$ref": "#/$defs/interfaceName"
       },
+      "properties": {
+        "cmux.composer.command/1": {
+          "$ref": "#/$defs/dataImplementation"
+        },
+        "cmux.composer.mention/1": {
+          "$ref": "#/$defs/dataImplementation"
+        }
+      },
       "additionalProperties": {
         "$ref": "#/$defs/implementation"
       }
@@ -708,6 +716,26 @@
         "maxLength": 200
       },
       "description": "Scopes the app asks for, each with the reason shown on the consent sheet. Risk classes: scope-classes.json."
+    },
+    "dataImplementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "options"
+      ],
+      "description": "An implementation that is data only (the composer's commands and mention providers): the daemon reads its options, no script runs, so a save of the manifest is the whole change.",
+      "properties": {
+        "title": {
+          "$ref": "#/$defs/text"
+        },
+        "symbol": {
+          "$ref": "#/$defs/symbol"
+        },
+        "options": {
+          "type": "object",
+          "description": "Interface-specific options, validated against the interface schema."
+        }
+      }
     },
     "implementation": {
       "type": "object",

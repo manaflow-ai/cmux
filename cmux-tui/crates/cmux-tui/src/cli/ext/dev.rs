@@ -696,6 +696,8 @@ fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
                 "cmux.session.info.section/1" => "the agent pane's Session Info".into(),
                 "cmux.pane/1" => "a tab (Open in the Command Palette)".into(),
                 "cmux.sidebar.rows/1" => "workspace rows in the sidebar".into(),
+                "cmux.composer.command/1" => "the agent chat composer's / menu".into(),
+                "cmux.composer.mention/1" => "the agent chat composer's @ completions".into(),
                 other => other.to_string(),
             };
             json!({ "interface": interface, "where": place, "shown": shown })
