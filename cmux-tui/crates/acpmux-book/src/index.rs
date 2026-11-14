@@ -171,6 +171,9 @@ pub struct SummaryIndex {
     by_id: OrdMap<RowKey, Arc<Summary>>,
     ordered: OrdMap<SortKey, Arc<Summary>>,
     live_ordered: OrdMap<SortKey, Arc<Summary>>,
+    /// The live rows of origin `local` alone: a peer's page ranges here, so
+    /// no key it is given can name a row of another origin.
+    local_live: OrdMap<SortKey, Arc<Summary>>,
     disk: Option<Arc<DiskSnapshot>>,
     shadowed: OrdSet<RowKey>,
     origins: OrdMap<Arc<str>, OriginRecord>,
@@ -195,6 +198,7 @@ impl SummaryIndex {
             by_id: OrdMap::new(),
             ordered: OrdMap::new(),
             live_ordered: OrdMap::new(),
+            local_live: OrdMap::new(),
             disk: None,
             shadowed: OrdSet::new(),
             origins: OrdMap::new(),
@@ -325,6 +329,7 @@ impl SummaryIndex {
         {
             self.ordered.remove(&SortKey::of(&row));
             self.live_ordered.remove(&SortKey::of(&row));
+            self.local_live.remove(&SortKey::of(&row));
             self.kin.remove_with_rows(&row, &self.by_id);
             self.folders =
                 Self::refresh_folders(&self.folders, &self.kin, &self.by_id, Some(&row), None);
@@ -346,6 +351,9 @@ impl SummaryIndex {
             self.by_id.insert(key.clone(), row.clone());
             self.ordered.insert(SortKey::of(&row), row.clone());
             if row.is_live() {
+                if row.origin == "local" {
+                    self.local_live.insert(SortKey::of(&row), row.clone());
+                }
                 self.live_ordered.insert(SortKey::of(&row), row);
             }
             if let Some(row) = self.by_id.get(&key) {
@@ -509,6 +517,7 @@ impl SummaryIndex {
             if let Some(old) = next.by_id.remove(key) {
                 next.ordered.remove(&SortKey::of(&old));
                 next.live_ordered.remove(&SortKey::of(&old));
+                next.local_live.remove(&SortKey::of(&old));
                 next.kin.remove_with_rows(&old, &next.by_id);
                 next.folders =
                     Self::refresh_folders(&next.folders, &next.kin, &next.by_id, Some(&old), None);
@@ -533,6 +542,7 @@ impl SummaryIndex {
         if let Some(old) = next.by_id.remove(key) {
             next.ordered.remove(&SortKey::of(&old));
             next.live_ordered.remove(&SortKey::of(&old));
+            next.local_live.remove(&SortKey::of(&old));
             next.kin.remove_with_rows(&old, &next.by_id);
             next.folders =
                 Self::refresh_folders(&next.folders, &next.kin, &next.by_id, Some(&old), None);
@@ -640,11 +650,15 @@ impl SummaryIndex {
         if let Some(old) = old.as_ref() {
             next.ordered.remove(&SortKey::of(old));
             next.live_ordered.remove(&SortKey::of(old));
+            next.local_live.remove(&SortKey::of(old));
         }
         next.by_id.insert(key, row.clone());
         next.ordered.insert(SortKey::of(&row), row.clone());
         if row.is_live() {
             next.live_ordered.insert(SortKey::of(&row), row.clone());
+            if row.origin == "local" {
+                next.local_live.insert(SortKey::of(&row), row.clone());
+            }
         }
         next.kin = next.kin.replace_arc(old.as_ref(), Some(&row), &next.by_id);
         next.folders = Self::refresh_folders(
@@ -703,10 +717,14 @@ impl SummaryIndex {
         if let Some(old) = &old {
             self.ordered.remove(&SortKey::of(old));
             self.live_ordered.remove(&SortKey::of(old));
+            self.local_live.remove(&SortKey::of(old));
         }
         let sort_key = SortKey::of(&summary);
         self.ordered.insert(sort_key.clone(), summary.clone());
         if summary.is_live() {
+            if summary.origin == "local" {
+                self.local_live.insert(sort_key.clone(), summary.clone());
+            }
             self.live_ordered.insert(sort_key, summary.clone());
         }
         self.by_id.insert(key.clone(), summary.clone());
@@ -859,17 +877,26 @@ impl SummaryIndex {
         let mut by_id = self.by_id.clone();
         let mut ordered = self.ordered.clone();
         let mut live_ordered = self.live_ordered.clone();
+        let mut local_live = self.local_live.clone();
         by_id.remove(key);
         if let Some(old) = old {
             ordered.remove(&SortKey::of(old));
             live_ordered.remove(&SortKey::of(old));
+            local_live.remove(&SortKey::of(old));
         }
         let mut shadowed = self.shadowed.clone();
         if self.disk.is_some() {
             shadowed.insert(key.clone());
         }
-        let mut next =
-            Self { seq: self.seq.max(seq), by_id, ordered, live_ordered, shadowed, ..self.clone() };
+        let mut next = Self {
+            seq: self.seq.max(seq),
+            by_id,
+            ordered,
+            live_ordered,
+            local_live,
+            shadowed,
+            ..self.clone()
+        };
         next.kin = self.kin.replace_arc(old, None, &next.by_id);
         next.folders = Self::refresh_folders(
             &self.folders,

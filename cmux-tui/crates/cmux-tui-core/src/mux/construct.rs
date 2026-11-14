@@ -387,6 +387,7 @@ impl Mux {
             feed_local,
             presentation: Mutex::new(Arc::new(presentation)),
             git_heads: Mutex::new(HashMap::new()),
+            tree_revision: tree_revision::TreeRevision::new(),
             resource_machine_service: OnceLock::new(),
             journal_kernel,
             journal_ingress,
@@ -519,6 +520,12 @@ impl Mux {
             // Do not drop a late exit callback here. The reducer uses the
             // child generation to fence a replacement process.
             mux.record_journal_plugin_exit(plugin_id, generation);
+        })));
+        let weak_mux = Arc::downgrade(&mux);
+        mux.journal_plugin.set_restart_handler(Some(Arc::new(move |restart| {
+            if let Some(mux) = weak_mux.upgrade() {
+                mux.record_journal_plugin_restart(restart);
+            }
         })));
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
         mux.output_store.start(&mux)?;
