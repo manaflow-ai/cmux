@@ -300,3 +300,26 @@ fn a_small_feedback_batch_does_not_collapse_upstream_capacity() {
     s.on_datagram(&feedback(CAM, &Feedback::default()), 550_000).expect("feedback");
     assert!(s.target_bps(550_000) >= start);
 }
+
+#[test]
+fn reordered_feedback_preserves_upstream_loss_and_bitrate() {
+    let mut s = camera();
+    let sent = s.send_frame(&[7u8; 100_000], 0, true, 0).expect("packetize").expect("sent");
+    let start = s.target_bps(0);
+    let arrivals: Vec<_> = seqs(&sent)
+        .into_iter()
+        .map(|transport_seq| Arrival { transport_seq, arrival_us: 25_000 })
+        .collect();
+    let middle = arrivals.len() / 2;
+    for (chunk, now) in [(&arrivals[middle..], 50_000), (&arrivals[..middle], 130_000)] {
+        s.on_datagram(
+            &feedback(CAM, &Feedback { arrivals: chunk.to_vec(), ..Feedback::default() }),
+            now,
+        )
+        .expect("feedback");
+    }
+    s.on_datagram(&feedback(CAM, &Feedback::default()), 150_000).expect("settlement");
+    s.on_datagram(&feedback(CAM, &Feedback::default()), 750_000).expect("sample");
+    assert_eq!(s.stats().loss, 0.0, "reordering is not packet loss");
+    assert!(s.target_bps(750_000) >= start);
+}
