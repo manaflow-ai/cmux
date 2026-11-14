@@ -236,7 +236,7 @@ final class TerminalStatusBanner: NSView {
     /// the same daemon everywhere else (its startup deadline, its drop
     /// grace, the sidebar's "Connecting…" hold): a restart or a short drop
     /// the person can do nothing about marks no pane (Leo, 2026-11-14: "i
-    /// also want all our connectivity stuff to shut the fuck up"). It was 5 s.
+    /// also want all our connectivity stuff to shut the f*** up"). It was 5 s.
     static let reconnectingRevealDelay: CFTimeInterval = 10
     /// "Disconnected: …" shows only after `disconnectedRevealDelay`: a daemon restart drops every
     /// pane's link, and a click, a key or the link back re-attaches within it, so a drop that heals

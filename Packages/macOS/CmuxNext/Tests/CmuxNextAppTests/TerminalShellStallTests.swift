@@ -158,7 +158,7 @@ import Testing
         #expect(view.statusText == "Disconnected: the stream ended · Click or type to reconnect")
     }
 
-    /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up". A daemon restart, a
+    /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up". A daemon restart, a
     /// handoff or a drop that heals within 10 s puts no "Reconnecting…" mark on any pane: the pane keeps
     /// its last screen and comes back by itself. The mark showed at 5 s on every visible pane.
     @Test func aReconnectThatHealsWithinTenSecondsShowsNoMark() async throws {
