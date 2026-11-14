@@ -129,7 +129,7 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
         creations = []
         starting = []
         lastListed = nil
-        coordinator?.applyCloudMachines([])
+        coordinator?.applyCloudMachines([], quiet: true)
     }
 
     /// Stopped (signed out, or Cloud turned off): an action still in flight lists nothing again.

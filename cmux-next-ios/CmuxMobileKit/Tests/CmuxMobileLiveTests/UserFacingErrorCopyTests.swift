@@ -35,7 +35,8 @@ import Testing
     /// Review of the merge at e4aa15cf: the base's copy took only capitalized prose, so every
     /// Cloud carrier error read as "the connection to the Mac failed" (a locked iPhone included).
     @Test func cloudErrorsSayItIsTheCloudMachineAndWhatToDo() {
-        #expect(LinkError(code: "keychain.locked", message: "x").errorDescription
+        // The carrier's own message for it (CloudCarrierKey) never wins over the table's sentence.
+        #expect(LinkError(code: "keychain.locked", message: "the Keychain is locked until this iPhone is unlocked").errorDescription
             == "Unlock this iPhone to open the Cloud machine, then try again.")
         #expect(LinkController.reason(LinkError(code: "keychain.locked", message: "")) == "this iPhone is locked")
         #expect(LinkController.reason(LinkError(code: "carrier.handshake", message: "")) == "the Cloud machine didn't prove it's yours")

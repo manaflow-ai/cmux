@@ -265,6 +265,11 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         live.applyCloudMachines([machine(.running)])
         live.applyCloudMachines([])
         #expect(events == ["gone \(vm) Build box", "removed \(vm)"])
+        // Cloud stopping here (sign-out) empties the list quietly: no "was deleted".
+        events.removeAll()
+        live.applyCloudMachines([machine(.running)])
+        live.applyCloudMachines([], quiet: true)
+        #expect(events == ["removed \(vm)"])
     }
 
     @Test func pausedAndStartingMachinesAreNotDialed() async throws {
@@ -748,7 +753,7 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         #expect(Set(keys.compactMap(\.self)).count == 1)
 
         let locked = FailingSecretStore(status: errSecInteractionNotAllowed)
-        #expect(throws: LinkError(code: CloudCarrierDialer.keychainLocked, message: "Unlock this iPhone to open the Cloud machine")) {
+        #expect(throws: LinkError(code: CloudCarrierDialer.keychainLocked, message: "the Keychain is locked until this iPhone is unlocked")) {
             _ = try CloudCarrierKey.load(userID: user, epoch: CloudCarrierKey.epoch(userID: user), store: locked, newKey: { Data(count: 32) })
         }
         #expect(CloudCarrierDialer.isRetryable(CloudCarrierKey.failure(KeychainSecretStore.Failure(status: errSecInteractionNotAllowed))))

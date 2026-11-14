@@ -55,10 +55,10 @@ struct CloudCarrierKey {
     /// A Keychain error as the dial's refusal: locked is retryable, anything else is not.
     static func failure(_ error: any Error) -> LinkError {
         if let failure = error as? KeychainSecretStore.Failure, failure.status == errSecInteractionNotAllowed {
-            return LinkError(code: CloudCarrierDialer.keychainLocked, message: "Unlock this iPhone to open the Cloud machine")
+            return LinkError(code: CloudCarrierDialer.keychainLocked, message: "the Keychain is locked until this iPhone is unlocked")
         }
         let status = (error as? KeychainSecretStore.Failure).map { " (\($0.status))" } ?? ""
-        return LinkError(code: CloudCarrierDialer.keychainUnavailable, message: "This iPhone can't keep the key for Cloud machines\(status)")
+        return LinkError(code: CloudCarrierDialer.keychainUnavailable, message: "the Keychain can't keep the Cloud key\(status)")
     }
 
     /// Sign-out: the key goes; the next sign-in makes a new one.

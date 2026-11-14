@@ -42,7 +42,9 @@ extension LiveCoordinator {
     /// the last one, not a failed or cancelled read): a machine whose carrier dropped may be dialed
     /// again once such a read still says it runs. `readStamp` (``cloudReadStamp`` when the read
     /// began) limits that to the holds placed before the read; nil lifts every hold.
-    public func applyCloudMachines(_ machines: [MacDevice], fromRead: Bool = false, readStamp: Int? = nil) {
+    /// `quiet`: the list empties because Cloud stops here (sign-out), not because machines left:
+    /// no "was deleted" for the pages still open.
+    public func applyCloudMachines(_ machines: [MacDevice], fromRead: Bool = false, readStamp: Int? = nil, quiet: Bool = false) {
         let machines = machines.filter(\.isCloud)
         // A set: a machine can hold both kinds (stale from a background, drop from a failed probe on
         // the way back); one read lifting both signals it once, never a second, cancelling dial.
@@ -93,7 +95,7 @@ extension LiveCoordinator {
         let ids = Set(machines.map(\.id))
         for gone in before.subtracting(ids) {
             // A page of it on screen ends with a word, not a silent jump back (criterion 7).
-            onCloudMachineGone?(gone, namesBefore[gone] ?? "This Cloud machine")
+            if !quiet { onCloudMachineGone?(gone, namesBefore[gone] ?? "This Cloud machine") }
             // Its open pages close, as a removed Mac's do (a workspace on Workspaces or Settings).
             onMacRemoved?(gone)
             // Gone from the list (deleted): no later session takes its terminals.
