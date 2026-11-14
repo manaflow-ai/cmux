@@ -217,11 +217,12 @@ async fn at_start<D: Future<Output = Option<MeshRelayConfig>> + Send + 'static>(
         drop(join);
         return None;
     }
+    let owner = Arc::clone(hub);
     let hub = Arc::clone(hub);
-    // task-owner: one leave and maybe the relay start, holding the join transition; kept on
-    // `Hub::join_start`, and ended by shutdown. The leave waits at most for the join lock and
-    // the hub's bounded answer.
-    Some(tokio::spawn(async move {
+    // Owned by the hub's scope; its handle is also kept on `Hub::join_start`, which shutdown
+    // aborts and joins first. The leave waits at most for the join lock and the hub's bounded
+    // answer.
+    Some(owner.scope.spawn_named("join-at-start", async move {
         let _join = join;
         match finish.await {
             Some(outcome) if !crate::cli::cloud_join::relay_may_start(&outcome) => {
