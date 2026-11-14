@@ -191,6 +191,13 @@ OWNED_HEALTH_QUEUE_SECONDS = 3 * 60
 # How old a snapshot may be and still hold a Blacksmith label for the freshness work it shows queued there
 # (reserved_from()): pr_runner_pool.MAX_SNAPSHOT_MINUTES, the oldest artifact the read fetches at all.
 RESERVED_SNAPSHOT_MINUTES = 45
+# The off switch for Blacksmith macOS (Leo, 2026-11-11: "just stop using blacksmith temporarily"). Only the
+# repository variable CMUX_BLACKSMITH_MACOS set to `on` lets a job of this cascade take a Blacksmith macOS label,
+# as HQ's HQ_BLACKSMITH_MACOS does (cmuxterm-hq docs/handbook/label-no-pool-lists.md). Unset, every label in
+# LABELS is unavailable (place()) and the GUI jobs take no Blacksmith overflow (side_lane_placement.gui_overflow()),
+# so a job stays on its owned label. On 2026-11-14 cmux#42922's daemon tests (run 43590543702, job 132454414807)
+# sat queued on blacksmith-6vcpu-macos-26 with 0 of its 39 runners online.
+BLACKSMITH_SWITCH = "CMUX_BLACKSMITH_MACOS"
 SCALE_SET_GROUP = "Blacksmith scale sets - {label}"
 API = "https://api.github.com"
 # A refused read is logged with its detail and raised, never retried here: the reads share
@@ -238,6 +245,16 @@ def vcpus(label: str) -> int:
 def pool_label(label: str) -> bool:
     """A Blacksmith macOS label: it draws on the organization's one macOS pool."""
     return label.startswith("blacksmith-") and "-macos-" in label and vcpus(label) > 0
+
+
+def blacksmith_on(env: Mapping[str, str]) -> bool:
+    """Whether the repository lets a job take a Blacksmith macOS label (BLACKSMITH_SWITCH is `on`)."""
+    return (env.get(BLACKSMITH_SWITCH) or "").strip() == "on"
+
+
+def blacksmith_off_why(env: Mapping[str, str]) -> str:
+    """Why no job takes a Blacksmith macOS label (the switch is off), or ""."""
+    return "" if blacksmith_on(env) else f"Blacksmith macOS is off (vars.{BLACKSMITH_SWITCH} is not `on`)"
 
 
 def label_full_or_dead(label: str, snapshot: Mapping[str, Any] | None,
@@ -858,10 +875,28 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     `route_wait`: how long the owned route the jobs would stay on has started nothing (dead_end()).
     """
     empty = {label: () for label in LABELS}
-    unavailable = tuple(label for label in LABELS if seen is not None and label_full_or_dead(
-        label, seen.snapshot, live=(live or {}).get(label, 0), queued=(waiting or {}).get(label, 0), now=seen.observed_at))
+    # With Blacksmith macOS off (blacksmith_on()) every label is unavailable: no slot, no overflow, no retry label,
+    # and a feed's compile counts each full (fresh_stall), so every job stays on its owned label.
+    off = () if blacksmith_on(env) else LABELS
+    unavailable = tuple(dict.fromkeys((*off, *(label for label in LABELS if seen is not None and label_full_or_dead(
+        label, seen.snapshot, live=(live or {}).get(label, 0), queued=(waiting or {}).get(label, 0),
+        now=seen.observed_at)))))
     if skipped(env):
         return Placement(empty, "", skipped(env))
+    if off:
+        placement = _place(env, owned, live, waiting, seen, promote_busy, saturated, route_wait, unavailable)
+        return dataclasses.replace(placement, retry_runner="", retry_jobs=(),
+                                   fresh_stall=tuple(dict.fromkeys((*off, *placement.fresh_stall))),
+                                   why=f"{blacksmith_off_why(env)}, so every job stays on its owned label. "
+                                       f"{placement.why}")
+    return _place(env, owned, live, waiting, seen, promote_busy, saturated, route_wait, unavailable)
+
+
+def _place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] | None,
+           waiting: Mapping[str, int] | None, seen: Seen | None, promote_busy: bool, saturated: bool,
+           route_wait: float | None, unavailable: Sequence[str]) -> Placement:
+    """place() past its switch and skip checks, with `unavailable` the labels no job takes."""
+    empty = {label: () for label in LABELS}
     if live is None or waiting is None:
         why = ("Blacksmith's runner groups could not be read" if live is None else
                f"no pool snapshot under {QUEUE_SNAPSHOT_MINUTES} min old to count Blacksmith's queue")
@@ -922,7 +957,7 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     requested_fleet = set((env.get("FLEET_CLIENT_JOBS") or "").split())
     route_labels = tuple(label for label in (*LABELS, (env.get("SIDE_LABEL") or "").strip()) if label)
     all_routes_blocked = bool(requested_fleet) and seen is not None and bool(route_labels) and all(
-        label_full_or_dead(label, seen.snapshot, live=live.get(label, 0), queued=waiting.get(label, 0),
+        label in unavailable or label_full_or_dead(label, seen.snapshot, live=live.get(label, 0), queued=waiting.get(label, 0),
                            now=seen.observed_at)
         for label in route_labels)
     # A job with a build-fleet client that a Blacksmith macOS label took is listed too: the fleet builds it

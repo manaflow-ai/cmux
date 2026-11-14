@@ -104,7 +104,9 @@ def runner(name: str, *, busy: bool = False, status: str = "online", labels=(STD
 
 
 def env(**overrides: str) -> dict:
-    return {"SIDE_LABEL": SIDE, "JOBS": " ".join(JOBS), "GITHUB_RUN_ATTEMPT": "1", **overrides}
+    # Blacksmith macOS on: these tests model its overflow (test_ci_next_macos_cascade.BlacksmithMacosOffSwitch: off).
+    return {"SIDE_LABEL": SIDE, "JOBS": " ".join(JOBS), "GITHUB_RUN_ATTEMPT": "1", "CMUX_BLACKSMITH_MACOS": "on",
+            **overrides}
 
 
 # The rescue's re-runs come from GITHUB_TOKEN's actor or the cmux-bot App (pr_runner_pool.RESCUE_ACTORS).

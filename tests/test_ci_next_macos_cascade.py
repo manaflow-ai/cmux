@@ -68,7 +68,8 @@ placement = load("side_lane_placement")
 
 
 def env(**overrides: str) -> dict:
-    return {"SIDE_LABEL": SIDE, "JOBS": ALL_JOBS, "GITHUB_RUN_ATTEMPT": "1",
+    # Blacksmith macOS on: these tests model the cascade; BlacksmithMacosOffSwitch tests it off.
+    return {"SIDE_LABEL": SIDE, "JOBS": ALL_JOBS, "GITHUB_RUN_ATTEMPT": "1", "CMUX_BLACKSMITH_MACOS": "on",
             "CASCADE_RUNS": " fast-tier swift-canary cmux-scheme-compile ", **overrides}
 
 
@@ -2461,6 +2462,84 @@ class SharedRunnerStateCascadeTests(unittest.TestCase):
             counts = cascade.Api("synthetic-token", "manaflow-ai/cmux").in_flight()
         self.assertEqual(counts, {LARGE: 3, SMALL: 3, MACOS_15: 3})
         self.assertEqual(live.call_count, 4)
+
+
+class BlacksmithMacosOffSwitch(unittest.TestCase):
+    """Blacksmith macOS is off unless vars.CMUX_BLACKSMITH_MACOS is `on` (docs/ci/cmux-next-workflow-notes.md#note-350).
+
+    2026-11-14: cmux#42922's daemon tests (run 43590543702, job 132454414807) sat queued on blacksmith-6vcpu-macos-26
+    with 0 of its 39 runners online; the rescue's attempt 3 carried attempt 1's placement, so runs-on fell through to
+    fromJSON(vars.RUNNER_POOLS).macos_26.
+    """
+
+    # A fork's pull request keeps its Blacksmith literal: it gets no repository variables and never runs on an owned Mac.
+    FORK = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository"
+            " && 'blacksmith-6vcpu-macos-26'")
+    BLACKSMITH_MACOS = re.compile(r"blacksmith-\d+vcpu-macos-")
+
+    def blacksmith_labels(self, expression: str, switch: tuple[str, ...]) -> set[str]:
+        from runs_on_labels import resolve_labels  # noqa: PLC0415 - the over-approximating label resolver
+        labels = resolve_labels(expression.replace(self.FORK, "false"), variables={"CMUX_BLACKSMITH_MACOS": switch})
+        return {label for label in labels if isinstance(label, str) and self.BLACKSMITH_MACOS.match(label)}
+
+    def routes(self) -> dict[str, str]:
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        out = {}
+        for name, job in jobs.items():
+            for index, cell in enumerate(workflow_jobs.resolve(job).runs_on_cells or ()):
+                out[f"{name}: runs-on[{index}]"] = cell
+            runner = (job.get("env") or {}).get("CMUX_NEXT_RUNNER")
+            if runner:
+                out[f"{name}: CMUX_NEXT_RUNNER"] = runner
+        place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
+        out["macos-placement: GUI_LAST_RESORT"] = place["env"]["GUI_LAST_RESORT"]
+        return out
+
+    def test_every_blacksmith_macos_job_is_behind_the_off_switch(self):
+        routes = self.routes()
+        offenders = {where: sorted(found) for where, expression in routes.items()
+                     if (found := self.blacksmith_labels(expression, ()))}
+        self.assertEqual(offenders, {}, "with vars.CMUX_BLACKSMITH_MACOS unset these routes can still name a "
+                         "Blacksmith macOS label: wrap the read as (vars.CMUX_BLACKSMITH_MACOS == 'on' && <read> || "
+                         "'<owned label>') (docs/ci/cmux-next-workflow-notes.md#note-350)")
+        # The switch resumes Blacksmith with no code change: `on` reaches it again where it did before.
+        for where in ("daemon-test: runs-on[0]", "swift-test: runs-on[0]", "fast-tier: runs-on[0]",
+                      "release-compile: runs-on[0]", "macos-placement: GUI_LAST_RESORT"):
+            with self.subTest(where=where):
+                self.assertTrue(self.blacksmith_labels(routes[where], ("on",)), where)
+
+    def test_the_incident_rerun_takes_the_owned_label(self):
+        """Run 43590543702's attempt 3: a bot re-run with attempt 1's placement carried, CI_PR_POOL_OWNED on."""
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        for switch, expected in (("", GUI), ("on", SMALL)):
+            context = github_context("pull_request", CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=SIDE,
+                                     CMUX_BLACKSMITH_MACOS=switch)
+            context["github"].update(run_attempt="3", triggering_actor="cmux-bot[bot]", repository="manaflow-ai/cmux",
+                                     event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
+            context["needs"] = {"macos-placement": {"outputs": {"placed_attempt": "1"}}}
+            with self.subTest(switch=switch):
+                self.assertEqual(evaluate(runs_on_of(jobs["daemon-test"]), context), expected)
+
+    def test_the_placement_takes_no_blacksmith_label_while_off(self):
+        live, waiting = {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0}
+        off = cascade.place(env(CMUX_BLACKSMITH_MACOS=""), (), live, waiting, saturated=True)
+        self.assertEqual({label: jobs for label, jobs in off.jobs.items() if jobs}, {})
+        self.assertEqual((off.retry_runner, off.retry_jobs), ("", ()))
+        self.assertTrue(set(cascade.LABELS) <= set(off.fresh_stall))
+        self.assertIn("Blacksmith macOS is off", off.why)
+        on = cascade.place(env(CMUX_BLACKSMITH_MACOS="on"), (), live, waiting, saturated=True)
+        self.assertTrue(any(on.jobs.values()))
+        self.assertEqual(placement.gui_overflow(env(CMUX_BLACKSMITH_MACOS=""), live, waiting, None), "")
+        self.assertEqual(placement.gui_overflow(env(CMUX_BLACKSMITH_MACOS="on"), live, waiting, None), SMALL)
+
+    def test_the_read_deadline_route_is_owned_while_off(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "output"
+            placement._timeout_fallback(env(CMUX_BLACKSMITH_MACOS="", GITHUB_OUTPUT=str(out)))
+            written = dict(line.split("=", 1) for line in out.read_text().splitlines())
+        self.assertEqual(written["runner"], SIDE)
+        self.assertFalse([key for key, value in written.items()
+                          if key != "fresh_stalled" and self.BLACKSMITH_MACOS.search(value)], written)
 
 if __name__ == "__main__":
     unittest.main()
