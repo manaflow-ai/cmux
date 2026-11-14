@@ -217,3 +217,216 @@ fn the_rest_answer_in_the_shapes_the_app_reads() {
     assert_eq!(legacy["lastLine"], "started");
     assert_eq!(legacy["answer"]["errorCode"], "machine_update_failed");
 }
+
+/// Move to… an SSH machine: one added in the sidebar (Add Machine) and one only acpmux knows
+/// (`cmux setup machine`), each listed once with its label; a machine that is down takes no chat.
+fn ssh_machines() -> Value {
+    json!([
+        {"id": "ssh-box", "title": "Box", "online": true, "names": ["box.example", "box"]},
+        {"id": "peer:box", "title": "box", "online": true, "names": ["box"]},
+        {"id": "peer:mini", "title": "mini", "online": true, "names": ["mini"]},
+        {"id": "ssh-off", "title": "Off", "online": false, "names": ["off"]}
+    ])
+}
+
+fn rows(body: &Value) -> Vec<(String, String, String, String)> {
+    let text = |row: &Value, key: &str| row[key].as_str().unwrap_or_default().to_owned();
+    body["targets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| (text(row, "id"), text(row, "label"), text(row, "kind"), text(row, "action")))
+        .collect()
+}
+
+fn row(id: &str, label: &str, kind: &str, action: &str) -> (String, String, String, String) {
+    (id.into(), label.into(), kind.into(), action.into())
+}
+
+const SSH_MOVE: &str = "agent.moveToMachine";
+
+#[test]
+fn a_chat_here_lists_each_ssh_machine_once_with_its_label() {
+    // Signed out of Cloud: the SSH machines still list, and no Cloud machine does.
+    let body = ok(
+        c"cloud_move_targets",
+        json!({"offered": false, "started": true, "session": "chat-1", "ssh": ssh_machines()}),
+    );
+    assert_eq!(
+        rows(&body),
+        [row("ssh-box", "Box", "ssh", SSH_MOVE), row("peer:mini", "mini", "ssh", SSH_MOVE)]
+    );
+    // Signed in: the Cloud machines first, each with its own move.
+    let body = ok(
+        c"cloud_move_targets",
+        json!({"offered": true, "started": true, "machines": [{"id": "vm", "title": "VM", "status": "running"}],
+               "ssh": ssh_machines()}),
+    );
+    assert_eq!(
+        rows(&body),
+        [
+            row("vm", "VM", "cloud", "cloudMove"),
+            row("ssh-box", "Box", "ssh", SSH_MOVE),
+            row("peer:mini", "mini", "ssh", SSH_MOVE)
+        ]
+    );
+    // An unstarted chat moves nowhere.
+    let body = ok(
+        c"cloud_move_targets",
+        json!({"offered": true, "started": false, "ssh": ssh_machines()}),
+    );
+    assert_eq!(rows(&body), []);
+}
+
+#[test]
+fn a_chat_on_an_ssh_machine_offers_this_mac_and_the_other_machines() {
+    // Its tab on that machine's own daemon.
+    let body = ok(
+        c"cloud_move_targets",
+        json!({"started": true, "elsewhere": true, "onSsh": "ssh-box", "session": "chat-1", "ssh": ssh_machines()}),
+    );
+    assert_eq!(
+        rows(&body),
+        [row("local", "", "local", SSH_MOVE), row("peer:mini", "mini", "ssh", SSH_MOVE)]
+    );
+    // Its tab here, reaching the chat through this Mac's acpmux as `PEER/ID`.
+    let body = ok(
+        c"cloud_move_targets",
+        json!({"started": true, "session": "box/chat-1", "ssh": ssh_machines()}),
+    );
+    assert_eq!(
+        rows(&body),
+        [row("local", "", "local", SSH_MOVE), row("peer:mini", "mini", "ssh", SSH_MOVE)]
+    );
+}
+
+#[test]
+fn a_cloud_chat_lists_no_ssh_machine() {
+    let chat = json!({"offered": true, "started": true, "running": "vm", "elsewhere": true, "movedHere": true, "backHome": true,
+                      "machines": [{"id": "vm", "title": "VM", "status": "running"}, {"id": "vm2", "title": "VM 2", "status": "running"}],
+                      "ssh": ssh_machines()});
+    assert_eq!(
+        rows(&ok(c"cloud_move_targets", chat.clone())),
+        [
+            row("local", "", "local", "cloudBringBack"),
+            row("vm2", "VM 2", "cloud", "cloudMoveToMachine")
+        ]
+    );
+    // One no move from here put there has no folder to take yet.
+    let mut unmoved = chat;
+    unmoved["movedHere"] = json!(false);
+    assert_eq!(rows(&ok(c"cloud_move_targets", unmoved)), []);
+}
+
+#[test]
+fn a_move_to_an_ssh_machine_and_back_is_acpmuxs_session_move() {
+    let peers = json!([{"name": "box", "url": "ssh://me@box.example"}, {"name": "mini", "url": "ssh://mini"}]);
+    let call = |chat: Value, target: &str| {
+        ok(c"cloud_move_ssh_move", json!({"chat": chat, "target": target, "peers": peers}))
+    };
+    // There: this Mac's chat to the machine's peer; the tab then names it `PEER/ID`.
+    let there =
+        call(json!({"started": true, "session": "chat-1", "ssh": ssh_machines()}), "ssh-box");
+    assert_eq!(
+        there["call"]["args"],
+        json!(["--json", "session", "move", "chat-1", "--machine", "box"])
+    );
+    assert_eq!(there["call"]["moved"], "box/chat-1");
+    // Back: from that peer to this Mac, by its id there.
+    let back =
+        call(json!({"started": true, "session": "box/chat-1", "ssh": ssh_machines()}), "local");
+    assert_eq!(
+        back["call"]["args"],
+        json!(["--json", "session", "move", "chat-1", "--machine", "local", "--from", "box"])
+    );
+    assert_eq!(back["call"]["moved"], "chat-1");
+    // A tab on the machine's own daemon: its peer is found by its ssh host.
+    let peers_by_url = json!([{"name": "box-peer", "url": "ssh://me@box.example:22"}]);
+    let back = ok(
+        c"cloud_move_ssh_move",
+        json!({"chat": {"started": true, "elsewhere": true, "onSsh": "ssh-box", "session": "chat-1",
+                        "ssh": [{"id": "ssh-box", "title": "Box", "online": true, "names": ["box.example"]}]},
+               "target": "local", "peers": peers_by_url}),
+    );
+    assert_eq!(
+        back["call"]["args"],
+        json!(["--json", "session", "move", "chat-1", "--machine", "local", "--from", "box-peer"])
+    );
+    // Machine to machine: from one peer to the other.
+    let across =
+        call(json!({"started": true, "session": "box/chat-1", "ssh": ssh_machines()}), "peer:mini");
+    assert_eq!(
+        across["call"]["args"],
+        json!(["--json", "session", "move", "chat-1", "--machine", "mini", "--from", "box"])
+    );
+    assert_eq!(across["call"]["moved"], "mini/chat-1");
+    // A target the list does not offer, or a machine acpmux does not know, runs nothing.
+    let refused =
+        call(json!({"started": true, "session": "chat-1", "ssh": ssh_machines()}), "ssh-off");
+    assert_eq!(
+        (refused["refusal"].as_str(), refused["call"].is_null()),
+        (Some("not_offered"), true),
+        "{refused}"
+    );
+    let unknown = ok(
+        c"cloud_move_ssh_move",
+        json!({"chat": {"started": true, "session": "chat-1", "ssh": ssh_machines()}, "target": "ssh-box", "peers": []}),
+    );
+    assert_eq!(unknown["refusal"], "unknown_peer");
+}
+
+#[test]
+fn a_session_moves_answer_says_whether_it_moved() {
+    let read = |stdout: &str, stderr: &str, status: i32| {
+        ok(
+            c"cloud_move_ssh_move_outcome",
+            json!({"stdout": stdout, "stderr": stderr, "status": status}),
+        )
+    };
+    // acpmux prints its `--json` answer pretty, over many lines (`cli/output.rs` `print_json`).
+    let pretty = |answer: Value| serde_json::to_string_pretty(&answer).unwrap() + "\n";
+    let moved = read(
+        &pretty(
+            json!({"moves": [{"sessionId": "chat-1", "moved": true, "error": null}], "failed": 0}),
+        ),
+        "",
+        0,
+    );
+    assert_eq!(moved["moved"], true, "{moved}");
+    let refused = read(
+        &pretty(
+            json!({"moves": [{"sessionId": "chat-1", "moved": false, "error": "its turn is running"}], "failed": 1}),
+        ),
+        "Error: 1 of 1 chats did not move",
+        1,
+    );
+    assert_eq!(
+        (refused["moved"].as_bool(), refused["error"].as_str()),
+        (Some(false), Some("its turn is running"))
+    );
+    let failed = read("", "ssh: connect\nError: box is not a peer of this machine\n", 1);
+    assert_eq!(failed["error"], "box is not a peer of this machine");
+    // `--json`'s error envelope on stderr reads as its message.
+    let envelope = read("", r#"{"error":{"code":"not_found","message":"no chat chat-1 here"}}"#, 1);
+    assert_eq!(envelope["error"], "no chat chat-1 here");
+    // Nothing said: the app words it.
+    assert_eq!(read("", "", 1)["error"], "");
+}
+
+#[test]
+fn an_ssh_machine_is_up_when_its_sidebar_link_or_its_peer_is() {
+    let body = ok(
+        c"cloud_move_targets",
+        json!({"started": true, "ssh": [
+            {"id": "ssh-box", "title": "Box", "online": false, "names": ["box"]},
+            {"id": "peer:box", "title": "box", "online": true, "names": ["box"]}
+        ]}),
+    );
+    assert_eq!(rows(&body), [row("ssh-box", "Box", "ssh", SSH_MOVE)]);
+    // A Cloud chat whose machine is not listed yet gets no SSH rows from a peer route.
+    let body = ok(
+        c"cloud_move_targets",
+        json!({"started": true, "elsewhere": true, "peer": "box", "session": "chat-1", "ssh": ssh_machines()}),
+    );
+    assert_eq!(rows(&body), []);
+}
