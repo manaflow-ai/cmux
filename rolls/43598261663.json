@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43598261663",
+  "recorded_at": "2026-11-14T13:17:01Z",
+  "reason": "cmux-tui 235ec42101ba changes the image's cmux-tui (pinned fa35e366a1b2)",
+  "dry_run": false,
+  "cmux_tui": "235ec42101bacfb59cfc707bfd70148d8d279365",
+  "fixes": [
+    {
+      "sha": "235ec42101bacfb59cfc707bfd70148d8d279365",
+      "mergedAt": "2026-11-14T04:48:37-08:00",
+      "subject": "acpmux: a machine joined before the hub recorded capabilities states them itself at daemon start (#38440)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T13:17:01Z",
+    "snapshot_id": "sh-2a094c0177354b578f7fb1ce10f252a5",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43598261663): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b74f460330cba37c7d583c2e19858c29ef521586",
+    "image": "cloud-native-auto-235ec421-43598261663-1",
+    "revision": "ci-43598261663-1",
+    "at": "2026-11-14T13:17:01Z"
+  },
+  "rolled_back": false
+}
