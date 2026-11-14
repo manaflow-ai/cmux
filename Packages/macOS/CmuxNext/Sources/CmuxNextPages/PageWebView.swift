@@ -455,10 +455,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         router.contextMenu = { [weak self] params in await self?.contextMenu(params) ?? .object(["picked": .null]) }
         router.userGestureEvent = { [weak self] in self?.recentUserGestureEvent() }
         healthFeed = chromium?.healthFeed
-        router.heartbeat = { [weak self] handled, edits in
-            guard let self else { return }
+        router.heartbeat = { [weak self] handled, edits, rest in
+            guard let self else { return true }
             reportsUnsavedEdits = edits
-            healthFeed?.pageBeat(self, handled: handled)
+            healthFeed?.pageBeat(self, handled: handled, resting: rest)
+            return healthFeed?.takesRestBeats ?? true
         }
         #if DEBUG || CMUX_BENCH_HOOKS
         // Automation launches (no activation, a GUI host whose windows macOS reports occluded):

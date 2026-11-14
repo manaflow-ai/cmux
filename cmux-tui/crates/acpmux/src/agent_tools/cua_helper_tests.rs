@@ -65,6 +65,7 @@ impl Fixture {
             displays: None,
             hosted: false,
             github: false,
+            desktop_lease: None,
         }
     }
 

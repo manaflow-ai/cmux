@@ -152,7 +152,7 @@ import Testing
                 row.needsLayout = true
                 row.layoutSubtreeIfNeeded()
                 #expect(name.frame == nameAtRest, "showing + must not move or narrow the machine name")
-                #expect(row.addButton.isHidden == !hovered)
+                #expect(!row.addButton.isHidden, "Add remains visible beside the screen action at rest")
                 for frame in [row.screenButtonFrame, row.chevronFrame, row.addButton.frame] {
                     #expect(!name.frame.intersects(frame))
                     #expect(name.frame.maxX <= frame.minX)

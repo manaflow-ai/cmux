@@ -6,9 +6,22 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 
+mod enroll;
 pub(crate) mod host_fingerprint;
 mod leave;
 mod recovery;
+mod self_capabilities;
+mod to_revoke;
+
+pub(crate) use enroll::{
+    EnrollOutcome, EnrollRequest, JOINED_BY_SIGN_IN, LeaveOutcome, enroll_self,
+    finish_leave_at_start, leave_if_auto, leave_pending, record_leave_intent, relay_may_start,
+};
+pub(crate) use self_capabilities::{
+    state_after_leave as state_capabilities_after_leave,
+    state_at_start as state_capabilities_at_start,
+    state_on_reconnect as state_capabilities_on_reconnect,
+};
 
 pub const CAPABILITY: &str = "machine.join.stdin.v1";
 /// The hub a join with no `--hub` uses: cmux-platform's production origin
@@ -58,12 +71,56 @@ pub struct MachineCredential {
     /// this box its own.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cloned: bool,
+    /// What joined this machine: `sign-in` when signing in enrolled it (`enroll.rs`), so signing
+    /// out removes only that join. None for a pair code or a pasted join line: those stay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub joined_by: Option<String>,
+    /// What this machine told the hub it can do at its redeem, or what the hub recorded when it
+    /// stated it later ([`machine_capabilities`]). None: joined before the hub took the list
+    /// (cmux-platform#1015), so it states it with its own credential (`self_capabilities.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<Vec<String>>,
     /// The box that found this record copied and gave itself a fresh node key (its
     /// `host_fingerprint`). A `cloned` record on any other box is a copy of that copy, its node
     /// key the settling box's: found and settled again. None on a record settled before it
     /// existed: the next start on the box it runs on takes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cloned_on: Option<String>,
+}
+
+/// The capability that says this machine's acpmux runs the vault's egress proxy: the hub then
+/// gives it proxy entries' values (`GET /v1/vault/machine`), never otherwise.
+pub(crate) const VAULT_PROXY_CAPABILITY: &str = "vault.proxy.v1";
+
+/// Whether this acpmux runs the vault's egress proxy. Every build carries it (`vault::egress`,
+/// started on the first spawn that has a proxy entry, for the daemon's life), with no switch
+/// that turns it off, so this is decided by the build: true.
+const RUNS_EGRESS_PROXY: bool = true;
+
+/// The list a redeem or a rotate sends, always (an empty list too: the hub reads a missing one
+/// as a machine joined before it took the list).
+fn capabilities_for(egress_proxy: bool) -> Vec<String> {
+    if egress_proxy { vec![VAULT_PROXY_CAPABILITY.to_owned()] } else { Vec::new() }
+}
+
+/// This acpmux's list ([`capabilities_for`] with [`RUNS_EGRESS_PROXY`]).
+fn machine_capabilities() -> Vec<String> {
+    capabilities_for(RUNS_EGRESS_PROXY)
+}
+
+/// Where a join says what it did: printed for a person (`Text`), as JSON, or nowhere
+/// (`Quiet`, the daemon's sign-in enroll, which answers its caller instead).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Report {
+    Text,
+    Json,
+    Quiet,
+}
+
+impl Report {
+    fn from_json(json_out: bool) -> Self {
+        if json_out { Self::Json } else { Self::Text }
+    }
 }
 
 /// A hub-supplied id the store keeps: non-empty, one line, and no secret-shaped text.
@@ -466,8 +523,38 @@ pub(crate) fn settle_clone_at(home: &std::path::Path, current: Option<&str>) -> 
     }
 }
 
-fn configure_mesh_relay(hub: &str) -> Result<()> {
-    let mut config = crate::config::Config::load()?;
+/// Whether `relay` is the one a join to `hub` writes ([`configure_mesh_relay_at`]): the join's
+/// credential, no `tokenCommand`, and `hub`'s origin. The one rule both sides use: a sign-in's
+/// join leaves any other relay as it is ([`own_relay_at`]), and a leave (`leave::remove_local`)
+/// removes only this one, so a relay the person set up survives a sign-out.
+fn join_relay_for(relay: &crate::mesh_http::MeshRelayConfig, hub: &str) -> bool {
+    let Ok(hub) = origin(Some(hub.to_owned())) else { return false };
+    relay.credential.as_deref() == Some("join")
+        && relay.token_command.is_empty()
+        && origin(Some(relay.url.clone())).ok().as_deref() == Some(hub.as_str())
+}
+
+/// Whether config.json at `config_path` holds a `meshRelay` no join to `hub` wrote: one the
+/// person set up (a `tokenCommand`, a credential of its own) or a join's for another hub. A
+/// sign-in's join never replaces it (`enroll.rs`, `recovery::complete`), so the join's relay is
+/// only ever one the sign-in wrote, and a sign-out (`leave::remove_local`) removes only that.
+fn own_relay_at(config_path: &std::path::Path, hub: &str) -> Result<bool> {
+    let config = crate::config::Config::load_from(config_path)?;
+    Ok(config.mesh_relay.as_ref().is_some_and(|relay| !join_relay_for(relay, hub)))
+}
+
+/// Writes the join's `meshRelay` for a join to `hub` just committed: a sign-in's join
+/// (`sign_in`) leaves a relay the person set up as it is ([`own_relay_at`]); the record stays
+/// joined, and its sign-out never touches that relay. A join the person ran writes it, as always.
+fn relay_for_join_at(config_path: &std::path::Path, hub: &str, sign_in: bool) -> Result<()> {
+    if sign_in && own_relay_at(config_path, hub)? {
+        return Ok(());
+    }
+    configure_mesh_relay_at(config_path, hub)
+}
+
+fn configure_mesh_relay_at(config_path: &std::path::Path, hub: &str) -> Result<()> {
+    let mut config = crate::config::Config::load_from(config_path)?;
     let previous = config.mesh_relay.take();
     // The owner's own choice of team messaging stays across a rejoin or a repair.
     let team_messaging = previous.as_ref().is_none_or(|relay| relay.team_messaging);
@@ -646,6 +733,11 @@ pub(crate) fn join_lock() -> Result<HeldLock> {
 }
 
 #[cfg(not(unix))]
+fn join_lock_at(_: &std::path::Path) -> Result<HeldLock> {
+    anyhow::bail!("machine join requires macOS or Linux")
+}
+
+#[cfg(not(unix))]
 fn join_lock_in(_: &std::path::Path) -> Result<HeldLock> {
     join_lock()
 }
@@ -671,7 +763,7 @@ pub(crate) fn credential_present() -> Result<bool> {
         .map_err(|_| store_error().into())
 }
 
-pub(crate) fn already_joined(replace: bool, json_out: bool) -> Result<bool> {
+pub(crate) fn already_joined(replace: bool, report: Report) -> Result<bool> {
     let Some(record) = load().map_err(|_| store_error())? else { return Ok(false) };
     // A copy of another box's join is no join of this one: the new join line makes one.
     if replace
@@ -682,16 +774,24 @@ pub(crate) fn already_joined(replace: bool, json_out: bool) -> Result<bool> {
     }
     // No released build created pre-marker credentials. Even branch-only local
     // state must persist the shared requirement before idempotent success.
-    authority().and_then(|authority| authority.enroll()).map_err(|_| store_error())?;
-    // Repair a previous config-save failure before reporting idempotent success.
-    configure_mesh_relay(&record.hub_origin).map_err(|_| store_error())?;
-    warn_existing_helpers();
-    if json_out {
-        crate::cli::output::print_json(
-            &json!({"joined":false,"alreadyJoined":true,"machineId":record.machine_id,"teamId":record.team_id,"name":record.name,"hubOrigin":record.hub_origin}),
-        );
-    } else {
-        println!("already joined ({})", record.machine_id);
+    let sign_in = record.joined_by.as_deref() == Some(JOINED_BY_SIGN_IN);
+    authority().and_then(|authority| authority.enroll_as(sign_in)).map_err(|_| store_error())?;
+    // Repair a previous config-save failure before reporting idempotent success. A sign-in's
+    // join leaves a relay the person set up as it is.
+    relay_for_join_at(&crate::config::Config::path(), &record.hub_origin, sign_in)
+        .map_err(|_| store_error())?;
+    match report {
+        Report::Quiet => {}
+        Report::Json => {
+            warn_existing_helpers();
+            crate::cli::output::print_json(
+                &json!({"joined":false,"alreadyJoined":true,"machineId":record.machine_id,"teamId":record.team_id,"name":record.name,"hubOrigin":record.hub_origin}),
+            );
+        }
+        Report::Text => {
+            warn_existing_helpers();
+            println!("already joined ({})", record.machine_id);
+        }
     }
     Ok(true)
 }
@@ -718,7 +818,7 @@ pub async fn join_with_token(
     json_out: bool,
     token: Option<String>,
 ) -> Result<()> {
-    recovery::join(hub, name, replace, json_out, token).await
+    recovery::join(hub, name, replace, Report::from_json(json_out), token, None).await
 }
 
 /// `acpmux machine leave` (`cloud_join/leave.rs`).
@@ -854,6 +954,15 @@ pub(crate) fn consent_status() -> Value {
     )
 }
 
+/// `_acpmux/machine_consent_get`'s answer. With `{"use": "localComputerUse"}` (the app asking
+/// for its Computer Use helper, which serves only this Mac's own sessions), a requirement only
+/// sign-in joins made gates nothing ([`machine_consent::Authority::status_for`]); every other
+/// caller gets the requirement as it is.
+pub(crate) fn consent_status_for(params: &Value) -> Value {
+    let local = params.get("use").and_then(Value::as_str) == Some("localComputerUse");
+    authority().map(|authority| authority.status_for(local)).unwrap_or_else(|_| consent_status())
+}
+
 pub fn require_consent(surface: &str) -> Result<()> {
     let status = consent_status();
     if matches!(surface, "screen" | "control") && status["consent"][surface] == "granted" {
@@ -862,6 +971,12 @@ pub fn require_consent(surface: &str) -> Result<()> {
         let _ = record_consent_refusal(surface);
         Err(anyhow!(CONSENT_REQUIRED))
     }
+}
+
+/// Whether the Mac's own sessions keep computer use with no consent: the requirement comes only
+/// from joins signing in made ([`machine_consent::Authority::required_only_by_sign_in`]).
+pub(crate) fn local_computer_use_kept() -> bool {
+    authority().is_ok_and(|authority| authority.required_only_by_sign_in())
 }
 
 pub fn require_joined_consent(surface: &str) -> Result<()> {
@@ -979,7 +1094,7 @@ mod tests {
         assert!(!serves_copied_key(home.path()));
         assert!(super::copied_at(home.path(), Some("box-b")));
         assert!(serves_copied_key(home.path()), "the found copy was not recorded");
-        let removed = super::leave::remove_local(home.path()).unwrap();
+        let removed = super::leave::remove_local(home.path(), false).unwrap();
         assert!(removed.contains(&"credential") && !removed.contains(&"nodeKey"), "{removed:?}");
         assert!(super::copied_at(home.path(), Some("box-b")), "the leave erased the evidence");
         assert!(super::copied_at(home.path(), None));
@@ -1425,6 +1540,8 @@ mod tests {
             user_id: None,
             host_fingerprint: None,
             cloned: false,
+            joined_by: None,
+            capabilities: None,
             cloned_on: None,
         };
         let identity = MachineIdentity::from_record(&record);

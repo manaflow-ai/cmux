@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "16cb02092fa56e98d5de05559e5eec715e443056604ff5e920a920e53c5a148a";
+inline constexpr std::string_view kProtocolIrSha256 = "f0e17f0a977e580be1c5f94c39d35c6426f0a32242c0da5a3f73912827061df9";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -115,6 +115,7 @@ struct LayoutUndoResult;
 struct LayoutUndoUndone;
 struct ListAgentsResult;
 struct ListTerminalsResult;
+struct ListWorkspacesKnown;
 struct LivePane;
 struct MachineListeningTcpResult;
 struct MachinePlatform;
@@ -3735,7 +3736,19 @@ struct ListWorkspaceGroupsRequest {
     friend bool operator==(const ListWorkspaceGroupsRequest&, const ListWorkspaceGroupsRequest&) = default;
 };
 
+struct ListWorkspacesKnown {
+    Field<std::string> generation{};
+    Field<std::uint64_t> pane_revision{};
+    Field<std::string> registry_id{};
+    Field<std::uint64_t> terminal_revision{};
+    Field<std::string> tree_revision{};
+    Field<std::uint64_t> workspace_revision{};
+    friend bool operator==(const ListWorkspacesKnown&, const ListWorkspacesKnown&) = default;
+};
+
 struct ListWorkspacesRequest {
+    Field<ListWorkspacesKnown> known{};
+    Field<std::uint64_t> limit{};
     friend bool operator==(const ListWorkspacesRequest&, const ListWorkspacesRequest&) = default;
 };
 
@@ -6222,6 +6235,9 @@ struct Tree {
     std::optional<std::uint64_t> pane_revision{};
     std::optional<std::string> registry_id{};
     std::optional<std::uint64_t> terminal_revision{};
+    std::optional<std::uint64_t> total{};
+    std::optional<std::string> tree_revision{};
+    std::optional<bool> unchanged{};
     std::optional<std::uint64_t> workspace_revision{};
     std::vector<Workspace> workspaces{};
     friend bool operator==(const Tree&, const Tree&) = default;
@@ -7142,6 +7158,12 @@ template <>
 struct Codec<ListTerminalsResult> {
     static Result<Json> encode(const ListTerminalsResult& value);
     static Result<ListTerminalsResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ListWorkspacesKnown> {
+    static Result<Json> encode(const ListWorkspacesKnown& value);
+    static Result<ListWorkspacesKnown> decode(const Json& value);
 };
 
 template <>

@@ -142,6 +142,18 @@ struct MacScreenDeviceRecordTests {
         pages.tabClosed("view")
         pages.hub = nil
     }
+
+    @MainActor
+    @Test func explicitDeviceRecordNormalizesUUIDAndCarriesRequestedScope() throws {
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-record-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let record = pages.record(forDevice: hostID.uppercased(), requesting: .view)
+
+        #expect(record == MacScreenRecord(deviceID: hostID))
+        #expect(pages.pendingScopes[hostID] == .view)
+        #expect(pages.record(forDevice: "Studio", requesting: .full).isHome)
+        #expect(pages.pendingScopes[hostID] == .view)
+    }
 }
 
 @MainActor

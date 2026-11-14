@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 16cb02092fa56e98d5de05559e5eec715e443056604ff5e920a920e53c5a148a.
+// cmux-tui mux protocol 12, IR f0e17f0a977e580be1c5f94c39d35c6426f0a32242c0da5a3f73912827061df9.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2129,6 +2129,10 @@ pub type ListWorkspaceGroupsResult = T::JsonValue;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ListWorkspacesRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub known: Optional<T::ListWorkspacesKnown>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u64>,
 }
 
 #[rustfmt::skip]
@@ -5032,6 +5036,14 @@ impl CmuxClient {
     }
 
     pub fn list_workspaces(&mut self, request: ListWorkspacesRequest) -> Result<ListWorkspacesResult> {
+        if !request.known.is_missing() {
+            self.require_protocol_field("list-workspaces", 12)?;
+            self.require_capability_field("list-workspaces", "list-workspaces-known-v1")?;
+        }
+        if !request.limit.is_missing() {
+            self.require_protocol_field("list-workspaces", 12)?;
+            self.require_capability_field("list-workspaces", "list-workspaces-limit-v1")?;
+        }
         self.execute(&LIST_WORKSPACES_METADATA, &request)
     }
 

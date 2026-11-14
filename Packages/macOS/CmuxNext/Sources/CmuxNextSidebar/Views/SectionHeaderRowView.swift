@@ -19,7 +19,10 @@ final class SectionHeaderRowView: SidebarRowView {
     private(set) var badgeText: String?
     private let chevron = DecorativeImageView()
     let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 }, label: Strings.newWorkspace)
+    /// Screen Sharing from the machine header (Leo: "if theres no easy path to use it then theres no point"):
+    /// Share on This Mac, View screen on a Cloud machine; no button on SSH and server machines.
     let screenButton = SidebarIconButton(icon: .remoteDisplay, pointSize: { Metrics.smallIconSize - Metrics.space1 }, label: Strings.viewScreen)
+    /// What the screen button sends, nil when it does not show.
     private(set) var screenAction: SidebarIntent?
     /// The machine status dot's color, resolved in `updateLayer`; `working` draws the spinner.
     enum StatusTone { case success, attention, quiet, danger, working }
@@ -190,17 +193,15 @@ final class SectionHeaderRowView: SidebarRowView {
             themedToolTip = Self.machineToolTip(status: statusTip, cost: cost, now: Date())
             setAccessibilityLabel(machine.name + ", " + words)
             setAccessibilityHelp(cost == nil ? machine.detail : themedToolTip)
+            screenAction = Self.screenAction(machine)
             switch machine.kind {
             case .local:
-                screenAction = .shareScreen(machine.id)
                 screenButton.icon = .actionShare
                 screenButton.label = Strings.shareScreen
             case .cloud:
-                screenAction = .viewScreen(machine.id)
                 screenButton.icon = .remoteDisplay
                 screenButton.label = Strings.viewScreen
             case .ssh, .server:
-                screenAction = machine.screenDeviceID == nil ? nil : .viewScreen(machine.id)
                 screenButton.icon = .remoteDisplay
                 screenButton.label = Strings.viewScreen
                 screenButton.isEnabled = machine.screenAvailable
@@ -240,11 +241,22 @@ final class SectionHeaderRowView: SidebarRowView {
         addButton.setAccessibilityIdentifier("cmux.sidebar.section.\(sectionID).newWorkspace")
         screenButton.setAccessibilityIdentifier("cmux.sidebar.section.\(sectionID).screen")
         addButton.isHidden = true
+        screenButton.isHidden = screenAction == nil
         needsLayout = true
         needsDisplay = true
     }
 
     var allowsAdd = true
+
+    /// Share on This Mac; View screen on Cloud machines and authenticated Mac devices.
+    /// SSH and server rows need the daemon's screen identity before offering View screen.
+    static func screenAction(_ machine: SidebarMachine) -> SidebarIntent? {
+        switch machine.kind {
+        case .local: .shareScreen(machine.id)
+        case .cloud: .viewScreen(machine.id)
+        case .ssh, .server: machine.screenDeviceID == nil ? nil : .viewScreen(machine.id)
+        }
+    }
 
     override func updateLayer() {
         CATransaction.begin()
@@ -296,27 +308,24 @@ final class SectionHeaderRowView: SidebarRowView {
         // The add button keeps its slot, so the name never re-truncates on hover.
         // Section actions stay available at rest. Hiding them until hover made
         // the bottom of the sidebar flash as the pointer crossed a header.
-        addButton.isHidden = !allowsAdd || (screenAction != nil && !isHovered)
+        addButton.isHidden = !allowsAdd
         let control = SidebarStyle.controlSize
-        // The one-machine sidebar calls this header "Projects", but it is still the local
-        // machine's first-class screen entry point. Keep the action visible there too.
-        let hasScreen = screenAction != nil
-        screenButton.isHidden = !hasScreen
-        if hasScreen {
-            // From the trailing edge: +, screen action, disclosure. Each gets its own pitch;
-            // the previous layout put the screen action on the disclosure's slot and erased the
-            // joined machine name at the narrow gallery widths.
-            screenButton.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY, side: control, slot: allowsAdd ? 1 : 0)
-        }
         if allowsAdd {
             addButton.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY, side: control, slot: 0)
+        }
+        // From the trailing edge: +, the screen button, the chevron, each on its own pitch, at rest too.
+        let hasScreen = screenAction != nil
+        screenButton.isHidden = !hasScreen
+        let screenSlot = allowsAdd ? 1 : 0
+        if hasScreen {
+            screenButton.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY, side: control, slot: screenSlot)
         }
         chevron.isHidden = isEmpty
         let chevronSide = SidebarStyle.controlSize
         // Without the add button the chevron takes the trailing column, as a group header's does; with it, the
-        // chevron steps one shared pitch left of the add button.
+        // chevron steps one shared pitch left of the add button (and one more past the screen button).
         chevron.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY,
-                                                         side: chevronSide, slot: allowsAdd ? (hasScreen ? 2 : 1) : (hasScreen ? 1 : 0))
+                                                         side: chevronSide, slot: screenSlot + (hasScreen ? 1 : 0))
         var trailing = columns.trailingEdge(before: chevron.frame)
         let dot = SidebarStyle.dotSize
         status.isHidden = statusTone == nil

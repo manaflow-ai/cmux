@@ -5,8 +5,9 @@ import UIKit
 
 /// ask-87d30da8e5: the chrome under a Mac's theme, for screenshots. Launch with
 /// `-cmux-mobile-recovery-gallery theme-mocha|theme-solarized|theme-wallpaper`: a dark theme, a
-/// light one with the Mac's blue accent, and the dark one with a wallpaper under its tint. Each
-/// applies its fixture as a Mac's frame would (and so writes the simulator's cache).
+/// light one with the Mac's blue accent, and the dark one naming a wallpaper. Each applies its
+/// fixture as a Mac's frame would (and so writes the simulator's cache). The backgrounds stay the
+/// stock ones and no picture shows; only the accent takes the Mac's.
 struct MacThemeGallery: View {
     let variant: String
     private let theme = CmuxMobileTheme.standard
@@ -20,28 +21,14 @@ struct MacThemeGallery: View {
         palette: ["#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5"],
         accent: "blue"))
 
-    /// A warm-to-cool gradient standing in for a wallpaper.
-    static func picture() -> Data {
-        UIGraphicsImageRenderer(size: CGSize(width: 600, height: 1200)).jpegData(withCompressionQuality: 0.9) { context in
-            let colors = [UIColor(red: 0.95, green: 0.55, blue: 0.35, alpha: 1).cgColor,
-                          UIColor(red: 0.25, green: 0.35, blue: 0.75, alpha: 1).cgColor] as CFArray
-            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]) {
-                context.cgContext.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: 600, y: 1200), options: [])
-            }
-        }
-    }
-
     init(variant: String) {
         self.variant = variant
         var appearance = variant == "theme-solarized" ? Self.solarized : Self.mocha
-        var bytes: Data?
         if variant == "theme-wallpaper" {
-            let data = Self.picture()
-            appearance.wallpaper = .init(id: "9a11e7", bytes: data.count, tintOpacity: 0.55)
-            bytes = data
+            appearance.wallpaper = .init(id: "9a11e7", bytes: 48_000, tintOpacity: 0.55)
         }
         CmuxMobileMacTheme.shared.matchesMac = true
-        CmuxMobileMacTheme.shared.apply(appearance, wallpaper: bytes)
+        CmuxMobileMacTheme.shared.apply(appearance)
     }
 
     var body: some View {
@@ -52,7 +39,7 @@ struct MacThemeGallery: View {
                     row("cmux", detail: "Claude: Tests pass on the fleet.", unread: false)
                     row("website", detail: "Codex: Waiting for your answer", unread: false)
                 }
-                .listRowBackground(CmuxMobileBackdrop.listRow)
+                .listRowBackground(theme.colors.bg.color)
                 Section {
                     HStack {
                         Text("Send")
@@ -69,11 +56,11 @@ struct MacThemeGallery: View {
                     .padding(12)
                     .background(theme.colors.surface, in: .rect(cornerRadius: 12, style: .continuous))
                 }
-                .listRowBackground(CmuxMobileBackdrop.listRow)
+                .listRowBackground(theme.colors.bg.color)
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .background(CmuxMobileBackdrop().ignoresSafeArea())
+            .background(theme.colors.bg.color.ignoresSafeArea())
             .navigationTitle("Home")
         }
     }

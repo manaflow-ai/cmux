@@ -370,6 +370,10 @@ public final class AgentPaneView: NSView {
         model.onCloudTeamChange = { [weak self] in self?.evaluateScript(AgentPaneCloudMachines.teamChangeScript) }
         installSessionInfo()
         model.onToastAvoidance = { [weak self] in self?.toastAvoidanceMoved() }
+        model.onToast = { [weak self] toast in
+            guard let window = self?.window else { return }
+            CmuxToastCenter.shared.show(toast, in: window)
+        }
         installHostGlass()
     }
 

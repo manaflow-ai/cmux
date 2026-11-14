@@ -31,10 +31,9 @@ fn pair(hub: Arc<Hub>) -> (DuplexStream, tokio::task::JoinHandle<Result<(), Conn
     let (client, server) = tokio::io::duplex(4096);
     let source = Arc::new(HubSource::new(hub));
     let (reader, writer) = tokio::io::split(server);
-    let task =
-        tokio::spawn(
-            async move { conn::run(reader, writer, source, "test", &["list".into()]).await },
-        );
+    let task = tokio::spawn(async move {
+        conn::run(reader, writer, source, "test", &["list".into()], conn::Role::Local).await
+    });
     (client, task)
 }
 
@@ -45,8 +44,9 @@ fn source_pair(
     let (client, server) = tokio::io::duplex(4096);
     let (reader, writer) = tokio::io::split(server);
     let surfaces = surfaces.iter().map(|surface| (*surface).to_owned()).collect::<Vec<_>>();
-    let task =
-        tokio::spawn(async move { conn::run(reader, writer, source, "test", &surfaces).await });
+    let task = tokio::spawn(async move {
+        conn::run(reader, writer, source, "test", &surfaces, conn::Role::Local).await
+    });
     (client, task)
 }
 
