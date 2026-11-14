@@ -22,6 +22,15 @@ impl IndexLog {
         Self::open_with_snapshot(requested, snapshot.as_deref())
     }
 
+    /// Opens a fresh generation whose first sequence follows an already
+    /// published in-memory index. Rebuilds use this instead of replaying the
+    /// quarantined log at sequence zero, so the next compaction can rotate
+    /// immediately even when the rebuild has no later update.
+    pub fn open_at(path: impl AsRef<Path>, seq: u64) -> io::Result<Self> {
+        let path = path.as_ref();
+        Self::open_tail(path.to_owned(), seq, 0, 1)
+    }
+
     /// The service opener supplies the already-read head, so startup observes
     /// one snapshot generation and does not read its head twice.
     pub fn open_with_snapshot(
@@ -312,7 +321,16 @@ fn complete_frame_at(file: &File, offset: u64) -> io::Result<bool> {
     if length > (super::MAX_INDEX_RECORD_BYTES - 8) as u64 {
         return Ok(true);
     }
-    Ok(remaining >= 8 + length)
+    let frame_end = 8_u64.saturating_add(length);
+    if remaining < frame_end {
+        return Ok(false);
+    }
+    // A complete, undecodable frame at EOF is the existing torn-tail case.
+    // It becomes structural damage only when a later frame decodes, proving
+    // that the bad bytes sit inside the log rather than at its tail.
+    let mut next = BufReader::new(file.try_clone()?);
+    next.seek(SeekFrom::Start(offset.saturating_add(frame_end)))?;
+    Ok(matches!(codec::read_any(&mut next), Ok(Some(_))))
 }
 
 pub fn replay_log(path: impl AsRef<Path>, index: SummaryIndex) -> io::Result<SummaryIndex> {

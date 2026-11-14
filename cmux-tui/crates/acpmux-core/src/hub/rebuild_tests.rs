@@ -87,10 +87,10 @@ async fn runtime_page_boundary_rebuild_keeps_sid_and_fences_one_window() {
     writer.process_batch();
     assert_eq!(hub.rebuild_count(), 1);
     assert_eq!(hub.subscriber_count(), 2);
-    hub.source_walk_finished(Source::Local, false);
+    hub.source_walk_finished(Source::Local, hub.rebuild_count(), false);
     assert!(subscription.receiver.try_next_raw(None, 64 * 1024).is_none());
     assert!(folder_subscription.receiver.try_next_raw(None, 64 * 1024).is_none());
-    hub.source_walk_finished(Source::Local, true);
+    hub.source_walk_finished(Source::Local, hub.rebuild_count(), true);
     assert!(matches!(subscription.receiver.try_next_raw(None, 64 * 1024), Some(RawRead::Lagged)));
     assert!(subscription.receiver.try_next_raw(None, 64 * 1024).is_none());
     assert!(matches!(

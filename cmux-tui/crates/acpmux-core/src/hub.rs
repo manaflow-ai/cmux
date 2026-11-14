@@ -421,6 +421,7 @@ pub struct Hub {
     sources: Arc<ArcSwap<HashMap<String, Source>>>,
     rebuild_requested: Arc<AtomicBool>,
     rebuild_count: Arc<AtomicU64>,
+    rebuild_fenced: Arc<AtomicU64>,
 }
 
 /// Supplies rows that are outside the hot summary index for a bounded keyed page.
@@ -521,6 +522,7 @@ impl Hub {
         random: impl FnOnce() -> u32,
     ) -> Result<(Self, HubWriter), HubError> {
         fs::create_dir_all(directory)?;
+        let random_value = random();
         let snapshot_path = directory.join("index.snap");
         let mut rebuild = false;
         let disk = match DiskSnapshot::open(&snapshot_path) {
@@ -540,20 +542,34 @@ impl Hub {
             Err(error) => return Err(error.into()),
         };
         if rebuild {
-            quarantine_index(directory)?;
-            let edition = IndexEdition::open_rebuild(directory, boot, random)?;
-            let log = IndexLog::open_with_snapshot(directory.join("index.log"), None)?;
+            let quarantined = quarantine_index(directory).is_ok();
+            let edition = IndexEdition::open_rebuild(directory, boot, || random_value)
+                .unwrap_or(IndexEdition { edition: random_value.max(2), boot, writes: 0 });
+            let log = quarantined
+                .then(|| IndexLog::open_at(directory.join("index.log"), 0).ok())
+                .flatten();
             let index = SummaryIndex::empty_with_edition(edition.edition);
-            return Ok(Self::with_log_state(index, Some(log), Some(directory), 1));
+            let (hub, mut writer) = Self::with_log_state(index, log, Some(directory), 1);
+            if !quarantined || writer.log.is_none() {
+                writer.log_errors.fetch_add(1, Ordering::Relaxed);
+            }
+            return Ok((hub, writer));
         }
         let log = match IndexLog::open_with_snapshot(directory.join("index.log"), disk.as_deref()) {
             Ok(log) => log,
             Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
-                quarantine_index(directory)?;
-                let edition = IndexEdition::open_rebuild(directory, boot, random)?;
-                let log = IndexLog::open_with_snapshot(directory.join("index.log"), None)?;
+                let quarantined = quarantine_index(directory).is_ok();
+                let edition = IndexEdition::open_rebuild(directory, boot, || random_value)
+                    .unwrap_or(IndexEdition { edition: random_value.max(2), boot, writes: 0 });
+                let log = quarantined
+                    .then(|| IndexLog::open_at(directory.join("index.log"), 0).ok())
+                    .flatten();
                 let index = SummaryIndex::empty_with_edition(edition.edition);
-                return Ok(Self::with_log_state(index, Some(log), Some(directory), 1));
+                let (hub, mut writer) = Self::with_log_state(index, log, Some(directory), 1);
+                if !quarantined || writer.log.is_none() {
+                    writer.log_errors.fetch_add(1, Ordering::Relaxed);
+                }
+                return Ok((hub, writer));
             }
             Err(error) => return Err(error.into()),
         };
@@ -561,7 +577,7 @@ impl Hub {
             directory,
             boot,
             disk.as_ref().is_some_and(|disk| !disk.is_empty()) || log.next_seq() != 0,
-            random,
+            || random_value,
         )?;
         let covered = disk.as_ref().map_or(0, |disk| disk.covered_generation());
         let index = match replay_generation_logs(
@@ -572,11 +588,18 @@ impl Hub {
             Ok(index) => index,
             Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
                 drop(log);
-                quarantine_index(directory)?;
-                let edition = IndexEdition::open_rebuild(directory, boot, || 2)?;
-                let log = IndexLog::open_with_snapshot(directory.join("index.log"), None)?;
+                let quarantined = quarantine_index(directory).is_ok();
+                let edition = IndexEdition::open_rebuild(directory, boot, || random_value)
+                    .unwrap_or(IndexEdition { edition: random_value.max(2), boot, writes: 0 });
+                let log = quarantined
+                    .then(|| IndexLog::open_at(directory.join("index.log"), 0).ok())
+                    .flatten();
                 let index = SummaryIndex::empty_with_edition(edition.edition);
-                return Ok(Self::with_log_state(index, Some(log), Some(directory), 1));
+                let (hub, mut writer) = Self::with_log_state(index, log, Some(directory), 1);
+                if !quarantined || writer.log.is_none() {
+                    writer.log_errors.fetch_add(1, Ordering::Relaxed);
+                }
+                return Ok((hub, writer));
             }
             Err(error) => return Err(error.into()),
         };
@@ -610,6 +633,7 @@ impl Hub {
         let sources = Arc::new(ArcSwap::from_pointee(HashMap::new()));
         let rebuild_requested = Arc::new(AtomicBool::new(false));
         let rebuild_count = Arc::new(AtomicU64::new(rebuilds));
+        let rebuild_fenced = Arc::new(AtomicU64::new(0));
         let has_disk = index.disk().is_some();
         let published = Arc::new(ArcSwap::from_pointee(index));
         let updates = Arc::new(UpdateQueue::new());
@@ -633,6 +657,7 @@ impl Hub {
             sources: sources.clone(),
             rebuild_requested: rebuild_requested.clone(),
             rebuild_count: rebuild_count.clone(),
+            rebuild_fenced,
         };
         let mut writer = HubWriter {
             hydrated: hydrated_tx,
@@ -698,8 +723,15 @@ impl Hub {
     /// Ends a source's rebuild walk. An incomplete walk leaves existing list
     /// subscribers untouched; only a whole local walk fences each sid to one
     /// fresh window through the connection's existing lagged-resume path.
-    pub fn source_walk_finished(&self, source: Source, complete: bool) {
-        if source != Source::Local || !complete {
+    pub fn source_walk_finished(&self, source: Source, rebuild: u64, complete: bool) {
+        if source != Source::Local || !complete || rebuild == 0 {
+            return;
+        }
+        if self
+            .rebuild_fenced
+            .compare_exchange(0, rebuild, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
             return;
         }
         let Ok(subscribers) = self.subscribers.lock() else { return };
