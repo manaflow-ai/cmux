@@ -9480,6 +9480,8 @@ export class AcpmuxDirectClient {
         this.carryPrompts(msg.carried, startedTurnId);
         this.turnOpen = true;
         this.turnStartedAtMs = event.at;
+        // A turn's claim_checks mark its own reply: until it replies, there is none to mark.
+        this.lastReplyRow = undefined;
         if (startedTurnId !== undefined) this.runningTurnId = startedTurnId;
         else if (agentStarted) this.runningTurnId = undefined;
         this.turnTokens = event.seq >= this.usageFromSeq ? 0 : undefined;
@@ -15008,6 +15010,8 @@ export class AcpmuxDirectClient {
       // The live reply's segment (`replySegment`): the page's chunks never take its place.
       streamingSegment: this.streamingSegment,
       assistantCut: this.assistantCut,
+      // A turn's claim checks mark the live chat's last reply, never an older page's.
+      lastReplyRow: this.lastReplyRow,
       streamingActivity: this.streamingActivity,
       planRow: this.planRow,
       progressRow: this.progressRow,
