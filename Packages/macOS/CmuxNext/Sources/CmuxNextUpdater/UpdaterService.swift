@@ -31,6 +31,11 @@ public final class UpdaterService {
     /// The Sparkle driver; nil when Sparkle cannot run in this build.
     public let controller: UpdateController?
     public private(set) var lastProbe: UpdateProbeResult?
+    /// The feed's last answer for a ring (``probe()`` or ``readFeedAhead()``), on ``now``: the
+    /// install click decides at once on one this recent (``StagedUpdateRefresh/clickReadFreshness``).
+    @ObservationIgnored public internal(set) var lastFeedRead: FeedRead?
+    /// A read ahead of the install click in flight (``readFeedAhead()``); never joined by a probe.
+    @ObservationIgnored var feedReadAheadTask: Task<Void, Never>?
     public private(set) var lastProbeError: String?
     public private(set) var isProbing = false
     /// The running stable <-> NIGHTLY switch, if any.
@@ -479,7 +484,7 @@ public final class UpdaterService {
     public func probe() -> Task<String?, Never> {
         if let probeTask { return probeTask }
         isProbing = true
-        let prober = prober
+        let prober = prober, ring = ring
         // Sparkle's allowedChannels reads the baked feed, not a test feed: the probe does the same.
         let allowed = identity.feed().channel.allowedSparkleChannels(ring: ring)
         var identity = identity
@@ -490,12 +495,14 @@ public final class UpdaterService {
                 let result = try await prober.probe(identity, allowedChannels: allowed)
                 self?.lastProbe = result
                 self?.lastProbeError = nil
+                if let self { self.lastFeedRead = FeedRead(result, at: self.now(), ring: ring) }
                 self?.log.append("probe \(result.outcome.kind) feed=\(result.feedURL) items=\(result.itemCount)")
                 failure = nil
             } catch {
-                let reason = String(describing: error)
+                // The sheet and the indicator show plain words; the log keeps the error.
+                let reason = UpdateFailureText.plain(error)
                 self?.lastProbeError = reason
-                self?.log.append("probe failed: \(reason)")
+                self?.log.append("probe failed: \(String(describing: error))")
                 failure = reason
             }
             self?.isProbing = false
@@ -503,6 +510,28 @@ public final class UpdaterService {
             return failure
         }
         probeTask = task
+        return task
+    }
+
+    /// Reads the feed ahead of the install click and records only ``lastFeedRead``: no probe state,
+    /// no on-screen answer, nothing a pending probe, a ring pick or an install click waits on. It
+    /// never joins ``probe()`` and a probe never joins it, so it cannot consume, delay or reschedule
+    /// a check. Joins a read ahead already in flight.
+    @discardableResult
+    func readFeedAhead() -> Task<Void, Never> {
+        if let feedReadAheadTask { return feedReadAheadTask }
+        let prober = prober, ring = ring
+        let allowed = identity.feed().channel.allowedSparkleChannels(ring: ring)
+        var identity = identity
+        if let testFeedURL { identity.infoFeedURL = testFeedURL }
+        let task = Task { [weak self] in
+            let result = try? await prober.probe(identity, allowedChannels: allowed)
+            guard let self else { return }
+            self.feedReadAheadTask = nil
+            // A ring picked while it read makes it another ring's answer: kept under that ring, never used.
+            if let result { self.lastFeedRead = FeedRead(result, at: self.now(), ring: ring) }
+        }
+        feedReadAheadTask = task
         return task
     }
 
@@ -561,9 +590,9 @@ public final class UpdaterService {
                 let outcome = try await switcher.switchTo(target) { phase in sink.yield(phase) }
                 self?.log.append("channel switch to \(target.rawValue): \(outcome)")
             } catch {
-                failure = String(describing: error)
+                failure = UpdateFailureText.plain(error)
                 self?.channelSwitchError = failure
-                self?.log.append("channel switch to \(target.rawValue) failed: \(failure ?? "")")
+                self?.log.append("channel switch to \(target.rawValue) failed: \(String(describing: error))")
             }
             sink.finish()
             await applier.value
@@ -637,5 +666,25 @@ extension UpdaterService {
     /// Why installing is impossible here, or nil.
     public var installUnavailableReason: String? {
         controller != nil && disabledReason == nil ? nil : UpdaterUnavailable(reason: disabledReason).description
+    }
+}
+
+/// The feed's newest build for a ring, and when that was known (``UpdaterService/lastFeedRead``).
+public struct FeedRead: Sendable, Equatable {
+    /// The newest build the feed offers this Mac, or nil when it offers nothing newer than the running one.
+    public let newest: String?
+    public let at: Date
+    public let ring: UpdateRing
+
+    public init(newest: String?, at: Date, ring: UpdateRing) {
+        self.newest = newest
+        self.at = at
+        self.ring = ring
+    }
+
+    init(_ result: UpdateProbeResult, at: Date, ring: UpdateRing) {
+        if case .updateAvailable(let item) = result.outcome { newest = item.version } else { newest = nil }
+        self.at = at
+        self.ring = ring
     }
 }

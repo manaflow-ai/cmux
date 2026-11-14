@@ -251,13 +251,20 @@ impl Flags {
     }
 }
 
+/// The cmux credentials no `cmux` child this process starts may inherit: a join token and the
+/// account's bearer token. A child that needs one gets it another way (a revoke step on its
+/// stdin); an acpmux daemon a child auto-starts would otherwise keep it for its lifetime. Every
+/// spawn of `cmux` (devices here, `cmux acp` in chat_start/joined.rs) removes these.
+pub(crate) const CREDENTIAL_ENV: &[&str] = &["CMUX_JOIN", "CMUX_CLOUD_ACCESS_TOKEN"];
+
 /// This program as `cmux` (argv[0]), so the `host` verbs, which exist only on the `cmux`
 /// surface, run too when this is `cmux-tui` (the app runs its bundled `cmux-tui device …`).
 fn cmux() -> anyhow::Result<Command> {
     let mut command = Command::new(self_exe()?);
-    // Neither a join token nor the cmux credential reaches a child: the credential was read
-    // once (`JoinAuth`) and a revoke step gets it on its stdin.
-    command.env_remove("CMUX_JOIN").env_remove("CMUX_CLOUD_ACCESS_TOKEN");
+    // The credential was read once (`JoinAuth`) and a revoke step gets it on its stdin.
+    for name in CREDENTIAL_ENV {
+        command.env_remove(name);
+    }
     #[cfg(unix)]
     std::os::unix::process::CommandExt::arg0(&mut command, "cmux");
     Ok(command)

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "3640c178ce74343f21a8b40eeb3852abc2b3b5c5b123d8099ccec04e8a7d14b5";
+inline constexpr std::string_view kProtocolIrSha256 = "59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -262,6 +262,7 @@ struct ViewportPaneWidthResult;
 struct VtStateResult;
 struct WaitForResult;
 struct Workspace;
+struct WorkspaceFirstTab;
 struct WorkspaceMutationResult;
 struct ZoomPaneResult;
 struct AckTabNotificationsRequest;
@@ -285,6 +286,8 @@ struct BrowserNavigateRequest;
 struct BrowserReloadRequest;
 struct BrowserWheelRequest;
 struct BrowserWheelGuardedRequest;
+struct CancelCreatingInputRequest;
+struct CancelCreatingInputResult;
 struct ChiefInspectRequest;
 struct ChiefInspectResult;
 struct ChiefWorkRequest;
@@ -724,6 +727,7 @@ enum class TabKind;
 struct TerminalExitOutcomeExit;
 struct TerminalExitOutcomeSignal;
 struct TerminalExitOutcomeUnknown;
+struct WorkspaceFirstTabBrowser;
 enum class AttachSurfaceRequestMode;
 enum class BrowserKeyRequestKind;
 enum class BrowserMouseRequestKind;
@@ -1235,6 +1239,16 @@ struct BrowserWheelRequest {
     double x_px{};
     double y_px{};
     friend bool operator==(const BrowserWheelRequest&, const BrowserWheelRequest&) = default;
+};
+
+struct CancelCreatingInputRequest {
+    std::string terminal_id{};
+    friend bool operator==(const CancelCreatingInputRequest&, const CancelCreatingInputRequest&) = default;
+};
+
+struct CancelCreatingInputResult {
+    bool cancelled{};
+    friend bool operator==(const CancelCreatingInputResult&, const CancelCreatingInputResult&) = default;
 };
 
 struct CellPixelFailure {
@@ -2729,6 +2743,7 @@ struct CreateTerminalRequest {
     Field<std::vector<std::string>> argv{};
     Field<std::uint16_t> cols{};
     Field<std::string> command{};
+    std::optional<bool> create_workspace{};
     Field<std::string> cwd{};
     std::optional<bool> detached{};
     Field<std::map<std::string, std::string, std::less<>>> env{};
@@ -2743,6 +2758,7 @@ struct CreateTerminalRequest {
     Field<std::vector<std::string>> shell_args{};
     Field<std::string> terminal_id{};
     Field<Id> workspace{};
+    Field<std::string> workspace_name{};
     friend bool operator==(const CreateTerminalRequest&, const CreateTerminalRequest&) = default;
 };
 
@@ -2755,9 +2771,30 @@ struct CreateWorkspaceGroupRequest {
     friend bool operator==(const CreateWorkspaceGroupRequest&, const CreateWorkspaceGroupRequest&) = default;
 };
 
+struct WorkspaceFirstTabBrowser {
+    std::optional<bool> activate{};
+    Field<std::uint16_t> cols{};
+    std::string engine{};
+    Field<std::string> favicon_url{};
+    Field<std::string> idempotency_key{};
+    Field<std::string> owner{};
+    Field<std::string> profile_id{};
+    Field<std::uint16_t> rows{};
+    Field<std::string> title{};
+    std::string url{};
+    friend bool operator==(const WorkspaceFirstTabBrowser&, const WorkspaceFirstTabBrowser&) = default;
+};
+
+struct WorkspaceFirstTab {
+    using Variant = std::variant<WorkspaceFirstTabBrowser>;
+    Variant value{};
+    friend bool operator==(const WorkspaceFirstTab&, const WorkspaceFirstTab&) = default;
+};
+
 struct CreateWorkspaceRequest {
     Field<std::string> expected_generation{};
     Field<std::uint64_t> expected_revision{};
+    Field<WorkspaceFirstTab> first_tab{};
     Field<std::string> key{};
     Field<std::string> mutation_id{};
     Field<std::string> name{};
@@ -4112,6 +4149,7 @@ struct NewFrontendBrowserTabRequest {
     Field<ConversationTabSplit> split{};
     Field<std::string> title{};
     std::string url{};
+    Field<Id> workspace{};
     friend bool operator==(const NewFrontendBrowserTabRequest&, const NewFrontendBrowserTabRequest&) = default;
 };
 
@@ -6452,6 +6490,7 @@ struct WorkspaceMovedEvent {
 struct WorkspaceMutationResult {
     std::optional<bool> changed{};
     std::optional<std::vector<std::string>> closed_ids{};
+    std::optional<JsonValue> first_tab{};
     std::string generation{};
     std::uint64_t index{};
     std::string key{};
@@ -7981,6 +8020,12 @@ struct Codec<Workspace> {
 };
 
 template <>
+struct Codec<WorkspaceFirstTab> {
+    static Result<Json> encode(const WorkspaceFirstTab& value);
+    static Result<WorkspaceFirstTab> decode(const Json& value);
+};
+
+template <>
 struct Codec<WorkspaceMutationResult> {
     static Result<Json> encode(const WorkspaceMutationResult& value);
     static Result<WorkspaceMutationResult> decode(const Json& value);
@@ -8116,6 +8161,18 @@ template <>
 struct Codec<BrowserWheelGuardedRequest> {
     static Result<Json> encode(const BrowserWheelGuardedRequest& value);
     static Result<BrowserWheelGuardedRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CancelCreatingInputRequest> {
+    static Result<Json> encode(const CancelCreatingInputRequest& value);
+    static Result<CancelCreatingInputRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CancelCreatingInputResult> {
+    static Result<Json> encode(const CancelCreatingInputResult& value);
+    static Result<CancelCreatingInputResult> decode(const Json& value);
 };
 
 template <>
@@ -10750,6 +10807,12 @@ template <>
 struct Codec<TerminalExitOutcomeUnknown> {
     static Result<Json> encode(const TerminalExitOutcomeUnknown& value);
     static Result<TerminalExitOutcomeUnknown> decode(const Json& value);
+};
+
+template <>
+struct Codec<WorkspaceFirstTabBrowser> {
+    static Result<Json> encode(const WorkspaceFirstTabBrowser& value);
+    static Result<WorkspaceFirstTabBrowser> decode(const Json& value);
 };
 
 template <>

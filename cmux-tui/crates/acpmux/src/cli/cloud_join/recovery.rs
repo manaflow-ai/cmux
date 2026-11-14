@@ -33,13 +33,28 @@ const COPIED: &str = "machine-join.pending.copied.json";
 /// holds the join lock.
 fn set_aside_copied_pending(current: Option<&str>) -> Result<bool> {
     let Some(p) = read()? else { return Ok(false) };
-    let copied = matches!((p.host_fingerprint.as_deref(), current), (Some(made), Some(here)) if made != here);
+    // The shared comparison (`other_box`, what `home_copy_state` asks of a pending join).
+    let copied = other_box(&state_dir(), p.host_fingerprint.as_deref(), current);
     if copied {
-        std::fs::rename(state_dir().join(FILE), state_dir().join(COPIED))
+        // The node key beside it is the original box's too: recorded before anything here
+        // could join with it or replace the record that would show the copy (the key in place
+        // now: the caller holds the join lock, under which alone it is replaced).
+        crate::cli::mesh_node_key::record_copied_key(&state_dir()).map_err(|_| store_error())?;
+        crate::home_fs::rename(state_dir().join(FILE), state_dir().join(COPIED))
             .map_err(|_| store_error())?;
         sync_ancestors(&state_dir()).map_err(|_| store_error())?;
     }
     Ok(copied)
+}
+
+/// The box a join pending in `home` was proposed on: `None` when there is none (or it cannot be
+/// read: [`read`] refuses it before it is used), `Some(None)` for one an older build wrote with
+/// no fingerprint. Read for its fingerprint only, by any process that decides whether `home`
+/// was copied (`home_copy_state`).
+pub(super) fn pending_made_on(home: &Path) -> Option<Option<String>> {
+    let file = crate::config::private_state_file(&home.join(FILE)).ok()?;
+    let pending: serde_json::Value = serde_json::from_reader(file).ok()?;
+    Some(pending.get("host_fingerprint").and_then(|made| made.as_str()).map(str::to_owned))
 }
 
 pub(super) fn pending_origin() -> Result<Option<String>> {
@@ -86,7 +101,6 @@ pub(super) fn write_durable(path: &Path, bytes: &[u8], replace: bool) -> Result<
 
 #[cfg(unix)]
 fn write_with_temp(path: &Path, bytes: &[u8], replace: bool, temp: &Path) -> Result<()> {
-    use std::os::unix::fs::OpenOptionsExt;
     let parent = path.parent().ok_or_else(store_error)?;
     crate::config::private_state_dir(parent)?;
     match std::fs::symlink_metadata(path) {
@@ -97,7 +111,7 @@ fn write_with_temp(path: &Path, bytes: &[u8], replace: bool, temp: &Path) -> Res
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(e.into()),
     }
-    let mut file = std::fs::OpenOptions::new()
+    let mut file = crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
@@ -117,14 +131,14 @@ fn write_with_temp(path: &Path, bytes: &[u8], replace: bool, temp: &Path) -> Res
             Err(e) => return Err(e.into()),
         }
         if replace {
-            std::fs::rename(temp, path)?;
+            crate::home_fs::rename(temp, path)?;
         } else {
-            std::fs::hard_link(temp, path)?;
+            crate::home_fs::hard_link(temp, path)?;
         }
         sync_ancestors(parent)?;
         Ok(())
     })();
-    let _ = std::fs::remove_file(temp); // only the file this call created
+    let _ = crate::home_fs::remove_file(temp); // only the file this call created
     result
 }
 #[cfg(not(unix))]
@@ -234,17 +248,23 @@ async fn probe(p: &Pending) -> Result<Probe> {
         // Joined on this box: a later start on another box finds the copy.
         host_fingerprint: host_fingerprint::current(),
         cloned: false,
+        cloned_on: None,
     })))
 }
 
 fn complete(p: &Pending, record: &MachineCredential, json_out: bool) -> Result<()> {
+    // The record replaced here may be the only evidence that this home is a copy whose node
+    // key is the original's: a copy it shows is recorded (`copied_here`) before it goes.
+    if let Some(old) = load().map_err(|_| store_error())? {
+        let _ = copied_here(&state_dir(), &old, host_fingerprint::current().as_deref());
+    }
     authority().and_then(|a| a.enroll()).map_err(|_| store_error())?;
     let bytes = Zeroizing::new(serde_json::to_vec(record).map_err(|_| store_error())?);
     write_durable(&credential_path(), &bytes, true).map_err(|_| store_error())?;
     configure_mesh_relay(&p.hub).map_err(|_| store_error())?;
     // Remove the immutable recovery proof only after final + relay are durable.
     crate::config::private_state_file(&state_dir().join(FILE)).map_err(|_| store_error())?;
-    std::fs::remove_file(state_dir().join(FILE)).map_err(|_| store_error())?;
+    crate::home_fs::remove_file(state_dir().join(FILE)).map_err(|_| store_error())?;
     sync_ancestors(&state_dir()).map_err(|_| store_error())?;
     warn_existing_helpers();
     if json_out {
@@ -299,6 +319,10 @@ fn new_pending(
 ) -> Result<Pending> {
     let mut random = Zeroizing::new([0u8; 32]);
     getrandom::fill(&mut *random).map_err(|_| store_error())?;
+    // A node key recorded as copied from another machine is never proposed: it is replaced
+    // first, as the daemon's start does, under the same join lock the caller holds (a pending
+    // join set aside, or a leave, may have left it with no record to settle).
+    crate::cli::mesh_node_key::replace_copied_at(&state_dir()).map_err(|_| store_error())?;
     let p = Pending {
         version: 1,
         credential: format!(

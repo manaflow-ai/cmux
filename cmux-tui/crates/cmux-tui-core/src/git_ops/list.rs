@@ -5,8 +5,10 @@
 //! in the working tree and untracked files no ignore rule hides. Each is
 //! folded into its first path component; a component with more below it is a
 //! directory, and so is a lone component that is a real folder on disk (a
-//! submodule; a symlink is never one). Directories come first, then names
-//! case-insensitively.
+//! submodule). A symlink is never one at the look at the candidates: the
+//! daemon reaches each candidate through real folders only, so no candidate
+//! is below a link, and a link stays a leaf. Directories come first, then
+//! names case-insensitively.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -14,7 +16,8 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 use super::Repository;
-use super::files::{candidates, folder};
+use super::files::{Folders, candidates, folder, spelled};
+use super::work_tree_entry::Kind;
 use crate::resource::ResourceError;
 
 const OPERATION: &str = "git.files.list";
@@ -31,9 +34,11 @@ pub(super) fn list(
         .and_then(Value::as_u64)
         .map_or(DEFAULT_LIMIT, |limit| usize::try_from(limit).unwrap_or(MAX_LIMIT))
         .clamp(1, MAX_LIMIT);
-    let listed = folder(repository, directory, OPERATION)?;
-    let (paths, cut) = candidates(repository, directory, OPERATION)?;
-    let listed_folder = Path::new(&listed);
+    let below = folder(repository, directory, OPERATION)?;
+    let (paths, cut) = candidates(repository, directory, &below, OPERATION)?;
+    // A symlink is a leaf, as git records it: following one could list a folder
+    // outside the repository. Only a real folder (a submodule) is a directory.
+    let mut folders = Folders::of(repository, &below);
     // name -> is a directory
     let mut children: BTreeMap<&str, bool> = BTreeMap::new();
     for path in &paths {
@@ -45,11 +50,10 @@ pub(super) fn list(
             continue;
         }
         let directory = children.entry(name).or_insert(false);
-        // A symlink is a leaf, as git records it: following one could list a folder
-        // outside the repository. Only a real folder (a submodule) is a directory.
-        let real_folder =
-            || std::fs::symlink_metadata(listed_folder.join(name)).is_ok_and(|meta| meta.is_dir());
-        if nested || (!*directory && real_folder()) {
+        // Paths below the name: it was a real folder at the look at the
+        // candidates (the daemon reached them through it). A lone name is a
+        // directory only when it is a real folder.
+        if !*directory && (nested || folders.kind(name) == Some(Kind::Folder)) {
             *directory = true;
         }
     }
@@ -71,7 +75,7 @@ pub(super) fn list(
         .collect();
     Ok(json!({
         "root": repository.root.to_string_lossy(),
-        "folder": listed,
+        "folder": spelled(repository, &below),
         "entries": entries,
         "truncated": cut || total > limit,
     }))

@@ -24,6 +24,7 @@ import nightly_runner_preflight as preflight  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "tests"))
 from nightly_workflow_text import expand  # noqa: E402
+import workflow_jobs  # noqa: E402
 
 NOW = dt.datetime(2026, 11, 11, 1, 40, tzinfo=dt.timezone.utc)
 
@@ -114,12 +115,98 @@ class Preflight(unittest.TestCase):
                 self.assertTrue(ok)
                 self.assertTrue(lines[0].startswith("::warning") and why in lines[0], lines)
 
+    def test_a_census_over_10_minutes_old_says_nothing(self) -> None:
+        bad = env(CI_NIGHTLY_MINI="cmux-lawrence-2-light")
+        ok, lines = preflight.judge({**bad, "CI_RUNNER_STATE": census(at=NOW - dt.timedelta(minutes=12))}, NOW)
+        self.assertTrue(ok)
+        self.assertIn("12 min old", lines[0])
+        self.assertFalse(preflight.judge({**bad, "CI_RUNNER_STATE": census(at=NOW - dt.timedelta(minutes=9))}, NOW)[0])
+
+    def test_labels_match_case_insensitively(self) -> None:
+        ok, lines = preflight.judge(env(CI_NIGHTLY_ONLY_RUNNER="GLAEDA-Nightly-Only-M4Pro"), NOW)
+        self.assertTrue(ok, lines)
+        self.assertIn("CI_NIGHTLY_ONLY_RUNNER=GLAEDA-Nightly-Only-M4Pro: 2 of 2 runners online", lines)
+        rows = [runner("cmux15-glaeda-nightly-only-3", "online", "Glaeda-Nightly-Only-M4PRO")]
+        self.assertTrue(preflight.judge(env(CI_RUNNER_STATE=census(rows)), NOW)[0])
+        self.assertTrue(preflight.judge(env(CI_NIGHTLY_MINI="Ubuntu-24.04", CI_RUNNER_STATE=""), NOW)[0])
+
+    def test_a_custom_label_ending_in_latest_is_judged(self) -> None:
+        ok, lines = preflight.judge(env(CI_NIGHTLY_MINI="glaeda-nightly-latest"), NOW)
+        self.assertFalse(ok)
+        self.assertIn("no runner registered with manaflow-ai/cmux carries it", lines[0])
+        for label in ("macos-latest", "macos-latest-xlarge", "ubuntu-latest", "windows-latest"):
+            with self.subTest(label=label):
+                self.assertTrue(preflight.judge(env(CI_NIGHTLY_MINI=label, CI_RUNNER_STATE=""), NOW)[0])
+
     def test_hosted_and_blacksmith_labels_are_not_judged(self) -> None:
         for label in ("macos-26", "ubuntu-24.04", "blacksmith-6vcpu-macos-26"):
             with self.subTest(label=label):
                 ok, lines = preflight.judge(env(CI_NIGHTLY_MINI=label, CI_RUNNER_STATE=""), NOW)
                 self.assertTrue(ok)
                 self.assertNotIn("::warning", "".join(lines))
+
+
+class Notice(unittest.TestCase):
+    """A failed preflight files the nightly's failure incident: report-nightly-failure never runs for it."""
+
+    def fake(self, *, labels=200, issues=(), write=201):
+        calls = []
+
+        def call(method, path, token, body=None):
+            calls.append((method, path, body))
+            if path.startswith("labels/"):
+                return labels, {}
+            if method == "GET" and path.startswith("issues?"):
+                return 200, list(issues)
+            return write, {"number": 77}
+        return call, calls
+
+    def lines(self):
+        return preflight.judge(env(CI_NIGHTLY_MINI="cmux-lawrence-2-light"), NOW)[1]
+
+    def notice_env(self, **extra):
+        return {"GITHUB_REF_NAME": "nightly-next", "GITHUB_TOKEN": "t", "GITHUB_RUN_ID": "42", "GITHUB_SHA": "c" * 40,
+                **extra}
+
+    def test_opens_the_nightly_next_incident_with_the_variable_and_fix(self) -> None:
+        call, calls = self.fake(labels=404)
+        self.assertEqual(preflight.notify(self.lines(), self.notice_env(), call=call), "opened #77 (nightly-next-failure)")
+        self.assertIn(("POST", "labels", {"name": "nightly-next-failure", "color": "b60205",
+                                          "description": "cmux NIGHTLY publish failing"}), calls)
+        method, path, body = calls[-1]
+        self.assertEqual((method, path), ("POST", "issues"))
+        self.assertEqual(body["title"], "cmux NIGHTLY build is failing on nightly-next")
+        self.assertEqual(body["labels"], ["nightly-next-failure"])
+        self.assertIn("CI_NIGHTLY_MINI=cmux-lawrence-2-light", body["body"])
+        self.assertIn("gh variable delete CI_NIGHTLY_MINI -R manaflow-ai/cmux", body["body"])
+        self.assertIn("/actions/runs/42", body["body"])
+        self.assertNotIn("::error", body["body"])
+
+    def test_comments_on_an_open_incident(self) -> None:
+        call, calls = self.fake(issues=[{"number": 5}])
+        self.assertEqual(preflight.notify(self.lines(), self.notice_env(), call=call), "commented on #5 (nightly-next-failure)")
+        self.assertEqual(calls[-1][:2], ("POST", "issues/5/comments"))
+        self.assertFalse(any(c[:2] == ("POST", "labels") for c in calls))
+
+    def test_no_token_or_another_ref_writes_nothing_and_a_refused_write_raises(self) -> None:
+        call, calls = self.fake()
+        self.assertIn("no token", preflight.notify(self.lines(), self.notice_env(GITHUB_TOKEN=""), call=call))
+        self.assertIn("not a nightly-next run", preflight.notify(self.lines(), self.notice_env(GITHUB_REF_NAME="main"),
+                                                                 call=call))
+        self.assertEqual(calls, [])
+        call, _ = self.fake(write=403)
+        with self.assertRaises(RuntimeError):
+            preflight.notify(self.lines(), self.notice_env(), call=call)
+
+    def test_the_rest_call_goes_through_deadline_http(self) -> None:
+        seen = []
+
+        def http(req, seconds):
+            seen.append((req.get_method(), req.full_url, req.get_header("Authorization"), seconds))
+            return 200, b"[]", {}
+        self.assertEqual(preflight.github("GET", "issues?x=1", "tok", http=http), (200, []))
+        self.assertEqual(seen, [("GET", "https://api.github.com/repos/manaflow-ai/cmux/issues?x=1", "Bearer tok",
+                                 preflight.NOTICE_TIMEOUT_S)])
 
 
 class Wiring(unittest.TestCase):
@@ -129,22 +216,25 @@ class Wiring(unittest.TestCase):
         job = self.JOBS["runner-preflight"]
         self.assertEqual(self.JOBS["decide"]["needs"], "runner-preflight")
         self.assertEqual(job["if"], self.JOBS["decide"]["if"], "the preflight runs exactly when decide would")
-        self.assertEqual(job["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}")
-        self.assertNotIn("vars.", job["runs-on"])
-        self.assertEqual(job["permissions"], {})
+        runs_on = workflow_jobs.single_runs_on(job)
+        self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}")
+        self.assertNotIn("vars.", runs_on)
+        self.assertEqual(job["permissions"], {"issues": "write"})  # the failure incident only
         self.assertLessEqual(job["timeout-minutes"], 5)
         text = json.dumps(job)
         self.assertNotIn("secrets.", text)
         self.assertNotRegex(text, r"cancel|gh run|actions/runs")
+        self.assertIn("/scripts/ci/deadline_http.py", job["steps"][0]["with"]["sparse-checkout"])
         step_env = job["steps"][-1]["env"]
+        self.assertEqual(step_env["GITHUB_TOKEN"], "${{ github.token }}")
         for name in ("CI_RUNNER_STATE", "CI_NIGHTLY_MINI", "CI_NIGHTLY_MINI_BUILDER", "CI_NIGHTLY_ONLY_RUNNER"):
             self.assertEqual(step_env[name], "${{ vars.%s }}" % name)
         self.assertEqual(step_env["NIGHTLY_SCHEDULE"], "${{ github.event.schedule }}")
 
     def test_the_judged_labels_match_decides_route(self) -> None:
         self.assertIn("vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || "
-                      f"'{preflight.DEDICATED}'", self.JOBS["decide"]["runs-on"])
-        self.assertIn("vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI_BUILDER", self.JOBS["build-nightly-app"]["runs-on"])
+                      f"'{preflight.DEDICATED}'", workflow_jobs.single_runs_on(self.JOBS["decide"]))
+        self.assertIn("vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI_BUILDER", workflow_jobs.single_runs_on(self.JOBS["build-nightly-app"]))
 
 
 if __name__ == "__main__":

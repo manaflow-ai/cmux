@@ -55,9 +55,9 @@ extension PaneContentView {
             return
         }
         parked.removeAll { $0.view == nil || $0.view === view }
-        if let frame = parkedFrame(of: view), frame != contentHost.bounds, view.frame == frame || contentHost.isHolding {
+        if let frame = parkedFrame(of: view), frame != contentHost.bounds || contentHost.keepsOutOfTabRowInHold(view), view.frame == frame || contentHost.isHolding {
             // A chat parked at the size it shows at (`layoutParked`) keeps it: the pane's next layout moves the host under the
-            // tab row and puts the chat at its origin, same size (sized to the host first, its page jumped as it showed).
+            // tab row and puts the chat at its origin, same size (sized to the host first, its page jumped as it showed). The Home shown inside a key hold (`keepsOutOfTabRowInHold`) goes this way also when its parked frame IS the host's (the tab before was a chat in the tab row): with the fill mask it was held at the whole pane's size with its row while the host went under the strip.
             if view.frame != frame { view.frame = frame } // parked through a key hold (`layoutParked` waits for its end): one size, the one it shows at
             view.autoresizingMask = []
             needsLayout = true

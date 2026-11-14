@@ -179,6 +179,10 @@ _DOCUMENTATION_SUFFIXES = (".md", ".mdx", ".txt")
 # warm-source table, whose entries describe a source in prose (#28568), and the
 # single-host fallback declaration, whose `fallback` lines name the rescue that
 # moves a stuck job (#40880).
+# Files where `#` starts a comment. Outside scripts/, actions and tests/, one
+# that names a helper only in a comment does not run it (a Cargo.toml's note on
+# the release strip routed that strip script to every lane, #42338).
+_HASH_COMMENT_SUFFIXES = (".toml", ".yml", ".yaml", ".sh", ".bash", ".zsh")
 _NON_RUNNING_FILES = frozenset({
     ".gitattributes",
     ".github/single-host-fallbacks.json",
@@ -808,6 +812,13 @@ def ci_helper_areas(
                 )
                 if named is False or (named is None and not _names(text, token)):
                     continue
+            elif not referrer.startswith("tests/") and referrer.endswith(_HASH_COMMENT_SUFFIXES):
+                try:
+                    text = (root / referrer).read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    return every_area(f"could not read {referrer}")
+                if not _names(text, token):
+                    continue
             if referrer.startswith(".github/actions/") and referrer.endswith(("/action.yml", "/action.yaml")):
                 # An action runs in whatever job uses it; its directory is
                 # the token those jobs name.
@@ -832,6 +843,15 @@ def ci_helper_areas(
                         and not (is_test_registry_path(runner) and _registry_lane_is_inert(root, referrer))
                         and not (runner.startswith("tests/") and runner.endswith(".py")
                                  and _python_runner_names(root, runner, referrer) is False)
+                        # A test that runs this test is judged by the rule for a
+                        # test that names the helper: a Linux guard test, or a
+                        # manual-lane test nothing runs or imports, reaches no
+                        # Mac job (tests/test_script_module_loads.py, #41175,
+                        # runs tests/test_cmux_next_route.py by hand).
+                        and not (runner.startswith("tests/") and (
+                            is_guard_only_test(runner, test_references)
+                            or (is_unrouted_test(runner, test_references)
+                                and _nothing_imports_test(root, runner))))
                     ]
                     if not runners and _nothing_imports_test(root, referrer):
                         # Nothing runs it or imports it: a manual-lane test

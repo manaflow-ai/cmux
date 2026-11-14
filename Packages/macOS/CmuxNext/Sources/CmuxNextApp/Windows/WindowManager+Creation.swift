@@ -56,10 +56,12 @@ extension WindowManager {
         return windowID
     }
 
-    /// Dock click, Show cmux: the last closed window comes back with its
-    /// workspaces; with none registered, a new window with a new workspace.
+    /// Dock click, Show cmux, an open of the running app (a launcher, `open -a`, a hand-off): a window it has comes forward, else the
+    /// last closed one, else one new window, never a second while it opens (Leo 2026-11-11: "double clicking from [a launcher], caused this").
     func reopenOrCreateWindow() {
-        if !reopenClosedWindow() { newWindow() }
+        if let shown = active { if NSApp.isHidden { NSApp.unhide(nil) }; return bringToFront(shown) }
+        guard !reopenClosedWindow(), !reopenCreating else { return }
+        reopenCreating = true; Task { _ = await createWorkspace(into: UUID().uuidString.lowercased(), newTabPage: true); reopenCreating = false }
     }
 
     /// `preferred` when that window is open (the launch window is, before the restore: `awaitsRestore`),
@@ -119,6 +121,7 @@ extension WindowManager {
     /// A create into a window failed or a close cancelled it: its row goes, and its claim unless it listed (#31502).
     func createFailed(_ id: String, _ error: any Error) -> any Error {
         PendingWorkspaceRows.shared.remove(id)
+        services.machines.local.store.personal.forgetExpectedPin(key: id)
         if claims.release(failed: id, listed: services.machines.workspace(id: id) != nil) { repairSelections(previous: membersByWindow) }
         for controller in controllers where controller.state.workspaceID == id { controller.showWorkspace(requested: id) }  // it waited (awaits)
         return error

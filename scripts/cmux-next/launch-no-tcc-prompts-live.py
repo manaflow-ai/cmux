@@ -45,6 +45,7 @@ import argparse, json, os, plistlib, pwd, re, signal, socket, sqlite3, subproces
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_names  # noqa: E402
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -206,8 +207,8 @@ def run_phase(phase, teardown):
         with open(os.path.join(opts.out, f"requests-{phase}.json"), "w") as f:
             json.dump(rows, f, indent=2)
         for r in rows:
-            print(f"  {r.get('time')} {r.get('service')} preflight={r.get('preflight')} "
-                  f"auth={r.get('auth_value')} by {r.get('requesting_path')} (pid {r.get('requesting_pid')})", flush=True)
+            safe_print(f"  {r.get('time')} {r.get('service')} preflight={r.get('preflight')} "
+                       f"auth={r.get('auth_value')} by {r.get('requesting_path')} (pid {r.get('requesting_pid')})", flush=True)
         prompts = [r for r in rows if r.get("preflight") == "no"]
         named = sorted({"%s by %s" % (r.get("service"), os.path.basename(r.get("requesting_path") or "?")) for r in prompts})
         check(not prompts, f"{phase}: no privacy check that prompts ({len(prompts)} of {len(rows)} checks: {', '.join(named)})")
@@ -216,7 +217,7 @@ def run_phase(phase, teardown):
         registered = notification_registrations()
         if registered is not None:
             check(not registered, f"{phase}: macOS registered no notification client of the app ({registered})")
-        print(f"  stills: {[s for s in shots if s]}", flush=True)
+        safe_print(f"  stills: {[s for s in shots if s]}", flush=True)
         return True
     finally:
         if stream.poll() is None:
