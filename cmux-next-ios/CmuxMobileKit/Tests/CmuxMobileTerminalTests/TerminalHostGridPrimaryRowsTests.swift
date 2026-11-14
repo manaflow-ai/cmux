@@ -17,6 +17,11 @@ import UIKit
 /// a row that did not change is a bare `\r\n`. So a row lost from the first
 /// paint stays lost until its text changes.
 ///
+/// With the shell's prompt marks (OSC 133, shell integration) the first
+/// paint's `ESC[2J` is a clear at a prompt, which Ghostty does by scrolling
+/// the screen into the scrollback; its cursor follows its row up, and on the
+/// taller mirror it left the Mac's rows for the mirror's top.
+///
 /// The bytes are procps-ng top's own at 30×12 (recorded from a pty on a
 /// Linux host): its first paint and two refreshes.
 @MainActor
@@ -30,12 +35,14 @@ import UIKit
         "\u{1B}[H\u{1B}(B\u{1B}[mtop - \(clock) up 35 days, 21:\u{1B}(B\u{1B}[m\u{1B}[39;49m\u{1B}(B\u{1B}[m\u{1B}[39;49m\u{1B}[K\r\n\r\n\r\n\r\n\r\n\u{1B}[K\r\n\r\n\r\n\r\n\r\n\r\n"
     }
 
-    /// The Mac's 12 rows after the second refresh, as text.
+    /// The Mac's 12 rows after the second refresh, as text. A row of exactly
+    /// 30 columns loses its last one: top ends each row with `ESC[K`, which
+    /// erases the cell under the cursor waiting to wrap (as on the Mac).
     static let expected = [
-        "top - 08:55:27 up 35 days, 21:",
-        "Tasks:   5 total,   1 running,",
-        "%Cpu(s):  0.0 us,  0.0 sy,  0.",
-        "MiB Mem : 362500.2 total, 1031",
+        "top - 08:55:27 up 35 days, 21",
+        "Tasks:   5 total,   1 running",
+        "%Cpu(s):  0.0 us,  0.0 sy,  0",
+        "MiB Mem : 362500.2 total, 103",
         "MiB Swap:      0.0 total,",
         "",
         "    PID USER      PR  NI",
@@ -60,9 +67,10 @@ import UIKit
 
     /// The Mac's rows in the mirror: its bottom 12 active rows.
     static func mirrorRows(_ rig: Rig) -> [String] {
-        let lines = (rig.screen.surface.activeAreaText() ?? "").split(separator: "\n", omittingEmptySubsequences: false)
-        let rows = lines.suffix(12).map(trimmed)
-        return Array(repeating: "", count: max(0, 12 - rows.count)) + rows
+        // The read leaves out blank rows at the end: pad to the mirror's rows.
+        let lines = (rig.screen.surface.activeAreaText() ?? "").split(separator: "\n", omittingEmptySubsequences: false).map(trimmed)
+        let padded = lines + Array(repeating: "", count: max(0, rig.screen.surface.grid.rows - lines.count))
+        return Array(padded.suffix(12))
     }
 
     /// The rows the page shows where the Mac's 12 rows are pinned: the
@@ -95,10 +103,10 @@ import UIKit
         try await TerminalPredictionInputTests.waitUntil(5) { (rig.screen.surface.activeAreaText() ?? "").contains("top") }
 
         rig.session.write(Self.firstPaint)
-        try await TerminalPredictionInputTests.waitUntil(5) { Self.mirrorRows(rig).last?.contains("402") == true }
+        try await TerminalPredictionInputTests.waitUntil(5) { (rig.screen.surface.activeAreaText() ?? "").contains("402") }
         rig.session.write(Self.refresh("08:55:26"))
         rig.session.write(Self.refresh("08:55:27"))
-        try await TerminalPredictionInputTests.waitUntil(5) { Self.mirrorRows(rig).first?.contains("08:55:27") == true }
+        try await TerminalPredictionInputTests.waitUntil(5) { (rig.screen.surface.activeAreaText() ?? "").contains("08:55:27") }
         try await TerminalPredictionInputTests.waitUntil(3) { Self.shownRows(rig) == Self.expected }
 
         let mirror = Self.mirrorRows(rig)
