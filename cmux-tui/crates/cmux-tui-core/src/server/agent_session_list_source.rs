@@ -55,10 +55,7 @@ pub(crate) fn open(socket: &Path, within: Duration) -> io::Result<Opened> {
 }
 
 /// `work`, or a timeout error at `deadline`.
-async fn bounded<T>(
-    deadline: Instant,
-    work: impl std::future::Future<Output = io::Result<T>>,
-) -> io::Result<T> {
+async fn bounded<T>(deadline: Instant, work: impl Future<Output = io::Result<T>>) -> io::Result<T> {
     // timeout: a list read past its caller's deadline is an error, never a part of the list.
     tokio::time::timeout_at(deadline.into(), work).await.map_err(|_| {
         io::Error::new(io::ErrorKind::TimedOut, "the list read ran past its deadline")
@@ -84,17 +81,6 @@ impl Source {
             }
             Ok(())
         }))
-    }
-
-    /// The bytes the daemon sent on this connection.
-    pub(crate) fn bytes_received(&self) -> u64 {
-        self.connection.bytes_received()
-    }
-
-    /// The most pages read and not yet handed on at once (at most one).
-    #[cfg(test)]
-    pub(crate) fn unhanded_peak(&self) -> usize {
-        self.connection.unhanded_peak()
     }
 }
 

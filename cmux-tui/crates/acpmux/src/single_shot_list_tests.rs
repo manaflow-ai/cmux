@@ -313,7 +313,7 @@ fn unnamed_v1_list_uses(
 
 fn crate_sources() -> Vec<(String, String)> {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    sources_from(&src, &[src.clone()])
+    sources_from(&src, std::slice::from_ref(&src))
 }
 
 /// The sources under each of `dirs` (test files left out), each path from `root`.
