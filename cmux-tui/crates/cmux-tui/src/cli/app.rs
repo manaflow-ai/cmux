@@ -180,6 +180,10 @@ pub(super) enum AppCommand {
     Renderers {
         params: Value,
     },
+    /// `app renderers profile`: `renderers.profile` on one page (app/renderers.rs).
+    RendererProfile {
+        params: Value,
+    },
     /// `app chat perf`: `agent.chat.perf`, one chat page's frames and record-to-paint times over
     /// `seconds` (app/chat_perf.rs).
     ChatPerf {
@@ -965,6 +969,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         }
         AppCommand::Renderers { params } => {
             return Ran::Done(renderers::run(global, stream, params));
+        }
+        AppCommand::RendererProfile { params } => {
+            return Ran::Done(renderers::run_profile(global, stream, params));
         }
         AppCommand::ChatPerf { params, seconds } => {
             return Ran::Done(chat_perf::run(global, stream, params, seconds));
