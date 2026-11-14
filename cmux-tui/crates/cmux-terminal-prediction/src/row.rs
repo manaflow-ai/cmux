@@ -51,7 +51,8 @@ impl Default for RowText {
 impl RowText {
     pub(crate) fn new() -> Self {
         Self {
-            text: None,
+            // A new terminal starts with its cursor at the start of an empty row.
+            text: Some(Vec::new()),
             state: State::Ground,
             parameters: Vec::new(),
             ended_with_carriage_return: false,
