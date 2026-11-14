@@ -134,6 +134,7 @@ import {
 import {
   DEVBOX_WORK_HOME,
   DEVBOX_WORK_USER,
+  devboxUbuntuAliasCommand,
   devboxWorkUserSetupCommand,
 } from "../services/vms/images/workUser";
 import {
@@ -682,6 +683,9 @@ try {
   // The identity survived every layer above, and none of them wrote the
   // provider's machine name anywhere the machine speaks for itself.
   await step("identity-final", devboxIdentityCheckCommand());
+  // `ubuntu` becomes a second name for the work user, after every layer that
+  // adds the work user to a group, so the alias carries the same groups.
+  await step("ubuntu-alias", devboxUbuntuAliasCommand());
   // Stamp last: its presence tells the driver and the verifier every layer
   // above baked successfully, and which layers the image carries.
   await step(
