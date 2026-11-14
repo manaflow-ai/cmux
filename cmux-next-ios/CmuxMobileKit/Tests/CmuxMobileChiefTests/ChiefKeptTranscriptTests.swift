@@ -59,6 +59,9 @@ import Testing
         let first = ChiefSession(backend: ChiefMockBackend(sleep: { _ in }), outbox: outbox, transcripts: cache)
         try await waitUntil("the mock Chief to load") { first.store.hasLoadedNewest && !first.store.messages.isEmpty }
         let seen = first.store.messages.compactMap(\.seq)
+        // The store keeps its transcript on a later main-actor turn (`scheduleTranscriptSave`);
+        // keep it now, as leaving the foreground does, so the relaunch never races that turn.
+        first.store.saveTranscript()
 
         let relaunched = ChiefSession(backend: ChiefMockBackend(sleep: { _ in }), outbox: outbox, transcripts: cache)
         #expect(relaunched.store.messages.compactMap(\.seq) == seen)
