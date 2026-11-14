@@ -741,6 +741,7 @@ pub(super) fn page(state: &mut ActorState, page: Page, person: PersonId, reply: 
         has_before: read.has_before,
         has_after: read.has_after,
         refused: read.refused,
+        turns: page.turns,
     };
     match Frame::json(FrameKind::Page, &result) {
         Ok(frame) => reply.answer(frame),

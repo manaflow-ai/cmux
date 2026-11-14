@@ -584,6 +584,7 @@ fn a_page_of_turns_holds_the_settled_group_rows_and_not_the_open_one() {
             .until(&mut Vec::new(), |frame| (frame.kind == FrameKind::Page).then(|| frame.clone()))
             .await;
         let result: ChatPageResult = frame.decode_json().unwrap();
+        assert!(result.turns, "the reply to a page of turns says so");
         let rows: Vec<Value> = result.rows.iter().map(row_value).collect();
         assert_eq!(rows.len(), 12, "{rows:?}");
         assert!(rows.iter().all(|row| row["kind"] == "group"), "{rows:?}");

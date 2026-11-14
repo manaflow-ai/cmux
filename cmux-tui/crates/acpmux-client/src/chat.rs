@@ -479,10 +479,26 @@ where
             return;
         };
         let sid = page.sid.clone();
-        if self.chats.get_mut(&sid).and_then(|chat| chat.page.take()).is_none() {
+        let Some(asked) = self.chats.get_mut(&sid).and_then(|chat| chat.page.take()) else {
             // A reply to no page out on this connection.
             self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
             self.charge_frame_now(Some(&sid), frame_bytes);
+            return;
+        };
+        if asked.turns && !page.turns {
+            // A daemon from before `turns` answered an ordinary page: its rows are not turns.
+            self.charge_frame_now(Some(&sid), frame_bytes);
+            self.push_change(
+                Change::Chat(ChatChange::Error {
+                    sid: Some(sid),
+                    method: "page".into(),
+                    id: None,
+                    code: "turns_unsupported".into(),
+                }),
+                None,
+                0,
+                false,
+            );
             return;
         }
         if over_bound(&page.rows, page.refused.len()) {

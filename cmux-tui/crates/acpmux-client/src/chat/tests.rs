@@ -239,6 +239,7 @@ fn a_page_names_its_place_and_the_core_fills_the_rest() {
         has_before: false,
         has_after: true,
         refused: vec![],
+        turns: false,
     };
     let changes = chat_changes(feed(&mut client, &Frame::json(FrameKind::Page, &reply).unwrap()));
     assert_eq!(changes, vec![ChatChange::Page { page: reply.clone() }]);
@@ -277,12 +278,52 @@ fn a_page_of_turns_is_one_page_out_and_names_no_fold() {
         has_before: true,
         has_after: false,
         refused: vec![],
+        turns: true,
     };
     let changes = chat_changes(feed(&mut client, &Frame::json(FrameKind::Page, &reply).unwrap()));
     assert_eq!(changes, vec![ChatChange::Page { page: reply }]);
     // The slot is free again, and a page that is not of turns says nothing of them.
     client.chat_page(other).unwrap();
     assert!(sent(&mut client).pop().unwrap()["params"].get("turns").is_none());
+}
+
+#[test]
+fn a_page_of_turns_answered_by_a_daemon_from_before_turns_is_turns_unsupported() {
+    let mut client = open_chat();
+    let turns = ChatPageRequest {
+        sid: "c".into(),
+        before: Some(u64::MAX),
+        turns: true,
+        ..Default::default()
+    };
+    client.chat_page(turns.clone()).unwrap();
+    sent(&mut client);
+    // An older daemon reads `turns` as an ordinary page and answers rows, without `turns`.
+    let old = br#"{"sid":"c","edition":1,"rows":[{"id":9}],"hasBefore":true,"hasAfter":false}"#;
+    let frame = Frame::new(FrameKind::Page, old.to_vec()).unwrap();
+    let changes = chat_changes(feed(&mut client, &frame));
+    assert_eq!(
+        changes,
+        vec![ChatChange::Error {
+            sid: Some("c".into()),
+            method: "page".into(),
+            id: None,
+            code: "turns_unsupported".into(),
+        }]
+    );
+    // The slot is free again; an ordinary page's reply without `turns` is a page.
+    let other = ChatPageRequest { sid: "c".into(), after: Some(3), ..Default::default() };
+    client.chat_page(other).unwrap();
+    sent(&mut client);
+    let changes = chat_changes(feed(&mut client, &frame));
+    assert!(matches!(changes.as_slice(), [ChatChange::Page { page }] if !page.turns));
+    // A turns page answered with `turns: true` is a page.
+    client.chat_page(turns).unwrap();
+    sent(&mut client);
+    let new = br#"{"sid":"c","edition":1,"rows":[{"id":9}],"hasBefore":true,"hasAfter":false,"turns":true}"#;
+    let changes =
+        chat_changes(feed(&mut client, &Frame::new(FrameKind::Page, new.to_vec()).unwrap()));
+    assert!(matches!(changes.as_slice(), [ChatChange::Page { page }] if page.turns));
 }
 
 #[test]

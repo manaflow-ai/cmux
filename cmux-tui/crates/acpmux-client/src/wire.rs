@@ -679,6 +679,10 @@ pub struct ChatPageResult {
     pub has_after: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub refused: Vec<u64>,
+    /// The reply to a page of turns says so. A daemon from before `turns` reads the request as
+    /// an ordinary page and answers rows without it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub turns: bool,
 }
 
 /// One op of a chat's delta. A settled row and a patch carry a seq of their own; a row that
