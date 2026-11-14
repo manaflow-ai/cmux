@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43569345025",
+  "recorded_at": "2026-11-14T07:11:51Z",
+  "reason": "cmux-tui 31f557cdd0aa changes the image's cmux-tui (pinned e97e5e0ee2d9)",
+  "dry_run": false,
+  "cmux_tui": "31f557cdd0aacd0ef950f367497a87afa412d32a",
+  "fixes": [
+    {
+      "sha": "b6b155000915604a732039f05c4d99aa0bf5c985",
+      "mergedAt": "2026-11-13T22:41:23-08:00",
+      "subject": "apps: host-enforced op-batch budget and Slowed/Paused ladder (#41554)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T07:11:51Z",
+    "snapshot_id": "sh-83a73e29785247119246b57d59cae835",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43569345025): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "92c9108e2ee1a75032e302049ca54bbc44f39e26",
+    "image": "cloud-native-auto-31f557cd-43569345025-1",
+    "revision": "ci-43569345025-1",
+    "at": "2026-11-14T07:11:51Z"
+  },
+  "rolled_back": false
+}
