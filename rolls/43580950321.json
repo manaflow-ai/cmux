@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43580950321",
+  "recorded_at": "2026-11-14T09:40:59Z",
+  "reason": "cmux-tui 698b7e2954ce changes the image's cmux-tui (pinned eed10d1f28d3)",
+  "dry_run": false,
+  "cmux_tui": "698b7e2954cec126f0c2c9aec7dbdbc8cfe5d61a",
+  "fixes": [
+    {
+      "sha": "08200d5523b07d3743531348e54ee2fd69aea686",
+      "mergedAt": "2026-11-14T01:10:55-08:00",
+      "subject": "base red (acpmux-book and acpmux-core tests): a turn ends for in_turn at its result; the lost-undo recover test's segment holds its first record (#42943)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T09:40:59Z",
+    "snapshot_id": "sh-b2f5428597834eafa20c81eb009207ff",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43580950321): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d9184f9bca1a90b4f389f68291aefd8370c730bc",
+    "image": "cloud-native-auto-698b7e29-43580950321-1",
+    "revision": "ci-43580950321-1",
+    "at": "2026-11-14T09:40:59Z"
+  },
+  "rolled_back": false
+}
