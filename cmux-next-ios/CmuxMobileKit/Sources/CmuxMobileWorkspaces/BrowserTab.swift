@@ -1,4 +1,5 @@
 #if os(iOS)
+import enum CmuxMobileModel.UserFacingError
 import Observation
 import SwiftUI
 import UIKit
@@ -119,7 +120,7 @@ public final class BrowserTabModel: BrowserTabState {
         url = target
         problem = Problem(url: target, isMacOnly: false, isPrivateNetwork: PhoneReach(target) == .privateNetwork,
                           isInsecure: (error as NSError).domain == NSURLErrorDomain && code == NSURLErrorAppTransportSecurityRequiresSecureConnection,
-                          message: error.localizedDescription,
+                          message: UserFacingError.message(error, fallback: "This page couldn't load."),
                           detail: PhoneReach(target) == .macLoopback ? loopbackRefusal?(target) : nil)
     }
 
@@ -379,6 +380,7 @@ struct BrowserCard: View {
                 Image(systemName: "globe")
                     .font(.system(size: 72, weight: .light))
                     .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }

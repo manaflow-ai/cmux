@@ -367,13 +367,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // published index is filled by the list tee in the follow-up lane; startup
     // never waits on this handle or on a chat book.
     let mut v2_tasks = tokio::task::JoinSet::new();
-    let v2 = if config.acpmux_v2.is_empty() {
-        None
-    } else {
-        let (hub, writer) = acpmux_core::hub::Hub::new(acpmux_book::index::SummaryIndex::new());
-        let surfaces = config.acpmux_v2.enabled().into_iter().map(str::to_owned).collect();
-        Some(std::sync::Arc::new(acpmux_core::life::V2::with_surfaces(hub, writer, surfaces)))
-    };
+    let v2 = v2_handle(&config);
     if let Some(v2) = v2.as_ref()
         && let Some(writer) = v2.take_writer()
     {
@@ -604,6 +598,12 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             hub.clone(),
         )));
         v2_tasks.spawn(task);
+        // The book tee (`hub/book_tee.rs`): its drain and background pass, never awaited here.
+        if let Some(registry) = v2.registry() {
+            let (tee, task) = crate::hub::book_tee::start_book_tee(hub.clone(), registry.clone());
+            hub.install_book_tee(tee);
+            v2_tasks.spawn(task);
+        }
     }
     // A copied machine's first start settles what the logs left open as stopped
     // (`hub/clone_boot.rs`); read before any log is.
@@ -642,26 +642,19 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         hub.watches.open(&home().join("watches.json"));
     }
     hub.start_watches();
-    // The team hub's relay, when config.json names one (`server/mesh_relay.rs`).
-    let mesh_relay = crate::server::mesh_relay::start_configured(&hub).await;
-    // The hub carrier on the same hub and credential (`hub_carrier.rs`): this machine serves its
-    // relay slot, and its peers dial over it. A copied home is off, as WireGuard is.
-    #[cfg(feature = "hub-carrier")]
-    let _hub_carrier = if clone_unsettled {
-        None
-    } else {
-        let websocket = ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok());
-        // The carrier runs only on the lock the WireGuard transport holds; it never takes its own.
-        let held = wireguard.as_ref().and_then(|transport| transport.key_holder());
-        let serving = crate::hub_carrier::start_configured(&hub, &home(), websocket, held).await;
-        // A rekey (`machine_tunnel.rs`) rotates the node key under the carrier: it takes the new
-        // key with the key file and registers again, rather than reading it as replaced.
-        if let (Some(transport), Some(carrier)) = (wireguard.as_ref(), hub.hub_carrier.get()) {
-            let carrier = carrier.clone();
-            transport.add_key_user(Arc::new(move |private, write| carrier.rekey(*private, write)));
-        }
-        serving
-    };
+    // What the join in config.json starts (`server/machine_enroll.rs`): the team hub's relay
+    // (`server/mesh_relay.rs`), kept on the hub so a sign-in enroll can start one live, and the
+    // hub carrier on the same hub and credential (`hub_carrier.rs`), through which this machine
+    // serves its relay slot and its peers dial it. A copied home runs no carrier, as WireGuard.
+    // A sign-out's leave the last run did not finish goes first: neither starts for a machine
+    // that left.
+    let carrier = (!clone_unsettled)
+        .then(|| ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok()))
+        .flatten();
+    crate::server::machine_enroll::start_joined_at_start(&hub, carrier).await;
+    // A machine joined before the hub recorded capabilities states them with its own credential,
+    // in the background (`cli/cloud_join/self_capabilities.rs`); the start never waits for it.
+    crate::cli::cloud_join::state_capabilities_at_start(&hub.scope);
     // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
     hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));
     if let Some(key) = person_key {
@@ -1168,10 +1161,13 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // another daemon's now (`config::mark_home_lost` refuses its writes there).
     startup.abort();
     let _ = tokio::time::timeout_at(cleanup_deadline, startup).await;
-    // Its last heartbeat empties this daemon's rows in the hub's address book.
-    if let Some(relay) = mesh_relay {
-        let _ = tokio::time::timeout_at(cleanup_deadline, relay.stop()).await;
-    }
+    // Its last heartbeat empties this daemon's rows in the hub's address book. The start's
+    // join task ends first, so nothing starts a relay after this stops it.
+    let _ = tokio::time::timeout_at(
+        cleanup_deadline,
+        crate::server::machine_enroll::stop_at_shutdown(&hub),
+    )
+    .await;
     // SIGTERM handoff and explicit updates/restarts use 1012. Explicit ordinary RPC
     // shutdown and interactive interrupt use a normal WebSocket close.
     let restarting = hub.restart_requested.load(std::sync::atomic::Ordering::SeqCst);
@@ -1293,6 +1289,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             let _ = crate::home_fs::remove_file(file);
         }
     }
+    // The carrier's registration last, as when the start held it to the end.
+    crate::server::machine_enroll::stop_carrier(&hub);
     // Usage counts are written some time after they are made, so an idle
     // daemon never wakes for them; the last ones are written here.
     let _ = tokio::time::timeout(
@@ -2097,6 +2095,22 @@ pub(crate) fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
         _ if shared_home => SHARED,
         _ => ANY,
     }
+}
+
+/// v2's handle for `config`: none while `acpmux.v2` is empty. It holds a chat registry only when
+/// the daemon writes books: `books` in the set and a store on disk (a store in memory makes no
+/// registry and no books).
+pub(crate) fn v2_handle(config: &Config) -> Option<std::sync::Arc<acpmux_core::life::V2>> {
+    if config.acpmux_v2.is_empty() {
+        return None;
+    }
+    let (hub, writer) = acpmux_core::hub::Hub::new(acpmux_book::index::SummaryIndex::new());
+    let surfaces: std::collections::HashSet<String> =
+        config.acpmux_v2.enabled().into_iter().map(str::to_owned).collect();
+    let books = surfaces.contains("books") && config.store.mode != crate::config::StoreMode::Memory;
+    let v2 = acpmux_core::life::V2::with_surfaces(hub, writer, surfaces);
+    let v2 = if books { v2.with_registry(acpmux_core::registry::Registry::new()) } else { v2 };
+    Some(std::sync::Arc::new(v2))
 }
 
 /// Whether a stop keeps this daemon's chats: agents under agent hosts (as the hub runs them,

@@ -118,6 +118,7 @@ dependencies = [
 name = "acpmux-book"
 version = "0.1.0"
 dependencies = [
+ "acpmux-list-types",
  "bincode",
  "crc32fast",
  "imbl",
@@ -136,6 +137,7 @@ name = "acpmux-client"
 version = "1.0.0"
 dependencies = [
  "acpmux-book",
+ "acpmux-list-types",
  "serde",
  "serde_json",
  "tokio",
@@ -151,6 +153,7 @@ dependencies = [
  "cmux-scope",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -165,6 +168,14 @@ dependencies = [
  "libc",
  "sha2 0.10.9",
  "wasmtime",
+]
+
+[[package]]
+name = "acpmux-list-types"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1129,6 +1140,8 @@ dependencies = [
 name = "cmux-app-host"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "chrono-tz",
  "cmux-json",
  "libc",
  "rquickjs",
@@ -1437,6 +1450,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-json",
+ "cmux-theme-tokens",
  "core-foundation 0.10.1",
  "core-foundation-sys",
  "jsonschema",
@@ -2637,6 +2651,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -3243,6 +3258,19 @@ dependencies = [
  "rustc_version",
  "syn 2.0.119",
  "unicode-xid",
+]
+
+[[package]]
+name = "desktop-lease"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "cmux-process",
+ "cmux-scope",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
