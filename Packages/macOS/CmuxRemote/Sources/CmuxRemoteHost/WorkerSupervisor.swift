@@ -14,6 +14,7 @@ struct WorkerLaunch: Sendable {
     /// The persistent per-app-build directory and scope (the Screen Sharing worker's device lives there).
     var stateDirectory: String
     var scope: String
+    let lifetime: RemoteChildLifetime
 
     func arguments(_ kind: RemoteWorkerKind, layout: RemoteHostLayout) -> [String] {
         ["worker", kind.rawValue, "--layout-dir", layout.directory, "--state-dir", stateDirectory, "--scope", scope]
@@ -155,7 +156,7 @@ final class ScreenWorkerSupervisor: Sendable {
     private func start() {
         let child: ChildProcess
         do {
-            child = try ChildProcess.spawn(executable: launch.executable,
+            child = try launch.lifetime.spawn(executable: launch.executable,
                                            arguments: launch.arguments(.screenSharing, layout: layout),
                                            environment: launch.environment, logPath: launch.logPath)
         } catch {
@@ -181,6 +182,8 @@ final class ScreenWorkerSupervisor: Sendable {
         reader.name = "remote-screen-worker-read"
         reader.start()
         ChildProcess.watch(child.pid, name: "remote-screen-worker-watch") { [self] status in
+            // Remove this generation before exited() can spawn its replacement (and reuse its PID).
+            if status >= 0 { launch.lifetime.reaped(child.pid) }
             exited(generation: generation, status: status, ranFor: Date().timeIntervalSince(started), channel: channel)
         }
         onChange()
@@ -303,7 +306,7 @@ final class ComputerUseWorkers: Sendable {
     func open(for channel: LineChannel, id: Any?, environment extra: [String: String]) {
         let child: ChildProcess
         do {
-            child = try ChildProcess.spawn(executable: launch.executable,
+            child = try launch.lifetime.spawn(executable: launch.executable,
                                            arguments: launch.arguments(.computerUse, layout: layout),
                                            environment: launch.environment.merging(extra) { $1 }, logPath: launch.logPath)
         } catch {
@@ -338,6 +341,7 @@ final class ComputerUseWorkers: Sendable {
             finish()
         }
         ChildProcess.watch(child.pid, name: "remote-cu-worker-watch") { [self] status in
+            if status >= 0 { launch.lifetime.reaped(child.pid) }
             logger.notice("Computer Use worker pid=\(child.pid, privacy: .public) exited status=\(status, privacy: .public)")
             state.withLock { _ = $0.removeValue(forKey: child.pid) }
             // The app side's read ends too, so its pump finishes.

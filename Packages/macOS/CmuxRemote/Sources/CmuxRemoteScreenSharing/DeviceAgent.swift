@@ -85,8 +85,13 @@ final class DeviceAgent {
     /// Keychain and Secure Enclave can take seconds).
     func loadIdentity() async -> DeviceIdentity? {
         if let identity { return identity }
-        let task = loading ?? Task.detached { [keychainScope] in
-            do { return try DeviceIdentity.forApp(bundleIdentifier: keychainScope) } catch {
+        let task = loading ?? Task.detached { [keychainScope, statePath] in
+            do {
+                try CaptureLeaseMarker.authorizeIdentity(stateDirectory: URL(fileURLWithPath: statePath).deletingLastPathComponent().path,
+                                                         keychainScope: keychainScope,
+                                                         home: ProcessInfo.processInfo.environment["HOME"] ?? "")
+                return try DeviceIdentity.forApp(bundleIdentifier: keychainScope)
+            } catch {
                 logger.error("device identity: \(String(describing: error), privacy: .public)")
                 return nil
             }
@@ -132,7 +137,15 @@ final class DeviceAgent {
     /// The hub refused this identity (removed): a new one; the app registers it.
     func renewIdentity() async -> DeviceIdentity? {
         stopHub()
-        let fresh = await Task.detached { [keychainScope] in try? DeviceIdentity.renew(bundleIdentifier: keychainScope) }.value
+        let fresh = await Task.detached { [keychainScope, statePath] in
+            // A failed lease check must not fall through to a renewing Keychain write.
+            do {
+                try CaptureLeaseMarker.authorizeIdentity(stateDirectory: URL(fileURLWithPath: statePath).deletingLastPathComponent().path,
+                                                         keychainScope: keychainScope,
+                                                         home: ProcessInfo.processInfo.environment["HOME"] ?? "")
+                return try DeviceIdentity.renew(bundleIdentifier: keychainScope)
+            } catch { return nil as DeviceIdentity? }
+        }.value
         if let fresh { identity = fresh }
         return fresh
     }

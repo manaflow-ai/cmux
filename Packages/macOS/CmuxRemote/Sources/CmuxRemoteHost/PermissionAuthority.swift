@@ -99,16 +99,19 @@ public final class PermissionAuthority: Sendable {
     }
 
     /// The real probe: `<this executable> probe`, which prints one JSON line and exits.
-    static func processProbe(executable: String, logPath: String) -> @Sendable () -> PermissionSnapshot? {
+    static func processProbe(executable: String, logPath: String, lifetime: RemoteChildLifetime) -> @Sendable () -> PermissionSnapshot? {
         {
-            guard let child = try? ChildProcess.spawn(executable: executable, arguments: ["probe"],
+            guard let child = try? lifetime.spawn(executable: executable, arguments: ["probe"],
                                                       environment: ["PATH": "/usr/bin:/bin"], logPath: logPath) else { return nil }
             close(child.stdin)
             let channel = LineChannel(read: child.stdout, write: child.stdout)
             let answer = channel.readObject()
             close(child.stdout)
             var status: Int32 = 0
-            while waitpid(child.pid, &status, 0) < 0, errno == EINTR {}
+            var result = waitpid(child.pid, &status, 0)
+            while result < 0, errno == EINTR { result = waitpid(child.pid, &status, 0) }
+            guard result == child.pid else { return nil }
+            lifetime.reaped(child.pid)
             guard let answer, let accessibility = answer["accessibility"] as? Bool,
                   let screenRecording = answer["screen_recording"] as? Bool else { return nil }
             return PermissionSnapshot(accessibility: accessibility, screenRecording: screenRecording, checkedAt: Date())

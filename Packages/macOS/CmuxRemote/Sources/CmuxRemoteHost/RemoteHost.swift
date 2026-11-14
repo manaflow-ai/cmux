@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 public import AppKit
 public import CmuxRemoteWire
+import CmuxDeviceHub
 import Darwin
 import Foundation
 import os
@@ -48,18 +49,29 @@ public final class RemoteHost: NSObject, NSApplicationDelegate {
     let permissions: PermissionAuthority
     let screen: ScreenWorkerSupervisor
     let computerUse: ComputerUseWorkers
+    let children: RemoteChildLifetime
+    let captureLease: RemoteCaptureLease
     private let core: HostCore
     /// How long the host serves with no daemon connected before it exits.
     static let adoptionGrace: TimeInterval = 60
     private var orphanTimer: DispatchSourceTimer?
     private var accessibilityObserver: (any NSObjectProtocol)?
+    private var shuttingDown = false
 
     public init(layout: RemoteHostLayout, bootstrap: HostBootstrap, executable: String, stateDirectory: String, scope: String) {
         self.layout = layout
-        let workerEnvironment = Self.workerEnvironment(hubURL: bootstrap.hubURL, headless: bootstrap.headless)
+        let children = RemoteChildLifetime()
+        self.children = children
+        let namespace = DeviceCaptureNamespace(bundleIdentifier: (Bundle.main.bundleIdentifier ?? "com.cmuxterm.remote.dev") + "." + scope)
+        captureLease = RemoteCaptureLease(stateDirectory: stateDirectory,
+                                         keychainScope: (Bundle.main.bundleIdentifier ?? "com.cmuxterm.remote.dev") + "." + scope,
+                                         home: ProcessInfo.processInfo.environment["HOME"] ?? "",
+                                         empty: { try namespace.isEmpty() }, remove: { try namespace.remove() })
+        let workerEnvironment = Self.workerEnvironment(hubURL: bootstrap.hubURL, headless: bootstrap.headless,
+                                                       home: ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory())
         let launch = WorkerLaunch(executable: executable, environment: workerEnvironment, logPath: layout.log,
-                                  stateDirectory: stateDirectory, scope: scope)
-        permissions = PermissionAuthority(probe: PermissionAuthority.processProbe(executable: executable, logPath: layout.log))
+                                  stateDirectory: stateDirectory, scope: scope, lifetime: children)
+        permissions = PermissionAuthority(probe: PermissionAuthority.processProbe(executable: executable, logPath: layout.log, lifetime: children))
         let core = HostCore(secret: bootstrap.supervisorSecret, daemonBuild: bootstrap.daemonBuild, daemonSocket: bootstrap.daemonSocket)
         self.core = core
         screen = ScreenWorkerSupervisor(launch: launch, layout: layout) { core.statusChanged() }
@@ -70,9 +82,9 @@ public final class RemoteHost: NSObject, NSApplicationDelegate {
     }
 
     /// The workers' whole environment: nothing from the daemon's (it carries cmux tokens).
-    nonisolated static func workerEnvironment(hubURL: String?, headless: Bool) -> [String: String] {
+    nonisolated static func workerEnvironment(hubURL: String?, headless: Bool, home: String) -> [String: String] {
         var environment = [
-            "HOME": NSHomeDirectory(),
+            "HOME": home,
             "TMPDIR": NSTemporaryDirectory(),
             "USER": NSUserName(),
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
@@ -124,11 +136,23 @@ public final class RemoteHost: NSObject, NSApplicationDelegate {
     }
 
     func shutDown() {
+        guard !shuttingDown else { return }
+        shuttingDown = true
+        children.freeze()
         screen.setWanted(false)
         computerUse.stopAll()
-        unlink(layout.supervisorSocket)
-        unlink(layout.appSocket)
-        exit(0)
+        children.stopOwnedChildren()
+        let children = self.children, layout = self.layout
+        // task-owner: one bounded shutdown per host; exit only after every tracked child was reaped.
+        Task.detached {
+            guard await children.waitUntilEmpty(timeout: .seconds(15)) else {
+                logger.error("remote child shutdown deadline expired; host retained for diagnosis")
+                return
+            }
+            unlink(layout.supervisorSocket)
+            unlink(layout.appSocket)
+            exit(0)
+        }
     }
 
     // MARK: Quit & Reopen
@@ -155,6 +179,7 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
     private var appGrant: (stamp: ProcessStamp, secret: Data)?
     private var _config = (computerUse: false, screenSharing: false, headless: true)
     private var draining = false
+    private var captureInFlight = false
     /// When the current grants were first seen (a worker started before must restart).
     private var grantsChangedAt = Date.distantPast
 
@@ -222,7 +247,7 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
     /// restarts that worker (now when idle, else after its session); `forceRestart`
     /// restarts idle workers whatever the probe says (Quit & Reopen).
     func refresh(forceRestart: Bool = false) async {
-        guard let host else { return }
+        guard let host, host.children.accepting else { return }
         let (snapshot, changed) = host.permissions.refresh()
         if changed { lock.withLock { grantsChangedAt = Date() } }
         if changed || forceRestart {
@@ -286,6 +311,8 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
         let (id, method, params) = (request.id, request.method, request.params)
         guard let host else { return RemoteWire.failure(id: id, code: "gone", message: "the host is stopping") }
         switch method {
+        case "capture.prepare", "capture.cleanup":
+            return await capture(request, host: host)
         case "status":
             return RemoteWire.answer(id: id, result: status())
         case "refresh":
@@ -312,6 +339,7 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
             }
             return RemoteWire.answer(id: id, result: status())
         case "config":
+            guard host.children.accepting else { return RemoteWire.failure(id: id, code: "capture_quiescing", message: "remote worker admission is closed") }
             var next = config
             if let value = params["computer_use"] as? Bool { next.computerUse = value }
             if let value = params["screen_sharing"] as? Bool { next.screenSharing = value }
@@ -348,6 +376,46 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
 
     // MARK: App socket
 
+    private func capture(_ request: SupervisorRequest, host: RemoteHost) async -> Data {
+        let (id, method) = (request.id, request.method)
+        guard lock.withLock({
+            guard !captureInFlight else { return false }
+            captureInFlight = true
+            return true
+        }) else { return RemoteWire.answer(id: id, result: CaptureLeaseResult(code: "remote_capture_busy").fields) }
+        defer { lock.withLock { captureInFlight = false } }
+        guard let binding = CaptureLeaseBinding(fields: request.params),
+              let grant = lock.withLock({ appGrant }), grant.stamp.isAlive else {
+            return RemoteWire.answer(id: id, result: CaptureLeaseResult(code: "remote_invalid_binding").fields)
+        }
+        let bundle = await MainActor.run { NSRunningApplication(processIdentifier: grant.stamp.pid)?.bundleIdentifier }
+        guard bundle == binding.bundleID, grant.stamp.isAlive else {
+            return RemoteWire.answer(id: id, result: CaptureLeaseResult(code: "remote_app_mismatch").fields)
+        }
+        let result: CaptureLeaseResult
+        if method == "capture.prepare" {
+            guard host.children.claimIdle() else {
+                return RemoteWire.answer(id: id, result: CaptureLeaseResult(code: "remote_not_pristine").fields)
+            }
+            result = await host.captureLease.prepare(binding, workerAbsent: host.screen.pid == nil && host.computerUse.running.isEmpty)
+            host.children.reopenAfterPrepare()
+        } else {
+            guard await host.captureLease.beginCleanup(binding) else {
+                return RemoteWire.answer(id: id, result: CaptureLeaseResult(code: "remote_lease_mismatch").fields)
+            }
+            host.children.freeze()
+            host.screen.setWanted(false)
+            host.computerUse.stopAll()
+            host.children.stopOwnedChildren()
+            let exited = await host.children.waitUntilEmpty(timeout: .seconds(15))
+            result = await host.captureLease.cleanup(binding, writersExited: exited)
+        }
+        var fields = result.fields
+        // Internal RPC metadata only. The app checks this against its granted host and waits for its exit.
+        if let stamp = ProcessStamp.of(getpid()) { fields["host_stamp"] = stamp.fields }
+        return RemoteWire.answer(id: id, result: fields)
+    }
+
     /// The app's connections: a hello with the secret from `app_grant`, from
     /// that exact process; then one `open` that turns the connection into a
     /// channel (Computer Use control, or the Screen Sharing worker's socket).
@@ -361,7 +429,7 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
             channel.close()
             return
         }
-        guard let host, let request = channel.readObject() else { return channel.close() }
+        guard let host, host.children.accepting, let request = channel.readObject() else { return channel.close() }
         // The channel's reads (the pumps) wait as long as the app keeps it open.
         channel.setReadTimeout(0)
         let id = request["id"]

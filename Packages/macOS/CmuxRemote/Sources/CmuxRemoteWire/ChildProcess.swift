@@ -62,8 +62,9 @@ public struct ChildProcess: Sendable {
     public static func watch(_ pid: pid_t, name: String, onExit: @escaping @Sendable (Int32) -> Void) {
         let thread = Thread {
             var status: Int32 = 0
-            while waitpid(pid, &status, 0) < 0, errno == EINTR {}
-            onExit(status)
+            var result = waitpid(pid, &status, 0)
+            while result < 0, errno == EINTR { result = waitpid(pid, &status, 0) }
+            onExit(result == pid ? status : -1)
         }
         thread.name = name
         thread.start()
