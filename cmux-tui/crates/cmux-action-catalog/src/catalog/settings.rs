@@ -900,6 +900,33 @@ pub static ACTIONS: &[Action] = &[
         is_debug_only: true,
         ..Action::DEFAULT
     },
+    // Debug Settings > Toasts beside live sample toasts (Lawrence 2026-11-12: "so we can refine the toasts").
+    Action {
+        id: "debug.toastTuning",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.toastTuning", "Toast Tuning"),
+        keywords: &["toast", "toasts", "notice", "duration", "glass", "padding", "motion", "tuning", "playground", "debug"],
+        category: "settings",
+        symbol: "text.bubble",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-toast-tuning",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    // Every toast style with every kind of toast, light and dark; Pick sets the style of every toast and
+    // prompt (Lawrence 2026-11-13: "make a swift playground for me to pick my favorite").
+    Action {
+        id: "debug.toastPlayground",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.toastPlayground", "Toast Playground"),
+        keywords: &["toast", "toasts", "prompt", "notice", "style", "variants", "gallery", "playground", "pick", "debug"],
+        category: "settings",
+        symbol: "rectangle.stack.badge.play",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-toast-playground",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
     Action {
         id: "debug.tabBarPlayground",
         group: GROUP,
@@ -945,6 +972,18 @@ pub static ACTIONS: &[Action] = &[
         symbol: "slider.horizontal.3",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action debug-sidebar-row-tuner",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "debug.densityOverlayPlayground",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.densityOverlayPlayground", "Density Overlay Playground"),
+        keywords: &["density", "overlay", "helium", "chrome", "browser", "tab bar", "omnibar", "pixel", "diff", "compare", "tune", "debug"],
+        category: "settings",
+        symbol: "square.on.square.dashed",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-density-overlay-playground",
         is_debug_only: true,
         ..Action::DEFAULT
     },

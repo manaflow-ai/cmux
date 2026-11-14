@@ -129,6 +129,13 @@ slow-timeout = { period = "60s", terminate-after = 4, grace-period = "5s" }
 filter = 'test(=lifecycle_latency_creates_and_closes_in_a_populated_session)'
 success-output = "final"
 
+# The long-holder tests (tests/agent_start_burst.rs) print the wait of each short request of
+# a terminal, and the daemon's thread and descriptor counts at the bound of the long
+# connections, on stderr; a fleet step shows them only when a passing test's output is kept.
+[[profile.ci.overrides]]
+filter = 'test(/^agent_start_long_holders_/)'
+success-output = "final"
+
 # The create cost tests (mux/tests/create_commit_cost.rs) print the counts of one create at
 # each session size on stderr; a fleet step shows them only when a passing test's output is
 # kept.
@@ -142,6 +149,14 @@ success-output = "final"
 # is kept.
 [[profile.ci.overrides]]
 filter = 'binary_id(cmux-tui-core::git_lane)'
+success-output = "final"
+
+# The git.status tests (cmux-tui-core tests/git_status.rs) print their "git-status:" lines on
+# stderr: the daemon's reply in each form of a repository beside what the status child of git
+# says, and the git children of one git.status. A fleet step shows them only when a passing
+# test's output is kept.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui-core::git_status)'
 success-output = "final"
 
 # The idle tests (cmux-tui tests/idle_wakeups.rs) print one "idle daemon:" line for each
@@ -204,4 +219,11 @@ success-output = "final"
 # journal_seal_cost line); a fleet step shows it only when a passing test's output is kept.
 [[profile.ci.overrides]]
 filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::journal_seal_cost::/)'
+success-output = "final"
+
+# The disk section read cost test (mux/tests/disk_usage_read_cost.rs) prints the SQLite memory the
+# read took (its disk_usage_read_cost line); a fleet step shows it only when a passing
+# test's output is kept.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::disk_usage_read_cost::/)'
 success-output = "final"

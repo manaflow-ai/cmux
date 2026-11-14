@@ -97,14 +97,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         super.init()
     }
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
+    func applicationDidFinishLaunching(_ notification: Notification) { DebugTimings.markLaunch("app.did_finish_launching_entry")
         // task-owner: cloudBootstrap; awaits the CLI read `main` started (its cancel kills that CLI) before services, then the cache refresh after the first frame, cancelled at termination.
         cloudBootstrap = Task { [weak self, cloudEnvironment] in
             guard let self else { return }
-            let snapshot = await launchSnapshot?.value ?? nil; launchSnapshot = nil  // suspends for the read; the daemon's start reads no file
+            let snapshot = await launchSnapshot?.value ?? nil; launchSnapshot = nil; DebugTimings.markLaunch("app.launch_snapshot_awaited")  // suspends for the read; the daemon's start reads no file
             do {
                 let (selection, refresh) = try await withTaskCancellationHandler { try await cloudEnvironment.value } onCancel: { cloudEnvironment.cancel() }
-                try Task.checkCancellation()
+                try Task.checkCancellation(); DebugTimings.markLaunch("cloud_env.awaited")
                 environment.cloudConfiguration = CloudConfiguration.from(selection: selection, isDebugBuild: ControlService.isDebugBuild)
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_RUNTIME"] = "1"
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_ENV"] = selection.name
@@ -362,7 +362,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.start(announcingDiagnostics: true, rotatingFavoriteThemes: true)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, isFirstLaunch: OnboardingWindowPresenter.isFirstLaunch(), firstWindow: { [firstFrame] in await firstFrame.opened() })
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store, menuBar: services.menuBarExtra)
-        services.mobile.follow(settings, launch: services.environment.launch, configureAdmission: services.iphone.followPhoneAccess)
         let acpmux = QuitAgents.environment(services)
         AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
         AgentPageChats.wireSandbox(services.agentTabs, services: services)
@@ -426,7 +425,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerAccountsMethods(services)
                 control.registerBillingMethods(services)
                 control.registerRemoteMethods(services)
-                control.registerMobileMethods(services)
                 control.registerUpdateMethods(services.updater, services: services)
                 control.registerInputMethods(services)
                 control.registerSettingsDebugMethods(services)
@@ -571,7 +569,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.configActions.stop()
         services?.globalHotKeys.stop()
         settings?.stop()
-        services?.mobile.stop()
         services?.iphone.stop()
         services?.dockMenu.stop()
         services?.daemon.shutdownConnection()
@@ -586,16 +583,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
-    /// Dock click with no window open: the last closed window comes back
-    /// with its workspaces, else a new window (in background mode a panel or the menu bar item may count as visible).
+    /// A Dock click or an open of the running app (a launcher, Finder, `open -a`, a second launch), with or without a window
+    /// on screen (`reopenOrCreateWindow`): a window it has comes forward; only with none does one come back or open.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        // A Dock click in an update relaunch's startup: the user chose cmux.
-        services?.input.endRelaunchBehind("dock click", activating: true)
-        // A Dock click or an open of the running app under CMUX_NEXT_NO_ACTIVATE=1: the user chose
-        // cmux, so its activation is not handed back (https://github.com/manaflow-ai/cmux/issues/34575).
+        services?.input.endRelaunchBehind("dock click", activating: true) // in an update relaunch's startup: the user chose cmux
+        // Under CMUX_NEXT_NO_ACTIVATE=1 too the user chose cmux, so its activation is not handed back (https://github.com/manaflow-ai/cmux/issues/34575).
         services?.input.noteReopenRequested()
-        guard let services, !hasVisibleWindows || services.background.isBackground else { return true }
-        services.windows.reopenOrCreateWindow()
+        services?.windows.reopenOrCreateWindow()
         return false
     }
 }

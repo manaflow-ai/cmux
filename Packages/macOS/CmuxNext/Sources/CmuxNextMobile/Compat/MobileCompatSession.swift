@@ -26,7 +26,7 @@ public actor MobileCompatSession {
     var surfaceSeq: [String: UInt64] = [:]
     /// Last located tab per uppercased surface id (input fast path).
     var locations: [String: MobileWorkspaceRows.TerminalLocation] = [:]
-    /// Reported once the phone can use this connection (`mobile.rpc.ready`).
+    /// Reported once the phone can use this connection.
     let onUsable: (@Sendable (MobileUsableSession) -> Void)?
     var readiness = MobileReadiness()
 

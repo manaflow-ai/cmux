@@ -12,9 +12,11 @@
 //! at its page's bytes ([`bounded`]), and a follow builds the rows that changed. A request never
 //! waits for its turn and is never refused for its cost; it costs its own page.
 
+use super::list_tee::TeeHandle;
 use super::session_pages::PageRow;
 use super::*;
 use cmux_json::JsonSet as _;
+use std::collections::HashSet;
 use std::ops::Range;
 
 /// The hub's event channel. Every send is a change some list shows.
@@ -39,6 +41,7 @@ pub(crate) struct Events {
     reaching: std::sync::Mutex<Vec<(String, Option<String>)>>,
     /// This run's id for list positions: a cursor of another run is no cursor here.
     epoch: String,
+    tee: std::sync::OnceLock<Arc<TeeHandle>>,
 }
 
 impl Events {
@@ -50,6 +53,39 @@ impl Events {
             untold: Default::default(),
             reaching: Default::default(),
             epoch: super::row_log::new_epoch(),
+            tee: Default::default(),
+        }
+    }
+
+    pub(crate) fn install_tee(&self, tee: Arc<TeeHandle>) {
+        let _ = self.tee.set(tee);
+    }
+
+    pub(super) fn damaged_snapshot_frames(&self) -> u64 {
+        self.tee.get().map_or(0, |tee| tee.damaged_snapshot_frames())
+    }
+
+    fn mark_tee(&self, id: &str) {
+        if let Some(tee) = self.tee.get() {
+            tee.mark(id);
+        }
+    }
+
+    pub(super) fn mark_remote_tee(&self, peer: &str, id: &str) {
+        if let Some(tee) = self.tee.get() {
+            tee.mark_remote(peer, id);
+        }
+    }
+
+    pub(super) fn origin_tee(&self, id: &str, state: acpmux_book::index::OriginState, since: u64) {
+        if let Some(tee) = self.tee.get() {
+            tee.origin(id, state, since);
+        }
+    }
+
+    pub(super) fn remote_tee_ready(&self) {
+        if let Some(tee) = self.tee.get() {
+            tee.remote_ready();
         }
     }
 
@@ -119,6 +155,12 @@ impl Events {
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         debug_assert!(event.remote.is_none(), "a peer's event goes through Events::send_remote");
         self.all_rows_stale();
+        if event.remote.is_none()
+            && (crate::server::session_change_kind(&event.record.kind).is_some()
+                || event.record.kind == "purged")
+        {
+            self.mark_tee(&event.session_id);
+        }
         self.stamped(event)
     }
 
@@ -146,6 +188,9 @@ impl Events {
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         debug_assert!(event.remote.is_some(), "a local event goes through Events::send");
+        if let Some(remote) = event.remote.as_ref() {
+            self.mark_remote_tee(&remote.peer, &event.session_id);
+        }
         self.stamped(event)
     }
 
@@ -160,6 +205,12 @@ impl Events {
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         session.summary_gen.fetch_add(1, Ordering::SeqCst);
+        if event.remote.is_none()
+            && (crate::server::session_change_kind(&event.record.kind).is_some()
+                || event.record.kind == "purged")
+        {
+            self.mark_tee(&session.id);
+        }
         if super::row_log::row_change(&event).is_none() {
             self.stamp_own(&session.id);
         }
@@ -171,6 +222,7 @@ impl Events {
     pub(super) fn row_changed(&self, session: &Session) {
         self.stamp_own(&session.id);
         session.summary_gen.fetch_add(1, Ordering::SeqCst);
+        self.mark_tee(&session.id);
     }
 
     /// Every closed row's cached bytes go stale (a session came that may be another's parent).
@@ -182,9 +234,16 @@ impl Events {
     /// closed row goes stale, and no cursor from before it can be followed (`RowLog::barrier`), so
     /// each reconnecting client reads the first page again. Before, a follow after it was empty
     /// and the client kept the rows as they were (review of #41865 at 316f5ca).
-    pub(super) fn changed(&self) {
+    pub(super) fn changed(&self, session: Option<&Session>) {
         self.all_rows_stale();
         self.rows.lock().unwrap_or_else(|e| e.into_inner()).barrier();
+        if let Some(tee) = self.tee.get() {
+            if let Some(session) = session {
+                tee.mark(&session.id);
+            } else {
+                tee.mark_all();
+            }
+        }
     }
 }
 
@@ -332,9 +391,82 @@ pub(crate) fn cut_page(
     page_text(next.map(|next| next.to_string()), &page)
 }
 
+/// A list row built for a page (`Hub::session_page_rows`): this daemon's as a tree, or a peer's
+/// as its text (`PeerRow::listed`) with its row, whose paging keys are kept typed: never parsed.
+pub(crate) enum BuiltRow {
+    Tree(Value),
+    Peer(String, Arc<RemoteSession>),
+}
+
+impl PageRow for BuiltRow {
+    fn session_id(&self) -> &str {
+        match self {
+            Self::Tree(row) => PageRow::session_id(row),
+            Self::Peer(_, r) => r.summary.session_id().unwrap_or(""),
+        }
+    }
+
+    fn updated_ms(&self) -> u64 {
+        match self {
+            Self::Tree(row) => PageRow::updated_ms(row),
+            Self::Peer(_, r) => r.summary.updated_ms(),
+        }
+    }
+
+    fn peer(&self) -> Option<&str> {
+        match self {
+            Self::Tree(row) => PageRow::peer(row),
+            Self::Peer(_, r) => r.summary.peer(),
+        }
+    }
+
+    fn status(&self) -> Option<&str> {
+        match self {
+            Self::Tree(row) => PageRow::status(row),
+            Self::Peer(_, r) => r.summary.status(),
+        }
+    }
+}
+
+/// A row [`serialize_in_order`] writes: its text, and its paging keys.
+pub(crate) trait InOrder {
+    fn write(&self, out: &mut Vec<u8>);
+    fn paging_keys(&self, at: usize) -> Value;
+}
+
+impl InOrder for Value {
+    fn write(&self, out: &mut Vec<u8>) {
+        // A Value always serializes, and Vec's writer cannot fail.
+        let _ = serde_json::to_writer(out, self);
+    }
+
+    fn paging_keys(&self, at: usize) -> Value {
+        paging_keys(self, at)
+    }
+}
+
+impl InOrder for BuiltRow {
+    fn write(&self, out: &mut Vec<u8>) {
+        match self {
+            Self::Tree(row) => row.write(out),
+            Self::Peer(text, _) => out.extend_from_slice(text.as_bytes()),
+        }
+    }
+
+    fn paging_keys(&self, at: usize) -> Value {
+        match self {
+            Self::Tree(row) => paging_keys(row, at),
+            Self::Peer(_, r) => {
+                let row = &r.summary;
+                keys_of(at, row.session_id(), row.updated_ms(), row.peer(), row.status())
+            }
+        }
+    }
+}
+
 /// `rows`, in the order given (not sorted), as a list's text, where each is in it, and the
 /// paging keys of each (`at` its place): what [`cut_page`] cuts.
-pub(crate) fn serialize_in_order(rows: &[Value]) -> Built {
+pub(crate) fn serialize_in_order<R: InOrder>(rows: &[R]) -> Built {
     let prefix = br#"{"sessions":["#;
     let mut whole = Vec::from(&prefix[..]);
     let (mut spans, mut keys) = (Vec::with_capacity(rows.len()), Vec::with_capacity(rows.len()));
@@ -343,10 +475,9 @@ pub(crate) fn serialize_in_order(rows: &[Value]) -> Built {
             whole.push(b',');
         }
         let start = whole.len();
-        // A Value always serializes, and Vec's writer cannot fail.
-        let _ = serde_json::to_writer(&mut whole, row);
+        row.write(&mut whole);
         spans.push(start..whole.len());
-        keys.push(paging_keys(row, at));
+        keys.push(row.paging_keys(at));
     }
     whole.extend_from_slice(b"]}");
     // serde_json writes UTF-8.
@@ -390,10 +521,19 @@ fn fit_row<'a, K: PageRow + ?Sized>(
     }
 }
 
-/// `row` serialized ([`fit_row`]): whole when it fits in `budget`, else trimmed to fit or a stub
-/// with its keys, as a page sends a row too large for it.
-pub(crate) fn fit_value(row: &Value, budget: usize) -> String {
-    fit_row(&row.to_string(), row, budget).into_owned()
+/// Row text `row` ([`fit_row`]): whole when it fits in `budget`, else trimmed to fit or a stub
+/// with its keys, as a page sends a row too large for it. Parsed only when it does not fit.
+pub(crate) fn fit_text(row: String, budget: usize) -> String {
+    if row.len() <= budget {
+        return row;
+    }
+    let mut value: Value = serde_json::from_str(&row).unwrap_or_default();
+    let keys = paging_keys(&value, 0);
+    if super::reply_fit::fit_object(&mut value, budget) {
+        value.to_string()
+    } else {
+        too_large_stub(&keys, row.len())
+    }
 }
 
 /// The cursor of the page after `last`: a census's (`orderBy`, `s:<id>`) or the list's
@@ -431,15 +571,28 @@ fn too_large_stub<K: PageRow + ?Sized>(key: &K, bytes: usize) -> String {
 /// The paging keys of `row`, at `at` in its list's text: `sessionId`, `updatedAt`, `peer` and
 /// `status`, each only when it has one.
 fn paging_keys(row: &Value, at: usize) -> Value {
+    let text = |k: &str| row.get(k).and_then(Value::as_str);
+    let updated = row.get("updatedAt").and_then(Value::as_u64).unwrap_or_default();
+    keys_of(at, text("sessionId"), updated, text("peer"), text("status"))
+}
+
+/// [`paging_keys`] of a row's fields (`updatedAt` 0 as none).
+fn keys_of(
+    at: usize,
+    id: Option<&str>,
+    updated: u64,
+    peer: Option<&str>,
+    status: Option<&str>,
+) -> Value {
     let mut keys = json!({"at": at});
-    if let Some(id) = row.get("sessionId").and_then(Value::as_str) {
+    if let Some(id) = id {
         keys.set("sessionId", Value::String(id.to_owned()));
     }
-    if let Some(at) = row.get("updatedAt").and_then(Value::as_u64).filter(|at| *at != 0) {
-        keys.set("updatedAt", Value::from(at));
+    if updated != 0 {
+        keys.set("updatedAt", Value::from(updated));
     }
-    for k in ["peer", "status"] {
-        if let Some(v) = row.get(k).and_then(Value::as_str) {
+    for (k, v) in [("peer", peer), ("status", status)] {
+        if let Some(v) = v {
             keys.set(k, Value::String(v.to_owned()));
         }
     }

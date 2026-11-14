@@ -17,6 +17,9 @@
 //! typed JSON; it never holds a parsed tree of a row. The chat actor (`acpmux-core`) owns one
 //! [`log::Log`] per hydrated chat and is its only writer.
 
+pub mod blobs;
+pub mod checkpoint;
+pub mod folds;
 mod fsio;
 pub mod index;
 mod json;

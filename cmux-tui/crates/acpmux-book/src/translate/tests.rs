@@ -260,8 +260,77 @@ impl Chat {
             r#"{"sessionUpdate":"subagent_progress","subagentSessionId":"coord/helper"}"#
         });
     }
+    fn queue_add(&mut self, id: &str, pending: &mut Vec<String>) {
+        self.mux("queued", &format!(r#"{{"text":"Queued {id}","promptId":"{id}"}}"#));
+        if !pending.iter().any(|key| key == id) {
+            pending.push(id.to_owned());
+        }
+    }
+    fn queue_step(
+        &mut self,
+        pick: &mut impl FnMut(u32) -> u32,
+        pending: &mut Vec<String>,
+        late: &mut Vec<String>,
+        id: &str,
+    ) -> bool {
+        match pick(7) {
+            0 => {
+                // Several entries may be held at once, across ordinary work.
+                let second = format!("{id}-held");
+                self.queue_add(id, pending);
+                self.queue_add(&second, pending);
+                self.mux("queue_paused", &format!(r#"{{"held":["{id}","{second}"]}}"#));
+                false
+            }
+            1 if !pending.is_empty() => {
+                let index = pick(pending.len() as u32) as usize;
+                let id = pending.remove(index);
+                self.mux("queue_resumed", &format!(r#"{{"promptIds":["{id}"]}}"#));
+                let kind = if pick(2) == 0 { "dequeued" } else { "queue_removed" };
+                self.mux(kind, &format!(r#"{{"promptId":"{id}"}}"#));
+                false
+            }
+            order @ (2 | 3) if !pending.is_empty() => {
+                let index = pick(pending.len() as u32) as usize;
+                let id = pending.remove(index);
+                if order == 2 {
+                    self.mux("steer_read", &format!(r#"{{"promptId":"{id}"}}"#));
+                }
+                self.steer_echo(&id);
+                if order == 3 {
+                    self.mux("steer_read", &format!(r#"{{"promptId":"{id}"}}"#));
+                }
+                true
+            }
+            4 => {
+                // A read can precede its queued record. It never becomes pending.
+                self.mux("steer_read", &format!(r#"{{"promptId":"{id}"}}"#));
+                self.mux("queued", &format!(r#"{{"text":"Queued {id}","promptId":"{id}"}}"#));
+                self.steer_echo(id);
+                true
+            }
+            5 => {
+                // Keep this textless row open through a result and the next prompt.
+                self.mux("steer_read", &format!(r#"{{"promptId":"{id}"}}"#));
+                late.push(id.to_owned());
+                true
+            }
+            _ => {
+                // No queued record at all, including while a message streams.
+                self.steer_echo(id);
+                self.mux("steer_read", &format!(r#"{{"promptId":"{id}"}}"#));
+                true
+            }
+        }
+    }
+    fn steer_echo(&mut self, id: &str) {
+        self.mux(
+            "user_message",
+            &format!(r#"{{"text":"Steer {id}","promptId":"{id}","steer":true}}"#),
+        );
+    }
 }
-fn chat(seed: u32) -> (Vec<String>, Vec<Stretch>) {
+fn chat(seed: u32) -> (Vec<String>, Vec<Stretch>, Vec<String>) {
     let mut rng = seed;
     let mut pick = |n: u32| {
         rng = rng.wrapping_mul(1664525).wrapping_add(1013904223);
@@ -270,9 +339,11 @@ fn chat(seed: u32) -> (Vec<String>, Vec<Stretch>) {
     let mut c = Chat { lines: Vec::new() };
     let mut stretches = Vec::new();
     let mut calls = 0;
+    let mut pending: Vec<String> = Vec::new();
+    let mut late: Vec<String> = Vec::new();
     for t in 0..1 + pick(4) {
         let notice = t > 0 && pick(3) == 0;
-        let prompt_id = (t == 1).then(|| format!("q-turn-{seed}"));
+        let prompt_id = if pending.is_empty() { None } else { Some(pending.remove(0)) };
         c.mux(
             "user_message",
             &match prompt_id.as_deref() {
@@ -291,58 +362,11 @@ fn chat(seed: u32) -> (Vec<String>, Vec<Stretch>) {
         let mut open = false;
         let mut message = String::new();
 
-        // Keep the queue contract in the same random stream as the reply
-        // interleavings. These cases deliberately exercise all legal orders.
-        if t == 0 {
-            c.mux("queued", &format!(r#"{{"text":"queued turn","promptId":"q-turn-{seed}"}}"#));
-            c.mux("queue_paused", &format!(r#"{{"held":["q-turn-{seed}"]}}"#));
-            c.mux("queue_resumed", &format!(r#"{{"promptIds":["q-turn-{seed}"]}}"#));
-            c.mux("queued", &format!(r#"{{"text":"drop","promptId":"q-drop-{seed}"}}"#));
-            c.mux("dequeued", &format!(r#"{{"promptId":"q-drop-{seed}"}}"#));
-
-            // Read then echo, with the queue record first.
-            c.mux("queued", &format!(r#"{{"text":"read first","promptId":"q-read-{seed}"}}"#));
-            c.mux("steer_read", &format!(r#"{{"promptId":"q-read-{seed}"}}"#));
-            c.mux(
-                "user_message",
-                &format!(r#"{{"text":"read first","promptId":"q-read-{seed}","steer":true}}"#),
-            );
-
-            // Echo then read.
-            c.mux("queued", &format!(r#"{{"text":"echo first","promptId":"q-echo-{seed}"}}"#));
-            c.mux(
-                "user_message",
-                &format!(r#"{{"text":"echo first","promptId":"q-echo-{seed}","steer":true}}"#),
-            );
-            c.mux("steer_read", &format!(r#"{{"promptId":"q-echo-{seed}"}}"#));
-
-            // Read before the queued record.
-            c.mux("steer_read", &format!(r#"{{"promptId":"q-before-{seed}"}}"#));
-            c.mux(
-                "queued",
-                &format!(r#"{{"text":"read before queued","promptId":"q-before-{seed}"}}"#),
-            );
-            c.mux(
-                "user_message",
-                &format!(
-                    r#"{{"text":"read before queued","promptId":"q-before-{seed}","steer":true}}"#
-                ),
-            );
-
-            // This read is completed after the current turn ends and the next
-            // prompt starts. It remains in the current turn's out.
-            c.mux("queued", &format!(r#"{{"text":"late steer","promptId":"q-late-{seed}"}}"#));
-            c.mux("steer_read", &format!(r#"{{"promptId":"q-late-{seed}"}}"#));
-            stretch.steered = true;
-        }
-        if t == 1 {
-            c.mux(
-                "user_message",
-                &format!(r#"{{"text":"late steer","promptId":"q-late-{seed}","steer":true}}"#),
-            );
+        for id in late.drain(..) {
+            c.steer_echo(&id);
         }
         for step in 0..1 + pick(10) {
-            match pick(7) {
+            match pick(10) {
                 0 | 1 => {
                     let full = pick(2) == 0;
                     let words = if full {
@@ -366,6 +390,14 @@ fn chat(seed: u32) -> (Vec<String>, Vec<Stretch>) {
                     if pick(2) != 0 {
                         c.progress(pick(2) != 0);
                     }
+                    if pick(5) == 0 {
+                        stretch.steered |= c.queue_step(
+                            &mut pick,
+                            &mut pending,
+                            &mut late,
+                            &format!("q-stream-{seed}-{t}-{step}"),
+                        );
+                    }
                     c.say(&words[cut..], &message);
                     open = true;
                 }
@@ -373,6 +405,14 @@ fn chat(seed: u32) -> (Vec<String>, Vec<Stretch>) {
                     calls += 1;
                     let title = if pick(2) != 0 { "send_message" } else { "run_tests" };
                     c.update(&format!(r#"{{"sessionUpdate":"tool_call","toolCallId":"c{calls}","title":"{title}","kind":"execute","status":"in_progress"}}"#));
+                    if pick(3) == 0 {
+                        stretch.steered |= c.queue_step(
+                            &mut pick,
+                            &mut pending,
+                            &mut late,
+                            &format!("q-call-{seed}-{t}-{step}"),
+                        );
+                    }
                     c.update(&format!(r#"{{"sessionUpdate":"tool_call_update","toolCallId":"c{calls}","status":"completed"}}"#));
                     stretch.stepped = true;
                     stretch.worked = true;
@@ -382,16 +422,23 @@ fn chat(seed: u32) -> (Vec<String>, Vec<Stretch>) {
                 4 => c.progress(false),
                 5 => c.progress(true),
                 _ => {
-                    c.mux("user_message",&format!(r#"{{"text":"Steer {seed}-{t}-{step}: also check CI","promptId":"p-{seed}-{t}-{step}","steer":true}}"#));
-                    c.mux("steer_read", &format!(r#"{{"promptId":"p-{seed}-{t}-{step}"}}"#));
-                    stretch.steered = true;
+                    stretch.steered |= c.queue_step(
+                        &mut pick,
+                        &mut pending,
+                        &mut late,
+                        &format!("q-step-{seed}-{t}-{step}"),
+                    );
                 }
             }
         }
         c.mux("turn_result", r#"{"status":"completed"}"#);
         stretches.push(stretch);
     }
-    (c.lines, stretches)
+    // Final-turn textless reads get their echo after the result too.
+    for id in late {
+        c.steer_echo(&id);
+    }
+    (c.lines, stretches, pending)
 }
 
 fn assert_settled_group_out(mirror: &Mirror) {
@@ -431,7 +478,7 @@ fn assert_settled_group_out(mirror: &Mirror) {
 #[test]
 fn th_ten_thousand_random_splits_restore_identical_ops_and_final_replies() {
     for seed in 1..=10_000 {
-        let (lines, stretches) = chat(seed);
+        let (lines, stretches, pending) = chat(seed);
         let (whole, view) = replay(&lines);
         let cut = (seed as usize * 7919) % (lines.len() + 1);
         let mut split = State::default();
@@ -455,16 +502,13 @@ fn th_ten_thousand_random_splits_restore_identical_ops_and_final_replies() {
         }
         assert_eq!(whole, split);
         assert_eq!(view, split_view);
-        let pending_hash = prompt_hash(&format!("q-turn-{seed}"));
-        let expected_queue: BTreeSet<u64> = if lines.iter().any(|line| {
-            line.contains(r#""kind":"user_message"#)
-                && line.contains(&format!(r#""promptId":"q-turn-{seed}"#))
-        }) {
-            BTreeSet::new()
-        } else {
-            [pending_hash].into_iter().collect()
-        };
-        assert_eq!(whole.queue.keys().copied().collect::<BTreeSet<_>>(), expected_queue);
+        let expected_queue: BTreeSet<u64> = pending.iter().map(|id| prompt_hash(id)).collect();
+        assert_eq!(
+            whole.queue.keys().copied().collect::<BTreeSet<_>>(),
+            expected_queue,
+            "seed {seed}"
+        );
+        assert_eq!(view.queue, whole.queue, "seed {seed}");
         assert_settled_group_out(&view);
         let mut floor = 0;
         for stretch in stretches {
@@ -1053,7 +1097,16 @@ fn read_before_late_text_is_in_the_settled_turn_out() {
         .values()
         .find(|row| row.kind == RowKind::Group && row.turn == next.turn)
         .unwrap();
-    assert!(!group.fields.get("out").is_some_and(|out| out.contains(&steer.id.to_string())));
+    let out = |group: &OwnedRow| {
+        serde_json::from_str::<Vec<[u64; 2]>>(group.fields.get("out").unwrap()).unwrap()
+    };
+    assert!(!out(group).iter().any(|[first, last]| (*first..=*last).contains(&steer.id)));
+    let original = mirror
+        .rows
+        .values()
+        .find(|row| row.kind == RowKind::Group && row.turn == steer.turn)
+        .unwrap();
+    assert!(out(original).iter().any(|[first, last]| (*first..=*last).contains(&steer.id)));
 }
 
 #[test]
@@ -1259,4 +1312,54 @@ fn turn_start_after_a_result_is_not_compared_with_the_old_turn() {
         mux(6, "turn_result", r#"{"turnId":"t2"}"#),
     ]);
     assert!(!m.reply("answer").open);
+}
+
+#[test]
+fn full_fixed_width_queue_fits_beside_a_translator_at_its_byte_bound() {
+    let mut state = State::default();
+    t(&mut state, Harness::V1, mux(1, "user_message", r#"{"text":"boundary"}"#).as_bytes())
+        .unwrap();
+    // Fill metadata, not a retained body, to test the codec's exact boundary.
+    // Each field stays under the field cap; the particular names are immaterial.
+    let mut n = 0;
+    while MAX_TRANSLATOR_BYTES - state.checkpoint().unwrap().len() > 200 {
+        state.group.as_mut().unwrap().field(&format!("padding-{n}"), &"x".repeat(128));
+        n += 1;
+    }
+    state.group.as_mut().unwrap().field("tail", "");
+    let remaining = MAX_TRANSLATOR_BYTES - state.checkpoint().unwrap().len();
+    assert!(remaining < MAX_KEY_BYTES - 5);
+    state.group.as_mut().unwrap().field("tail", &"x".repeat(remaining));
+    let translator = state.checkpoint().unwrap();
+    assert_eq!(translator.len(), MAX_TRANSLATOR_BYTES);
+
+    for n in 0..MAX_QUEUE_ENTRIES as u64 {
+        let entry = QueueEntry {
+            id_hash: u64::MAX - n,
+            at_state: u64::MAX,
+            place: u64::MAX - n,
+            span: u32::MAX,
+            text_len: u32::MAX,
+        };
+        state.queue.insert(entry.id_hash, entry);
+    }
+    let checkpoint = state.checkpoint().unwrap();
+    assert_eq!(checkpoint.len() - translator.len(), 1024 * 32);
+    assert_eq!(checkpoint.len(), MAX_STATE_BYTES);
+    assert_eq!(State::restore(&checkpoint).unwrap(), state);
+    // The queue is absent from serde's translator segment, even when full.
+    assert_eq!(&checkpoint[..translator.len() - 4], &translator[..translator.len() - 4]);
+    state.turn_key.push('x');
+    assert!(matches!(state.checkpoint(), Err(Error::StateTooLarge { .. })));
+}
+
+#[test]
+fn unknown_checkpoint_version_requires_replay_from_raw() {
+    let mut checkpoint = State::default().checkpoint().unwrap();
+    // Version 5 included an empty queue map in the serde segment. Version 6
+    // omits it. The actor must rebuild from raw, never guess the older layout.
+    checkpoint[0] = 5;
+    assert_eq!(State::restore(&checkpoint), Err(Error::CheckpointVersion));
+    checkpoint[0] = VERSION as u8 + 1;
+    assert_eq!(State::restore(&checkpoint), Err(Error::CheckpointVersion));
 }

@@ -658,6 +658,43 @@ public final class AgentChatStore {
 
     @ObservationIgnored private var loadedBookmarks = false
     @ObservationIgnored private var loadingBookmarks = false
+
+    /// The person opened a tool output the Mac sent cut (``ACPToolCall/outputCut``): its whole
+    /// record is read and put in place of the cut one, unless a newer update replaced the output
+    /// meanwhile. One read per record at a time (a second ask waits for it). False when the read
+    /// failed: the cut output stays shown, and the person can ask again.
+    @discardableResult
+    public func loadFullOutput(of call: ACPToolCall) async -> Bool {
+        guard let cut = call.outputCut else { return true }
+        let read: Task<ACPToolCallUpdate?, Never>
+        if let reading = fullOutputReads[cut.seq] {
+            read = reading
+        } else {
+            let source = source
+            read = Task { @MainActor in await source.fullToolOutput(cut) }
+            fullOutputReads[cut.seq] = read
+        }
+        let full = await read.value
+        fullOutputReads[cut.seq] = nil
+        guard let full, full.toolCallId == call.id else { return false }
+        placeFullOutput(full, cut: cut)
+        return true
+    }
+
+    @ObservationIgnored private var fullOutputReads: [Int: Task<ACPToolCallUpdate?, Never>] = [:]
+
+    private func placeFullOutput(_ full: ACPToolCallUpdate, cut: ACPToolOutputCut) {
+        var placed = false
+        for index in turns.indices.reversed() where !placed {
+            placed = turns[index].items.placeFullOutput(full, cut: cut)
+        }
+        for index in subagents.indices where !placed {
+            placed = subagents[index].items.placeFullOutput(full, cut: cut)
+        }
+        guard placed else { return }
+        revision &+= 1
+        refreshDerived()
+    }
     /// The transcript asked for the marks (it is on screen): a reconnect reads them if needed.
     @ObservationIgnored private var wantsBookmarks = false
 

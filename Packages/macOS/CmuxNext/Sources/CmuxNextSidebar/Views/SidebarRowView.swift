@@ -33,11 +33,24 @@ class SidebarRowView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerCurve = Metrics.tabCornerCurve // one curve with the tabs (`TabCornerCurve`)
-        layer?.cornerRadius = SidebarStyle.rowCornerRadius
+        layer?.cornerRadius = fillCornerRadius
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
+
+    /// The fill's corner is the tab's at the density now, read on every layout: set once at `init`, a row made at a
+    /// roomier density kept that density's corner after a switch, nearly a pill on Compact's 20 pt row beside its 5 pt
+    /// tabs (Lucas 2026-11-14: "the left sidebar tab becomes too circular ... match the sidebar item roundness to the
+    /// tab roundness"). A density change lays every row out again (its height changes).
+    override func layout() {
+        super.layout()
+        let radius = fillCornerRadius
+        if layer?.cornerRadius != radius { layer?.cornerRadius = radius }
+    }
+
+    /// The fill's corner: the tab's at the density now. A row that draws no rounded fill (a section block) answers 0.
+    var fillCornerRadius: CGFloat { SidebarStyle.rowCornerRadius }
 
     nonisolated override var isFlipped: Bool { true }
     nonisolated override var wantsUpdateLayer: Bool { true }

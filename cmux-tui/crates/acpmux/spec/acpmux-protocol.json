@@ -173,6 +173,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/v2",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/tailnet/login",
       "params": true,
       "result": true
@@ -312,6 +318,16 @@
       "name": "_acpmux/markUnread",
       "params": {
         "$ref": "#/types/MarkUnreadParams"
+      },
+      "result": {
+        "$ref": "#/types/Done"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/markRead",
+      "params": {
+        "$ref": "#/types/SessionRef"
       },
       "result": {
         "$ref": "#/types/Done"
@@ -2019,6 +2035,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/journal_restore",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/attachments_held",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/pair_ticket_new",
       "params": true,
       "result": true
@@ -2182,6 +2210,11 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/unsent",
+      "params": true
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/lagged",
       "params": true
     },
@@ -2260,6 +2293,7 @@
         "senderHarness": true,
         "senderHarnessChecked": true,
         "senderToken": true,
+        "sessionCreatedAt": true,
         "spawnToolCallId": true,
         "startLater": true,
         "steer": true,
@@ -3473,6 +3507,8 @@
         },
         "cancelFork": true,
         "cancelToken": true,
+        "expectRevision": true,
+        "ifIdle": true,
         "purge": true,
         "sessionId": true
       },

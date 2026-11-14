@@ -18,12 +18,13 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
-# tests/workflow_jobs.py, loaded by path as well (`python3 -I`).
-_workflow_jobs_spec = _git_fixture_importlib.spec_from_file_location(
-    "workflow_jobs", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "workflow_jobs.py"))
-workflow_jobs = _git_fixture_importlib.module_from_spec(_workflow_jobs_spec)
-_workflow_jobs_spec.loader.exec_module(workflow_jobs)
 import sys
+# tests/workflow_jobs.py, imported by name, never loaded by path: scripts/ci imports it by name too, and a load
+# by path makes a second module object for the one file (tests/test_script_module_loads.py). `python3 -I` puts
+# no script folder on sys.path, so this file adds its own folder.
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
 import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
@@ -2468,6 +2469,292 @@ def test_cmux_tui_preflight_seeds_canonical_key_before_docs_skip():
         result = subprocess.run(["bash", "-c", 'key=canonical; legacy_key=legacy; tree_complete() { [[ "$1" == "' + ready + '" ]]; }; ' + selection + 'echo "$tree_ready"'], capture_output=True, text=True, check=True)
         assert result.stdout.strip() == expected
     assert '--version v2-legacy "$SOURCE_COMMIT"' in inspect
+
+
+def test_feat_tip_adopts_missing_commit_manifest_and_cdn_gate_is_final():
+    artifacts = workflow("cmux-tui-artifacts.yml")
+    preflight = workflow_job(artifacts, "tree-preflight")
+    assert "commit_manifest_ready=false" in preflight
+    assert "cmux-tui/$SHA/manifest.json?preflight=$RUN_ID-commit" in preflight
+    assert '"$commit_manifest_ready" != true' in preflight
+    # A published tree is never rebuilt for a missing commit manifest: adopt-commit-manifest writes it.
+    assert "rebuilding this tip" not in preflight
+    detector = workflow_job(artifacts, "verify-cdn-publication")
+    assert "needs: [tree-preflight, publish, publish-tree, adopt-commit-manifest]" in detector
+    assert "always()" in detector
+    assert "verify_cmux_tui_publication.py" in detector
+    script = (ROOT / "scripts/ci/verify_cmux_tui_publication.py").read_text()
+    assert "https://files.cmux.com/cmux-tui/{sha}/manifest.json" in script
+    assert "https://files.cmux.com/cmux-tui/tree/{tree_key}/source.json" in script
+
+
+def test_cdn_publication_check_retries_and_validates_both_documents():
+    import verify_cmux_tui_publication as checker
+
+    sha = "a" * 40
+    key = "b" * 40
+    responses = {
+        f"https://files.cmux.com/cmux-tui/{sha}/manifest.json": [
+            OSError("CDN propagation"),
+            json.dumps({"commit": sha, "sourceCommit": sha}).encode(),
+        ],
+        f"https://files.cmux.com/cmux-tui/tree/{key}/source.json": [
+            json.dumps({"key": key, "sourceCommit": sha}).encode(),
+        ],
+    }
+
+    def fetch(url: str) -> bytes:
+        value = responses[url].pop(0)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    assert checker.verify_publication(sha, key, fetch=fetch, attempts=2, delay_seconds=0) == list(responses)
+
+
+# 2026-11-13: of the 17 first-parent feat-cmux-next commits from ed8510c8 to f8a39fdd only 3 had
+# cmux-tui/<sha>/manifest.json. f8a39fdd's run deferred tree 77865e8e to the active owner run (4d01af5b's),
+# built nothing, and its owner published only 4d01af5b's manifest.
+ADOPT_SHA = "c" * 40
+ADOPT_PUBLISHER = "d" * 40
+ADOPT_KEY = "e" * 40
+
+
+def adopt_cdn(*, completion=True, missing=(), wrong=()):
+    """A fake files.cmux.com holding tree ADOPT_KEY, published by ADOPT_PUBLISHER with two binaries."""
+    import adopt_cmux_tui_commit as adopt
+
+    blobs = {"cmux-tui-aarch64-apple-darwin": b"darwin", "cmux-tui-x86_64-unknown-linux-musl": b"linux"}
+    digests = {name: hashlib.sha256(data).hexdigest() for name, data in blobs.items()}
+    base = "https://files.cmux.com/cmux-tui"
+    objects = {
+        f"{base}/tree/{ADOPT_KEY}/source.json": json.dumps({"key": ADOPT_KEY, "commit": ADOPT_PUBLISHER, "binaries": digests}).encode(),
+        f"{base}/{ADOPT_PUBLISHER}/manifest.json": json.dumps({
+            "commit": ADOPT_PUBLISHER, "sourceCommit": ADOPT_PUBLISHER, "license": "GPL-3.0-or-later",
+            "runtimeByBinary": {name: {"os": "x"} for name in blobs}, "binaries": digests}).encode(),
+    }
+    if completion:
+        objects[f"{base}/tree/{ADOPT_KEY}/completion.json"] = json.dumps({"key": ADOPT_KEY, "binaries": {}}).encode()
+    for name, data in blobs.items():
+        if name not in missing:
+            objects[f"{base}/{ADOPT_PUBLISHER}/{name}"] = b"tampered" if name in wrong else data
+
+    def fetch(url: str) -> bytes:
+        if url not in objects:
+            raise adopt.NotPublished(f"{url} answers 404")
+        return objects[url]
+
+    return adopt, fetch, digests
+
+
+def run_adopt(**cdn):
+    adopt, fetch, digests = adopt_cdn(**cdn)
+    out = Path(tempfile.mkdtemp()) / "cmux-tui"
+    try:
+        manifest = adopt.adopt(ADOPT_SHA, ADOPT_KEY, out, commit_time="2026-11-13T04:30:21-08:00",
+                               run_url="https://github.com/manaflow-ai/cmux/actions/runs/7", fetch=fetch)
+        return manifest, out, digests, None
+    except (adopt.NotPublished, adopt.AdoptError) as error:
+        return None, out, digests, error
+
+
+def test_adopted_commit_manifest_is_the_commits_own_with_the_trees_bytes():
+    manifest, out, digests, error = run_adopt()
+    assert error is None, error
+    assert manifest["commit"] == manifest["sourceCommit"] == ADOPT_SHA
+    assert manifest["attestationUrl"] == "https://github.com/manaflow-ai/cmux/actions/runs/7"
+    assert manifest["binaries"] == digests
+    assert manifest["adoptedFrom"]["commit"] == ADOPT_PUBLISHER and manifest["adoptedFrom"]["treeKey"] == ADOPT_KEY
+    assert json.loads((out / "manifest.json").read_text()) == manifest
+    for name, digest in digests.items():
+        assert hashlib.sha256((out / name).read_bytes()).hexdigest() == digest
+
+
+def test_adopted_manifest_check_requires_what_publish_requires():
+    # The adopted prefix must hold everything a published one does: adopt-commit-manifest's check names the same
+    # required and forbidden artifacts as publish's "Verify Unix manifests before upload", so the two cannot drift
+    # (32964a1a's check named none, and tests/test_ci_cmux_tui_latest_acpmux.py went red on it).
+    artifacts = workflow("cmux-tui-artifacts.yml")
+
+    def artifact_args(text: str, step: str) -> list[str]:
+        body = text.split(f"- name: {step}", 1)[1].split("\n      - ", 1)[0]
+        call = body.split("--manifest-file assets/cmux-tui/manifest.json", 1)[1].split("--artifact-directory", 1)[0]
+        return re.findall(r"--(?:require|forbid)-artifact [\w.-]+", call)
+
+    published = artifact_args(workflow_job(artifacts, "publish"), "Verify Unix manifests before upload")
+    adopted = artifact_args(workflow_job(artifacts, "adopt-commit-manifest"), "Verify the prepared manifest")
+    assert len(published) > 20
+    assert adopted == published
+
+
+def test_owner_not_finished_writes_no_manifest_pointing_at_missing_objects():
+    # The owner is still publishing: no completion.json yet, or a binary the publisher's manifest names
+    # still answers 404. Nothing is written, and above all no manifest.json.
+    for cdn in ({"completion": False}, {"missing": ("cmux-tui-x86_64-unknown-linux-musl",)}):
+        manifest, out, _, error = run_adopt(**cdn)
+        assert manifest is None and type(error).__name__ == "NotPublished", cdn
+        assert not (out / "manifest.json").exists(), cdn
+        assert not out.exists() or not any(out.iterdir()), cdn
+    manifest, out, _, error = run_adopt(wrong=("cmux-tui-aarch64-apple-darwin",))
+    assert manifest is None and type(error).__name__ == "AdoptError"
+    assert not out.exists() or not any(out.iterdir())
+
+
+def test_deferring_run_gets_its_commit_manifest_without_a_build():
+    artifacts = workflow("cmux-tui-artifacts.yml")
+    adopt_job = workflow_job(artifacts, "adopt-commit-manifest")
+    # Runs when this run builds nothing: the tree is published, or another run owns the key.
+    assert "needs: [tree-preflight, tree-owner-wait]" in adopt_job
+    assert "needs.tree-preflight.outputs.run_macos != 'true'" in adopt_job
+    assert "needs.tree-owner-wait.outputs.takeover != 'true'" in adopt_job
+    assert "scripts/ci/adopt_cmux_tui_commit.py" in adopt_job
+    # Attested by this run (installers check the commit), the publisher's attestation checked first.
+    assert "attestations: write" in adopt_job and "actions/attest-build-provenance@" in adopt_job
+    assert '--source-digest "$source"' in adopt_job
+    assert "--expected-commit \"$GITHUB_SHA\"" in adopt_job
+    # Binaries first, manifest last, all write-once; no new secret beyond the R2 ones publish uses.
+    upload = adopt_job.split("name: Upload the commit prefix to R2", 1)[1]
+    assert upload.index("cmux-tui/$GITHUB_SHA/$1") < upload.index("cmux-tui/$GITHUB_SHA/manifest.json")
+    assert "--write-once" in upload
+    assert set(re.findall(r"secrets\.([A-Z0-9_]+)", adopt_job)) == {"CF_R2_ACCESS_KEY_ID", "CF_R2_SECRET_ACCESS_KEY", "CF_R2_ACCOUNT_ID"}
+    # pending only for a run that left its deferred marker; else missing (red).
+    assert 'elif [[ "$rc" == 1 && "$DEFERRED" == true ]]' in adopt_job
+    owner_wait = workflow_job(artifacts, "tree-owner-wait")
+    assert "deferred: ${{ steps.deferred-marker.outcome == 'success' && steps.recheck.outputs.takeover != 'true' }}" in owner_wait
+    assert "- id: deferred-marker" in owner_wait
+    # One look, no waiting: the adopt step polls nothing.
+    assert "sleep" not in adopt_job
+
+
+def test_cdn_gate_skips_only_a_pending_deferral_or_a_superseded_push():
+    detector = workflow_job(workflow("cmux-tui-artifacts.yml"), "verify-cdn-publication")
+    step = detector.split("name: Verify commit and tree metadata through the CDN", 1)[1]
+    script = step.split("run: |", 1)[1]
+    skips = re.findall(r'if \[\[ "\$([A-Z_]+)" == ([a-z]+) \]\]; then', script)
+    assert skips == [("STALE", "true"), ("ADOPT_STATE", "pending")]
+    for state, checked in (("pending", False), ("missing", True), ("adopted", True), ("present", True), ("", True)):
+        # An unpublished tree: the pending branch's completion.json read answers nothing.
+        result = subprocess.run(["bash", "-c", "curl() { return 22; }; " + script.replace("python3 scripts/ci/verify_cmux_tui_publication.py", "echo CHECKED")],
+                                env={**os.environ, "ADOPT_STATE": state, "STALE": "false", "TREE_KEY": "k", "GITHUB_SHA": "s"},
+                                capture_output=True, text=True, check=True)
+        assert ("CHECKED" in result.stdout) == checked, state
+
+
+def test_published_tree_reruns_the_runs_that_deferred_to_it():
+    job = workflow_job(workflow("cmux-tui-artifacts.yml"), "rerun-deferred-commits")
+    assert "needs: [tree-preflight, publish-tree, adopt-commit-manifest]" in job
+    assert "needs.publish-tree.result == 'success'" in job
+    assert "needs.adopt-commit-manifest.outputs.state == 'adopted'" in job
+    assert "cmux_tui_tree_handoff.py" in job and "--published" in job
+    assert "actions: write" in job
+
+
+def test_python_cdn_reads_send_a_user_agent_the_cdn_accepts():
+    # files.cmux.com answers urllib's default "Python-urllib/3.x" with 403. With it the CDN check failed
+    # for a published manifest too (4d01af5b), and cmux_next_tree_notify read every completion.json as absent.
+    import unittest.mock
+    import adopt_cmux_tui_commit
+    import deadline_http
+    import verify_cmux_tui_publication
+
+    request, _ = deadline_http._start("https://files.cmux.com/cmux-tui/tree/k/completion.json", 5, None)
+    assert request.get_header("User-agent") == deadline_http.USER_AGENT
+    assert not deadline_http.USER_AGENT.startswith("Python-urllib")
+    own = deadline_http.urllib.request.Request("https://example.com", headers={"User-Agent": "mine"})
+    assert deadline_http._start(own, 5, None)[0].get_header("User-agent") == "mine"
+    # Both readers go through deadline_http (tests/test_ci_no_bare_urlopen.py) and set no User-Agent of their own.
+    for module in (verify_cmux_tui_publication, adopt_cmux_tui_commit):
+        seen = []
+
+        def fake_request(req, seconds=None, **kwargs):
+            seen.append(deadline_http._start(req, seconds, None)[0].get_header("User-agent"))
+            return 200, b"{}", {}
+
+        with unittest.mock.patch.object(deadline_http, "request", fake_request):
+            module.fetch_url("https://files.cmux.com/cmux-tui/x/manifest.json")
+        assert seen == [deadline_http.USER_AGENT], module.__name__
+
+
+def cdn_gate_script() -> str:
+    detector = workflow_job(workflow("cmux-tui-artifacts.yml"), "verify-cdn-publication")
+    step = detector.split("name: Verify commit and tree metadata through the CDN", 1)[1]
+    return step.split("run: |", 1)[1].replace("python3 scripts/ci/verify_cmux_tui_publication.py", "echo CHECKED")
+
+
+def test_pending_deferral_is_red_once_its_tree_is_published():
+    # Review of #42580, F1: a deferring run read the tree before its owner published and ended pending; the
+    # owner found it still in progress and could not re-run it. pending must not stay green once the tree's
+    # completion.json answers for this key.
+    key = "e" * 40
+    for completion, code in ((json.dumps({"key": key, "binaries": {}}), 1), ("", 0), (json.dumps({"key": "f" * 40}), 0)):
+        fake = f"curl() {{ printf '%s' '{completion}'; [[ -n '{completion}' ]]; }}; "
+        result = subprocess.run(["bash", "-c", fake + cdn_gate_script()],
+                                env={**os.environ, "ADOPT_STATE": "pending", "STALE": "false", "TREE_KEY": key,
+                                     "GITHUB_SHA": "s", "GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1"},
+                                capture_output=True, text=True)
+        assert result.returncode == code, (completion, result.stdout, result.stderr)
+        assert "CHECKED" not in result.stdout
+        if code:
+            assert "::error title=commit manifest missing::" in result.stdout
+
+
+def test_pending_red_names_the_word_base_red_watch_skips():
+    # cmuxterm-hq's base_red_watch (hq#10455) keeps a red out of feat-cmux-next's base reds only while every
+    # ##[error] line it printed has this word, split on whitespace: the sweep re-runs that run, so no lane takes
+    # it. Only the pending-turned-red says it; any other error is a base red.
+    word = "cmux-tui-manifest-rerun-pending"
+    key = "e" * 40
+    fake = f"curl() {{ printf '%s' '{json.dumps({'key': key})}'; }}; "
+    result = subprocess.run(["bash", "-c", fake + cdn_gate_script()],
+                            env={**os.environ, "ADOPT_STATE": "pending", "STALE": "false", "TREE_KEY": key,
+                                 "GITHUB_SHA": "s", "GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1"},
+                            capture_output=True, text=True)
+    assert result.returncode == 1, (result.stdout, result.stderr)
+    # GitHub logs `::error title=T::message` as `##[error]message`.
+    logged = [line.split("::", 2)[2] for line in result.stdout.splitlines() if line.startswith("::error")]
+    assert logged and all(word in line.split() for line in logged), logged
+    others = [line for line in workflow("cmux-tui-artifacts.yml").splitlines()
+              if "::error" in line and "was published after this run deferred" not in line]
+    assert others and not any(word in line for line in others)
+
+
+def sweep_world(run_status: str, *, adopts: bool = True, manifest: int = 404, attempt: int = 1):
+    import cmux_tui_manifest_sweep as sweeper
+
+    rev = "a" * 40
+    reruns: list[int] = []
+    statuses = {f"{sweeper.BASE}/tree-commits/{rev}.json": 200, f"{sweeper.BASE}/{rev}/manifest.json": manifest}
+    result = sweeper.sweep(
+        [rev], adopts=lambda r: adopts, status=lambda url: statuses.get(url, 404),
+        find_run=lambda r: {"id": 77, "status": run_status, "run_attempt": attempt},
+        rerun=lambda run_id: reruns.append(run_id) or True)
+    return result, reruns
+
+
+def test_sweep_reruns_a_deferred_run_that_was_in_progress_at_publish():
+    # The owner's hand-off skipped the live run; the first sweep sees it still live and leaves it (no wait),
+    # and a later push's sweep, after it ended, re-runs it so it writes its manifest.
+    (rerun_commits, problems), reruns = sweep_world("in_progress")
+    assert (rerun_commits, problems, reruns) == ([], [], [])
+    (rerun_commits, problems), reruns = sweep_world("completed", attempt=3)
+    assert rerun_commits == ["a" * 40] and problems == [] and reruns == [77]
+    # Never: a commit that has its manifest, one whose workflow predates the adopt job, a capped run.
+    for kwargs in ({"manifest": 200}, {"adopts": False}, {"attempt": 5}):
+        (rerun_commits, _), reruns = sweep_world("completed", **kwargs)
+        assert rerun_commits == [] and reruns == [], kwargs
+
+
+def test_sweep_runs_after_the_markers_on_every_feat_push_without_waiting():
+    artifacts = workflow("cmux-tui-artifacts.yml")
+    job = workflow_job(artifacts, "sweep-commit-manifests")
+    assert "needs: [tree-preflight, mark-tree-commits]" in job
+    assert "needs.mark-tree-commits.result == 'success'" in job
+    assert "cmux_tui_manifest_sweep.py" in job and "actions: write" in job
+    assert "fetch-depth: 41" in job
+    script = (ROOT / "scripts/ci/cmux_tui_manifest_sweep.py").read_text()
+    assert "sleep" not in script and "time.sleep" not in script
+    # The re-run's own workflow must carry the adopt job the sweep looks for.
+    assert "\n  adopt-commit-manifest:\n" in artifacts
 
 
 # Keep this the last statement of the file: unittest.main() ends the process, so a

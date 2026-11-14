@@ -82,7 +82,8 @@ extension IPhoneHostService {
              "fingerprint": .string(phone.identityKey), "connected": .bool(false), "removable": .bool(true),
              "transport": .string("iroh"), "path": .null]
         }
-        // The iPhone-host toggle does not hide the separately served Phone Access list.
+        // Phones a person allowed through the removed Phone Access (iroh) listener stay listed, whatever
+        // the iPhone-host toggle, so they can be removed from the shared list.
         return hostdPhoneRows + local
     }
 

@@ -96,6 +96,8 @@ pub const CAPABILITIES: &[Capability] = &[
     // `_acpmux/sessions {pendingOnly: true}`: only the chats with a pending ask, without the
     // list's pace (the app's dialog list). Older daemons would answer the whole list.
     Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },
+    // `_acpmux/markRead`: mark a chat read without showing it (cmux's `chat.mark_read`).
+    Capability { id: "mark-read-v1", wire: &[method::MUX_MARK_READ] },
     // The session list as a row log (`hub/row_log.rs`): `session_changed` and a watch's list
     // carry `listSeq`/`listEpoch`, and `_acpmux/watch {afterSeq, listEpoch}` answers the rows
     // changed since, not the list. Older daemons ignore `afterSeq` and send the list.
@@ -236,6 +238,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // its harness, from its transcript and brief; its entry carries `resumable`, `resumes` and
     // `resumedBy` (`hub/subagent_resume.rs`). The pane shows Resume only under it.
     Capability { id: "subagent-resume-v1", wire: &[method::MUX_RETRY, method::SESSION_UPDATE] },
+    // `_acpmux/retry {sessionId}` on a sub-session whose last turn was stopped continues it in
+    // the same chat (`hub/subsession_resume.rs`): its row offers Resume only under it.
+    Capability { id: "subsession-resume-v1", wire: &[method::MUX_RETRY] },
     // Stop one of a chat's background subagents. acpmux takes the method for
     // every harness, but only the Claude stdio adapter acts on it
     // (`claude_stdio/outbound.rs`); others pass it on to the agent.

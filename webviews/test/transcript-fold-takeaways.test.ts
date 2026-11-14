@@ -220,6 +220,22 @@ test("what reads as a takeaway: long prose, a question, a list or a link; not sh
   expect(isTakeaway(say("s", "Running the tests."))).toBe(false);
 });
 
+test("a gerund that is the subject of a finding stays visible; narration about it still folds (#42279 F1)", () => {
+  // Findings: the action is the sentence's subject and a verb after it reports the result.
+  expect(isTakeaway(say("a", "Running two tasks faster than one."))).toBe(true);
+  expect(isTakeaway(say("b", "Checking the cache found no errors."))).toBe(true);
+  expect(isTakeaway(say("c", "Reading the log showed the crash."))).toBe(true);
+  expect(isTakeaway(say("d", "Testing both builds took two minutes."))).toBe(true);
+  expect(isTakeaway(say("e", "Running the suite twice fails once."))).toBe(true);
+  expect(isTakeaway(say("f", "Let me check. Searching the repo turned up nothing."))).toBe(true);
+  // Narration: the words after the action only name what it acts on.
+  expect(isTakeaway(say("g", "Checking the failed jobs."))).toBe(false);
+  expect(isTakeaway(say("h", "Reading `client.ts` next."))).toBe(false);
+  expect(isTakeaway(say("i", "Let me check the logs."))).toBe(false);
+  expect(isTakeaway(say("j", "Running the tests for the updated branch."))).toBe(false);
+  expect(isTakeaway(say("k", "I'm verifying the merged head."))).toBe(false);
+});
+
 test("Find opens the right fold past a prompt that failed to send mid-turn", () => {
   const rows = [
     row("u", "user"),
