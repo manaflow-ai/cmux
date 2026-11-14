@@ -199,6 +199,8 @@ fn equal_refused_requests_of_one_connection_write_one_line() {
     assert_eq!(records.len(), 1, "{REQUESTS} equal refused requests: {text}");
     assert_eq!(records[0]["error"], "layout-ratio-target-missing", "{text}");
     assert!(records[0].get("repeats").is_none(), "a first record has no count: {text}");
+    // A connection that is not the plugin's and declared nothing has no kind word.
+    assert!(records[0].get("client_kind").is_none(), "{text}");
 }
 
 #[test]
