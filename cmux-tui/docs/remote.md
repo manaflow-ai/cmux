@@ -75,6 +75,23 @@ Approval binds the invitation to the first device key that claimed it. That same
 
 `cmux-tui remote enroll create --advertise <route>` replaces the daemon's generated invitation route list. Repeat the flag to supply every desired fallback. Every route named by `--relay-route` must also appear in this explicit `--advertise` list. Prefer server-level `--advertise` when the route should be added to the automatically discovered Iroh, relay, WebSocket, and Unix routes.
 
+### Enroll an agent's device in one step
+
+A machine with no person at it, such as an agent's VM, can enroll without an approval step. The VM prints its device key, the daemon's owner makes an invitation bound to that key, and the VM connects with it:
+
+```sh
+# On the VM: print this device's public key (and its fingerprint).
+cmux-tui remote device-key
+# On the daemon's machine: an invitation only that key can use.
+cmux-tui remote enroll create --session dev --device-key <key> --device-name agent-vm
+# On the VM: connect with the invitation; it enrolls at once.
+cmux-tui remote connect --invite-file invitation.txt
+```
+
+`device-key --json` prints `{"public_key": ..., "fingerprint": ...}`, and creates the client identity first if there is none. The daemon enrolls the bound key as soon as it presents the invitation and refuses every other key with "invitation is bound to another device", without queuing a pending request. `--device-name` names the device in `enroll devices`; without it, the client's `--device-name` is used.
+
+A bound invitation is useless without the private key that matches its device key, which never leaves the VM, so it may travel over a logged channel. The five-minute expiry, the 60-second retry grace and revocation apply as to any invitation. A daemon without bound invitations would make one that needs approval; `enroll create --device-key` refuses to print it.
+
 Inspect or revoke access without restarting the daemon:
 
 ```sh

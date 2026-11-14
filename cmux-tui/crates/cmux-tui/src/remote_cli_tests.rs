@@ -1071,6 +1071,48 @@ fn enrollment_admin_parser_rejects_unknown_duplicate_missing_and_inapplicable_ar
 }
 
 #[test]
+fn enroll_create_binds_to_a_device_key_only_when_both_are_valid() {
+    let key = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([3_u8; 32]);
+    let parsed = parse_enroll_admin_args(
+        &["create", "--device-key", &key, "--device-name", "agent-vm"].map(str::to_string),
+    )
+    .unwrap();
+    assert_eq!(parsed.device_key.as_deref(), Some(key.as_str()));
+    assert_eq!(parsed.device_name.as_deref(), Some("agent-vm"));
+
+    for args in [
+        vec!["approve", "id", "--device-key", key.as_str()],
+        vec!["create", "--device-name", "agent-vm"],
+        vec!["create", "--device-key", "too-short"],
+        vec!["create", "--device-key", key.as_str(), "--device-key", key.as_str()],
+        vec!["create", "--device-key"],
+    ] {
+        let args = args.into_iter().map(str::to_string).collect::<Vec<_>>();
+        assert!(parse_enroll_admin_args(&args).is_err(), "unexpectedly accepted {args:?}");
+    }
+}
+
+#[test]
+fn device_key_prints_the_key_a_bound_invitation_reads() {
+    let state = tempfile::tempdir().unwrap();
+    let parsed = parse_device_key_args(
+        &["--state-dir", &state.path().display().to_string(), "--json"].map(str::to_string),
+    )
+    .unwrap();
+    assert!(parsed.json);
+    assert_eq!(parsed.state_dir.as_deref(), Some(state.path()));
+    let store = ClientIdentityStore::load_or_create(state.path().join("client")).unwrap();
+    let bound = BoundDevice::parse(&store.device_public_key(), None).unwrap();
+    assert_eq!(bound.public_key, store.identity().public_key());
+    assert_eq!(bound.fingerprint(), store.identity().fingerprint());
+
+    for args in [vec!["--json", "--json"], vec!["--state-dir"], vec!["extra"]] {
+        let args = args.into_iter().map(str::to_string).collect::<Vec<_>>();
+        assert!(parse_device_key_args(&args).is_err(), "unexpectedly accepted {args:?}");
+    }
+}
+
+#[test]
 fn known_daemon_parser_is_strict_and_supports_forget() {
     let parsed = parse_known_daemons_args(
         &["forget", "fingerprint", "--state-dir", "/tmp/client-state", "--json"]
@@ -1192,6 +1234,7 @@ fn remote_client_locale_fixture() {
         "rpc",
         "enroll",
         "known-daemons",
+        "remote-device-key",
         "remote-probe",
         "remote-link",
         "install-self",

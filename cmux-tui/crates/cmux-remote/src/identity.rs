@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{Mutex, Notify, oneshot, watch};
+use tokio::sync::{Mutex, Notify, OwnedMutexGuard, oneshot, watch};
 
 use crate::crypto::{
     AuthGrant, AuthKind, AuthRequest, ConnectionAttemptId, CryptoError, InboundAuthEvidence,
@@ -1157,94 +1157,41 @@ impl AuthDatabase {
     ) -> Result<DeviceRecord, IdentityError> {
         let database = Arc::clone(self);
         let invitation_id = invitation_id.to_owned();
-        tokio::spawn(async move { database.approve_durably(&invitation_id).await })
-            .await
-            .unwrap_or_else(|error| {
-                Err(IdentityError::Persistence(format!(
-                    "identity approval task failed to join: {error}"
-                )))
-            })
+        outlive_caller("identity approval", async move {
+            database.approve_durably(&invitation_id).await
+        })
+        .await
+        .unwrap_or_else(|error| Err(IdentityError::Persistence(error)))
     }
 
     async fn approve_durably(&self, invitation_id: &str) -> Result<DeviceRecord, IdentityError> {
         let now = unix_time()?;
-        let mut state = self.state.lock().await;
+        let mut state = Arc::clone(&self.state).lock_owned().await;
         state.ensure_open()?;
         let pending = state
             .pending
             .remove(invitation_id)
             .ok_or_else(|| IdentityError::UnknownPending(invitation_id.into()))?;
-        let invitation = state
-            .invitations
-            .get_mut(invitation_id)
-            .ok_or_else(|| IdentityError::InvitationExpired(invitation_id.into()))?;
+        if !state.invitations.contains_key(invitation_id) {
+            return Err(IdentityError::InvitationExpired(invitation_id.into()));
+        }
         let approval_deadline =
             pending.request.requested_at_unix.saturating_add(APPROVAL_TIMEOUT.as_secs());
         if approval_deadline <= now {
             return Err(IdentityError::InvitationExpired(invitation_id.into()));
         }
-        let fingerprint = public_key_fingerprint(&pending.device_public_key);
-        let previous_claim = invitation.claimed_by.replace(fingerprint.clone());
-        let previous_expiration = invitation.expires_at_unix;
-        invitation.expires_at_unix =
-            invitation.expires_at_unix.max(now.saturating_add(ENROLLMENT_RETRY_GRACE.as_secs()));
-        let record = DeviceRecord {
-            id: fingerprint.clone(),
-            name: pending.request.device_name.clone(),
-            public_key: encode_key(&pending.device_public_key),
-            fingerprint,
-            created_at_unix: now,
-            last_seen_at_unix: now,
-            revoked_at_unix: None,
-        };
-        let previous_device = state.devices.insert(record.id.clone(), record.clone());
-        let generation = state.revocation_generation;
-        let persistence = match self.submit_mutation_locked(&mut state) {
-            Ok(persistence) => persistence,
-            Err(error) => {
-                rollback_approval(
-                    &mut state,
-                    invitation_id,
-                    &record.id,
-                    previous_claim,
-                    previous_expiration,
-                    previous_device,
-                );
-                let _ = pending.decision.send(Err(error.to_string()));
-                return Err(error);
-            }
-        };
-        let grant = AuthGrant {
-            device_id: record.id.clone(),
-            daemon_name: self.daemon_name.clone(),
-            revocation_generation: generation,
-            authority: crate::crypto::ServiceAuthority::legacy_full(),
-        };
-        match persistence.wait_result().await {
-            Ok(()) => {
-                drop(state);
-                let _ = pending.decision.send(Ok(grant));
-                Ok(record)
-            }
-            Err(PersistenceFailure::Committed(message)) => {
-                drop(state);
-                let _ = pending.decision.send(Ok(grant));
-                Err(IdentityError::Committed(message))
-            }
-            Err(PersistenceFailure::Uncommitted(message)) => {
-                rollback_approval(
-                    &mut state,
-                    invitation_id,
-                    &record.id,
-                    previous_claim,
-                    previous_expiration,
-                    previous_device,
-                );
-                drop(state);
-                let _ = pending.decision.send(Err(message.clone()));
-                Err(IdentityError::Persistence(message))
-            }
-        }
+        let enrollment = enroll_invited_device(
+            state,
+            Arc::clone(&self.persistence),
+            self.daemon_name.clone(),
+            invitation_id.to_owned(),
+            pending.device_public_key,
+            pending.request.device_name.clone(),
+            now,
+        )
+        .await;
+        let _ = pending.decision.send(enrollment.authorization);
+        enrollment.record
     }
 
     pub async fn deny(&self, invitation_id: &str) -> Result<(), IdentityError> {
@@ -1372,9 +1319,122 @@ impl AuthDatabase {
         &self,
         state: &mut AuthState,
     ) -> Result<PersistenceWaiter, IdentityError> {
-        debug_assert!(!state.closing);
-        let snapshot = state.snapshot_after_mutation()?;
-        Ok(self.persistence.submit(snapshot))
+        submit_mutation(&self.persistence, state)
+    }
+}
+
+/// Run an authorization write to its end even when its caller (an admin
+/// client, or a device's link) is dropped mid-write: the write holds the state
+/// lock until its snapshot is durable or rolled back, and cancelling it there
+/// would leave a staged device. The task owns everything it touches and ends
+/// with the write, so it needs no other owner.
+async fn outlive_caller<T: Send + 'static>(
+    what: &str,
+    write: impl Future<Output = T> + Send + 'static,
+) -> Result<T, String> {
+    tokio::spawn(write).await.map_err(|error| format!("{what} task failed to join: {error}"))
+}
+
+fn submit_mutation(
+    persistence: &PersistenceCoordinator,
+    state: &mut AuthState,
+) -> Result<PersistenceWaiter, IdentityError> {
+    debug_assert!(!state.closing);
+    let snapshot = state.snapshot_after_mutation()?;
+    Ok(persistence.submit(snapshot))
+}
+
+/// What enrolling a device under an invitation answers: the owner's result,
+/// and the authorization the device's waiting link receives.
+struct InvitedEnrollment {
+    record: Result<DeviceRecord, IdentityError>,
+    authorization: Result<AuthGrant, String>,
+}
+
+/// Enroll `device_public_key` under `invitation_id`: claim the invitation,
+/// record the device, and hold the state lock until that snapshot is durable,
+/// so no authorization reader observes a staged device. An uncommitted write
+/// is rolled back. Both an owner's approval and a bound invitation's claim
+/// enroll through here. Every argument is owned, so a caller can run it in a
+/// task that outlives a link or admin client that drops mid-write.
+async fn enroll_invited_device(
+    mut state: OwnedMutexGuard<AuthState>,
+    persistence: Arc<PersistenceCoordinator>,
+    daemon_name: String,
+    invitation_id: String,
+    device_public_key: [u8; 32],
+    device_name: String,
+    now: u64,
+) -> InvitedEnrollment {
+    let Some(invitation) = state.invitations.get_mut(&invitation_id) else {
+        let error = IdentityError::InvitationExpired(invitation_id);
+        let authorization = Err(error.to_string());
+        return InvitedEnrollment { record: Err(error), authorization };
+    };
+    let fingerprint = public_key_fingerprint(&device_public_key);
+    let previous_claim = invitation.claimed_by.replace(fingerprint.clone());
+    let previous_expiration = invitation.expires_at_unix;
+    invitation.expires_at_unix =
+        invitation.expires_at_unix.max(now.saturating_add(ENROLLMENT_RETRY_GRACE.as_secs()));
+    let record = DeviceRecord {
+        id: fingerprint.clone(),
+        name: device_name,
+        public_key: encode_key(&device_public_key),
+        fingerprint,
+        created_at_unix: now,
+        last_seen_at_unix: now,
+        revoked_at_unix: None,
+    };
+    let previous_device = state.devices.insert(record.id.clone(), record.clone());
+    let generation = state.revocation_generation;
+    let waiter = match submit_mutation(&persistence, &mut state) {
+        Ok(waiter) => waiter,
+        Err(error) => {
+            rollback_approval(
+                &mut state,
+                &invitation_id,
+                &record.id,
+                previous_claim,
+                previous_expiration,
+                previous_device,
+            );
+            let authorization = Err(error.to_string());
+            return InvitedEnrollment { record: Err(error), authorization };
+        }
+    };
+    let grant = AuthGrant {
+        device_id: record.id.clone(),
+        daemon_name,
+        revocation_generation: generation,
+        authority: crate::crypto::ServiceAuthority::legacy_full(),
+    };
+    match waiter.wait_result().await {
+        Ok(()) => {
+            drop(state);
+            InvitedEnrollment { record: Ok(record), authorization: Ok(grant) }
+        }
+        Err(PersistenceFailure::Committed(message)) => {
+            drop(state);
+            InvitedEnrollment {
+                record: Err(IdentityError::Committed(message)),
+                authorization: Ok(grant),
+            }
+        }
+        Err(PersistenceFailure::Uncommitted(message)) => {
+            rollback_approval(
+                &mut state,
+                &invitation_id,
+                &record.id,
+                previous_claim,
+                previous_expiration,
+                previous_device,
+            );
+            drop(state);
+            InvitedEnrollment {
+                record: Err(IdentityError::Persistence(message.clone())),
+                authorization: Err(message),
+            }
+        }
     }
 }
 
@@ -1546,7 +1606,7 @@ impl ServerAuthenticator for AuthDatabase {
                 let (decision_tx, decision_rx) = oneshot::channel();
                 let pending_token = Arc::new(());
                 {
-                    let mut state = self.state.lock().await;
+                    let mut state = Arc::clone(&self.state).lock_owned().await;
                     state.ensure_open().map_err(|error| error.to_string())?;
                     let invitation = state
                         .invitations
@@ -1555,6 +1615,15 @@ impl ServerAuthenticator for AuthDatabase {
                     if invitation.expires_at_unix <= now {
                         return Err("invitation is expired".into());
                     }
+                    // A bound invitation admits its one key and no other: a
+                    // stranger is refused before it can queue or claim anything.
+                    let bound_device_name = match &invitation.bound_device {
+                        Some(bound) if bound.public_key != request.device_public_key => {
+                            return Err("invitation is bound to another device".into());
+                        }
+                        Some(bound) => Some(bound.name.clone()),
+                        None => None,
+                    };
                     if let Some(claimed_by) = &invitation.claimed_by {
                         if claimed_by != &fingerprint {
                             return Err("invitation was already claimed by another device".into());
@@ -1575,6 +1644,25 @@ impl ServerAuthenticator for AuthDatabase {
                             revocation_generation: generation,
                             authority: crate::crypto::ServiceAuthority::legacy_full(),
                         });
+                    }
+                    if let Some(owner_given_name) = bound_device_name {
+                        // The owner approved this key when binding the
+                        // invitation to it: enroll it now, as an approval
+                        // would. Like an approval, the write runs in its own
+                        // task, so a link that drops mid-write cannot strand
+                        // a staged device.
+                        let enrollment = enroll_invited_device(
+                            state,
+                            Arc::clone(&self.persistence),
+                            self.daemon_name.clone(),
+                            invitation_id,
+                            request.device_public_key,
+                            owner_given_name.unwrap_or(request.device_name),
+                            now,
+                        );
+                        return outlive_caller("identity enrollment", enrollment)
+                            .await
+                            .and_then(|enrollment| enrollment.authorization);
                     }
                     if let Some(existing) = state.pending.get(&invitation_id) {
                         // Another device may never ride on, or displace, this request.
@@ -2451,6 +2539,193 @@ mod tests {
         // The refusal leaves the invitation to its device.
         let grant = claim(&auth, invitation_request(&invitation.id, &bound, "bound")).await;
         assert_eq!(grant.unwrap().device_id, bound.fingerprint());
+    }
+
+    #[tokio::test]
+    async fn a_bound_invitation_enrolls_its_device_with_no_approval() {
+        let directory = tempfile::tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "bound", false).unwrap();
+        let device = StaticIdentity::generate().unwrap();
+        let invitation = bound_invitation(&auth, &device, Some("agent-vm")).await;
+
+        let grant =
+            claim(&auth, invitation_request(&invitation.id, &device, "client-name")).await.unwrap();
+
+        assert_eq!(grant.device_id, device.fingerprint());
+        assert!(auth.grant_is_current(&grant).await);
+        assert!(auth.pending_enrollments().await.is_empty());
+        let devices = auth.list_devices().await;
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].fingerprint, device.fingerprint());
+        assert_eq!(devices[0].public_key, encode_key(&device.public_key()));
+        // The owner's name for the device wins over the one the client sends.
+        assert_eq!(devices[0].name, "agent-vm");
+        {
+            let state = auth.state.lock().await;
+            let record = &state.invitations[&invitation.id];
+            assert_eq!(record.claimed_by.as_deref(), Some(device.fingerprint().as_str()));
+        }
+        // The same device may present the invitation again within its retry grace.
+        let again =
+            claim(&auth, invitation_request(&invitation.id, &device, "client-name")).await.unwrap();
+        assert_eq!(again.device_id, device.fingerprint());
+        // Once enrolled, the device needs no invitation at all.
+        let mut enrolled = invitation_request(&invitation.id, &device, "client-name");
+        enrolled.mode = AuthKind::Enrolled;
+        enrolled.invitation_id = None;
+        assert_eq!(auth.authorize(enrolled).await.unwrap().device_id, device.fingerprint());
+    }
+
+    #[tokio::test]
+    async fn a_bound_invitation_survives_a_daemon_restart() {
+        let directory = tempfile::tempdir().unwrap();
+        let device = StaticIdentity::generate().unwrap();
+        let stranger = StaticIdentity::generate().unwrap();
+        let invitation = {
+            let auth = AuthDatabase::load_or_create(directory.path(), "bound", false).unwrap();
+            let invitation = bound_invitation(&auth, &device, Some("agent-vm")).await;
+            auth.shutdown().await.unwrap();
+            invitation
+        };
+        let persisted = fs::read_to_string(directory.path().join("devices.json")).unwrap();
+        assert!(persisted.contains(&encode_key(&device.public_key())), "{persisted}");
+
+        let auth = AuthDatabase::load_or_create(directory.path(), "bound", false).unwrap();
+        let error = claim(&auth, invitation_request(&invitation.id, &stranger, "stranger"))
+            .await
+            .unwrap_err();
+        assert_eq!(error, "invitation is bound to another device");
+        let grant =
+            claim(&auth, invitation_request(&invitation.id, &device, "client")).await.unwrap();
+        assert_eq!(grant.device_id, device.fingerprint());
+        assert_eq!(auth.list_devices().await[0].name, "agent-vm");
+    }
+
+    #[tokio::test]
+    async fn revoking_a_device_enrolled_by_a_bound_invitation_cuts_it_off() {
+        let directory = tempfile::tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "bound", false).unwrap();
+        let device = StaticIdentity::generate().unwrap();
+        let invitation = bound_invitation(&auth, &device, None).await;
+        let grant =
+            claim(&auth, invitation_request(&invitation.id, &device, "agent")).await.unwrap();
+
+        auth.revoke(&grant.device_id).await.unwrap();
+
+        assert!(!auth.grant_is_current(&grant).await);
+        assert!(!auth.device_is_active(&grant.device_id).await);
+        let error =
+            claim(&auth, invitation_request(&invitation.id, &device, "agent")).await.unwrap_err();
+        assert_eq!(error, "device enrollment is no longer active");
+    }
+
+    #[tokio::test]
+    async fn an_expired_bound_invitation_is_refused() {
+        let directory = tempfile::tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "bound", false).unwrap();
+        let device = StaticIdentity::generate().unwrap();
+        let invitation = bound_invitation(&auth, &device, None).await;
+        auth.state.lock().await.invitations.get_mut(&invitation.id).unwrap().expires_at_unix =
+            unix_time().unwrap() - 1;
+
+        let error =
+            claim(&auth, invitation_request(&invitation.id, &device, "agent")).await.unwrap_err();
+
+        assert_eq!(error, "invitation is expired");
+        assert!(auth.list_devices().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn bound_invitations_keep_the_live_invitation_limit() {
+        let directory = tempfile::tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "bound", false).unwrap();
+        let device = StaticIdentity::generate().unwrap();
+        for _ in 0..MAX_LIVE_INVITATIONS {
+            bound_invitation(&auth, &device, None).await;
+        }
+        let bound = BoundDevice::parse(&encode_key(&device.public_key()), None).unwrap();
+        let error = auth
+            .create_invitation_for_device(
+                Duration::from_secs(60),
+                Vec::new(),
+                Vec::new(),
+                Some(bound),
+            )
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("maximum invitation count"), "{error}");
+    }
+
+    #[test]
+    fn a_bound_device_needs_a_32_byte_key_and_a_plain_name() {
+        let key = encode_key(&[7; 32]);
+        assert!(BoundDevice::parse(&key, None).is_ok());
+        assert_eq!(BoundDevice::parse(&key, Some(" vm ".into())).unwrap().name.unwrap(), "vm");
+        assert!(BoundDevice::parse(&encode_key(&[7; 32])[..20], None).is_err());
+        assert!(BoundDevice::parse("not base64!", None).is_err());
+        assert!(BoundDevice::parse(&key, Some("  ".into())).is_err());
+        assert!(BoundDevice::parse(&key, Some("a\nb".into())).is_err());
+        assert!(BoundDevice::parse(&key, Some("x".repeat(129))).is_err());
+    }
+
+    #[tokio::test]
+    async fn state_written_before_bound_invitations_loads_them_unbound() {
+        let directory = tempfile::tempdir().unwrap();
+        let expires_at_unix = unix_time().unwrap() + 120;
+        let old_state = serde_json::json!({
+            "version": AUTH_STATE_VERSION,
+            "revision": 3,
+            "revocation_generation": 0,
+            "devices": [],
+            "invitations": [{
+                "id": "old-invitation",
+                "secret": encode_key(&[5; 32]),
+                "expires_at_unix": expires_at_unix,
+                "route_hints": [],
+                "claimed_by": null,
+            }],
+        });
+        fs::write(directory.path().join("devices.json"), old_state.to_string()).unwrap();
+
+        let auth = AuthDatabase::load_or_create(directory.path(), "old", false).unwrap();
+
+        {
+            let state = auth.state.lock().await;
+            let invitation = &state.invitations["old-invitation"];
+            assert!(invitation.bound_device.is_none());
+            assert_eq!(invitation.expires_at_unix, expires_at_unix);
+        }
+        // An unbound invitation still waits for the owner's approval.
+        let device = StaticIdentity::generate().unwrap();
+        let request = invitation_request("old-invitation", &device, "old-client");
+        let attempt = tokio::spawn({
+            let auth = Arc::clone(&auth);
+            async move { auth.authorize(request).await }
+        });
+        let pending = auth.wait_for_pending(BOUND_CLAIM_DEADLINE).await.unwrap();
+        assert_eq!(pending[0].device_fingerprint, device.fingerprint());
+        auth.approve("old-invitation").await.unwrap();
+        assert_eq!(attempt.await.unwrap().unwrap().device_id, device.fingerprint());
+    }
+
+    #[tokio::test]
+    async fn a_binding_that_does_not_decode_drops_its_invitation() {
+        let directory = tempfile::tempdir().unwrap();
+        let state = serde_json::json!({
+            "version": AUTH_STATE_VERSION,
+            "invitations": [{
+                "id": "damaged",
+                "secret": encode_key(&[5; 32]),
+                "expires_at_unix": unix_time().unwrap() + 120,
+                "route_hints": [],
+                "bound_device": "not-a-key",
+            }],
+        });
+        fs::write(directory.path().join("devices.json"), state.to_string()).unwrap();
+
+        let auth = AuthDatabase::load_or_create(directory.path(), "damaged", false).unwrap();
+
+        assert!(auth.state.lock().await.invitations.is_empty());
     }
 
     #[test]

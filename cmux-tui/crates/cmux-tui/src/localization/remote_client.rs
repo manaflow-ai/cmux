@@ -10,6 +10,7 @@ pub(crate) struct RemoteClientMessages {
     pub rpc_help: &'static str,
     pub enroll_help: &'static str,
     pub known_daemons_help: &'static str,
+    pub device_key_help: &'static str,
     pub remote_probe_help: &'static str,
     pub remote_link_help: &'static str,
     pub remote_mux_binding_refused: &'static str,
@@ -358,17 +359,21 @@ ACTIONS:
 OPTIONS:
   --session NAME  --state-dir PATH  --admin-socket PATH  --json
   create: --ttl SECONDS  --advertise ROUTE
+  create: --device-key KEY [--device-name NAME] binds the invitation to the
+device whose key `cmux remote device-key` printed: only that device can use
+it, and it enrolls with no approval step
   create relay access: repeat --relay-route ROUTE --relay-slot SLOT with
 --relay-ticket-file PATH, in occurrence order,
 for up to two relay fallbacks
   connect accepts every option documented by `cmux remote connect`.
 "#,
     known_daemons_help: "USAGE: cmux remote known-daemons [list] [--state-dir PATH] [--json]\n       cmux remote known-daemons forget FINGERPRINT [--state-dir PATH] [--json]\n",
+    device_key_help: "USAGE: cmux remote device-key [--state-dir PATH] [--json]\n\nPrints this device's public key and fingerprint, creating the device identity if there is none. Give the key to the daemon's owner for `cmux remote enroll create --device-key KEY`: that invitation enrolls only this device, with no approval step. The key is public; the private key never leaves this device.\n",
     remote_probe_help: "USAGE: cmux-tui remote-probe [--json]\n",
     remote_mux_binding_refused: "The running remote sidecar cannot prove the requested --mux-socket. Update the sidecar or use a separate --session for this daemon [remote-mux-binding]",
     remote_link_help: "USAGE: cmux-tui remote-link --stdio [--session NAME] [--state-dir PATH] [--mux-socket PATH] [--link-socket PATH] [--agent-hooks PROVIDERS]\n",
     install_self_help: "USAGE: cmux-tui install-self --destination PATH\n",
-    command_help: "USAGE: cmux remote <connect|ssh|forward|dial-tcp|rpc|enroll|known-daemons|stop> [OPTIONS]\n\nRun `cmux remote COMMAND --help` for command-specific routes and options. Legacy top-level aliases remain available for one compatibility cycle.\n",
+    command_help: "USAGE: cmux remote <connect|ssh|forward|dial-tcp|rpc|enroll|known-daemons|device-key|stop> [OPTIONS]\n\nRun `cmux remote COMMAND --help` for command-specific routes and options. Legacy top-level aliases remain available for one compatibility cycle.\n",
     remote_lifecycle_help: "USAGE: cmux remote connect|ssh|forward|rpc [OPTIONS]\n       cmux remote enroll <ACTION> [OPTIONS]\n       cmux remote known-daemons [OPTIONS]\n       cmux remote stop [OPTIONS]\n\nAuthenticated remote operations are explicit under `remote`. Start the owning process with `cmux daemon start` and explicit remote flags. `cmux remote stop` manages only replaceable SSH sidecars. Stop a listener embedded by `cmux daemon start` with `cmux daemon stop`; this also stops its local owner and workspaces.\n",
     option_needs_value: "{option} needs a value",
     invalid_option_value: "{option} has an invalid value; expected {expected}",
@@ -566,16 +571,20 @@ ID とセッション:
 オプション:
   --session 名前  --state-dir パス  --admin-socket パス  --json
   create: --ttl 秒数  --advertise ルート
+  create: --device-key キー [--device-name 名前] で、`cmux remote device-key`
+が出力したキーのデバイスに招待を限定します。そのデバイスだけが使え、
+承認なしで登録されます
   create のリレーアクセスでは --relay-route、--relay-slot、
 --relay-ticket-file の組を出現順に最大 2 回指定します。
   connect では `cmux remote connect` の全オプションを使用できます。
 "#,
     known_daemons_help: "使用方法: cmux remote known-daemons [list] [--state-dir パス] [--json]\n          cmux remote known-daemons forget フィンガープリント [--state-dir パス] [--json]\n",
+    device_key_help: "使用方法: cmux remote device-key [--state-dir パス] [--json]\n\nこのデバイスの公開鍵とフィンガープリントを出力します。デバイス ID がなければ作成します。このキーをデーモンの所有者に渡し、`cmux remote enroll create --device-key キー` を実行してもらいます。その招待はこのデバイスだけを承認なしで登録します。キーは公開情報で、秘密鍵がこのデバイスの外に出ることはありません。\n",
     remote_probe_help: "使用方法: cmux-tui remote-probe [--json]\n",
     remote_mux_binding_refused: "実行中のリモートサイドカーが指定された --mux-socket を使用していることを確認できません。サイドカーを更新するか、このデーモンに別の --session を使用してください [remote-mux-binding]",
     remote_link_help: "使用方法: cmux-tui remote-link --stdio [--session 名前] [--state-dir パス] [--mux-socket パス] [--link-socket パス] [--agent-hooks プロバイダー]\n",
     install_self_help: "使用方法: cmux-tui install-self --destination パス\n",
-    command_help: "使用方法: cmux remote <connect|ssh|forward|dial-tcp|rpc|enroll|known-daemons|stop> [オプション]\n\nコマンド別のルートとオプションは `cmux remote コマンド --help` で表示します。従来のトップレベル別名は互換期間中も使用できます。\n",
+    command_help: "使用方法: cmux remote <connect|ssh|forward|dial-tcp|rpc|enroll|known-daemons|device-key|stop> [オプション]\n\nコマンド別のルートとオプションは `cmux remote コマンド --help` で表示します。従来のトップレベル別名は互換期間中も使用できます。\n",
     remote_lifecycle_help: "使用方法: cmux remote connect|ssh|forward|rpc [オプション]\n          cmux remote enroll <操作> [オプション]\n          cmux remote known-daemons [オプション]\n          cmux remote stop [オプション]\n\n認証済みリモート操作は `remote` で明示的に指定します。所有プロセスは明示的なリモートフラグを付けた `cmux daemon start` で起動します。`cmux remote stop` は置換可能な SSH サイドカーだけを管理します。`cmux daemon start` に組み込まれたリスナーは `cmux daemon stop` で停止してください。この操作はローカルの所有者とワークスペースも停止します。\n",
     option_needs_value: "{option} には値が必要です",
     invalid_option_value: "{option} の値が無効です。{expected} を指定してください",

@@ -71,6 +71,8 @@ pub(super) struct EnrollAdminArgs {
     relay_routes: Vec<String>,
     relay_slots: Vec<String>,
     relay_tickets: Vec<InvitationTicketArg>,
+    pub(super) device_key: Option<String>,
+    pub(super) device_name: Option<String>,
 }
 
 pub(super) fn parse_enroll_admin_args(args: &[String]) -> anyhow::Result<EnrollAdminArgs> {
@@ -90,6 +92,8 @@ pub(super) fn parse_enroll_admin_args(args: &[String]) -> anyhow::Result<EnrollA
         relay_routes: Vec::new(),
         relay_slots: Vec::new(),
         relay_tickets: Vec::new(),
+        device_key: None,
+        device_name: None,
     };
     let mut seen = BTreeSet::new();
     let mut options_ended = false;
@@ -159,6 +163,16 @@ pub(super) fn parse_enroll_admin_args(args: &[String]) -> anyhow::Result<EnrollA
                     strict_option_value(args, &mut index, "--relay-ticket-file")?.into(),
                 ));
             }
+            "--device-key" => {
+                require_create_action(action, "--device-key")?;
+                require_unique_flag(&mut seen, "--device-key")?;
+                parsed.device_key = Some(strict_option_value(args, &mut index, "--device-key")?);
+            }
+            "--device-name" => {
+                require_create_action(action, "--device-name")?;
+                require_unique_flag(&mut seen, "--device-name")?;
+                parsed.device_name = Some(strict_option_value(args, &mut index, "--device-name")?);
+            }
             option => {
                 return Err(anyhow!(
                     catalog()
@@ -167,6 +181,12 @@ pub(super) fn parse_enroll_admin_args(args: &[String]) -> anyhow::Result<EnrollA
                 ));
             }
         }
+    }
+    if parsed.device_name.is_some() && parsed.device_key.is_none() {
+        return Err(anyhow!("--device-name names the device of --device-key; pass both"));
+    }
+    if let Some(key) = &parsed.device_key {
+        BoundDevice::parse(key, parsed.device_name.clone())?;
     }
     let expected = action.positional_arity();
     if parsed.positionals.len() != expected {
@@ -205,6 +225,8 @@ pub(super) fn run_enroll(
             ttl_seconds: parsed.ttl_seconds,
             route_hints: parsed.advertised_routes.clone(),
             relay_access: invitation_relay_access(&parsed)?,
+            device_public_key: parsed.device_key.clone(),
+            device_name: parsed.device_name.clone(),
         },
         EnrollAdminAction::Pending => AdminRequest::Pending,
         EnrollAdminAction::Approve => {
@@ -224,7 +246,79 @@ pub(super) fn run_enroll(
         },
     };
     let response = tokio_runtime()?.block_on(call_admin(&admin_socket, &request))?;
+    if parsed.device_key.is_some() {
+        require_bound_invitation(&response)?;
+    }
     print_admin_response(parsed.action.name(), response, parsed.json)
+}
+
+/// A daemon older than bound invitations ignores `--device-key` and makes an
+/// ordinary invitation that waits for approval; say so instead of handing it out.
+fn require_bound_invitation(response: &AdminResponse) -> anyhow::Result<()> {
+    let Some(uri) = response.result.as_ref().and_then(|result| result["uri"].as_str()) else {
+        return Ok(());
+    };
+    if EnrollmentInvitation::from_uri(uri)?.approval_required {
+        return Err(anyhow!(
+            "this daemon does not support --device-key and made an invitation that needs approval; approve the device with `cmux remote enroll approve ID` once it connects"
+        ));
+    }
+    Ok(())
+}
+
+pub(super) struct DeviceKeyArgs {
+    pub(super) state_dir: Option<PathBuf>,
+    pub(super) json: bool,
+}
+
+pub(super) fn parse_device_key_args(args: &[String]) -> anyhow::Result<DeviceKeyArgs> {
+    let mut parsed = DeviceKeyArgs { state_dir: None, json: false };
+    let mut seen = BTreeSet::new();
+    let mut index = 0;
+    while index < args.len() {
+        let argument = &args[index];
+        index += 1;
+        match argument.as_str() {
+            "--state-dir" => {
+                require_unique_flag(&mut seen, "--state-dir")?;
+                parsed.state_dir =
+                    Some(strict_option_value(args, &mut index, "--state-dir")?.into());
+            }
+            "--json" => {
+                require_unique_flag(&mut seen, "--json")?;
+                parsed.json = true;
+            }
+            // A global --socket names a session; the device key is this client's.
+            "--socket" => _ = strict_option_value(args, &mut index, "--socket")?,
+            option => {
+                return Err(anyhow!(
+                    catalog().remote_client.unknown_option_for_command(option, "device-key")
+                ));
+            }
+        }
+    }
+    Ok(parsed)
+}
+
+/// `cmux remote device-key`: print this client's device public key and
+/// fingerprint, for an invitation bound to this device.
+pub(super) fn run_device_key(args: &[String]) -> anyhow::Result<()> {
+    let parsed = parse_device_key_args(args)?;
+    let client_root = parsed
+        .state_dir
+        .or_else(default_state_dir)
+        .ok_or_else(|| anyhow!(catalog().remote_client.known_state_dir_unavailable))?
+        .join("client");
+    let store = ClientIdentityStore::load_or_create(client_root)?;
+    let public_key = store.device_public_key();
+    let fingerprint = store.identity().fingerprint();
+    if parsed.json {
+        println!("{}", serde_json::json!({ "public_key": public_key, "fingerprint": fingerprint }));
+    } else {
+        println!("{public_key}");
+        println!("{fingerprint}");
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
