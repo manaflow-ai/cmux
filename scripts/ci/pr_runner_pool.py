@@ -353,6 +353,19 @@ ROLE_NAMES = ("root", "side", "gui", "session")
 # pools: slots() leaves them out, and capability_slots() reads their count
 # (machines, one simulator job each) from CI_OWNED_POOL_SLOTS.
 CAPABILITY_LABELS = ("glaeda-ios-sim",)
+# glaeda's sim-first runner (teamleaderleo/glaeda#1983): one per simulator
+# mini, labelled `glaeda-sim-xcode-<version>` (its Xcode, as the pool label
+# names it) without the pool label or `glaeda-ios-sim`. glaeda keeps it online
+# while that mini's one simulator token is free, even when the mini's capacity
+# units are full and every `glaeda-ios-sim` runner has stopped listening, so an
+# online idle one is a free simulator. A job on it holds that simulator, as a
+# simulator job on `glaeda-ios-sim` does (SIM_FIRST_CAPABILITY), and may wait
+# on the mini for CPU units. Requested alone, not beside a pool label:
+# ios_runner_pool.py puts simulator jobs on it, the rescue watches a job queued
+# there like one on an owned pool (owned_pool_rescue.job_pool()), and the
+# janitor counts it toward `glaeda-ios-sim` (queue_janitor.capabilities()).
+SIM_FIRST_LABEL = re.compile(rf"glaeda-sim-xcode-{XCODE_VERSION}")
+SIM_FIRST_CAPABILITY = "glaeda-ios-sim"
 # A warm key (owned_warm_state.py): a main commit's first 12 hex digits, or
 # `pr-<number>` for a kept build of that pull request.
 WARM_KEY = re.compile(r"[0-9a-f]{12}|pr-[1-9][0-9]{0,8}")
@@ -582,6 +595,17 @@ def nightly_dedicated(label: str) -> bool:
 def persistent(label: str) -> bool:
     """An owned pool: its machines outlive the job, so a queued job there can wait for good."""
     return bool(OWNED_LABEL.fullmatch(label or ""))
+
+
+def sim_first(label: str) -> bool:
+    """glaeda's sim-first simulator label (SIM_FIRST_LABEL): not a pool, but a job queued there can wait too."""
+    return bool(SIM_FIRST_LABEL.fullmatch(label or ""))
+
+
+def sim_first_label(pr_xcode_app: str | None) -> str:
+    """The sim-first label for the lane's Xcode pin (`glaeda-sim-xcode-26.6`), or "" without one."""
+    match = XCODE_APP.search(pr_xcode_app or "")
+    return f"glaeda-sim-xcode-{match.group(1)}" if match else ""
 
 
 def _role_name(label: str) -> str:
