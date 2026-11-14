@@ -165,7 +165,7 @@ impl Mux {
     /// answer that is not that one, or a start that is not read or is not
     /// before this daemon's. `terminal`: the terminal's public id, when the
     /// pass has it.
-    pub(super) fn kept_host(
+    pub(crate) fn kept_host(
         &self,
         record_path: &Path,
         record: &crate::terminal_host_runtime::TerminalHostRecord,

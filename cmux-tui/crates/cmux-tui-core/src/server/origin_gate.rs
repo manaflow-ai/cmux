@@ -412,9 +412,22 @@ pub(super) fn set_peer_identity_at_accept(
     peer_key: Option<String>,
     peer_token: Option<cmux_link::app_caller::PeerToken>,
 ) -> crate::diagnostics::ClientKind {
-    use crate::diagnostics::ClientKind;
     let parent_of = terminal_admission::parent_process;
-    let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id, parent_of);
+    set_peer_identity_with(mux, client, peer_key, peer_token, peer_session_id, parent_of)
+}
+
+/// [`set_peer_identity_at_accept`] with the read of a process's session and
+/// the read of a process's parent given.
+fn set_peer_identity_with(
+    mux: &Mux,
+    client: u64,
+    peer_key: Option<String>,
+    peer_token: Option<cmux_link::app_caller::PeerToken>,
+    session_for_pid: impl FnOnce(u32) -> Option<u32>,
+    parent_of: impl FnOnce(u32) -> Option<u32>,
+) -> crate::diagnostics::ClientKind {
+    use crate::diagnostics::ClientKind;
+    let local_peer = classify_local_peer(mux, peer_key.as_deref(), session_for_pid, parent_of);
     // What the peer is for the request counters, before it declares a kind.
     let kind = match &local_peer {
         LocalPeer::Terminal(_) => ClientKind::Terminal,
@@ -708,6 +721,10 @@ mod test_hooks {
 #[cfg(all(test, unix))]
 #[path = "origin_gate_tests.rs"]
 mod tests;
+
+#[cfg(all(test, unix))]
+#[path = "kept_seat_class_tests.rs"]
+mod kept_seat_class_tests;
 
 #[cfg(all(test, unix))]
 #[path = "page_access_tests.rs"]
