@@ -156,3 +156,93 @@ async fn attached_after_a_gap_gets_the_turn_live(tag: &str, update: bool) {
     );
     daemon.rpc().await.send("session/cancel", json!({"sessionId": session})).await;
 }
+
+/// Whether a line from the daemon is a `background_turn` record's event, and which state it says.
+fn background_state(line: &str) -> Option<&'static str> {
+    if !line.contains("\"background_turn\"") {
+        return None;
+    }
+    if line.contains("\"started\"") {
+        Some("started")
+    } else if line.contains("\"ended\"") {
+        Some("ended")
+    } else {
+        None
+    }
+}
+
+/// The person's own streaming turn, adopted after a restart with a gap, reaches the chat as that
+/// turn's words within seconds, as the pane draws them. The pane folds every row inside a
+/// running `background_turn` bracket into one muted line (webviews `foldsBackground`): a turn
+/// the person did not start. The next daemon read the host's replay before it rebuilt the open
+/// turn from the log (`hosts.rs` `adopt_held`: the replay, then `recover_work`), so the replayed
+/// words came with no acpmux turn and opened such a bracket (`background_turn.rs`), which a
+/// non-Claude agent never ends and Claude Code ends only at its result: after every restart the
+/// reply streamed on, hidden in that line, until the turn ended (manaflow-ai/cmuxterm-hq#6338).
+#[tokio::test]
+async fn an_adopted_streaming_turn_is_shown_live_as_the_persons_own_turn() {
+    let mut daemon = Daemon::new("stgaps", "approve-all");
+    let session = new_session(&daemon).await;
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "ticking:3000:100"}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "tick5", |e| chunk(e, "tick5 "));
+    daemon.sigterm();
+    drop(client);
+    std::thread::sleep(Duration::from_secs(3));
+    let started = Instant::now();
+    daemon.start();
+    std::thread::sleep(Duration::from_millis(500));
+    let mut page = daemon.rpc().await;
+    let attached = page
+        .call(
+            "_acpmux/attach",
+            json!({"sessionId": session, "waitLogs": false, "limit": 400,
+                   "kinds": ["transcript"], "eventStream": true, "visible": true}),
+        )
+        .await;
+    // A bracket the page's first records opened is still open for the live words after them.
+    let mut bracket = false;
+    for event in attached["events"].as_array().into_iter().flatten() {
+        if let Some(state) = background_state(&event.to_string()) {
+            bracket = state == "started";
+        }
+    }
+    // 20 words drawn as the turn's own (not folded under a background turn) within 10 s.
+    let deadline = started + Duration::from_secs(10);
+    let (mut shown, mut folded) = (0, 0);
+    while shown < 20 {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            break;
+        }
+        match tokio::time::timeout(left, page.lines.next_line()).await {
+            Ok(Ok(Some(line))) => match background_state(&line) {
+                Some(state) => bracket = state == "started",
+                None if live_tick(&line) && bracket => folded += 1,
+                None if live_tick(&line) => shown += 1,
+                None => {}
+            },
+            _ => break,
+        }
+    }
+    let took = started.elapsed();
+    let brackets = daemon
+        .events(&session)
+        .iter()
+        .filter(|e| e["kind"] == "background_turn" && e["msg"]["state"] == "started")
+        .count();
+    eprintln!(
+        "adopted turn: {shown} words shown and {folded} folded under a background turn by {:.1} s; {brackets} background_turn started record(s)",
+        took.as_secs_f64()
+    );
+    assert!(
+        shown >= 20 && brackets == 0,
+        "after the restart the chat showed {shown} of the turn's words within 10 s and folded {folded} under {brackets} background turn(s): the adopted turn was taken for one the person did not start"
+    );
+    daemon.rpc().await.send("session/cancel", json!({"sessionId": session})).await;
+}
