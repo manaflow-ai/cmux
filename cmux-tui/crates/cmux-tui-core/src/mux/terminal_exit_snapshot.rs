@@ -65,9 +65,7 @@ impl TrailingLineFeeds {
                     EscapeState::Ground
                 }
                 (_, 0x1b) => EscapeState::Escape,
-                (EscapeState::Ground, b) if b < 0x20 || b == b' ' || b == 0x7f => {
-                    EscapeState::Ground
-                }
+                (EscapeState::Ground, b) if b <= b' ' || b == 0x7f => EscapeState::Ground,
                 (EscapeState::Ground, _) => {
                     self.count = 0;
                     EscapeState::Ground
