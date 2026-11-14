@@ -1,0 +1,55 @@
+name: cmux-rd Windows host
+
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-tui/crates/cmux-rd-host/**"
+      - "cmux-tui/crates/cmux-encode/**"
+      - "cmux-tui/crates/cmux-rd-core/**"
+      - "cmux-tui/crates/cmux-rd-proto/**"
+      - ".github/workflows/cmux-rd-windows.yml"
+  pull_request:
+    paths:
+      - "cmux-tui/crates/cmux-rd-host/**"
+      - "cmux-tui/crates/cmux-encode/**"
+      - "cmux-tui/crates/cmux-rd-core/**"
+      - "cmux-tui/crates/cmux-rd-proto/**"
+      - ".github/workflows/cmux-rd-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-rd-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host:
+    name: Windows capture and encode selftest
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Build the Windows host
+        working-directory: cmux-tui/crates/cmux-rd-host
+        run: cargo build --locked --no-default-features --features bench
+
+      - name: Capture and encode a real desktop sample
+        working-directory: cmux-tui/crates/cmux-rd-host
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $json = cargo run --locked --no-default-features --features bench -- windows-selftest --frames 60 --codec openh264
+          $json | Tee-Object -FilePath "$env:GITHUB_STEP_SUMMARY"
+          $result = $json | ConvertFrom-Json
+          if (-not $result.capture_encode_ok) { throw 'Windows host selftest did not encode a frame' }
+          if ([int]$result.frames -lt 60) { throw 'Windows host selftest captured fewer frames than requested' }
+          if ([int]$result.encoded_bytes -le 0) { throw 'Windows host selftest emitted no bytes' }
