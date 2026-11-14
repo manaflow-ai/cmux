@@ -107,10 +107,9 @@ pub struct SenderCore {
     cc: CongestionController,
     loss_meter: LossMeter,
     loss: f64,
-    /// TWCC arrivals not yet given to the controller, and the settled loss
-    /// over them (lost, settled).
+    /// TWCC arrivals not yet given to the controller. Loss is sampled by
+    /// the shared packet-weighted meter, independently of TWCC batch size.
     cc_pending: Vec<Arrival>,
-    cc_loss: (f64, f64),
     last_cc_us: Option<u64>,
     cc_hold_until_us: u64,
     feedback_delay_us: u64,
@@ -141,7 +140,6 @@ impl SenderCore {
             loss_meter: LossMeter::default(),
             loss: 0.0,
             cc_pending: Vec::new(),
-            cc_loss: (0.0, 0.0),
             last_cc_us: None,
             cc_hold_until_us: 0,
             feedback_delay_us: 0,
@@ -170,7 +168,8 @@ impl SenderCore {
         self.in_flight = 0;
         // A new path has its own delay: drop the controller's baseline.
         self.cc_pending.clear();
-        self.cc_loss = (0.0, 0.0);
+        self.loss_meter.reset_congestion_window();
+        self.loss = 0.0;
         self.cc_hold_until_us = 0;
         self.cc.on_path_changed(PathKind::DirectWan);
         self.keyframe_allowed(now_us)
@@ -284,20 +283,16 @@ impl SenderCore {
                 arrivals.push(Arrival { transport_seq: result.seq, arrival_us: arrival as u32 });
             }
         }
-        let settled = self.loss_meter.on_arrivals(arrivals.iter().map(|a| a.transport_seq));
+        let settled = self.loss_meter.on_arrivals(arrivals.iter().map(|a| a.transport_seq), now_us);
         if let Some(lost) = settled {
             self.loss = 0.8 * self.loss + 0.2 * lost;
-            let weight = results.len().max(1) as f64;
-            self.cc_loss.0 += lost * weight;
-            self.cc_loss.1 += weight;
         }
         self.cc_pending.extend(arrivals);
         let due = self.last_cc_us.is_none_or(|last| now_us.saturating_sub(last) >= CC_INTERVAL_US)
             && now_us >= self.cc_hold_until_us;
         if due {
             self.last_cc_us = Some(now_us);
-            let (lost, settled) = std::mem::take(&mut self.cc_loss);
-            let loss = if settled > 0.0 { lost / settled } else { 0.0 };
+            let loss = self.loss_meter.take_congestion_loss(now_us).unwrap_or(0.0);
             let arrivals = std::mem::take(&mut self.cc_pending);
             let before = self.cc.target_bps();
             self.cc.on_feedback(&arrivals, loss, now_us);
@@ -408,6 +403,82 @@ mod tests {
     fn twcc_seq(packet: &Packet) -> u16 {
         let ext = packet.header.get_extension(super::super::DEFAULT_TWCC_EXT_ID).unwrap();
         u16::from_be_bytes([ext[0], ext[1]])
+    }
+
+    fn report(core: &mut SenderCore, seqs: impl IntoIterator<Item = u16>, at_us: i64, now_us: u64) {
+        let seqs: Vec<_> = seqs.into_iter().collect();
+        let mut recorder = Recorder::new(9);
+        for &seq in &seqs {
+            recorder.record(core.config.ssrc, seq, at_us);
+        }
+        let feedback = recorder.build_feedback_packet();
+        let reported: Vec<_> = feedback
+            .iter()
+            .filter_map(|p| p.as_any().downcast_ref::<TransportLayerCc>())
+            .flat_map(twcc::results)
+            .filter_map(|r| r.arrival_us.map(|_| r.seq))
+            .collect();
+        assert_eq!(reported, seqs, "fixture must report every supplied arrival");
+        core.on_rtcp(&feedback, now_us);
+    }
+
+    #[test]
+    fn reordered_twcc_chunks_do_not_invent_loss_or_cut_bitrate() {
+        let mut core = SenderCore::new(SenderConfig::default(), 1);
+        let start = core.state().target_bps;
+        for _ in 0..300 {
+            core.stamp(&mut Packet::default(), 0);
+        }
+        report(&mut core, 200..300, 25_000, 50_000);
+        report(&mut core, 100..200, 25_000, 75_000);
+        report(&mut core, 0..100, 25_000, 100_000);
+        for i in 0..12 {
+            let now = 125_000 + i * 50_000;
+            let seq = core.twcc_seq;
+            core.stamp(&mut Packet::default(), now);
+            core.stamp(&mut Packet::default(), now);
+            report(&mut core, seq..seq + 2, now as i64 + 25_000, now + 50_000);
+        }
+        assert_eq!(core.state().loss, 0.0);
+        assert!(core.state().target_bps >= start);
+    }
+
+    #[test]
+    fn deferred_loss_uses_settled_packet_weight_not_current_twcc_size() {
+        let mut core = SenderCore::new(SenderConfig::default(), 1);
+        let start = core.state().target_bps;
+        for _ in 0..100 {
+            core.stamp(&mut Packet::default(), 0);
+        }
+        // One of the first four packets is lost; the other96 arrive later.
+        // The first tiny settlement must not become a25% congestion sample.
+        report(&mut core, [0, 1, 3], 25_000, 50_000);
+        report(&mut core, 4..100, 25_000, 100_000);
+        core.on_twcc(&TransportLayerCc::default(), 150_000);
+        assert!(core.state().loss > 0.0, "the first gap must have settled");
+        assert!(core.state().target_bps >= start, "four settled packets are not a congestion window");
+        for i in 0..12 {
+            let now = 150_000 + i * 50_000;
+            let seq = core.twcc_seq;
+            core.stamp(&mut Packet::default(), now);
+            core.stamp(&mut Packet::default(), now);
+            report(&mut core, seq..seq + 2, now as i64 + 25_000, now + 50_000);
+        }
+        assert!(core.state().target_bps >= start, "a1% loss window must not lower the target");
+    }
+
+    #[test]
+    fn path_change_discards_pending_loss_before_new_path_feedback() {
+        let mut core = SenderCore::new(SenderConfig::default(), 1);
+        for _ in 0..100 {
+            core.stamp(&mut Packet::default(), 0);
+        }
+        report(&mut core, 90..100, 25_000, 50_000);
+        core.on_path_change(75_000);
+        core.stamp(&mut Packet::default(), 100_000);
+        core.stamp(&mut Packet::default(), 100_000);
+        report(&mut core, 100..102, 125_000, 200_000);
+        assert_eq!(core.state().loss, 0.0, "old-path gaps must not reach new-path feedback");
     }
 
     #[test]
