@@ -56,6 +56,9 @@ impl Drop for Scratch {
         let _ = std::fs::remove_dir_all(&self.0);
         let mut live = LIVE.lock().unwrap_or_else(PoisonError::into_inner);
         *live = live.saturating_sub(1);
+        if *live == 0 {
+            let _ = std::fs::remove_dir_all(test_home());
+        }
     }
 }
 

@@ -144,13 +144,18 @@ pub(crate) fn check(
         Names::LinkToAnother => {
             return Err(GitFailure::Exit(format!(
                 "{REFUSED}the `.git` entry of the work tree {} is a link to a git folder that \
-                 is in a work tree or names a work tree",
+                 is in a work tree or names a work tree{ASK}",
                 top.display()
             )));
         }
         Names::Not => String::new(),
+        // The open reads the name of the git folder only: it does not know if a work
+        // tree is around it.
         Names::InAnotherWorkTree => {
-            format!(": the git folder is the `.git` folder of another work tree{ASK}")
+            format!(
+                ": the `.git` file names a git folder whose own name is `.git`, the name of \
+                 the git folder in a work tree{ASK}"
+            )
         }
         Names::OtherPlace => {
             format!(": the git folder has the record of a work tree at another place{ASK}")
@@ -170,7 +175,7 @@ enum Names {
     Not,
     /// The `.git` file names the git folder, the git folder names no work
     /// tree (it has no record of one and no `core.worktree` setting), and
-    /// it is in a work tree.
+    /// its real name is `.git`, the name of the git folder in a work tree.
     InAnotherWorkTree,
     /// The `.git` file names the git folder, and the git folder has the
     /// record of a work tree at another place.

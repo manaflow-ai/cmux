@@ -30,8 +30,14 @@ static CATALOG: LazyLock<Value> = LazyLock::new(|| {
     serde_json::from_str(include_str!("../../../spec/resource-operations-v2.json")).unwrap()
 });
 
-/// The folder of one test, by its real path.
+/// The folder of one test, by its real path. It is removed when the test ends.
 struct Scratch(PathBuf);
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
 
 impl std::ops::Deref for Scratch {
     type Target = Path;
