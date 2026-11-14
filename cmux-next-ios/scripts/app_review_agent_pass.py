@@ -251,8 +251,10 @@ def main(argv: list[str] | None = None) -> int:
             # Gate run 43621274696 (job 132527403700): about 2 s, no API time,
             # no tokens, the shared account rate limited.
             backoff = retry_backoff()
-            for name in ("transcript.json", "stderr.txt"):
-                (out / name).replace(out / f"attempt-1-{name}")
+            # Attempt 1's screenshots go aside too, so the retry's verdict
+            # stands on its own walk (the no-walk check counts step-*.png).
+            for path in [out / "transcript.json", out / "stderr.txt", *out.glob("step-*.png")]:
+                path.replace(out / f"attempt-1-{path.name}")
             if time.monotonic() + backoff >= deadline:
                 break
             print(f"::warning::agent reviewer pass: the API did not serve the run ({unserved}); "

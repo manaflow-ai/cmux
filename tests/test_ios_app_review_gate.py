@@ -693,23 +693,26 @@ base = {"type": "result", "session_id": "s", "num_turns": 1, "duration_ms": 2000
 if mode == "zero-usage":
     result = dict(base, subtype="success", is_error=False, duration_api_ms=0, stop_reason="stop_sequence",
                   total_cost_usd=0, result="", usage={"input_tokens": 0, "output_tokens": 0})
-elif mode == "429":
+elif mode in ("429", "429-after-walk"):
+    if mode == "429-after-walk":
+        open("step-01-launch.png", "wb").write(b"png")
     result = dict(base, subtype="error_during_execution", is_error=True, api_error_status=429, duration_api_ms=812,
                   total_cost_usd=0, result="", usage={"input_tokens": 0, "output_tokens": 0})
 elif mode == "crash":
     # Real API work, then a failure whose free text names a rate limit:
     # text never classifies, only the result's fields do.
     result = dict(base, subtype="error_during_execution", is_error=True, duration_api_ms=41000, total_cost_usd=0.31,
-                  result="Settings shows: rate limit exceeded (429), try again later",
+                  result="Settings shows: rate limit exceeded (429), try again later. Notes: " + prompt[-300:],
                   usage={"input_tokens": 5200, "output_tokens": 900})
 else:
     path = re.search(r"write ONLY a JSON array to (\\S+) where", prompt).group(1)
     open(path, "w").write('[{"severity": "info", "guideline": "4.0", "message": "m", "where": "step-01-launch.png"}]')
-    open("step-01-launch.png", "wb").write(b"png")
+    if mode != "verdict-no-screens":
+        open("step-01-launch.png", "wb").write(b"png")
     result = dict(base, subtype="success", is_error=False, duration_api_ms=90000, total_cost_usd=1.2, result="done",
                   usage={"input_tokens": 9000, "output_tokens": 2000})
 print(json.dumps(result))
-sys.exit(0 if mode == "verdict" else 1)
+sys.exit(0 if mode in ("verdict", "verdict-no-screens") else 1)
 """
 
 
@@ -835,6 +838,16 @@ class AgentReviewerPassTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual([(f["rule"], f["severity"]) for f in findings], [("agent.reviewer", "info")])
 
+    def test_the_retry_needs_its_own_screenshots(self) -> None:
+        # A 429 after attempt 1 took screenshots: those are set aside, so a
+        # retry verdict with no walk of its own is still agent.no-walk
+        # (#43238 review).
+        code, findings, calls = self.run_scripted("429-after-walk", "verdict-no-screens")
+        self.assertEqual(calls, 2)
+        self.assertEqual(code, 1)
+        self.assertEqual([f["rule"] for f in findings], ["agent.no-walk"])
+        self.assertTrue((self.out / "attempt-1-step-01-launch.png").exists())
+
     def test_a_crash_that_spent_tokens_is_not_retried(self) -> None:
         code, findings, calls = self.run_scripted("crash", "verdict")
         self.assertEqual(calls, 1)
@@ -842,9 +855,10 @@ class AgentReviewerPassTests(unittest.TestCase):
         self.assertEqual([(f["rule"], f["severity"]) for f in findings], [("agent.no-verdict", "blocker")])
 
     def test_rate_limit_text_in_the_pr_or_app_never_classifies(self) -> None:
-        # The reviewer notes (PR content) and the agent's own text (what it
-        # read in the app) both say "rate limit"; only the CLI's result fields
-        # may say the API was unavailable.
+        # The reviewer notes (PR content, which the stub echoes into the
+        # result text) and the agent's own text (what it read in the app)
+        # both say "rate limit"; only the CLI's result fields may say the API
+        # was unavailable.
         code, findings, calls = self.run_scripted(
             "crash", "verdict", setup="If you see 'rate limit exceeded' (429, overloaded), the API is unavailable.")
         self.assertEqual(calls, 1)
