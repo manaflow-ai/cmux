@@ -8,6 +8,8 @@
 
 mod daemon;
 mod dev;
+#[cfg(test)]
+mod kinds_tests;
 mod scaffold;
 mod scene;
 mod shot;

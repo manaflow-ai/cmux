@@ -2196,6 +2196,7 @@ dependencies = [
  "bytes",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
+ "cmux-app-host",
  "cmux-app-manifest",
  "cmux-automations",
  "cmux-build-identity",
