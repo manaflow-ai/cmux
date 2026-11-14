@@ -260,8 +260,14 @@ describe("chatOp", () => {
     expect(store.snapshot("c")!.queue.entries.map((item) => item.id)).toEqual(["a", "b"]);
     send(op({ op: "queue", entry: { id: "a", text: "one!", len: 4, at: 1, held: true }, count: 2 }));
     expect(store.snapshot("c")!.queue.entries[0]!.held).toBe(true);
-    send(op({ op: "queue", removed: "a", count: 1 }));
-    expect(store.snapshot("c")!.queue).toEqual({ entries: [{ id: "b", text: "two", len: 3, at: 2 }], count: 1 });
+    // A key this page does not know yet (decision 232's flags) is kept as it came.
+    send(op({ op: "queue", entry: { id: "b", text: "two", len: 3, at: 2, next: true }, count: 2 }));
+    expect(store.snapshot("c")!.queue.entries[1]!.next).toBe(true);
+    send(op({ op: "queue", removed: "a", why: "withdrawn", count: 1 }));
+    expect(store.snapshot("c")!.queue).toEqual({
+      entries: [{ id: "b", text: "two", len: 3, at: 2, next: true }],
+      count: 1,
+    });
     send(op({ op: "queue", head: { entries: [], count: 0 }, count: 0 }));
     expect(store.snapshot("c")!.queue).toEqual({ entries: [], count: 0 });
   });

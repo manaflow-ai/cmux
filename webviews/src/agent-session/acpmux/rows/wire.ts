@@ -24,7 +24,16 @@ export type ChatRow = {
 /// An open row as a window carries it; `bodyLen` when its body was left out (read by `blob`).
 export type ChatOpenRow = { row: ChatRow; bodyLen?: number };
 
-export type ChatQueueItem = { id: string; text: string; len: number; held?: boolean; at: number };
+/// A waiting prompt as the queue head carries it. Decision 232 adds optional keys (row 2d); an
+/// entry is kept as it came, so a key this type does not name yet still reaches the view.
+export type ChatQueueItem = {
+  id: string;
+  text: string;
+  len: number;
+  held?: boolean;
+  at: number;
+  [key: string]: unknown;
+};
 export type ChatQueueHead = { entries: ChatQueueItem[]; count: number };
 
 export type ChatWindow = {
@@ -50,6 +59,8 @@ export type ChatOp =
       seq: number;
       entry?: ChatQueueItem;
       removed?: string;
+      /// Why `removed` left (decision 232, row 2d); absent means it ran.
+      why?: "ran" | "withdrawn" | "declined";
       count: number;
       head?: ChatQueueHead;
     };
