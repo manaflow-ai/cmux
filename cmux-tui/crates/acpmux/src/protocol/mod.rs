@@ -501,6 +501,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MACHINE_CONSENT_REFUSED, Request),
         untyped(method::MUX_MACHINE_ENROLL, Request),
         untyped(method::MUX_MACHINE_LEAVE_IF_AUTO, Request),
+        untyped(method::MUX_MACHINE_SIGNED_IN, Request),
         untyped(method::MUX_MACHINE_TUNNEL_ATTACH, Request),
         untyped(method::MUX_MACHINE_TUNNEL_DETACH, Request),
         untyped(method::MUX_MACHINE_TUNNEL_REKEY, Request),

@@ -26,13 +26,15 @@ use crate::rpc::RpcError;
 /// (`hub/person.rs`): a local shell or agent may neither leave this machine's join nor enroll it
 /// with a token and user id it chose, so a connection that did not prove the person is refused
 /// with the declared `permission.person_required`.
-fn local(conn: &Conn, method: &str) -> Result<(), RpcError> {
+pub(super) fn local(conn: &Conn, method: &str) -> Result<(), RpcError> {
     if conn.origin != Origin::Local || conn.origin.web_class() {
         return Err(RpcError::method_not_found(&format!("{method} (local socket only)")));
     }
     if !conn.is_person() {
         return Err(crate::hub::person::person_required(match method {
-            crate::rpc::method::MUX_MACHINE_ENROLL => "enrolling this machine in cmux Cloud",
+            crate::rpc::method::MUX_MACHINE_ENROLL | crate::rpc::method::MUX_MACHINE_SIGNED_IN => {
+                "enrolling this machine in cmux Cloud"
+            }
             _ => "removing this machine from cmux Cloud",
         }));
     }
@@ -63,7 +65,7 @@ pub(super) async fn enroll(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Resul
 
 /// A sign-in's enroll (`enroll`) with the join transition held, then the relay as config.json
 /// says once it is done (`on_disk`).
-async fn enroll_transition<D: Future<Output = Option<MeshRelayConfig>>>(
+pub(super) async fn enroll_transition<D: Future<Output = Option<MeshRelayConfig>>>(
     hub: &Arc<Hub>,
     enroll: impl Future<Output = EnrollOutcome>,
     on_disk: impl FnOnce() -> D,
@@ -92,7 +94,7 @@ async fn enroll_transition<D: Future<Output = Option<MeshRelayConfig>>>(
 }
 
 /// config.json's `meshRelay` now; the one this daemon loaded when config.json cannot be read.
-async fn relay_on_disk(hub: &Arc<Hub>) -> Option<MeshRelayConfig> {
+pub(super) async fn relay_on_disk(hub: &Arc<Hub>) -> Option<MeshRelayConfig> {
     match tokio::task::spawn_blocking(crate::config::Config::load).await {
         Ok(Ok(config)) => config.mesh_relay,
         _ => hub.config.read().await.mesh_relay.clone(),
@@ -166,7 +168,7 @@ pub(super) async fn leave_if_auto(
 }
 
 /// A sign-out's leave (`leave`) with the join transition held, then what it stops here.
-async fn leave_transition(
+pub(super) async fn leave_transition(
     hub: &Arc<Hub>,
     leave: impl Future<Output = LeaveOutcome>,
 ) -> LeaveOutcome {
