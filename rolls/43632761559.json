@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43632761559",
+  "recorded_at": "2026-11-14T19:41:06Z",
+  "reason": "cmux-tui 13ff155872dc changes the image's cmux-tui (pinned c4c6c11a215f)",
+  "dry_run": false,
+  "cmux_tui": "13ff155872dc522c23e7188046a51ad6bc9babd4",
+  "fixes": [
+    {
+      "sha": "1d4a4555f78a5ebeaa50d4a3fabf52e5db075914",
+      "mergedAt": "2026-11-14T11:12:15-08:00",
+      "subject": "cmux-tui: the request log counts the repeats of a failed request, names the plugin connection and has one line for each plugin restart"
+    },
+    {
+      "sha": "d84d1529df8e5cfb7f58674ca51dfeaf32c2fd7a",
+      "mergedAt": "2026-11-14T11:06:23-08:00",
+      "subject": "holder: a tab respawned after a logout runs on the holder, not a host process of its own (#43207)"
+    },
+    {
+      "sha": "2e490ca54a94b611478beef066ad486449197bf3",
+      "mergedAt": "2026-11-14T11:06:06-08:00",
+      "subject": "fix(daemon): report stream serialization overflow for replay (#43171)"
+    },
+    {
+      "sha": "9ed38eca867cec8e7d6d0670d424fa04d91c8892",
+      "mergedAt": "2026-11-14T11:04:24-08:00",
+      "subject": "fix(remote): keep string-ID attach replies on the output lane (#43167)"
+    },
+    {
+      "sha": "29e19a4b015ff1dccb7df64d2497891ddf8efcf0",
+      "mergedAt": "2026-11-14T11:00:59-08:00",
+      "subject": "acpmux-book: a page of a chat's turns (v2 row 3d, part one) (#43181)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T19:41:06Z",
+    "snapshot_id": "sh-510a49d1485a4e7bba1d1fcf1da1f754",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43632761559): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8e137a22a0f30cfdd14ebb2b0e82c72e2e6792f8",
+    "image": "cloud-native-auto-13ff1558-43632761559-1",
+    "revision": "ci-43632761559-1",
+    "at": "2026-11-14T19:41:06Z"
+  },
+  "rolled_back": false
+}
