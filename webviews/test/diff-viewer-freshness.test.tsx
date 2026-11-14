@@ -83,6 +83,8 @@ function Viewer({
   );
 }
 const shown = () => dom.window.document.querySelector("output")?.textContent;
+// The reason that the viewer shows when its machine does not answer; empty when it shows none.
+const reason = () => dom.window.document.querySelector("aside")?.textContent;
 const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
 
 test("a repository's diffs are fingerprinted, Branch included (the chat's ± opens it; cx-4ukqc)", async () => {
@@ -177,7 +179,8 @@ test("a session host without the fingerprint read gets no timer: each return ask
     expect(intervals).toHaveBeenCalledTimes(1);
     const timer = intervals.mock.results[0]?.value;
     expect(cleared.mock.calls.some(([id]) => id === timer)).toBe(true);
-    expect(shown()).toBe("fresh");
+    // The answer is not a failure for the reader: no notice and no reason are shown.
+    expect([shown(), reason()]).toEqual(["fresh", ""]);
 
     for (let returns = 1; returns <= 3; returns += 1) {
       dom.window.dispatchEvent(new dom.window.Event("focus"));
@@ -192,7 +195,7 @@ test("a session host without the fingerprint read gets no timer: each return ask
     // no timer was started.
     expect(asked).toBe(5);
     expect(intervals).toHaveBeenCalledTimes(1);
-    expect(shown()).toBe("fresh");
+    expect([shown(), reason()]).toEqual(["fresh", ""]);
 
     // A comment draft or the commit form would be lost: the return reloads nothing.
     canRefresh = false;
@@ -234,16 +237,18 @@ test("a session host that gets the fingerprint read is compared again from the n
     expect([asked, refreshed]).toEqual([1, 0]);
     expect(intervals).toHaveBeenCalledTimes(1);
 
-    // The session host was replaced by one with the read. The return asks, gets digits, loads the
-    // diff one time (the shown diff has no digits of its own) and starts the timer again.
+    // The session host was replaced by one with the read. The return asks, gets digits and loads the
+    // diff one time (the shown diff has no digits of its own). The answer itself starts no timer.
     older = false;
     await comeBack();
     expect([asked, refreshed]).toEqual([2, 1]);
-    expect(intervals.mock.calls.length).toBeGreaterThan(1);
+    expect(intervals).toHaveBeenCalledTimes(1);
 
-    // From here the digits decide: a return with the same digits loads nothing.
+    // From here the digits decide: a return with the same digits loads nothing. The timer starts
+    // again when the page loses the focus and when it gets it.
     await comeBack();
     expect([asked, refreshed]).toEqual([3, 1]);
+    expect(intervals).toHaveBeenCalledTimes(3);
     digits = "b";
     await comeBack();
     expect([asked, refreshed]).toEqual([4, 2]);

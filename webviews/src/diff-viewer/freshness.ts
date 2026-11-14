@@ -79,7 +79,8 @@ export function usePrecomputedFingerprint(): [
 /// so the reader does not look at an old diff after coming back. One return is one `refresh`: the
 /// page was away before it (it lost the focus or was hidden, or the window has no focus yet). When
 /// the session host has the read at a return (it was replaced), that return runs `refresh` one time
-/// and the page compares again from there. Refresh in the toolbar works as before.
+/// and each later return compares again; the timer starts again when the page next loses or gets
+/// the focus. Refresh in the toolbar works as before.
 export function useDiffFreshness(
   read: (() => Promise<string | undefined>) | undefined,
   generation: number,
@@ -119,12 +120,6 @@ export function useDiffFreshness(
     let current = true;
     let busy = false;
     let timer: ReturnType<typeof setInterval> | undefined;
-    const schedule = (focused: boolean) => {
-      clearInterval(timer);
-      timer = undefined;
-      if (unsupported.current || document.visibilityState === "hidden") return;
-      timer = setInterval(() => void check(false), focused ? FRESHNESS_INTERVAL : UNFOCUSED_FRESHNESS_INTERVAL);
-    };
     const check = async (returning: boolean) => {
       if (busy || document.visibilityState === "hidden") return;
       // An older session host is asked again only when the reader comes back.
@@ -136,12 +131,12 @@ export function useDiffFreshness(
         latest.current.onUnavailable?.(undefined);
         if (unsupported.current) {
           // The session host has the read now. The shown diff has no digits of its own, so it is
-          // loaded one time more, and `now` is the baseline of the checks that start again.
+          // loaded one time more, and `now` is the baseline of the next checks. No timer starts
+          // here: the next `schedule` (the page loses or gets the focus, or is shown) starts it.
           unsupported.current = false;
           if (first) consumed.current = precomputedKey;
           first = false;
           baseline.current = now;
-          schedule(document.hasFocus());
           if (latest.current.canRefresh()) latest.current.refresh();
           return;
         }
@@ -178,6 +173,12 @@ export function useDiffFreshness(
       }
     };
     void check(false);
+    const schedule = (focused: boolean) => {
+      clearInterval(timer);
+      timer = undefined;
+      if (unsupported.current || document.visibilityState === "hidden") return;
+      timer = setInterval(() => void check(false), focused ? FRESHNESS_INTERVAL : UNFOCUSED_FRESHNESS_INTERVAL);
+    };
     schedule(document.hasFocus());
     const back = () => {
       schedule(true);
