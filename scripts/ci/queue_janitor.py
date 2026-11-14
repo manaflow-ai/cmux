@@ -162,6 +162,13 @@ belong to release or nightly runs. ci-queue-janitor.yml uploads it as the
 pick a pull request run's pool (and, through it, e2e_runner_pool.py an E2E
 run's) without listing every in-flight run's jobs itself.
 
+When the existing ``CI_RUNNER_STATE`` variable carries the optional
+``hosted_light_candidates`` envelope, a complete sweep copies its strictly
+sanitized projection into ``hosted-light-candidates`` in that same artifact.
+This is discovery only: a consumer still validates the current run, PR head
+and complete jobs before taking any action. Missing or stale runner state is
+omitted, and a truncated janitor sweep never presents candidate completeness.
+
 An owned Mac pool (``glaeda-<class>-xcode-<version>``) is one more pool
 here: stale pull request runs (b) on it are cancelled whatever its queue,
 which frees minis, and the other categories only while it is backed up. With
@@ -198,8 +205,10 @@ started in between is kept. Its own cap; no force-cancel.
 from __future__ import annotations
 
 import argparse
+import base64
 import dataclasses
 import datetime as dt
+import gzip
 import http.client
 import io
 import json
@@ -234,6 +243,22 @@ from delivery_workflows import REPLACEMENT_JOB_READS, attempt_jobs, build_starte
 from delivery_workflows import delivers, is_delivery_event, is_delivery_workflow  # noqa: E402
 from delivery_workflows import newer_head_runs, superseded_unstarted  # noqa: E402
 from delivery_workflows import dev_publish_published, dev_publish_source, dev_publish_superseded  # noqa: E402
+
+
+# CI_RUNNER_STATE is an optional, already-sanitized source published by the
+# trusted runner-state publisher.  The janitor only copies its hosted-light
+# hints into the public pool artifact after independently checking the source.
+RUNNER_STATE_SCHEMA = "runner-state/v1"
+RUNNER_STATE_REPOSITORY = "manaflow-ai/cmux"
+HOSTED_LIGHT_CANDIDATES_SCHEMA = "hosted-light-candidates/v1"
+HOSTED_LIGHT_CANDIDATES_KEY = "hosted-light-candidates"
+HOSTED_LIGHT_SOURCE_KEY = "hosted_light_candidates"
+RUNNER_STATE_MAX_AGE_S = 300
+RUNNER_STATE_CLOCK_SKEW_S = 5
+RUNNER_STATE_MAX_ENCODED = 48 * 1024
+RUNNER_STATE_MAX_DECODED = 2 * 1024 * 1024
+HOSTED_LIGHT_WORKFLOW = re.compile(r"\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml\Z")
+HOSTED_LIGHT_SHA = re.compile(r"[0-9a-f]{40}\Z")
 
 
 API = "https://api.github.com"
@@ -540,10 +565,14 @@ def needs_jobs(run: Mapping[str, Any], linux_only_paths: frozenset[str], now: dt
     main's runs, and `branch_linux_only` (branch_linux_only_paths()) for a branch's, so a feat-cmux-next run of
     a workflow that branch's copy runs only on Linux is not listed. On 2026-10-31 those were 573 of the 1,324
     runs a sweep listed, each one REST request on the cmux-bot installation's budget."""
-    if run.get("path") in linux_only_paths and not follows_another_copy(run):
+    # Portable placement also needs paid Linux demand and start evidence. These
+    # three workflows must be read even when their branch copy has no Mac job.
+    portable = run.get("path") in rescue.PORTABLE_LIGHT_WORKFLOW_PATHS
+    if not portable and run.get("path") in linux_only_paths and not follows_another_copy(run):
         return False
     target = run_target_branch(run)
-    if target and target != "main" and run.get("path") in (branch_linux_only or {}).get(target, frozenset()):
+    if not portable and target and target != "main" \
+            and run.get("path") in (branch_linux_only or {}).get(target, frozenset()):
         return False
     if run.get("event") in PROTECTED_EVENTS - {"merge_group"}:
         # Deployment/tag bookkeeping never holds pool capacity worth counting.
@@ -650,6 +679,12 @@ def owned_label(job: Mapping[str, Any]) -> str | None:
 
 def is_macos_job(job: Mapping[str, Any]) -> bool:
     return bool(owned_label(job)) or any("macos" in str(label).lower() for label in job.get("labels") or ())
+
+
+def paid_portable_label(job: Mapping[str, Any]) -> str | None:
+    """A paid Linux label the portable placement rescue can refresh."""
+    return next((str(label) for label in job.get("labels") or ()
+                 if rescue.BLACKSMITH_PORTABLE_LABEL.fullmatch(str(label))), None)
 
 
 def lane_label(job: Mapping[str, Any]) -> str | None:
@@ -772,7 +807,11 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
 # Match the workflow path only.  CI run names include routing metadata such as
 # ``release=arm64``; looking at the combined name and path made every ordinary
 # pull-request run look like a release reservation.
-RESERVED_RELEASE_WORKFLOWS = frozenset({"release.yml"})
+# app-ffi-release.yml builds the CCmuxAppFFI release every NEXT app build links; until it publishes, feat-cmux-next
+# is red on "Check the app FFI pin". On 2026-11-10 run 42833220418's build queued 66 minutes on
+# blacksmith-6vcpu-macos-26 behind pull request jobs (14:21 to 15:27Z). It runs only on a feat-cmux-next push or a
+# dispatch there, so every run of it is release work.
+RESERVED_RELEASE_WORKFLOWS = frozenset({"release.yml", "app-ffi-release.yml"})
 
 
 def reserves_pool(path: str | None, event: str | None = None) -> bool:
@@ -859,6 +898,113 @@ def fleet_gates(raw: str | None) -> tuple[dict[str, Any] | None, str | None]:
                       **{key: row[key] for key in FLEET_GATES_COUNTS[2:]},
                       "as_of": stamp(row.get("as_of")) or as_of}
     return {"version": FLEET_GATES_VERSION, "as_of": as_of, "labels": dict(sorted(out.items()))}, None
+
+
+def _runner_state_moment(value: Any) -> dt.datetime:
+    if not isinstance(value, str):
+        raise ValueError("missing source timestamp")
+    result = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if result.tzinfo is None:
+        raise ValueError("undated source timestamp")
+    return result.astimezone(UTC)
+
+
+def _runner_state_fresh(value: Any, now: dt.datetime, *, max_age: int = RUNNER_STATE_MAX_AGE_S) -> str:
+    stamp = _runner_state_moment(value)
+    age = (now - stamp).total_seconds()
+    if not -RUNNER_STATE_CLOCK_SKEW_S <= age <= max_age:
+        raise ValueError("source timestamp is stale or future-dated")
+    return stamp.isoformat().replace("+00:00", "Z")
+
+
+def hosted_light_candidates(raw: str | None, *, now: dt.datetime) -> dict[str, Any] | None:
+    """Decode and sanitize the optional runner-state candidate envelope.
+
+    This is deliberately a one-way projection: no runner-state or controller
+    payload is forwarded to the public artifact. Invalid optional input is
+    unknown and leaves the existing pool snapshot usable.
+    """
+    if not raw or len(raw) > RUNNER_STATE_MAX_ENCODED:
+        return None
+    try:
+        encoded = base64.b64decode(raw, validate=True)
+        with gzip.GzipFile(fileobj=io.BytesIO(encoded)) as source:
+            body = source.read(RUNNER_STATE_MAX_DECODED + 1)
+        if len(body) > RUNNER_STATE_MAX_DECODED:
+            return None
+        state = json.loads(body)
+        if (not isinstance(state, dict) or state.get("schema") != RUNNER_STATE_SCHEMA
+                or state.get("repository") != RUNNER_STATE_REPOSITORY or state.get("complete") is not True):
+            return None
+        _runner_state_fresh(state.get("generated_at"), now)
+        source = state.get(HOSTED_LIGHT_SOURCE_KEY)
+        if (not isinstance(source, dict) or source.get("schema") != HOSTED_LIGHT_CANDIDATES_SCHEMA
+                or source.get("repository") != RUNNER_STATE_REPOSITORY
+                or source.get("coverage") != "partial" or source.get("complete") is not False
+                or source.get("truncated") is not True):
+            return None
+        generated_at = _runner_state_fresh(source.get("generated_at"), now)
+        controller_generated_at = _runner_state_fresh(source.get("controller_generated_at"), now)
+        receiver_last_delivery = _runner_state_fresh(source.get("receiver_last_delivery"), now)
+        jobs_since = _runner_state_moment(source.get("jobs_since"))
+        controller_clock = _runner_state_moment(source["controller_generated_at"])
+        if (jobs_since > controller_clock + dt.timedelta(seconds=5)
+                or _runner_state_moment(source["receiver_last_delivery"]) > controller_clock + dt.timedelta(seconds=5)):
+            return None
+        source_rows = source.get("runs")
+        total_runs = source.get("total_runs")
+        truncated = source.get("truncated")
+        if (not isinstance(source_rows, list) or type(total_runs) is not int or total_runs < 0
+                or type(truncated) is not bool
+                or total_runs < len(source_rows)):
+            return None
+        rows: list[dict[str, Any]] = []
+        seen: set[int] = set()
+        for row in source_rows:
+            if not isinstance(row, dict):
+                continue
+            run_id = row.get("id")
+            path = row.get("path")
+            event = row.get("event")
+            attempt = row.get("run_attempt")
+            status = row.get("status")
+            head_sha = row.get("head_sha")
+            created_at = row.get("created_at")
+            try:
+                created = _runner_state_moment(created_at)
+                age = (now - created).total_seconds()
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if (type(run_id) is not int or run_id <= 0 or run_id in seen
+                    or not isinstance(path, str) or not HOSTED_LIGHT_WORKFLOW.fullmatch(path)
+                    or event != "pull_request" or attempt != 1
+                    or status not in ("queued", "in_progress")
+                    or not isinstance(head_sha, str) or not HOSTED_LIGHT_SHA.fullmatch(head_sha)
+                    or not -RUNNER_STATE_CLOCK_SKEW_S <= age <= 90 * 60):
+                continue
+            seen.add(run_id)
+            rows.append({"id": run_id, "path": path, "event": event, "run_attempt": attempt,
+                         "status": status, "head_sha": head_sha, "created_at": created_at})
+        rows.sort(key=lambda row: (_runner_state_moment(row["created_at"]), row["id"]))
+        return {"schema": HOSTED_LIGHT_CANDIDATES_SCHEMA, "repository": RUNNER_STATE_REPOSITORY,
+                "generated_at": generated_at, "controller_generated_at": controller_generated_at,
+                "receiver_last_delivery": receiver_last_delivery,
+                "jobs_since": jobs_since.isoformat().replace("+00:00", "Z"),
+                "coverage": "partial", "complete": False, "runs": rows,
+                "truncated": True, "total_runs": total_runs}
+    except (ValueError, TypeError, OSError, EOFError, OverflowError, json.JSONDecodeError, zlib.error):
+        return None
+
+
+def attach_hosted_light_candidates(snapshot: dict[str, Any], raw: str | None, *, now: dt.datetime) -> None:
+    """Attach candidates only to a complete outer janitor sweep."""
+    if snapshot.get("truncated") or snapshot.get("starved_incomplete"):
+        return
+    if os.environ.get("CI_HOSTED_LIGHT_CANDIDATES_DISABLED") == "1":
+        return
+    envelope = hosted_light_candidates(raw, now=now)
+    if envelope is not None:
+        snapshot[HOSTED_LIGHT_CANDIDATES_KEY] = envelope
 
 
 MAX_ARTIFACT_PAGES = 5
@@ -962,7 +1108,7 @@ def pool_load_snapshot(
     markers: Mapping[int, tuple[str, int, int]] | None = None,
     capability_markers: Mapping[int, tuple[str, int]] | None = None,
 ) -> dict[str, Any]:
-    """Per-pool macOS demand from the jobs this sweep already listed.
+    """Per-pool macOS and paid portable Linux demand from jobs this sweep already listed.
 
     A pool is a job's single runner label when it asked for one, which is
     every Blacksmith job, so pr_runner_pool.py can look a label up directly.
@@ -1032,7 +1178,8 @@ def pool_load_snapshot(
             # 3 h 20 min on glaeda-session-std-xcode-26.6 with no runner online, unseen here).
             lane = lane_label(job)
             macos = is_macos_job(job)
-            if not macos and not lane:
+            paid = paid_portable_label(job)
+            if not macos and not lane and not paid:
                 continue
             status = job.get("status")
             if status not in POOL_QUEUED_JOB_STATUSES and status not in RUNNING_JOB_STATUSES:
@@ -1040,7 +1187,7 @@ def pool_load_snapshot(
             # A lane job counts on its lane label whatever else it asked for (`macOS`, `self-hosted`), and on its
             # macOS pool as before.
             counted = (*counted_pools(runner_pool(job)), *capabilities(job)) if macos else ()
-            for pool in dict.fromkeys(((lane,) if lane else ()) + counted):
+            for pool in dict.fromkeys(((lane,) if lane else ()) + ((paid,) if paid else ()) + counted):
                 entry = pools.setdefault(pool, {"queued": 0, "running": 0, "reserved_queued": 0,
                                                 "oldest_queued_minutes": 0})
                 if status in RUNNING_JOB_STATUSES:
@@ -1075,16 +1222,16 @@ def pool_load_snapshot(
     }
 
 
-# The snapshot's map of each macOS runner label (an owned pool, a lane, a Blacksmith macOS label) to when a runner
+# The snapshot's map of each owned, lane or paid runner label to when a runner
 # last took a job that asked for exactly that label, among the in-flight runs listed (label_started()).
 LABEL_STARTED_KEY = "label_started"
 
 
 def label_started(runs: Sequence[Mapping[str, Any]],
                   jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]]) -> dict[str, str]:
-    """When a runner last took a job on each macOS runner label: the newest `started_at` of a listed job a runner
+    """When a runner last took a job on each tracked label: the newest `started_at` of a listed job a runner
     took (runner_name or runner_id; a queued job's started_at is only its creation), running or finished, keyed by
-    each owned, lane or macOS label it asked for exactly (no root or capability rollup, as `pools` has).
+    each owned, lane, macOS or paid Linux label it asked for exactly (no root or capability rollup, as `pools` has).
 
     The rescue's stall-aware failover reads it (owned_pool_rescue.label_quiet()): a label whose pool count shows a
     job running but that started nothing while a job waited is no queue that job is moving in. Run 40993742146's
@@ -1102,7 +1249,8 @@ def label_started(runs: Sequence[Mapping[str, Any]],
             if started is None:
                 continue
             for label in {str(item) for item in job.get("labels") or ()}:
-                if not (owned_pool(label) or LANE_LABEL.fullmatch(label) or "macos" in label.lower()):
+                if not (owned_pool(label) or LANE_LABEL.fullmatch(label) or "macos" in label.lower()
+                        or rescue.BLACKSMITH_PORTABLE_LABEL.fullmatch(label)):
                     continue
                 if label not in newest or started > newest[label]:
                     newest[label] = started
@@ -1457,17 +1605,27 @@ def _gated(run_jobs: Iterable[Mapping[str, Any]], suspects: Iterable[Mapping[str
     Its wait has not begun, whether the run is stale or current. A sibling
     that is itself a suspect (unassigned and overdue, and in find_lost() also
     skipped by its pool) is no gate, so two lost jobs never mask each other.
-    Nor is a sibling no suspect may need (may_need(): created with or after
-    every suspect), running or not: the run cannot finish without the lost
-    job, a cancel's re-run brings the sibling back with it, and in run
-    41158893861 such siblings were created in waves (02:30Z, 02:43Z, 02:57Z)
-    and kept running beside the lost `GhosttyKit release check` until a
-    runner took it at 02:59Z, 41 minutes in.
+    Nor is a queued sibling no suspect may need (may_need(): created with or
+    after every suspect): the run cannot finish without the lost job, a
+    cancel's re-run brings the sibling back with it, and in run 41158893861
+    such siblings were created in waves (02:30Z, 02:43Z, 02:57Z) beside the
+    lost `GhosttyKit release check` until a runner took it at 02:59Z, 41
+    minutes in.
+
+    A running sibling (in_progress on a runner) always gates, needed or not:
+    the cancel would kill its work, and its re-run starts it from scratch at
+    the back of its pool's queue. Run 42018091049 attempt 2 (PR #36356,
+    2026-11-05): `cmux-next swift test` had run 26 minutes on its runner when
+    the sweep cancelled the run for `cmux-next daemon tests`, created the
+    same second and queued 31 minutes. The lost job is failed over once the
+    running siblings finish, and a re-run of the failed jobs then leaves
+    their results alone.
     """
     suspects = list(suspects)
     exempt = {id(job) for job in suspects}
     return any(job.get("status") != "completed" and id(job) not in exempt
-               and any(may_need(suspect, job) for suspect in suspects) for job in run_jobs)
+               and (job.get("status") in RUNNING_JOB_STATUSES or any(may_need(suspect, job) for suspect in suspects))
+               for job in run_jobs)
 
 
 def _lost_scope(run: Mapping[str, Any]) -> bool:
@@ -2189,7 +2347,10 @@ def plan_lost_reruns(
     settled at the same attempt and head it is re-run, unless a newer dispatch of its kind took its job
     (superseding_dispatch() over `dispatch_runs`, run id -> its workflow's dispatches on its branch, and
     `dispatch_jobs`, run id -> jobs). Its branch moving on is no reason: it tests a long-lived branch's commit.
-    One whose dispatches were not listed this sweep is kept.
+    One whose dispatches were not listed this sweep is kept. A hosted verification on a lane branch
+    (`verification`, is_lane_verification()) is the exception: a newer verification of the same lane, mode and
+    filter drops it, and so does its lane branch moving past its commit or being deleted (`branch_heads`; a head
+    not read this sweep keeps it).
     """
     cap = LOST_RERUN_MAX if rerun_cap is None else max(0, rerun_cap)
     decisions: list[LostRerun] = []
@@ -2224,6 +2385,24 @@ def plan_lost_reruns(
             if dispatch_runs is None or run_id not in dispatch_runs:
                 decisions.append(LostRerun(entry, "keep", "newer dispatches not listed this sweep", run))
                 continue
+            if entry["dispatch"].get("verification") and is_lane_verification(run):
+                # A hosted verification (verification_kind()) is a proof of one lane commit: a newer one for the
+                # same lane, mode and filter replaces it, and a lane branch moved past its commit makes it moot.
+                newer_runs = newer_dispatches(entry, run, dispatch_runs[run_id])
+                if newer_runs:
+                    decisions.append(LostRerun(entry, "drop", f"not re-run: newer verification dispatch "
+                                                              f"{newer_runs[0].get('id')} of the same lane and filter",
+                                               run))
+                    continue
+                branch = str(run.get("head_branch") or "")
+                if branch_heads is None or branch not in branch_heads:
+                    decisions.append(LostRerun(entry, "keep", "lane branch head not read this sweep", run))
+                    continue
+                if branch_heads[branch] != run.get("head_sha"):
+                    gone = not branch_heads[branch]
+                    decisions.append(LostRerun(entry, "drop", "not re-run: lane branch " + (
+                        "deleted" if gone else "moved past the run's commit"), run))
+                    continue
             newer = superseding_dispatch(entry, run, dispatch_runs[run_id], dispatch_jobs or {})
             if newer is not None:
                 decisions.append(LostRerun(entry, "drop", f"not re-run: newer dispatch {newer.get('id')} took "
@@ -3329,6 +3508,10 @@ def open_head_jobs_moved(
         fresh = [job for job in now if job.get("status") != "completed" and _job_key(job) not in lost]
         if fresh:
             return f"job {fresh[0].get('name')!r} is unfinished beside the lost jobs"
+    # A sibling running now, at any head, would be killed by the cancel (_gated(); run 42018091049).
+    running = [job for job in now if job.get("status") in RUNNING_JOB_STATUSES and _job_key(job) not in lost]
+    if running:
+        return f"job {running[0].get('name')!r} is running beside the lost job"
     return None
 
 
@@ -3496,11 +3679,48 @@ TIP_DISPATCH_KINDS = frozenset({"cmux-next base tier", "cmux-next tip daemon sui
 # Newer dispatches whose jobs a sweep reads to judge supersession, over every pending entry; the in-flight ones
 # are in the inventory already. One listing of the workflow's dispatches per settled entry besides.
 DISPATCH_SUPERSEDE_JOB_READS = 6
+# A hosted verification dispatch (scripts/verify-cmux-tui-hosted.sh) has a caller waiting on its run id: the
+# script dispatches it on the lane branch it verifies. Run 42730697263 (2026-11-10, a red proof on
+# tui-feat-demux-followup-3-red) was cancelled here after its macOS job queued 2h03m and carried no re-run, so the
+# caller got a cancelled run with no macOS result. Its re-run waits for nothing newer: it is dropped when a newer
+# verification of the same lane branch, mode and filter exists, or when the lane branch moved past the run's
+# commit or is gone (plan_lost_reruns()); a red proof of a fixed commit is re-run only while it is still the lane.
+# These lane rules are for lane branches only (is_lane_verification()): a cmux-tui.yml dispatch on a long-lived
+# branch (403 on feat-cmux-next, 141 on main) keeps the ORPHAN_RERUN_BRANCHES rule, since its branch has almost
+# always moved by the time an orphan cancel comes (ci-rev-2 on #40111).
+VERIFICATION_DISPATCH_PATHS = frozenset({".github/workflows/cmux-tui.yml"})
+# Its run name is `cmux-tui <mode> <request_id> @ <commit>`, and verify-cmux-tui-hosted.sh makes request_id
+# `<sha12>-f<hash8>-<epoch>-<pid>` (focused: hash8 names the test filter) or `<sha12>-<epoch>-<pid>` (full). The
+# epoch and pid make every run name unique, so its kind is the lane-level part only: mode and filter token.
+VERIFICATION_TITLE = re.compile(
+    r"^cmux-tui (?P<mode>focused|full) [0-9a-f]{12}(?:-(?P<filter>f[0-9a-f]{8}))?-\d+-\d+ @ [0-9a-f]{40}$")
+
+
+def verification_kind(run: Mapping[str, Any]) -> str | None:
+    """`cmux-tui <mode> [f<hash8>]` for a hosted verification dispatch, None for any other run or a name it
+    cannot read (a run dispatched before the filter token: no newer run of it can be told apart)."""
+    if run.get("path") not in VERIFICATION_DISPATCH_PATHS:
+        return None
+    match = VERIFICATION_TITLE.match(str(run.get("display_title") or run.get("name") or ""))
+    if not match or (match.group("mode") == "focused" and not match.group("filter")):
+        return None
+    return " ".join(part for part in ("cmux-tui", match.group("mode"), match.group("filter")) if part)
+
+
+def is_lane_verification(run: Mapping[str, Any]) -> bool:
+    """A hosted verification dispatch on a lane branch: the lane rules of plan_lost_reruns() judge its re-run."""
+    return run.get("path") in VERIFICATION_DISPATCH_PATHS and \
+        str(run.get("head_branch") or "") not in ORPHAN_RERUN_BRANCHES
+
+
 TITLE_SHA = re.compile(r"^(.*?) · [0-9a-f]{7,40}$")
 
 
 def dispatch_kind(run: Mapping[str, Any]) -> str:
     """A dispatch's run name without its trailing ` · <sha>`: `cmux-next base tier · abc..` -> `cmux-next base tier`."""
+    verification = verification_kind(run)
+    if verification:
+        return verification
     title = str(run.get("display_title") or run.get("name") or "")
     match = TITLE_SHA.match(title)
     return match.group(1) if match else title
@@ -3511,10 +3731,14 @@ def orphan_rerun_scope(orphan: Orphan) -> str | None:
     run = orphan.run
     branch = str(run.get("head_branch") or "")
     attempt = int(run.get("run_attempt") or 1)
-    if orphan.job_name is None or run.get("event") != "workflow_dispatch" or branch not in ORPHAN_RERUN_BRANCHES:
+    lane_verification = is_lane_verification(run)
+    if orphan.job_name is None or run.get("event") != "workflow_dispatch" or \
+            (branch not in ORPHAN_RERUN_BRANCHES and not lane_verification):
         return None
     if attempt >= LOST_FAILOVER_MAX_ATTEMPT or orphan_protected_reason(run) is not None:
         return None
+    if lane_verification:
+        return f"a hosted verification dispatch on {branch} at attempt {attempt}"
     return f"a {branch} dispatch at attempt {attempt}"
 
 
@@ -3540,6 +3764,8 @@ def orphan_reruns(decisions: Sequence[OrphanDecision], results: Mapping[int, str
         }
         if decision.orphan.job_id is not None and any(_failed(job) for job in jobs_by_run.get(run["id"]) or ()):
             entry["job_id"] = decision.orphan.job_id
+        if is_lane_verification(run):
+            entry["dispatch"]["verification"] = True
         entries.append(entry)
     return entries
 
@@ -3554,7 +3780,8 @@ def newer_dispatches(entry: Mapping[str, Any], run: Mapping[str, Any],
              if int(other.get("id") or 0) > int(run.get("id") or 0) and other.get("event") == "workflow_dispatch"
              and other.get("path") == run.get("path") and other.get("head_branch") == run.get("head_branch")
              and dispatch_kind(other) == kind
-             and (kind in TIP_DISPATCH_KINDS or str(other.get("display_title") or other.get("name") or "") == title)]
+             and (kind in TIP_DISPATCH_KINDS or dispatch.get("verification") and verification_kind(other) == kind
+                  or str(other.get("display_title") or other.get("name") or "") == title)]
     return sorted(found, key=lambda other: int(other.get("id") or 0), reverse=True)
 
 
@@ -4408,6 +4635,10 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         else:
             snapshot["gates_error"] = gates_error
             print(f"queue-janitor: fleet gates: {gates_error}", file=sys.stderr)
+        # This optional hint is copied only after the ordinary listing has
+        # proved complete. A partial janitor sweep must retain its existing
+        # unknown/unsafe semantics, even when runner-state has candidates.
+        attach_hosted_light_candidates(snapshot, os.environ.get("CI_RUNNER_STATE"), now=now)
         args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
 
     if unread or listing["truncated"]:
@@ -4539,6 +4770,12 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
                     print(f"queue-janitor: jobs of dispatch {other['id']}: {error!r}", file=sys.stderr)
         read_heads(branch_head_lookups(settled, {run.get("id") for run in settled}, prs_by_branch=prs_by_branch,
                                        known=branch_heads, cap=PENDING_HEAD_LOOKUPS))
+        # A settled verification entry needs its lane branch head (plan_lost_reruns()).
+        lanes = sorted({str(runs_now[entry["run_id"]].get("head_branch") or "") for entry in pending
+                        if isinstance(entry.get("dispatch"), Mapping) and entry["dispatch"].get("verification")
+                        and entry.get("run_id") in runs_now and runs_now[entry["run_id"]].get("status") == "completed"}
+                       - set(branch_heads) - {""})
+        read_heads(lanes[:PENDING_HEAD_LOOKUPS])
         # One LOST_RERUN_MAX a sweep: what the open-head failover re-ran comes out of the pending entries' share.
         open_head_reruns = sum(1 for decision in open_head_decisions if decision.action == "rerun")
         rerun_decisions = plan_lost_reruns(pending, runs_now, prs_by_branch, now=now, head_runs=head_runs,

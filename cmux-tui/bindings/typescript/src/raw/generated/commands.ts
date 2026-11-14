@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298. */
+/* cmux-tui mux protocol 12, IR 93af6692f7f686eafe3bfcb03c01e8570f8cf4dfa8a84ad93824ed07160b504d. */
 
 
 import type * as T from "./types.js";
@@ -22,6 +22,13 @@ export interface CmuxFailureResponse {
 export type CmuxResponse<D = T.JsonValue> =
   | CmuxSuccessResponse<D>
   | CmuxFailureResponse;
+
+/** Protocol v12; authority: control. */
+export interface AckTabNotificationsRequest extends CmuxRequestBase {
+  cmd: "ack-tab-notifications";
+  "surface": T.Id;
+}
+export type AckTabNotificationsResult = T.JsonValue;
 
 /** Protocol v6; authority: control. */
 export interface ApplyLayoutRequest extends CmuxRequestBase {
@@ -1064,6 +1071,7 @@ export interface ZoomPaneRequest extends CmuxRequestBase {
 
 /** Every implemented protocol command request. */
 export type CmuxRequest =
+  | AckTabNotificationsRequest
   | ApplyLayoutRequest
   | AttachSurfaceRequest
   | BrowserActivateRequest
@@ -1185,6 +1193,14 @@ export type CmuxRequest =
 
 /** Command name to request, result, authority, and version mapping. */
 export interface CmuxCommandDefinitionMap {
+  "ack-tab-notifications": {
+    request: AckTabNotificationsRequest;
+    result: AckTabNotificationsResult;
+    authority: "control";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
   "apply-layout": {
     request: ApplyLayoutRequest;
     result: T.ApplyLayoutResult;

@@ -1,4 +1,5 @@
 import { useTranslations } from "next-intl";
+import { PRO_CHECKOUT_URL } from "@/app/lib/billing";
 import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import { RevealImage } from "@/app/[locale]/components/reveal-image";
@@ -97,7 +98,7 @@ export default function IosLanding() {
           style={{ marginTop: 21, marginBottom: 16 }}
         >
           <a
-            href="https://github.com/manaflow-ai/cmux#founders-edition"
+            href={PRO_CHECKOUT_URL}
             className={`${ctaButtonBase} ${ctaButtonDefaultSize}`}
             style={ctaButtonStyle}
           >
@@ -202,7 +203,7 @@ export default function IosLanding() {
           data-dev="ios-cta-bottom"
         >
           <a
-            href="https://github.com/manaflow-ai/cmux#founders-edition"
+            href={PRO_CHECKOUT_URL}
             className={`${ctaButtonBase} ${ctaButtonDefaultSize}`}
             style={ctaButtonStyle}
           >

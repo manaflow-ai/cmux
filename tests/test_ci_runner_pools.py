@@ -113,6 +113,19 @@ class Declared(unittest.TestCase):
         names = [s.get("name") for s in steps]
         self.assertLess(names.index(step["name"]), names.index("End this run's stuck probe"))
 
+    def test_the_reconciler_reads_as_cmux_bot_not_the_shared_workflow_token(self) -> None:
+        # Its GH_TOKEN only reads (queue sample, pool snapshot artifact): cmux-bot's read-only token, minted
+        # earlier in the same job, keeps those reads off the repository GITHUB_TOKEN pool every workflow shares.
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
+        steps = workflow["jobs"]["watch"]["steps"]
+        [step] = [s for s in steps if "runner_pools.py" in str(s.get("run", ""))]
+        [mint] = [s for s in steps if s.get("id") == "cmux-bot-token"]
+        self.assertEqual(mint["with"]["permission-actions"], "read")
+        self.assertEqual(step["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
+        self.assertNotIn("GLAEDA_ROUTE", step["env"]["GH_TOKEN"])
+        names = [s.get("name") for s in steps]
+        self.assertLess(names.index(mint["name"]), names.index(step["name"]))
+
     def test_the_watch_runs_the_pinned_linux_pool_spill_with_main_as_fallback(self) -> None:
         # cmux#31884: the queue-aware spill runs from a reviewed feat-cmux-next commit beside main's policy.
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
@@ -131,26 +144,58 @@ class Declared(unittest.TestCase):
         self.assertLess(names.index(checkout["name"]), names.index(step["name"]))
 
 
-    def test_the_watch_runs_the_pinned_hosted_light_rescue_without_failing(self) -> None:
-        # cmux#32023, #32120: a hosted light job GitHub never assigns fails over to its re-run route.
-        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
-        steps = workflow["jobs"]["watch"]["steps"]
-        [checkout] = [s for s in steps if s.get("id") == "hosted-light-tooling"]
-        self.assertRegex(checkout["with"]["ref"], r"^[0-9a-f]{40}$")
-        self.assertEqual(checkout["with"]["persist-credentials"], False)
-        self.assertEqual(set(checkout["with"]["sparse-checkout"].split()),
-                         {"scripts/ci/hosted_light_rescue.py", ".github/runners.json"})
-        self.assertTrue(checkout.get("continue-on-error"))
+    def test_hosted_light_rescue_runs_without_the_overflow_probe(self) -> None:
+        # A queued probe must not hold the recovery that moves other queued light jobs.
+        path = ROOT / ".github/workflows/ci-hosted-light-rescue.yml"
+        self.assertTrue(path.is_file(), "hosted light rescue needs an independent scheduler")
+        workflow = yaml.safe_load(path.read_text())
+        events = workflow.get("on", workflow.get(True))
+        self.assertEqual(events["schedule"], [{"cron": "*/5 * * * *"}])
+        self.assertNotEqual(workflow["concurrency"]["group"], "ci-cloud-overflow-probe")
+        self.assertFalse(workflow["concurrency"]["cancel-in-progress"])
+        rescue = workflow["jobs"]["rescue"]
+        self.assertNotIn("needs", rescue)
+        self.assertEqual(rescue["permissions"], {"actions": "write", "contents": "read"})
+        self.assertNotIn("secrets.", path.read_text())
+        self.assertNotIn("CI_LIGHT_LANE_RUNNER", rescue["runs-on"])
+        self.assertNotIn("CI_SIDE_LANE_RUNNER", rescue["runs-on"])
+        self.assertIn("vars.CI_TRUSTED_RUNNER", rescue["runs-on"])
+        self.assertIn("ephemeral-required", path.read_text())
+        self.assertEqual(rescue["steps"][0]["with"]["ref"], "main")
+        self.assertTrue((ROOT / "scripts/ci/hosted_light_rescue.py").is_file())
+        old = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
+        self.assertNotIn("hosted_light_rescue.py", str(old["jobs"]))
+
+    def test_the_independent_schedule_only_wakes_the_single_sweeper(self) -> None:
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-hosted-light-rescue.yml").read_text())
+        steps = workflow["jobs"]["rescue"]["steps"]
         [step] = [s for s in steps if "hosted_light_rescue.py" in str(s.get("run", ""))]
-        self.assertTrue(step.get("continue-on-error"))
-        self.assertIn("steps.hosted-light-tooling.outcome == 'success'", str(step.get("if")))
-        self.assertIn("--runners .hosted-light-tooling/.github/runners.json", step["run"])
+        self.assertIn("python3 scripts/ci/hosted_light_rescue.py", step["run"])
         self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
-        self.assertIn("inputs.dry_run", step["env"]["DRY_RUN"])
-        self.assertEqual(workflow["jobs"]["watch"]["permissions"].get("actions"), "write")
-        names = [s.get("name") for s in steps]
-        self.assertLess(names.index(checkout["name"]), names.index(step["name"]))
-        self.assertLess(names.index(step["name"]), names.index("End this run's stuck probe"))
+        self.assertIn("--wake-sweeper", step["run"])
+        self.assertNotIn("--runners", step["run"])
+        self.assertNotIn(".rescue-workflows", str(steps))
+
+    def test_a_failed_optional_policy_checkout_does_not_stop_the_primary_sweep(self) -> None:
+        doc = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text())
+        steps = doc["jobs"]["rescue"]["steps"]
+        [policy] = [s for s in steps if s.get("with", {}).get("path") == ".rescue-workflows"]
+        # Actions skips subsequent ordinary steps after a fatal action failure. This optional
+        # checkout must clear that failure so the existing owned-pool sweeper can still start.
+        self.assertTrue(policy.get("continue-on-error"))
+        self.assertLessEqual(policy.get("timeout-minutes", 360), 2)
+        [watch] = [s for s in steps if "owned_pool_rescue.py" in str(s.get("run", ""))]
+        self.assertLess(steps.index(policy), steps.index(watch))
+
+    def test_the_minute_sweeper_isolates_light_rescue_from_the_routing_app(self) -> None:
+        doc = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text())
+        [step] = [s for s in doc["jobs"]["rescue"]["steps"] if "owned_pool_rescue.py" in str(s.get("run", ""))]
+        # cmux-bot first (its own installation pool), the workflow token as fallback; never the routing App.
+        self.assertEqual(step["env"]["HOSTED_LIGHT_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
+        self.assertEqual(step["env"]["HOSTED_LIGHT_FALLBACK_TOKEN"], "${{ github.token }}")
+        self.assertNotIn("GLAEDA_ROUTE", str(step["env"]["HOSTED_LIGHT_TOKEN"]))
+        self.assertEqual(step["env"]["HOSTED_LIGHT_DISABLED"], "${{ vars.CI_HOSTED_LIGHT_RESCUE_DISABLED }}")
+        self.assertEqual(step["env"]["HOSTED_LIGHT_POLICY"], ".rescue-workflows/.github")
 
 
 class Evidence(unittest.TestCase):
@@ -165,15 +210,49 @@ class Evidence(unittest.TestCase):
         self.assertEqual((dead, started), (set(), set()))
 
     def test_a_stalled_blacksmith_mac_in_the_snapshot_is_dead(self) -> None:
-        # simple_pool_picker.blacksmith_stalled(): a queued job waited 10 minutes, so nothing started.
+        # simple_pool_picker.blacksmith_stalled(): a queued job waited 10 minutes, nothing runs there, and the
+        # janitor's label_started shows no start since that job began to wait.
         snapshot = copy.deepcopy(RECORDED)
-        snapshot["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, oldest_queued_minutes=9)
+        snapshot["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, running=0, oldest_queued_minutes=9)
+        snapshot["label_started"] = {"blacksmith-6vcpu-macos-26": runner_pools.iso(SNAPSHOT_AT - dt.timedelta(minutes=40))}
         dead, _, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
         self.assertEqual(dead, {"blacksmith-6vcpu-macos-26"})
         # Owned labels in the snapshot are never pool members and are not read.
         snapshot["pools"]["glaeda-std-xcode-26.6"].update(queued=9, oldest_queued_minutes=60)
         snapshot["starved"] = [{"label": "glaeda-gui-std-xcode-26.6+glaeda-std-xcode-26.6", "queued": 1}]
         dead, _, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+        self.assertEqual(dead, {"blacksmith-6vcpu-macos-26"})
+
+    def test_a_busy_blacksmith_mac_that_starts_jobs_is_not_dead(self) -> None:
+        # 2026-11-08: blacksmith-6vcpu-macos-15 started four jobs of run 42503576472 at 17:28-17:31Z, one
+        # still running, yet RUNNER_POOLS marked it dead at 17:34:13Z: other jobs had queued there over 10
+        # minutes. A long queue on a label that starts jobs is load, not death; only a label that runs
+        # nothing and started nothing while its oldest job waited is dead.
+        stalled = copy.deepcopy(RECORDED)
+        stalled["pools"]["blacksmith-6vcpu-macos-26"].update(queued=6, running=0, oldest_queued_minutes=25)
+        stalled["label_started"] = {}
+        # A start it shows is evidence it serves: that clears a mark the old rule wrote, at once.
+        # No label_started map is no evidence either way.
+        label = {"blacksmith-6vcpu-macos-26"}
+        for name, change, served in [
+            ("a job runs there", {"running": 1}, label),
+            ("a job started after the oldest began to wait",
+             {"label_started": runner_pools.iso(SNAPSHOT_AT - dt.timedelta(minutes=3))}, label),
+            ("no start evidence in the snapshot", {"no_label_started": True}, set()),
+        ]:
+            with self.subTest(name):
+                snapshot = copy.deepcopy(stalled)
+                if "running" in change:
+                    snapshot["pools"]["blacksmith-6vcpu-macos-26"]["running"] = change["running"]
+                if "label_started" in change:
+                    snapshot["label_started"] = {"blacksmith-6vcpu-macos-26": change["label_started"]}
+                if change.get("no_label_started"):
+                    del snapshot["label_started"]
+                dead, started, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+                self.assertEqual(dead, set())
+                self.assertEqual(started, served)
+        # The control: nothing runs, and the last start is older than the oldest wait.
+        dead, _, _ = runner_pools.label_evidence(None, stalled, now=NOW)
         self.assertEqual(dead, {"blacksmith-6vcpu-macos-26"})
 
     def test_dead_label_entries_split_on_comma_and_plus(self) -> None:
@@ -206,7 +285,8 @@ class Evidence(unittest.TestCase):
 
     def test_an_undated_stale_or_future_snapshot_decides_nothing(self) -> None:
         stalled = copy.deepcopy(RECORDED)
-        stalled["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, oldest_queued_minutes=30)
+        stalled["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, running=0, oldest_queued_minutes=30)
+        stalled["label_started"] = {}
         stalled["dead_labels"] = [{"label": "blacksmith-16vcpu-ubuntu-2404", "live": []}]
         dead, _, _ = runner_pools.label_evidence(None, stalled, now=NOW)
         self.assertEqual(dead, {"blacksmith-6vcpu-macos-26", "blacksmith-16vcpu-ubuntu-2404"})
@@ -559,7 +639,8 @@ class TruncatedSnapshot(unittest.TestCase):
     def test_a_truncated_snapshot_is_no_snapshot_evidence(self) -> None:
         # A janitor sweep that listed part of the queue (queue_janitor.listing_state()) undercounts every pool.
         stalled = copy.deepcopy(RECORDED)
-        stalled["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, oldest_queued_minutes=30)
+        stalled["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, running=0, oldest_queued_minutes=30)
+        stalled["label_started"] = {}
         dead, _, _ = runner_pools.label_evidence(None, stalled, now=NOW)
         self.assertEqual(dead, {"blacksmith-6vcpu-macos-26"})
         dead, started, notes = runner_pools.label_evidence(None, dict(stalled, truncated=True), now=NOW)

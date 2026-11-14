@@ -19,7 +19,12 @@ run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow
 # jobs onto one; every minute the sweeper lists both names repository-wide
 # and gives each new run a thread running the per-run watch. A run marked
 # `owned-pool-watch-refusals` (cmux-next.yml, no free overflow) and its
-# re-runs are watched for refusals only: a long queue is left alone. Until
+# re-runs are watched for refusals only: a long queue is left alone. Every
+# five ticks the sweeper also scans every unfinished cmux-next pull request
+# run for an owned job stalled past a bound, queued with no runner or held by
+# a runner with no step progress, and moves it to Blacksmith while that label
+# has room, a few runs a sweeper at most (owned_pool_rescue.STALL_MOVE; run
+# 42878905180 queued over two hours on 2026-11-10). Until
 # 2026-09-25 each such run had its own owned-pool-watch job, a "Watch owned
 # pool jobs" check on the pull request, dispatching its own rescue run: 263
 # rescue runs in the 2 hours to 12:30 UTC, and 59 of the last 60 did nothing.
@@ -136,6 +141,17 @@ jobs:
           ref: main
           persist-credentials: false
 
+      - name: Check current declared light-job routes
+        if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && vars.CI_HOSTED_LIGHT_RESCUE_DISABLED != '1'
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          path: .rescue-workflows
+          sparse-checkout: .github
+          persist-credentials: false
+
       - name: Mint the cmux-bot token
         id: cmux-bot-token
         if: vars.CMUX_BOT_APP_ID != ''
@@ -151,22 +167,6 @@ jobs:
           permission-issues: write
           permission-pull-requests: write
 
-      # Prefer cmux-bot for both reads and mutations so this watcher has its own
-      # API budget. Keep the runner-routing App as a read fallback while the
-      # organization rolls cmux-bot out; a failed mint falls back to GITHUB_TOKEN.
-      - name: Mint the read token
-        id: read-token
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
-          permission-actions: read
-          permission-pull-requests: read
-          skip-token-revoke: true
-
       # The rescue reads a failed side-lane run's `needs` graph from its workflow file
       # (owned_pool_rescue.downstream_of_refusals()), which needs PyYAML. Best effort:
       # without it that check excuses nothing and the rescue runs as before.
@@ -180,7 +180,17 @@ jobs:
 
       - name: Watch runs on persistent pools
         env:
-          READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.read-token.outputs.token }}
+          # The minute light-job pass reads as cmux-bot (its own installation pool) and falls back to the
+          # repository's shared GITHUB_TOKEN pool, which the NEXT nightly needs, only while cmux-bot's is low or
+          # refused (scripts/ci/hosted_light_rescue.py). Never the routing App. Writes stay on github.token.
+          HOSTED_LIGHT_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          HOSTED_LIGHT_FALLBACK_TOKEN: ${{ github.token }}
+          HOSTED_LIGHT_POLICY: .rescue-workflows/.github
+          HOSTED_LIGHT_DISABLED: ${{ vars.CI_HOSTED_LIGHT_RESCUE_DISABLED }}
+          # Keep every Actions read on the workflow's existing token. The
+          # routing App is reserved for picker decisions, not this polling
+          # loop, so a busy sweeper cannot drain its installation quota.
+          READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           # A CI run's budget grows by a round per queue round the picker allows.
           QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
@@ -195,6 +205,10 @@ jobs:
           # reruns stay minis-first through attempt 2.
           SIDE_RESCUE_SECONDS: ${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          # cmux-next.yml's Mac fallbacks past the bot's attempt 3 read these; the stall move judges each label's
+          # room, and moves nothing while one names an owned pool (owned_pool_rescue.stall_destinations()).
+          STALL_RUNNER: ${{ vars.MACOS_RUNNER_26 }}
+          STALL_POOLS: ${{ vars.RUNNER_POOLS }}
           WATCH_RUN_ID: ${{ inputs.run_id }}
           SWEEP: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && '1' || '' }}
           # 1: wait for ci-macos.yml's late-placement before calling the run ephemeral.

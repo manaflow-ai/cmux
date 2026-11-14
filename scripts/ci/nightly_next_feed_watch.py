@@ -21,6 +21,14 @@ exits 1, so the scheduled run is red rather than green (a stall from 01:44Z on
 2026-10-21 sat behind green runs for four hours). A promotion stall quotes the
 latest nightly-next tick's refusal tally (nightly-next-tick.yml).
 
+The coordinator alarm (feed_alarm): once the feed's newest build is FEED_ALARM_AFTER (2h) old while pushes
+wait, the issue gets a `Coordinator alarm:` line and a nightly-next-feed-alarm marker, once per stale episode
+(the feed's newest item) and again at most every FEED_ALARM_REPEAT (1h), naming the newest failed nightly-next
+run's first failing step and its log's HTTP status line. cmuxterm-hq's base-red-watch nightly alarm reads that
+marker and pages the coordinator as a FIRE line. On 2026-11-13 the feed sat at 04:32Z for over 15 hours while
+every nightly failed at the notary (HTTP 403): the issue said only "still building" (a retry was always
+running) and nothing reached a coordinator.
+
 The NEXT starvation guard heals before the alarm: past 20 minutes without a
 publication it starts a build of the current tip when no started build carries
 it. It runs inside its own boundary so an alarm failure cannot prevent recovery.
@@ -41,7 +49,9 @@ import http.client
 import json
 import os
 import re
+import subprocess
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -59,13 +69,15 @@ EXIT_OK = 0
 EXIT_STALE = 1
 EXIT_UNAVAILABLE = 3
 
-FEED_URL = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"  # cmux NEXT (cx-x7hwx)
-# nightly-next writes two appcasts: the bare path an installed app polls and
-# the `/next/` channel path. They can disagree -- on 2026-10-26 the bare feed
-# was two hours ahead of `/next/` -- so freshness is the OLDER of the two and a
-# build that reached one path and not the other still counts as behind.
+# nightly-next has one feed: the bare path cmux NIGHTLY (com.cmuxterm.app.nightly) polls. Each build
+# is signed once, as cmux NIGHTLY (hq#7156); the `/next/` cmux NEXT-identity appcast is retired and
+# gets no builds, so it is not watched.
 BARE_FEED_URL = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
-NEXT_FEED_URLS = (BARE_FEED_URL, FEED_URL)
+NEXT_FEED_URLS = (BARE_FEED_URL,)
+# The `/next/` appcast, read only to find builds the legacy jobs have not copied to the bare feed
+# (legacy_lag). While nightly-next still runs the copy it is the newer side; once nightly-next signs
+# once, it freezes, no build is missing, and nothing is re-run.
+FEED_URL = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
 # The old feed, nightly.yml's NIGHTLY_NEXT_LEGACY_FEED_BASE: cmux NIGHTLY (com.cmuxterm.app.nightly,
 # Leo's daily driver) has it as SUFeedURL. Only publish-nightly-identity-legacy writes it, re-signing
 # each cmux NEXT Nightly build, so a failed legacy job leaves it behind while FEED_URL looks current
@@ -98,6 +110,19 @@ PUBLISHED_MARKER = re.compile(r"<!--\s*cmux-published-sha:\s*([0-9a-f]{40})\s*--
 # signs and publishes an older run's saved app, so it never carries the tip
 # (scripts/ci/nightly_next_unsigned_resume.py dispatches and counts these).
 RESUME_TITLE = re.compile(r"^Resume nightly-next run ([1-9][0-9]*) attempt ([1-9][0-9]?)$")
+# nightly.yml's run-name for the loop's own retry of a failed run, which takes the push group's place.
+RETRY_TITLE = re.compile(r"^Retry nightly-next \([1-9][0-9]* of [1-9][0-9]*\)$")
+# The coordinator alarm (feed_alarm). cmuxterm-hq's base-red-watch reads ALARM_MARKER and the ALARM_HEAD line
+# from the open nightly-next-feed-stale issue's body and pages the coordinator once per marker: keep the three
+# in step with its nightly_alarm_pass.
+FEED_ALARM_AFTER = dt.timedelta(hours=2)
+FEED_ALARM_REPEAT = dt.timedelta(hours=1)
+ALARM_MARKER = re.compile(r"<!--\s*nightly-next-feed-alarm:\s*episode=(\S+)\s+at=(\S+)\s*-->")
+ALARM_HEAD = "Coordinator alarm: "
+# A log line that names an HTTP status (the notary's "HTTP status code: 403", an account API's "HTTP 403").
+HTTP_STATUS_LINE = re.compile(r"HTTP status code:? *[1-5][0-9][0-9]|HTTP [1-5][0-9][0-9]\b")
+LOG_STAMP = re.compile(r"^\ufeff?\d{4}-\d\d-\d\dT[0-9:.]+Z ")
+LOG_MAX_LINES = 2_000_000  # a nightly job's log is ~175k lines; never read without end
 
 
 @dataclass(frozen=True)
@@ -190,6 +215,18 @@ def assess(now: dt.datetime, newest: dt.datetime, pushes: list[dict], nightly: l
     latest = next((run for run in nightly if run.get("status") != "completed" or run.get("conclusion") in ("success", "failure", "timed_out")), None)
     if latest and latest.get("status") != "completed":
         reason = f"nightly-next run {latest['html_url']} on {latest['head_sha'][:12]} is still building."
+        # A running build is not progress when every build before it failed: on 2026-11-13 a retry was always
+        # running, so for 15 hours this said "still building" and never named the notary 403 that failed them all.
+        finished = [run for run in nightly if run.get("status") == "completed" and run.get("conclusion") in ("success", "failure", "timed_out")]
+        failed = [run for run in finished if run.get("conclusion") in ("failure", "timed_out")]
+        if failed:
+            try:
+                steps = failed_steps(jobs_of(failed[0]))
+            except (*TRANSPORT, KeyError, TypeError) as error:  # a diagnostic read never holds the alarm back
+                steps = "its jobs were unreadable"
+                print(f"::warning::could not read the jobs of {failed[0].get('html_url')}: {error!r}")
+            reason += (f" {len(failed)} of the {len(finished)} nightly-next runs finished since the feed's newest item failed; "
+                       f"the newest failure, {failed[0]['html_url']}: {steps}.")
     elif latest and latest.get("conclusion") == "success":
         reason = f"nightly-next run {latest['html_url']} on {latest['head_sha'][:12]} passed but did not publish (debounced or skipped publication)."
     elif latest:
@@ -229,9 +266,122 @@ def stamp(when: dt.datetime) -> str:
     return when.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def status_line(lines) -> str:
+    """The last HTTP-status line before the job log's first `##[error]`: the failing step's own words.
+
+    A passing step can print one too (on 2026-11-13 a signing-account check logged "HTTP 403" and went on),
+    so the line kept is the newest one when the first error lands, and nothing after it; the notary's "Error: HTTP status code: 403.
+    A required agreement is missing or has expired." came right before it."""
+    found = ""
+    for count, raw in enumerate(lines):
+        if count >= LOG_MAX_LINES:
+            break
+        line = LOG_STAMP.sub("", raw.decode("utf-8", "replace") if isinstance(raw, bytes) else raw).strip()
+        if line.startswith("##[error]"):
+            return found  # the first failure's own line, or none: a later step's status is not its cause
+        elif HTTP_STATUS_LINE.search(line):
+            found = line[:300]
+    return found
+
+
+def first_failed_step(job: dict) -> str:
+    steps = sorted((step for step in job.get("steps") or [] if step.get("conclusion") in ("failure", "timed_out")),
+                   key=lambda step: step.get("number") or 0)
+    return f"{job.get('name', '?')} / {steps[0]['name']}" if steps else str(job.get("name", "?"))
+
+
+def nightly_failure(gh, nightly: list[dict]) -> str:
+    """The newest failed nightly-next run since the feed's newest item: its first failing step and the HTTP status
+    line of that job's log. Reads one job list and one log, only when an alarm is due (at most hourly)."""
+    finished = [run for run in nightly if run.get("status") == "completed" and run.get("conclusion") in ("success", "failure", "timed_out")]
+    failed = [run for run in finished if run.get("conclusion") in ("failure", "timed_out")]
+    if not failed:
+        return "No nightly-next run since the feed's newest item has failed."
+    run = failed[0]
+    try:
+        jobs = [job for job in gh.jobs(run) if job.get("conclusion") in ("failure", "timed_out")]
+    except (*TRANSPORT, KeyError, TypeError) as error:
+        jobs = []
+        print(f"::warning::could not read the jobs of {run.get('html_url')}: {error!r}")
+    step = first_failed_step(jobs[0]) if jobs else "no failed job recorded"
+    line = ""
+    if jobs and jobs[0].get("id"):
+        try:
+            line = status_line(gh.job_log(jobs[0]["id"]))
+        except (*TRANSPORT, ValueError) as error:
+            print(f"::warning::could not read the log of job {jobs[0]['id']}: {error!r}")
+    return (f"The newest failed nightly-next run {run.get('html_url')} on {str(run.get('head_sha', ''))[:12]} first failed at "
+            f"\"{step}\"" + (f": {line}" if line else "") +
+            f" ({len(failed)} of {len(finished)} nightly-next runs finished since the feed's newest item failed).")
+
+
+def latest_running(nightly: list[dict]) -> str:
+    run = next((run for run in nightly if run.get("status") != "completed"), None)
+    return f"Run {run.get('html_url')} on {str(run.get('head_sha', ''))[:12]} is building now." if run else ""
+
+
+def alarm_due(now: dt.datetime, newest: dt.datetime, stage: Stage, previous_body: str) -> bool:
+    """Whether to alarm the coordinator now: the feed's newest build is FEED_ALARM_AFTER old, pushes have waited
+    past the limit (stage.stale), and this stale episode (keyed by the feed's newest item) has not alarmed within
+    FEED_ALARM_REPEAT (the marker the last alarm left in the issue body)."""
+    if not stage.stale or stage.since is None or now - newest < FEED_ALARM_AFTER:
+        return False
+    marker = ALARM_MARKER.search(previous_body or "")
+    if not marker or marker.group(1) != stamp(newest):
+        return True
+    try:
+        return now - parse_time(marker.group(2)) >= FEED_ALARM_REPEAT
+    except ValueError:
+        return True
+
+
+def feed_alarm(gh, now: dt.datetime, newest: dt.datetime, stage: Stage, nightly: list[dict],
+               previous_body: str) -> tuple[str, str]:
+    """(the alarm block the issue body carries, the alarm text when one is due now, else "").
+
+    The block is the ALARM_HEAD line and its marker. A run with no alarm due carries the episode's last block
+    forward, so the marker that spaces alarms an hour apart survives the body's rewrite every 10 minutes."""
+    if not alarm_due(now, newest, stage, previous_body):
+        marker = ALARM_MARKER.search(previous_body or "")
+        if stage.stale and marker and marker.group(1) == stamp(newest):
+            line = next((line for line in (previous_body or "").splitlines() if line.startswith(ALARM_HEAD)), "")
+            return "\n\n".join(filter(None, [line, marker.group(0)])), ""
+        return "", ""
+    failure = nightly_failure(gh, nightly)
+    if failure.startswith("No nightly-next run"):
+        failure += f" {stage.reason}"  # nothing failed: the stuck stage is the news (a promotion stall, a queue)
+    elif latest_running(nightly):
+        failure += f" {latest_running(nightly)}"
+    text = (f"the nightly-next feed has had no new build for {(now - newest).total_seconds() / 3600:.1f}h "
+            f"(newest {stamp(newest)}) while feat-cmux-next pushes have waited {stage.waited_hours:.1f}h "
+            f"(since {stamp(stage.since) if stage.since else '?'}). {failure}")
+    marker = f"<!-- nightly-next-feed-alarm: episode={stamp(newest)} at={stamp(now)} -->"
+    print(f"::error title=nightly-next feed alarm::{text}")
+    return f"{ALARM_HEAD}{text}\n\n{marker}", text
+
+
+def ls_remote_sha(repo: str, branch: str, timeout: float = 60) -> str:
+    """A branch's tip from git's smart-HTTP ref advertisement, not the REST API.
+
+    The repository is public, so this needs no token and spends none of the installation's
+    API budget. On 2026-11-04 that budget ran out and the tick's `git/ref/heads/nightly-next`
+    read failed, so ticks 41791114042 and 41791169626 promoted nothing. Raises OSError,
+    subprocess.SubprocessError or ValueError; callers fall back to the API."""
+    server = os.environ.get("GITHUB_SERVER_URL", "https://github.com").rstrip("/")
+    out = subprocess.run(
+        ["git", "ls-remote", "--exit-code", f"{server}/{repo}", f"refs/heads/{branch}"],
+        capture_output=True, text=True, timeout=timeout, check=True, stdin=subprocess.DEVNULL,
+        env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}).stdout
+    sha = out.split()[0].lower() if out.split() else ""
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise ValueError(f"git ls-remote {branch}: no sha in {out[:80]!r}")
+    return sha
+
+
 class GitHub:
     def __init__(self, repo: str, token: str, dry_run: bool):
         self.base = f"https://api.github.com/repos/{repo}"
+        self.repo = repo
         self.token = token
         self.dry_run = dry_run
 
@@ -269,6 +419,26 @@ class GitHub:
     def jobs(self, run: dict) -> list[dict]:
         return self.call("GET", f"/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")["jobs"]
 
+    def job_log(self, job_id: int):
+        """A job's log, streamed line by line. The API answers with a redirect to a signed blob URL, which is
+        followed without the token (the blob store refuses an Authorization header)."""
+        class Stop(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *args, **kwargs):
+                return None
+        request = urllib.request.Request(f"{self.base}/actions/jobs/{job_id}/logs", headers={
+            "Authorization": f"Bearer {self.token}", "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28"})
+        try:
+            response = urllib.request.build_opener(Stop).open(request, timeout=30)
+        except urllib.error.HTTPError as error:
+            location = error.headers.get("Location") if error.code in (301, 302, 303, 307, 308) else None
+            if not location:
+                raise
+            response = urllib.request.urlopen(urllib.request.Request(
+                location, headers={"User-Agent": "cmux-nightly-next-feed-watch"}), timeout=60)
+        with response:
+            yield from response
+
     def recent_runs(self, workflow: str, branch: str | None = None,
                     now: dt.datetime | None = None) -> list[dict]:
         """Every run of one workflow new enough to still be active.
@@ -298,6 +468,11 @@ class GitHub:
         return runs
 
     def ref_sha(self, branch: str) -> str:
+        """git ls-remote first (no API budget), the refs API only when that fails."""
+        try:
+            return ls_remote_sha(self.repo, branch)
+        except (OSError, subprocess.SubprocessError, ValueError) as error:
+            print(f"git ls-remote {branch} failed ({error!r}); reading it through the API")
         return self.call("GET", f"/git/ref/heads/{branch}")["object"]["sha"]
 
     def ref_commit(self, branch: str) -> tuple[str, dt.datetime | None]:
@@ -385,6 +560,35 @@ def queued_minutes(job: dict, run: dict, now: dt.datetime) -> float:
     return float("inf")
 
 
+def holds_push_group(run: dict) -> bool:
+    """Whether a nightly.yml run on nightly-next is in the shared push group
+    (nightly-build-nightly-next-push, feat-cmux-next's nightly.yml): a push, or the loop's retry
+    dispatch. Sign stages, resumes and other dispatches have groups of their own."""
+    if run.get("head_branch") not in (None, "nightly-next"):
+        return False
+    title = str(run.get("display_title") or "")
+    if run.get("event") == "push":
+        return not RESUME_TITLE.match(title)
+    return run.get("event") == "workflow_dispatch" and bool(RETRY_TITLE.match(title))
+
+
+def run_holds_group(run: dict, jobs: list[dict], now: dt.datetime,
+                    unstarted_minutes: float = UNSTARTED_MINUTES) -> bool:
+    """Whether an active run still holds its concurrency group: `run_is_building` without the
+    publication cut-off, since a run that published keeps its group through its tail (deltas, the
+    GitHub release, the sign handoff), and a newer push then waits behind it."""
+    if run.get("status") == "completed":
+        return False
+    if not jobs:
+        # No job yet (a run pending on its concurrency group, or just created).
+        return queued_minutes({}, run, now) < unstarted_minutes
+    if any(job.get("status") in ("in_progress", "waiting") for job in jobs):
+        return True
+    unserved = [job for job in jobs if job.get("status") in ("queued", "pending", "requested")
+                and not job.get("runner_name")]
+    return not unserved or any(queued_minutes(job, run, now) < unstarted_minutes for job in unserved)
+
+
 def run_is_building(run: dict, jobs: list[dict], now: dt.datetime,
                     unstarted_minutes: float = UNSTARTED_MINUTES) -> bool:
     """Whether an active run is still on its way to the feed.
@@ -395,18 +599,9 @@ def run_is_building(run: dict, jobs: list[dict], now: dt.datetime,
     `queued_minutes`). A job `waiting` on an environment is gated, not stuck,
     so it keeps the run.
     """
-    if run.get("status") == "completed":
-        return False
     if any(job.get("name") == PUBLISH_JOB and job.get("status") == "completed" for job in jobs):
         return False
-    if not jobs:
-        # No job yet (a run pending on its concurrency group, or just created).
-        return queued_minutes({}, run, now) < unstarted_minutes
-    if any(job.get("status") in ("in_progress", "waiting") for job in jobs):
-        return True
-    unserved = [job for job in jobs if job.get("status") in ("queued", "pending", "requested")
-                and not job.get("runner_name")]
-    return not unserved or any(queued_minutes(job, run, now) < unstarted_minutes for job in unserved)
+    return run_holds_group(run, jobs, now, unstarted_minutes)
 
 
 def started(gh: "GitHub", run: dict, now: dt.datetime, errors: list[Exception] | None = None) -> bool:
@@ -467,6 +662,34 @@ def next_carries_tip(gh: "GitHub", run: dict, tip: str, tip_landed: dt.datetime 
     return status in ("identical", "ahead")
 
 
+def next_started(gh: "GitHub", run: dict, now: dt.datetime, errors: list[Exception] | None = None) -> bool:
+    """`started` for cmux NEXT's guard: a push-group holder counts until it frees the group
+    (`run_holds_group`), other runs until they publish. Same fail-closed reads as `started`."""
+    if not holds_push_group(run):
+        return started(gh, run, now, errors)
+    try:
+        return run_holds_group(run, gh.jobs(run), now)
+    except TRANSPORT as error:
+        if errors is not None:
+            errors.append(error)
+        return True
+    except Exception:  # noqa: BLE001 - malformed job data fails closed
+        return True
+
+
+def next_holds_dispatch(gh: "GitHub", run: dict, tip: str, tip_landed: dt.datetime | None = None,
+                        errors: list[Exception] | None = None) -> bool:
+    """`next_carries_tip`, and also any run in the nightly-next push group (`holds_push_group`: a push
+    or the loop's retry), whatever commit it builds. nightly-next pushes share one concurrency group (nightly.yml on feat-cmux-next), so a dispatch beside a started
+    push build starts nothing beside it: its promotion's push run waits on the group, and the next one
+    gets it cancelled. 13 of 17 nightly-next builds went that way on 2026-11-12 (Leo, ask-4f5b99b22b).
+    The tick promotes the newest tip when that build finishes; a push run that has not started does
+    not reach this (`started`), so a stuck holder still lets the dispatch through."""
+    if holds_push_group(run):
+        return True
+    return next_carries_tip(gh, run, tip, tip_landed, errors)
+
+
 def carries_tip(run: dict, tip: str, tip_landed: dt.datetime | None) -> bool:
     """Whether an active run can already be building `tip`.
 
@@ -496,7 +719,8 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
                         active_workflows: list[tuple[str, str | None]] | None = None,
                         minutes: float = 25.0, tip_input: str | None = None,
                         feed_unknown: bool = False, by_tip_age: bool = False,
-                        carries=None, api_errors: list[Exception] | None = None) -> str:
+                        carries=None, api_errors: list[Exception] | None = None,
+                        started_check=None) -> str:
     """Start one build of the branch tip after `minutes` without a publication.
 
     Nothing is ever cancelled: a newer tip builds alongside a running build,
@@ -577,7 +801,7 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
               for run in gh.recent_runs(name, run_branch, now)
               if is_active_delivery_run(name, run_branch, run)
               and (carries or carries_tip)(run, tip, tip_landed)
-              and started(gh, run, now, api_errors)]
+              and (started_check or started)(gh, run, now, api_errors)]
     if active:
         return f"running {active[0].get('html_url', active[0].get('id', '?'))}"
     gh.dispatch(workflow, ref, {**(inputs or {}), tip_input: tip} if tip_input else inputs)
@@ -724,8 +948,11 @@ def heal(label: str, guard, errors: list[Exception] | None = None) -> None:
             errors.append(error)
 
 
-def sync_issue(gh: GitHub, stage: Stage, body: str, max_lag_hours: float, run_url: str) -> str:
-    """One open issue while stale (oldest kept, duplicates closed); closed when not."""
+def sync_issue(gh: GitHub, stage: Stage, body: str, max_lag_hours: float, run_url: str, alarm=None) -> str:
+    """One open issue while stale (oldest kept, duplicates closed); closed when not.
+
+    alarm(previous_body) -> (block, text) is feed_alarm for this run: the block goes in the body, and a due
+    alarm's text is also commented on an issue that already exists."""
     open_issues = sorted(gh.call("GET", f"/issues?labels={LABEL}&state=open&per_page=100"), key=lambda issue: issue["number"])
     if not stage.stale:
         for issue in open_issues:
@@ -733,17 +960,23 @@ def sync_issue(gh: GitHub, stage: Stage, body: str, max_lag_hours: float, run_ur
             gh.call("PATCH", f"/issues/{issue['number']}", {"state": "closed"})
         return f"current ({stage.waited_hours:.1f}h waited); closed {len(open_issues)} issue(s)"
     title = f"nightly-next feed: feat-cmux-next pushes waiting more than {max_lag_hours:g}h"
+    block, alarm_text = alarm((open_issues[0].get("body") or "") if open_issues else "") if alarm else ("", "")
+    if block:
+        body = f"{body}\n\n{block}"
+    alarmed = "; alarmed the coordinator" if alarm_text else ""
     if not open_issues:
         gh.call("POST", "/issues", {"title": title, "body": body, "labels": [LABEL]})
-        return "stale; opened an issue"
+        return "stale; opened an issue" + alarmed
     keep, *duplicates = open_issues
     gh.call("PATCH", f"/issues/{keep['number']}", {"title": title, "body": body})
     if stage.reason not in (keep.get("body") or ""):
         gh.call("POST", f"/issues/{keep['number']}/comments", {"body": stage.reason})
+    if alarm_text:
+        gh.call("POST", f"/issues/{keep['number']}/comments", {"body": ALARM_HEAD + alarm_text})
     for issue in duplicates:
         gh.call("POST", f"/issues/{issue['number']}/comments", {"body": f"Duplicate of #{keep['number']}."})
         gh.call("PATCH", f"/issues/{issue['number']}", {"state": "closed"})
-    return f"stale; updated #{keep['number']}"
+    return f"stale; updated #{keep['number']}" + alarmed
 
 
 def record_unavailable(error: Exception, count: int = 1) -> None:
@@ -808,7 +1041,8 @@ def main(argv: list[str]) -> int:
         branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main", tip_input="sha",
         feed_unknown=bool(missing),
         active_workflows=next_delivery_workflows(args.train),
-        carries=lambda run, tip, landed: next_carries_tip(gh, run, tip, landed, api_errors),
+        carries=lambda run, tip, landed: next_holds_dispatch(gh, run, tip, landed, api_errors),
+        started_check=next_started,
         api_errors=api_errors), api_errors)
     # cmux NIGHTLY's feed on its own: its staleness comes from the two feeds, so neither a failed
     # re-run nor an API error elsewhere can turn a stale feed green.
@@ -844,7 +1078,7 @@ def main(argv: list[str]) -> int:
         stage = assess(
             now, newest,
             pushes=[oldest] if oldest else [],
-            nightly=gh.runs("nightly.yml", "nightly-next", newest),
+            nightly=(nightly := gh.runs("nightly.yml", "nightly-next", newest)),
             jobs_of=gh.jobs,
             artifacts=gh.runs("cmux-tui-artifacts.yml", "feat-cmux-next", per_page=1),
             compiles=gh.runs("cmux-next.yml", "feat-cmux-next", per_page=5),
@@ -864,7 +1098,9 @@ def main(argv: list[str]) -> int:
             if gates:
                 stage = dataclasses.replace(stage, detail=" ".join(filter(None, [f"Waiting for a runner: {gates}.", stage.detail])))
         print(f"feed newest {newest.isoformat()}, waited {stage.waited_hours:.1f}h: {stage.reason}")
-        print(sync_issue(gh, stage, issue_body(stage, newest, now, published_sha, args.max_lag_hours, args.run_url), args.max_lag_hours, args.run_url))
+        alarm_stage = stage
+        print(sync_issue(gh, stage, issue_body(stage, newest, now, published_sha, args.max_lag_hours, args.run_url), args.max_lag_hours, args.run_url,
+                         lambda previous: feed_alarm(gh, now, newest, alarm_stage, nightly, previous)))
     except TRANSPORT as error:  # the next check runs in 10 minutes
         api_errors.append(error)
         record_unavailable(error, len(api_errors))

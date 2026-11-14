@@ -332,12 +332,12 @@ class QueuedGateTests(unittest.TestCase):
 
 
 class FeedTests(unittest.TestCase):
-    def test_watches_the_cmux_next_feed(self):
-        # nightly-next ships as cmux NEXT with its own feed (cx-x7hwx); the old
-        # feed is cmux NIGHTLY's (com.cmuxterm.app.nightly reads it), written
-        # only by publish-nightly-identity-legacy, and watched too.
-        self.assertEqual(watch.FEED_URL, "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml")
+    def test_watches_the_cmux_nightly_feed(self):
+        # nightly-next ships once, as cmux NIGHTLY (com.cmuxterm.app.nightly), on
+        # the bare feed it polls (hq#7156). `/next/` is read only to find builds the
+        # legacy jobs have not copied yet (legacy_lag), until nightly-next signs once.
         self.assertEqual(watch.LEGACY_FEED_URL, "https://files-next.cmux.com/nightly-next/appcast-arm64.xml")
+        self.assertEqual(watch.FEED_URL, "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml")
 
 
 def feed(*items):
@@ -390,6 +390,10 @@ class LegacyFeedTests(unittest.TestCase):
         build, message = self.lag()
         self.assertEqual(build, 4023540480101)
         self.assertIn("4020374816001", message)
+
+    def test_a_frozen_next_feed_behind_the_bare_one_reruns_nothing(self):
+        # Once nightly-next signs once, `/next/` freezes and the bare feed moves ahead of it.
+        self.assertIsNone(self.lag(next_xml=self.OLD, old_xml=self.NEXT)[0])
 
     def test_current_or_fresh_is_not_behind(self):
         self.assertIsNone(self.lag(old_xml=feed((4023540480101, 30, "cmux-next")))[0])
@@ -492,12 +496,9 @@ class LegacyFeedTests(unittest.TestCase):
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/nightly-next-feed-watch.yml").read_text()
         self.assertIn("actions: write", workflow)
 
-    def test_watches_both_next_appcast_paths(self):
-        """The shipped app polls the bare path; `/next/` is the channel path."""
-        self.assertEqual(set(watch.NEXT_FEED_URLS), {
-            "https://files-next.cmux.com/nightly-next/appcast-arm64.xml",
-            "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml",
-        })
+    def test_watches_only_the_bare_appcast(self):
+        """The shipped app polls the bare path; the retired `/next/` appcast gets no builds."""
+        self.assertEqual(watch.NEXT_FEED_URLS, ("https://files-next.cmux.com/nightly-next/appcast-arm64.xml",))
 
     def test_freshness_is_the_older_of_the_two_feeds(self):
         """On 2026-10-26 the bare feed was two hours ahead of `/next/`; a build
@@ -900,6 +901,39 @@ class UnstartedRunTests(unittest.TestCase):
                 if head == other:
                     self.assertEqual(gh.compared, [f"/compare/{self.TIP}...{other}"])
 
+    def test_a_started_nightly_next_push_build_of_an_older_commit_holds_the_dispatch(self):
+        """ask-4f5b99b22b: nightly-next pushes share one concurrency group, so a dispatch beside an older
+        commit's running push build only got the run waiting on that group cancelled. The loop's retry
+        takes the push group too, and a published holder keeps it through its tail. Another dispatch,
+        a resume and a stuck push run do not hold it."""
+        running = [live_job("mac_build_done", status="in_progress", conclusion=None, completed_at=None)]
+        stuck = [live_job("queued_deltas", created_at=at(0.5), started_at=at(0.5))]
+        tail = [live_job("publish_done"),
+                live_job("mac_build_done", name="dispatch-nightly-next-sign", status="in_progress",
+                         conclusion=None, completed_at=None)]
+        older = "d" * 40
+        for changes, jobs, blocks in (({}, running, True),
+                                      ({"event": "workflow_dispatch"}, running, False),
+                                      ({"event": "workflow_dispatch", "display_title": "Retry nightly-next (1 of 2)"},
+                                       running, True),
+                                      ({}, tail, True),
+                                      ({"display_title": "Resume nightly-next run 1 attempt 1"}, running, False),
+                                      ({"run_minutes_ago": 30}, stuck, False)):
+            with self.subTest(changes=dict(changes), jobs=[j.get("name") for j in jobs]):
+                minutes = changes.pop("run_minutes_ago", 2)
+                run = dict(self.live(run_minutes_ago=minutes, status="in_progress"), head_sha=older, **changes)
+                gh = self.Flows(self, {("nightly.yml", "nightly-next"): [run]}, jobs, compare={older: "behind"})
+                answer = watch.starvation_dispatch(
+                    gh, NOW, feed=NOW - dt.timedelta(minutes=45), published_sha="", branch="feat-cmux-next",
+                    workflow="nightly-next-tick.yml", ref="main", minutes=watch.NEXT_STARVATION_MINUTES,
+                    active_workflows=watch.next_delivery_workflows(""),
+                    carries=lambda run, tip, landed: watch.next_holds_dispatch(gh, run, tip, landed),
+                    started_check=watch.next_started)
+                self.assertEqual(answer.startswith("running "), blocks, answer)
+        source = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("carries=lambda run, tip, landed: next_holds_dispatch(", source)
+        self.assertIn("started_check=next_started", source)
+
     def test_cmux_next_is_dispatched_after_twenty_minutes(self):
         """The rolling rule: 20 minutes, checked every 10, so the tip is asked for within 30."""
         self.assertEqual(watch.NEXT_STARVATION_MINUTES, 20.0)
@@ -1213,6 +1247,193 @@ class TrainModeTests(unittest.TestCase):
         self.assertNotIn("plan", step.split("run:", 1)[1])
         # Train off: the plain promotion still goes ahead.
         self.assertIn("if: vars.NIGHTLY_NEXT_TRAIN != 'on'", tick)
+
+
+# 2026-11-13: the feed's newest build was 04:32Z; feat-cmux-next kept landing; from 08:20Z every nightly-next run
+# failed at the notary with HTTP 403, and a retry or a newer push was always running. The watch said "still
+# building" for 15 hours and nothing reached a coordinator.
+FEED_1113 = dt.datetime(2026, 11, 13, 4, 32, 10, tzinfo=dt.timezone.utc)
+NOTARY_LOG = [
+    "2026-11-13T22:36:58.7024380Z ##[group]Run python3 scripts/ci/asc_developer_id_app.py check \\",
+    "2026-11-13T22:36:59.0884510Z App Store Connect: HTTP 403 (FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED): this key cannot read Certificates, Identifiers & Profiles",
+    "2026-11-13T22:36:59.9393810Z ##[group]Run ./scripts/ci/notarize-computer-use-helper.sh --start \\",
+    "2026-11-13T22:37:00.9233290Z Error: HTTP status code: 403. A required agreement is missing or has expired.",
+    "2026-11-13T22:37:00.9287050Z ##[error]Process completed with exit code 1.",
+    "2026-11-13T22:37:01.0416420Z ##[error]Process completed with exit code 1.",
+]
+NOTARY_JOBS = [
+    {"id": 1, "name": "decide", "conclusion": "success", "steps": []},
+    {"id": 132202278013, "name": "nightly-next-one", "conclusion": "failure", "steps": [
+        {"number": 61, "name": "Finish the signed-app checks", "conclusion": "failure"},
+        {"number": 58, "name": "Start the Computer Use helper notarization", "conclusion": "failure"},
+        {"number": 12, "name": "Build the app", "conclusion": "success"}]},
+]
+
+
+def run_at(run_id: int, when: dt.datetime, status="completed", conclusion="failure"):
+    return {"id": run_id, "created_at": watch.stamp(when), "status": status, "conclusion": conclusion,
+            "head_sha": f"{run_id:040x}", "html_url": f"https://github.com/o/r/actions/runs/{run_id}"}
+
+
+class AlarmGitHub:
+    """Issues, a failed run's jobs and its job log; records writes with their bodies."""
+
+    def __init__(self, issues):
+        self.issues = issues
+        self.writes = []
+        self.logs_read = 0
+
+    def call(self, method, path, body=None):
+        if method == "GET":
+            return self.issues
+        self.writes.append((method, path, body or {}))
+        return {}
+
+    def jobs(self, run):
+        return NOTARY_JOBS if run["conclusion"] == "failure" else []
+
+    def job_log(self, job_id):
+        self.logs_read += 1
+        assert job_id == 132202278013
+        return iter(NOTARY_LOG)
+
+
+class FeedAlarm1113Tests(unittest.TestCase):
+    """An alarm to the coordinator inside 2h of no new feed build while feat-cmux-next moved, once per stale
+    episode and at most hourly, naming the newest nightly's first failing step and its HTTP status line."""
+
+    def nightly(self, now):
+        # Newest first: a retry still running, then a run of notary failures since 08:20Z.
+        return ([run_at(43520983856, now - dt.timedelta(minutes=20), status="in_progress", conclusion=None)]
+                + [run_at(43517030530 - n, now - dt.timedelta(minutes=40 + 30 * n)) for n in range(3)])
+
+    def tick(self, now, issues, feed=FEED_1113):
+        nightly = self.nightly(now)
+        pushes = [run_at(1, dt.datetime(2026, 11, 13, 5, 10, tzinfo=dt.timezone.utc), conclusion="success")]
+        stage = watch.assess(now, feed, pushes, nightly, lambda r: NOTARY_JOBS if r["conclusion"] == "failure" else [],
+                             [], [], 0.5)
+        gh = AlarmGitHub(issues)
+        result = watch.sync_issue(gh, stage, watch.issue_body(stage, feed, now, "e" * 40, 0.5, "url"), 0.5, "url",
+                                  lambda previous: watch.feed_alarm(gh, now, feed, stage, nightly, previous))
+        return gh, stage, result
+
+    def alarms(self, gh):
+        return [body["body"] for method, path, body in gh.writes
+                if method == "POST" and path.endswith("/comments") and body.get("body", "").startswith(watch.ALARM_HEAD)]
+
+    def body(self, gh):
+        return next(body["body"] for method, path, body in gh.writes if method == "PATCH" or path == "/issues")
+
+    def test_running_retry_is_not_progress_the_stage_names_the_notary_failure(self):
+        now = dt.datetime(2026, 11, 13, 9, 0, tzinfo=dt.timezone.utc)
+        pushes = [run_at(1, dt.datetime(2026, 11, 13, 5, 10, tzinfo=dt.timezone.utc), conclusion="success")]
+        stage = watch.assess(now, FEED_1113, pushes, self.nightly(now),
+                             lambda r: NOTARY_JOBS if r["conclusion"] == "failure" else [], [], [], 0.5)
+        self.assertIn("still building", stage.reason)
+        self.assertIn("3 of the 3 nightly-next runs finished since the feed's newest item failed", stage.reason)
+        self.assertIn("Start the Computer Use helper notarization", stage.reason)
+
+    def test_alarms_once_names_the_failing_step_and_the_http_status_then_repeats_hourly(self):
+        # 06:40Z: the feed is 2.1h old and pushes have waited 1.5h, so the coordinator hears now, not 15h later.
+        now = dt.datetime(2026, 11, 13, 6, 40, tzinfo=dt.timezone.utc)
+        gh, _, result = self.tick(now, [{"number": 41059, "body": "the old body: still building."}])
+        alarms = self.alarms(gh)
+        self.assertEqual(len(alarms), 1, gh.writes)
+        self.assertIn("alarmed the coordinator", result)
+        alarm = alarms[0]
+        self.assertIn("no new build for 2.1h (newest 2026-11-13T04:32:10Z)", alarm)
+        self.assertIn('first failed at "nightly-next-one / Start the Computer Use helper notarization"', alarm)
+        self.assertIn("Error: HTTP status code: 403. A required agreement is missing or has expired.", alarm)
+        self.assertNotIn("FORBIDDEN.REQUIRED_AGREEMENTS", alarm, "a passing step's HTTP line is not the failure")
+        self.assertIn("runs/43517030530", alarm)
+        body = self.body(gh)
+        marker = watch.ALARM_MARKER.search(body)
+        self.assertEqual(marker.groups(), ("2026-11-13T04:32:10Z", "2026-11-13T06:40:00Z"))
+        self.assertIn("\n" + watch.ALARM_HEAD, body)
+
+        # Every 10 minutes for the next hour: no alarm, no log read, and the marker and line stay in the body.
+        for minutes in (10, 30, 50):
+            later = now + dt.timedelta(minutes=minutes)
+            gh2, _, _ = self.tick(later, [{"number": 41059, "body": body}])
+            self.assertEqual(self.alarms(gh2), [], minutes)
+            self.assertEqual(gh2.logs_read, 0)
+            kept = self.body(gh2)
+            self.assertEqual(watch.ALARM_MARKER.search(kept).group(0), marker.group(0))
+            self.assertIn(watch.ALARM_HEAD + alarm[len(watch.ALARM_HEAD):], kept)
+            body = kept
+
+        # An hour on, still stale: one more alarm, with a new marker.
+        gh3, _, _ = self.tick(now + dt.timedelta(minutes=60), [{"number": 41059, "body": body}])
+        self.assertEqual(len(self.alarms(gh3)), 1)
+        self.assertEqual(watch.ALARM_MARKER.search(self.body(gh3)).group(2), "2026-11-13T07:40:00Z")
+
+    def test_a_new_stale_episode_alarms_at_once(self):
+        now = dt.datetime(2026, 11, 13, 9, 0, tzinfo=dt.timezone.utc)
+        gh, _, _ = self.tick(now, [{"number": 41059, "body": ""}])
+        body = self.body(gh)
+        # The feed published at 06:00Z, yet pushes still wait and that build is 3h old too: a new episode.
+        gh2, _, _ = self.tick(now + dt.timedelta(minutes=10), [{"number": 41059, "body": body}],
+                              feed=dt.datetime(2026, 11, 13, 6, 0, tzinfo=dt.timezone.utc))
+        self.assertEqual(len(self.alarms(gh2)), 1)
+        self.assertEqual(watch.ALARM_MARKER.search(self.body(gh2)).group(1), "2026-11-13T06:00:00Z")
+
+    def test_no_alarm_before_two_hours_or_without_waiting_pushes(self):
+        # 06:20Z: the feed is 1.8h old; the issue (30-minute limit) is open but the coordinator is not paged yet.
+        gh, stage, _ = self.tick(dt.datetime(2026, 11, 13, 6, 20, tzinfo=dt.timezone.utc), [])
+        self.assertTrue(stage.stale)
+        self.assertNotIn("nightly-next-feed-alarm", self.body(gh))
+        self.assertEqual(gh.logs_read, 0)
+        quiet = watch.Stage(False, 0.0, None, "No feat-cmux-next push since the feed's newest item.")
+        self.assertFalse(watch.alarm_due(dt.datetime(2026, 11, 13, 20, 0, tzinfo=dt.timezone.utc), FEED_1113, quiet, ""))
+
+    def test_a_new_issue_carries_the_alarm_in_its_body(self):
+        gh, _, result = self.tick(dt.datetime(2026, 11, 13, 9, 0, tzinfo=dt.timezone.utc), [])
+        self.assertEqual([path for _, path, _ in gh.writes], ["/issues"])
+        self.assertIn("nightly-next-feed-alarm: episode=2026-11-13T04:32:10Z", self.body(gh))
+        self.assertIn("alarmed the coordinator", result)
+
+    def test_status_line_is_the_last_http_line_before_the_first_error(self):
+        self.assertEqual(watch.status_line(NOTARY_LOG),
+                         "Error: HTTP status code: 403. A required agreement is missing or has expired.")
+        self.assertEqual(watch.status_line([b"2026-11-13T22:37:00Z HTTP 500 from x\n", b"##[error]boom\n"]), "HTTP 500 from x")
+        self.assertEqual(watch.status_line(["no status here", "##[error]x"]), "")
+        self.assertEqual(watch.status_line(["##[error]build failed", "HTTP 200 cleanup"]), "")
+
+    def test_an_unreadable_failed_run_never_holds_the_stage_back(self):
+        now = dt.datetime(2026, 11, 13, 9, 0, tzinfo=dt.timezone.utc)
+        pushes = [run_at(1, dt.datetime(2026, 11, 13, 5, 10, tzinfo=dt.timezone.utc), conclusion="success")]
+
+        def jobs_of(run):
+            raise urllib.error.HTTPError("u", 502, "Bad Gateway", {}, None)
+        stage = watch.assess(now, FEED_1113, pushes, self.nightly(now), jobs_of, [], [], 0.5)
+        self.assertTrue(stage.stale)
+        self.assertIn("its jobs were unreadable", stage.reason)
+
+    def test_job_log_follows_the_redirect_without_the_token(self):
+        seen = []
+
+        class Response(list):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        class Opener:
+            def open(self, request, timeout):
+                seen.append(dict(request.header_items()))
+                raise urllib.error.HTTPError(request.full_url, 302, "Found", {"Location": "https://blob.example/log?sig=x"}, None)
+
+        def urlopen(request, timeout):
+            seen.append(dict(request.header_items()))
+            return Response([b"line\n"])
+
+        with unittest.mock.patch.object(watch.urllib.request, "build_opener", lambda *a: Opener()), \
+                unittest.mock.patch.object(watch.urllib.request, "urlopen", urlopen):
+            lines = list(watch.GitHub("o/r", "tok", False).job_log(5))
+        self.assertEqual(lines, [b"line\n"])
+        self.assertIn("Authorization", seen[0])
+        self.assertNotIn("Authorization", seen[1])
 
 
 if __name__ == "__main__":

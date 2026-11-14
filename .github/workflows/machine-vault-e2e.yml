@@ -15,6 +15,12 @@ on:
         required: false
         default: feat-cmux-next
         type: string
+      model:
+        description: stub (the shared model stub, no login) or real (the team's Claude subscription; the weekly canary, real-login-canaries.yml)
+        required: false
+        default: stub
+        type: choice
+        options: [stub, real]
 
 permissions: {}
 
