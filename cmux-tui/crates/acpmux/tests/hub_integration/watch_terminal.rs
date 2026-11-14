@@ -313,3 +313,54 @@ async fn terminal_and_chat_latencies() {
     drop(terminal);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A client over the WebSocket listener: the paired phone's (and any remote device's) origin.
+async fn connect_remote(hub: &Arc<Hub>) -> TestClient {
+    use acpmux::server::{Origin, serve_connection_with};
+    let (in_tx, in_rx) = tokio::sync::mpsc::channel(64);
+    let (out_tx, out_rx) = tokio::sync::mpsc::channel(4096);
+    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Web));
+    let mut client = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    client
+        .request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "phone"}}))
+        .await
+        .unwrap();
+    client
+}
+
+/// The phone's chat face of a terminal-run session is the Mac's chat of it: it follows the
+/// terminal live, but a paired device never sends into the terminal. The terminal's agent asks
+/// for permission in that terminal, under the person's own settings, outside the remote floor
+/// (REMOTE-FLOOR D13 for a Claude Code session the Mac started; `remote.terminal_session` for
+/// any terminal-driven chat). Nor can a phone bind a process (`watch.origin_refused`). The Mac
+/// and the terminal stay writable.
+#[tokio::test]
+async fn a_phone_reads_a_chat_its_terminal_drives_but_never_sends_into_that_terminal() {
+    let (hub, sid, _file, mut terminal, root, first) = handed_to_terminal(300).await;
+    let mut phone = connect_remote(&hub).await;
+    let refused = phone.request(method::SESSION_PROMPT, prompt(&sid, "from the phone", None)).await;
+    let why = refused.expect_err("a paired device does not send into a terminal's agent");
+    assert!(why.contains("on this Mac"), "acpmux's own words, never View Only: {why}");
+    // The phone cannot hand a chat to a process or rebind this one.
+    let bound = phone
+        .request(
+            "_acpmux/release_to_watch",
+            json!({"sessionId": sid, "terminalPid": std::process::id()}),
+        )
+        .await;
+    assert!(bound.as_ref().is_err_and(|e| e.contains("only on this machine")), "{bound:?}");
+    // It still reads the terminal live: a typed prompt shows to every client.
+    terminal.type_line("typed on the Mac");
+    assert_eq!(until_prompts(&hub, &sid, 2).await, [first.as_str(), "typed on the Mac"]);
+    terminal.until("END", 1).await;
+    assert_eq!(terminal.texts("RECV"), ["typed on the Mac"], "nothing from the phone arrived");
+    // The Mac's own send still goes in.
+    let mac = send(&hub, &sid, "from the Mac", "mac-1");
+    let mac = tokio::time::timeout(Duration::from_secs(20), mac).await.unwrap().unwrap().unwrap();
+    assert_eq!(mac["_meta"]["acpmux"]["answered"], true, "{mac}");
+    assert_eq!(terminal.texts("RECV"), ["typed on the Mac", "from the Mac"]);
+    let summary = hub.session_summary(&hub.resolve(&sid).unwrap());
+    assert_eq!(summary["tags"]["via"], "terminal", "{summary}");
+    drop(terminal);
+    let _ = std::fs::remove_dir_all(&root);
+}
