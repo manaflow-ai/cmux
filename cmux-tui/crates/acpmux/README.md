@@ -177,6 +177,10 @@ per-harness table in `src/server/remote_guard.rs` plus what `webAskingModes` add
 a WebSocket. **Warning: a mode that you add to `webAskingModes` lets paired devices start that
 mode without a per-action prompt.** See `plans/cmux-next/acp-remote-guard.md`.
 
+A `webRoots` entry that is the home folder, holds it, or names no folder is left out (`~/.ssh`
+stays closed): list a folder below the home folder instead. A start refused for its folder says
+which entry was left out and why.
+
 A connection proven a peer (the peer token above) reads this daemon's session summaries with
 their text masked (`src/server/peer_text.rs`): a token pasted into a prompt shows as
 `[GitHub Personal Access Token]` in the title, the prompts (running and queued), the preview, the

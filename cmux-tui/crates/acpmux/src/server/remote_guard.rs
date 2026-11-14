@@ -92,9 +92,7 @@ mod peer_folder;
 pub(super) use hint::POLICY_REFUSED;
 pub(super) use hint::check;
 use hint::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED};
-use peer_folder::{
-    configured_web_roots, cwd_refused, guarded_roots, make_inside_root, outside_told,
-};
+use peer_folder::{cwd_refused, guarded_roots, make_inside_root, outside_told};
 
 /// Whether a session method acpmux does not handle itself goes on to the
 /// harness from `origin`: anything from the unix socket, and from the app only
@@ -455,7 +453,6 @@ async fn check_inner(
         // folder is outside them, and a missing folder inside one is made for it.
         let peer_new = m == method::SESSION_NEW
             && control_of(origin, auth, params) == crate::hub::Control::Peer;
-        let told = if peer_new { Some(configured_web_roots(hub).await) } else { None };
         if let Some(cwd) = params.get("cwd").filter(|v| !v.is_null()) {
             let cwd = cwd.as_str().ok_or_else(|| folder_refused("cwd"))?;
             let canonical = match canonical_dir(cwd).await {
@@ -465,14 +462,14 @@ async fn check_inner(
                     match make_inside_root(cwd, roots, deferred.is_none()).await {
                         Ok(made) => made,
                         Err(Some(e)) => return Err(e),
-                        Err(None) => return Err(outside_told(cwd, &told).await),
+                        Err(None) => return Err(outside_told(hub, cwd, peer_new).await),
                     }
                 }
                 None => return Err(cwd_refused(cwd).await),
             };
             if let Some(canonical) = canonical {
                 if !inside(&canonical) {
-                    return Err(outside_told(cwd, &told).await);
+                    return Err(outside_told(hub, cwd, peer_new).await);
                 }
                 params.set("cwd", Value::String(canonical));
             }
