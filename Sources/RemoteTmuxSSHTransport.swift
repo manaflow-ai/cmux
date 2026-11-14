@@ -1,4 +1,14 @@
+import CmuxRemoteWorkspace
 import Foundation
+
+/// The narrow ControlMaster surface used by the ssh-tmux browser proxy.
+/// Keeping the proxy independent from tmux commands makes its lifecycle
+/// testable without a live remote server and prevents preview setup from
+/// acquiring session ownership.
+protocol RemoteTmuxBrowserProxyTransport: AnyObject {
+    func ensureMasterReady() async throws -> Bool
+    func makeBrowserProxyStreamOpener() async throws -> any RemoteProxyStreamOpening
+}
 
 /// Runs commands against a remote host's tmux server over a shared SSH
 /// ControlMaster connection.
@@ -13,7 +23,7 @@ import Foundation
 ///
 /// Modeled as an `actor` because it owns the per-host connection lifecycle and
 /// serializes process launches; reads/writes are `async`.
-actor RemoteTmuxSSHTransport {
+actor RemoteTmuxSSHTransport: RemoteTmuxBrowserProxyTransport {
     private static let maxCapturedOutputBytes = 1_048_576
 
     /// The host this transport talks to.
@@ -151,6 +161,18 @@ actor RemoteTmuxSSHTransport {
     @discardableResult
     func runTmux(_ args: [String]) async throws -> RemoteTmuxCommandResult {
         try await run(["tmux"] + args)
+    }
+
+    /// Creates pipe-backed browser stream openers that reuse this transport's
+    /// authenticated ControlMaster. Unlike `ssh -D`, this does not bind a
+    /// second loopback TCP listener reachable by other local accounts.
+    func makeBrowserProxyStreamOpener() throws -> any RemoteProxyStreamOpening {
+        try host.ensureControlSocketDirectory()
+        return RemoteTmuxSSHStreamClient(
+            host: host,
+            sshExecutablePath: sshExecutablePath,
+            controlPersistSeconds: controlPersistSeconds
+        )
     }
 
     /// Runs an arbitrary remote command over the shared SSH master.
