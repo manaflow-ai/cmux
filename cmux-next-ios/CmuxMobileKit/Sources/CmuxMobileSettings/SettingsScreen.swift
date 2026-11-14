@@ -159,9 +159,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         SettingsLabel("Notifications", symbol: "bell",
                                       value: notificationPermission?.rootValue(push: BuildCapabilities.current.push))
                     }
-                    Toggle(isOn: $settings.requireFaceID) {
-                        SettingsLabel("Require Face ID", symbol: "faceid")
-                    }
+                    RequireFaceIDToggle(settings: settings)
                 } header: {
                     Text("Privacy & notifications")
                 } footer: {
