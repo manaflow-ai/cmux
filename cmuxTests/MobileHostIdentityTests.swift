@@ -45,6 +45,7 @@ struct MobileHostIdentityTests {
             "dev.cmux.app.beta",
             "dev.cmux.app.internal",
             "dev.cmux.app.demo",
+            "dev.cmux.app.classic",
         ])
         #expect(store.selectedNamespace?.bundleIdentifier == "com.cmux.app")
         #expect(
@@ -77,6 +78,7 @@ struct MobileHostIdentityTests {
             "dev.cmux.app.beta",
             "dev.cmux.app.internal",
             "dev.cmux.app.demo",
+            "dev.cmux.app.classic",
         ])
         #expect(store.selectedNamespace?.bundleIdentifier == "com.cmux.app")
         #expect(

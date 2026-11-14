@@ -107,6 +107,13 @@ struct MobileFeedbackRouteTests {
                 bundleIdentifier: "dev.cmux.app.demo"
             ) == .demo
         )
+        // cmux CLASSIC is the classic app's internal TestFlight home.
+        #expect(
+            MobileBuildType.resolve(
+                isDebugBuild: false,
+                bundleIdentifier: "dev.cmux.app.classic"
+            ) == .internal
+        )
     }
 
     @Test func releaseNonBetaBundleIsProd() {

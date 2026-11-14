@@ -139,7 +139,49 @@ Required GitHub secrets:
 - `IOS_DISTRIBUTION_CERTIFICATE_PASSWORD`
 - `IOS_BETA_PROVISIONING_PROFILE_BASE64` (base64-encoded App Store profile for `dev.cmux.app.beta`, with `aps-environment=production`)
 
-## App Store production lane
+## cmux CLASSIC TestFlight lane
+
+The App Store record `com.cmux.app` (App Store Connect app 6783338052) now
+ships cmux-next from `feat-cmux-next`. This classic app no longer goes to the
+App Store. Its internal TestFlight-only home is the App Store Connect app
+**cmux CLASSIC**, bundle ID `dev.cmux.app.classic`.
+
+```bash
+# Build, export, re-sign, verify, and upload to cmux CLASSIC
+ASC_APP_ID=<cmux CLASSIC app id> ios/scripts/upload-testflight.sh --lane classic
+
+# Dry run: export + re-sign + verify, no upload
+ios/scripts/upload-testflight.sh --lane classic --export-only
+```
+
+Defaults:
+
+- Bundle ID: `dev.cmux.app.classic`; notification extension `dev.cmux.app.classic.NotificationService`
+- Keychain access group: `7WLXT3NR37.dev.cmux.app.classic`
+- Marketing version: `CMUX_IOS_CLASSIC_MARKETING_VERSION` in `ios/Config/Shared.xcconfig` (1.0.x)
+- Display name: `cmux CLASSIC`
+- Build: the VPN-free App Store binary (`Config/cmux-appstore-release.entitlements`), internal TestFlight only
+- The lane refuses `com.cmux.app` and App Store Connect app 6783338052.
+
+`.github/workflows/ios-appstore-upload.yml` polls `main` hourly and uploads
+batched revisions to cmux CLASSIC, then assigns each build to its internal
+group. It stays a no-op until these repository variables are set:
+
+- `IOS_CLASSIC_ASC_APP_ID`: the numeric App Store Connect app id of cmux CLASSIC
+- `IOS_CLASSIC_INTERNAL_GROUP_ID`: the id of its internal TestFlight group
+
+The provisioning profiles for the app and its notification extension are found
+or created through the App Store Connect API with the CI distribution
+certificate. The optional secrets `IOS_CLASSIC_PROVISIONING_PROFILE_BASE64` and
+`IOS_CLASSIC_EXTENSION_PROVISIONING_PROFILE_BASE64` pin specific profiles instead.
+
+## App Store production lane (retired for the classic app)
+
+`ios/scripts/upload-app-store.sh` and `.github/workflows/ios-app-store.yml`
+refuse to upload or submit this classic app: `com.cmux.app` ships cmux-next,
+and the cmux-next App Store lane on `feat-cmux-next` replaces this one.
+`upload-app-store.sh --export-only` still works for a local dry run. The rest
+of this section describes the retired lane.
 
 The production App Store lane is separate from the TestFlight beta lane. It uses
 the same archive/export/re-sign verification path, but switches the submitted
@@ -170,9 +212,10 @@ The review package lives in `ios/AppStoreReview/`:
 - `review-notes.md` is the pasteable App Store Connect Review Information notes source.
 - `metadata-screenshots-checklist.md` is the blocking checklist for metadata, screenshots, privacy, account deletion, and payment gating.
 
-`.github/workflows/ios-app-store.yml` is manual-only. It uploads a production
-build, waits for ASC processing, runs `ios/scripts/validate-app-store-release.sh`,
-and submits for review only when `submit_for_review` is set.
+`.github/workflows/ios-app-store.yml` is manual-only, and every dispatch now
+fails in its `refuse-classic` job. It used to upload a production build, wait
+for ASC processing, run `ios/scripts/validate-app-store-release.sh`, and submit
+for review only when `submit_for_review` was set.
 
 Additional production workflow requirements:
 

@@ -1,12 +1,17 @@
-name: iOS TestFlight (cmux.app)
+name: iOS TestFlight (cmux CLASSIC)
 
 on:
-  # Upload the classic app's official bundle for internal testing, by hand
-  # only. The hourly poll is off: classic iOS is deprecated and the App Store
-  # record com.cmux.app now ships the NEXT app (cmux-next-ios, from
-  # ios-app-store.yml), so a scheduled classic upload would land a classic
-  # build on the record NEXT ships to. The scheduled-poll batching below stays
-  # in place and only runs if a schedule comes back.
+  # Upload the classic app (ios/) to its internal TestFlight-only App Store
+  # Connect record, cmux CLASSIC (dev.cmux.app.classic). The App Store record
+  # com.cmux.app (6783338052) ships cmux-next from feat-cmux-next; this
+  # workflow must never upload there again (the configuration check refuses
+  # it). Hourly polls batch main: they upload once IOS_APPSTORE_MIN_COMMITS
+  # (default 10) commits are pending or the oldest is
+  # IOS_APPSTORE_MAX_AGE_MINUTES (default 360) old. Until the repository
+  # variables IOS_CLASSIC_ASC_APP_ID and IOS_CLASSIC_INTERNAL_GROUP_ID are set,
+  # a scheduled poll skips with a summary line naming them.
+  schedule:
+    - cron: "17 * * * *"
   workflow_dispatch:
     inputs:
       build_number:
@@ -15,10 +20,12 @@ on:
         default: ""
 
 concurrency:
-  # Serialize with the production App Review workflow. GitHub keeps one run
+  # One cmux CLASSIC upload at a time. It no longer shares
+  # ios-app-store-production: that lane refuses the classic app, and cmux
+  # CLASSIC is a separate App Store Connect record. GitHub keeps one run
   # active and one pending run for a concurrency group; a newer scheduled run
   # replaces an older pending run, so the decide job must make retries safe.
-  group: ios-app-store-production
+  group: ios-testflight-classic
   cancel-in-progress: false
 
 permissions:
@@ -42,13 +49,48 @@ jobs:
       retry_build_number: ${{ steps.decide.outputs.retry_build_number }}
       last_upload_sha: ${{ steps.decide.outputs.last_upload_sha }}
     steps:
+      # cmux CLASSIC needs an App Store Connect record and an internal group
+      # that an operator creates after Apple's Program License Agreement is
+      # signed. Until both variables exist a scheduled poll is a clean no-op
+      # (not a red run every hour); a manual dispatch fails and says what to set.
+      - name: Check the cmux CLASSIC configuration
+        id: config
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CLASSIC_APP_ID: ${{ vars.IOS_CLASSIC_ASC_APP_ID }}
+          CLASSIC_GROUP_ID: ${{ vars.IOS_CLASSIC_INTERNAL_GROUP_ID }}
+        run: |
+          set -euo pipefail
+          if [ "$CLASSIC_APP_ID" = "6783338052" ]; then
+            echo "::error::IOS_CLASSIC_ASC_APP_ID is 6783338052, the com.cmux.app record that ships cmux-next. Set it to the cmux CLASSIC (dev.cmux.app.classic) app id."
+            exit 1
+          fi
+          if [ -n "$CLASSIC_APP_ID" ] && ! [[ "$CLASSIC_APP_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::IOS_CLASSIC_ASC_APP_ID must be the numeric App Store Connect app id of cmux CLASSIC, not '$CLASSIC_APP_ID'."
+            exit 1
+          fi
+          if [ -n "$CLASSIC_APP_ID" ] && [ -n "$CLASSIC_GROUP_ID" ]; then
+            echo 'configured=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo 'configured=false' >> "$GITHUB_OUTPUT"
+          MESSAGE='cmux CLASSIC is not configured yet: set the repository variables IOS_CLASSIC_ASC_APP_ID (numeric App Store Connect app id of cmux CLASSIC, bundle dev.cmux.app.classic) and IOS_CLASSIC_INTERNAL_GROUP_ID (its internal TestFlight group id). Nothing was uploaded.'
+          echo "$MESSAGE" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+            echo "::error::$MESSAGE"
+            exit 1
+          fi
+          echo "::notice::$MESSAGE"
+
       - name: Skip an unchanged scheduled revision
         id: decide
+        if: steps.config.outputs.configured == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           EVENT_NAME: ${{ github.event_name }}
           HEAD_SHA: ${{ github.sha }}
+          APP_ID: ${{ vars.IOS_CLASSIC_ASC_APP_ID }}
         run: |
           set -euo pipefail
           # Durable upload evidence is both the scheduled skip baseline and the
@@ -56,7 +98,7 @@ jobs:
           # lane): never advance it merely because a poll succeeded.
           # A failed read (rate limit, outage) prints its error body on stdout
           # and counts as no evidence, which builds (run 42798372848).
-          LAST_UPLOAD_SHA="$(gh api "repos/$REPOSITORY/actions/artifacts?name=cmux-app-testflight-upload&per_page=100" --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main")] | max_by(.created_at) | .workflow_run.head_sha // ""' 2>/dev/null || true)"
+          LAST_UPLOAD_SHA="$(gh api "repos/$REPOSITORY/actions/artifacts?name=cmux-classic-testflight-upload&per_page=100" --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main")] | max_by(.created_at) | .workflow_run.head_sha // ""' 2>/dev/null || true)"
           [[ "$LAST_UPLOAD_SHA" =~ ^[0-9a-f]{40}$ ]] || LAST_UPLOAD_SHA=""
           echo "last_upload_sha=$LAST_UPLOAD_SHA" >> "$GITHUB_OUTPUT"
           if [ "$EVENT_NAME" = schedule ]; then
@@ -64,7 +106,7 @@ jobs:
             [[ "$LAST_SHA" =~ ^[0-9a-f]{40}$ ]] || LAST_SHA=""
             if [ "$LAST_SHA" = "$HEAD_SHA" ] && [ "$LAST_UPLOAD_SHA" = "$HEAD_SHA" ]; then
               echo 'upload=false' >> "$GITHUB_OUTPUT"
-              echo 'Latest main already reached official internal TestFlight.' >> "$GITHUB_STEP_SUMMARY"
+              echo 'Latest main already reached cmux CLASSIC internal TestFlight.' >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
           fi
@@ -72,19 +114,21 @@ jobs:
             RUN_IDS="$(gh api "repos/$REPOSITORY/actions/workflows/ios-appstore-upload.yml/runs?branch=main&status=completed&head_sha=$HEAD_SHA&per_page=20" --jq '.workflow_runs[].id' 2>/dev/null || true)"
             [[ "$RUN_IDS" =~ ^[0-9[:space:]]*$ ]] || RUN_IDS=""
             for RUN_ID in $RUN_IDS; do
-              MARKER_ID="$(gh api "repos/$REPOSITORY/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[] | select(.name == "cmux-app-testflight-upload" and .expired == false) | .id' 2>/dev/null || true)"
+              MARKER_ID="$(gh api "repos/$REPOSITORY/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[] | select(.name == "cmux-classic-testflight-upload" and .expired == false) | .id' 2>/dev/null || true)"
               [[ "$MARKER_ID" =~ ^[0-9][0-9[:space:]]*$ ]] || continue
               MARKER_DIR="$(mktemp -d)"
-              gh run download "$RUN_ID" --repo "$REPOSITORY" --name cmux-app-testflight-upload --dir "$MARKER_DIR" || { rm -rf "$MARKER_DIR"; continue; }
-              BUILD_NUMBER="$(python3 - "$MARKER_DIR/upload.json" "$HEAD_SHA" <<'PYCODE'
+              gh run download "$RUN_ID" --repo "$REPOSITORY" --name cmux-classic-testflight-upload --dir "$MARKER_DIR" || { rm -rf "$MARKER_DIR"; continue; }
+              BUILD_NUMBER="$(python3 - "$MARKER_DIR/upload.json" "$HEAD_SHA" "$APP_ID" <<'PYCODE'
           import json, re, sys
           with open(sys.argv[1]) as f:
               marker = json.load(f)
-          assert marker['sha'] == sys.argv[2] and marker['app_id'] == '6783338052'
+          assert marker['sha'] == sys.argv[2] and marker['app_id'] == sys.argv[3]
           assert re.fullmatch(r'[0-9]+', marker['build_number'])
           print(marker['build_number'])
           PYCODE
-              )"
+              )" || { rm -rf "$MARKER_DIR"; continue; }
+              # A marker for another app record or revision is not evidence:
+              # it is skipped above instead of failing every hourly poll.
               rm -rf "$MARKER_DIR"
               echo 'upload=false' >> "$GITHUB_OUTPUT"
               echo "retry_build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
@@ -168,7 +212,7 @@ jobs:
             scripts/ci/ios_upload_batch_decision.py
           sparse-checkout-cone-mode: false
 
-      - name: Batch official uploads by commit count and age
+      - name: Batch cmux CLASSIC uploads by commit count and age
         # See the INTERNAL lane: bound the history deepen the same way the upload
         # job already bounds this script.
         timeout-minutes: 5
@@ -201,7 +245,7 @@ jobs:
             --summary "$GITHUB_STEP_SUMMARY"
 
   upload:
-    name: Upload to App Store Connect (com.cmux.app)
+    name: Upload to App Store Connect (dev.cmux.app.classic)
     # Only ever publish from main: the ASC secrets ship reviewed main, and a
     # dispatch against a feature branch must not upload arbitrary code.
     needs: decide
@@ -221,7 +265,8 @@ jobs:
       # a different run_attempt, so the download must not re-derive it.
       notes_artifact_name: testflight-notes-${{ github.run_id }}-${{ github.run_attempt }}
     env:
-      ASC_APP_ID: "6783338052"
+      ASC_APP_ID: ${{ vars.IOS_CLASSIC_ASC_APP_ID }}
+      IOS_CLASSIC_BUNDLE_ID: dev.cmux.app.classic
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
       ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
     steps:
@@ -367,15 +412,23 @@ jobs:
           echo "IOS_DISTRIBUTION_IDENTITY=$IOS_DISTRIBUTION_IDENTITY" >> "$GITHUB_ENV"
           echo "Using iOS distribution identity: $IOS_DISTRIBUTION_IDENTITY"
 
-      - name: Install App Store provisioning profile
+      - name: Install cmux CLASSIC provisioning profiles
         env:
-          IOS_PROD_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROD_PROVISIONING_PROFILE_BASE64 }}
-          IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64 }}
-          # The public App Store binary must not contain the unapproved system
-          # VPN API. Beta/internal lanes keep that feature separately.
+          # Optional: without these secrets the installer finds or creates the
+          # App Store profiles for dev.cmux.app.classic and its notification
+          # extension through the App Store Connect API, with the imported
+          # distribution certificate (the same path the INTERNAL extension uses).
+          IOS_APPSTORE_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_CLASSIC_PROVISIONING_PROFILE_BASE64 }}
+          IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_CLASSIC_EXTENSION_PROVISIONING_PROFILE_BASE64 }}
+          # cmux CLASSIC is built like the App Store binary, without the
+          # system VPN API.
           IOS_APPSTORE_ENABLE_CLOUD_VPN: "0"
           IOS_APPSTORE_KEYCHAIN_NAME: ios-appstore.keychain
-        run: ./.github/scripts/install-app-store-provisioning-profile.sh
+        run: |
+          set -euo pipefail
+          IOS_APPSTORE_BUNDLE_IDENTIFIER="$IOS_CLASSIC_BUNDLE_ID" \
+          IOS_APPSTORE_EXTENSION_BUNDLE_IDENTIFIER="$(bash ./ios/scripts/notification-service-bundle-id.sh "$IOS_CLASSIC_BUNDLE_ID")" \
+            ./.github/scripts/install-app-store-provisioning-profile.sh
 
       # Upload archives used to start cold: fresh DerivedData, every Swift
       # package re-cloned, every module rebuilt in Release. Restore the Swift
@@ -428,10 +481,10 @@ jobs:
           LAST_UPLOAD_SHA: ${{ needs.decide.outputs.last_upload_sha }}
         run: |
           set -euo pipefail
-          # Version comes from CMUX_IOS_APPSTORE_MARKETING_VERSION in main.
-          ARGS=(--lane appstore --signing manual)
+          # Version comes from CMUX_IOS_CLASSIC_MARKETING_VERSION in main.
+          ARGS=(--lane classic --signing manual)
           # --notes-from-range: auto-generate the internal "What to Test" notes
-          # from the commits since the previous cmux.app upload, exactly like
+          # from the commits since the previous cmux CLASSIC upload, exactly like
           # the INTERNAL lane, so every build's notes reflect what changed
           # instead of repeating the static ios/CHANGELOG.md top entry. A first
           # upload has no base and keeps the changelog notes path.
@@ -441,7 +494,7 @@ jobs:
           if [ -n "${INPUT_BUILD_NUMBER:-}" ]; then
             ARGS+=(--build-number "$INPUT_BUILD_NUMBER")
           fi
-          ./ios/scripts/upload-testflight.sh "${ARGS[@]}" 2>&1 | tee "$RUNNER_TEMP/cmux-app-upload.log"
+          ./ios/scripts/upload-testflight.sh "${ARGS[@]}" 2>&1 | tee "$RUNNER_TEMP/cmux-classic-upload.log"
           if [ -f "$CMUX_BUILD_NUMBER_OUT_FILE" ]; then
             FINAL_BN="$(cat "$CMUX_BUILD_NUMBER_OUT_FILE")"
           else
@@ -537,7 +590,7 @@ jobs:
           BUILD_NUMBER_FILE: ${{ runner.temp }}/cmux-final-build-number.txt
           UPLOAD_RECEIPT: ${{ runner.temp }}/cmux-ios-upload/upload.log
         run: |
-          mkdir -p "$RUNNER_TEMP/cmux-app-upload-marker"
+          mkdir -p "$RUNNER_TEMP/cmux-classic-upload-marker"
           python3 - <<'PY'
           import json, os, re
           from pathlib import Path
@@ -571,8 +624,8 @@ jobs:
           if not re.fullmatch(r'[0-9]+', build_number):
               print(f'No numeric build number ({build_number!r}); not recording an upload.')
               raise SystemExit(0)
-          marker = {'sha': os.environ['GITHUB_SHA'], 'app_id': '6783338052', 'build_number': build_number}
-          Path(os.environ['RUNNER_TEMP'], 'cmux-app-upload-marker', 'upload.json').write_text(json.dumps(marker))
+          marker = {'sha': os.environ['GITHUB_SHA'], 'app_id': os.environ['ASC_APP_ID'], 'build_number': build_number}
+          Path(os.environ['RUNNER_TEMP'], 'cmux-classic-upload-marker', 'upload.json').write_text(json.dumps(marker))
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
               output.write('recorded=true\n')
           print(f'Recorded upload of build {build_number} for {os.environ["GITHUB_SHA"]}.')
@@ -582,21 +635,21 @@ jobs:
         if: ${{ always() && steps.record_upload.outputs.recorded == 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: cmux-app-testflight-upload
+          name: cmux-classic-testflight-upload
           retention-days: 90
           if-no-files-found: error
-          path: ${{ runner.temp }}/cmux-app-upload-marker/upload.json
+          path: ${{ runner.temp }}/cmux-classic-upload-marker/upload.json
 
       - name: Save upload evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: cmux-app-testflight-${{ github.sha }}
+          name: cmux-classic-testflight-${{ github.sha }}
           retention-days: 14
           if-no-files-found: ignore
           path: |
             ${{ runner.temp }}/cmux-final-build-number.txt
-            ${{ runner.temp }}/cmux-app-upload.log
+            ${{ runner.temp }}/cmux-classic-upload.log
             ${{ runner.temp }}/cmux-ios-upload/*.log
             ${{ runner.temp }}/cmux-ios-upload/export/*.ipa
             ${{ runner.temp }}/cmux-ios-upload/export/*.xcarchive/dSYMs
@@ -608,12 +661,12 @@ jobs:
           BUILD_NUMBER: ${{ steps.upload.outputs.final_build_number || 'unknown' }}
         run: |
           {
-            echo '### cmux.app internal TestFlight'
-            echo '- App: 6783338052 (com.cmux.app)'
+            echo '### cmux CLASSIC internal TestFlight'
+            echo "- App: $ASC_APP_ID (dev.cmux.app.classic)"
             echo "- Revision: $GITHUB_SHA"
             echo "- Build: $BUILD_NUMBER"
-            echo '- Group: cmux release internal'
-            echo '- App Review submission is a separate verified release action.'
+            echo '- Group: the cmux CLASSIC internal group (IOS_CLASSIC_INTERNAL_GROUP_ID)'
+            echo '- Internal TestFlight only: cmux CLASSIC is never submitted for review.'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Cleanup signing material
@@ -662,7 +715,7 @@ jobs:
     # Production secrets: GitHub releases them only to protected refs (the
     # environment's deployment branch policy: main, tags v*).
     environment: release
-    name: Make build available to official internal testers
+    name: Make build available to cmux CLASSIC internal testers
     needs: [decide, upload]
     if: >-
       always() && needs.decide.result == 'success' &&
@@ -675,13 +728,14 @@ jobs:
       ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
       BUILD_NUMBER: ${{ needs.upload.outputs.build_number || needs.decide.outputs.retry_build_number }}
+      INTERNAL_GROUP_ID: ${{ vars.IOS_CLASSIC_INTERNAL_GROUP_ID }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-      - name: Wait for processing and assign the official internal group
+      - name: Wait for processing and assign the cmux CLASSIC internal group
         run: |
           python3 ios/scripts/asc_assign_internal_testflight_group.py \
-            --bundle-id com.cmux.app \
+            --bundle-id dev.cmux.app.classic \
             --build-number "$BUILD_NUMBER" \
-            --group-id ac3d6e62-36ce-4669-88e1-7ee489aac612
+            --group-id "$INTERNAL_GROUP_ID"

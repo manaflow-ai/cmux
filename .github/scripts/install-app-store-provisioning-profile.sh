@@ -605,7 +605,14 @@ download_profile_from_asc() {
   fi
 
   profile_suffix="${cert_serial: -8}"
-  profile_name="cmux App Store CI $profile_suffix"
+  # The name is looked up before the bundle is checked, so every other app
+  # record (cmux CLASSIC, dev.cmux.app.classic) needs its own name. com.cmux.app
+  # keeps the historical name so its existing profile is reused.
+  if [ "$BUNDLE_IDENTIFIER" = "com.cmux.app" ]; then
+    profile_name="cmux App Store CI $profile_suffix"
+  else
+    profile_name="cmux App Store CI $BUNDLE_IDENTIFIER $profile_suffix"
+  fi
   asc profiles list --profile-type IOS_APP_STORE --paginate --output json > "$profiles_json"
   profile_id="$(json_profile_id_by_name "$profiles_json" "$profile_name" || true)"
   if [ -z "$profile_id" ]; then

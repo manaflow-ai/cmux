@@ -319,7 +319,7 @@ class WorkflowWiringTests(unittest.TestCase):
         (INTERNAL, "should_build", "Batch INTERNAL uploads by iOS commit count and age",
          "IOS_TESTFLIGHT_INTERNAL_MIN_COMMITS", "IOS_TESTFLIGHT_INTERNAL_MAX_AGE_MINUTES",
          "5", "180"),
-        (OFFICIAL, "upload", "Batch official uploads by commit count and age",
+        (OFFICIAL, "upload", "Batch cmux CLASSIC uploads by commit count and age",
          "IOS_APPSTORE_MIN_COMMITS", "IOS_APPSTORE_MAX_AGE_MINUTES", "10", "360"),
     )
 
@@ -369,11 +369,11 @@ class WorkflowWiringTests(unittest.TestCase):
         steps = load(OFFICIAL)["jobs"]["decide"]["steps"]
         self.assertNotIn(
             "--paths-from-workflow",
-            step(steps, "Batch official uploads by commit count and age")["run"],
+            step(steps, "Batch cmux CLASSIC uploads by commit count and age")["run"],
         )
-        self.assertIn("--public-path-filter", step(steps, "Batch official uploads by commit count and age")["run"])
+        self.assertIn("--public-path-filter", step(steps, "Batch cmux CLASSIC uploads by commit count and age")["run"])
         decide = step(steps, "Skip an unchanged scheduled revision")["run"]
-        self.assertIn("name=cmux-app-testflight-upload", decide)
+        self.assertIn("name=cmux-classic-testflight-upload", decide)
         self.assertIn(
             '[ "$LAST_SHA" = "$HEAD_SHA" ] && [ "$LAST_UPLOAD_SHA" = "$HEAD_SHA" ]', decide
         )
@@ -385,7 +385,7 @@ class BatchingFailsOpenTests(unittest.TestCase):
     STEPS = {
         ".github/workflows/ios-appstore-upload.yml": (
             "Check out the upload batching policy",
-            "Batch official uploads by commit count and age",
+            "Batch cmux CLASSIC uploads by commit count and age",
         ),
         ".github/workflows/ios-testflight.yml": (
             "Check out the upload batching policy",

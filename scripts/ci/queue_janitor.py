@@ -2919,7 +2919,7 @@ def render_lost_reruns(decisions: Sequence[LostRerun], *, dry_run: bool,
 # GitHub (or Blacksmith behind it) sometimes loses a job's runner assignment:
 # the job stays `queued` with no runner_name while its pool is idle, and the
 # run never finishes. It burns nothing, but it can hold a concurrency group
-# (ios-appstore-upload.yml's `ios-app-store-production`), and a stuck
+# (ios-appstore-upload.yml's `ios-testflight-classic`), and a stuck
 # required job such as `ci-status` blocks its pull request forever. This is a
 # separate category from the backlog policy above: it is not gated on a pool
 # being backed up, has its own small cap, and reads only the runs and jobs the

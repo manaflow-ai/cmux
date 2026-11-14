@@ -266634,6 +266634,29 @@
         }
       }
     },
+    "mobile.pairing.target.classic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux CLASSIC"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux CLASSIC"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux CLASSIC"
+          }
+        }
+      }
+    },
     "mobile.pairing.target.demo": {
       "extractionState": "manual",
       "localizations": {

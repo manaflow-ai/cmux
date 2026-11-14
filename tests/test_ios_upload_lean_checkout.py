@@ -2,7 +2,7 @@
 """Pin the lean macOS checkout of the two iOS TestFlight upload workflows.
 
 ios-testflight.yml (CMUX INTERNAL, every 20 min) and ios-appstore-upload.yml
-(cmux.app, hourly) used to clone with fetch-depth 0 + recursive submodules
+(cmux CLASSIC, hourly) used to clone with fetch-depth 0 + recursive submodules
 (~12 min) and install zig unconditionally (~6 min) on the constrained macOS
 pool. The policy now is:
 
@@ -53,14 +53,77 @@ def run_text(step):
 
 
 OFFICIAL_UPLOAD = ROOT / ".github/workflows/ios-appstore-upload.yml"
+CLASSIC_APP_ID = "6799000001"
 # The decide step accepts only a 40-hex SHA as upload evidence.
 BASE_SHA = "b" * 40
 HEAD_SHA = "c" * 40
 PREVIOUS_SHA = "d" * 40
 
 
+def decide_step(name):
+    steps = yaml.safe_load(OFFICIAL_UPLOAD.read_text(encoding="utf-8"))["jobs"]["decide"]["steps"]
+    return steps[step_index(steps, name)]
+
+
+class ClassicConfigurationTests(unittest.TestCase):
+    """cmux CLASSIC switches on only once its repository variables exist."""
+
+    def run_config(self, event, app_id="", group_id=""):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output, summary = root / "output", root / "summary"
+            output.touch()
+            summary.touch()
+            result = subprocess.run(
+                ["bash", "-c", decide_step("Check the cmux CLASSIC configuration")["run"]],
+                env={**os.environ, "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary),
+                     "EVENT_NAME": event, "CLASSIC_APP_ID": app_id, "CLASSIC_GROUP_ID": group_id},
+                capture_output=True, text=True,
+            )
+            outputs = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
+            return result, outputs, summary.read_text()
+
+    def test_unconfigured_schedule_skips_cleanly_and_names_the_variables(self):
+        for app_id, group_id in (("", ""), (CLASSIC_APP_ID, ""), ("", "group")):
+            with self.subTest(app_id=app_id, group_id=group_id):
+                result, outputs, summary = self.run_config("schedule", app_id, group_id)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(outputs, {"configured": "false"})
+                self.assertIn("IOS_CLASSIC_ASC_APP_ID", summary)
+                self.assertIn("IOS_CLASSIC_INTERNAL_GROUP_ID", summary)
+
+    def test_unconfigured_dispatch_fails_with_the_same_message(self):
+        result, outputs, summary = self.run_config("workflow_dispatch")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(outputs, {"configured": "false"})
+        self.assertIn("IOS_CLASSIC_ASC_APP_ID", result.stdout)
+
+    def test_configured_runs(self):
+        result, outputs, _ = self.run_config("schedule", CLASSIC_APP_ID, "group")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(outputs, {"configured": "true"})
+
+    def test_refuses_the_com_cmux_app_record_and_non_numeric_ids(self):
+        for app_id in ("6783338052", "dev.cmux.app.classic"):
+            for event in ("schedule", "workflow_dispatch"):
+                with self.subTest(app_id=app_id, event=event):
+                    result, outputs, _ = self.run_config(event, app_id, "group")
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn("configured", outputs)
+
+    def test_every_later_decide_step_waits_for_the_configuration(self):
+        steps = yaml.safe_load(OFFICIAL_UPLOAD.read_text(encoding="utf-8"))["jobs"]["decide"]["steps"]
+        self.assertEqual(steps[0]["name"], "Check the cmux CLASSIC configuration")
+        self.assertIn("steps.config.outputs.configured == 'true'", decide_step("Skip an unchanged scheduled revision")["if"])
+        # The batching steps run only when the decide step said upload, which
+        # it cannot without the configuration.
+        for step in steps[2:]:
+            self.assertIn("steps.decide.outputs.upload == 'true'", step["if"])
+
+
 class PublicUploadDecisionTests(unittest.TestCase):
-    def decision(self, files=None, event="schedule", baseline=BASE_SHA, broken=False, retry=False):
+    def decision(self, files=None, event="schedule", baseline=BASE_SHA, broken=False, retry=False,
+                 marker_app_id=CLASSIC_APP_ID):
         import json
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -80,7 +143,7 @@ elif '/runs/123/artifacts' in args:
 elif sys.argv[1:3] == ['run', 'download']:
     from pathlib import Path
     target = Path(sys.argv[sys.argv.index('--dir') + 1])
-    (target / 'upload.json').write_text(json.dumps({'sha': os.environ['HEAD_SHA'], 'app_id': '6783338052', 'build_number': '12345'}))
+    (target / 'upload.json').write_text(json.dumps({'sha': os.environ['HEAD_SHA'], 'app_id': os.environ['MARKER_APP_ID'], 'build_number': '12345'}))
 elif 'status=success' in args:
     print(os.environ['PREVIOUS_SHA'])
 elif 'status=completed' in args:
@@ -92,11 +155,12 @@ else:
             output = root / "output"
             summary = root / "summary"
             result = subprocess.run(
-                ["bash", "-c", yaml.safe_load(OFFICIAL_UPLOAD.read_text(encoding="utf-8"))["jobs"]["decide"]["steps"][0]["run"]],
+                ["bash", "-c", decide_step("Skip an unchanged scheduled revision")["run"]],
                 env={**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
                      "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary),
                      "RUNNER_TEMP": str(root), "REPOSITORY": "test/repo", "HEAD_SHA": HEAD_SHA, "PREVIOUS_SHA": PREVIOUS_SHA,
                      "EVENT_NAME": event, "BASE": baseline, "BROKEN": str(int(broken)), "RETRY": str(int(retry)),
+                     "APP_ID": CLASSIC_APP_ID, "MARKER_APP_ID": marker_app_id,
                      "FILES": json.dumps(files if files is not None else [])},
                 capture_output=True, text=True,
             )
@@ -107,6 +171,12 @@ else:
         for path in ["web/app/page.tsx", "docs/guide.md", "tests/test_ci.py", ".github/workflows/ci.yml"]:
             with self.subTest(path=path):
                 self.assertEqual(self.decision([{"filename": path}])["upload"], "false")
+
+    def test_retry_ignores_a_marker_for_another_app_record(self):
+        # A marker left by the old com.cmux.app lane is not cmux CLASSIC evidence.
+        output = self.decision([{"filename": "ios/app.swift"}], retry=True, marker_app_id="6783338052")
+        self.assertEqual(output.get("upload"), "true")
+        self.assertNotIn("retry_build_number", output)
 
     def test_public_retry_assignment_precedes_irrelevant_change_skip(self):
         output = self.decision([{"filename": "web/page.tsx"}], retry=True)

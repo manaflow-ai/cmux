@@ -31,6 +31,7 @@ struct MobileIOSPairingTargetStore {
             "dev.cmux.app.beta",
             "dev.cmux.app.internal",
             "dev.cmux.app.demo",
+            "dev.cmux.app.classic",
         ].compactMap(MobileIOSAppNamespace.init(bundleIdentifier:))
     }
 

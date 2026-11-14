@@ -1,5 +1,11 @@
 name: iOS App Store (production)
 
+# Retired for the classic app. The App Store record com.cmux.app (6783338052)
+# now ships cmux-next from feat-cmux-next, and the cmux-next App Store lane on
+# that branch replaces this one. Classic (ios/) ships only to its internal
+# TestFlight record, cmux CLASSIC, through ios-appstore-upload.yml. The
+# refuse-classic job below stops every dispatch before anything is archived,
+# uploaded or submitted; the steps after it are kept only for reference.
 on:
   workflow_dispatch:
     inputs:
@@ -40,6 +46,19 @@ permissions:
   contents: read
 
 jobs:
+  refuse-classic:
+    name: Refuse to ship the classic app to com.cmux.app
+    # No secrets: any Linux pool will do.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Refuse the classic App Store upload and submission
+        run: |
+          MESSAGE='This workflow no longer uploads or submits the classic iOS app (ios/ on main). The App Store record com.cmux.app (6783338052) now ships cmux-next from feat-cmux-next, and the cmux-next App Store lane on that branch replaces this one. Classic builds go to the internal TestFlight record cmux CLASSIC (dev.cmux.app.classic) through ios-appstore-upload.yml.'
+          echo "::error::$MESSAGE"
+          echo "$MESSAGE" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
   # Proof of concept for capability-based runner selection. This job needs a
   # macOS host with iOS runtimes and a working simctl; which vendor supplies
   # that is .github/runners.json's problem, not this workflow's. On
@@ -55,7 +74,8 @@ jobs:
     name: Upload and validate production App Store build
     # The app source is always main, including dispatches of workflow repairs.
     if: github.event_name == 'workflow_dispatch'
-    needs: runners
+    # refuse-classic always fails, so this job never runs.
+    needs: [refuse-classic, runners]
     # It holds the App Store Connect key, so the capability map's answer is used only
     # when it is the Blacksmith label: the map reads CMUX_CI_RUNNER_OVERRIDES, which may
     # name any machine (tests/test_ci_fork_runner_routing.py).

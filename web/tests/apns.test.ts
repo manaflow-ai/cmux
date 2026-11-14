@@ -476,6 +476,16 @@ describe("apns route policy", () => {
       bundleId: "dev.cmux.app.beta",
       environment: "production",
     });
+    // cmux CLASSIC is a TestFlight build, so it uses the production APNs host.
+    expect(normalizeApnsBundle("dev.cmux.app.classic")).toEqual({
+      bundleId: "dev.cmux.app.classic",
+      environment: "production",
+    });
+    expect(normalizeApnsBundle(" dev.cmux.app.classic ")).toEqual({
+      bundleId: "dev.cmux.app.classic",
+      environment: "production",
+    });
+    expect(normalizeApnsBundle("dev.cmux.app.classic.NotificationService")).toBeNull();
     expect(normalizeApnsBundle("com.cmux.app")).toEqual({
       bundleId: "com.cmux.app",
       environment: "production",

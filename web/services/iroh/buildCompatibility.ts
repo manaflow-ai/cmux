@@ -4,6 +4,7 @@ const OFFICIAL_IOS_NAMESPACES = new Set([
   "dev.cmux.app.beta",
   "dev.cmux.app.internal",
   "dev.cmux.app.demo",
+  "dev.cmux.app.classic",
 ]);
 const DEVELOPMENT_IOS_NAMESPACE_PREFIX = "dev.cmux.ios.";
 const DEVELOPMENT_MAC_NAMESPACE_PREFIX = "mac:com.cmuxterm.app.debug";

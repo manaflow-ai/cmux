@@ -35,6 +35,7 @@ import Testing
             "dev.cmux.app.beta",
             "dev.cmux.app.internal",
             "dev.cmux.app.demo",
+            "dev.cmux.app.classic",
         ]
         for bundleIdentifier in bundleIdentifiers {
             let targetNamespace = try #require(MobileIOSAppNamespace(
