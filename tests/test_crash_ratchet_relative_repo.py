@@ -58,6 +58,14 @@ class RelativeRepo(unittest.TestCase):
         os.chdir(self.root)
         self.assertEqual(self.rust_counts("."), {})
 
+    def test_a_plain_test_module_is_test_code_for_a_relative_repo(self):
+        src = os.path.join(self.root, "cmux-tui", "crates", "demo", "src")
+        with open(os.path.join(src, "lib.rs"), "w") as f:
+            f.write(LIB.replace('#[path = "helpers.rs"]\n', ""))
+        self.assertEqual(self.rust_counts(self.root), {})
+        os.chdir(self.root)
+        self.assertEqual(self.rust_counts("."), {})
+
 
 if __name__ == "__main__":
     unittest.main()
