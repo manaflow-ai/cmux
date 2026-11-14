@@ -284,6 +284,10 @@ struct StreamState {
     probe_from_us: Option<u64>,
     /// Tail-loss probes sent for the newest frame.
     probes: u32,
+    /// Host monotonic send time for recent frames, used to measure the
+    /// viewer's cumulative acknowledgement round trip on carriers that do
+    /// not expose a path probe (the development socket/proxy path).
+    sent_at_us: BTreeMap<u32, u64>,
 }
 
 impl StreamState {
@@ -300,6 +304,7 @@ impl StreamState {
             tile_of: None,
             probe_from_us: None,
             probes: 0,
+            sent_at_us: BTreeMap::new(),
         }
     }
 
@@ -324,6 +329,10 @@ pub struct MediaEngine {
     frames: u64,
     keyframes: u64,
     clock: Option<ClockEstimate>,
+    /// Minimum cumulative frame-ack round trip observed on this session.
+    /// This is a path RTT sample, not a frame decode time: the send timestamp
+    /// is recorded before packetization and the ack is cumulative.
+    ack_rtt_us: Option<u64>,
     upstreams: BTreeMap<u16, Upstream>,
 }
 
@@ -347,6 +356,7 @@ impl MediaEngine {
             frames: 0,
             keyframes: 0,
             clock: None,
+            ack_rtt_us: None,
             upstreams: BTreeMap::new(),
             cfg,
         }
@@ -564,6 +574,10 @@ impl MediaEngine {
             self.loss_meter.on_sent(seq);
         }
         state.history.insert(req.frame, packets.datagrams.clone());
+        state.sent_at_us.insert(req.frame, now_us);
+        while state.sent_at_us.len() > HISTORY_FRAMES {
+            state.sent_at_us.pop_first();
+        }
         while state.history.len() > HISTORY_FRAMES {
             state.history.pop_first();
         }
@@ -631,6 +645,12 @@ impl MediaEngine {
         self.cc.on_feedback(&fb.arrivals, congestion_loss, now_us);
         self.last_feedback_us = now_us;
         let Some(state) = self.streams.get_mut(&stream) else { return };
+        if fb.acked_frame > 0 {
+            if let Some(sent_at_us) = state.sent_at_us.get(&fb.acked_frame).copied() {
+                let sample = now_us.saturating_sub(sent_at_us);
+                self.ack_rtt_us = Some(self.ack_rtt_us.map_or(sample, |best| best.min(sample)));
+            }
+        }
         let mut budget = MAX_RESENDS_PER_FEEDBACK;
         for nack in &fb.nacks {
             let Some(datagrams) = state.history.get(&nack.frame) else { continue };
@@ -756,6 +776,13 @@ impl MediaEngine {
             loss: self.loss,
             target_bps: self.cc.target_bps(),
         }
+    }
+
+    /// Returns the best cumulative frame-ack RTT observed so far. Secure-link
+    /// carriers may provide a lower-level path probe; callers can use either
+    /// value to size the BDP-equivalent frame window.
+    pub fn ack_rtt_us(&self) -> Option<u64> {
+        self.ack_rtt_us
     }
 
     /// Answers a clock ping at once (receive and send time are the same call).

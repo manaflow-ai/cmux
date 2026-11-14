@@ -278,6 +278,14 @@ impl MediaSession {
                     }
                 }
             }
+            // Socket/proxy carriers do not expose a link path event. Once a
+            // cumulative frame acknowledgement arrives, use its measured RTT
+            // to size the BDP-equivalent send window just like the secure link.
+            if let Some(rtt_us) = self.engine.ack_rtt_us() {
+                let frames_in_flight =
+                    cmux_rd_engine::frames_in_flight_for(rtt_us, self.max_fps).max(2);
+                self.engine.set_frames_in_flight(frames_in_flight);
+            }
             // Damage from the desktop.
             damage.clear();
             if let Err(e) = self.drain_settled(&mut damage) {

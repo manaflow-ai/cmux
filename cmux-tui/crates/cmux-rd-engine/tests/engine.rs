@@ -101,6 +101,27 @@ fn changing_frames_in_flight_updates_every_live_stream() {
 }
 
 #[test]
+fn cumulative_frame_ack_measures_rtt_for_socket_carriers() {
+    let mut e = engine();
+    let first = e.start(1_000).expect("first");
+    send(&mut e, &first, true, 1_000, 1_000);
+    assert_eq!(e.ack_rtt_us(), None);
+
+    e.on_datagram(
+        &feedback(&Feedback { acked_frame: first.frame, ..Feedback::default() }),
+        true,
+        51_000,
+    );
+    assert_eq!(e.ack_rtt_us(), Some(50_000));
+}
+
+#[test]
+fn bdp_window_covers_a_fifty_ms_path_at_sixty_fps() {
+    assert_eq!(cmux_rd_engine::frames_in_flight_for(50_000, 60), 4);
+    assert_eq!(cmux_rd_engine::frames_in_flight_for(50_000, 30), 3);
+}
+
+#[test]
 fn nacked_shards_are_resent_from_history() {
     let mut e = engine();
     let first = e.start(0).expect("first");
