@@ -4,14 +4,9 @@ import CmuxNextDevices
 import CmuxScreenKit
 import Observation
 
-/// A Mac Screen tab's toolbar (AppKit): the status dot, the Mac's name, the
-/// stream's stats, View Only, the keyboard release hint and, while a session
-/// streams, the display, quality and Send Keys menus, Refresh and
-/// Connect / Disconnect. The views are made once; Observation updates them.
-///
-/// In a narrow pane the controls keep their size. The stats and the release
-/// hint show whole or not at all, then the icon goes, so the name keeps the
-/// room that is left (the layout `ViewThatFits` and layout priorities gave).
+/// The Mac's name, measured latency and session controls. Wide panes use one
+/// row, medium panes separate status and controls, and narrow panes put
+/// secondary commands in More. Observation updates the existing views.
 @MainActor
 final class MacScreenToolbarView: MacScreenThemedView {
     private let model: MacScreenPaneModel
@@ -20,9 +15,9 @@ final class MacScreenToolbarView: MacScreenThemedView {
     private let icon = MacScreenGlyph("desktopcomputer", font: MacScreenType.body)
     private let name = MacScreenText("", font: MacScreenType.emphasized)
     private let stats = MacScreenText("", font: MacScreenType.stats, ink: \.secondary)
-    private let badge: MacScreenFill
-    private let badgeGlyph = MacScreenGlyph("eye", font: MacScreenType.badge, ink: \.attention)
-    private let badgeText = MacScreenText(L.t("macScreen.toolbar.viewOnly", "View Only"), font: MacScreenType.badge, ink: \.attention)
+    private let access: MacScreenMenuButton
+    private let fullScreen: MacScreenButton
+    private let more: MacScreenMenuButton
     private let hint: NSStackView
     private let hintGlyph = MacScreenGlyph("keyboard", font: MacScreenType.caption)
     private let hintText = MacScreenText(L.t("macScreen.toolbar.releaseHint", "⌃⌥⎋ releases the keyboard"), font: MacScreenType.caption, ink: \.secondary)
@@ -38,29 +33,18 @@ final class MacScreenToolbarView: MacScreenThemedView {
     private var hintSlot = false
     private var controlsShown = false
 
-    private static let spacing: CGFloat = 10
-    private static let padding: CGFloat = 12
-
     init(model: MacScreenPaneModel, actions: MacScreenChromeActions) {
         self.model = model
         self.actions = actions
-        badge = MacScreenFill(\.attentionWash, shape: .rounded(0))
-        let badgeContent = MacScreenStack.make(.horizontal, spacing: 4, alignment: .centerY, [badgeGlyph, badgeText], insets: NSEdgeInsets(top: 2, left: 8, bottom: 2, right: 8))
-        badge.addSubview(badgeContent)
-        NSLayoutConstraint.activate([
-            badgeContent.leadingAnchor.constraint(equalTo: badge.leadingAnchor),
-            badgeContent.trailingAnchor.constraint(equalTo: badge.trailingAnchor),
-            badgeContent.topAnchor.constraint(equalTo: badge.topAnchor),
-            badgeContent.bottomAnchor.constraint(equalTo: badge.bottomAnchor),
-        ])
-        badge.setAccessibilityElement(true)
-        badge.setAccessibilityRole(.staticText)
-        badge.setAccessibilityLabel(L.t("macScreen.toolbar.viewOnly", "View Only"))
-        badge.setAccessibilityIdentifier("macScreen.viewOnly")
+        access = MacScreenMenuButton(symbol: "eye", title: "", accessibilityTitle: "", id: "macScreen.access")
+        fullScreen = MacScreenButton(L.t("macScreen.toolbar.fullScreen", "Full Screen"), role: .icon,
+                                     symbol: "arrow.up.left.and.arrow.down.right", id: "macScreen.fullScreen") { actions.fullScreen() }
+        fullScreen.themedToolTip = L.t("macScreen.toolbar.fullScreen", "Full Screen")
+        more = MacScreenMenuButton(symbol: "ellipsis", accessibilityTitle: L.t("macScreen.toolbar.more", "More Controls"), id: "macScreen.more")
         hint = MacScreenStack.make(.horizontal, spacing: 4, alignment: .centerY, [hintGlyph, hintText])
         hint.themedToolTip = L.t("macScreen.toolbar.keyboardHint", "Keyboard goes to this Mac · ⌃⌥⎋ to release")
         displayButton = MacScreenMenuButton(symbol: "display.2", title: "", accessibilityTitle: "", id: "macScreen.display")
-        quality = MacScreenMenuButton(symbol: "slider.horizontal.3", accessibilityTitle: L.t("macScreen.toolbar.quality", "Quality"),
+        quality = MacScreenMenuButton(symbol: "slider.horizontal.3", title: "", accessibilityTitle: L.t("macScreen.toolbar.quality", "Quality"),
                                       id: "macScreen.quality")
         quality.themedToolTip = L.t("macScreen.toolbar.qualityHelp", "Quality and stats")
         sendKeys = MacScreenMenuButton(symbol: "command", accessibilityTitle: L.t("macScreen.toolbar.sendKeys", "Send Keys"), id: "macScreen.sendKeys")
@@ -75,13 +59,15 @@ final class MacScreenToolbarView: MacScreenThemedView {
         super.init(frame: .zero)
         wantsLayer = true
         stats.setAccessibilityIdentifier("macScreen.stats")
-        for view in [dot, icon, name, stats, badge, hint, displayButton, quality, sendKeys, refresh, connect, disconnect, line] as [NSView] {
+        for view in [dot, icon, name, stats, access, hint, displayButton, quality, sendKeys, refresh, fullScreen, more, connect, disconnect, line] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = true
             addSubview(view)
         }
         displayButton.makeMenu = { [weak self] in self?.displayMenu() ?? NSMenu() }
         quality.makeMenu = { [weak self] in self?.qualityMenu() ?? NSMenu() }
         sendKeys.makeMenu = { [weak self] in self?.sendKeysMenu() ?? NSMenu() }
+        access.makeMenu = { [weak self] in self?.accessMenu() ?? NSMenu() }
+        more.makeMenu = { [weak self] in self?.moreMenu() ?? NSMenu() }
         track()
     }
 
@@ -101,6 +87,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
             Task { @MainActor [weak self] in self?.track() }
         }
         needsLayout = true
+        superview?.needsLayout = true
     }
 
     private func apply() {
@@ -109,15 +96,21 @@ final class MacScreenToolbarView: MacScreenThemedView {
         if name.stringValue != model.name { name.stringValue = model.name }
         let session = model.session
         let live = model.isLive
-        statsSlot = session != nil && live && session?.preferences.showStats == true
-        if statsSlot, let session { stats.stringValue = Self.statsLine(session) }
+        statsSlot = session != nil && live
+        if statsSlot, let session {
+            stats.stringValue = session.preferences.showStats ? Self.statsLine(session) : session.stats.latencyMs.map { String(format: "%.0f ms", $0) } ?? "— ms"
+        }
         let viewOnly = model.viewOnly
-        setThemedTip(viewOnly
-            ? String(format: L.t("macScreen.toolbar.viewOnlyHelpNamed", "You can see %@ but not control it. Your clicks, keys and scrolling aren’t sent."), model.name)
-            : nil, on: badge)
-        badge.isHidden = !viewOnly
+        access.retitle(viewOnly ? L.t("macScreen.scope.view", "View Only") : L.t("macScreen.scope.full", "Full Control"))
+        access.image = NSImage(systemSymbolName: viewOnly ? "eye" : "cursorarrow", accessibilityDescription: nil)
+        access.ink = viewOnly ? \.attention : \.secondary
         hintSlot = model.capturesKeyboard && live
         controlsShown = session != nil && model.showsStreamControls
+        access.isHidden = !controlsShown
+        access.isEnabled = controlsShown
+        fullScreen.isHidden = !controlsShown
+        more.isHidden = !controlsShown
+        if let session { quality.retitle(Self.qualityTitle(session.preferences.quality)) }
         let displayCount = model.displays.count
         displayButton.retitle(String(format: L.t("macScreen.toolbar.displayShort", "Display %d"), model.currentDisplay + 1))
         displayButton.isHidden = !controlsShown || displayCount <= 1
@@ -143,7 +136,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
     /// or interface scale change shows at once (the views are made once).
     private func applyType() {
         let fonts: [(MacScreenText, NSFont)] = [(name, MacScreenType.emphasized), (stats, MacScreenType.stats),
-                                                (badgeText, MacScreenType.badge), (hintText, MacScreenType.caption)]
+                                                (hintText, MacScreenType.caption)]
         var changed = false
         for (label, font) in fonts where label.font != font {
             label.font = font
@@ -151,11 +144,10 @@ final class MacScreenToolbarView: MacScreenThemedView {
             changed = true
         }
         icon.resize(to: MacScreenType.body)
-        badgeGlyph.resize(to: MacScreenType.badge)
         hintGlyph.resize(to: MacScreenType.caption)
         guard changed else { return }
-        for button in [displayButton, quality, sendKeys] { button.reloadType() }
-        for button in [refresh, connect, disconnect] { button.reloadType() }
+        for button in [access, displayButton, quality, sendKeys, more] { button.reloadType() }
+        for button in [refresh, fullScreen, connect, disconnect] { button.reloadType() }
     }
 
     /// Sets a tooltip only when it changes (the stats redraw this every second).
@@ -202,6 +194,37 @@ final class MacScreenToolbarView: MacScreenThemedView {
     }
 
     // MARK: Menus
+
+    private func accessMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        for (scope, title) in [(SessionScope.view, L.t("macScreen.scope.view", "View Only")), (.full, L.t("macScreen.scope.full", "Full Control"))] {
+            let selected = model.hub?.phase.streamingScope == scope
+            menu.addItem(NSMenuItem.macScreen(title, checked: selected) { [weak self] in
+                guard !selected else { return }
+                self?.actions.requestScope(scope)
+            })
+        }
+        return menu
+    }
+
+    private func moreMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        if model.displays.count > 1 {
+            let displays = NSMenuItem(title: displayButton.accessibilityLabel() ?? "", action: nil, keyEquivalent: "")
+            displays.submenu = displayMenu()
+            menu.addItem(displays)
+        }
+        let keys = NSMenuItem(title: L.t("macScreen.toolbar.sendKeys", "Send Keys"), action: nil, keyEquivalent: "")
+        keys.submenu = sendKeysMenu()
+        keys.isEnabled = model.isLive && !model.viewOnly
+        menu.addItem(keys)
+        let refresh = NSMenuItem.macScreen(L.t("macScreen.toolbar.refresh", "Refresh Screen")) { [weak self] in self?.actions.refresh() }
+        refresh.isEnabled = model.isLive
+        menu.addItem(refresh)
+        return menu
+    }
 
     private func displayMenu() -> NSMenu {
         let menu = NSMenu()
@@ -263,52 +286,84 @@ final class MacScreenToolbarView: MacScreenThemedView {
 
     // MARK: Layout
 
+    /// Three responsive arrangements keep the primary controls directly reachable.
+    /// The pane uses the same height for video, input and state-card geometry.
+    func height(for width: CGFloat) -> CGFloat {
+        let row = max(Metrics.space8, access.fittingSize.height + Metrics.space2)
+        guard controlsShown && width < expandedWidth else { return row }
+        let controls = arrangedControls(for: width)
+        let available = max(0, width - Metrics.space3 * 2)
+        var rows = 1
+        var used: CGFloat = 0
+        for control in controls {
+            let size = min(available, ceil(control.fittingSize.width))
+            if used > 0 && used + size > available { rows += 1; used = 0 }
+            used += size + Metrics.space2
+        }
+        return row * CGFloat(rows + 1)
+    }
+
+    var expandedWidth: CGFloat {
+        let controls = [access, displayButton, quality, sendKeys, refresh, fullScreen, connect, disconnect] as [NSView]
+        return controls.filter { $0 !== displayButton || model.displays.count > 1 }
+            .reduce(Metrics.space8 * 8) { total, control in
+                let width = control === quality ? quality.attributedTitle.size().width + Metrics.space6 : control.fittingSize.width
+                return total + width + Metrics.space2
+            }
+    }
+
+    private func arrangedControls(for width: CGFloat) -> [NSView] {
+        let compact = controlsShown && width < expandedWidth - Metrics.space8 * 4
+        displayButton.isHidden = !controlsShown || model.displays.count <= 1 || compact
+        sendKeys.isHidden = !controlsShown || compact
+        refresh.isHidden = !controlsShown || compact
+        more.isHidden = !controlsShown || !compact
+        let position: NSControl.ImagePosition = compact ? .imageOnly : .imageLeading
+        if quality.imagePosition != position { quality.imagePosition = position }
+        return ([access, displayButton, quality, sendKeys, refresh, fullScreen, more, connect, disconnect] as [NSView]).filter { !$0.isHidden }
+    }
+
     override func layout() {
         super.layout()
-        let height = bounds.height
-        line.frame = CGRect(x: 0, y: height - 1, width: bounds.width, height: 1)
-        let gap = Self.spacing
-        let controls: [NSView] = [displayButton, quality, sendKeys, refresh, connect, disconnect].filter { !$0.isHidden }
-        let controlSizes = controls.map(\.fittingSize)
-        let controlsWidth = controlSizes.isEmpty ? 0 : controlSizes.reduce(0) { $0 + $1.width } + gap * CGFloat(controlSizes.count - 1)
-        let badgeSize = badge.isHidden ? .zero : badge.fittingSize
-        let hintSize = hint.fittingSize
-        let statsWidth = Self.textWidth(stats)
-        let iconWidth = ceil(icon.intrinsicContentSize.width)
-        let nameWidth = Self.textWidth(name)
-        // The row: dot, name group, [stats], spacer, [badge], [hint], [controls].
-        let slots = 3 + (statsSlot ? 1 : 0) + (badge.isHidden ? 0 : 1) + (hintSlot ? 1 : 0) + (controls.isEmpty ? 0 : 1)
-        let available = bounds.width - Self.padding * 2
-        let reserved = 7 + 8 + badgeSize.width + controlsWidth + gap * CGFloat(slots - 1)
-        let offered = available - reserved
-        let showsIcon = offered >= iconWidth + gap + nameWidth
-        let nameUsed = showsIcon ? nameWidth : max(24, min(nameWidth, offered))
-        var left = offered - (showsIcon ? iconWidth + gap + nameWidth : nameUsed)
-        let showsStats = statsSlot && left >= statsWidth
-        if showsStats { left -= statsWidth }
-        let showsHint = hintSlot && left >= hintSize.width
-        if showsHint { left -= hintSize.width }
-
-        var x = Self.padding
-        func place(_ view: NSView, width: CGFloat, height viewHeight: CGFloat) {
-            view.frame = CGRect(x: x, y: ((height - viewHeight) / 2).rounded(), width: width, height: viewHeight)
+        let gap = Metrics.space2
+        let padding = Metrics.space3
+        let rowHeight = max(Metrics.space8, access.fittingSize.height + gap)
+        let stacked = controlsShown && bounds.width < expandedWidth
+        let compact = stacked && bounds.width < expandedWidth - Metrics.space8 * 4
+        line.frame = CGRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1)
+        quality.themedToolTip = model.session.map { Self.qualityTitle($0.preferences.quality) }
+        let controls = arrangedControls(for: bounds.width)
+        let widths = controls.map { ceil($0.fittingSize.width) }
+        let controlsWidth = widths.reduce(0, +) + gap * CGFloat(max(0, controls.count - 1))
+        let headerRight = stacked ? bounds.width - padding : bounds.width - padding - controlsWidth - gap
+        var x = padding
+        func place(_ view: NSView, width: CGFloat, y: CGFloat) {
+            let h = min(rowHeight, view.fittingSize.height)
+            view.frame = CGRect(x: x, y: y + (rowHeight - h) / 2, width: max(0, width), height: h)
             x += width + gap
         }
-        place(dot, width: 7, height: 7)
-        icon.isHidden = !showsIcon
-        if showsIcon { place(icon, width: iconWidth, height: icon.intrinsicContentSize.height) }
-        place(name, width: nameUsed, height: name.intrinsicContentSize.height)
-        // A slot that does not fit keeps its spacing (as SwiftUI's empty fallback did) and stays hidden.
-        stats.isHidden = !showsStats
-        if showsStats { place(stats, width: statsWidth, height: stats.intrinsicContentSize.height) } else if statsSlot { x += gap }
-        x += 8 + max(0, left) + gap
-        if !badge.isHidden {
-            place(badge, width: badgeSize.width, height: badgeSize.height)
-            badge.layer?.cornerRadius = badgeSize.height / 2
+        dot.frame = CGRect(x: x, y: (rowHeight - Metrics.space2) / 2, width: Metrics.space2, height: Metrics.space2)
+        x += Metrics.space2 + gap
+        icon.isHidden = compact
+        if !icon.isHidden { place(icon, width: icon.intrinsicContentSize.width, y: 0) }
+        let statsWidth = min(Self.textWidth(stats), max(0, (headerRight - x) / 2))
+        stats.isHidden = !statsSlot
+        let remaining = max(0, headerRight - x - (statsSlot ? statsWidth + gap : 0))
+        let hintWidth = hint.fittingSize.width
+        hint.isHidden = !hintSlot || remaining < Self.textWidth(name) + gap + hintWidth
+        let nameWidth = max(0, remaining - (hint.isHidden ? 0 : hintWidth + gap))
+        place(name, width: nameWidth, y: 0)
+        if statsSlot { place(stats, width: statsWidth, y: 0) }
+        if !hint.isHidden { place(hint, width: hintWidth, y: 0) }
+        // The release hint remains available on the access control at every width.
+        access.themedToolTip = hintSlot ? hint.themedToolTip : access.accessibilityLabel()
+        x = stacked ? padding : bounds.width - padding - controlsWidth
+        var y: CGFloat = stacked ? rowHeight : 0
+        for (control, measured) in zip(controls, widths) {
+            let width = min(measured, max(0, bounds.width - padding * 2))
+            if stacked && x > padding && x + width > bounds.width - padding { x = padding; y += rowHeight }
+            place(control, width: width, y: y)
         }
-        hint.isHidden = !showsHint
-        if showsHint { place(hint, width: hintSize.width, height: hintSize.height) } else if hintSlot { x += gap }
-        for (view, size) in zip(controls, controlSizes) { place(view, width: size.width, height: size.height) }
     }
 }
 
