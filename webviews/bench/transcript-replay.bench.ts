@@ -753,7 +753,12 @@ if (import.meta.main) {
     });
     releases.push(() => daemon.stop(true));
     const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "transcript-replay-bench-"));
-    releases.push(() => fs.rmSync(out, { recursive: true, force: true }));
+    // PROFILE_BUILD=DIR keeps the pane's build there: a profile's `file:line` read against it names an anonymous function.
+    releases.push(() =>
+      process.env.PROFILE_BUILD
+        ? fs.renameSync(out, process.env.PROFILE_BUILD)
+        : fs.rmSync(out, { recursive: true, force: true }),
+    );
     const builtAt = performance.now();
     const { build } = await import("vite");
     await build({
