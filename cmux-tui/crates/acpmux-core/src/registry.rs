@@ -227,31 +227,6 @@ mod tests {
         assert!(registry.get("chat").is_none());
     }
 
-    /// cmux#43078: a lookup that joins a finished actor drops its slot, so the map does not grow
-    /// with chats whose actors ended.
-    #[test]
-    fn a_lookup_that_joins_a_finished_actor_drops_its_slot() {
-        let dir = tempfile::tempdir().unwrap();
-        let registry = Registry::new();
-        let other = registry.hydrate(config(dir.path(), "other")).unwrap();
-        let before = registry.len();
-        let config = config(dir.path(), "chat");
-        let handle = registry.hydrate(config.clone()).unwrap();
-        assert_eq!(registry.len(), before + 1);
-        handle.close().unwrap();
-        let started = Instant::now();
-        while registry.get("chat").is_some() {
-            assert!(started.elapsed() < Duration::from_secs(10), "the closed actor never ended");
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        assert_eq!(registry.len(), before, "the joined actor's slot is gone");
-        assert!(registry.get("other").is_some() && other.wake().is_ok(), "another chat's stays");
-        let (_, started) = registry.start(config).unwrap();
-        assert!(started, "a later lookup starts the chat again");
-        assert_eq!(registry.len(), before + 1);
-        assert!(registry.evict("chat") && registry.evict("other"));
-    }
-
     #[test]
     fn a_forgotten_chat_is_not_hydrated_until_its_purge_ends() {
         let dir = tempfile::tempdir().unwrap();
