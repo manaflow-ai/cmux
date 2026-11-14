@@ -151,6 +151,13 @@ extension NotificationSoundPreferences {
     public nonisolated static let cooldownPath = ["notifications", "sounds", "cooldownSeconds"]
     public nonisolated static let cooldownDefault: Double = 1.5
     public nonisolated static let cooldownRange: ClosedRange<Double> = 0...60
+    /// `notifications.sounds.maxSeconds`.
+    public nonisolated static let maxLengthPath = ["notifications", "sounds", "maxSeconds"]
+    public nonisolated static let maxLengthDefault: Double = 0
+    public nonisolated static let maxLengthRange: ClosedRange<Double> = 0...30
+    /// `notifications.sounds.lengths`.
+    public nonisolated static let lengthsPath = ["notifications", "sounds", "lengths"]
+    public nonisolated static let lengthsDefault: JSONValue = .object([:])
     /// `notifications.sounds.workspaces`.
     public nonisolated static let workspacesPath = ["notifications", "sounds", "workspaces"]
     public nonisolated static let workspacesDefault: JSONValue = .object([:])

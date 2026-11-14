@@ -1,3 +1,5 @@
+import Foundation
+
 /// `notifications.sounds` (``NotificationSoundPreferences``). A bad value keeps its default with a
 /// diagnostic; a bad level rule is dropped and the other levels apply.
 extension NotificationConfigParser {
@@ -8,7 +10,9 @@ extension NotificationConfigParser {
         if let value = reader.number("volume", range: NotificationSoundPreferences.volumeRange) { sounds.volume = value }
         if let value = reader.choice("when", NotificationSoundTiming.self) { sounds.when = value }
         if let value = reader.number("cooldownSeconds", range: NotificationSoundPreferences.cooldownRange) { sounds.cooldownSeconds = value }
+        if let value = reader.number("maxSeconds", range: NotificationSoundPreferences.maxLengthRange) { sounds.maxSeconds = value }
         diagnostics += reader.diagnostics
+        sounds.lengths = lengths(root, diagnostics: &diagnostics)
         if var events = ConfigFieldReader(root, at: path + ["events"], diagnostics: &diagnostics) {
             for name in events.members.keys.sorted() {
                 guard let event = NotificationSoundEvent(rawValue: name) else {
@@ -25,6 +29,29 @@ extension NotificationConfigParser {
         sounds.agents = Dictionary(rules(root, "agents", diagnostics: &diagnostics).map { ($0.key.lowercased(), $0.value) },
                                    uniquingKeysWith: { first, _ in first })
         return sounds
+    }
+
+    /// `notifications.sounds.lengths`: seconds per sound, as text (`"2.5"`, the string map's values) or a
+    /// number. A value outside 0 to 30 seconds is clamped with a diagnostic, as every number setting is;
+    /// one that is not a number is dropped with a diagnostic. The others apply.
+    private static func lengths(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> [String: Double] {
+        guard let reader = ConfigFieldReader(root, at: ["notifications", "sounds", "lengths"], diagnostics: &diagnostics) else { return [:] }
+        var lengths: [String: Double] = [:]
+        for (name, value) in reader.members {
+            let seconds = value.doubleValue ?? value.stringValue.flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+            let range = NotificationSoundPreferences.maxLengthRange
+            guard let seconds, seconds.isFinite, !name.isEmpty else {
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "notifications.sounds.lengths.\(name)",
+                                                      message: "expected seconds from 0 to 30, such as \"2.5\""))
+                continue
+            }
+            if !range.contains(seconds) {
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "notifications.sounds.lengths.\(name)",
+                                                      message: "clamped to \(range.lowerBound)...\(range.upperBound)"))
+            }
+            lengths[name] = min(max(seconds, range.lowerBound), range.upperBound)
+        }
+        return lengths
     }
 
     /// The rules of one level map (`notifications.sounds.<key>`), by id or name.

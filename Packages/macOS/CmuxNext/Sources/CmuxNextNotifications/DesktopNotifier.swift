@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextMobileHost
+import CmuxNextWakeups
 import os
 package import UserNotifications
 
@@ -142,11 +143,36 @@ package final class DesktopNotifier: NSObject {
         content.userInfo = info
         let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
         let logger = logger
-        center.add(request) { error in
+        center.add(request) { [weak self] error in
             guard let error else { return }
             logger.error("banner failed: \(String(describing: error), privacy: .public)")
             if let attachmentFile { try? FileManager.default.removeItem(at: attachmentFile) }
+            // macOS refused the banner (not authorized yet, or the add failed): its default sound went with it.
+            guard defaultSound else { return }
+            UNUserNotificationCenter.current().getNotificationSettings { settings in
+                let status = settings.authorizationStatus
+                MainDelivery().run { self?.bannerRefused(defaultSound: true, status: status, asksPermission: Self.asksPermission) }
+            }
         }
+    }
+
+    /// Plays a banner's `"default"` sound when no banner carries it (`NSSound.beep()`, the system alert
+    /// sound, as cmux classic plays it); tests count the calls.
+    package var playUnshownDefaultSound: @MainActor () -> Void = { NSSound.beep() }
+
+    /// macOS refused a banner. Its `"default"` sound plays here instead, as cmux classic does
+    /// (https://github.com/manaflow-ai/cmux/issues/42221), unless the person denied cmux
+    /// notifications (they asked for silence) or this launch never asks for permission (a GUI job,
+    /// whose every banner is refused).
+    ///
+    /// - Parameters:
+    ///   - defaultSound: The banner carried the `"default"` sound (another sound already played).
+    ///   - status: The authorization macOS reports now.
+    ///   - asksPermission: This launch asks for notification permission (``asksPermission(in:)``).
+    package func bannerRefused(defaultSound: Bool, status: UNAuthorizationStatus, asksPermission: Bool) {
+        guard defaultSound, asksPermission, status != .denied else { return }
+        logger.info("banner refused (authorization \(status.rawValue, privacy: .public)): played the default sound itself")
+        playUnshownDefaultSound()
     }
 
     /// A file for one banner's attachment in the temporary directory.
