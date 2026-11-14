@@ -536,12 +536,15 @@ impl HubRowSide {
     }
 
     /// The tee's turn for one changed hub row: the book read marks it (not timed), then the tee
-    /// submits it and the index publishes it.
+    /// drains the mark, finds the row and submits it. The index's publish that follows is the
+    /// writer's turn, waited for untimed so each sample is one apply; the `v2.pr05d` and `v2.pr05`
+    /// gates bound it. Timed with the publish, the turn read 25-43 us at either size on one host
+    /// (2026-11-14), the writer thread's wake, while the drain read 9.7-11.2 us at every size.
     async fn round(&mut self, round: u64) -> Vec<u128> {
-        self.round_parts(round).await.0
+        self.round_parts(round).await.1
     }
 
-    /// [`Self::round`], with the tee's drain alone timed beside the whole turn.
+    /// The whole turn (drain and publish) and the tee's drain alone, per sample.
     async fn round_parts(&mut self, round: u64) -> (Vec<u128>, Vec<u128>) {
         let (mut samples, mut drains) = (Vec::with_capacity(200), Vec::with_capacity(200));
         for n in 0..200_u64 {
