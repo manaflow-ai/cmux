@@ -15,8 +15,11 @@ nightly-only minis before the keyed job asks for the signer, ends with this wait
 
 - the live feed serves a newer build than this one: its deltas could never be published (republish's own
   rule), so they are skipped (skip=true);
+- nightly-next is no longer the commit the feed serves (its item's cmux:sourceCommit): a promoted build is on its
+  way to the signer (86dc299b's run was created at 04:34:04, its nightly-next-one asked for the signer at
+  04:36:52): wait, and skip once it publishes;
 - feat-cmux-next has moved past nightly-next: a promotion and its build are on their way to the signer: wait;
-- nightly-next has the tip for QUIET_MINUTES: go.
+- nightly-next has the tip and is the build the feed serves for QUIET_MINUTES: go.
 
 After MAX_MINUTES it goes anyway; an unreadable feed or ref does not skip. It reads only the public feed and
 `git ls-remote`, no API budget (tests/test_ci_no_github_token_polling.py). Nothing is cancelled.
@@ -40,26 +43,38 @@ MAX_MINUTES = 40.0
 POLL_SECONDS = 30.0
 
 
-def newest_build(feed_xml: str) -> int | None:
-    """The sparkle:version of the feed's first item (the build it serves), None when unreadable."""
+def newest_item(feed_xml: str) -> tuple[int | None, str]:
+    """The feed's first item (the build it serves): its sparkle:version (None when unreadable) and its
+    cmux:sourceCommit ("" when absent)."""
     try:
         root = ET.fromstring(feed_xml)
     except ET.ParseError:
-        return None
+        return None, ""
     for item in root.iter():
         if item.tag.rsplit("}", 1)[-1] != "item":
             continue
+        build, commit = None, ""
         for child in item:
-            if child.tag.rsplit("}", 1)[-1] == "version" and (child.text or "").strip().isdigit():
-                return int(child.text.strip())
-        return None
-    return None
+            name, text = child.tag.rsplit("}", 1)[-1], (child.text or "").strip()
+            if name == "version" and text.isdigit() and build is None:
+                build = int(text)
+            elif name == "sourceCommit" and len(text) == 40:
+                commit = text
+        return build, commit
+    return None, ""
 
 
-def verdict(build: int, live: int | None, next_head: str, tip: str) -> str:
+def newest_build(feed_xml: str) -> int | None:
+    """The sparkle:version of the feed's first item (the build it serves), None when unreadable."""
+    return newest_item(feed_xml)[0]
+
+
+def verdict(build: int, live: int | None, next_head: str, tip: str, live_commit: str = "") -> str:
     """'skip', 'wait' or 'quiet' for this build's deltas at one look."""
     if live is not None and live > build:
         return "skip"
+    if live == build and live_commit and next_head and next_head != live_commit:
+        return "wait"
     if next_head and tip and next_head != tip:
         return "wait"
     return "quiet"
@@ -92,16 +107,16 @@ def main(argv: list[str], feed=read_feed, ref=ls_remote,
     answer = "go"
     while True:
         try:
-            live = newest_build(feed(args.feed))
+            live, live_commit = newest_item(feed(args.feed))
         except Exception as error:  # noqa: BLE001 - an unreadable feed never skips
             print(f"could not read {args.feed} ({error!r})")
-            live = None
+            live, live_commit = None, ""
         try:
             next_head, tip = ref(args.repo, "nightly-next"), ref(args.repo, "feat-cmux-next")
         except Exception as error:  # noqa: BLE001 - an unreadable ref reads as quiet
             print(f"could not read nightly-next or feat-cmux-next ({error!r})")
             next_head = tip = ""
-        look = verdict(args.build, live, next_head, tip)
+        look = verdict(args.build, live, next_head, tip, live_commit)
         now = clock()
         if look == "skip":
             answer = "skip"
