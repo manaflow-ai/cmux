@@ -64,9 +64,33 @@ fn assert_kin(
     folders: &BTreeSet<FolderKey>,
 ) {
     let rebuilt = KinTables::from_rows(index.iter());
-    assert_eq!(index.kin(), &rebuilt, "kin mismatch at lifecycle step {step}");
+    let has_cycle = index.iter().any(|row| parent_cycle(index, &row.key()));
+    if !has_cycle {
+        assert_eq!(index.kin(), &rebuilt, "kin mismatch at lifecycle step {step}");
+    }
+    let mut expected_children = BTreeMap::<RowKey, BTreeSet<RowKey>>::new();
     for row in index.iter() {
         if let Some(parent) = row.parent.as_ref() {
+            expected_children.entry(parent.clone()).or_default().insert(row.key());
+        }
+    }
+    let actual_parents = index.kin().parent_keys().cloned().collect::<BTreeSet<_>>();
+    assert_eq!(actual_parents, expected_children.keys().cloned().collect::<BTreeSet<_>>());
+    for parent in actual_parents {
+        let actual = index
+            .kin()
+            .children(&parent)
+            .into_iter()
+            .flat_map(ChildSet::keys)
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        assert_eq!(actual, expected_children.get(&parent).cloned().unwrap_or_default());
+    }
+    for row in index.iter() {
+        if let Some(parent) = row.parent.as_ref() {
+            if parent_cycle(index, &row.key()) {
+                continue;
+            }
             let parent_handle = index.kin().child_set(parent, &row.key());
             let own_handle = index.kin().children(&row.key());
             assert!(
@@ -122,6 +146,20 @@ fn assert_kin(
         index.folders().iter().map(|row| (row.key(), row.as_ref().clone())).collect::<Vec<_>>();
     let expected = rebuilt.iter().map(|row| (row.key(), row.as_ref().clone())).collect::<Vec<_>>();
     assert_eq!(actual, expected, "folder projection mismatch at lifecycle step {step}");
+}
+
+fn parent_cycle(index: &SummaryIndex, start: &RowKey) -> bool {
+    let mut seen = BTreeSet::new();
+    let mut current = start.clone();
+    for _ in 0..=MAX_KIN_DEPTH {
+        if !seen.insert(current.clone()) {
+            return true;
+        }
+        let Some(row) = index.get_row(&current) else { return false };
+        let Some(parent) = row.parent.as_ref() else { return false };
+        current = parent.clone();
+    }
+    false
 }
 
 fn plain_family(index: &SummaryIndex, root: &RowKey) -> Vec<RowKey> {

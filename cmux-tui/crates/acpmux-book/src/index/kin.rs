@@ -53,6 +53,10 @@ impl ChildSet {
         self.entries.get(key)
     }
 
+    pub(super) fn keys(&self) -> impl Iterator<Item = &RowKey> {
+        self.entries.keys()
+    }
+
     pub(super) fn next_key(&self, root: &RowKey, after: Option<&RowKey>) -> Option<RowKey> {
         use std::ops::Bound::{Excluded, Unbounded};
         self.entries
@@ -121,6 +125,10 @@ impl KinTables {
 
     pub fn parent_count(&self) -> usize {
         self.children.len()
+    }
+
+    pub(super) fn parent_keys(&self) -> impl Iterator<Item = &RowKey> {
+        self.children.keys()
     }
 
     pub fn folder_count(&self) -> usize {
