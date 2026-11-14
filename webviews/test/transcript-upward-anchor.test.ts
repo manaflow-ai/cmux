@@ -262,7 +262,7 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
       await installPaintedFrames(page);
       const fixture = (rows: string) =>
         page.setContent(`
-          <style>:root { --grid-gap-block: 24px; --grid-gap-turn: 32px; --grid-gap-footer: 8px; --grid-gap-run: 16px; }</style>
+          <style>:root { --grid-gap-block: 24px; --grid-gap-turn: 32px; --grid-gap-footer: 8px; --grid-gap-inner: 12px; --grid-gap-run: 16px; }</style>
           <div class="acpmux-scroll" style="position:relative;height:200px;overflow:hidden">
             ${rows}
           </div>`);
@@ -274,6 +274,16 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
       expect(accepted.maxUnexpectedRowBoxGap).toBe(0);
       expect(accepted.missingRowFrames).toBe(0);
       expect(accepted.blankBandFrames).toBe(0);
+
+      // Transcript runs use gap-run (16), matching transcriptGrid.ts.
+      await fixture(`${row("activity", "work", 1, 0)}${row("assistant", "reply", 2, 36)}`);
+      const run = await page.evaluate(traceUpwardAnchors, { steps: [0], restFrames: 0 });
+      expect(run.maxUnexpectedRowBoxGap).toBe(0);
+      expect(run.blankBandFrames).toBe(0);
+      await fixture(`${row("activity", "work", 1, 0)}${row("assistant", "reply", 2, 40)}`);
+      const extraRun = await page.evaluate(traceUpwardAnchors, { steps: [0], restFrames: 0 });
+      expect(extraRun.maxUnexpectedRowBoxGap).toBe(4);
+      expect(extraRun.blankBandFrames).toBe(1);
 
       await fixture(`${row("user", "prompt", 1, 0)}${row("assistant", "reply", 3, 52)}`);
       const missing = await page.evaluate(traceUpwardAnchors, { steps: [0], restFrames: 0 });

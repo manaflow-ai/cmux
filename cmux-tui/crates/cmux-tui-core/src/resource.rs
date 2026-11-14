@@ -184,6 +184,8 @@ pub enum ResourceOperation {
     DiffCommentsList,
     #[serde(rename = "diff.comments.save")]
     DiffCommentsSave,
+    #[serde(rename = "diff.comments.send")]
+    DiffCommentsSend,
     #[serde(rename = "git.branches")]
     GitBranches,
     #[serde(rename = "git.commit")]
@@ -450,6 +452,8 @@ pub enum ResourceOperation {
     SettingsReset,
     #[serde(rename = "settings.reset_all")]
     SettingsResetAll,
+    #[serde(rename = "settings.edit")]
+    SettingsEdit,
     #[serde(rename = "keybindings.get")]
     KeybindingsGet,
     #[serde(rename = "keybindings.set")]
@@ -572,6 +576,8 @@ pub enum ResourceOperation {
     ConductorImportPlan,
     #[serde(rename = "conductor_import.record")]
     ConductorImportRecord,
+    #[serde(rename = "browser_import.read")]
+    BrowserImportRead,
     #[serde(rename = "cloud.vm.scp_endpoint")]
     CloudVmScpEndpoint,
     #[serde(rename = "cloud.vm.tunnel_enroll")]
@@ -646,6 +652,10 @@ pub enum ResourceOperation {
     CloudPreviewsRevokeLink,
     #[serde(rename = "cloud.machine.io")]
     CloudMachineIo,
+    #[serde(rename = "cloud.machine.chat_access")]
+    CloudMachineChatAccess,
+    #[serde(rename = "cloud.machine.share_chat")]
+    CloudMachineShareChat,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]

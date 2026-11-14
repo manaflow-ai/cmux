@@ -74,6 +74,12 @@
       "title" : "Session Info Chip",
       "type" : "string"
     },
+    "agentPane.display.finishSound" : {
+      "default" : false,
+      "description" : "A soft sound when a long turn in the chat you're looking at ends, its checks pass or its pull request merges. Follows the Mac's Play user interface sound effects setting.",
+      "title" : "Play Sound When Work Finishes",
+      "type" : "boolean"
+    },
     "agentPane.display.font.lineHeight" : {
       "default" : 1.625,
       "description" : "agentPane.display.font.lineHeight",
@@ -271,7 +277,7 @@
       "type" : "boolean"
     },
     "agentPane.display.unreadBanner" : {
-      "default" : "expanded",
+      "default" : "off",
       "description" : "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back.",
       "enum" : [
         "expanded",
@@ -296,7 +302,7 @@
       "type" : "number"
     },
     "agentPane.editedFiles.maxRows" : {
-      "default" : 5,
+      "default" : 3,
       "description" : "agentPane.editedFiles.maxRows",
       "maximum" : 50,
       "minimum" : 1,
@@ -695,8 +701,8 @@
     "app.uiScale" : {
       "default" : 1,
       "description" : "Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app.",
-      "maximum" : 1.5,
-      "minimum" : 0.85,
+      "maximum" : 5,
+      "minimum" : 0.25,
       "title" : "App Zoom",
       "type" : "number"
     },
@@ -1356,6 +1362,13 @@
       "title" : "Divider Thickness",
       "type" : "number"
     },
+    "appearance.metrics.sidebarRowHeight" : {
+      "description" : "appearance.metrics.sidebarRowHeight",
+      "maximum" : 48,
+      "minimum" : 20,
+      "title" : "Workspace Row Height",
+      "type" : "number"
+    },
     "appearance.metrics.sidebarWidth" : {
       "description" : "appearance.metrics.sidebarWidth",
       "maximum" : 420,
@@ -1700,6 +1713,24 @@
     "appearance.themeFile" : {
       "description" : "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies.",
       "title" : "Theme File",
+      "type" : "string"
+    },
+    "appearance.titleAreaContrast" : {
+      "default" : 1,
+      "description" : "How much darker the title bar, the tab bar and the sidebar are than the content, under Subtle Tone or a shaded window style. 1 is the default; lower is softer, higher is stronger.",
+      "maximum" : 2,
+      "minimum" : 0,
+      "title" : "Title Area Contrast",
+      "type" : "number"
+    },
+    "appearance.titleAreaTone" : {
+      "default" : "oneColor",
+      "description" : "One Color draws the title bar, the tab bar and the sidebar in the content's color, parted by thin dividers, with a highlighted selected tab. Subtle Tone shades them slightly apart from the content, and the selected tab opens into the content.",
+      "enum" : [
+        "oneColor",
+        "subtleTone"
+      ],
+      "title" : "Title Area",
       "type" : "string"
     },
     "appearance.wallpaperTint" : {
@@ -2088,6 +2119,12 @@
       "title" : "Show Bookmarks Bar",
       "type" : "boolean"
     },
+    "browser.showLoadingBar" : {
+      "default" : false,
+      "description" : "A thin progress line under the address bar while a page loads. The Stop button shows either way.",
+      "title" : "Show Loading Bar",
+      "type" : "boolean"
+    },
     "browser.siteEngines" : {
       "default" : {
         "amazon.com/gp/video" : "webkit",
@@ -2218,43 +2255,43 @@
     },
     "chief.subagentSidebar" : {
       "default" : "auto",
-      "description" : "Automatic lets the Chief decide for each subagent: work you will want to watch or join shows, short errands stay hidden. Always and Never override the Chief.",
+      "description" : "Every subagent gets a workspace. Chief Decides puts work you will watch or join in the sidebar and errands in the collapsed Chief's workspaces group, which search still finds. Sidebar or Chief's Workspaces puts every subagent there.",
       "enum" : [
         "auto",
         "always",
         "never"
       ],
-      "title" : "Subagents in the Sidebar",
+      "title" : "Subagent Workspaces",
       "type" : "string"
     },
     "chief.subagentSidebarHideWords" : {
       "default" : [
 
       ],
-      "description" : "Words or phrases that keep a subagent hidden when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A show word wins.",
+      "description" : "Words or phrases that put a subagent in the collapsed Chief's workspaces group when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A sidebar word wins.",
       "items" : {
         "type" : "string"
       },
-      "title" : "Hide Tasks That Mention",
+      "title" : "Chief's Workspaces for Tasks That Mention",
       "type" : "array"
     },
     "chief.subagentSidebarMinWords" : {
       "default" : 50,
-      "description" : "A task with no show or hide word shows when it has at least this many words, and stays hidden when it is shorter.",
+      "description" : "A task with neither kind of word goes in the sidebar when it has at least this many words, and in Chief's workspaces when it is shorter.",
       "maximum" : 1000,
       "minimum" : 0,
-      "title" : "Show Tasks Longer Than",
+      "title" : "Sidebar for Tasks Longer Than",
       "type" : "number"
     },
     "chief.subagentSidebarShowWords" : {
       "default" : [
 
       ],
-      "description" : "Words or phrases that show a subagent when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you.",
+      "description" : "Words or phrases that put a subagent in the sidebar when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you.",
       "items" : {
         "type" : "string"
       },
-      "title" : "Show Tasks That Mention",
+      "title" : "Sidebar for Tasks That Mention",
       "type" : "array"
     },
     "cloud.agentsStartWithoutAsking" : {
@@ -2346,6 +2383,12 @@
       "default" : false,
       "description" : "Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent.",
       "title" : "Send Hang Reports",
+      "type" : "boolean"
+    },
+    "diagnostics.usagePatterns" : {
+      "default" : false,
+      "description" : "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page. It also counts which packages agents install, by name.",
+      "title" : "Record Usage Patterns",
       "type" : "boolean"
     },
     "diff.colors" : {
@@ -5247,96 +5290,6 @@
       "title" : "New Tab Template",
       "type" : "string"
     },
-    "tabs.newTabWidgets.actions" : {
-      "default" : false,
-      "description" : "Chats that need you, and New Terminal, New Browser Tab and New Chat.",
-      "title" : "Show Quick Actions on New Tab",
-      "type" : "boolean"
-    },
-    "tabs.newTabWidgets.chats" : {
-      "default" : false,
-      "description" : "Your recent chats under the composer. The palette finds any chat.",
-      "title" : "Show Recent Chats on New Tab",
-      "type" : "boolean"
-    },
-    "tabs.newTabWidgets.clock" : {
-      "default" : false,
-      "description" : "A quiet local time display beside the composer.",
-      "title" : "Show Clock on New Tab",
-      "type" : "boolean"
-    },
-    "tabs.newTabWidgets.greeting" : {
-      "default" : false,
-      "description" : "A headline over the composer that asks what to work on, with the project as a picker.",
-      "title" : "Ask What to Work On on New Tab",
-      "type" : "boolean"
-    },
-    "tabs.newTabWidgets.machines" : {
-      "default" : false,
-      "description" : "Your machines and whether each is online.",
-      "title" : "Show Machines on New Tab",
-      "type" : "boolean"
-    },
-    "tabs.newTabWidgets.order" : {
-      "default" : [
-        "projects",
-        "actions",
-        "chats"
-      ],
-      "description" : "The order of the widgets on New Tab. Right-click New Tab and choose Edit New Tab to drag them.",
-      "items" : {
-        "enum" : [
-          "projects",
-          "actions",
-          "chats"
-        ],
-        "type" : "string"
-      },
-      "title" : "New Tab Widget Order",
-      "type" : "array"
-    },
-    "tabs.newTabWidgets.projects" : {
-      "default" : false,
-      "description" : "A card of this Mac and its recent projects over the composer.",
-      "title" : "Show Projects on New Tab",
-      "type" : "boolean"
-    },
-    "tabs.newTabWidgets.quote" : {
-      "default" : false,
-      "description" : "A bundled public-domain quote, changing daily.",
-      "title" : "Show Quote of the Day on New Tab",
-      "type" : "boolean"
-    },
-    "tabs.newTabWidgets.styleDots" : {
-      "default" : false,
-      "description" : "Dots under the page that switch its template.",
-      "title" : "Show Template Dots on New Tab",
-      "type" : "boolean"
-    },
-    "tabs.newTabWidgets.timer" : {
-      "default" : false,
-      "description" : "A small elapsed-time stopwatch beside the composer.",
-      "title" : "Show Stopwatch on New Tab",
-      "type" : "boolean"
-    },
-    "tabs.newTabWidgets.warmGreeting" : {
-      "default" : false,
-      "description" : "A time-of-day greeting such as Good afternoon.",
-      "title" : "Show Warm Greeting on New Tab",
-      "type" : "boolean"
-    },
-    "tabs.newTabWidgets.weather" : {
-      "default" : false,
-      "description" : "The current weather and today's high and low, for the city below or your time zone's city.",
-      "title" : "Show Weather on New Tab",
-      "type" : "boolean"
-    },
-    "tabs.newTabWidgets.weatherCity" : {
-      "default" : "",
-      "description" : "A city for the weather widget. Empty uses your time zone's city.",
-      "title" : "Weather City",
-      "type" : "string"
-    },
     "tabs.overflow" : {
       "default" : "shrink",
       "description" : "Shrink narrows every tab to the minimum width before the strip scrolls. Scroll keeps tabs wide and scrolls sooner.",
@@ -5800,7 +5753,7 @@
       "type" : "number"
     },
     "workspaces.newPlacement" : {
-      "default" : "afterCurrent",
+      "default" : "top",
       "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it.",
       "enum" : [
         "top",

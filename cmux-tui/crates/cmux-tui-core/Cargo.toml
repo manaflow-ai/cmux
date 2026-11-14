@@ -17,6 +17,8 @@ hotpatch = ["dep:subsecond"]
 
 [dependencies]
 cmux-json.workspace = true
+# Locks that unlock before they close (a forked child keeps none).
+cmux-file-lock.workspace = true
 cmux-agent-pane-policy.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-cdp.workspace = true
@@ -37,9 +39,12 @@ cmux-conversation.workspace = true
 cmux-git.workspace = true
 cmux-classic-import.workspace = true
 cmux-conductor-import.workspace = true
+# Another browser's files for the app's browser import (resource_router/browser_import.rs).
+cmux-browser-import.workspace = true
 cmux-palette-ranker.workspace = true
 cmux-theme-tokens.workspace = true
 cmux-config.workspace = true
+cmux-usage-patterns.workspace = true
 cmux-feed-core.workspace = true
 cmux-history.workspace = true
 # The Tasks page link (tasks_link.rs): the owner socket protocol and its client.

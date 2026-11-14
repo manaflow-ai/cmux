@@ -120,6 +120,7 @@ impl ResourceOperation {
                 | Self::StashList
                 | Self::ClassicImportPlan
                 | Self::ConductorImportPlan
+                | Self::BrowserImportRead
                 | Self::CloudVmFirewallList
                 | Self::CloudVmFirewallGet
                 | Self::CloudVmNetworks
@@ -131,6 +132,7 @@ impl ResourceOperation {
                 | Self::CloudOwnerHandoffs
                 | Self::CloudOwnerHarnessLoginCopy
                 | Self::CloudOwnerGithubApp
+                | Self::CloudMachineChatAccess
                 | Self::CloudOwnerTurns
                 | Self::RoomList
                 | Self::SavedTabGroupList
