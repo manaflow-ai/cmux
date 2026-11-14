@@ -322,7 +322,11 @@
   position: fixed;
   z-index: var(--layer-tooltip, 1000);
   box-sizing: border-box;
-  padding: 8px;
+  /* Its width (HeaderToolPreview.tsx) and insets follow Text Size as its type does (--ui-px,
+     ui/popupSurface.css); it never runs past the window and nothing in it escapes its frame. */
+  max-width: calc(100vw - 16 * var(--ui-px, 1px));
+  overflow: hidden;
+  padding: calc(8 * var(--ui-px, 1px));
   border-radius: 8px;
   background: var(--agent-surface-elevated, Canvas);
   color: var(--agent-text);
@@ -417,12 +421,18 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 8px;
+  gap: calc(8 * var(--ui-px, 1px));
+  min-width: 0;
 }
 .acpmux-header-preview-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: var(--weight-emphasis);
 }
 .acpmux-header-preview-key {
+  flex: none;
   font: inherit;
   color: var(--agent-muted);
 }

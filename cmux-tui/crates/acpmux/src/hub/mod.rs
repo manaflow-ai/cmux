@@ -130,6 +130,8 @@ mod launchers;
 pub mod lineage;
 pub(crate) mod list_guard;
 pub(crate) mod list_tee;
+// Row 3b's first PR: the source, driven by tests. Its second PR (the tee at v1's append and the
+// chat registry in the daemon's v2 handle) is its first caller in the daemon.
 mod live_ages;
 #[cfg(test)]
 mod live_ages_tests;
@@ -140,6 +142,8 @@ pub mod media_read;
 mod mesh_book;
 mod mesh_rows;
 mod peer_row;
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) mod v1_source;
 pub use peer_row::PeerRow;
 pub(crate) mod native_history;
 pub(crate) mod row_log;
