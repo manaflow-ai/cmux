@@ -15,14 +15,12 @@ From the design references repository (private: ids only).
 
 - `claude/live/code-home-after-login`: a two-icon Chat | Code segmented toggle at the top of the window. It is the
   closest prior art for one session in two modes.
-- `chatgpt/web/home-work-chat-toggle-empty-state`: a Chat | Work text segmented pill (variant 2's words).
 - `cmux/live/agent-pane-search-ask-toggle`: our own Search | Ask segmented control, the house look of a two-state
   switch.
 - `cmux/live/tabs-panels-toolbar-toggled-highlight` and `cmux/live/pane-toolbar-vertical-ellipsis-spacing`: the
   pane's top-right icon row; a toggled tool sits on a rounded fill.
 - `cmux/live/toolbar-horizontal-ellipsis-square-padding`: square padding for every toolbar tool.
 - `cmux/live/tabs-top-right-buttons-shift`: the trailing area must not move through tab changes.
-- `zed/web/terminal-threads`: TUI agents get the same navigational identity as chat agents.
 - `cmux/live/sidebar-transcript-gui-layout`: a GUI experience rather than a terminal-style TUI.
 
 ## Model
