@@ -54,7 +54,8 @@ PIN = "Packages/macOS/CmuxNext/app-ffi-pin.json"
 PIN_TAG = re.compile(r"cmux-app-ffi-([0-9a-f]{40})(?![0-9a-f])")
 # Not a finding: prepush-gate.py counts every line that starts with "ffi-caller-ratchet: " (but "ok:") as one.
 NOTE = "ffi-caller-ratchet-note: "
-# Every path this check reads (prepush-gate.py skips it on a push that changes none of them).
+# Every path this check reads. prepush-gate.py runs it on a push that changes a header, the baseline, the checker or a
+# Swift line naming a cmux_/acpmux_ function, and not on a push that only moves the pin (a re-pin is never refused).
 INPUTS = (HEADER_ROOT, SWIFT_ROOT, BASELINE, SCRIPT, PIN)
 BASELINE_HEAD = (
     "# Port-drift ratchet (scripts/cmux-next/ffi_caller_ratchet.py): functions exported in\n"

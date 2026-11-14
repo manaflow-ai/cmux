@@ -108,7 +108,8 @@ release workflow's push paths, the router, `build_class.py` and
    port drift (`scripts/cmux-next/ffi_caller_ratchet.py`) while the pinned
    release lacks it: the app cannot call it yet, so the check prints a note,
    not a finding. From the re-pin on, it needs its Swift caller, which is
-   step B.
+   step B. A re-pin, the bot's or one by hand, is never refused by the
+   check.
 2. **Step B: the Swift change,** after the re-pin merges. Its FFI inputs then
    equal the pinned source, so the pin check passes.
 

@@ -11,7 +11,8 @@ pin has it; a pin that cannot be read (no file, no tag, a sha git cannot read, n
 
 The layer (prepush-gate.py port_drift): refuses a push that adds an uncalled export, does not blame a push for the
 base's own debt, and skips a push whose Swift lines name no cmux_/acpmux_ function. A push adding an export the pin
-lacks is not refused; one whose pinned source has it is, and so is a re-pin that reaches an uncalled export.
+lacks is not refused; one whose pinned source has it is. A push that only re-pins is not judged; one that re-pins
+and adds a caller for one of two awaited exports is refused for the other.
 
 Not a CI job (Lawrence 2026-10-23: no new CI gates): run it yourself after a change to the ratchet:
   python3 -I scripts/cmux-next/tests/test_ffi_caller_ratchet.py
@@ -21,6 +22,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -283,11 +285,30 @@ class CheckerTests(unittest.TestCase):
         self.assertNotIn("cmux_demo_new", baseline)
         self.assertNotEqual(before, baseline)
 
+    def assert_report_matches_baseline(self, code: int, out: str, listed: int) -> None:
+        """--report's uncalled count is the baseline plus the exports the pin lacks (a step A header on base). A
+        checkout that cannot read the pinned source (a shallow one) cannot judge, so the test skips; a pinned,
+        uncalled, unlisted export (after the re-pin, before step B) is true drift and fails by name."""
+        note = next((line for line in out.splitlines() if "judged without the pin" in line), None)
+        if note:
+            self.skipTest(note)
+        self.assertEqual(code, 0, out)
+        match = re.search(r"; (\d+) have none; (\d+) of those are not in the pinned app library yet", out)
+        self.assertIsNotNone(match, out)
+        self.assertEqual(int(match.group(1)), listed + int(match.group(2)), out)
+
     def test_this_checkout_matches_its_baseline(self) -> None:
         result = subprocess.run([sys.executable, "-I", str(SCRIPT), "--report"], capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         listed = [line for line in (ROOT / BASELINE).read_text().splitlines() if line and not line.startswith("#")]
-        self.assertIn(f"; {len(listed)} have none", result.stdout)
+        self.assert_report_matches_baseline(result.returncode, result.stdout + result.stderr, len(listed))
+
+    def test_the_baseline_match_holds_with_a_step_a_header_and_skips_without_the_pin(self) -> None:
+        self.fx.pin(self.fx.commit("pinned source"))
+        self.fx.write(HEADER, NEW_EXPORT_HEADER)
+        self.assert_report_matches_baseline(*self.fx.check("--report"), 3)  # 4 have none = 3 listed + 1 awaiting
+        (self.fx.dir / PIN).unlink()
+        with self.assertRaises(unittest.SkipTest):
+            self.assert_report_matches_baseline(*self.fx.check("--report"), 3)
 
 
 class GateLayerTests(unittest.TestCase):
@@ -354,14 +375,24 @@ class GateLayerTests(unittest.TestCase):
         self.assertEqual(len(found), 1, found)
         self.assertIn("cmux_demo_new is exported", found[0])
 
-    def test_a_repin_that_reaches_an_uncalled_export_is_refused(self) -> None:
+    def test_a_repin_alone_is_not_refused(self) -> None:
+        # The export was step A's and its caller is step B's: a re-pin (the bot's, or by hand) cannot add it.
         self.fx.pin(self.base)
         self.fx.write(HEADER, NEW_EXPORT_HEADER)
         self.base = self.fx.commit("step A merged, pin still old")
         self.fx.pin(self.base)
-        found = self.drift(self.fx.commit("re-pin only"))
+        self.assertEqual(self.drift(self.fx.commit("re-pin only")), [])
+
+    def test_a_repin_with_a_caller_for_one_of_two_awaited_exports_is_refused_for_the_other(self) -> None:
+        self.fx.pin(self.base)
+        self.fx.write(HEADER, NEW_EXPORT_HEADER.replace("int32_t cmux_demo_new(void);",
+                                                        "int32_t cmux_demo_new(void);\nint32_t cmux_demo_other(void);"))
+        self.base = self.fx.commit("step A merged with two exports, pin still old")
+        self.fx.pin(self.base)
+        self.fx.write(SWIFT, SWIFT_TEXT + "let n = cmux_demo_new()\n")
+        found = self.drift(self.fx.commit("re-pin and step B for one of them"))
         self.assertEqual(len(found), 1, found)
-        self.assertIn("cmux_demo_new is exported", found[0])
+        self.assertIn("cmux_demo_other is exported", found[0])
 
     def test_a_swift_push_naming_no_ffi_function_skips_the_check(self) -> None:
         self.fx.write(SWIFT, SWIFT_TEXT + "let plain = 1\n")
