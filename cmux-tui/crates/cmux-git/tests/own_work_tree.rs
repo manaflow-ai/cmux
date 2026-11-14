@@ -193,17 +193,35 @@ fn names_no_command(problem: &str) -> bool {
     !command.iter().any(|part| problem.contains(part)) && problem.contains("ask the person")
 }
 
+/// git makes this layout with `git init --separate-git-dir`: the `.git` file names the git
+/// folder, and the git folder names no work tree.
 #[test]
-fn own_tree_open_says_what_is_wrong_and_no_command_for_a_git_folder_that_names_no_work_tree() {
+fn own_tree_open_opens_a_work_tree_whose_git_folder_is_apart_and_names_no_work_tree() {
     let scratch = Scratch::new("separate");
     let (folder, store) = (scratch.folder("folder"), scratch.0.join("store"));
-    git(&folder, &["init", "--quiet", "--initial-branch=main", "--separate-git-dir", text(&store)]);
+    new_repository_with_its_git_folder_at(&folder, &store);
+    let below = scratch.folder("folder/below");
+
+    assert_eq!(top_folder(&folder), folder);
+    assert_eq!(top_folder(&below), folder, "a folder below the top folder");
+}
+
+#[test]
+fn own_tree_open_refuses_a_git_file_that_names_the_git_folder_in_another_work_tree() {
+    let scratch = Scratch::new("file-other");
+    let other = scratch.0.join("other");
+    new_repository(&other);
+    let folder = scratch.folder("folder");
+    let git_file = format!("gitdir: {}\n", text(&other.join(".git")));
+    std::fs::write(folder.join(".git"), git_file).expect("write a file");
 
     let problem = refusal(&folder);
 
     assert!(problem.contains("do not name each other"), "{problem}");
-    assert!(problem.contains(": the git folder names no work tree"), "{problem}");
+    let why = ": the git folder is the `.git` folder of another work tree";
+    assert!(problem.contains(why), "{problem}");
     assert!(names_no_command(&problem), "{problem}");
+    assert_eq!(top_folder(&other), other, "the other work tree still opens");
 }
 
 #[test]
