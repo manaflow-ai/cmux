@@ -26,6 +26,7 @@ mod computer_use;
 mod harness;
 mod machine;
 mod mcp;
+mod mcp_writer;
 mod notifications;
 mod tailnet;
 mod trust;

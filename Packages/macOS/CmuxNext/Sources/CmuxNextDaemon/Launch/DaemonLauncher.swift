@@ -197,12 +197,15 @@ public struct DaemonLauncher: Sendable {
 
     /// The Chief owner's `server ensure` environment: the user's basic
     /// variables only, never a build's `CMUX_*` identity; the brain's tools socket (chief.*) and
-    /// what the owner needs to run the other Chiefs' brains (`CMUX_TUI_CHIEF_BRAINS`). Also the
+    /// what the owner needs to run the other Chiefs' brains (`CMUX_TUI_CHIEF_BRAINS`); and the
+    /// app's settings file when it runs on its own (`CMUX_NEXT_CONFIG_FILE`, which `LaunchIdentity`
+    /// strips when inherited from another cmux), so the owner and its brains read the file the app
+    /// writes, as the app's own daemon does. Also the
     /// R-DAEMON-STATE input lane switch from the app's launch knobs (``DaemonDiagnosticKnobs``):
     /// the Chief owner follows the same rules as the app's own daemon, so its off switch must reach it too.
     static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
         let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", "CMUX_TUI_CHIEF_TOOLS_SOCKET",
-                    "CMUX_TUI_CHIEF_BRAINS"]
+                    "CMUX_TUI_CHIEF_BRAINS", "CMUX_NEXT_CONFIG_FILE"]
         var environment = base.filter { kept.contains($0.key) }
         let knobs = DaemonDiagnosticKnobs(processEnvironment: base).daemonEnvironment
         for name in DaemonDiagnosticKnobs.chiefOwnerDaemonNames {

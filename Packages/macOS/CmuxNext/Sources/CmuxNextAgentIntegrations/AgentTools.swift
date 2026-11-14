@@ -20,10 +20,17 @@ public struct AgentToolsAgent: Sendable, Equatable {
         case ready
         /// Its config runs cmux's server (`cmux mcp serve`).
         case added
+        /// This build leaves the agent's own config alone (a DEV build or one on its own settings
+        /// file, `cmux setup mcp`'s `terminals`): the agent gets cmux's server when started in this
+        /// build's terminals, through the `claude` and `codex` shims.
+        case terminals
         /// Another server named `cmux` is the person's; cmux leaves it.
         case conflict
         /// Its config could not be read or written.
         case failed
+
+        /// Whether the agent gets cmux's tools: from its own config, or in this build's terminals.
+        public var givesTools: Bool { self == .added || self == .terminals }
     }
 
     /// `claude` or `codex` (`cmux setup mcp`'s client ids, also the page's agent marks).
@@ -60,6 +67,7 @@ public extension AgentToolsAgent {
             case "planned" where removing: .added
             case "planned": .ready
             case "ok", "changed": .added
+            case "terminals": .terminals
             default: .ready
             }
             return AgentToolsAgent(id: id, name: name, state: state)

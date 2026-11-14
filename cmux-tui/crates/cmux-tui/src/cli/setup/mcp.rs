@@ -28,17 +28,19 @@
 //! `--remove` runs whatever the answer is: it only takes out an entry named
 //! `cmux` that runs `cmux mcp serve`, never a server of the person's.
 //!
-//! The entry goes into the person's global agent configs, so it must work in
-//! whatever terminal or app the agent starts. When this cmux runs on another
-//! settings file than the shared one (`CMUX_NEXT_CONFIG_FILE`: a tagged build
-//! launched on its own file), the entry's `env` names that file, so the
-//! server reads the answer the app wrote rather than the shared file's; on
-//! the shared file the entry has no `env`. A `cmux` entry whose settings file
-//! is another than this cmux's is replaced like a moved one.
+//! Only a shipped build (release or nightly) on the shared settings file
+//! writes the person's global agent configs (`mcp_writer`). Any other cmux
+//! (a tagged DEV build, DerivedData, RC or staging, or one on its own
+//! settings file) does a dry run: it writes and removes nothing, and reports
+//! `"scope": "terminals"` with why and the shim folder through which its own
+//! terminals give their agents cmux's server. Its agents get the server from
+//! the `claude` and `codex` shims (`agent_mcp_choice`), with the terminal's
+//! settings file, never from a global entry.
 //!
-//! The command is this cmux's own path (`this_cli`), as from the start: an
-//! entry another build wrote stays while its command still runs, and one
-//! whose app was deleted is replaced.
+//! A shipped build writes its own path (`this_cli`) with no `env`. It
+//! replaces a `cmux` entry whose command is gone, runs from a DEV build, or
+//! names a settings file (`CMUX_NEXT_CONFIG_FILE` in its `env`); the undo
+//! line puts it back.
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -48,6 +50,7 @@ use serde_json::{Value, json};
 
 use super::super::agents_doctor::{on_path, read_json, read_text, toml_error};
 use super::super::fix_command::quote_arg;
+use super::mcp_writer::{Writer, dev_build, writer};
 use super::{Outcome, Refusal};
 use cmux_json::JsonSet as _;
 use cmux_tui_core::user_settings::{AgentsCmuxMcp, CONFIG_OVERRIDE};
@@ -261,6 +264,13 @@ impl Entry {
     /// Whether the settings file its `env` names is there (no file named:
     /// the shared one, always). A file that is gone (a scratch launch's) would
     /// leave the server reading nothing, so the entry is replaced.
+    /// Whether a shipped build wrote it: no settings file in its `env` and a
+    /// command that is no DEV build's.
+    fn shipped(&self) -> bool {
+        self.settings_file().is_none()
+            && self.command.as_deref().is_none_or(|command| dev_build(Path::new(command)).is_none())
+    }
+
     fn settings_file_exists(&self) -> bool {
         self.settings_file().is_none_or(|file| Path::new(file).is_file())
     }
@@ -280,14 +290,15 @@ enum Plan {
     /// Already gives the cmux server.
     Ok,
     Add,
-    /// Replaces the `cmux` entry whose command is gone, or that names
-    /// another settings file than this cmux's or one that is gone.
+    /// Replaces the `cmux` entry whose command is gone, runs from a DEV
+    /// build, or names a settings file.
     Replace,
     /// The person must act: this `user_action`.
     Person(Value),
     Failed(String),
 }
 
+#[derive(Default)]
 struct Request {
     clients: Vec<Client>,
     dry_run: bool,
@@ -296,12 +307,14 @@ struct Request {
 
 pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     let request = parse(args)?;
+    let command = this_cli()?;
+    if let Writer::Terminals(why) = writer(Path::new(&command), |key| std::env::var_os(key)) {
+        return Ok(terminals(&request, &command, &why));
+    }
     if request.remove {
         return Ok(remove(&request));
     }
-    let command = this_cli()?;
     let (settings, enabled) = super::super::mcp::outside_chats();
-    let env = server_env(&settings);
     let choice = AgentsCmuxMcp::from_config_file(&settings);
     let path = std::env::var_os("PATH");
     let clients =
@@ -320,7 +333,7 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     let mut user_action = Value::Null;
     let (mut failed, mut planned, mut changed, mut installed) = (false, false, false, false);
     for client in clients {
-        let (next, found) = plan(client, request.clients.contains(&client), path.as_deref(), &env);
+        let (next, found) = plan(client, request.clients.contains(&client), path.as_deref());
         let here = on_path(path.as_deref(), client.id()).is_some();
         installed |= here;
         let mut row = json!({
@@ -357,7 +370,7 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
                 "planned"
             }
             Plan::Add | Plan::Replace => {
-                match apply(client, &command, &env, found.as_ref().filter(|e| e.name == SERVER)) {
+                match apply(client, &command, found.as_ref().filter(|e| e.name == SERVER)) {
                     Ok(line) => {
                         row.set("undo", json!(line));
                         undo.push(line);
@@ -398,8 +411,7 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
         "task": TASK,
         "state": state,
         "dry_run": request.dry_run,
-        "server": {"name": SERVER, "command": command, "args": ["mcp", "serve"],
-                   "env": env.iter().map(|(k, v)| (k.clone(), json!(v))).collect::<serde_json::Map<_, _>>()},
+        "server": {"name": SERVER, "command": command, "args": ["mcp", "serve"], "env": {}},
         "settings": settings,
         "enabled": enabled == Ok(true),
         "choice": choice.as_str(),
@@ -511,12 +523,97 @@ fn remove(request: &Request) -> Outcome {
     Outcome { report, failed }
 }
 
+/// A cmux that may not write the person's global agent configs
+/// ([`Writer::Terminals`]): a dry run of `request` (add or `--remove`) that
+/// writes and removes nothing. Each installed agent is `terminals` once the
+/// person said yes (`agents.cmuxMcp` on): this build's terminals give it
+/// cmux's server through the `claude` and `codex` shims, with the terminal's
+/// settings file. The report names `why` and that shim folder.
+fn terminals(request: &Request, command: &str, why: &str) -> Outcome {
+    let (settings, enabled) = super::super::mcp::outside_chats();
+    let choice = AgentsCmuxMcp::from_config_file(&settings);
+    let path = std::env::var_os("PATH");
+    let clients =
+        if request.clients.is_empty() { CLIENTS.to_vec() } else { request.clients.clone() };
+    let mut installed = false;
+    let rows: Vec<Value> = clients
+        .into_iter()
+        .map(|client| {
+            let here = on_path(path.as_deref(), client.id()).is_some();
+            installed |= here;
+            let state = match () {
+                _ if !here => "not_applicable",
+                _ if choice == AgentsCmuxMcp::On => "terminals",
+                _ => "planned",
+            };
+            json!({
+                "id": client.id(),
+                "name": client.name(),
+                "installed": here,
+                "config": client.config(),
+                "entry": Value::Null,
+                "undo": Value::Null,
+                "user_action": Value::Null,
+                "error": Value::Null,
+                "state": state,
+            })
+        })
+        .collect();
+    // Only the person answers the question; a no needs nothing more.
+    let user_action =
+        if installed && choice == AgentsCmuxMcp::Ask { unanswered() } else { Value::Null };
+    let shims = crate::own_build_helpers::wrapper_shim_dir(Path::new(command));
+    let mut report = json!({
+        "schema_version": 1,
+        "task": TASK,
+        "state": if user_action.is_null() { "ok" } else { "needs_user" },
+        "scope": "terminals",
+        "dry_run": true,
+        "server": {"name": SERVER, "command": command, "args": ["mcp", "serve"], "env": {}},
+        "settings": settings,
+        "enabled": enabled == Ok(true),
+        "choice": choice.as_str(),
+        "clients": rows,
+        "undo": Value::Null,
+        "user_action": user_action,
+        "terminals": {
+            "why": why,
+            "shims": shims,
+            "text": format!(
+                "Nothing was written: {why}. Claude Code and Codex started in this build's \
+                 terminals get cmux's tools through its claude and codex shims{}, reading {}",
+                shims.as_ref().map(|dir| format!(" ({})", dir.display())).unwrap_or_default(),
+                settings.display()
+            ),
+        },
+    });
+    if request.remove {
+        report.set("action", json!("remove"));
+    }
+    Outcome { report, failed: false }
+}
+
 /// The check `cmux setup status` reports: the switch, and whether each
 /// installed harness gives the cmux server outside cmux. With none
 /// installed it is `ok`, as `run` is: the switch has nothing to serve.
 pub(super) fn status() -> Value {
     let (settings, enabled) = super::super::mcp::outside_chats();
-    let env = server_env(&settings);
+    if let Ok(command) = this_cli()
+        && let Writer::Terminals(why) = writer(Path::new(&command), |key| std::env::var_os(key))
+    {
+        let report = terminals(&Request::default(), &command, &why).report;
+        return json!({
+            "task": TASK,
+            "state": report["state"],
+            "scope": "terminals",
+            "settings": settings,
+            "enabled": enabled == Ok(true),
+            "choice": report["choice"],
+            "clients": report["clients"],
+            "terminals": report["terminals"],
+            "fix": Value::Null,
+        });
+    }
     let choice = AgentsCmuxMcp::from_config_file(&settings);
     let declined = choice == AgentsCmuxMcp::Off;
     let unanswered = choice == AgentsCmuxMcp::Ask;
@@ -524,7 +621,7 @@ pub(super) fn status() -> Value {
     let clients: Vec<Value> = CLIENTS
         .into_iter()
         .filter_map(|client| {
-            let (next, found) = plan(client, false, path.as_deref(), &env);
+            let (next, found) = plan(client, false, path.as_deref());
             let state = match next {
                 Plan::Absent => return None,
                 Plan::Ok => "ok",
@@ -585,34 +682,11 @@ fn this_cli() -> Result<String, Refusal> {
         .map_err(|error| Refusal::Failed(format!("cmux: setup mcp: no path to this cmux: {error}")))
 }
 
-/// The `env` of the entry setup writes: `CMUX_NEXT_CONFIG_FILE` naming
-/// `settings` (absolute) when this cmux runs on its own settings file, so the
-/// server reads that file from any terminal; none on the shared file.
-fn server_env(settings: &Path) -> Vec<(String, String)> {
-    server_env_from(|key| std::env::var_os(key), settings)
-}
-
-fn server_env_from(
-    getenv: impl Fn(&str) -> Option<std::ffi::OsString>,
-    settings: &Path,
-) -> Vec<(String, String)> {
-    if getenv(CONFIG_OVERRIDE).is_none_or(|value| value.is_empty()) {
-        return Vec::new();
-    }
-    let absolute = std::path::absolute(settings).unwrap_or_else(|_| settings.to_path_buf());
-    vec![(CONFIG_OVERRIDE.to_owned(), absolute.to_string_lossy().into_owned())]
-}
-
 /// What setup does for `client`, and the entry that decided it. A harness
-/// that is not installed is the person's only when it was named. An entry
-/// named `cmux` is ours only while it names the same settings file as `env`.
-fn plan(
-    client: Client,
-    named: bool,
-    path: Option<&OsStr>,
-    env: &[(String, String)],
-) -> (Plan, Option<Entry>) {
-    let wanted = env.iter().find(|(key, _)| key == CONFIG_OVERRIDE).map(|(_, v)| v.as_str());
+/// that is not installed is the person's only when it was named. The entry
+/// named `cmux` is a shipped build's only while it names no settings file and
+/// its command is no DEV build's; otherwise it is replaced.
+fn plan(client: Client, named: bool, path: Option<&OsStr>) -> (Plan, Option<Entry>) {
     if on_path(path, client.id()).is_none() {
         if !named {
             return (Plan::Absent, None);
@@ -643,7 +717,7 @@ fn plan(
             // Another name is the person's own wiring; the `cmux` entry must
             // reach this cmux's settings file.
             && entry.settings_file_exists()
-            && (entry.name != SERVER || entry.settings_file() == wanted)
+            && (entry.name != SERVER || entry.shipped())
     }) {
         return (Plan::Ok, Some(entries.swap_remove(at)));
     }
@@ -669,21 +743,17 @@ fn plan(
     (Plan::Person(action), Some(taken))
 }
 
-/// Adds the cmux server with `env` to `client`, removing `old` (the `cmux`
-/// entry whose command is gone or that names another settings file) first, and answers the line that undoes it. When the add
-/// fails after the remove, the error names the line that puts `old` back.
-fn apply(
-    client: Client,
-    command: &str,
-    env: &[(String, String)],
-    old: Option<&Entry>,
-) -> Result<String, String> {
+/// Adds the cmux server to `client`, removing `old` (the `cmux` entry whose
+/// command is gone, is a DEV build's or that names a settings file) first,
+/// and answers the line that undoes it. When the add fails after the remove,
+/// the error names the line that puts `old` back.
+fn apply(client: Client, command: &str, old: Option<&Entry>) -> Result<String, String> {
     let remove = client.remove();
     let restore = old.and_then(|old| old.restore(client));
     if old.is_some() {
         run_cli(client, &remove)?;
     }
-    run_cli(client, &client.add(command, &["mcp".into(), "serve".into()], env)).map_err(
+    run_cli(client, &client.add(command, &["mcp".into(), "serve".into()], &[])).map_err(
         |error| match &restore {
             Some(restore) => format!("{error}; `{restore}` puts the old entry back"),
             None => error,

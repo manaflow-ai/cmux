@@ -206,12 +206,13 @@ export interface ComputerUseState {
 // MARK: cmux Tools
 
 /** One coding agent and whether its own config gives it cmux's tools (`cmux setup mcp`):
- * `ready` (none yet), `added`, `conflict` (another server named cmux is the person's) or `failed`. */
+ * `ready` (none yet), `added`, `terminals` (a DEV build leaves its config alone and gives it cmux's
+ * tools in its own terminals), `conflict` (another server named cmux is the person's) or `failed`. */
 export interface AgentToolsRow {
   id: string;
   /** The product's own name ("Claude Code"): never translated. */
   name: string;
-  state: "ready" | "added" | "conflict" | "failed";
+  state: "ready" | "added" | "terminals" | "conflict" | "failed";
 }
 
 export interface AgentToolsState {

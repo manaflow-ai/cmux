@@ -1066,7 +1066,12 @@ export type IntegrationRow = {
 
 /** One coding agent of Settings > Agents > Agents with cmux Tools: whether its own config gives it
  * cmux's MCP server (`cmux setup mcp`). The name is the product's own, never translated. */
-export type AgentToolsCardRow = { id: string; name: string; state: "ready" | "added" | "conflict" | "failed" };
+export type AgentToolsCardRow = {
+  id: string;
+  name: string;
+  /** `terminals`: a DEV build leaves the agent's config alone; its terminals give the agent cmux's tools. */
+  state: "ready" | "added" | "terminals" | "conflict" | "failed";
+};
 
 /** Agents with cmux Tools (`SettingsAgentTools.state`). */
 export type AgentToolsCardState = {

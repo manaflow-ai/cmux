@@ -19,4 +19,11 @@ struct AgentToolsTerminalsTests {
         #expect(agents.map(\.state.rawValue) == ["terminals", "terminals"])
         #expect(agents.map(\.id) == ["claude", "codex"])
     }
+
+    /// The person's yes is not "failed" in a DEV build: its agents have cmux's tools, in its terminals.
+    @Test func terminalsAndAddedBothGiveTheAgentCmuxTools() throws {
+        let report = #"{"clients": [{"id": "claude", "name": "Claude Code", "installed": true, "state": "terminals"}, {"id": "codex", "name": "Codex", "installed": true, "state": "ok"}, {"id": "x", "name": "X", "installed": true, "state": "planned"}]}"#
+        let agents = try #require(AgentToolsAgent.agents(setupReport: Data(report.utf8)))
+        #expect(agents.map(\.state.givesTools) == [true, true, false])
+    }
 }

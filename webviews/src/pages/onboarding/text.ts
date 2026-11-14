@@ -143,6 +143,7 @@ export function skipLabels(strings: Strings, step: OnboardingStep): string[] {
 const TOOLS_STATE_KEYS: Record<AgentToolsRow["state"], string> = {
   ready: "onboarding.agentTools.state.ready",
   added: "onboarding.agentTools.state.added",
+  terminals: "onboarding.agentTools.state.terminals",
   conflict: "onboarding.agentTools.state.conflict",
   failed: "onboarding.agentTools.state.failed",
 };

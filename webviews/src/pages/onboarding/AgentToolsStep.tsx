@@ -32,8 +32,8 @@ export function AgentToolsStep({ tools }: { tools: AgentToolsState | null | unde
                   </span>
                 </span>
                 <span className="onb-agent-trailing" aria-hidden="true">
-                  {(row.state === "added" || row.state === "failed") && (
-                    <StatusGlyph name={row.state === "added" ? "done" : "error"} size={16} />
+                  {(row.state === "added" || row.state === "terminals" || row.state === "failed") && (
+                    <StatusGlyph name={row.state === "failed" ? "error" : "done"} size={16} />
                   )}
                 </span>
               </li>

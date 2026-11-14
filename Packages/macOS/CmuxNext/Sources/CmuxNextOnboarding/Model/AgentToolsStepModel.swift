@@ -134,12 +134,13 @@ public final class AgentToolsStepModel {
             if let result { agents = result }
             // An Add that left an agent without cmux's server (refused by the CLI, a server of the
             // person's named cmux, a config it could not read) did not do what the person asked.
-            failed = result == nil || result?.contains { $0.state == .failed || (!remove && $0.state != .added) } == true
+            failed = result == nil || result?.contains { $0.state == .failed || (!remove && !$0.state.givesTools) } == true
         }
     }
 
-    /// The agents that have cmux's tools after the run.
-    public var addedCount: Int { agents.filter { $0.state == .added }.count }
+    /// The agents that have cmux's tools after the run (in their own config, or in this build's
+    /// terminals).
+    public var addedCount: Int { agents.filter(\.state.givesTools).count }
 
     /// The window closed: reads stop. A run the person started finishes (it writes their configs
     /// and is short), so a closed window never leaves a config half written.

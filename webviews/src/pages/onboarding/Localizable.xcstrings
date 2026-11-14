@@ -925,6 +925,138 @@
         }
       }
     },
+    "onboarding.agentTools.state.terminals": {
+      "comment": "Onboarding, cmux Tools step: may cmux add its tools (MCP server, Computer Use included) to the person's coding agents",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gets cmux’s tools in cmux terminals"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحصل على أدوات cmux في طرفيات cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dobija cmux alate u cmux terminalima"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Får cmux’ værktøjer i cmux-terminaler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erhält die Werkzeuge von cmux in cmux-Terminals"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recibe las herramientas de cmux en terminales de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reçoit les outils cmux dans les terminaux cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riceve gli strumenti di cmux nei terminali cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux のターミナルで cmux ツールを利用"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទទួលបានឧបករណ៍ cmux នៅក្នុងទែមីណាល់ cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 터미널에서 cmux 도구 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Får cmux sine verktøy i cmux-terminaler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ma narzędzia cmux w terminalach cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recebe as ferramentas do cmux nos terminais do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Получает инструменты cmux в терминалах cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ได้รับเครื่องมือ cmux ในเทอร์มินัล cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux terminallerinde cmux araçlarını alır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отримує інструменти cmux у терміналах cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhận công cụ cmux trong terminal cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 终端中获得 cmux 工具"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 終端機中取得 cmux 工具"
+          }
+        }
+      }
+    },
     "onboarding.agentTools.state.conflict": {
       "comment": "Onboarding, cmux Tools step: may cmux add its tools (MCP server, Computer Use included) to the person's coding agents",
       "extractionState": "manual",
