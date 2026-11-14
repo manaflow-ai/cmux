@@ -59,9 +59,11 @@ jobs:
             --jq '[.workflow_runs[] | select(.actor.login == "github-actions[bot]" and .conclusion != "cancelled")][0].id // empty')"
           if [[ -z "$run_id" ]]; then
             # return_run_details: the reply names the run this dispatch made, so a
-            # concurrent dispatch is never mistaken for it.
+            # concurrent dispatch is never mistaken for it. No inputs.ref: the gate
+            # judges its own head, which is the run's head_sha, the key the lookup
+            # above reuses it by, even when feat-cmux-next moved since $sha.
             run_id="$(gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/ios-review-gate.yml/dispatches" \
-              -f ref=feat-cmux-next -f "inputs[ref]=$sha" -f "inputs[lane]=appstore" -f "inputs[agent_pass]=true" \
+              -f ref=feat-cmux-next -f "inputs[lane]=appstore" -f "inputs[agent_pass]=true" \
               -F return_run_details=true --jq .workflow_run_id)"
           fi
           [[ "$run_id" =~ ^[0-9]+$ ]] || { echo "::error::no gate run for $sha: $run_id" >&2; exit 1; }

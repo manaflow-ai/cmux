@@ -8,7 +8,7 @@
     {
       "path": ".github/workflows/ios-app-review-readiness.yml",
       "match": "run: gh run watch \"$RUN_ID\" -R \"$GITHUB_REPOSITORY\" --exit-status --interval 60",
-      "reason": "Carries the verdict of the one ios-review-gate.yml run this job dispatched on feat-cmux-next (its id from the dispatch reply) into the main push run: one read a minute, bounded by the job's 240-minute timeout. A workflow_run event would not be a push run, which the readiness probe counts. Runs in CI, where glaeda-gh does not exist."
+      "reason": "Carries the verdict of one ios-review-gate.yml run on feat-cmux-next (the one this job dispatched, its id from the dispatch reply, or the one an earlier push dispatched for the same feat-cmux-next SHA) into the main push run: one read a minute, bounded by the job's 240-minute timeout. A workflow_run event would not be a push run, which the readiness probe counts. Runs in CI, where glaeda-gh does not exist."
     },
     {
       "path": ".github/workflows/cmux-next-remote-browser-host-publish.yml",
