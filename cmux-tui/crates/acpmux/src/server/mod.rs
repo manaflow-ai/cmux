@@ -1206,11 +1206,11 @@ pub async fn serve_ws_until(
             let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
             let wire = Arc::new(crate::frame_compress::Wire::default());
             // A peer link's slot for the v2 list stream; any other connection never fills it.
-            let slot = crate::link_v2::Slot::new(Some(hub.link_v2.clone()));
+            let slot = hub.link_v2.slot();
             let writer = tokio::spawn(ws_shutdown::write_link(
                 sink,
                 out_rx,
-                Some(slot.clone()),
+                slot.clone(),
                 stopped,
                 shutdown.clone(),
                 wire.clone(),
@@ -1349,7 +1349,7 @@ pub async fn serve_ws_until(
                 Some(wire),
                 None,
                 Some(uploads),
-                Some(slot),
+                slot,
             )
             .await;
             if let Some(watcher) = watcher {
@@ -1588,6 +1588,35 @@ pub(crate) async fn serve_peer_link(
         false,
         SocketPeer::Unknown,
         None,
+        None,
+        None,
+        None,
+        Some(slot),
+    )
+    .await;
+}
+
+/// A paired machine's link served in-process as the WebSocket listener serves it: its role's
+/// origin and proof, its writer draining `slot` (`link_v2_tests.rs`).
+#[cfg(test)]
+pub(crate) async fn serve_device_link(
+    hub: Arc<Hub>,
+    inbound: mpsc::Receiver<String>,
+    out: mpsc::Sender<String>,
+    slot: Arc<crate::link_v2::Slot>,
+    device: crate::pairing::DeviceAuth,
+) {
+    let (origin, auth) = pairing::origin_of(&device);
+    serve_connection_from(
+        hub,
+        inbound,
+        out,
+        origin,
+        auth,
+        None,
+        false,
+        SocketPeer::Unknown,
+        Some(device.id),
         None,
         None,
         None,

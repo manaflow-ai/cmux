@@ -636,7 +636,7 @@ pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "8",
         name: "v2.pr08.reconnect_30",
-        done_when: "30 link clients with a subscription and a saved cursor reconnect at once at 11k chats and 500 live, nothing missed: one empty frame marked end to each, RSS rise under 20 MB over a trimmed baseline. A peak row: only the absolute bound applies.",
+        done_when: "30 link clients with a subscription and a saved cursor reconnect at once at 11k chats and 500 live, in two storms: to the daemon they left, nothing missed (one empty frame marked end to each), and to a restarted daemon whose new peer store has every saved cursor under its floor (a window to each). RSS rise under 20 MB over a trimmed baseline in both. A peak row: only the absolute bound applies.",
         measured: false,
         ratio: f64::INFINITY,
         ratio_all: None,
@@ -648,7 +648,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         done_when: "v1's ack p95 on 30 links during the reconnect, peers on against off: 1.2x, rounds alternating.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
+        ratio_all: Some(2.0),
         god_max: None,
     },
     GateRow {
@@ -657,7 +657,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         done_when: "One local change to 30 peer subscribers, submit to the last link's slot, 11k chats and 500 live against 20 live: 1.2x. Encoded once, zero secret scans and zero extra parses (counters).",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
+        ratio_all: Some(2.0),
         god_max: None,
     },
     GateRow {

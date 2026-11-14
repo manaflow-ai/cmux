@@ -588,7 +588,7 @@ where
     let (in_tx, in_rx) = tokio::sync::mpsc::channel::<String>(256);
     let (out_tx, mut out_rx) = tokio::sync::mpsc::channel::<String>(4096);
     // The owner's link may carry the v2 list stream: its frames wait here, never in `out_tx`.
-    let slot = crate::link_v2::Slot::new(Some(hub.link_v2.clone()));
+    let slot = hub.link_v2.slot();
     let writer_slot = slot.clone();
     let reader = tokio::spawn(async move {
         while let Some(Ok(frame)) = source.next().await {
@@ -604,7 +604,7 @@ where
         let mut streak = 0;
         loop {
             let line = tokio::select! {
-                line = crate::link_v2::next_line(&mut out_rx, Some(&writer_slot), &mut streak) => line,
+                line = crate::link_v2::next_line(&mut out_rx, writer_slot.as_deref(), &mut streak) => line,
                 _ = &mut stopped => None,
             };
             let Some(line) = line else { break };
@@ -615,7 +615,7 @@ where
         }
         let _ = sink.close().await;
     });
-    serve_attested_link(hub, in_rx, out_tx, who, Some(slot)).await;
+    serve_attested_link(hub, in_rx, out_tx, who, slot).await;
     let _ = stop.send(());
     reader.abort();
     let _ = writer.await;

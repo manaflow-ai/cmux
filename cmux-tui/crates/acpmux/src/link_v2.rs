@@ -60,6 +60,12 @@ impl Shared {
     pub fn v2(&self) -> Option<&Arc<acpmux_core::life::V2>> {
         self.v2.get()
     }
+
+    /// A link transport's slot, made at the connection's start, only when links serve the
+    /// stream. With none, its writer reads v1's queue alone, as before the stream.
+    pub fn slot(self: &Arc<Self>) -> Option<Arc<Slot>> {
+        self.v2().is_some().then(|| Slot::new(Some(self.clone())))
+    }
 }
 
 #[derive(Default)]
@@ -70,7 +76,7 @@ pub struct Counters {
     pub second_hello: AtomicU64,
     /// `_acpmux/v2` lines parsed into a whole `Value` (the reader's fast path missed them).
     pub value_parses: AtomicU64,
-    /// Frames toward the peer left in the slot when a new connection began.
+    /// Frames toward the peer left in the slot when a new connection began or the link ended.
     pub stale: AtomicU64,
     /// Bytes the adapters of this daemon hold: the slot's line and a frame not yet read.
     pub held_bytes: AtomicU64,
@@ -79,6 +85,18 @@ pub struct Counters {
 impl Counters {
     pub fn drop_one(&self) {
         self.dropped.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// What `_acpmux/status` reports under `gauges.v2PeerLink`.
+    pub fn status(&self) -> serde_json::Value {
+        let read = |counter: &AtomicU64| counter.load(Ordering::Relaxed);
+        serde_json::json!({
+            "dropped": read(&self.dropped),
+            "secondHello": read(&self.second_hello),
+            "valueParses": read(&self.value_parses),
+            "stale": read(&self.stale),
+            "heldBytes": read(&self.held_bytes),
+        })
     }
 }
 
@@ -211,6 +229,12 @@ impl Slot {
             waker.wake();
         }
         state.generation
+    }
+
+    /// No connection writes here any more: the running one's writes fail, its waiting write is
+    /// woken, and a line of it the writer has not taken is dropped.
+    fn retire(&self) {
+        self.begin();
     }
 
     fn poll_room(&self, generation: u64, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -560,7 +584,9 @@ impl Link {
         self.running = Some((adapter, task));
     }
 
-    /// The link's connection ends: its reader reads the end of the stream.
+    /// The link's connection ends: its reader reads the end of the stream, and its writer's
+    /// next write fails. A connection that stopped reading (its requests wait on a write) still
+    /// sees the end at the write, so its task returns and its subscriptions are cleaned up.
     pub fn end(&mut self) {
         if let Some((adapter, _task)) = self.running.take() {
             adapter.close();

@@ -17,7 +17,13 @@ fn scope() -> &'static cmux_scope::Scope {
     SCOPE.get_or_init(|| cmux_scope::Scope::new("v2 pr08 gates"))
 }
 
-fn emit(name: &str, small: &[Vec<u128>], god: &[Vec<u128>], unit: &str) -> (u128, u128) {
+fn emit(
+    name: &str,
+    small: &[Vec<u128>],
+    god: &[Vec<u128>],
+    unit: &str,
+    more: Value,
+) -> (u128, u128) {
     let p95 = |values: &[u128]| {
         let mut values = values.to_vec();
         values.sort_unstable();
@@ -26,11 +32,14 @@ fn emit(name: &str, small: &[Vec<u128>], god: &[Vec<u128>], unit: &str) -> (u128
     let best = |rounds: &[Vec<u128>]| rounds.iter().map(|round| p95(round)).min().unwrap_or(0);
     let all = |rounds: &[Vec<u128>]| p95(&rounds.concat());
     let (small_p95, god_p95) = (best(small), best(god));
-    let line = json!({
+    let mut line = json!({
         "name": name, "small_p95": small_p95, "god_p95": god_p95,
         "god_p95_all": all(god), "unit": unit,
-    })
-    .to_string();
+    });
+    if let (Some(line), Value::Object(more)) = (line.as_object_mut(), more) {
+        line.extend(more);
+    }
+    let line = line.to_string();
     eprintln!("V2_GATE {line}");
     if let Some(path) = std::env::var_os("V2_GATE_OUT") {
         use std::io::Write;
@@ -100,16 +109,32 @@ fn trim() {
     }
 }
 
-/// 30 links with a subscription and a saved cursor reconnect at once: one empty frame marked
-/// `end` to each. Returns the RSS rise over the trimmed baseline and the peak of bytes held.
-async fn reconnect(total: usize, live: usize) -> (u128, u64) {
+/// How the 30 links come back.
+#[derive(Clone, Copy, Debug)]
+enum Storm {
+    /// To the daemon they left, nothing missed: one empty frame marked `end` to each.
+    Resume,
+    /// To a restarted daemon: its peer store is new, every saved cursor is under its floor, and
+    /// each link gets a window.
+    Restart,
+}
+
+/// 30 links with a subscription and a saved cursor reconnect at once. Returns the RSS rise over
+/// the trimmed baseline and the peak of bytes the links held.
+async fn reconnect(total: usize, live: usize, storm: Storm) -> (u128, u64) {
     let hub = daemon(total, live, true);
     let mut cursors = Vec::new();
     for _ in 0..LINKS {
-        let (wire, (kind, window)) = subscribed(&hub, 0).await;
-        assert_eq!(kind, 2, "a first subscription gets a window: {window}");
-        cursors.push(window["cursor"].as_u64().unwrap());
-        wire.serving.abort();
+        match storm {
+            Storm::Resume => {
+                let (wire, (kind, window)) = subscribed(&hub, 0).await;
+                assert_eq!(kind, 2, "a first subscription gets a window: {window}");
+                cursors.push(window["cursor"].as_u64().unwrap());
+                wire.serving.abort();
+            }
+            // The daemon that issued them is gone; this one's floor is above them.
+            Storm::Restart => cursors.push(0),
+        }
     }
     tokio::time::sleep(Duration::from_millis(200)).await;
     trim();
@@ -136,9 +161,20 @@ async fn reconnect(total: usize, live: usize) -> (u128, u64) {
             let hub = hub.clone();
             scope().spawn(async move {
                 let (wire, (kind, frame)) = subscribed(&hub, cursor).await;
-                assert_eq!(kind, 3, "{frame}");
-                assert_eq!(frame["replay"], "end", "{frame}");
-                assert!(frame["ops"].as_array().unwrap().is_empty(), "nothing was missed: {frame}");
+                match storm {
+                    Storm::Resume => {
+                        assert_eq!(kind, 3, "{frame}");
+                        assert_eq!(frame["replay"], "end", "{frame}");
+                        assert!(
+                            frame["ops"].as_array().unwrap().is_empty(),
+                            "nothing missed: {frame}"
+                        );
+                    }
+                    Storm::Restart => {
+                        assert_eq!(kind, 2, "a cursor under the floor gets a window: {frame}");
+                        assert!(!frame["rows"].as_array().unwrap().is_empty(), "{frame}");
+                    }
+                }
                 wire
             })
         })
@@ -156,19 +192,29 @@ async fn reconnect(total: usize, live: usize) -> (u128, u64) {
     );
     assert_eq!(hub.link_v2.counters.dropped.load(Ordering::Relaxed), 0);
     eprintln!(
-        "RECONNECT total={total} live={live} baseline={baseline} peak={peak} held_before={held_before} held_peak={held}"
+        "RECONNECT {storm:?} total={total} live={live} baseline={baseline} peak={peak} held_before={held_before} held_peak={held}"
     );
     drop(wires);
     (peak.saturating_sub(baseline), held)
 }
 
-#[ignore = "Linux gate: 30 peers reconnect at once at 11k chats and 500 live"]
+#[ignore = "Linux gate: 30 peers reconnect at once at 11k chats and 500 live, resumed and restarted"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn v2_pr08_reconnect_30() {
-    let (small_rise, _) = reconnect(20, 20).await;
-    let (god_rise, held) = reconnect(11_000, 500).await;
-    emit("v2.pr08.reconnect_30", &[vec![small_rise]], &[vec![god_rise]], "bytes");
-    assert!(god_rise < 20 * 1024 * 1024, "RSS rose {god_rise} bytes");
+    let (small_resume, _) = reconnect(20, 20, Storm::Resume).await;
+    let (small_restart, _) = reconnect(20, 20, Storm::Restart).await;
+    let (god_resume, held_resume) = reconnect(11_000, 500, Storm::Resume).await;
+    let (god_restart, held_restart) = reconnect(11_000, 500, Storm::Restart).await;
+    let more = json!({
+        "god_resume": god_resume, "god_restart": god_restart,
+        "held_peak": held_resume.max(held_restart),
+    });
+    let small = [vec![small_resume.max(small_restart)]];
+    emit("v2.pr08.reconnect_30", &small, &[vec![god_resume.max(god_restart)]], "bytes", more);
+    for (storm, rise) in [("resume", god_resume), ("restart", god_restart)] {
+        assert!(rise < 20 * 1024 * 1024, "{storm}: RSS rose {rise} bytes");
+    }
+    let held = held_resume.max(held_restart);
     assert!(held <= (LINKS * 2 * acpmux_core::wire::MAX_FRAME_BYTES) as u64, "held {held}");
 }
 
@@ -210,7 +256,8 @@ async fn v2_pr08_v1_ack_peers_on_off() {
         off_rounds.push(ack_round(&off, cursor).await);
         on_rounds.push(ack_round(&on, cursor).await);
     }
-    let (small, god) = emit("v2.pr08.v1_ack_peers_on_off", &off_rounds, &on_rounds, "ns");
+    let (small, god) =
+        emit("v2.pr08.v1_ack_peers_on_off", &off_rounds, &on_rounds, "ns", json!({}));
     assert!(god * 100 <= small * 120, "peers on {god} ns against off {small} ns");
 }
 
@@ -271,7 +318,8 @@ async fn v2_pr08_fanout_30() {
         small_rounds.push(fanout_round(&small, &small_links, &mut small_at, 40).await);
         god_rounds.push(fanout_round(&god, &god_links, &mut god_at, 40).await);
     }
-    let (small_p95, god_p95) = emit("v2.pr08.fanout_30", &small_rounds, &god_rounds, "ns");
+    let (small_p95, god_p95) =
+        emit("v2.pr08.fanout_30", &small_rounds, &god_rounds, "ns", json!({}));
     assert!(god_p95 * 100 <= small_p95 * 120, "god {god_p95} ns against small {small_p95} ns");
 }
 

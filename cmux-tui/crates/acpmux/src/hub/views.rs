@@ -1148,6 +1148,8 @@ impl Hub {
             "gauges": ({
                 let mut gauges = crate::gauges::daemon_status();
                 gauges["v2SnapshotDamagedFrames"] = json!(self.events.damaged_snapshot_frames());
+                // The v2 list stream on peer links: frames dropped, held bytes (`link_v2.rs`).
+                gauges["v2PeerLink"] = self.link_v2.counters.status();
                 gauges
             }),
             "webUrl": web_url(&cfg),

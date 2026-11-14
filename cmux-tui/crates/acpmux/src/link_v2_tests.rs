@@ -348,6 +348,56 @@ async fn list_stream_is_named_only_on_a_link_with_list_and_peers_on() {
     let mut other = not_a_link(&hub);
     let reply = other.call(1, method::INITIALIZE, initialize()).await;
     assert!(!features(&reply).contains(&FEATURE.into()));
+    // A paired machine with the `client` credential and the carrier's owner are peers: the
+    // name and a served frame. A phone, a read-only machine and a teammate are served as Web:
+    // neither. The name and the frame come from one value, so they always agree.
+    use crate::pairing::{DeviceAuth, Role as Paired};
+    use crate::server::carrier::{Attested, Role as Carried};
+    let device = |role| {
+        move |hub, inbound, out, slot| {
+            let device = DeviceAuth { id: "machine".into(), role };
+            tokio::spawn(crate::server::serve_device_link(hub, inbound, out, slot, device))
+        }
+    };
+    let carried = |role| {
+        move |hub, inbound, out, slot| {
+            let who = Attested {
+                role,
+                sub: "user_a".into(),
+                team: Some("team".into()),
+                chats: vec!["chat".into()],
+                name: None,
+            };
+            tokio::spawn(crate::server::carrier::serve_attested_link(
+                hub,
+                inbound,
+                out,
+                who,
+                Some(slot),
+            ))
+        }
+    };
+    let cases: Vec<(&str, bool, Wire)> = vec![
+        ("client machine", true, link_with(&hub, device(Paired::Client))),
+        ("carrier owner", true, link_with(&hub, carried(Carried::Owner))),
+        ("phone", false, link_with(&hub, device(Paired::Phone))),
+        ("read-only machine", false, link_with(&hub, device(Paired::ReadOnly))),
+        ("teammate", false, link_with(&hub, carried(Carried::Team))),
+    ];
+    for (case, peer, mut wire) in cases {
+        let reply = wire.call(1, method::INITIALIZE, initialize()).await;
+        assert_eq!(features(&reply).contains(&FEATURE.into()), peer, "{case}: {reply}");
+        let dropped = hub.link_v2.counters.dropped.load(Ordering::Relaxed);
+        wire.send(hello_frame()).await;
+        if peer {
+            assert_eq!(wire.frame(&mut Vec::new()).await.0, 1, "{case}");
+        } else {
+            wire.call(2, method::MUX_STATUS, json!({})).await;
+            assert!(wire.from_daemon.try_recv().is_err(), "{case}: nothing else is written");
+            assert!(!wire.slot.holds(), "{case}: no frame is served");
+            assert_eq!(hub.link_v2.counters.dropped.load(Ordering::Relaxed), dropped + 1, "{case}");
+        }
+    }
     // Only `list` and `peers` together turn it on.
     let lone = memory_hub();
     let (core, writer) = acpmux_core::hub::Hub::new(acpmux_book::index::SummaryIndex::new());
@@ -374,6 +424,8 @@ async fn a_frame_with_no_connection_is_dropped_and_counted() {
         assert!(!wire.slot.holds(), "{case}: no frame is sent");
         assert_eq!(hub.link_v2.counters.dropped.load(Ordering::Relaxed), 2, "{case}");
         assert_eq!(hub.link_v2.counters.value_parses.load(Ordering::Relaxed), 0, "{case}");
+        // A running daemon reports the count where its other gauges are.
+        assert_eq!(reply["result"]["gauges"]["v2PeerLink"]["dropped"], 2, "{case}: {reply}");
     }
     // The method in another shape is parsed as v1 parses any line, dropped and counted apart.
     let hub = memory_hub();
@@ -860,4 +912,58 @@ async fn a_link_row_carries_what_v1_watch_gives_the_same_peer() {
     assert_eq!(hub.link_v2.counters.value_parses.load(Ordering::Relaxed), 0);
     tee.abort();
     writer.abort();
+}
+
+/// A connection that stopped reading (its requests wait on replies its stopped writer cannot
+/// write) still ends when its link does: the task returns, its subscription is cleaned up, and
+/// the slot holds no bytes of it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_connection_whose_writer_waits_ends_with_its_link() {
+    let hub = memory_hub();
+    let mut writer = peers_on(&hub);
+    writer.apply(row("local", "a", 10, "running")).unwrap();
+    let core = v2_hub(&hub);
+    let mut wire = link(&hub);
+    let mut v1 = Vec::new();
+    wire.send(hello_frame()).await;
+    assert_eq!(wire.frame(&mut v1).await.0, 1);
+    wire.send(request_frame(
+        json!({"method":"sub","params":{"sid":"s","stream":"list","view":"live","cursor":0}}),
+    ))
+    .await;
+    assert_eq!(wire.frame(&mut v1).await.0, 2);
+    assert_eq!(core.subscriber_count(), 1);
+    wire.stop_writer.send_replace(true);
+    // Each refusal needs a reply: past the reply reserve, the connection stops reading.
+    let refused = request_frame(
+        json!({"method":"sub","params":{"sid":"x","stream":"list","view":"live","anchor":"end"}}),
+    );
+    let to_daemon = wire.to_daemon.clone();
+    let flood = tokio::spawn(async move {
+        for _ in 0..200 {
+            if to_daemon.send(refused.clone()).await.is_err() {
+                break;
+            }
+        }
+    });
+    tokio::time::timeout(WAIT, async {
+        while !wire.slot.holds() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("a reply waits in the slot");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    flood.abort();
+    let Wire { to_daemon, from_daemon, stop_writer, slot: _, serving } = wire;
+    drop((to_daemon, from_daemon, stop_writer));
+    tokio::time::timeout(WAIT, serving).await.expect("the link ends").unwrap();
+    tokio::time::timeout(WAIT, async {
+        while core.subscriber_count() != 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the connection ended and its subscription was cleaned up");
+    assert_eq!(hub.link_v2.counters.held_bytes.load(Ordering::Relaxed), 0);
 }
