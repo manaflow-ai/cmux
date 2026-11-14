@@ -424,9 +424,7 @@ class SidRows {
     const was = this.snapshot as ChatRowsSnapshot | undefined;
     let list = was?.rows ?? [];
     if (rows) {
-      const next: ChatRowEntry[] = new Array(this.ids.length);
-      for (let index = 0; index < this.ids.length; index += 1) next[index] = this.entries.get(this.ids[index]!)!;
-      list = next;
+      list = this.ids.map((id) => this.entries.get(id)!);
     }
     let bodyMap = was?.bodies ?? NO_BODIES;
     if (bodies)
