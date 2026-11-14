@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43576316915",
+  "recorded_at": "2026-11-14T08:43:14Z",
+  "reason": "cmux-tui 6da5025a74b0 changes the image's cmux-tui (pinned 8e9bb0bda143)",
+  "dry_run": false,
+  "cmux_tui": "6da5025a74b0399eb73a6d1fe97714946bf7118d",
+  "fixes": [
+    {
+      "sha": "6da5025a74b0399eb73a6d1fe97714946bf7118d",
+      "mergedAt": "2026-11-14T00:12:18-08:00",
+      "subject": "fix(acpmux): settle streamed text turns for cloud chaos (#42887)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T08:43:14Z",
+    "snapshot_id": "sh-c3f4ff9f49864fa39a35c3b55a70eeec",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43576316915): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c8a9213f1541d9fe05c2efb9723a753ceec91642",
+    "image": "cloud-native-auto-6da5025a-43576316915-1",
+    "revision": "ci-43576316915-1",
+    "at": "2026-11-14T08:43:14Z"
+  },
+  "rolled_back": false
+}
