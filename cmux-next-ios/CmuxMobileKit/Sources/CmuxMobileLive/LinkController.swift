@@ -286,7 +286,10 @@ public final class LinkController {
                     // so the failure below never starts the machine's immediate silent retry.
                     if current, CloudCarrierDialer.isPermanent(error), let refusal = error as? LinkError {
                         self?.onPermanentRefusal?(refusal)
-                    } else if current {
+                    } else if current, !Self.authRefused(error) {
+                        // A refused token is retried at once with a fresh one, as part of the same
+                        // attempt: the service refused it before anything else (no machine starts),
+                        // and a second refusal is the signed-out path.
                         self?.onDialFailed?()
                     }
                     self?.send(.dialFailed(generation: generation, reason: Self.reason(error)))
