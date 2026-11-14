@@ -509,6 +509,49 @@ fn list_request_shares_at_826_workspaces() {
             || measured(&mux, connection, &scheduler, &snapshot),
         );
     }
+    // After each scenario above, so their conditions stay as they were: a client that holds a
+    // tree sends `known`. Its git HEADs come from the cache and the background refresh. The
+    // session has the workspaces that the two scenarios before this added.
+    settle_git_head_refresh();
+    let at = mux.with_state(|state| state.workspaces.len());
+    let whole = json!({"id": 1, "cmd": "list-workspaces", "known": {}}).to_string();
+    let held: Value =
+        serde_json::from_str(&measured(&mux, &app, &scheduler, &whole).reply).unwrap();
+    let held = &held["data"];
+    let current = json!({"id": 1, "cmd": "list-workspaces", "known": {
+        "registry_id": held["registry_id"],
+        "generation": held["generation"],
+        "workspace_revision": held["workspace_revision"],
+        "pane_revision": held["pane_revision"],
+        "terminal_revision": held["terminal_revision"],
+        "tree_revision": held["tree_revision"],
+    }})
+    .to_string();
+    let with_known =
+        [("an empty `known` (the whole tree)", &whole), ("the current `known`", &current)];
+    for (what, line) in with_known {
+        let name = format!(
+            "list-workspaces with {what}, 4 tab capabilities, each cached git HEAD older than 2 \
+             s, {at} workspaces"
+        );
+        let mut not_aged = 0;
+        let mut unchanged = 0;
+        scenario(
+            &name,
+            || not_aged += usize::from(!mux.age_git_heads_for_test()),
+            || {
+                let sample = measured(&mux, &app, &scheduler, line);
+                unchanged += usize::from(sample.reply.contains("\"unchanged\":true"));
+                sample
+            },
+        );
+        eprintln!(
+            "LIST-SHARES [{name}]   requests whose cached values could not be made older: \
+             {not_aged}; replies that say `unchanged`: {unchanged} of {}",
+            WARM_UP + REQUESTS
+        );
+    }
+    settle_git_head_refresh();
     eprintln!(
         "LIST-SHARES end: {} workspaces at the end",
         mux.with_state(|state| state.workspaces.len())
