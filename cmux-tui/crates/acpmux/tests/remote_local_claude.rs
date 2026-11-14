@@ -5,6 +5,10 @@
 //! Web is refused with `remote.local_claude_session`; reads stay. A Web
 //! request may not adopt, fork, load or resume such a session either. A
 //! session on another harness keeps Web control.
+//!
+//! The owner's own paired phone is the owner, not a remote device: it controls
+//! such a chat as the Mac does, until the phone is removed (Leo, 2026-11-14:
+//! "chat writable in both directions / this is obviously what we need").
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
@@ -13,8 +17,9 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
+use acpmux::pairing::Role;
 use acpmux::rpc::Message;
-use acpmux::server::{Origin, serve_connection_with};
+use acpmux::server::{Origin, serve_connection_device, serve_connection_with};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -50,19 +55,37 @@ fn hub(d: &Path) -> Arc<Hub> {
     Hub::new(cfg, store)
 }
 
-struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
+/// A connection, and the `_meta.acpmux.via` its requests carry (a paired
+/// machine forwarding for its own Web client says `web`).
+struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64, Option<&'static str>);
 
 impl Client {
     fn new(hub: &Arc<Hub>, origin: Origin) -> Self {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
         tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
-        Client(in_tx, out_rx, 0)
+        Client(in_tx, out_rx, 0, None)
     }
 
-    async fn call(&mut self, m: &str, params: Value) -> Value {
+    /// A connection that presented the paired credential `token`, served as
+    /// its role says (a phone as Web under its own id, as the Mac's mobile
+    /// host connects for it), forwarding for its Web client when `via_web`.
+    fn device(hub: &Arc<Hub>, token: &str, via_web: bool) -> Self {
+        let proof = hub.pairing.device_for(token).expect("a live credential");
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(serve_connection_device(hub.clone(), in_rx, out_tx, proof));
+        Client(in_tx, out_rx, 0, via_web.then_some("web"))
+    }
+
+    async fn call(&mut self, m: &str, mut params: Value) -> Value {
         self.2 += 1;
         let id = self.2;
+        if let Some(via) = self.3 {
+            let meta = params.as_object_mut().unwrap().entry("_meta").or_insert(json!({}));
+            let mux = meta.as_object_mut().unwrap().entry("acpmux").or_insert(json!({}));
+            mux["via"] = json!(via);
+        }
         self.0.send(Message::request(id, m, params).to_line()).await.unwrap();
         loop {
             let line = tokio::time::timeout(Duration::from_secs(30), self.1.recv())
@@ -220,5 +243,86 @@ async fn a_web_switch_by_family_name_is_judged_by_the_profile_it_resolves_to() {
         "_meta": {"acpmux": {"harness": "other"}}});
     let r = web.call("session/fork", p).await;
     assert_ne!(reason(&r), "remote.local_claude_session", "{r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// The phone the Mac app pairs with its mobile host (Settings > Mobile > Phones): the person's
+/// own `phone` credential (`_acpmux/pair_issue` role `phone`), which the app issues only for a
+/// phone its host admits under the Mac owner's account. Its id and token.
+fn own_phone(hub: &Hub, name: &str) -> (String, String) {
+    let (device, token) = hub.pairing.issue_phone(name).unwrap();
+    (device.id, token)
+}
+
+/// The owner's paired phone sends to a Claude chat started on the Mac and it runs; it changes
+/// its mode and stops it as the Mac would (Leo, 2026-11-14, refused with "Only the cmux app on
+/// this Mac can control a Claude chat started on this Mac": "wtf do i do these options dont do
+/// anything").
+#[tokio::test]
+async fn the_owners_paired_phone_controls_a_claude_chat_the_mac_started() {
+    let d = dir("phone");
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let s = local.new_session(&d, "fakeclaude").await;
+    assert!(local.prompt(&s, "hello").await.get("error").is_none());
+    let (_, token) = own_phone(&hub, "phone-iphone");
+    let mut phone = Client::device(&hub, &token, false);
+    let r = phone.prompt(&s, "hello from the phone").await;
+    assert_eq!(r["result"]["stopReason"], "end_turn", "{r}");
+    let r = phone.call("session/set_mode", json!({"sessionId": s, "modeId": "plan"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = phone.call("session/cancel", json!({"sessionId": s})).await;
+    assert_ne!(reason(&r), "remote.local_claude_session", "{r}");
+    // A Claude adapter (family claude) the Mac started too.
+    let s = local.new_session(&d, "fclaude").await;
+    let r = local.call("session/set_mode", json!({"sessionId": s, "modeId": "default"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = phone.prompt(&s, "hi").await;
+    assert!(r.get("error").is_none(), "{r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Every other client keeps the refusal: the shared dashboard token (a browser, any account, a
+/// phone the host gave no credential), and a paired machine that is not a phone forwarding for
+/// its Web client. The refusal names the one action that works from there (`new_chat`), which
+/// the composer draws as a button. A read-only machine controls nothing.
+#[tokio::test]
+async fn an_unpaired_or_other_account_client_is_still_refused() {
+    let d = dir("others");
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let s = local.new_session(&d, "fakeclaude").await;
+    assert!(local.prompt(&s, "hello").await.get("error").is_none());
+    let laptop = hub.pairing.issue("laptop", Role::Client).unwrap().1;
+    for (who, mut c) in [
+        ("dashboard", Client::new(&hub, Origin::Web)),
+        ("client machine", Client::device(&hub, &laptop, true)),
+    ] {
+        let r = c.prompt(&s, "hi").await;
+        assert_eq!(reason(&r), "remote.local_claude_session", "{who}: {r}");
+        assert_eq!(r["error"]["data"]["action"], "new_chat", "{who}: {r}");
+    }
+    let viewer = hub.pairing.issue("viewer", Role::ReadOnly).unwrap().1;
+    let r = Client::device(&hub, &viewer, false).prompt(&s, "hi").await;
+    assert!(r.get("error").is_some(), "read-only machine: {r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Removing the phone in Settings revokes its credential: its very next request is refused, on
+/// a connection still open too, as a revoked machine's Full-access setting is.
+#[tokio::test]
+async fn a_removed_phone_is_refused() {
+    let d = dir("removed");
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let s = local.new_session(&d, "fakeclaude").await;
+    assert!(local.prompt(&s, "hello").await.get("error").is_none());
+    let (id, token) = own_phone(&hub, "phone-iphone");
+    let mut phone = Client::device(&hub, &token, false);
+    let r = phone.prompt(&s, "before").await;
+    assert_eq!(r["result"]["stopReason"], "end_turn", "{r}");
+    hub.pairing.revoke(&id).unwrap();
+    let r = phone.prompt(&s, "after").await;
+    assert_eq!(reason(&r), "remote.local_claude_session", "{r}");
     let _ = std::fs::remove_dir_all(&d);
 }
