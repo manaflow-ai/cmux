@@ -1,7 +1,8 @@
 //! Where `agent start` and `resume` open the agent's tab, and opening it.
 //!
-//! - No `--pane` and no `--split`: split the caller's pane (or, outside a
-//!   cmux-tui terminal, the focused pane) to the right. `resume` without
+//! - No `--pane` and no `--split`: a new pane in the caller's space (the
+//!   caller's pane, or outside a cmux-tui terminal the focused pane, with
+//!   the agent panes it started), [`Placement::Beside`]. `resume` without
 //!   either reopens the agent in the pane of its exited tab instead.
 //! - `--pane SEL`: a new tab in that pane.
 //! - `--pane SEL --split DIR`, or `--split DIR` alone: split that pane.
@@ -18,6 +19,23 @@
 //! of it (W5-Q, bench round 4 orchestration friction 6). A screen of
 //! viewport columns keeps each column's width.
 //!
+//! The caller's space (W6-F, bench round 5 orchestration row 8: the caller
+//! of two agents was left 9 columns wide) is the caller's pane, the agent
+//! panes stacked with it, and the agent columns right after it in its row.
+//! A default start adds a column only for the space's first agent, and only
+//! when the caller's pane and the new one both keep [`MIN_AGENT_COLUMNS`]
+//! terminal columns after the split; else the first agent goes below the
+//! caller. Every later agent goes below the space's last agent pane, and
+//! the agents of that stack share its height, while each keeps
+//! [`MIN_AGENT_ROWS`] terminal rows; else it opens as a new tab in that
+//! last agent pane. So a column, once there, keeps its width (a new column
+//! never resizes existing ones), the caller never goes under the minimum
+//! while it had it, and no pane outside the space changes. A start whose
+//! target pane is itself an agent pane (no caller known: the focused pane,
+//! often the agent the last start focused) stacks the same way and never
+//! adds a column. Without the target's size in the snapshot, or in a screen
+//! that is no split tree, a default start splits the target to the right.
+//!
 //! The agent runs in a tab of its own (`pane run --on-exit keep --name
 //! NAME`), so its name, argv and harness session stay on record after it
 //! exits. A split (or a new workspace) first opens a shell tab, whose shell
@@ -29,21 +47,56 @@ use super::super::agent_names::{self, Found};
 use super::super::terminal_talk::send::{self, Daemon};
 use super::{Failure, plan};
 
+/// The fewest terminal columns a default start leaves the caller and its
+/// first agent before it stacks the agent below the caller instead (W6-F):
+/// an agent's permission dialog stays readable, and the caller keeps room
+/// to work.
+const MIN_AGENT_COLUMNS: f64 = 40.0;
+
+/// The fewest terminal rows a default start leaves each agent of a stack
+/// before it opens the next agent as a tab in the stack's last agent pane
+/// (W6-F): a permission dialog of a few lines and the input box still show.
+const MIN_AGENT_ROWS: f64 = 8.0;
+
+/// The columns a pane's frame takes from its terminal: the client draws a
+/// border box in the pane and, by default, a scrollbar column inside it
+/// (`scrollbar.position = column`; app/frame_geometry.rs). The snapshot's
+/// `cols` is the terminal's, so a 49-column pane has a 46-column terminal.
+const FRAME_COLUMNS: f64 = 3.0;
+
+/// The rows a pane's frame takes from its terminal: the border box's top
+/// row (the tab bar) and its bottom row.
+const FRAME_ROWS: f64 = 2.0;
+
 /// A new tab in a pane, or a new pane next to it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::cli) enum Placement {
     /// A split in this direction (`right`, `down`, `left`, `up`).
     Split(String),
+    /// No `--pane` and no `--split`: a new pane in the caller's space
+    /// (module doc).
+    Beside,
     Tab,
 }
 
 impl Placement {
     pub(in crate::cli) fn as_str(&self) -> &'static str {
         match self {
-            Self::Split(_) => "split",
+            Self::Split(_) | Self::Beside => "split",
             Self::Tab => "tab",
         }
     }
+}
+
+/// Where [`Placement::Beside`] opens the agent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Room {
+    /// A new column right of this pane (the caller's, for its first agent).
+    Column(String),
+    /// A new pane below this one; the agents of its stack then share it.
+    Stack(String),
+    /// A new tab in this pane: the last agent pane of a full stack.
+    Tab(String),
 }
 
 /// The ids of the agent's new tab.
@@ -315,8 +368,11 @@ pub(in crate::cli) fn target_pane(
 }
 
 /// Opens the agent's tab: splits `pane` first for [`Placement::Split`],
-/// runs `argv` there as a named tab that keeps its terminal after exit,
-/// and ends the split's shell ([`end_placeholder`]).
+/// places it in the caller's space for [`Placement::Beside`], runs `argv`
+/// there as a named tab that keeps its terminal after exit, and ends the
+/// split's shell ([`end_placeholder`]). Returns the new tab and the
+/// placement it got: [`Placement::Beside`] becomes the split it made, or
+/// [`Placement::Tab`] in the last agent pane of a full stack.
 pub(in crate::cli) fn open<D: Daemon + ?Sized>(
     daemon: &D,
     pane: &str,
@@ -324,21 +380,70 @@ pub(in crate::cli) fn open<D: Daemon + ?Sized>(
     name: Option<&str>,
     cwd: Option<&str>,
     argv: &[String],
-) -> Result<Created, Failure> {
-    let (target, shell_tab) = match placement {
+) -> Result<(Created, Placement), Failure> {
+    let (target, shell_tab, placed) = match placement {
         Placement::Split(direction) => {
-            let flag = format!("--{direction}");
-            let mut words = vec!["pane", pane, "split", flag.as_str()];
-            if let Some(cwd) = cwd {
-                words.extend(["--cwd", cwd]);
-            }
-            let split = Created::from_result(&daemon.request(None, plan(&words)?)?)?;
-            balance(daemon, split.screen.as_deref(), &split.pane);
-            (split.pane.clone(), Some(Placeholder::of(&split)))
+            let split = split(daemon, pane, direction, cwd)?;
+            balance(daemon, split.screen.as_deref(), &split.pane, None);
+            (split.pane.clone(), Some(Placeholder::of(&split)), placement.clone())
         }
-        Placement::Tab => (pane.to_owned(), None),
+        Placement::Beside => {
+            let (split, direction) = match room(daemon, pane) {
+                Some(Room::Tab(last)) => {
+                    // W6-F: shows how often a stack is full.
+                    crate::client_log::log(
+                        "debug",
+                        "agent_start",
+                        &format!("agent stack full: the agent opens as a tab in {last}"),
+                    );
+                    return run_in(daemon, &last, None, Placement::Tab, name, cwd, argv);
+                }
+                Some(Room::Column(beside)) => {
+                    let split = split(daemon, &beside, "right", cwd)?;
+                    balance(daemon, split.screen.as_deref(), &split.pane, Some(pane));
+                    (split, "right")
+                }
+                Some(Room::Stack(below)) => {
+                    let split = split(daemon, &below, "down", cwd)?;
+                    balance(daemon, split.screen.as_deref(), &split.pane, None);
+                    (split, "down")
+                }
+                None => {
+                    // W6-F: shows how often a start lacks the caller's size.
+                    crate::client_log::log(
+                        "debug",
+                        "agent_start",
+                        &format!(
+                            "default placement fell back to a right split of {pane}: \
+                             no caller size in the snapshot or no split tree"
+                        ),
+                    );
+                    let split = split(daemon, pane, "right", cwd)?;
+                    balance(daemon, split.screen.as_deref(), &split.pane, None);
+                    (split, "right")
+                }
+            };
+            let placed = Placement::Split(direction.to_owned());
+            (split.pane.clone(), Some(Placeholder::of(&split)), placed)
+        }
+        Placement::Tab => (pane.to_owned(), None, Placement::Tab),
     };
-    let mut words = vec!["pane", target.as_str(), "run", "--on-exit", "keep"];
+    run_in(daemon, &target, shell_tab.as_ref(), placed, name, cwd, argv)
+}
+
+/// Runs `argv` in `target` as a named tab that keeps its terminal after
+/// exit and ends `shell_tab`, the new pane's shell; a failed run also
+/// closes the new pane, so no shell pane stays behind.
+fn run_in<D: Daemon + ?Sized>(
+    daemon: &D,
+    target: &str,
+    shell_tab: Option<&Placeholder>,
+    placed: Placement,
+    name: Option<&str>,
+    cwd: Option<&str>,
+    argv: &[String],
+) -> Result<(Created, Placement), Failure> {
+    let mut words = vec!["pane", target, "run", "--on-exit", "keep"];
     if let Some(name) = name {
         words.extend(["--name", name]);
     }
@@ -355,24 +460,43 @@ pub(in crate::cli) fn open<D: Daemon + ?Sized>(
         Err(failure) => {
             // Leave no shell pane, and no shell, behind a failed start: the
             // shell's end takes its tab, and the pane with its last tab.
-            if let Some(shell) = &shell_tab {
+            if let Some(shell) = shell_tab {
                 end_placeholder(daemon, shell);
-                if let Ok(close) = plan(&["pane", target.as_str(), "close"]) {
+                if let Ok(close) = plan(&["pane", target, "close"]) {
                     let _ = daemon.request(None, close);
                 }
             }
             return Err(failure);
         }
     };
-    if let Some(shell) = &shell_tab {
+    if let Some(shell) = shell_tab {
         end_placeholder(daemon, shell);
     }
-    Ok(created)
+    Ok((created, placed))
 }
 
-/// Evens the agent panes of the new `pane`'s row ([`row_ratios`]) by
-/// setting the ratios of the splits that change.
-fn balance<D: Daemon + ?Sized>(daemon: &D, screen: Option<&str>, pane: &str) {
+/// `pane split <pane> --<direction>`: the new pane and its shell tab.
+fn split<D: Daemon + ?Sized>(
+    daemon: &D,
+    pane: &str,
+    direction: &str,
+    cwd: Option<&str>,
+) -> Result<Created, Failure> {
+    let flag = format!("--{direction}");
+    let mut words = vec!["pane", pane, "split", flag.as_str()];
+    if let Some(cwd) = cwd {
+        words.extend(["--cwd", cwd]);
+    }
+    Created::from_result(&daemon.request(None, plan(&words)?)?)
+}
+
+/// The session snapshot and the layout of `pane`'s screen (`screen` when
+/// known), when both can be read.
+fn layout_of<D: Daemon + ?Sized>(
+    daemon: &D,
+    screen: Option<&str>,
+    pane: &str,
+) -> (Option<Value>, Option<Value>) {
     let snapshot = send::snapshot(daemon, None).ok();
     let screen = match screen {
         Some(screen) => Some(screen.to_owned()),
@@ -384,14 +508,36 @@ fn balance<D: Daemon + ?Sized>(daemon: &D, screen: Option<&str>, pane: &str) {
                 .map(str::to_owned)
         }),
     };
-    let Some(screen) = screen else { return };
-    let Ok(export) = plan(&["screen", screen.as_str(), "layout", "export"]) else { return };
-    let Ok(layout) = daemon.request(None, export) else { return };
-    let root = layout.get("root").unwrap_or(&layout);
+    let layout = screen.and_then(|screen| {
+        let export = plan(&["screen", screen.as_str(), "layout", "export"]).ok()?;
+        let layout = daemon.request(None, export).ok()?;
+        Some(layout.get("root").cloned().unwrap_or(layout))
+    });
+    (snapshot, layout)
+}
+
+/// Where a default start opens beside `target` ([`beside`]); `None` when
+/// the snapshot or the layout cannot tell.
+fn room<D: Daemon + ?Sized>(daemon: &D, target: &str) -> Option<Room> {
+    let (snapshot, layout) = layout_of(daemon, None, target);
+    let snapshot = snapshot?;
+    beside(&snapshot, &layout?, target)
+}
+
+/// Evens the new `pane`'s row by setting the ratios of the splits that
+/// change: the agent panes around it ([`row_ratios`]), or with `caller`
+/// the columns of the caller's space ([`space_ratios`]).
+fn balance<D: Daemon + ?Sized>(daemon: &D, screen: Option<&str>, pane: &str, caller: Option<&str>) {
+    let (snapshot, layout) = layout_of(daemon, screen, pane);
+    let Some(root) = layout else { return };
     let is_agent = |id: &str| {
         id == pane || snapshot.as_ref().is_some_and(|snapshot| started_agents(snapshot, id))
     };
-    for (split, ratio) in row_ratios(root, pane, &is_agent) {
+    let ratios = match caller {
+        Some(caller) => space_ratios(&root, caller, &is_agent),
+        None => row_ratios(&root, pane, &is_agent),
+    };
+    for (split, ratio) in ratios {
         let ratio = format!("{ratio:.6}");
         let words = [
             "pane",
@@ -484,9 +630,197 @@ fn row_ratios(root: &Value, pane: &str, is_agent: &dyn Fn(&str) -> bool) -> Vec<
     ratios
 }
 
+/// The caller's space in its row: the caller's cell (its pane and the
+/// agent panes stacked with it) and the agent cells right after it.
+struct Space<'a> {
+    /// The row's top split; `None` when the caller's cell is not in a row.
+    row: Option<&'a Value>,
+    /// The row's cells (only the caller's cell without a row).
+    cells: Vec<Cell<'a>>,
+    /// The caller's cell.
+    caller: usize,
+    /// One past the space's last cell.
+    end: usize,
+}
+
+/// The caller's space in `root` ([`Space`]); `None` when `caller` is not in
+/// a split tree.
+fn space<'a>(root: &'a Value, caller: &str, is_agent: &dyn Fn(&str) -> bool) -> Option<Space<'a>> {
+    let mut path = Vec::new();
+    if !matches!(root["kind"].as_str(), Some("split" | "leaf")) || !path_to(root, caller, &mut path)
+    {
+        return None;
+    }
+    let all_agents = |node: &Value| {
+        let mut panes = Vec::new();
+        leaves(node, &mut panes);
+        !panes.is_empty() && panes.iter().all(|pane| is_agent(pane))
+    };
+    let holds_caller = |node: &Value| path_to(node, caller, &mut Vec::new());
+    let child = |split: &'a Value| {
+        if holds_caller(&split["first"]) { &split["first"] } else { &split["second"] }
+    };
+    // Climb the stacks whose other side holds only agents: the caller's cell.
+    let mut at = path.len();
+    while let Some(split) = at.checked_sub(1).and_then(|index| path.get(index)) {
+        let other = if holds_caller(&split["first"]) { &split["second"] } else { &split["first"] };
+        if split["direction"] != "vertical" || !all_agents(other) {
+            break;
+        }
+        at -= 1;
+    }
+    let cell = match (path.get(at), path.last()) {
+        (Some(split), _) => *split,
+        (None, Some(&parent)) => child(parent),
+        (None, None) => root,
+    };
+    let top = path
+        .get(..at)
+        .unwrap_or_default()
+        .iter()
+        .rposition(|split| split["direction"] != "horizontal")
+        .map_or(0, |different| different + 1);
+    let Some(row) = path.get(top).filter(|_| top < at).copied() else {
+        let mut panes = Vec::new();
+        leaves(cell, &mut panes);
+        return Some(Space {
+            row: None,
+            cells: vec![Cell { node: cell, panes, width: 1.0 }],
+            caller: 0,
+            end: 1,
+        });
+    };
+    let mut cells = Vec::new();
+    cells_of(row, &json!("horizontal"), 1.0, &mut cells);
+    let caller_cell = cells.iter().position(|candidate| std::ptr::eq(candidate.node, cell))?;
+    let agent =
+        |cell: &Cell<'_>| !cell.panes.is_empty() && cell.panes.iter().all(|id| is_agent(id));
+    let after = cells.get(caller_cell + 1..).unwrap_or_default();
+    let end = caller_cell + 1 + after.iter().take_while(|cell| agent(cell)).count();
+    Some(Space { row: Some(row), cells, caller: caller_cell, end })
+}
+
+/// The size of `pane`'s terminal along `key` (`cols` or `rows`): its
+/// largest terminal's in `snapshot`, without the pane's frame.
+fn pane_size(snapshot: &Value, pane: &str, key: &str) -> Option<f64> {
+    let tabs: Vec<&str> = list(snapshot, "tabs")
+        .iter()
+        .filter(|tab| tab["pane_id"] == pane)
+        .filter_map(|tab| tab["content_id"].as_str())
+        .collect();
+    list(snapshot, "terminals")
+        .iter()
+        .filter(|terminal| terminal["id"].as_str().is_some_and(|id| tabs.contains(&id)))
+        .filter_map(|terminal| terminal[key].as_f64())
+        .reduce(f64::max)
+}
+
+/// Where a default start opens beside `target` (module doc): the caller
+/// alone takes a new column while both halves keep [`MIN_AGENT_COLUMNS`],
+/// else a pane below it; once the space has an agent, a pane below the
+/// space's last agent pane while each agent of that stack keeps
+/// [`MIN_AGENT_ROWS`] ([`stack_rows`]), else a tab in that pane. `None`
+/// without the target's width or a split tree.
+fn beside(snapshot: &Value, root: &Value, target: &str) -> Option<Room> {
+    let is_agent = |id: &str| started_agents(snapshot, id);
+    let columns = pane_size(snapshot, target, "cols")?;
+    let space = space(root, target, &is_agent)?;
+    let last = space.cells.get(space.end.checked_sub(1)?)?;
+    let last_pane = (*last.panes.last()?).to_owned();
+    if last_pane == target && !is_agent(target) {
+        // The space's first agent: the daemon gives the first side of an
+        // even split `round(width / 2)`, so the narrower side is the floor.
+        let half = ((columns + FRAME_COLUMNS) / 2.0).floor() - FRAME_COLUMNS;
+        return Some(if half >= MIN_AGENT_COLUMNS && last.node["kind"] == "leaf" {
+            Room::Column(last_pane)
+        } else {
+            Room::Stack(last_pane)
+        });
+    }
+    Some(match stack_rows(snapshot, root, &last_pane, &is_agent) {
+        Some(rows) if rows < MIN_AGENT_ROWS => Room::Tab(last_pane),
+        _ => Room::Stack(last_pane),
+    })
+}
+
+/// The terminal rows each agent of `pane`'s stack keeps after a split puts
+/// one more agent below `pane`: [`row_ratios`] then evens the run of agent
+/// panes around the new one in `pane`'s column (the chain of vertical splits
+/// above it). Rows come from the snapshot (each pane's terminal plus its
+/// frame); a cell with no terminal size takes its share of the column.
+/// `None` when no size is known.
+fn stack_rows(
+    snapshot: &Value,
+    root: &Value,
+    pane: &str,
+    is_agent: &dyn Fn(&str) -> bool,
+) -> Option<f64> {
+    let mut path = Vec::new();
+    if !path_to(root, pane, &mut path) {
+        return None;
+    }
+    let vertical = json!("vertical");
+    let top = path
+        .iter()
+        .rposition(|split| split["direction"] != vertical)
+        .map_or(0, |different| different + 1);
+    let Some(column) = path.get(top) else {
+        // `pane` is not in a stack: the split halves it.
+        let rows = pane_size(snapshot, pane, "rows")? + FRAME_ROWS;
+        return Some((rows / 2.0).floor() - FRAME_ROWS);
+    };
+    let mut cells = Vec::new();
+    cells_of(column, &vertical, 1.0, &mut cells);
+    let at = cells.iter().position(|cell| cell.panes.contains(&pane))?;
+    let known = |cell: &Cell<'_>| match cell.panes.as_slice() {
+        [only] if cell.node["kind"] == "leaf" => {
+            pane_size(snapshot, only, "rows").map(|rows| rows + FRAME_ROWS)
+        }
+        _ => None,
+    };
+    let (mut known_rows, mut known_share) = (0.0, 0.0);
+    for cell in &cells {
+        if let Some(rows) = known(cell) {
+            known_rows += rows;
+            known_share += cell.width;
+        }
+    }
+    if known_share <= 0.0 {
+        return None;
+    }
+    let rows = |cell: &Cell<'_>| known(cell).unwrap_or(known_rows / known_share * cell.width);
+    let agent =
+        |cell: &Cell<'_>| !cell.panes.is_empty() && cell.panes.iter().all(|id| is_agent(id));
+    let before = cells.get(..at).unwrap_or_default();
+    let first = at - before.iter().rev().take_while(|cell| agent(cell)).count();
+    let after = cells.get(at + 1..).unwrap_or_default();
+    let end = at + 1 + after.iter().take_while(|cell| agent(cell)).count();
+    let run = cells.get(first..end)?;
+    let total: f64 = run.iter().map(rows).sum();
+    Some((total / (run.len() as f64 + 1.0)).floor() - FRAME_ROWS)
+}
+
+/// The split ratios that give each column of `caller`'s space (with the
+/// new pane, which `is_agent` counts) the same width; every other cell of
+/// the row keeps its width. Ratios that already fit are left out.
+fn space_ratios(root: &Value, caller: &str, is_agent: &dyn Fn(&str) -> bool) -> Vec<(String, f64)> {
+    let Some(space) = space(root, caller, is_agent) else { return Vec::new() };
+    let Some(row) = space.row else { return Vec::new() };
+    let mut widths: Vec<f64> = space.cells.iter().map(|cell| cell.width).collect();
+    let Some(shared) = widths.get_mut(space.caller..space.end) else { return Vec::new() };
+    let total: f64 = shared.iter().sum();
+    let count = shared.len() as f64;
+    shared.fill(total / count);
+    let mut ratios = Vec::new();
+    let mut next = 0;
+    assign(row, &json!("horizontal"), &widths, &mut next, &mut ratios);
+    ratios
+}
+
 /// One pane (or stack, or split across the row) of a row, with its share of
 /// the row's width.
 struct Cell<'a> {
+    node: &'a Value,
     panes: Vec<&'a str>,
     width: f64,
 }
@@ -499,16 +833,25 @@ fn cells_of<'a>(node: &'a Value, direction: &Value, width: f64, cells: &mut Vec<
         cells_of(&node["second"], direction, width * (1.0 - ratio), cells);
         return;
     }
-    let panes = match node["kind"].as_str() {
-        Some("leaf") => node["pane_id"].as_str().into_iter().collect(),
-        Some("stack") => node["pane_ids"]
-            .as_array()
-            .map(|ids| ids.iter().filter_map(Value::as_str).collect())
-            .unwrap_or_default(),
-        // A split across the row holds panes of other rows: never shared.
-        _ => Vec::new(),
-    };
-    cells.push(Cell { panes, width });
+    // A split across the row is one cell with every pane in it: shared
+    // only when each is an agent pane (a stack of agents).
+    let mut panes = Vec::new();
+    leaves(node, &mut panes);
+    cells.push(Cell { node, panes, width });
+}
+
+/// The panes under `node`, in order (a stack's panes too), into `panes`.
+fn leaves<'a>(node: &'a Value, panes: &mut Vec<&'a str>) {
+    match node["kind"].as_str() {
+        Some("leaf") => panes.extend(node["pane_id"].as_str()),
+        Some("stack") => panes
+            .extend(node["pane_ids"].as_array().into_iter().flatten().filter_map(Value::as_str)),
+        Some("split") => {
+            leaves(&node["first"], panes);
+            leaves(&node["second"], panes);
+        }
+        _ => {}
+    }
 }
 
 /// Pushes the ratio of each row split under `node` that `widths` (the
