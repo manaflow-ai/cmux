@@ -42,11 +42,11 @@ import Testing
     @Test func historyNamesItsReaderAndDecodesTheDaemonsShape() async throws {
         let wire = Wire { _ in
             let rows: [[String: Any]] = [["url": "https://a.example/", "title": "A", "visitCount": 3, "lastVisit": 10.0],
-                                         ["url": "", "visitCount": 1, "lastVisit": 0.0]]
+                                         ["url": 42, "visitCount": 1, "lastVisit": 0.0]]
             return ["ok": rows] as [String: Any]
         }
         let entries = try await Self.reader(wire).history(.chromium, file: URL(fileURLWithPath: "/tmp/History"), limit: 7)
-        #expect(entries.map(\.url.absoluteString) == ["https://a.example/"], "an entry URL refuses is skipped")
+        #expect(entries.map(\.url.absoluteString) == ["https://a.example/"], "an entry whose URL does not decode is skipped")
         #expect(entries.first?.lastVisit == Date(timeIntervalSinceReferenceDate: 10))
         let sent = await Self.sent(wire)
         #expect(sent.first?["reader"] as? String == "chromium.history")
