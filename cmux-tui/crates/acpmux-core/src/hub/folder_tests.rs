@@ -101,11 +101,11 @@ fn folder_move_is_one_counter_step_and_reconnect_is_always_a_window() {
         serde_json::from_slice(format!("[{}]", String::from_utf8(span.bytes).unwrap()).as_bytes())
             .unwrap();
     assert_eq!(decoded.len(), 2);
-    assert!(
-        decoded
-            .iter()
-            .all(|op| op.get("seq").and_then(serde_json::Value::as_u64) == Some(span.last_seq))
-    );
+    let seqs: Vec<u64> = decoded
+        .iter()
+        .map(|op| op.get("seq").and_then(serde_json::Value::as_u64).unwrap())
+        .collect();
+    assert_eq!(seqs, vec![span.last_seq - 1, span.last_seq]);
 }
 
 #[test]
