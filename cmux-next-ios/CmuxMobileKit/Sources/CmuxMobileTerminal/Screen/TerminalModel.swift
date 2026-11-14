@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileArtifacts
+import CmuxMobileLinkFFI
 public import CmuxMobileRealtime
 public import CmuxMobileDesign
 import CmuxMobileTransport
@@ -423,15 +424,39 @@ public final class TerminalModel {
         }
     }
 
-    /// A web link tapped in the terminal: a cmux browser tab beside it in the workspace
-    /// (the page sets it, like the Mac's Cmd-click); without one, Safari. Not observed: the
-    /// page sets it while SwiftUI builds it.
+    /// Opens a web link on the Mac: a cmux browser tab beside the terminal in the workspace
+    /// (the page sets it, like the Mac's Cmd-click); nil when the Mac can't open tabs. Not
+    /// observed: the page sets it while SwiftUI builds it.
     @ObservationIgnored public var linkOpener: (@MainActor (URL) -> Void)?
 
-    /// Opens a web link the person tapped: a cmux browser tab, or (`external`) Safari.
-    public func openLink(_ url: URL, external: Bool = false) {
-        if !external, let linkOpener { return linkOpener(url) }
-        UIApplication.shared.open(url)
+    /// Where this terminal's links open (``TerminalLinkRoute``).
+    var linkRoute: TerminalLinkRoute { TerminalLinkRoute(opensOnMac: linkOpener != nil) }
+
+    /// Who can reach `url`: the Rust classifier (`link_open_side`) reads its host.
+    func linkReach(_ url: URL) -> TerminalLinkReach {
+        switch linkOpenSide(url: url.absoluteString) {
+        case .phone: .phone
+        case .mac: .mac
+        case .notWeb: .notWeb
+        }
+    }
+
+    /// The long-press menu's row for the device a tap does not open `url` on.
+    func otherLinkDevice(_ url: URL) -> TerminalLinkAction? {
+        linkRoute.otherDevice(for: linkReach(url))
+    }
+
+    /// Opens a web link the person tapped or picked in the menu, where
+    /// ``TerminalLinkRoute`` says: a public page on this iPhone in a Safari view (Safari's
+    /// passkeys, AutoFill and cookies work there, unlike in a web view or a page streamed
+    /// from the Mac), a page only the Mac reaches in a browser tab on the Mac.
+    public func openLink(_ url: URL, action: TerminalLinkAction = .tap) {
+        switch linkRoute.destination(for: url, reach: linkReach(url), action: action) {
+        case .phone(let page): if controller?.presentWebPage(page) != true { UIApplication.shared.open(page) }
+        case .systemBrowser(let page): UIApplication.shared.open(page)
+        case .mac(let page): linkOpener?(page)
+        case .none: break
+        }
     }
 
     /// Find… (the page menu, Cmd-F): the find bar over the terminal's rows.
