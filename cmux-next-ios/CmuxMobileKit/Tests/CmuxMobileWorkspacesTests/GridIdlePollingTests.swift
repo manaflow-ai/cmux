@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileModel
 import Foundation
+import SwiftUI
 import Testing
 @testable import CmuxMobileWorkspaces
 
@@ -23,7 +24,17 @@ import Testing
         }
     }
 
+    /// Terminal content whose Mac output the test sends.
+    @MainActor final class OutputTerminalContent: TerminalTabContent {
+        var handler: (@MainActor (String?, String) -> Void)?
+        func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView { AnyView(EmptyView()) }
+        func card(for tab: WorkspaceTab, in workspace: Workspace) -> AnyView { AnyView(EmptyView()) }
+        func observeOutput(_ owner: AnyObject, _ handler: @escaping @MainActor (String?, String) -> Void) { self.handler = handler }
+    }
+
     struct Grid {
+        let terminal: OutputTerminalContent
+        let macID: String
         let source: WorkspaceTabsSource
         let backend: CountingProgramsBackend
         let clock: GridTestClock
@@ -37,13 +48,14 @@ import Testing
         store.workspaces.append(Workspace(id: "ws-eight", macID: macID, title: "Eight", directory: "~", tabs: tabs, lastActivityAt: Date()))
         let backend = CountingProgramsBackend()
         let clock = GridTestClock()
-        let source = WorkspaceTabsSource(store: store, workspaceID: "ws-eight",
+        let terminal = OutputTerminalContent()
+        let source = WorkspaceTabsSource(store: store, workspaceID: "ws-eight", terminal: terminal,
                                          creator: WorkspaceCreator(store: store, backend: backend), clock: clock)
         source.overviewWillAppear()
         source.overviewVisibilityChanged(true)
         source.overviewIdleChanged(true)
         await settle()
-        return Grid(source: source, backend: backend, clock: clock)
+        return Grid(terminal: terminal, macID: macID, source: source, backend: backend, clock: clock)
     }
 
     func settle() async {
@@ -67,6 +79,21 @@ import Testing
         print("grid-idle-rpcs: 8 terminal tabs idle on screen: \(rpcs) process-info RPC/min, \(wakeups) card wake-ups/min")
         #expect(rpcs == 0)
         #expect(wakeups == 0)
+        grid.source.overviewVisibilityChanged(false)
+        grid.clock.stop()
+    }
+
+    /// The close prompt still knows a busy terminal: one that drew output is read again
+    /// (once per interval), the quiet ones are not.
+    @Test func aTerminalThatDrewOutputIsReadAgain() async {
+        let grid = await idleGrid()
+        let before = grid.backend.rpcs
+        grid.terminal.handler?("term3", grid.macID)
+        grid.terminal.handler?("term3", grid.macID)
+        await settle()
+        grid.clock.advance(by: WorkspaceTabsSource.programPrefetchInterval)
+        await settle()
+        #expect(grid.backend.rpcs - before == 1)
         grid.source.overviewVisibilityChanged(false)
         grid.clock.stop()
     }

@@ -42,4 +42,27 @@ import Testing
         print("grid-idle-rpcs: 8 terminal tabs, app in background: \(reads) read-screen RPC/min")
         #expect(reads == 0)
     }
+
+    @Test func theGridTicksOnlyAfterTheMacsOutput() {
+        var refresh = TerminalCardLiveRefresh()
+        refresh.setVisible(true, now: 0)
+        #expect(!refresh.wantsTicks(now: 0))
+        refresh.macOutput("cold1", now: 10)
+        #expect(refresh.wantsTicks(now: 10))
+        #expect(refresh.due(Self.tabs, now: 10.25) == [.screenText("cold1")])
+        // Quiet for `quietAfter`: the tick stops.
+        #expect(!refresh.wantsTicks(now: 10 + TerminalCardLiveRefresh.quietAfter))
+    }
+
+    @Test func outputInTheBackgroundIsReadOnReturn() {
+        var refresh = TerminalCardLiveRefresh()
+        refresh.setVisible(true, now: 0)
+        refresh.setAppActive(false, now: 0)
+        refresh.macOutput("cold2", now: 5)
+        #expect(!refresh.wantsTicks(now: 5))
+        #expect(refresh.due(Self.tabs, now: 5.25) == [])
+        refresh.setAppActive(true, now: 100)
+        #expect(refresh.wantsTicks(now: 100))
+        #expect(refresh.due(Self.tabs, now: 100.25) == [.screenText("cold2")])
+    }
 }

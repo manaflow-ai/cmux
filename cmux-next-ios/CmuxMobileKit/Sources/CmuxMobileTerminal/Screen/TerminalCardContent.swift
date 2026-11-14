@@ -97,20 +97,28 @@ public struct TerminalCardScreenRefresh: Sendable {
 /// Which grid cards to refresh while the grid is visible (full verify
 /// 2026-10-19 D6, T-TABS-01: the active card was a snapshot taken once, when
 /// the grid opened, and stayed at row 78 while the Mac went to 201). Every
-/// `tick` while the grid shows and is not scrolling (a card that changes in
-/// a scroll frame makes that frame late):
+/// `tick` while the grid shows, the app is in the foreground and the grid is
+/// not scrolling (a card that changes in a scroll frame makes that frame late):
 /// - a page that can be captured (in a window: the active tab's) and drew
 ///   output since its card was taken is captured again, at most every
 ///   `snapshotInterval`;
 /// - any other terminal (a warm tab whose page is off screen, or one not
-///   opened in this launch) reads the Mac's screen, at most every
-///   `screenTextInterval`.
-/// So a streaming card is at most about a second old (T-TABS-01: ≤ 1 s).
+///   opened in this launch) that the Mac said drew output since its last read
+///   (`macOutput`, the daemon's `surface-output`) reads the Mac's screen, at
+///   most every `screenTextInterval`.
+/// So a streaming card is at most about a second old (T-TABS-01: ≤ 1 s), and
+/// a grid whose terminals are quiet asks the Mac nothing and does not tick
+/// (`wantsTicks`): ticks run only until the Mac's output has been quiet for
+/// `quietAfter` (Leo 2026-11-14: an idle grid of 8 terminals read 480 screens
+/// a minute, in the background too).
 public struct TerminalCardLiveRefresh: Sendable {
     public static let tick: Duration = .milliseconds(250)
     public static let tickSeconds: Double = 0.25
     public static let snapshotInterval: Double = 0.5
     public static let screenTextInterval: Double = 1
+    /// Ticks keep running this long after the Mac's last output: enough for
+    /// the page to draw it and for a throttled read to come due.
+    public static let quietAfter: Double = 1.5
 
     public enum Action: Equatable, Sendable {
         case snapshot(String)
@@ -136,8 +144,14 @@ public struct TerminalCardLiveRefresh: Sendable {
 
     public private(set) var isVisible = false
     public private(set) var isScrolling = false
+    /// The app is in the foreground (false: the scene went to the
+    /// background, while the grid's view still counts as visible).
+    public private(set) var isAppActive = true
     private var lastSnapshot: [String: Double] = [:]
     private var lastText: [String: Double] = [:]
+    /// Terminals the Mac said drew output since their last screen read.
+    private var changed: Set<String> = []
+    private var awakeUntil: Double = 0
 
     public init() {}
 
@@ -147,24 +161,50 @@ public struct TerminalCardLiveRefresh: Sendable {
         isVisible = visible
         lastSnapshot = [:]
         lastText = [:]
-        if visible { opened = now }
+        if visible { opened = now; wakeIfPending(now) }
     }
     private var opened: Double = 0
 
-    public mutating func setScrolling(_ scrolling: Bool) {
+    public mutating func setScrolling(_ scrolling: Bool, now: Double = 0) {
         isScrolling = scrolling
+        if !scrolling { wakeIfPending(now) }
     }
 
-    /// The app is in the foreground (false: the scene went to the
-    /// background, while the grid's view still counts as visible).
-    public private(set) var isAppActive = true
     public mutating func setAppActive(_ active: Bool, now: Double) {
         isAppActive = active
+        if active { wakeIfPending(now) }
+    }
+
+    /// The Mac said terminal `id` drew output: its card is read again when
+    /// due, and the grid ticks until the output has been quiet for `quietAfter`.
+    public mutating func macOutput(_ id: String, now: Double) {
+        changed.insert(id)
+        awakeUntil = max(awakeUntil, now + Self.quietAfter)
+    }
+
+    /// A read of `id`'s screen was asked for (any path): output before it is in its reply.
+    public mutating func reading(_ id: String) {
+        changed.remove(id)
+    }
+
+    /// `id`'s read could not start (one is still out) or brought nothing: it
+    /// is read again at the next tick that runs.
+    public mutating func readAgain(_ id: String) {
+        changed.insert(id)
+    }
+
+    /// Whether the grid's tick should run (or keep running).
+    public func wantsTicks(now: Double) -> Bool {
+        isVisible && isAppActive && now < awakeUntil
+    }
+
+    private mutating func wakeIfPending(_ now: Double) {
+        if !changed.isEmpty { awakeUntil = max(awakeUntil, now + Self.quietAfter) }
     }
 
     /// The refreshes due now, in `tabs` order.
     public mutating func due(_ tabs: [Tab], now: Double) -> [Action] {
-        guard isVisible, !isScrolling else { return [] }
+        guard isVisible, isAppActive, !isScrolling else { return [] }
         var actions: [Action] = []
         for tab in tabs {
             if tab.pageStarted, tab.capturable {
@@ -172,7 +212,8 @@ public struct TerminalCardLiveRefresh: Sendable {
                 lastSnapshot[tab.id] = now
                 actions.append(.snapshot(tab.id))
             } else {
-                guard now - (lastText[tab.id] ?? opened) >= Self.screenTextInterval else { continue }
+                guard changed.contains(tab.id), now - (lastText[tab.id] ?? opened) >= Self.screenTextInterval else { continue }
+                changed.remove(tab.id)
                 lastText[tab.id] = now
                 actions.append(.screenText(tab.id))
             }
