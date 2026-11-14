@@ -86,7 +86,7 @@ import {
   type FollowChase,
   sendMotionMs,
 } from "./conversation/followChase";
-import { shareFrameBudget, type FrameBudget } from "./conversation/frameBudget";
+import { rowsMoved, shareFrameBudget, type FrameBudget } from "./conversation/frameBudget";
 import { followMotion } from "./conversation/followMotion.experiment";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
@@ -1829,9 +1829,13 @@ function TranscriptView({
       if (frameBudget.current === budget) frameBudget.current = undefined;
     };
   }, []);
-  // Every commit of the rows is the chat doing work: its frames are read for a moment after.
+  // A commit that moves the rows is the chat doing work: its frames are read for a moment after.
+  // Fresh row objects that change no row are no work (frameBudget.ts `rowsMoved`).
+  const pokedRows = useRef<readonly AcpmuxRow[]>([]);
   useEffect(() => {
-    frameBudget.current?.poke();
+    const before = pokedRows.current;
+    pokedRows.current = rows;
+    if (rowsMoved(before, rows)) frameBudget.current?.poke();
   }, [rows]);
   useEffect(() => {
     transcriptMounted.current = true;

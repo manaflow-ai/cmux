@@ -106,6 +106,25 @@ export class FrameBudgetState {
   }
 }
 
+/// Whether a commit of the transcript's rows is the chat doing work: a row came, went or moved on
+/// (its id or version). The pane hands the transcript fresh row objects for a commit that changes
+/// none of them (a switch's second events page, a reconcile); that one is no work, and poking the
+/// budget for it read IDLE_FRAMES frames of a chat at rest (bench/chat-switch.bench.ts: 58 to 91
+/// frames in its 5 s at rest). O(rows) per commit, and a commit at rest is rare.
+export function rowsMoved(
+  before: readonly { id: string; version: number }[],
+  after: readonly { id: string; version: number }[],
+): boolean {
+  if (before === after) return false;
+  if (before.length !== after.length) return true;
+  for (let index = 0; index < after.length; index += 1) {
+    const was = before[index]!;
+    const now = after[index]!;
+    if (was !== now && (was.id !== now.id || was.version !== now.version)) return true;
+  }
+  return false;
+}
+
 const shared = new WeakMap<Element, { budget: FrameBudget; users: number }>();
 
 /// The frame budget of the chat `chat` (the element the mark goes on), one per chat however many

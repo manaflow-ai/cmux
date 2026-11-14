@@ -3,7 +3,7 @@
 // the animation... it just goes into minimal ish mode?").
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { createFrameBudget, FrameBudgetState, HEALTHY_FOR, IDLE_FRAMES, minimalMotion } from "./frameBudget";
+import { createFrameBudget, FrameBudgetState, HEALTHY_FOR, IDLE_FRAMES, minimalMotion, rowsMoved } from "./frameBudget";
 import { motionMode } from "../../../ui/motion/motionMode";
 
 const FRAME = 1000 / 60;
@@ -117,4 +117,20 @@ test("a page that pins its motion is never marked minimal", () => {
   expect(motionMode(doc, chat)).not.toBe("none");
   budget.dispose();
   expect(doc.documentElement.getAttribute("data-chat-motion")).toBe("full");
+});
+
+test("fresh row objects that change no row are no work; a row that comes, goes or moves on is", () => {
+  const rows = [
+    { id: "a", version: 1, text: "hi" },
+    { id: "b", version: 3, text: "there" },
+  ];
+  // The pane's commit at rest: the same rows, rebuilt (a switch's second events page).
+  const rebuilt = rows.map((row) => ({ ...row }));
+  expect(rowsMoved(rows, rows)).toBe(false);
+  expect(rowsMoved(rows, rebuilt)).toBe(false);
+  expect(rowsMoved([], [])).toBe(false);
+  expect(rowsMoved(rows, [...rebuilt, { id: "c", version: 1, text: "new" }])).toBe(true);
+  expect(rowsMoved(rows, rebuilt.slice(1))).toBe(true);
+  expect(rowsMoved(rows, [rebuilt[0]!, { ...rebuilt[1]!, version: 4 }])).toBe(true);
+  expect(rowsMoved(rows, [rebuilt[1]!, rebuilt[0]!])).toBe(true);
 });
