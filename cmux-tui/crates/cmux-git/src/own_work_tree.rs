@@ -8,10 +8,13 @@
 //! - the request's real folder is the top folder or below it;
 //! - the top folder's `.git` entry is the git folder (a folder), or names it
 //!   (a file), and then the git folder names that file back: by its record
-//!   of a linked work tree, or by its `core.worktree` setting.
+//!   of a linked work tree, or by its `core.worktree` setting;
+//! - the git folder uses no common folder, or the common folder of the
+//!   repository that has it as the git folder of a linked work tree.
 //!
 //! The check is one look, at the open. It does not see a change of the
-//! `.git` entry after it, and it does not look inside the git folder.
+//! `.git` entry after it, and of the git folder it reads these records
+//! only.
 //!
 //! git prints each folder on a line of its own, and a folder's name can
 //! have a line break: [`two_folders`] reads such an answer.
@@ -122,6 +125,14 @@ pub(crate) fn check(
     }
     let why = match names(top, git_dir, core_worktree)? {
         Names::EachOther => return Ok(()),
+        Names::OtherCommonFolder => {
+            return Err(GitFailure::Exit(format!(
+                "{REFUSED}the git folder that git gives for the work tree {} uses the common \
+                 folder of a repository, and it is not the git folder of a linked work tree of \
+                 that repository",
+                top.display()
+            )));
+        }
         Names::Not => String::new(),
         Names::NoWorkTree => format!(
             ": the git folder names no work tree (to mend it, run `git config core.worktree \
@@ -150,6 +161,9 @@ enum Names {
     /// The `.git` file names the git folder, and the git folder has the
     /// record of a work tree at another place.
     OtherPlace,
+    /// The two name each other, and the git folder uses the common folder
+    /// of a repository that does not have it as a linked work tree's.
+    OtherCommonFolder,
 }
 
 /// Whether the real folder of `directory` is the folder `top` or below it.
@@ -163,9 +177,39 @@ fn is_below(directory: &Path, top: &Path) -> bool {
     directory.starts_with(real_top) || directory.ancestors().any(|above| is_same(above, top))
 }
 
+/// Whether the work tree `top` and `git_dir` name each other, and `git_dir`
+/// uses a common folder that is its own.
+fn names(
+    top: &Path,
+    git_dir: &Path,
+    core_worktree: impl FnOnce() -> Result<Option<Vec<u8>>, GitFailure>,
+) -> Result<Names, GitFailure> {
+    Ok(match entry_names(top, git_dir, core_worktree)? {
+        Names::EachOther if !has_own_common_folder(git_dir) => Names::OtherCommonFolder,
+        other => other,
+    })
+}
+
+/// Whether `git_dir` uses no common folder, or the common folder of the
+/// repository that has it as the git folder of a linked work tree
+/// (`<common>/worktrees/<name>`). git reads the common folder from the file
+/// `commondir` of a git folder, from that git folder when it is relative.
+fn has_own_common_folder(git_dir: &Path) -> bool {
+    match record(&git_dir.join("commondir")) {
+        Record::Missing => true,
+        Record::Text(common) => {
+            let common = git_dir.join(path_from_bytes(without_line_end(&common)));
+            git_dir
+                .file_name()
+                .is_some_and(|name| is_same(&common.join("worktrees").join(name), git_dir))
+        }
+        Record::Unreadable => false,
+    }
+}
+
 /// Whether the `.git` entry of the work tree `top` leads to `git_dir`, and
 /// `git_dir` names the work tree back.
-fn names(
+fn entry_names(
     top: &Path,
     git_dir: &Path,
     core_worktree: impl FnOnce() -> Result<Option<Vec<u8>>, GitFailure>,
