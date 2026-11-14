@@ -43,7 +43,7 @@ extension ChromePlacementSetting {
 }
 
 extension PaneToolbarButtonsSetting {
-    /// `tabs.toolbarButtons`: The actions pinned as buttons next to a pane's tab bar "...", in tab bar order (catalog action ids).
+    /// `tabs.toolbarButtons`: The actions pinned as buttons at a pane's tab bar trailing end, in tab bar order (catalog action ids).
     public nonisolated static let configPath = ["tabs", "toolbarButtons"]
     public nonisolated static let fallback: [String] = []
     public nonisolated static let values = ["splitRight", "splitDown", "openDiffViewer", "file.open", "agentPane.searchChats", "toggleSplitZoom"]
