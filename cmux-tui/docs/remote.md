@@ -243,7 +243,7 @@ cmux remote cp <route> ./build.tar remote:/srv/app/build.tar --json
 cmux remote cp <route> remote:/var/log/app.log ./
 ```
 
-Downloads read 4 MiB chunks, four in flight, check the result against the daemon's SHA-256 of the file, and rename a temporary file beside the destination into place; files over 128 MiB (the daemon's `read-file` limit) stream through `cat`. Uploads up to 8 MiB are one `write-file`. Larger uploads go up as 8 MiB `write-file` parts beside the destination, each checked against its SHA-256, and a remote `/bin/sh` joins them and renames the result into place; process input carries only 32 KiB per request, so parts are much faster than streaming into `cat`. Uploads keep the executable bits; other mode bits follow the replaced file or the remote umask. Directories are refused: copy a tree with `remote exec` and `tar` as above.
+Downloads read 4 MiB chunks, four in flight, check the result against the daemon's SHA-256 of the file, and rename a temporary file beside the destination into place; files over 128 MiB (the daemon's `read-file` limit) stream through `cat`. Uploads up to 8 MiB are one `write-file`. Larger uploads go up as 8 MiB `write-file` parts beside the destination, each checked against its SHA-256, and a remote `/bin/sh` joins them and renames the result into place; process input carries only 32 KiB per request, so parts are much faster than streaming into `cat`. Uploads get the local file's permission bits (a remote `chmod`). Directories are refused: copy a tree with `remote exec` and `tar` as above.
 
 ## Coding-agent RPC
 

@@ -528,9 +528,8 @@ Downloads read the file in 4 MiB chunks, check its SHA-256 against the
 daemon's, write a temporary file beside DST and rename it into place; files
 over 128 MiB stream through `cat`. Uploads up to 8 MiB are one atomic write;
 larger files go up as 8 MiB parts beside PATH that a remote /bin/sh joins and
-renames into place. Uploads keep the executable bits (chmod +x); other mode
-bits follow the remote file or umask. Downloads are 0755 when the remote file
-is executable, otherwise 0644.
+renames into place. Uploads get the local file's permission bits (chmod).
+Downloads are 0755 when the remote file is executable, otherwise 0644.
 
 OPTIONS:
   --json  print {"bytes","seconds","mib_per_s"} as one JSON line when done
@@ -795,9 +794,8 @@ N で終了したときは 128+N、接続やこの CLI が失敗したときは 
 隣の一時ファイルに書いてから名前を変えます。128 MiB を超えるファイルは `cat`
 で流します。8 MiB までのアップロードは 1 回のアトミックな書き込みです。それより
 大きいファイルはパスの隣に 8 MiB ずつ送り、リモートの /bin/sh が結合して名前を
-変えます。アップロードは実行ビットを保ちます (chmod +x)。その他のモードビットは
-リモートのファイルまたは umask に従います。ダウンロードはリモートのファイルが
-実行可能なら 0755、そうでなければ 0644 です。
+変えます。アップロードはローカルのファイルと同じパーミッションにします (chmod)。
+ダウンロードはリモートのファイルが実行可能なら 0755、そうでなければ 0644 です。
 
 オプション:
   --json  完了時に {"bytes","seconds","mib_per_s"} を JSON 1 行で出力します

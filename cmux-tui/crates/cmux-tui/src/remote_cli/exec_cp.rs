@@ -49,17 +49,17 @@ const EXIT_BROKEN_PIPE: i32 = 141;
 const DEFAULT_TERMINAL: (u16, u16) = (80, 24);
 
 /// Joins the parts of a large upload into PATH: `$1` PATH, `$2` the part
-/// count, `$3` non-empty to add the executable bits. The parts and the
+/// count, `$3` the octal mode to give it. The parts and the
 /// temporary file are removed whatever happens.
 const ASSEMBLE_SCRIPT: &str = r#"set -e
-f=$1; n=$2; x=$3
+f=$1; n=$2; m=$3
 part() { printf '%s.cmux-part.%06d' "$f" "$1"; }
 cleanup() { rm -f "$f.cmux-tmp"; i=0; while [ "$i" -lt "$n" ]; do rm -f "$(part "$i")"; i=$((i+1)); done; }
 trap cleanup EXIT
 : > "$f.cmux-tmp"
 i=0
 while [ "$i" -lt "$n" ]; do cat "$(part "$i")" >> "$f.cmux-tmp"; i=$((i+1)); done
-if [ -n "$x" ]; then chmod +x "$f.cmux-tmp"; fi
+chmod "$m" "$f.cmux-tmp"
 mv -f "$f.cmux-tmp" "$f"
 "#;
 
@@ -746,15 +746,15 @@ async fn upload(
     } else {
         remote.to_owned()
     };
-    let executable = metadata.permissions().mode() & 0o111 != 0;
+    // `write-file` makes a new file 0600 and `cat >` follows the umask: give
+    // the copy the local file's permission bits, as scp does.
+    let mode = format!("{:o}", metadata.permissions().mode() & 0o777);
     let size = metadata.len();
     if size <= WRITE_FILE_BYTES as u64 {
         let bytes = tokio::fs::read(local).await?;
         write_remote_file(client, workspace, &remote, &bytes).await?;
-        if executable {
-            let argv = vec!["chmod".into(), "+x".into(), "--".into(), remote.clone()];
-            check_step("chmod", run_remote(client, workspace, argv, None).await?)?;
-        }
+        let argv = vec!["chmod".into(), mode, "--".into(), remote.clone()];
+        check_step("chmod", run_remote(client, workspace, argv, None).await?)?;
         return Ok(bytes.len() as u64);
     }
     let parts = match upload_parts(client, workspace, local, &remote).await {
@@ -778,7 +778,7 @@ async fn upload(
         "sh".into(),
         remote.clone(),
         parts.to_string(),
-        if executable { "x".into() } else { String::new() },
+        mode,
     ];
     check_step("/bin/sh", run_remote(client, workspace, argv, None).await?)?;
     Ok(size)
