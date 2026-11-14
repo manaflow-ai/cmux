@@ -12,21 +12,21 @@ public nonisolated enum MobileTaskAgentProvider: String, CaseIterable, Sendable 
     /// The OpenCode CLI.
     case openCode = "opencode"
 
-    /// Lexically detects a provider from the command's first
-    /// whitespace-delimited token.
+    /// Lexically detects a provider from the command's agent token: the first
+    /// whitespace-delimited token, or the token after a known wrapper (only
+    /// `sr`, followed by exactly `codex`).
     ///
-    /// Detection ignores the token's path, but does not parse shell syntax, so
-    /// compound or environment-prefixed commands detect no provider. Detection
-    /// fails closed: an undetected command offers no model UI and always runs
-    /// byte-for-byte verbatim.
+    /// Detection ignores the first token's path, but does not parse shell
+    /// syntax, so compound or environment-prefixed commands detect no provider.
+    /// Detection fails closed: an undetected command, including an unknown
+    /// wrapper or one followed by any other agent, offers no model UI and
+    /// always runs byte-for-byte verbatim.
     /// - Parameter command: User-authored task-template command.
     public init?(command: String) {
-        guard let tokenRange = Self.tokenRange(in: command, from: command.startIndex) else {
+        guard let tokenRange = Self.agentTokenRange(in: command) else {
             return nil
         }
-        let token = command[tokenRange]
-        let basename = token.split(separator: "/", omittingEmptySubsequences: true).last
-        switch basename {
+        switch Self.basename(command[tokenRange]) {
         case "claude":
             self = .claude
         case "codex":
@@ -43,7 +43,7 @@ public nonisolated enum MobileTaskAgentProvider: String, CaseIterable, Sendable 
     /// When the first simple command already carries one of this provider's
     /// model flags, every such flag's value is replaced in place so the
     /// template's own spelling never overrides the explicit selection.
-    /// Otherwise the flag is inserted immediately after the first token.
+    /// Otherwise the flag is inserted immediately after the agent token.
     /// Everything else remains byte-for-byte identical. Tokenization is
     /// quote-aware (single quotes, double quotes, and backslash escapes
     /// outside single quotes), so flag text embedded in a quoted argument is
@@ -91,7 +91,7 @@ public nonisolated enum MobileTaskAgentProvider: String, CaseIterable, Sendable 
         flagSpellings: [String],
         to command: String
     ) -> String {
-        guard let firstToken = Self.tokenRange(in: command, from: command.startIndex) else {
+        guard let agentToken = Self.agentTokenRange(in: command) else {
             return command
         }
         let quotedValue = Self.shellQuoted(optionValue)
@@ -99,7 +99,7 @@ public nonisolated enum MobileTaskAgentProvider: String, CaseIterable, Sendable 
         // Collect edits against the immutable command, then apply back to
         // front so earlier ranges stay valid.
         var edits: [(range: Range<String.Index>, replacement: String)] = []
-        var searchStart = firstToken.upperBound
+        var searchStart = agentToken.upperBound
         while let token = Self.tokenRange(in: command, from: searchStart) {
             // A newline between tokens ends the first simple command.
             if command[searchStart..<token.lowerBound].contains(where: \.isNewline) { break }
@@ -154,16 +154,16 @@ public nonisolated enum MobileTaskAgentProvider: String, CaseIterable, Sendable 
         }
 
         let flag = flagSpellings[0]
-        return "\(command[..<firstToken.upperBound]) \(flag) \(quotedValue)\(command[firstToken.upperBound...])"
+        return "\(command[..<agentToken.upperBound]) \(flag) \(quotedValue)\(command[agentToken.upperBound...])"
     }
 
     private func applyingCodexEffort(_ effortID: String, to command: String) -> String {
-        guard let firstToken = Self.tokenRange(in: command, from: command.startIndex) else {
+        guard let agentToken = Self.agentTokenRange(in: command) else {
             return command
         }
         let replacement = "model_reasoning_effort=\(Self.shellQuoted(effortID))"
         var edits: [(range: Range<String.Index>, replacement: String)] = []
-        var searchStart = firstToken.upperBound
+        var searchStart = agentToken.upperBound
         while let token = Self.tokenRange(in: command, from: searchStart) {
             if command[searchStart..<token.lowerBound].contains(where: \.isNewline) { break }
             searchStart = token.upperBound
@@ -195,11 +195,40 @@ public nonisolated enum MobileTaskAgentProvider: String, CaseIterable, Sendable 
             }
             return replaced
         }
-        return "\(command[..<firstToken.upperBound]) -c \(replacement)\(command[firstToken.upperBound...])"
+        return "\(command[..<agentToken.upperBound]) -c \(replacement)\(command[agentToken.upperBound...])"
     }
 
     private static func shellQuoted(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+
+    /// Wrapper commands, keyed by their first token's basename, mapped to the
+    /// exact next tokens (never paths) that name an agent whose own flags may
+    /// follow it. `sr codex` forwards its remaining arguments to Codex.
+    /// `sr claude` is excluded: its `proxy` subcommand and Subrouter's own
+    /// options follow `claude`, so an inserted flag would land ahead of them.
+    private static let wrappedAgentTokens: [Substring: Set<Substring>] = ["sr": ["codex"]]
+
+    /// The token's last path component, or `nil` when it has none (`/`).
+    private static func basename(_ token: Substring) -> Substring? {
+        token.split(separator: "/", omittingEmptySubsequences: true).last
+    }
+
+    /// The command's agent token: the first token, or for a known wrapper the
+    /// following token on the same line when it names an allowed agent.
+    /// `nil` for an empty command or a wrapper not followed by one.
+    private static func agentTokenRange(in command: String) -> Range<String.Index>? {
+        guard let firstToken = tokenRange(in: command, from: command.startIndex) else {
+            return nil
+        }
+        guard let wrapper = basename(command[firstToken]),
+              let agents = wrappedAgentTokens[wrapper]
+        else { return firstToken }
+        guard let agentToken = tokenRange(in: command, from: firstToken.upperBound),
+              !command[firstToken.upperBound..<agentToken.lowerBound].contains(where: \.isNewline),
+              agents.contains(command[agentToken])
+        else { return nil }
+        return agentToken
     }
 
     /// Model-flag spellings this provider's CLI accepts; the first is used
