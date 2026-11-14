@@ -455,7 +455,7 @@ fn submit_remote_id(v1: &Hub, v2: &V2, peer: &str, id: &str, remote_ready: bool)
     }
 }
 
-async fn reconcile(v1: &Hub, v2: &V2, state: &TeeState) -> Expiries {
+async fn reconcile(v1: &Hub, v2: &V2, state: &TeeState) -> (Expiries, bool) {
     #[cfg(test)]
     let started = std::time::Instant::now();
     v1.wait_store().await;
@@ -470,6 +470,7 @@ async fn reconcile(v1: &Hub, v2: &V2, state: &TeeState) -> Expiries {
     state.record_walk_id_memory(&unseen);
     let mut expiries = Expiries::default();
     let mut anchor: Option<SortKey> = None;
+    let mut complete = true;
     loop {
         let page = match v2.hub.snapshot().read_page(
             anchor.as_ref(),
@@ -482,6 +483,7 @@ async fn reconcile(v1: &Hub, v2: &V2, state: &TeeState) -> Expiries {
             Ok(page) => page,
             Err(error) => {
                 tracing::warn!(%error, "v2 list reconciliation page failed");
+                complete = false;
                 break;
             }
         };
@@ -503,16 +505,18 @@ async fn reconcile(v1: &Hub, v2: &V2, state: &TeeState) -> Expiries {
         anchor = Some(next);
         tokio::task::yield_now().await;
     }
-    for (n, id) in unseen.into_iter().enumerate() {
-        submit_id(v1, v2, &mut expiries, &id);
-        if (n + 1) % BATCH == 0 {
-            drain_marks(v1, v2, state, &mut expiries);
-            tokio::task::yield_now().await;
+    if complete {
+        for (n, id) in unseen.into_iter().enumerate() {
+            submit_id(v1, v2, &mut expiries, &id);
+            if (n + 1) % BATCH == 0 {
+                drain_marks(v1, v2, state, &mut expiries);
+                tokio::task::yield_now().await;
+            }
         }
     }
     #[cfg(test)]
     state.walk_done.store(true, Ordering::Release);
-    expiries
+    (expiries, complete)
 }
 
 async fn reconcile_remote(v1: &Hub, v2: &V2, state: &TeeState) {
@@ -578,7 +582,13 @@ pub(crate) fn start_v2_tee(
     let state = Arc::new(TeeState { hub: Arc::downgrade(&v2.hub), ..TeeState::default() });
     let handle = Arc::new(TeeHandle { state: state.clone() });
     let task = async move {
-        let mut expiries = reconcile(&v1, &v2, &state).await;
+        let (mut expiries, initial_complete) = reconcile(&v1, &v2, &state).await;
+        let mut rebuild_seen = v2.hub.rebuild_count();
+        if rebuild_seen != 0 {
+            v2.hub.source_walk_finished(Source::Local, rebuild_seen, initial_complete);
+        }
+        let mut rebuild_retry_at = None;
+        let mut rebuild_retry_secs = 1_u64;
         if v1.config.read().await.peers.is_empty() {
             state.remote_ready();
         }
@@ -586,6 +596,25 @@ pub(crate) fn start_v2_tee(
         let mut remote_reconciled = false;
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
+            let rebuild_ready = v2.hub.rebuild_count() != rebuild_seen
+                && rebuild_retry_at.is_none_or(|deadline| std::time::Instant::now() >= deadline);
+            if rebuild_ready {
+                let rebuild = v2.hub.rebuild_count();
+                let (next_expiries, complete) = reconcile(&v1, &v2, &state).await;
+                if complete {
+                    expiries = next_expiries;
+                    rebuild_seen = rebuild;
+                    rebuild_retry_at = None;
+                    rebuild_retry_secs = 1;
+                    v2.hub.source_walk_finished(Source::Local, rebuild, true);
+                } else {
+                    rebuild_retry_at = Some(
+                        std::time::Instant::now()
+                            + std::time::Duration::from_secs(rebuild_retry_secs),
+                    );
+                    rebuild_retry_secs = rebuild_retry_secs.saturating_mul(2).min(64);
+                }
+            }
             if state.remote_ready.load(Ordering::Acquire) && !remote_reconciled {
                 reconcile_remote(&v1, &v2, &state).await;
                 remote_reconciled = true;
@@ -594,8 +623,17 @@ pub(crate) fn start_v2_tee(
                 biased;
                 _ = tick.tick() => true,
                 _ = state.notify.notified() => false,
+                _ = async {
+                    if let Some(deadline) = rebuild_retry_at {
+                        tokio::time::sleep_until(deadline.into()).await;
+                    } else {
+                        std::future::pending::<()>().await;
+                    }
+                } => false,
                 _ = std::future::ready(()), if state.has_pending()
-                    || expiries.has_due(crate::store::now_ms()) => false,
+                    || expiries.has_due(crate::store::now_ms())
+                    || (v2.hub.rebuild_count() != rebuild_seen
+                        && rebuild_retry_at.is_none_or(|deadline| std::time::Instant::now() >= deadline)) => false,
             };
             let now = crate::store::now_ms();
             expiries.mark_due(&state, now);

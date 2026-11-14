@@ -312,6 +312,15 @@ class Inputs(unittest.TestCase):
         self.assertEqual(got["worst_ratio"], 1.25)
         self.assertEqual(qr.god_vs_small(None, "no input given")["why"], "no input given")
 
+    def test_god_vs_small_uses_home_status_for_v2_rows(self):
+        got = qr.god_vs_small({"rows": [
+            {"name": "bounded-ok", "small_p95": 10, "god_p95": 30, "status": "ok"},
+            {"name": "god-max-red", "small_p95": 10, "god_p95": 10, "status": "red",
+             "reason": "god p95 exceeds absolute maximum"},
+            {"name": "degenerate", "small_p95": 10, "god_p95": 13},
+        ]}, None)
+        self.assertEqual(got["failing"], ["god-max-red", "degenerate"])
+
     def test_god_vs_small_keeps_skipped_rows_in_markdown(self):
         r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [])
         r["god_vs_small"] = qr.god_vs_small({"rows": [
@@ -327,6 +336,15 @@ class Inputs(unittest.TestCase):
         self.assertIn("v2.pr01.measure", md)
         self.assertIn("v2.pr03.measure", md)
         self.assertIn("PR 1 not landed", md)
+
+    def test_god_vs_small_keeps_failed_rows_in_markdown(self):
+        r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [])
+        r["god_vs_small"] = qr.god_vs_small({"rows": [
+            {"name": "v2.pr01.measure", "status": "failed", "reason": "the gate did not report a measure"},
+        ]}, None)
+        md = qr.render_markdown(r, public=False)
+        self.assertIn("v2.pr01.measure", md)
+        self.assertIn("the gate did not report a measure", md)
 
     def test_anim_coverage_shapes(self):
         self.assertEqual(qr.anim_coverage({"coverage": 0.875}, None)["value"], 0.875)

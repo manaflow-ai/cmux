@@ -13,7 +13,9 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "daemon")
 @MainActor
 @Observable
 public final class WorkspaceSync {
-    public private(set) var tree: DaemonTree?
+    public private(set) var tree: DaemonTree? {
+        didSet { tabsBySurface = nil }
+    }
     public private(set) var identity: String?
     public private(set) var lastError: String? {
         didSet { if lastError != oldValue { onErrorChanged?() } }
@@ -26,6 +28,12 @@ public final class WorkspaceSync {
     @ObservationIgnored public var onRows: (@MainActor (DaemonTree, Set<String>, Bool) -> Void)?
     /// A notification was posted on the Mac (terminal agents, `cmux notify`).
     @ObservationIgnored public var onNotification: (@MainActor (NotificationPost) -> Void)?
+    /// A terminal tab drew output on the Mac (`surface-output`), or (nil) any
+    /// may have: the event stream started again, so output in between was not
+    /// heard. Grid cards read the Mac's screen only after this.
+    @ObservationIgnored public var onTerminalOutput: (@MainActor (String?) -> Void)?
+    /// The tabs of each surface in `tree`, built on the first output after it changes.
+    @ObservationIgnored private var tabsBySurface: [Int: [String]]?
     @ObservationIgnored private var client: DaemonClient?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var setupTask: Task<[Result<DaemonClient.ReceivedLine, any Error>], Never>?
@@ -233,6 +241,7 @@ public final class WorkspaceSync {
             lastError = nil
             initializing = false
             onTree?(next)
+            onTerminalOutput?(nil)
             drain()
             // The Mac's own order and pins follow in one more round trip.
             Task {
@@ -304,6 +313,10 @@ public final class WorkspaceSync {
 
     private func enqueue(_ event: DaemonEvent, sequence: UInt64?) {
         guard event != .other else { return }
+        if case .surfaceOutput(let surface) = event {
+            terminalOutput(surface)
+            return
+        }
         let entry = QueuedEvent(event: event, sequence: sequence)
         // An event the latest snapshot covers is dropped before it counts for anything: a stale
         // title recorded as the surface's last one hid the next real event with the same text.
@@ -331,6 +344,16 @@ public final class WorkspaceSync {
             queued.append(entry)
         }
         drain()
+    }
+
+    private func terminalOutput(_ surface: Int) {
+        guard let onTerminalOutput, let tree else { return }
+        if tabsBySurface == nil {
+            var map: [Int: [String]] = [:]
+            for (tab, surface) in tree.surfaces { map[surface, default: []].append(tab) }
+            tabsBySurface = map
+        }
+        for tab in tabsBySurface?[surface] ?? [] { onTerminalOutput(tab) }
     }
 
     private func isBeforeSnapshot(_ entry: QueuedEvent) -> Bool {
@@ -385,6 +408,7 @@ public final class WorkspaceSync {
                         case .resubscribe:
                             arrangementStale = true
                             _ = try await client.request("subscribe", params: ["tree_events": "deltas"])
+                            onTerminalOutput?(nil)
                         default:
                             break
                         }
