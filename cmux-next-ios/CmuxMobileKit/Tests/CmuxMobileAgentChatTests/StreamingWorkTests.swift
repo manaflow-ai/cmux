@@ -1,8 +1,9 @@
-#if os(iOS)
+import CmuxMobileMarkdown
 import Foundation
 import Testing
-import UIKit
 @testable import CmuxMobileAgentChat
+#if os(iOS)
+import UIKit
 
 /// The work one streamed token costs the transcript is the rows it changed, not the rows of the
 /// turn it grows. The energy bench's stream-chat case (one long answer, 40 turns above it) read
@@ -69,9 +70,45 @@ import UIKit
         // The prompt, the working line and the one or two blocks the token changed.
         #expect(rowsMade <= 5 * Self.tokens, "rows made per \(Self.tokens) tokens: \(rowsMade)")
         #expect(rowsWeighed <= 5 * Self.tokens, "rows weighed per \(Self.tokens) tokens: \(rowsWeighed)")
-        // Each new row once (a block the answer started), not every row on every token.
-        #expect(warmUpOffers <= Self.tokens, "rows offered to the warm-up per \(Self.tokens) tokens: \(warmUpOffers)")
+        // The rows the token changed, not every row of the chat on every token.
+        #expect(warmUpOffers <= 5 * Self.tokens, "rows offered to the warm-up per \(Self.tokens) tokens: \(warmUpOffers)")
         #expect(store.turns.last?.lastAnswerMarkdown == MockStressContent.streamedAnswer)
     }
 }
 #endif
+
+/// `MarkdownStreamParse.unchangedDisplayed` never claims a block that changed: the rows it lets
+/// the transcript keep are the rows a full build makes.
+@Suite struct MarkdownStreamUnchangedTests {
+    @Test func theUnchangedBlocksAreTheOnesShownBefore() {
+        let answer = (0..<6).map { n in
+            "## Part \(n)\n\nSome *text* with `code` and a [link](https://x.y) and **bold\n\n```swift\nfunc f\(n)() {\n    return\n}\n```\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n- a\n- b\n  continued\n\n> quote \(n)\n\n---"
+        }.joined(separator: "\n\n")
+        var parse = MarkdownStreamParse()
+        var shown = ""
+        var index = answer.startIndex
+        var step = 1
+        var kept = 0
+        while index < answer.endIndex {
+            let before = parse.displayed
+            let end = answer.index(index, offsetBy: step % 9 + 1, limitedBy: answer.endIndex) ?? answer.endIndex
+            shown += answer[index..<end]
+            index = end
+            step += 1
+            parse.update(shown, isStreaming: true)
+            #expect(parse.unchangedDisplayed <= min(before.count, parse.displayed.count))
+            #expect(Array(parse.displayed.prefix(parse.unchangedDisplayed)) == Array(before.prefix(parse.unchangedDisplayed)),
+                    "after \(shown.count) characters")
+            kept += parse.unchangedDisplayed
+        }
+        #expect(kept > 0)
+        // The turn ends: the tail's hidden markers show again.
+        let before = parse.displayed
+        parse.update(answer, isStreaming: false)
+        #expect(Array(parse.displayed.prefix(parse.unchangedDisplayed)) == Array(before.prefix(parse.unchangedDisplayed)))
+        #expect(parse.displayed == MarkdownDocument(parsing: answer).blocks)
+        // A rewritten message keeps nothing.
+        parse.update("other text", isStreaming: false)
+        #expect(parse.unchangedDisplayed == 0)
+    }
+}
