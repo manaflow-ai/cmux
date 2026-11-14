@@ -29,6 +29,7 @@ pub mod render;
 pub mod schema;
 pub mod store;
 pub mod text;
+pub mod theme_file;
 pub mod value;
 pub mod watch;
 
@@ -48,4 +49,5 @@ pub use store::{
     Change, Edit, EditKind, FileRead, MAX_EDITS, Op, Origin, Outcome, State, Target, WriteMeta,
     apply,
 };
+pub use theme_file::{ThemeDiagnostic, ThemeDiagnosticKind, ThemeFile};
 pub use watch::{Watcher, watch_store};
