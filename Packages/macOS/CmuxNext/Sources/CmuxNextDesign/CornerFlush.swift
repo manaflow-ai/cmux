@@ -106,6 +106,10 @@ public protocol TabStripCorner: AnyObject {
     var cornerFrameInWindow: CGRect { get }
     /// The selected tab is the strip's first, unscrolled, so its leading side is the pane's edge.
     var selectsLeadingTab: Bool { get }
+    /// The pane's content starts with a toolbar row right under the strip (a browser's omnibar): the tab row's
+    /// divider leaves this pane out, so its tabs and its toolbar read as one surface (Lawrence, 2026-11-13: "get rid
+    /// of border between tabs and omnibar, at all density levels").
+    var meetsToolbar: Bool { get }
     /// Whether the strip is on the card's top row, where the frame's shade is behind it: only there does
     /// its selected tab run into the card. A strip inside the card (a lower split pane's) tones its own row
     /// instead (``setTonedInCard(_:)``): a tab in the card's own color would hide on an untoned row.
@@ -252,8 +256,10 @@ public final class CornerFlushChrome: NSView {
             wedges.path = nil
             markTopRow(card: nil, in: root)
             if let content { Self.roundBottomOnly(content, false) }
+            let edge = tabRowEdge(card: card, in: root)
             shade?.update(card: drawn.card, radius: drawn.radius, alpha: drawn.alpha,
-                          divider: Self.dividerLine(card: tabRowEdge(card: card, in: root), radius: 0, squareLeading: true))
+                          dividers: Self.dividerSegments(Self.dividerLine(card: edge, radius: 0, squareLeading: true),
+                                                         leaving: toolbarPanes(card: edge, in: root)))
             return
         }
         if let content { Self.roundBottomOnly(content, true) }
@@ -262,9 +268,11 @@ public final class CornerFlushChrome: NSView {
         wedges.path = Self.wedgePath(card: card, radius: drawn.radius, squareLeading: square)
         wedges.fillColor = NSColor.black.withAlphaComponent(drawn.alpha).cgColor
         // Each wedge shades its corner once, including over transparent content.
+        let edge = tabRowEdge(card: card, in: root)
         shade?.update(card: card, radius: drawn.radius, alpha: drawn.alpha, squareTopCorners: true,
                       folders: folderHoles(card: card, in: root),
-                      divider: Self.dividerLine(card: tabRowEdge(card: card, in: root), radius: drawn.radius, squareLeading: square))
+                      dividers: Self.dividerSegments(Self.dividerLine(card: edge, radius: drawn.radius, squareLeading: square),
+                                                     leaving: toolbarPanes(card: edge, in: root)))
     }
 
     /// The tab row's divider: the card's top edge (maxY is the top) between its rounded corners, as a rect of no
@@ -276,6 +284,33 @@ public final class CornerFlushChrome: NSView {
         let r = min(radius, card.width / 2, card.height / 2)
         let minX = card.minX + (squareLeading ? 0 : r), maxX = card.maxX - r
         return CGRect(x: minX, y: card.maxY, width: max(0, maxX - minX), height: 0)
+    }
+
+    /// The divider's segments: `line` less the horizontal spans in `gaps` (the panes whose toolbar meets their tabs,
+    /// ``TabStripCorner/meetsToolbar``), left to right; empty segments are dropped. O(gaps log gaps).
+    static func dividerSegments(_ line: CGRect, leaving gaps: [ClosedRange<CGFloat>]) -> [CGRect] {
+        guard line.width > 0 else { return [] }
+        var segments: [CGRect] = []
+        var start = line.minX
+        for gap in gaps.sorted(by: { $0.lowerBound < $1.lowerBound }) where gap.upperBound > start && gap.lowerBound < line.maxX {
+            if gap.lowerBound > start { segments.append(CGRect(x: start, y: line.minY, width: gap.lowerBound - start, height: 0)) }
+            start = max(start, gap.upperBound)
+        }
+        if start < line.maxX { segments.append(CGRect(x: start, y: line.minY, width: line.maxX - start, height: 0)) }
+        return segments
+    }
+
+    /// The horizontal spans, in `root`, of the panes on the tab row (their strip's bottom on `card`'s top) whose toolbar
+    /// meets their tabs: the whole pane, its trailing buttons included, so the divider stops at its split lines. O(strips).
+    private func toolbarPanes(card: CGRect, in root: NSView) -> [ClosedRange<CGFloat>] {
+        var spans: [ClosedRange<CGFloat>] = []
+        for case let strip as (any TabStripCorner & NSView) in strips.allObjects where strip.window === root.window && strip.meetsToolbar {
+            guard let pane = strip.superview, !strip.isHiddenOrHasHiddenAncestor,
+                  abs(root.convert(strip.cornerFrameInWindow, from: nil).minY - card.maxY) < 2 else { continue }
+            let frame = root.convert(pane.bounds, from: pane)
+            spans.append(frame.minX...frame.maxX)
+        }
+        return spans
     }
 
     /// `card` with its top on the top row's strips' bottom edge, where the tab row's divider sits. The card's top

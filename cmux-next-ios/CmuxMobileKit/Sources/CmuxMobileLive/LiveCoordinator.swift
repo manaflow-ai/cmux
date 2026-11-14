@@ -49,6 +49,9 @@ public final class LiveCoordinator {
     /// A Mac left the account (removed here or on another device), after
     /// the store forgot it: screens showing one of its workspaces close.
     @ObservationIgnored public var onMacRemoved: ((String) -> Void)?
+    /// A terminal tab drew output on a Mac (tab id, Mac id), or (nil tab) any
+    /// of that Mac's may have (`WorkspaceSync.onTerminalOutput`).
+    @ObservationIgnored public var onTerminalOutput: (@MainActor (String?, String) -> Void)?
 
     /// One session per Mac this phone links (`MacLinkPolicy`): each has its
     /// own link, workspace list, chats and Feed items, so two Macs work at
