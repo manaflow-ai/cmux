@@ -44,6 +44,8 @@
 #![cfg_attr(not(unix), allow(dead_code))]
 
 use super::*;
+#[cfg(unix)]
+use crate::agent_host::{proc_table::Reading, tree::Under};
 use std::path::{Path, PathBuf};
 
 /// One configured MCP server: its command and args, word by word.
@@ -96,9 +98,10 @@ impl Hub {
         if let (Some(pid), Some(sidecars)) = (pid, sidecars) {
             // The listing, each candidate's argv and the match all run in the bounded task.
             let census = tokio::task::spawn_blocking(move || {
-                let found = crate::agent_host::tree::under(pid)?;
                 let (list, path) = (&sidecars.list, sidecars.path.as_deref());
-                Some(classify(&found, pid, list, path, crate::agent_host::tree::identity))
+                use crate::agent_host::tree;
+                let judge = |found: &[Under]| classify(found, pid, list, path, tree::identity);
+                shared_census(pid, judge, tree::under_shared, tree::under)
             });
             return match tokio::time::timeout(CENSUS_BUDGET, census).await {
                 Ok(Ok(Some(census))) => census,
@@ -151,6 +154,25 @@ impl Hub {
         });
         tokio::time::timeout(CENSUS_BUDGET, read).await.ok()?.ok()
     }
+}
+
+/// The census of `pid` from the reading this process shares (`agent_host/proc_table.rs`), judged
+/// by `judge`. A reused reading's verdict stands only when it is [`Census::Clear`]: any other (a
+/// process listed there that ended since reads as unknown work) is judged again on a fresh one,
+/// so a reused reading never keeps a harness up that a fresh one would end.
+#[cfg(unix)]
+fn shared_census(
+    pid: u32,
+    judge: impl Fn(&[Under]) -> Census,
+    under_shared: impl FnOnce(u32) -> Option<(Vec<Under>, Reading)>,
+    under: impl FnOnce(u32) -> Option<Vec<Under>>,
+) -> Option<Census> {
+    let (found, reading) = under_shared(pid)?;
+    let census = judge(&found);
+    if reading == Reading::Fresh || matches!(census, Census::Clear) {
+        return Some(census);
+    }
+    Some(judge(&under(pid)?))
 }
 
 /// The idle pass's census for an agent host whose daemon is gone (`agent_host/host/orphan.rs`,
