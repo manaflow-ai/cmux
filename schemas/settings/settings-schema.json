@@ -5324,7 +5324,7 @@
       },
       "help" : {
         "key" : "settings.tabs.toolbarButtons.help",
-        "text" : "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back."
+        "text" : "Actions shown as buttons at the tab bar's trailing end. Pin or unpin one from Show in Tab Bar in the tab bar's right-click menu."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.toolbarButtons",
@@ -5412,7 +5412,7 @@
           "operations" : [
 
           ],
-          "reason" : "action ids; toggled from the tab bar's More menu (Show in Tab Bar)",
+          "reason" : "action ids; toggled from the tab bar's right-click menu (Show in Tab Bar)",
           "row" : null
         },
         "socket" : {

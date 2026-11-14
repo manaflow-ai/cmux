@@ -80,7 +80,7 @@ import {
   arrivalStepMs,
   sendMotionMs,
 } from "./conversation/followChase";
-import { rowsMoved, shareFrameBudget, type FrameBudget } from "./conversation/frameBudget";
+import { shareFrameBudget, type FrameBudget, rowsMoved } from "./conversation/frameBudget";
 import { followMotion } from "./conversation/followMotion.experiment";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
@@ -91,6 +91,7 @@ import { followTrace } from "./followTrace";
 import { FIELD_GROWTH_EVENT, growthTranslate, type FieldGrowthEvent } from "./composer/fieldGrowthEvent";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
+import { holdOlderScrollTarget, noteOlderScrollTarget } from "./conversation/olderScrollTarget";
 import { noteTranscriptMount, noteReplyUnpainted } from "./flickerLog";
 import { finalReplyId, REPLY_SETTLE_MS, replyUnpainted } from "./conversation/replyPainted";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
@@ -5532,6 +5533,11 @@ function TranscriptView({
       { explicit: true, paced: send },
     );
   };
+  // A scrollbar drag may cross the estimated room above the loaded rows while a page is in flight.
+  // Keep that native drag target and consume the room as pages land; without it, handleScroll
+  // clamps every pointer move to the same edge and a long chat appears to stop around its reserve.
+  // Declared before the scroll handlers that write it, so React Compiler reads it as a ref.
+  const olderScrollTarget = useRef<number | undefined>(undefined);
   /// The older-history check (below), which every scroll event runs too.
   const checkOlderNow = useRef<() => void>(() => {});
   /// The reader's speed up and how long pages take, which move the older-history ask further ahead.
@@ -5554,6 +5560,12 @@ function TranscriptView({
     const gone = roomGone !== undefined && roomGone.sessionId === sessionId && rows[0]?.id === roomGone.firstId;
     const room = gone ? 0 : (latestLayout.current.layout.origin ?? 0);
     if (room > 0 && layoutScrollTop(node) < room && !userScrollIntent(node).isScrollbarDragging()) {
+      olderScrollTarget.current = noteOlderScrollTarget(
+        olderScrollTarget.current,
+        layoutScrollTop(node),
+        room,
+        userScrollIntent(node).isHeld(),
+      );
       wheelGlide.current?.stop();
       node.scrollTop = physicalScrollTop(node, room);
     }
@@ -5691,6 +5703,7 @@ function TranscriptView({
   const jumpToLatest = (focused: boolean, path = "jump") => {
     const node = ref.current;
     if (!node) return;
+    olderScrollTarget.current = undefined;
     // Jump to latest is the reader leaving the Find match: end its hold, or the next tick pulls the
     // view back to the match and stops following again.
     revealing.current = undefined;
@@ -5964,6 +5977,15 @@ function TranscriptView({
       // deliver the input before its scroll event; a streamed snapshot in that gap must not pin
       // the view back to the bottom. Capture the event so nested rows cannot commit first.
       if (movingUp) followIntent(false);
+      // A new downward/neutral gesture supersedes a retained scrollbar target. Without clearing
+      // it here, the reserve-drain effect would put the reader back at the loaded edge after they
+      // deliberately returned toward newer messages.
+      if (
+        !movingUp &&
+        event !== undefined &&
+        ["wheel", "keydown", "pointerdown", "pointermove", "touchstart", "touchmove"].includes(event.type)
+      )
+        olderScrollTarget.current = undefined;
       readerUpPending.current = movingUp;
       if (jumpTarget.current !== undefined) {
         stopJump();
@@ -6349,6 +6371,16 @@ function TranscriptView({
   useLayoutEffect(() => {
     checkOlderNow.current = checkOlder;
   });
+  useLayoutEffect(() => {
+    olderScrollTarget.current = undefined;
+  }, [sessionId]);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    const target = olderScrollTarget.current;
+    if (!node || target === undefined) return;
+    if (holdOlderScrollTarget(node, target, latestLayout.current.layout.origin ?? 0))
+      olderScrollTarget.current = undefined;
+  }, [height, layout.origin, olderLoadKey, renderScroll.top]);
   useEffect(() => {
     checkOlderNow.current();
   }, [canLoadOlder, height, onLoadOlder, olderLoadKey, renderScroll.top]);
