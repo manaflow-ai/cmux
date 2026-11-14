@@ -192,6 +192,11 @@
    2026-11-12: never "Extra ..."); a provider name adds no width of its own (.acpmux-cols-provider). */
 .acpmux-cols-body {
   display: grid;
+  /* The popup is max-content sized, so an intrinsic grid otherwise lets the flexible left track
+     collapse and its model rows paint into the effort column. Keep both tracks inside the measured
+     popup width so pointer hits follow the painted column. */
+  width: 100%;
+  min-width: 0;
   grid-template-columns: minmax(0, 1fr) minmax(max-content, var(--acpmux-cols-tune-fit, max-content));
   grid-template-rows: auto auto minmax(0, 1fr);
   flex: 1 1 auto;
