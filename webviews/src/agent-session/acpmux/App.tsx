@@ -661,6 +661,7 @@ import {
   hostErrorShows,
   hostIsReconnecting,
   hostRefusedTooLarge,
+  jitteredDelay,
   nextRetryDelay,
   offersAcpmuxRestart,
   readHostRestoring,
@@ -8305,9 +8306,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             failingSince = Date.now();
             setRelinkingSince(failingSince);
             // A client lost soon after it connected keeps the backoff growing: a daemon that drops
-            // the pane right after every connect is not asked again every 250 ms.
+            // the pane right after every connect is not asked again every 250 ms. Jittered so the
+            // tabs that lost one daemon together do not ask it again in lockstep.
             const lost = lostRetryDelay(retryDelay, Date.now() - connectedAt);
-            retryTimer = window.setTimeout(() => void connectHost(), lost.wait);
+            retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(lost.wait));
             retryDelay = lost.next;
           },
           mockModule
@@ -9759,7 +9761,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // in flight asks again itself when it ends.
           // A reply too large to send is the same at every ask: only the line's Retry asks again.
           if (!tooLarge && restartGate.mayAsk()) {
-            retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
+            retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(retryDelay));
             retryDelay = nextRetryDelay(retryDelay, reconnect || recovering);
           }
         }

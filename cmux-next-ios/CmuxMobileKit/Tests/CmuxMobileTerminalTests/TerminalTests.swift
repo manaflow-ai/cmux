@@ -195,8 +195,20 @@ import Testing
     @Test func eraseSavedLinesAlsoErasesTheRowsAboveTheMacsScreen() {
         #expect(run(["\u{1B}[3", "J"]) == "\u{1B}[3J\u{1B}7\u{1B}[109;9999H\u{1B}[1J\u{1B}8")
         // Other erases, and no offset, pass through.
-        #expect(run(["\u{1B}[2J\u{1B}[J"]) == "\u{1B}[2J\u{1B}[J")
+        #expect(run(["\u{1B}[J\u{1B}[1J"]) == "\u{1B}[J\u{1B}[1J")
         #expect(run(["\u{1B}[3J"], offset: 0) == "\u{1B}[3J")
+    }
+
+    /// Live report (2026-11-14): Ghostty clears at a shell prompt by scrolling
+    /// the screen into the scrollback, and its cursor follows its row; the
+    /// mirror's cursor followed it out of the Mac's rows. An erase of the whole
+    /// screen keeps the cursor where it was (the Mac's home row after `ESC[H`).
+    @Test func eraseDisplayKeepsTheCursorOnTheMacsRows() {
+        #expect(run(["\u{1B}[H\u{1B}[2", "J"]) == "\u{1B}[110;1H\u{1B}7\u{1B}[2J\u{1B}8")
+        #expect(run(["\u{1B}[22J"]) == "\u{1B}7\u{1B}[22J\u{1B}8")
+        // No offset (the phone's own grid) and the alternate screen pass through.
+        #expect(run(["\u{1B}[2J"], offset: 0) == "\u{1B}[2J")
+        #expect(run(["\u{1B}[?1049h\u{1B}[2J"]).hasSuffix("\u{1B}[2J"))
     }
 
     @Test func rowAddressingShiftsAcrossChunks() {

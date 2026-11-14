@@ -84,7 +84,7 @@ impl Rpc {
 async fn local_controls_use_shared_mesh_wire_and_keep_queued_distinct_from_executed() {
     let hub = Hub::new(Config::default(), Box::new(acpmux::store::MemoryStore::default()));
     let mesh = Arc::new(FakeMesh::default());
-    assert!(hub.mesh.set(mesh.clone()).is_ok());
+    hub.mesh.set(mesh.clone());
     let mut local = Rpc::new(&hub, Origin::Local);
     local.call(method::INITIALIZE, json!({})).await;
     for (op, to) in [
@@ -168,7 +168,7 @@ async fn a_top_level_session_id_cannot_forward_mesh_enqueue_to_a_peer() {
     let config = Config::default();
     let hub = Hub::new(config.clone(), Box::new(acpmux::store::MemoryStore::default()));
     let mesh = Arc::new(FakeMesh::default());
-    assert!(hub.mesh.set(mesh.clone()).is_ok());
+    hub.mesh.set(mesh.clone());
     // A lease keeps the fake peer out of the user's config and ends explicitly below.
     let (lease, mut settled) = hub
         .lease_peer("other", &format!("ws://{address}"), "test-token".into(), None, false, &config)

@@ -623,7 +623,8 @@ impl MediaEngine {
         if let Some(lost) = settled {
             self.loss = 0.8 * self.loss + 0.2 * lost;
         }
-        self.cc.on_feedback(&fb.arrivals, settled.unwrap_or(0.0), now_us);
+        let congestion_loss = self.loss_meter.take_congestion_loss(now_us).unwrap_or(0.0);
+        self.cc.on_feedback(&fb.arrivals, congestion_loss, now_us);
         self.last_feedback_us = now_us;
         let Some(state) = self.streams.get_mut(&stream) else { return };
         let mut budget = MAX_RESENDS_PER_FEEDBACK;
