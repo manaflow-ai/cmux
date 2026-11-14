@@ -2699,10 +2699,20 @@ impl ChildAgent {
             // Custody of an earlier host: the link was replaced meanwhile.
             return !lost;
         }
-        if h.detached.load(Ordering::SeqCst)
-            || h.exit_seen.load(Ordering::SeqCst)
-            || !crate::agent_host::host_dead_now(&link.record)
-        {
+        if h.detached.load(Ordering::SeqCst) || h.exit_seen.load(Ordering::SeqCst) {
+            return false;
+        }
+        // Its socket may close a moment before its live lock frees: a short bounded wait, as
+        // `hub/hosts.rs` `readopt` waits. A host that lives on is reached as a lost link instead.
+        let dead = crate::agent_host::host_dead_now(&link.record)
+            || crate::agent_host::wait_dead_async(
+                custody.spec.hosts_dir.clone(),
+                link.record.session_id.clone(),
+                link.record.start_nonce.clone(),
+                std::time::Duration::from_millis(500),
+            )
+            .await;
+        if !dead {
             return false;
         }
         if !custody.harness_alive() {
