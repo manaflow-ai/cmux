@@ -83,7 +83,9 @@ public struct WorkspacesList: View {
     @State private var macText = MacFilterMemo()
     /// The collection's sections and items, modeled once per change of what they show.
     @State private var listMemo = BuiltOncePerInput<ListModelInput, WorkspacesListModel>()
-    @State private var closingFrame: CGRect = .zero
+    /// Where the open confirmation points: the frame of the row or group
+    /// header it came from, in the anchor overlay's space.
+    @State private var confirmFrame: CGRect = .zero
     /// The reveal request this list already answered (one back from the workspace's page).
     @State private var revealedRequest: Int?
     /// The list is on screen (not under a pushed workspace page): a reveal waits for it.
@@ -248,14 +250,6 @@ public struct WorkspacesList: View {
                 Button("Rename") { creator.renameGroup(target.group, on: target.macID, to: groupNameText) }
                     .disabled(groupNameText.trimmingCharacters(in: .whitespaces).isEmpty)
                     .keyboardShortcut(.defaultAction)
-            }
-            .confirmationDialog(deleteGroupTitle, isPresented: isPresented($deletingGroup), titleVisibility: .visible,
-                                presenting: deletingGroup) { (target: GroupTarget) in
-                Button("Delete Group", role: .destructive) {
-                    withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.deleteGroup(target.group, on: target.macID) }
-                }
-            } message: { (target: GroupTarget) in
-                Text(deleteGroupMessage(target))
             }
     }
 
@@ -491,7 +485,8 @@ public struct WorkspacesList: View {
                 } else if let group = section.group {
                     let canEdit = section.workspaces.first.map { !pending.contains($0.id) && rights[$0.macID]?.group == true } ?? false
                     entries.append(("group.\(section.id)", .group(WorkspaceGroupHeaderModel(group: group, macID: section.macID,
-                                                                                              count: section.workspaces.count, canEdit: canEdit))))
+                                                                                              count: section.workspaces.count, canEdit: canEdit,
+                                                                                              itemID: "group.\(section.id)"))))
                     if !group.isCollapsed { entries += rows(section.workspaces) }
                 } else {
                     entries += rows(section.workspaces)
@@ -502,7 +497,8 @@ public struct WorkspacesList: View {
                 for macID in Set(inbox.recentSections.map(\.macID)).sorted() where !macID.isEmpty {
                     for group in creator.emptyGroups(on: macID) {
                         entries.append(("group.empty.\(group.id)", .group(WorkspaceGroupHeaderModel(group: group, macID: macID, count: 0,
-                                                                                                      canEdit: rights[macID]?.group == true))))
+                                                                                                      canEdit: rights[macID]?.group == true,
+                                                                                                      itemID: "group.empty.\(group.id)"))))
                     }
                 }
             }
@@ -636,14 +632,17 @@ public struct WorkspacesList: View {
         // From the screen edge, as the rows: the chevron in their gutter, the
         // name at their titles' x.
         .accessibilityAddTraits(.isHeader)
-        .accessibilityActions { groupAccessibilityActions(group, macID: header.macID, canEdit: canEdit) }
+        // Where the header is, so its Close and Delete popovers can point at it.
+        .background { FrameProbe(id: header.itemID) { rowFrames.rows[header.itemID] = WeakProbe(view: $0) } }
+        .accessibilityActions { groupAccessibilityActions(group, macID: header.macID, canEdit: canEdit, source: .header(header)) }
         .accessibilityIdentifier("workspace.group.\(group.id)")
     }
 
-    @ViewBuilder private func groupAccessibilityActions(_ group: MacWorkspaceGroup, macID: String, canEdit: Bool) -> some View {
+    @ViewBuilder private func groupAccessibilityActions(_ group: MacWorkspaceGroup, macID: String, canEdit: Bool,
+                                                        source: ConfirmSource) -> some View {
         if canEdit {
             Button("Rename Group…") { startRenameGroup(group, macID: macID) }
-            Button("Delete Group") { deletingGroup = GroupTarget(group: group, macID: macID) }
+            Button("Delete Group") { confirmDeleteGroup(GroupTarget(group: group, macID: macID), from: source) }
         }
     }
 
@@ -672,15 +671,25 @@ public struct WorkspacesList: View {
 
     /// Asks before closing, in a popover pointing at the row (Mail).
     func confirmClose(_ ws: Workspace) {
-        let present = {
-            closingFrame = rowFrames.frame(of: ws.id) ?? .zero
-            closing = ws
-        }
+        presentConfirmation(at: .row(ws.id)) { closing = ws }
+    }
+
+    /// Opens a confirmation pointing at the row or group header it came from:
+    /// the anchor moves to that item's frame, then `present` sets the state.
+    func presentConfirmation(at source: ConfirmSource, _ present: @escaping () -> Void) {
+        let frame = rowFrames.frame(of: source.probeID)
         // At accessibility sizes the popover is about as tall as the screen
-        // and fits only under a row near the top: bring the row up first, then
-        // point at it where it is (round 2 review: it pointed 80 pt off).
-        guard typeSize.isAccessibilitySize else { return present() }
-        listControl.scrollTo(WorkspacesListModel.rowID(ws.id), atTop: true, animated: true, completion: present)
+        // and fits only under an item near the top: bring the item up first,
+        // then point at it where it is (round 2 review: it pointed 80 pt off).
+        // An item that has scrolled off screen is brought back the same way.
+        guard typeSize.isAccessibilitySize || (frame == nil && rowFrames.anchor != nil) else {
+            confirmFrame = frame ?? .zero
+            return present()
+        }
+        listControl.scrollTo(source.itemID, atTop: true, animated: true) {
+            confirmFrame = rowFrames.frame(of: source.probeID) ?? .zero
+            present()
+        }
     }
 
     /// The close popover's anchor: a view over the list at the row's place.
@@ -696,10 +705,7 @@ public struct WorkspacesList: View {
 
     private var anchor: some View {
         Color.clear
-            .frame(width: max(closingFrame.width, 1), height: max(closingFrame.height, 1))
-            // Padding, not an offset: the popover points at the layout frame.
-            .padding(.leading, max(closingFrame.minX, 0))
-            .padding(.top, max(closingFrame.minY, 0))
+            .frame(width: max(confirmFrame.width, 1), height: max(confirmFrame.height, 1))
             .allowsHitTesting(false)
             .accessibilityHidden(true)
             .confirmationDialog(bulkClosing.map { WorkspaceBulkClose.question($0.targets.count) } ?? "", isPresented: isPresented($bulkClosing),
@@ -726,6 +732,21 @@ public struct WorkspacesList: View {
             } message: { ws in
                 Text("Its tabs close on \(mac(ws.macID).map(displayName) ?? "the Mac").")
             }
+            .confirmationDialog(deleteGroupTitle, isPresented: isPresented($deletingGroup), titleVisibility: .visible,
+                                presenting: deletingGroup) { (target: GroupTarget) in
+                Button("Delete Group", role: .destructive) {
+                    withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.deleteGroup(target.group, on: target.macID) }
+                }
+            } message: { (target: GroupTarget) in
+                Text(deleteGroupMessage(target))
+            }
+            // The dialogs hang off the row-sized view, and padding (not an
+            // offset: the popover reads the layout frame) places it over the
+            // row. Padded first, the popover's source was the whole region from
+            // the list's corner to the row's bottom: it could only open below
+            // the row, so near the bottom it slid up over the row it named.
+            .padding(.leading, max(confirmFrame.minX, 0))
+            .padding(.top, max(confirmFrame.minY, 0))
     }
 
     /// Set Icon…: the symbol picker.
@@ -749,10 +770,17 @@ public struct WorkspacesList: View {
         newGroupFor = ws
     }
 
-    /// Close Other / Above / Below: asks first, in the popover.
-    func confirmBulkClose(_ bulk: BulkClose) { bulkClosing = bulk }
+    /// Close Other / Above / Below (a row's menu), Close All in Group and
+    /// Close Other Groups (a group header's): asks first, in the popover
+    /// pointing at the row or header whose menu it came from.
+    func confirmBulkClose(_ bulk: BulkClose, from source: ConfirmSource) {
+        presentConfirmation(at: source) { bulkClosing = bulk }
+    }
 
-    func confirmDeleteGroup(_ target: GroupTarget) { deletingGroup = target }
+    /// Delete Group: asks first, in the popover pointing at the group's header.
+    func confirmDeleteGroup(_ target: GroupTarget, from source: ConfirmSource) {
+        presentConfirmation(at: source) { deletingGroup = target }
+    }
 
     func startRename(_ ws: Workspace) {
         renameText = ws.title
@@ -1336,6 +1364,22 @@ struct GroupTarget: Identifiable {
     var group: MacWorkspaceGroup
     var macID: String
     var id: String { "\(macID)-\(group.id)" }
+}
+
+/// The list item a confirmation came from, so its popover points there: a
+/// workspace row or a group header. `probeID` finds its frame on screen
+/// (`RowFrames`); `itemID` is its id in the collection, to scroll it into view.
+struct ConfirmSource: Equatable {
+    var probeID: String
+    var itemID: String
+
+    static func row(_ workspaceID: String) -> ConfirmSource {
+        ConfirmSource(probeID: workspaceID, itemID: WorkspacesListModel.rowID(workspaceID))
+    }
+
+    static func header(_ header: WorkspaceGroupHeaderModel) -> ConfirmSource {
+        ConfirmSource(probeID: header.itemID, itemID: header.itemID)
+    }
 }
 
 /// A bulk close waiting for the person's answer.

@@ -129,6 +129,44 @@ final class AllUIStatesWorkspacesCaptureUITests: UIStateCaptureCase {
         ])
     }
 
+    /// Every close confirmation the list asks, from its source: Close Other
+    /// Workspaces from the top, middle and bottom row, Above / Below / All,
+    /// and the swipe's Close; at the default size and at Accessibility L.
+    /// Each should point at the row it came from. (Mock data has no Mac
+    /// groups, so a group header's closes are not reached.)
+    @MainActor
+    func testCloseConfirmations() {
+        typealias A = CloseConfirmAnchor
+        let g = "5b Close confirmations"
+        let sizes: [(String, [String])] = [
+            ("", []),
+            ("-ax", ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL"]),
+        ]
+        var scenes: [Scene] = []
+        for (suffix, extra) in sizes {
+            let args = Self.list + extra
+            let rowCases: [(String, A.Position, String)] = [
+                ("close-others-top", .top, "Close Other Workspaces"),
+                ("close-others-middle", .middle, "Close Other Workspaces"),
+                ("close-others-bottom", .bottom, "Close Other Workspaces"),
+                ("close-above-bottom", .bottom, "Close Workspaces Above"),
+                ("close-below-top", .top, "Close Workspaces Below"),
+                ("close-all-middle", .middle, "Close All Workspaces"),
+            ]
+            for (id, position, kind) in rowCases {
+                scenes.append(Scene(group: g, id: id + suffix, args: args) { app in
+                    guard let row = A.row(app, position) else { return "no \(position) row" }
+                    return A.openRowClose(app, row: row, kind: kind)
+                })
+            }
+            scenes.append(Scene(group: g, id: "swipe-close-bottom" + suffix, args: args) { app in
+                guard let row = A.row(app, .bottom) else { return "no bottom row" }
+                return A.openSwipeClose(app, row: row)
+            })
+        }
+        capture(scenes)
+    }
+
     @MainActor
     func testWorkspacePage() {
         let g = "6 Workspace page and tabs"

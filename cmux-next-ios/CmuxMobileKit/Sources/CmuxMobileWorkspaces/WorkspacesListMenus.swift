@@ -219,7 +219,7 @@ extension WorkspacesList {
         guard !kinds.isEmpty else { return nil }
         let items = kinds.map { kind in
             UIAction(title: kind.title, attributes: .destructive) { _ in
-                confirmBulkClose(BulkClose(kind: kind, workspace: ws, targets: kind.targets(of: ws, in: order)))
+                confirmBulkClose(BulkClose(kind: kind, workspace: ws, targets: kind.targets(of: ws, in: order)), from: .row(ws.id))
             }
         }
         return UIMenu(title: "Close", image: UIImage(systemName: "xmark.square"), children: items)
@@ -272,8 +272,10 @@ extension WorkspacesList {
                 withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.deleteGroup(group, on: macID) }
             },
         ]
-        removeItems += groupCloses(group, macID: macID)
-        removeItems.append(action("Delete Group", "trash", destructive: true) { confirmDeleteGroup(GroupTarget(group: group, macID: macID)) })
+        removeItems += groupCloses(group, macID: macID, from: .header(header))
+        removeItems.append(action("Delete Group", "trash", destructive: true) {
+            confirmDeleteGroup(GroupTarget(group: group, macID: macID), from: .header(header))
+        })
         let remove = UIMenu(options: .displayInline, children: removeItems)
         return UIMenu(children: [edit, remove])
     }
@@ -314,19 +316,19 @@ extension WorkspacesList {
 
     /// Close All in Group and Close Other Groups. The phone asks first, as for every close of
     /// several workspaces.
-    private func groupCloses(_ group: MacWorkspaceGroup, macID: String) -> [UIMenuElement] {
+    private func groupCloses(_ group: MacWorkspaceGroup, macID: String, from source: ConfirmSource) -> [UIMenuElement] {
         var items: [UIMenuElement] = []
         let members = creator.members(of: [group], on: macID)
         if let first = members.first {
             items.append(action("Close All in Group", "xmark.square", destructive: true) {
-                confirmBulkClose(BulkClose(kind: .all, workspace: first, targets: members, groups: [group]))
+                confirmBulkClose(BulkClose(kind: .all, workspace: first, targets: members, groups: [group]), from: source)
             })
         }
         let others = creator.shownGroups(on: macID).filter { $0.id != group.id }
         let closing = creator.members(of: others, on: macID)
         if let first = closing.first {
             items.append(action("Close Other Groups", "xmark.circle", destructive: true) {
-                confirmBulkClose(BulkClose(kind: .others, workspace: first, targets: closing, groups: others))
+                confirmBulkClose(BulkClose(kind: .others, workspace: first, targets: closing, groups: others), from: source)
             })
         }
         return items
