@@ -1,11 +1,11 @@
 //! Row 3b's gate (`benches/v2/mod.rs`): the god chat caught up from nothing over the v1 source.
 //! Run: `cargo test --profile gate -p acpmux --lib v2_pr03b_ -- --ignored --nocapture`.
 //!
-//! Each shape runs in a process of its own (this binary again, one worker test), so neither
-//! inherits the other's arenas. The worker writes the chat's log through v1's store, returns free
-//! pages (`malloc_trim(0)`), takes its baseline, and catches the book up through the actor. Every
-//! stretch of [`STRETCH`] chunks (the same length at both sizes) starts with the kernel's
-//! high-water mark reset, and the peak is the largest rise over the baseline any stretch reached.
+//! Small runs first, then god, in one process. Each writes its chat's log through v1's store,
+//! returns free pages (`malloc_trim(0)`), takes its baseline, and catches the book up through the
+//! actor. Every stretch of [`STRETCH`] chunks (the same length at both sizes) starts with the
+//! kernel's high-water mark reset, and the peak is the largest rise over the baseline any stretch
+//! reached.
 
 use super::tests::{Home, ID, book_rows, translated, wait_ready};
 use super::*;
@@ -125,36 +125,16 @@ fn catch_up(shape: &crate::god_fixture::Shape) -> CatchUp {
         equal,
     }
 }
-
-#[test]
-#[ignore = "a worker of v2_pr03b_catchup_peak_rss"]
-fn v2_pr03b_catchup_worker() {
-    let Ok(case) = std::env::var("V2_PR03B_CASE") else { return };
-    let shape = if case == "god" {
+fn shape_from_env(case: &str) -> crate::god_fixture::Shape {
+    if case == "god" {
         crate::god_fixture::Shape::god_from_env()
     } else {
         crate::god_fixture::Shape::small()
-    };
-    let result = catch_up(&shape);
-    println!("PR03B_CATCHUP {}", serde_json::to_string(&result).unwrap());
+    }
 }
 
 fn worker(case: &str) -> CatchUp {
-    let output = std::process::Command::new(std::env::current_exe().unwrap())
-        .args([
-            "--exact",
-            "hub::v1_source::gates::v2_pr03b_catchup_worker",
-            "--ignored",
-            "--nocapture",
-            "--test-threads=1",
-        ])
-        .env("V2_PR03B_CASE", case)
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(output.status.success(), "{stdout}\n{}", String::from_utf8_lossy(&output.stderr));
-    let line = stdout.lines().find_map(|line| line.strip_prefix("PR03B_CATCHUP ")).unwrap();
-    serde_json::from_str(line).unwrap()
+    catch_up(&shape_from_env(case))
 }
 
 #[test]
