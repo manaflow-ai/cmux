@@ -589,7 +589,7 @@ pub fn validate_peer_request(request: &Request) -> Result<(), ConnError> {
             if sub.stream.as_str() != "list"
                 || sub.view != Some(crate::wire::ListView::Live)
                 || sub.filter.is_some()
-                || sub.anchor.is_some()
+                || sub.anchor.as_ref().is_some_and(|anchor| *anchor != crate::wire::Anchor::End)
             {
                 return Err(ConnError::InvalidRequest(
                     "request is not allowed on a peer link".into(),

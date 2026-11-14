@@ -272,5 +272,7 @@ impl HubWriter {
             .then(std::time::Instant::now);
             self.maybe_compact();
         }
+        // A retry written or an origin that finished leaving settles it.
+        self.mirror.counters.wake();
     }
 }
