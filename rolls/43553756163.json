@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43553756163",
+  "recorded_at": "2026-11-14T03:58:55Z",
+  "reason": "cmux-tui 04e40d914c0d changes the image's cmux-tui (pinned ecec06036fff)",
+  "dry_run": false,
+  "cmux_tui": "04e40d914c0d7da23ac479cee9d570410c165b30",
+  "fixes": [
+    {
+      "sha": "04e40d914c0d7da23ac479cee9d570410c165b30",
+      "mergedAt": "2026-11-14T03:26:46Z",
+      "subject": "v2 5g: list index built again from its sources (#42743)"
+    },
+    {
+      "sha": "42ad0209db880a6ce028f69941c473e7fe16c291",
+      "mergedAt": "2026-11-13T21:18:30-06:00",
+      "subject": "cmux-tui tests: the look script test reads this host's uname, not Rust's arch"
+    },
+    {
+      "sha": "c69d2668c4051db35305db0460493df85a262284",
+      "mergedAt": "2026-11-13T21:18:29-06:00",
+      "subject": "cmux-tui cli: the cloud help lists setup-desktop; git comments send"
+    },
+    {
+      "sha": "5e26a713f66f8829b3ee7e3bf4ffb26fe803bccd",
+      "mergedAt": "2026-11-13T21:18:29-06:00",
+      "subject": "cmux-tui: halfwidth sound marks take one cell again (unicode-width 0.2.2)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T03:58:55Z",
+    "snapshot_id": "sh-957c07496b5e40f4b94b34b7cafa7b89",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43553756163): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "09201ca2160af6f7ac506a532bf5cc53bab177ee",
+    "image": "cloud-native-auto-04e40d91-43553756163-1",
+    "revision": "ci-43553756163-1",
+    "at": "2026-11-14T03:58:55Z"
+  },
+  "rolled_back": false
+}
