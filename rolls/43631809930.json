@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43631809930",
+  "recorded_at": "2026-11-14T19:29:48Z",
+  "reason": "cmux-tui 29e19a4b015f changes the image's cmux-tui (pinned c4c6c11a215f)",
+  "dry_run": false,
+  "cmux_tui": "29e19a4b015ff1dccb7df64d2497891ddf8efcf0",
+  "fixes": [
+    {
+      "sha": "29e19a4b015ff1dccb7df64d2497891ddf8efcf0",
+      "mergedAt": "2026-11-14T11:00:59-08:00",
+      "subject": "acpmux-book: a page of a chat's turns (v2 row 3d, part one) (#43181)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-14T19:29:48Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
