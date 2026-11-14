@@ -2330,6 +2330,28 @@ jobs:
           [ -d .git ] || git init -q .
           git config gc.auto 0
           if git remote get-url origin >/dev/null 2>&1; then git remote set-url origin "$REPO_URL"; else git remote add origin "$REPO_URL"; fi
+          # A slot whose git store was deleted fetched all of history from GitHub (jobs 132417366047,
+          # 132487716521: about 2.6 GiB in 267 s and 278 s); glaeda's job-completed hook linked it to
+          # the mini's mirror only after the job. Borrow a healthy mirror here, before the fetch, so it
+          # sends only what the mirror lacks. The checks and the record are glaeda's (mirror_identity,
+          # same_mirror in scripts/glaeda-cmux-runner-hook): the record comes first, since a slot that
+          # lists the mirror without one is wiped at job-started; no birth time (it then matches on the
+          # inode, and job-completed adds it).
+          mirror="${GLAEDA_GIT_MIRROR_DIR:-/Users/Shared/cmux-build-fleet/git}/cmux.git"
+          slot_mib=$(( $(du -sk .git/objects/pack 2>/dev/null | cut -f1 || echo 0) / 1024 ))
+          if [ -d "$mirror/objects" ] && [ ! -L "$mirror/objects" ] && [ ! -L "$mirror" ] && [ -f "$mirror/HEAD" ] \
+              && [ -f "$mirror/glaeda-verified" ] && [ ! -e "$mirror/glaeda-repair-pending" ] && [ ! -e "$mirror/shallow" ] \
+              && ! grep -qxF "$mirror/objects" .git/objects/info/alternates 2>/dev/null \
+              && ids=$(stat -c '%d %i' "$mirror/objects" 2>/dev/null || stat -f '%d %i' "$mirror/objects") \
+              && [[ "$ids" =~ ^[0-9]+\ [0-9]+$ ]]; then
+            printf '{"objects": "%s", "dev": %s, "ino": %s}\n' "$mirror/objects" "${ids% *}" "${ids#* }" > .git/.glaeda-mirror-borrow.json.tmp
+            mv -f .git/.glaeda-mirror-borrow.json.tmp .git/glaeda-mirror-borrow.json
+            mkdir -p .git/objects/info
+            echo "$mirror/objects" >> .git/objects/info/alternates
+            echo "cold slot: borrowing $mirror/objects (slot packs before the fetch: $slot_mib MiB)"
+          else
+            echo "slot packs before the fetch: $slot_mib MiB; alternates: $(tr '\n' ' ' < .git/objects/info/alternates 2>/dev/null || echo none)"
+          fi
           # The negotiation tells the server what the workspace has only
           # through refs; a detached HEAD alone makes it send the whole tree.
           if git rev-parse -q --verify HEAD >/dev/null; then

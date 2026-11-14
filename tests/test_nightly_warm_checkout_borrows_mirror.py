@@ -154,7 +154,8 @@ class WarmCheckoutBorrowsMirrorTest(unittest.TestCase):
         counts = {}
         for line in self.git(self.ws, "count-objects", "-v").splitlines():
             key, _, value = line.partition(": ")
-            counts[key] = int(value)
+            if key != "alternate":  # a borrower also prints the store it borrows
+                counts[key] = int(value)
         return counts
 
     def alternates(self) -> list[str]:
