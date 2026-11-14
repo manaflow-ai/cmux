@@ -205,7 +205,7 @@ final class ExternalOpenController {
                 pane.openAgentTab(seed: pane.agentSeedFromSelectedTab()) { made(tabs.existingView($0, machine: machine) ?? tabs.view(for: $0, machine: machine)) }
             }, show: { [weak shown, services] view in
                 // The pane that shows the chat: a new one may have been placed beside the pane it opened from.
-                guard let shown, let pane = shown.workspace?.panes.values.first(where: { $0.shownChat === view }) ?? shown,
+                guard let shown, case let pane = shown.workspace?.panes.values.first(where: { $0.shownChat === view }) ?? shown,
                       let key = pane.currentTabKey else { return }
                 _ = services.registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .user).onMachine(pane.daemon.isLocal ? nil : pane.daemon.machineID))
             })
