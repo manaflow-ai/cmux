@@ -107,6 +107,12 @@ export function lostRetryDelay(delay: number, upForMs: number): { wait: number; 
   return { wait, next: Math.min(wait * 2, FLAP_RETRY_MAX_MS) };
 }
 
+/// One retry wait: `step` scaled to 50-100% (home-channels DaemonGate.tsx). Every tab restored over
+/// one daemon loses it at the same moment; unjittered they would all ask again in lockstep.
+export function jitteredDelay(step: number, random: () => number = Math.random): number {
+  return Math.round(step * (0.5 + random() / 2));
+}
+
 /// What the pane's handshake loop does around a Restart acpmux.
 export type AcpmuxRestartHooks = {
   /// Drops the automatic retry waiting to run and a Retry queued behind an attempt in flight.

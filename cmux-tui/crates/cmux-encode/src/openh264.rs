@@ -332,27 +332,54 @@ impl H264Encoder for OpenH264 {
     }
 
     fn set_bitrate(&mut self, kbps: u32) {
-        let kbps = kbps.max(100);
-        if kbps.abs_diff(self.kbps) * 20 < self.kbps {
-            return;
-        }
+        // The codec's level 5.2 maximum is 288 Mbit/s. Above it the max
+        // setter silently lowers its cap before the target setter validates.
+        let kbps = kbps.clamp(100, 288_000);
         let set = match self.vtbl().SetOption {
             Some(f) => f,
             None => return,
         };
-        let mut info = SBitrateInfo { iLayer: SPATIAL_LAYER_ALL, iBitrate: (kbps * 1000) as c_int };
-        // SAFETY: a valid SBitrateInfo for the duration of each call on a live encoder.
-        let rc = unsafe {
-            set(
-                self.enc,
-                ENCODER_OPTION_MAX_BITRATE,
-                (&mut info as *mut SBitrateInfo).cast::<c_void>(),
-            );
-            set(self.enc, ENCODER_OPTION_BITRATE, (&mut info as *mut SBitrateInfo).cast::<c_void>())
+        let get = match self.vtbl().GetOption {
+            Some(f) => f,
+            None => return,
         };
-        if rc == 0 {
-            self.kbps = kbps;
+        let mut current = SBitrateInfo { iLayer: SPATIAL_LAYER_0, iBitrate: 0 };
+        // SAFETY: a live encoder and a writable SBitrateInfo for this option.
+        if unsafe {
+            get(self.enc, ENCODER_OPTION_BITRATE, (&mut current as *mut SBitrateInfo).cast())
+        } != 0
+        {
+            return;
         }
+        if current.iBitrate == (self.kbps as f32 * 1000.0) as c_int
+            && u64::from(kbps.abs_diff(self.kbps)) * 20 < u64::from(self.kbps)
+        {
+            return;
+        }
+        // ALL distributes the target through f32 even with one spatial layer.
+        // Quantize both target and caps alike so rounding cannot exceed the cap.
+        let requested = (kbps * 1000) as f32 as c_int;
+        // ALL updates the aggregate maximum only. The active layer's maximum
+        // otherwise stays at startup bitrate and rejects every upward retarget.
+        // Setters mutate before validating: read the actual target, first make
+        // both ceilings safe, then move the target and finally lower the caps.
+        // This also repairs a partially applied prior update without trusting
+        // the wrapper's cached bitrate.
+        let ceiling = current.iBitrate.max(requested);
+        for (option, layer, bitrate) in [
+            (ENCODER_OPTION_MAX_BITRATE, SPATIAL_LAYER_0, ceiling),
+            (ENCODER_OPTION_MAX_BITRATE, SPATIAL_LAYER_ALL, ceiling),
+            (ENCODER_OPTION_BITRATE, SPATIAL_LAYER_ALL, requested),
+            (ENCODER_OPTION_MAX_BITRATE, SPATIAL_LAYER_0, requested),
+            (ENCODER_OPTION_MAX_BITRATE, SPATIAL_LAYER_ALL, requested),
+        ] {
+            let mut info = SBitrateInfo { iLayer: layer, iBitrate: bitrate };
+            // SAFETY: each option accepts SBitrateInfo and the encoder is live.
+            if unsafe { set(self.enc, option, (&mut info as *mut SBitrateInfo).cast()) } != 0 {
+                return;
+            }
+        }
+        self.kbps = kbps;
     }
 
     fn kbps(&self) -> u32 {
@@ -373,6 +400,104 @@ impl Drop for OpenH264 {
                 uninit(self.enc);
             }
             self.api.0.WelsDestroySVCEncoder(self.enc);
+        }
+    }
+}
+
+#[cfg(all(test, feature = "openh264-source"))]
+mod bitrate_tests {
+    use super::*;
+
+    fn read_rate(enc: &OpenH264, option: ENCODER_OPTION, layer: LAYER_NUM) -> i32 {
+        let mut rate = SBitrateInfo { iLayer: layer, iBitrate: 0 };
+        let get = enc.vtbl().GetOption.expect("GetOption");
+        // SAFETY: a live encoder and a writable payload of the option's documented type.
+        let status =
+            unsafe { get(enc.enc, option, (&mut rate as *mut SBitrateInfo).cast::<c_void>()) };
+        assert_eq!(status, 0);
+        rate.iBitrate
+    }
+
+    #[test]
+    fn bitrate_retarget_updates_the_active_layer_ceiling_in_both_directions() {
+        let cfg = EncCfg {
+            width: 640,
+            height: 480,
+            fps: 60,
+            kbps: 8000,
+            threads: 1,
+            screen_content: true,
+        };
+        let mut enc = OpenH264::new(&cfg, OpenH264Api::from_source()).expect("encoder");
+        for kbps in [16_000, 4_000, 12_000, 200_003, 2_000] {
+            enc.set_bitrate(kbps);
+            for layer in [SPATIAL_LAYER_ALL, SPATIAL_LAYER_0] {
+                assert_eq!(
+                    read_rate(&enc, ENCODER_OPTION_BITRATE, layer),
+                    (kbps * 1000) as f32 as i32
+                );
+                assert_eq!(
+                    read_rate(&enc, ENCODER_OPTION_MAX_BITRATE, layer),
+                    (kbps * 1000) as f32 as i32
+                );
+            }
+            assert_eq!(enc.kbps(), kbps);
+        }
+    }
+    #[test]
+    fn bitrate_retarget_clamps_oversized_requests_without_corrupting_codec_state() {
+        let cfg = EncCfg {
+            width: 640,
+            height: 480,
+            fps: 60,
+            kbps: 8000,
+            threads: 1,
+            screen_content: true,
+        };
+        let mut enc = OpenH264::new(&cfg, OpenH264Api::from_source()).expect("encoder");
+        for (requested, expected) in [(u32::MAX, 288_000), (8_000, 8_000), (0, 100)] {
+            enc.set_bitrate(requested);
+            assert_eq!(enc.kbps(), expected);
+            for layer in [SPATIAL_LAYER_ALL, SPATIAL_LAYER_0] {
+                assert_eq!(
+                    read_rate(&enc, ENCODER_OPTION_BITRATE, layer),
+                    (expected * 1000) as i32
+                );
+                assert_eq!(
+                    read_rate(&enc, ENCODER_OPTION_MAX_BITRATE, layer),
+                    (expected * 1000) as i32
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn bitrate_retarget_repairs_a_partial_update_even_at_the_cached_target() {
+        let cfg = EncCfg {
+            width: 640,
+            height: 480,
+            fps: 60,
+            kbps: 8000,
+            threads: 1,
+            screen_content: true,
+        };
+        let mut enc = OpenH264::new(&cfg, OpenH264Api::from_source()).expect("encoder");
+        let mut rate = SBitrateInfo { iLayer: SPATIAL_LAYER_ALL, iBitrate: 16_000_000 };
+        let set = enc.vtbl().SetOption.expect("SetOption");
+        // SAFETY: live codec and the documented bitrate payload. The old setter
+        // mutates the target before failing validation against the layer cap.
+        assert_ne!(
+            unsafe {
+                set(enc.enc, ENCODER_OPTION_BITRATE, (&mut rate as *mut SBitrateInfo).cast())
+            },
+            0
+        );
+        assert_eq!(enc.kbps(), 8000);
+        assert_eq!(read_rate(&enc, ENCODER_OPTION_BITRATE, SPATIAL_LAYER_0), 16_000_000);
+        enc.set_bitrate(8000);
+        for layer in [SPATIAL_LAYER_ALL, SPATIAL_LAYER_0] {
+            assert_eq!(read_rate(&enc, ENCODER_OPTION_BITRATE, layer), 8_000_000);
+            assert_eq!(read_rate(&enc, ENCODER_OPTION_MAX_BITRATE, layer), 8_000_000);
         }
     }
 }
