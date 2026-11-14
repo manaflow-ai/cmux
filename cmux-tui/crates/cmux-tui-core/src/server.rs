@@ -3152,6 +3152,10 @@ mod starter_exit_tests;
 mod personal_tests;
 
 #[cfg(test)]
+#[path = "server/attach_output_coalesce_tests.rs"]
+mod attach_output_coalesce_tests;
+
+#[cfg(test)]
 #[path = "server/group_icon_raw_tests.rs"]
 mod group_icon_raw_tests;
 
