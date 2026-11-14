@@ -47,6 +47,11 @@ pub struct Chat {
     pub peer: Option<String>,
     pub host: Option<String>,
     pub host_kind: Option<String>,
+    /// The containing remote daemon's own registry host, read from its handshake.
+    pub registry_host: Option<String>,
+    /// The local watch is live and includes this exact session, so absent peer is evidence.
+    #[serde(default)]
+    pub local_summary_current: bool,
 }
 
 /// An unavailable path stays on its machine instead of opening a generic picker.
@@ -85,9 +90,11 @@ pub fn plan(facts: &Facts) -> Plan {
         // machine mapping, never turn its name into this Mac or the focused host.
         if named(&chat.peer)
             || chat.host.as_deref().is_some_and(|h| h.starts_with("chief:"))
+            || chat.host_kind.as_deref() == Some("chief")
             || (facts.kind == MachineKind::Local
-                && (chat.host_kind.as_deref().is_some_and(|kind| kind != "local")
-                    || (chat.host_kind.is_none() && named(&chat.host))))
+                && (chat.host_kind.as_deref() != Some("local") || !chat.local_summary_current))
+            || (matches!(facts.kind, MachineKind::Cloud | MachineKind::Remote)
+                && (!named(&chat.registry_host) || chat.registry_host != chat.host))
         {
             return Plan::Refuse { reason: Refusal::UnresolvedChatHost };
         }
@@ -202,6 +209,8 @@ mod tests {
             peer: Some("studio".into()),
             host: Some("studio".into()),
             host_kind: Some("ssh".into()),
+            registry_host: Some("registry:host-a".into()),
+            local_summary_current: true,
         });
         for kind in [MachineKind::Local, MachineKind::Cloud, MachineKind::Remote] {
             facts.kind = kind;
@@ -222,14 +231,55 @@ mod tests {
             session_id: "chat-a".into(),
             peer: None,
             host: None,
-            host_kind: None,
+            host_kind: Some("local".into()),
+            registry_host: None,
+            local_summary_current: true,
         });
         assert_eq!(plan(&facts), Plan::ShareLocal);
+        facts.chat.as_mut().unwrap().host_kind = None;
         facts.chat.as_mut().unwrap().host = Some("studio".into());
         assert_eq!(plan(&facts), Plan::Refuse { reason: Refusal::UnresolvedChatHost });
         facts.chat.as_mut().unwrap().host_kind = Some("local".into());
         assert_eq!(plan(&facts), Plan::ShareLocal);
         facts.chat.as_mut().unwrap().session_id = "different-chat".into();
         assert_eq!(plan(&facts), Plan::Refuse { reason: Refusal::NoMachine });
+    }
+
+    #[test]
+    fn a_missing_local_watch_is_not_evidence_that_a_chat_is_local() {
+        let mut facts = remote();
+        facts.kind = MachineKind::Local;
+        facts.chat = Some(Chat {
+            expected_session_id: "chat-a".into(),
+            session_id: "chat-a".into(),
+            peer: None,
+            host: Some("install:here".into()),
+            host_kind: Some("local".into()),
+            registry_host: None,
+            local_summary_current: false,
+        });
+        assert_eq!(plan(&facts), Plan::Refuse { reason: Refusal::UnresolvedChatHost });
+        facts.chat.as_mut().unwrap().local_summary_current = true;
+        assert_eq!(plan(&facts), Plan::ShareLocal);
+    }
+
+    #[test]
+    fn a_cloud_chat_must_belong_to_the_daemon_not_just_be_listed_by_it() {
+        let mut facts = remote();
+        facts.kind = MachineKind::Cloud;
+        facts.chat = Some(Chat {
+            expected_session_id: "chat-a".into(),
+            session_id: "chat-a".into(),
+            peer: None,
+            host: Some("registry:host-a".into()),
+            host_kind: Some("remote".into()),
+            registry_host: Some("registry:host-a".into()),
+            local_summary_current: false,
+        });
+        assert_eq!(plan(&facts), Plan::CloudDesktop { machine_id: facts.machine_id.clone() });
+        facts.chat.as_mut().unwrap().host = Some("registry:host-b".into());
+        assert_eq!(plan(&facts), Plan::Refuse { reason: Refusal::UnresolvedChatHost });
+        facts.chat.as_mut().unwrap().registry_host = None;
+        assert_eq!(plan(&facts), Plan::Refuse { reason: Refusal::UnresolvedChatHost });
     }
 }
