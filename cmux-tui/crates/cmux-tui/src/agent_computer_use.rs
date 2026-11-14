@@ -19,7 +19,7 @@
 //! servers, also where the person's own config has an entry named `cmux` (a
 //! global entry another cmux wrote with `cmux setup mcp --global`, or a
 //! server of their own), checked live with Claude Code 2.1.310 and Codex
-//! 0.160.1 and 0.169.0 (cmux-tui/scripts/mcp-precedence-check.sh):
+//! 0.160.1 and 0.169.0 (cmux-tui/scripts/mcp-launch-check.sh):
 //!
 //! - Claude Code: a `--mcp-config` server replaces a server of the same name
 //!   in the user, project (`.mcp.json`) and local scopes whole; only the

@@ -67,9 +67,8 @@ final class SettingsAgentTools: PageProvider {
     private func read() async {
         generation += 1
         let mine = generation
-        async let found = source.agentToolsAgents()
-        async let lines = source.agentToolsManualCommands()
-        let (agents, commands) = await (found, lines)
+        let agents = await source.agentToolsAgents()
+        let commands = await source.agentToolsManualCommands()
         guard mine == generation else { return }
         rows = agents
         manual = commands
