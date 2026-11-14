@@ -81,3 +81,37 @@ import Testing
         #expect(relaunched.openingTab(for: try #require(relaunched.workspace(id: "ws-cmux")))?.id == "t-claude")
     }
 }
+
+/// `WorkspaceOpeningTab` alone: the order of its inputs, each skipped when the workspace no
+/// longer lists its tab.
+@MainActor @Suite struct WorkspaceOpeningTabTests {
+    func cmux() throws -> Workspace {
+        var ws = try #require(AppStore.mock(tabMemory: .inMemory()).workspace(id: "ws-cmux"))
+        ws.activeTabID = "t-claude"
+        ws.layout = WorkspaceLayout(screens: [WorkspaceLayout.Screen(id: 1, isActive: true, panes: [
+            WorkspaceLayout.Pane(id: 2, tabIDs: ["t-claude", "t-docs"], activeTabID: "t-claude", isFocused: true),
+            WorkspaceLayout.Pane(id: 1, tabIDs: ["t-zsh"], activeTabID: "t-zsh"),
+        ], root: .split(id: 9, axis: .horizontal, ratio: 0.5, first: .pane(1), second: .pane(2)))])
+        return ws
+    }
+
+    @Test func requestedThenLastActiveThenTopLeft() throws {
+        let ws = try cmux()
+        #expect(WorkspaceOpeningTab().tab(in: ws)?.id == "t-zsh")
+        #expect(WorkspaceOpeningTab(lastActive: "t-docs").tab(in: ws)?.id == "t-docs")
+        #expect(WorkspaceOpeningTab(requested: "t-claude", lastActive: "t-docs").tab(in: ws)?.id == "t-claude")
+    }
+
+    @Test func aGoneTabIsSkipped() throws {
+        var ws = try cmux()
+        #expect(WorkspaceOpeningTab(requested: "gone", lastActive: "t-docs").tab(in: ws)?.id == "t-docs")
+        #expect(WorkspaceOpeningTab(lastActive: "gone").tab(in: ws)?.id == "t-zsh")
+        // No layout: the Mac's active tab, then the first.
+        ws.layout = nil
+        #expect(WorkspaceOpeningTab(lastActive: "gone").tab(in: ws)?.id == "t-claude")
+        ws.activeTabID = nil
+        #expect(WorkspaceOpeningTab().tab(in: ws)?.id == ws.tabs.first?.id)
+        ws.tabs = []
+        #expect(WorkspaceOpeningTab(lastActive: "t-docs").tab(in: ws) == nil)
+    }
+}

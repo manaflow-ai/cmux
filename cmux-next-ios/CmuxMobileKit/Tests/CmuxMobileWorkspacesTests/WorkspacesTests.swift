@@ -637,12 +637,11 @@ import SwiftUI
         #expect(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux").activeTabID == "t-zsh")
     }
 
-    @Test func everyActivationIsRememberedButReopeningStartsAtTheTopLeft() {
+    @Test func everyActivationIsRemembered() {
         let (store, source) = make()
         source.activate("t-zsh")
         #expect(store.lastTabByWorkspace["ws-cmux"] == "t-zsh")
-        // Reopening the workspace starts at its opening tab again (no layout: the first).
-        #expect(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux").activeTabID == "t-claude")
+        #expect(store.lastActiveTabByWorkspace["ws-cmux"] == "t-zsh")
     }
 
     /// Back to the list and into the workspace again (a new screen, as the list's tap pushes):
@@ -675,7 +674,7 @@ import SwiftUI
         #expect(store.requestedTabByWorkspace["ws-cmux"] == nil)
     }
 
-    @Test func aRequestedTabOpensOnceThenTheTopLeftAgain() {
+    @Test func aRequestedTabIsTakenOnceThenTheTabLeftOnScreenOpens() {
         let (store, _) = make()
         store.requestOpen(tabID: "t-docs", in: "ws-cmux")
         let source = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux")
@@ -683,7 +682,9 @@ import SwiftUI
         source.opened()
         #expect(store.requestedTabByWorkspace["ws-cmux"] == nil)
         #expect(source.activeTabID == "t-docs")
-        #expect(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux").activeTabID == "t-claude")
+        source.activate("t-zsh")
+        // The request is spent: the next screen opens where this one was left.
+        #expect(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux").activeTabID == "t-zsh")
     }
 
     @Test func closingTheActiveTabActivatesItsNeighbor() async {
