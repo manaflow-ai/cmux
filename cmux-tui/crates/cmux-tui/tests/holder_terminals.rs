@@ -1316,8 +1316,8 @@ const CRASH_LINES: usize = 3000;
 /// then holds every terminal, so its crash must cost nothing a person sees. 50 tabs print
 /// numbered lines, and the holder is SIGKILLed (its own pid) while they all print. Every
 /// shell must live, every tab must end with every line in order (no gap), and every tab
-/// must take input again. It prints the recovery time (kill to the last tab echoing input)
-/// and what was lost, as `HOLDER-CRASH` lines.
+/// must take input again. It prints what was lost, when every tab's output resumed after the
+/// kill, and when every tab had finished and echoed input, as a `HOLDER-CRASH` line.
 #[test]
 fn a_holder_killed_mid_output_under_fifty_tabs_loses_no_shell_or_line() {
     let mut daemon = Daemon::start();
@@ -1371,6 +1371,22 @@ while read line; do printf 'got %s\n' "$line"; done
     unsafe { libc::kill(holder, libc::SIGKILL) };
 
     let lost_shells = shells.iter().filter(|shell| !alive(**shell)).count();
+    // Output resumed: each tab shows a line past the newest it showed right after the kill.
+    let at_kill: Vec<usize> = tabs
+        .iter()
+        .enumerate()
+        .map(|(tab, surface)| newest_line(&daemon.socket, *surface, tab))
+        .collect();
+    for (tab, surface) in tabs.iter().enumerate() {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while newest_line(&daemon.socket, *surface, tab) <= at_kill[tab]
+            && at_kill[tab] + 1 < CRASH_LINES
+        {
+            assert!(Instant::now() < deadline, "tab {tab}: no output after the holder crash");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    let resumed = killed.elapsed();
     // Recovered: every tab finished its lines and echoes input again.
     for (tab, surface) in tabs.iter().enumerate() {
         screen_contains_within(
@@ -1410,11 +1426,22 @@ while read line; do printf 'got %s\n' "$line"; done
     }
     eprintln!(
         "HOLDER-CRASH tabs={CRASH_TABS} lines_per_tab={CRASH_LINES} shells_lost={lost_shells} \
-         lines_lost={lost_lines} kept_lines_min={kept_min} recover_ms={}",
+         lines_lost={lost_lines} kept_lines_min={kept_min} output_resumed_ms={} all_done_and_echoing_ms={}",
+        resumed.as_millis(),
         recovered.as_millis()
     );
     assert_eq!(lost_shells, 0, "shells died with the holder");
     assert_eq!(lost_lines, 0, "lines were lost at the holder crash: {worst}");
+}
+
+/// The newest `tab NN line N` number on `surface`'s screen (0 when none shows).
+fn newest_line(socket: &Path, surface: u64, tab: usize) -> usize {
+    let prefix = format!("tab {tab:02} line ");
+    screen_lines(socket, surface)
+        .iter()
+        .filter_map(|row| row.strip_prefix(&prefix)?.trim().parse().ok())
+        .max()
+        .unwrap_or(0)
 }
 
 /// The visible screen of `surface`, line by line.
