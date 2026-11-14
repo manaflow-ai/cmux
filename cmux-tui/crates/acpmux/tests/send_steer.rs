@@ -308,3 +308,84 @@ async fn a_steered_sends_timeout_leaves_the_turn_it_went_into_running() {
     b.open_gate();
     assert_eq!(b.record("turn_result", &turn.prompt_id).await["status"], "completed");
 }
+
+/// A sub-session's `acpmux send` to its busy parent steers like any agent's, as its send_message
+/// does (`hub/subsession_send.rs`): the parent reads it at its next tool step. It used to queue
+/// behind the parent's turn, so a lane's "your queue is drained" sat behind a 15-minute turn
+/// until the person clicked Steer (Leo, 2026-10-29: "the drain guy came back but it's still not
+/// doing the right thing").
+#[tokio::test]
+async fn a_sub_sessions_send_to_its_busy_parent_steers() {
+    let b = busy(true).await;
+    let as_session = |cmd: &mut tokio::process::Command, id: &str| {
+        cmd.env("ACPMUX_SOCKET", &b.socket)
+            .env("ACPMUX_SESSION_ID", id)
+            .env("ACPMUX_SESSION_TOKEN", acpmux::hub::person::caller_token(id))
+            .env("ACPMUX_SESSION_TOKEN_SOCKET", &b.socket)
+            .kill_on_drop(true);
+    };
+    // The child, started by the busy session's own tools (start_session), as a coordinator
+    // starts a lane: a connection that proves the parent's caller token.
+    let (in_tx, in_rx) = tokio::sync::mpsc::channel(16);
+    let (out_tx, mut out_rx) = tokio::sync::mpsc::channel(4096);
+    tokio::spawn(acpmux::server::serve_connection_with(
+        b.hub.clone(),
+        in_rx,
+        out_tx,
+        acpmux::server::Origin::Local,
+    ));
+    let token = acpmux::hub::person::caller_token(&b.id);
+    let calls = [
+        (
+            "initialize",
+            json!({"protocolVersion": 1,
+            "_meta": {"acpmux": {"callerSession": {"sessionId": b.id, "token": token}}}}),
+        ),
+        (
+            "_acpmux/subsession/start",
+            json!({"prompt": "echo drain the queue", "name": "queue-drain"}),
+        ),
+    ];
+    let mut started = Value::Null;
+    for (n, (m, params)) in calls.into_iter().enumerate() {
+        let id = n as i64 + 1;
+        in_tx.send(acpmux::rpc::Message::request(id, m, params).to_line()).await.unwrap();
+        started = loop {
+            let line = tokio::time::timeout(Duration::from_secs(30), out_rx.recv()).await.unwrap();
+            let v: Value = serde_json::from_str(&line.unwrap()).unwrap();
+            if v.get("id") == Some(&json!(id)) {
+                assert!(v.get("error").is_none(), "{m}: {v}");
+                break v["result"].clone();
+            }
+        };
+    }
+    let child = started["sessionId"].as_str().unwrap().to_owned();
+    let info = b.person.request(method::MUX_INFO, json!({"sessionId": child, "row": true})).await;
+    assert_eq!(info.unwrap()["startedBy"], json!(b.id), "not the busy session's sub-session");
+    // Its first turn ends before it sends.
+    b.person
+        .request(
+            "_acpmux/wait",
+            json!({"sessions": [child], "until": ["ready"], "timeoutMs": 20000}),
+        )
+        .await
+        .unwrap();
+
+    for wait in [false, true] {
+        let pid = prompt_id();
+        let mut cmd = daemon_env::tokio_command(&b.scratch, daemon_env::Agents::Deny);
+        let mode = if wait { "--wait" } else { "--no-wait" };
+        cmd.args(["send", mode, "--prompt-id", &pid, &b.id, "your queue is drained"]);
+        as_session(&mut cmd, &child);
+        let send = tokio::spawn(async move { cmd.output().await });
+        let sent = b.record("user_message", &pid).await;
+        assert_eq!(sent["steer"], true, "{mode}: into the running turn, not the queue: {sent}");
+        assert!(!b.queued(&pid), "{mode}: queued behind the parent's turn");
+        if wait {
+            b.open_gate();
+        }
+        let out =
+            tokio::time::timeout(Duration::from_secs(60), send).await.unwrap().unwrap().unwrap();
+        assert!(out.status.success(), "{mode}: {}", String::from_utf8_lossy(&out.stderr));
+    }
+}
