@@ -97,10 +97,16 @@ enum OmnibarStyle {
     /// Page-info chip.
     static var chipSize: CGFloat { barHeight - 4 }
     static var chipButtonCornerRadius: CGFloat { Metrics.buttonCornerRadius(nestedIn: cardCornerRadius, inset: chipLeading) }
-    /// Chip distance from the bar's leading edge.
-    static let chipLeading: CGFloat = 2
-    /// Text distance after the chip.
-    static let textLeading: CGFloat = 5
+    /// Chrome's omnibox padding, on the bar's height (Chrome's 30 pt row; Lucas 2026-11-14: "chrome's padding"): the
+    /// chip's glyph centers 22 pt in and the text starts 42 pt in, so the typed text and each suggestion's text start
+    /// on one column (the rows take these, `OmniboxSuggestionPanel`).
+    static var chipLeading: CGFloat { max(edgeInset, (barHeight * 22 / 30 - chipSize / 2).rounded()) }
+    /// Text distance after the chip: the text's column less the chip's end.
+    static var textLeading: CGFloat { max(fieldTrailingGap, (barHeight * 42 / 30 - chipLeading - chipSize).rounded()) }
+    /// The bar's trailing marks' distance from its edge.
+    static let edgeInset: CGFloat = 2
+    /// The field's distance from the trailing marks.
+    static let fieldTrailingGap: CGFloat = 5
     static let trailingPadding: CGFloat = 8
     static var iconPointSize: CGFloat { metrics.iconPointSize }
     /// The bar's text: 14 pt (`TypeScale.field`) at Standard, by density or `browser.omnibar.fontSize`.
@@ -114,17 +120,22 @@ enum OmnibarStyle {
     /// extension buttons (`barMargin` stays clear on each side) or up into
     /// the tab strip, and its corners are the bar's corners (the look's
     /// radius, 8 pt by default), so the open bar and card are one shape.
-    static var cardCornerRadius: CGFloat { OmnibarGlassLook.current.resolvedCornerRadius(barHeight: barHeight) }
+    /// Helium's popup roundness, extrapolated on the row's height: 8.5 pt on its 19.5 pt rows (Lucas 2026-11-14:
+    /// "extrapolate helium's roundness"), unless the glass look sets its own radius.
+    static var cardCornerRadius: CGFloat {
+        guard OmnibarGlassLook.current.cornerRadius == nil else { return OmnibarGlassLook.current.resolvedCornerRadius(barHeight: barHeight) }
+        return min((rowHeight * 17 / 39).rounded(), barHeight / 2)
+    }
     static let cardTopOutset: CGFloat = 0
     static let cardSideOutset: CGFloat = 0
-    /// Rows: bar height, inset 4 at the sides, 2 between rows, 4 at the end.
+    /// Rows: bar height, touching as Chrome's do, inset so their corner is concentric with the card's, and Chrome's
+    /// 11 pt on 30 under the last row.
     static var rowHeight: CGFloat { barHeight }
-    static let rowSideInset: CGFloat = 4
-    static let rowGap: CGFloat = 2
-    static let cardBottomPadding: CGFloat = 4
-    /// The highlighted row's corner, concentric with the card's: the card
-    /// radius less the row's inset.
-    static var rowCornerRadius: CGFloat { max(0, cardCornerRadius - rowSideInset) }
+    static var rowSideInset: CGFloat { max(edgeInset, cardCornerRadius - rowCornerRadius) }
+    static let rowGap: CGFloat = 0
+    static var cardBottomPadding: CGFloat { (rowHeight * 11 / 30).rounded() }
+    /// The highlighted row's corner: a tab's on the row's height (8 on 30), the ratio Helium's rows draw.
+    static var rowCornerRadius: CGFloat { Metrics.chromeRowCornerRadius(height: rowHeight) }
     static var rowDetailFont: NSFont { font }
 
     // MARK: Colors

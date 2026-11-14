@@ -44,7 +44,7 @@ public final class AddressBarView: NSView {
     private lazy var badges = NSStackView(views: [focusModeBadgeView, profileBadgeView, machineBadgeView, starButton])
     // Built on first use in init (no IUO).
     private lazy var fieldToEdge = field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.trailingPadding)
-    private lazy var fieldToBadge = field.trailingAnchor.constraint(equalTo: badges.leadingAnchor, constant: -OmnibarStyle.textLeading)
+    private lazy var fieldToBadge = field.trailingAnchor.constraint(equalTo: badges.leadingAnchor, constant: -OmnibarStyle.fieldTrailingGap)
     let panel = OmniboxSuggestionPanel()
     let density = DensityBinding()
 
@@ -210,15 +210,15 @@ public final class AddressBarView: NSView {
             backdrop.topAnchor.constraint(equalTo: topAnchor, constant: -OmnibarStyle.cardTopOutset),
             backdrop.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            chip.leadingAnchor.constraint(equalTo: leadingAnchor, constant: OmnibarStyle.chipLeading),
+            density.bind(chip.leadingAnchor.constraint(equalTo: leadingAnchor)) { OmnibarStyle.chipLeading },
             chip.centerYAnchor.constraint(equalTo: centerYAnchor),
             density.bind(chip.widthAnchor.constraint(greaterThanOrEqualToConstant: 0)) { OmnibarStyle.chipSize },
             density.bind(chip.heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.chipSize },
 
-            field.leadingAnchor.constraint(equalTo: chip.trailingAnchor, constant: OmnibarStyle.textLeading),
+            density.bind(field.leadingAnchor.constraint(equalTo: chip.trailingAnchor)) { OmnibarStyle.textLeading },
             fieldToEdge,
             field.centerYAnchor.constraint(equalTo: centerYAnchor),
-            badges.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.chipLeading - 2),
+            badges.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.edgeInset - 2),
             badges.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         panel.onPick = { [weak self] row, flags in

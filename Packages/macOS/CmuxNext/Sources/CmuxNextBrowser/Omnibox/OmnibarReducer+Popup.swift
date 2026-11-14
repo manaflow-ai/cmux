@@ -6,10 +6,10 @@ nonisolated extension OmnibarStep {
         // A focus from a click whose press never came: keys end it.
         if state.mouse?.pressed == false { state.mouse = nil }
         switch key {
-        case .up: move(-1, clamp: true)
-        case .down: move(1, clamp: true)
-        case .tab: if !startKeywordOnTab() { move(1, clamp: false) }
-        case .backTab: move(-1, clamp: false)
+        case .up: move(-1, wraps: true)
+        case .down: move(1, wraps: true)
+        case .tab: if !startKeywordOnTab() { move(1, wraps: false) }
+        case .backTab: move(-1, wraps: false)
         case .enter(let disposition): enter(disposition)
         case .enterAddingTLD(let disposition): enterAddingTLD(disposition)
         case .escape: escape()
@@ -24,20 +24,26 @@ nonisolated extension OmnibarStep {
         }
     }
 
-    /// Up/Down clamp at both ends. Tab/Shift-Tab past either end are not
-    /// handled, so focus leaves the field.
-    private mutating func move(_ delta: Int, clamp: Bool) {
+    /// Up/Down cycle through the rows, past the last back to the first and the other way, as Chrome's omnibox does
+    /// (Lucas 2026-11-14), from the row the pointer last highlighted. Tab/Shift-Tab past either end are not handled,
+    /// so focus leaves the field.
+    private mutating func move(_ delta: Int, wraps: Bool) {
         guard state.isPopupOpen, !state.isComposing else {
             handled = false
             return
         }
-        let current = state.popup.selected ?? 0
+        let count = state.popup.rows.count
+        let current = state.popup.highlighted ?? 0
         let next = current + delta
-        guard state.popup.rows.indices.contains(next) || clamp else {
+        if wraps {
+            select(((next % count) + count) % count)
+            return
+        }
+        guard state.popup.rows.indices.contains(next) else {
             handled = false
             return
         }
-        select(min(max(next, 0), state.popup.rows.count - 1))
+        select(next)
     }
 
     /// The keyboard highlight moves to `row`; the field shows its text.
@@ -224,12 +230,12 @@ nonisolated extension OmnibarStep {
         let first = state.popup.pointer == nil
         state.popup.pointer = pointer
         guard !first else { return }
-        if let row, state.popup.rows.indices.contains(row) {
-            state.popup.hover = row
-            state.popup.source = .mouse
-        } else {
-            state.popup.hover = nil
-        }
+        // A row the pointer left keeps its highlight until another row takes it: the exit from one row comes before
+        // the entry into the next, and clearing it in between flashed the keyboard's row (Lucas 2026-11-14: "hovering
+        // over the results also causes some weird flashing glitch on other rows").
+        guard let row, state.popup.rows.indices.contains(row) else { return }
+        state.popup.hover = row
+        state.popup.source = .mouse
     }
 
     mutating func rowClick(_ row: Int, _ disposition: OmnibarInput.Disposition) {
