@@ -82,8 +82,18 @@ export function hostErrorShows(
 /// instead of hours later.
 export const REFUSED_RETRY_MAX_MS = 30_000;
 
-export function nextRetryDelay(delay: number, recovering: boolean): number {
-  return Math.min(delay * 2, recovering ? 2_000 : REFUSED_RETRY_MAX_MS);
+/// A chat on screen asks again within 500 ms for the first 10 s of a recovery (a daemon restart or
+/// handoff usually ends sooner), so it is back within half a second of acpmux answering instead of up
+/// to 2 s later. Asking is one local socket connect; a hidden chat, or a recovery past 10 s, keeps 2 s.
+export const QUICK_RETRY_MAX_MS = 500;
+export const QUICK_RETRY_WINDOW_MS = 10_000;
+
+export function quickRetry({ shown, failingForMs }: { shown: boolean; failingForMs: number }): boolean {
+  return shown && failingForMs < QUICK_RETRY_WINDOW_MS;
+}
+
+export function nextRetryDelay(delay: number, recovering: boolean, quick = false): number {
+  return Math.min(delay * 2, recovering ? (quick ? QUICK_RETRY_MAX_MS : 2_000) : REFUSED_RETRY_MAX_MS);
 }
 
 /// The first wait before a reconnect.

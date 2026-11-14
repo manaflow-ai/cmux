@@ -663,6 +663,7 @@ import {
   hostIsReconnecting,
   hostRefusedTooLarge,
   nextRetryDelay,
+  quickRetry,
   offersAcpmuxRestart,
   readHostRestoring,
   hostSelfRetrying,
@@ -9782,7 +9783,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // A reply too large to send is the same at every ask: only the line's Retry asks again.
           if (!tooLarge && restartGate.mayAsk()) {
             retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(retryDelay));
-            retryDelay = nextRetryDelay(retryDelay, reconnect || recovering);
+            retryDelay = nextRetryDelay(
+              retryDelay,
+              reconnect || recovering,
+              quickRetry({ shown: document.visibilityState === "visible", failingForMs: Date.now() - failingSince }),
+            );
           }
         }
       } finally {
