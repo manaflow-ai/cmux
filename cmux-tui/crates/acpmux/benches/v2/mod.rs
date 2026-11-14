@@ -121,6 +121,24 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
+        pr: "3c",
+        name: "v2.pr03c.fold_window",
+        done_when: "A window at the end of a chat whose last turn folded 100,000 rows stays within 1.2x of one folded 10 rows, with the same reply size.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
+        pr: "3c",
+        name: "v2.pr03c.blob_range",
+        done_when: "A bounded 256 KB range of a 100 MB body stays within 1.2x of one from a 300 KB body, for settled and open bodies.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
         pr: "3a3",
         name: "v2.pr03a3.actor_line",
         done_when: "One settled line through the actor at 40 rows and 2M rows: best p95 1.2x, aggregate p95 2x.",
@@ -142,6 +160,15 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "3a",
         name: "v2.pr03a.source_read_bounds",
         done_when: "A 1 GB growth reads one chunk and holds reads one byte at 40 rows and 2M rows. A 10 MB line appended in 100 pieces is read once when its newline arrives.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "3b",
+        name: "v2.pr03b.catchup_peak_rss",
+        done_when: "The god chat caught up from nothing over the v1 source: peak RSS within 1.2x of small (stretches of the same length, malloc_trim(0) before the baseline), one chunk held, the bytes read within 1.2x of the log, and the book equal to what translate gives.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
@@ -220,6 +247,15 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
+        pr: "4b",
+        name: "v2.pr04b.mirror_v1_rows",
+        done_when: "A live mirror with rows: v1 converts 20 live rows with 11,000 closed rows beside them within 1.2x of 20 alone for received bytes and client time.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
         pr: "5",
         name: "v2.pr05.first_list_window",
         done_when: "First list window from a running hub: best p95 within 1.2x at 11,000 sessions against 20, all-sample p95 within 2x.",
@@ -268,7 +304,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5b",
         name: "v2.pr05b.apply_during_compaction",
         done_when: "At 11,000 sessions, the complete writer turn during compaction stays within 1.2x of outside compaction, including group sync and install.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -419,6 +455,15 @@ pub const GATE_ROWS: &[GateRow] = &[
     },
     GateRow {
         pr: "5c",
+        name: "v2.pr05c.replay_open_hold",
+        done_when: "An append overlapping the open copy of a full ring replay stays under 1 ms p95.",
+        measured: true,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: Some(1_000_000.0),
+    },
+    GateRow {
+        pr: "5c",
         name: "v2.pr05c.single_encode",
         done_when: "A change sent to 100 list subscribers is encoded once, with no subscriber-side deep clone or re-encode.",
         measured: true,
@@ -511,6 +556,15 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5g",
         name: "v2.pr05g.open_damage",
         done_when: "1,000 seeded random damages across snapshot heads, checkpoints, log generations and edition markers rebuild at open without a daemon failure and match a first start after the source walk.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
+        pr: "5h",
+        name: "v2.pr05h.hub_row_submit",
+        done_when: "The tee's turn for one changed hub row (its mark drained to one submit) with 2,048 book rows and 11,000 closed rows against one book row and an empty index: p95 within 1.2x, the sides alternating rounds.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
@@ -628,6 +682,24 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "7",
         name: "v2.pr07.sidebar_list_stream",
         done_when: "No \"Waiting for the agent service\" frame while the socket is up. Sidebar scroll frame time 1.2x at 11k against 20.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "7b",
+        name: "v2.pr07b.info_rows_wall",
+        done_when: "100 rows by key (`_acpmux/info` with `sessionIds`): wall time within 1.2x with 11k closed beside them against the same 100 alone.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "7b",
+        name: "v2.pr07b.info_rows_bytes",
+        done_when: "100 rows by key (`_acpmux/info` with `sessionIds`): reply bytes within 1.2x with 11k closed beside them against the same 100 alone.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
@@ -935,8 +1007,10 @@ pub fn print_report_with_mode(
 mod tests {
     use super::*;
 
-    /// A row of a PR whose other rows are written, held for a gate a later PR adds.
-    const WAITS_ON_ANOTHER_PR: &[&str] = &["v2.pr04.chat_stopped_reader"];
+    /// A row of a PR whose other rows are written, held for a gate a later PR adds. PR 4b's
+    /// two are held by plain tests of the client today and have no gate line yet.
+    const WAITS_ON_ANOTHER_PR: &[&str] =
+        &["v2.pr04.chat_stopped_reader", "v2.pr04b.bytes_held", "v2.pr04b.credit_slow_taker"];
 
     /// A gate name as a source spells it. A `{..}` hole is a name built by `format!`.
     const NAME_IN_SOURCE: &str = r"v2\.pr[0-9]+[a-z]?\.(?:[a-z0-9_]|\{[^{}]*\})+";

@@ -82,7 +82,10 @@ fn wait_health(handle: &ChatHandle, expected: crate::life::Health) {
 fn rebuild(config: ChatConfig) {
     let (_tx, rx) = sync_channel(256);
     let queued = Arc::new(Mutex::new(0));
-    let state = rebuild_from_raw(config, &rx, &queued, &AtomicBool::new(false)).unwrap().unwrap();
+    let mut subs = stream::Subscribers::default();
+    let state = rebuild_from_raw(config, &rx, &queued, &AtomicBool::new(false), &mut subs)
+        .unwrap()
+        .unwrap();
     drop(state);
 }
 
@@ -698,7 +701,8 @@ fn deterministic_translation_failure_is_counted_five_times_without_advancing_raw
     actor.join();
     let saved = log::saved_checkpoint(home.path()).unwrap().unwrap();
     let checkpoint = Checkpoint::from_recovered(&saved).unwrap();
-    assert!(checkpoint.cursors.is_empty());
+    // The source is named from the first checkpoint; its cursor never moved past the line.
+    assert!(checkpoint.cursors.iter().all(|cursor| cursor.place == 0));
     assert_eq!(checkpoint.last_row, 0);
 }
 

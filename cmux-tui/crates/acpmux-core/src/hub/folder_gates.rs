@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::wire::{
-    Anchor, FolderPageResult, FolderPosition, FolderRow, FolderWindow, ListView, Page, Position,
-    Sub,
+    Anchor, FolderPageResult, FolderPosition, FolderRow, FolderWindow, ListView, Page, PageSide,
+    Position, Sub,
 };
 use acpmux_book::index::{RowKey, Summary};
 use serde_json::value::RawValue;
@@ -67,7 +67,7 @@ fn window_request() -> Sub {
 }
 
 fn deep_request(count: usize, cursor: usize) -> Page {
-    let mut page = Page::new("folders", "list", crate::wire::PageSide::After, 0);
+    let mut page = Page::new("folders", "list", PageSide::After, 0);
     page.view = Some(ListView::Folders);
     page.max_bytes = folder_page_budget();
     page.after = Some(Position::Folder(FolderPosition {

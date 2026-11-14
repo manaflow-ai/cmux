@@ -127,6 +127,18 @@ pub fn parse_proc_stat(stat: &str) -> Option<ProcStat> {
     Some(ProcStat { ppid, name, cpu_ticks: utime.saturating_add(stime), start_ticks })
 }
 
+/// The stat line of a process, from its file `path` (`/proc/<pid>/stat`).
+///
+/// The line is read as bytes. The system keeps 15 bytes of a program's name
+/// and can cut it inside a character, so the line is not always UTF-8. Each
+/// field after the name is ASCII, and the name's bytes that are no character
+/// become U+FFFD here. A reader of the line finds the fields after the last
+/// `)`.
+pub fn stat_line(path: impl AsRef<std::path::Path>) -> std::io::Result<String> {
+    let stat = std::fs::read(path)?;
+    Ok(String::from_utf8_lossy(&stat).into_owned())
+}
+
 /// Resident pages from `/proc/<pid>/statm` (the second field).
 pub fn parse_statm_resident_pages(statm: &str) -> Option<u64> {
     statm.split_whitespace().nth(1)?.parse().ok()
@@ -255,14 +267,8 @@ mod imp {
     }
 
     /// One process's parsed `/proc/<pid>/stat`, or None when it is gone.
-    ///
-    /// The line is read as bytes. The system keeps 15 bytes of a program's
-    /// name and can cut it inside a character, so the line is not always
-    /// UTF-8. Each field after the name is ASCII, and the name's bytes that
-    /// are no character become U+FFFD here.
     fn read_stat(pid: u32) -> Option<ProcStat> {
-        let stat = std::fs::read(format!("/proc/{pid}/stat")).ok()?;
-        parse_proc_stat(&String::from_utf8_lossy(&stat))
+        parse_proc_stat(&super::stat_line(format!("/proc/{pid}/stat")).ok()?)
     }
 
     pub(super) struct Sampler {
@@ -674,3 +680,6 @@ mod imp {
 pub const fn reads_process_trees() -> bool {
     cfg!(any(target_os = "linux", target_os = "macos", windows))
 }
+
+#[cfg(test)]
+mod stat_line_tests;

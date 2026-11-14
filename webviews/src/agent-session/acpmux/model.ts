@@ -869,6 +869,10 @@ export type AcpmuxActivity = {
     title: string;
     kind?: string;
     status: string;
+    /// A result whose call this view has not read (an older page holds it) and that shows
+    /// nothing on its own: kept so paging can join it to its call, and drawn and counted as
+    /// nothing until then (hiddenTools.ts `isCompletedPlumbingTool`).
+    awaitingCall?: true;
     inputSummary?: string;
     output?: string;
     /// A shell call's command line (`rawInput.command`), for its Shell block.
@@ -2137,6 +2141,17 @@ const drawsNothing = (row: AcpmuxRow) =>
 export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxRow | undefined {
   for (let next = index + 1; next < rows.length; next += 1) if (!drawsNothing(rows[next]!)) return rows[next];
   return undefined;
+}
+/// The rows a mounted row's frame props are read from (VirtualTranscript's step joins, footer and
+/// status edges, reply room): from the drawn row above `index - 1` through the next drawn row under
+/// `index`, both included. `last` is `rows.length` when nothing drawn follows, so a row appended
+/// after it changes the window too.
+export function rowPropsWindow(rows: readonly AcpmuxRow[], index: number): { first: number; last: number } {
+  let first = index - 2;
+  while (first > 0 && drawsNothing(rows[first]!)) first -= 1;
+  let last = index + 1;
+  while (last < rows.length && drawsNothing(rows[last]!)) last += 1;
+  return { first: Math.max(0, first), last };
 }
 /// The drawn row above `index` (`statusEdge` reads it for a status row over a reply).
 export function prevDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxRow | undefined {
