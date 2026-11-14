@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43617042900",
+  "recorded_at": "2026-11-14T16:56:36Z",
+  "reason": "cmux-tui 70beec269ceb changes the image's cmux-tui (pinned 7b4f6dddf33f)",
+  "dry_run": false,
+  "cmux_tui": "70beec269ceb63c06375815e60b4f4d56d8377da",
+  "fixes": [
+    {
+      "sha": "adad2c8d40049aaab94929b496484cdc2d1a896b",
+      "mergedAt": "2026-11-14T08:23:11-08:00",
+      "subject": "cmux-tui: the screen detector waits longer between passes that scan nothing or end inside 30 seconds; its count test has the events stream; the Zig SDK takes 256 kinds in one journal filter"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T16:56:36Z",
+    "snapshot_id": "sh-4fc87092b3934059a37f458fee801e4f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43617042900): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "10ec7ba601954f460e290e5171015016b4779ba0",
+    "image": "cloud-native-auto-70beec26-43617042900-1",
+    "revision": "ci-43617042900-1",
+    "at": "2026-11-14T16:56:36Z"
+  },
+  "rolled_back": false
+}
