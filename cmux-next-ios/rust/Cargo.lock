@@ -659,6 +659,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-remote-protocol",
+ "cmux-unix-socket",
  "flate2",
  "fs4",
  "futures-util",
