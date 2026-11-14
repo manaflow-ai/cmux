@@ -90,46 +90,86 @@ record = {"session_id": session, "outputs": {}}
 # Claude Code sources it before each Bash tool command when it exists. Like
 # Claude Code 2.1.319, the stand-in does not create it.
 env_file = os.path.join(os.environ["FAKE_RECORD_DIR"], "env-" + os.environ["OB_TAG"] + ".sh")
-payloads = [
-    ("SessionStart", {"source": "startup"}),
+
+def run_round(session, payloads):
+    outputs_by_event = {}
+    for event, extra in payloads:
+        payload = {"session_id": session, "transcript_path": "/dev/null", "cwd": os.getcwd(),
+                   "hook_event_name": event}
+        payload.update(extra)
+        outputs = []
+        for command, root in commands(event):
+            # What Claude Code sets for the commands it starts, hooks and tools.
+            env = dict(os.environ, CLAUDECODE="1", CLAUDE_PID=str(os.getpid()),
+                       CLAUDE_CODE_SESSION_ID=session)
+            if event == "SessionStart":
+                env["CLAUDE_ENV_FILE"] = env_file
+            if root:
+                env["CLAUDE_PLUGIN_ROOT"] = root
+            if os.environ.get("FAKE_HOOKS_SOURCE_ENV_FILE"):
+                # As if Claude Code sourced the env file for its hooks too
+                # (2.1.319 does so only for Bash tool commands).
+                env["FAKE_SOURCE"] = env_file
+                command = '[ -f "$FAKE_SOURCE" ] && . "$FAKE_SOURCE"; ' + command
+            done = subprocess.run(["/bin/sh", "-c", command], input=json.dumps(payload).encode(),
+                                  env=env, capture_output=True, timeout=60)
+            outputs.append(done.stdout.decode(errors="replace"))
+        outputs_by_event[event] = outputs
+    return outputs_by_event
+
+def write_record(tag, record):
+    out = os.path.join(os.environ["FAKE_RECORD_DIR"], "claude-" + tag + ".json")
+    with open(out + ".tmp", "w") as f:
+        json.dump(record, f)
+    os.rename(out + ".tmp", out)
+
+reply = os.environ.get("FAKE_REPLY", "done here")
+turn = [
     ("UserPromptSubmit", {"prompt": "hello"}),
-    ("Stop", {"stop_hook_active": False,
-              "last_assistant_message": os.environ.get("FAKE_REPLY", "done here")}),
+    ("Stop", {"stop_hook_active": False, "last_assistant_message": reply}),
 ]
-for event, extra in payloads:
-    payload = {"session_id": session, "transcript_path": "/dev/null", "cwd": os.getcwd(),
-               "hook_event_name": event}
-    payload.update(extra)
-    outputs = []
-    for command, root in commands(event):
-        # What Claude Code sets for the commands it starts, hooks and tools.
-        env = dict(os.environ, CLAUDECODE="1", CLAUDE_PID=str(os.getpid()),
-                   CLAUDE_CODE_SESSION_ID=session)
-        if event == "SessionStart":
-            env["CLAUDE_ENV_FILE"] = env_file
-        if root:
-            env["CLAUDE_PLUGIN_ROOT"] = root
-        done = subprocess.run(["/bin/sh", "-c", command], input=json.dumps(payload).encode(),
-                              env=env, capture_output=True, timeout=60)
-        outputs.append(done.stdout.decode(errors="replace"))
-    record["outputs"][event] = outputs
-out = os.path.join(os.environ["FAKE_RECORD_DIR"], "claude-" + os.environ["OB_TAG"] + ".json")
-with open(out + ".tmp", "w") as f:
-    json.dump(record, f)
-os.rename(out + ".tmp", out)
+record["outputs"] = run_round(session, [("SessionStart", {"source": "startup"})] + turn)
+write_record(os.environ["OB_TAG"], record)
+def wait_for(path):
+    deadline = time.time() + 120
+    while not os.path.exists(path) and time.time() < deadline:
+        time.sleep(0.05)
+
+# The rounds below wait for the test's go when it names one.
+round_go = os.environ.get("FAKE_ROUND_GO")
+# `/clear`: the same Claude process ends the session and starts another.
+cleared = os.environ.get("FAKE_CLEAR_SESSION_ID")
+if cleared:
+    if round_go:
+        wait_for(round_go)
+    run_round(session, [("SessionEnd", {"reason": "clear"})])
+    outputs = run_round(cleared, [("SessionStart", {"source": "clear"})] + turn)
+    write_record(os.environ["OB_TAG"] + "-clear", {"session_id": cleared, "outputs": outputs})
+# An in-process `/resume`: the same Claude process ends its session and takes
+# another (Claude Code 2.1.319 sends SessionEnd with reason "resume" first).
+resumed = os.environ.get("FAKE_RESUME_SESSION_ID")
+if resumed:
+    if round_go:
+        wait_for(round_go)
+    run_round(session, [("SessionEnd", {"reason": "resume"})])
+    outputs = run_round(resumed, [("SessionStart", {"source": "resume"})] + turn)
+    write_record(os.environ["OB_TAG"] + "-resume", {"session_id": resumed, "outputs": outputs})
 # A tool call that starts another Claude (`claude -p`) once the test says go:
 # it inherits the plugin folder and this Claude's tool environment.
 go = os.environ.get("FAKE_NESTED_GO")
 if go:
-    deadline = time.time() + 120
-    while not os.path.exists(go) and time.time() < deadline:
-        time.sleep(0.05)
+    wait_for(go)
     nested = dict(os.environ, OB_TAG=os.environ["OB_TAG"] + "-nested",
                   FAKE_SESSION_ID=os.environ["FAKE_NESTED_SESSION_ID"], FAKE_REPLY="nested reply",
                   FAKE_EXIT="1", CLAUDECODE="1", CLAUDE_PID=str(os.getpid()),
                   CLAUDE_CODE_SESSION_ID=session)
     del nested["FAKE_NESTED_GO"]
-    subprocess.run(["/bin/sh", "-c", '[ -f "$1" ] && . "$1"; exec "$2" -p hi', "sh", env_file,
+    # A Bash tool command sources the env file first; a Claude that a hook,
+    # an MCP server or a teammate starts does not.
+    script = '[ -f "$1" ] && . "$1"; exec "$2" -p hi'
+    if nested.pop("FAKE_NESTED_NO_ENV_FILE", None):
+        script = 'exec "$2" -p hi'
+    subprocess.run(["/bin/sh", "-c", script, "sh", env_file,
                     os.path.realpath(sys.argv[0])], env=nested, timeout=120)
 if os.environ.get("FAKE_EXIT"):
     sys.exit(0)
@@ -539,7 +579,16 @@ fn any_launcher_claude_reports_to_the_pane_session() {
         ),
     );
     let record = launch_record(&root, &daemon, "no-user-settings");
-    assert!(session_start_outputs_with(&record, "systemMessage") <= 1, "{record}");
+    assert_eq!(
+        session_start_outputs_with(&record, "systemMessage"),
+        0,
+        "no-user-settings: the plugin copy must stand down: {record}"
+    );
+    // The guard is not empty: a cmux copy of each hook ran (and stood down).
+    for event in ["SessionStart", "UserPromptSubmit", "Stop"] {
+        let ran = record["outputs"][event].as_array().map_or(0, Vec::len);
+        assert!(ran >= 1, "no-user-settings: no copy of the {event} hook ran: {record}");
+    }
     let row = daemon.agent_row(&daemon_exe, &cli_env, &limited);
     assert!(
         row["source"] != "hook"
@@ -615,11 +664,14 @@ fn any_launcher_nested_claude_leaves_the_pane_session_and_its_messages_to_the_ou
     // Each terminal runs a Claude; once told, a tool call of it starts another
     // Claude (`claude -p`), which inherits the pane's environment and sources
     // the outer Claude's env file. The plugin reports for the first; the
-    // installed hooks for the second; the shim's own hooks for the third.
+    // installed hooks for the second; the shim's own hooks for the third. The
+    // fourth starts its Claude the way a hook, an MCP server or a teammate
+    // would: without the env file, so with no claim in its environment.
     let cases = [
         ("plain", format!("'{}'", claude.display()), &empty_config, 2),
         ("installed", format!("'{}'", claude.display()), &installed_config, 3),
         ("shim", "claude".to_owned(), &installed_config, 4),
+        ("teammate", format!("FAKE_NESTED_NO_ENV_FILE=1 '{}'", claude.display()), &empty_config, 5),
     ];
     let mut terminals = Vec::new();
     for (tag, command, config, n) in &cases {
@@ -668,11 +720,189 @@ fn any_launcher_nested_claude_leaves_the_pane_session_and_its_messages_to_the_ou
             0,
             "{tag}: the nested Claude ran the pane's hooks: {nested}"
         );
+        assert_eq!(
+            session_start_outputs_with(&nested, "cmux: you run in a cmux terminal"),
+            0,
+            "{tag}: the nested Claude was told it runs in the pane's terminal: {nested}"
+        );
         let (listed, inbox) =
             cli(&daemon, &daemon_exe, &cli_env, &["agent", "inbox", terminal, "--state", "queued"]);
         assert!(listed && inbox.contains(&note), "{tag}: the message is no longer queued: {inbox}");
         let row = daemon.agent_row(&daemon_exe, &cli_env, terminal);
         assert_eq!(row["extra"]["agent_session_id"], outer.as_str(), "{tag}: {row}");
+        // Nor does its reply become the pane's last reply.
+        assert_eq!(
+            row["extra"]["last_reply"], "outer reply",
+            "{tag}: the nested Claude's reply took the pane agent's place: {row}"
+        );
+    }
+    // What the check adds to a Claude hook that hands over messages, a banner
+    // or context: one `agent.list` read of its terminal.
+    let (_, terminal, _) = &terminals[0];
+    let mut took: Vec<Duration> =
+        (0..40).map(|_| agent_list_round_trip(&daemon, terminal)).collect();
+    took.sort();
+    let at = |share: usize| took[(took.len() * share / 100).min(took.len() - 1)];
+    let _ = writeln!(
+        std::io::stderr(),
+        "w5n3 hook roster read (agent.list, {} reads): p50 {:?} p95 {:?}",
+        took.len(),
+        at(50),
+        at(95)
+    );
+    drop(daemon);
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// One `agent.list` read of `terminal`, as the hook makes it: its time.
+fn agent_list_round_trip(daemon: &Daemon, terminal: &str) -> Duration {
+    let started = Instant::now();
+    let stream = UnixStream::connect(&daemon.socket).unwrap();
+    let mut writer = stream.try_clone().unwrap();
+    let request = serde_json::json!({
+        "protocol": "cmux.protocol/2", "type": "request", "id": "w5n3-roster-read",
+        "operation": "agent.list",
+        "params": {"machine": "current", "session": "current", "terminal_id": terminal},
+    });
+    writeln!(writer, "{request}").unwrap();
+    let mut line = String::new();
+    BufReader::new(stream).read_line(&mut line).unwrap();
+    let response: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(response["ok"], true, "agent.list failed: {response}");
+    started.elapsed()
+}
+
+#[test]
+fn any_launcher_w5n3_clear_keeps_reporting_when_hooks_see_the_env_file() {
+    let root = unique_root();
+    let home = root.join("home");
+    let data = root.join("data");
+    let realbin = root.join("realbin");
+    let build = root.join("build");
+    let config = root.join("config-empty");
+    for dir in [&home, &data, &realbin, &build, &config] {
+        fs::create_dir_all(dir).unwrap();
+    }
+    let claude = realbin.join("claude");
+    write_executable(&claude, FAKE_CLAUDE);
+    let daemon_exe = build.join("cmux-tui");
+    if fs::hard_link(env!("CARGO_BIN_EXE_cmux-tui"), &daemon_exe).is_err() {
+        fs::copy(env!("CARGO_BIN_EXE_cmux-tui"), &daemon_exe).unwrap();
+    }
+    let path = format!("{}:/usr/bin:/bin", realbin.display());
+    let mut daemon = Daemon::start(&root, &daemon_exe, "clear", &home, &data, &path);
+    let cli_env = [("HOME", home.as_path()), ("XDG_DATA_HOME", data.as_path())];
+    // Claude Code 2.1.319 does not source the env file for its hooks. Were a
+    // later version to do so, the hooks of the claiming Claude would read its
+    // own claim; after `/clear` (a new session in the same process) they must
+    // still report.
+    let first = "00000000-0000-4000-8000-000000000061";
+    let cleared = "00000000-0000-4000-8000-000000000062";
+    let script = format!(
+        "OB_TAG=clear FAKE_RECORD_DIR='{root}' FAKE_SESSION_ID={first} \
+         FAKE_CLEAR_SESSION_ID={cleared} FAKE_HOOKS_SOURCE_ENV_FILE=1 \
+         CLAUDE_CONFIG_DIR='{config}' SR2_CLAUDE2_HOOK_SOCKET=/nonexistent/sr2.sock; \
+         export OB_TAG FAKE_RECORD_DIR FAKE_SESSION_ID FAKE_CLEAR_SESSION_ID \
+         FAKE_HOOKS_SOURCE_ENV_FILE CLAUDE_CONFIG_DIR SR2_CLAUDE2_HOOK_SOCKET; \
+         '{claude}'; sleep 600",
+        root = root.display(),
+        config = config.display(),
+        claude = claude.display(),
+    );
+    let terminal = daemon.run("clear", &script);
+    launch_record(&root, &daemon, "clear-clear");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let row = daemon.agent_row(&daemon_exe, &cli_env, &terminal);
+        if row["source"] == "hook" && row["extra"]["agent_session_id"] == cleared {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "after /clear the Claude's new session never reported: {row}"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    drop(daemon);
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn any_launcher_w5n3_the_pane_agent_keeps_its_messages_after_clear_and_resume() {
+    let root = unique_root();
+    let home = root.join("home");
+    let data = root.join("data");
+    let realbin = root.join("realbin");
+    let build = root.join("build");
+    let config = root.join("config-empty");
+    for dir in [&home, &data, &realbin, &build, &config] {
+        fs::create_dir_all(dir).unwrap();
+    }
+    let claude = realbin.join("claude");
+    write_executable(&claude, FAKE_CLAUDE);
+    let daemon_exe = build.join("cmux-tui");
+    if fs::hard_link(env!("CARGO_BIN_EXE_cmux-tui"), &daemon_exe).is_err() {
+        fs::copy(env!("CARGO_BIN_EXE_cmux-tui"), &daemon_exe).unwrap();
+    }
+    let path = format!("{}:/usr/bin:/bin", realbin.display());
+    let mut daemon = Daemon::start(&root, &daemon_exe, "again", &home, &data, &path);
+    let cli_env = [("HOME", home.as_path()), ("XDG_DATA_HOME", data.as_path())];
+    // The pane's agent goes on in a new session of the same process: after
+    // `/clear` or an in-process `/resume` (each ends the old session first).
+    // The messages for the pane are its, and the row follows it.
+    let cases = [
+        ("clear", "FAKE_CLEAR_SESSION_ID", "00000000-0000-4000-8000-000000000072", 7),
+        ("resume", "FAKE_RESUME_SESSION_ID", "00000000-0000-4000-8000-000000000082", 8),
+    ];
+    let mut terminals = Vec::new();
+    for (tag, variable, next, n) in &cases {
+        let first = format!("00000000-0000-4000-8000-0000000000{n}1");
+        let script = format!(
+            "OB_TAG={tag} FAKE_RECORD_DIR='{root}' FAKE_SESSION_ID={first} {variable}={next} \
+             FAKE_ROUND_GO='{root}/go-{tag}' CLAUDE_CONFIG_DIR='{config}' \
+             SR2_CLAUDE2_HOOK_SOCKET=/nonexistent/sr2.sock; \
+             export OB_TAG FAKE_RECORD_DIR FAKE_SESSION_ID {variable} FAKE_ROUND_GO \
+             CLAUDE_CONFIG_DIR SR2_CLAUDE2_HOOK_SOCKET; '{claude}'; sleep 600",
+            root = root.display(),
+            config = config.display(),
+            claude = claude.display(),
+        );
+        terminals.push((*tag, daemon.run(tag, &script), first));
+    }
+    for (tag, terminal, first) in &terminals {
+        launch_record(&root, &daemon, tag);
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let row = daemon.agent_row(&daemon_exe, &cli_env, terminal);
+            if row["source"] == "hook" && row["extra"]["agent_session_id"] == first.as_str() {
+                break;
+            }
+            assert!(Instant::now() < deadline, "{tag}: the first session never reported: {row}");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let note = format!("note for the {tag} pane agent 41c9");
+        let (sent, text) =
+            cli(&daemon, &daemon_exe, &cli_env, &["agent", "message", terminal, &note]);
+        assert!(sent, "{tag}: agent message failed: {text}");
+        fs::write(root.join(format!("go-{tag}")), b"go").unwrap();
+    }
+    for ((tag, terminal, _), (_, _, session, _)) in terminals.iter().zip(&cases) {
+        let next = launch_record(&root, &daemon, &format!("{tag}-{tag}"));
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let row = daemon.agent_row(&daemon_exe, &cli_env, terminal);
+            if row["source"] == "hook" && row["extra"]["agent_session_id"] == *session {
+                break;
+            }
+            assert!(Instant::now() < deadline, "{tag}: the row did not follow the agent: {row}");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let note = format!("note for the {tag} pane agent 41c9");
+        let prompt = next["outputs"]["UserPromptSubmit"].to_string();
+        assert!(
+            prompt.contains(&note),
+            "{tag}: the pane agent's next session did not get its message: {next}"
+        );
     }
     drop(daemon);
     let _ = fs::remove_dir_all(&root);
