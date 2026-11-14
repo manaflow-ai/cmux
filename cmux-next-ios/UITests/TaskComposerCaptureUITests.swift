@@ -51,13 +51,22 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
         return nil
     }
 
-    /// Opens the Agents list from its pill.
+    /// Opens the agents menu from its pill (it stays open while agents are toggled).
     @MainActor
     private static func openAgents(_ app: XCUIApplication) -> String? {
-        steps([
+        let item = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "taskComposer.agent")).firstMatch
+        return steps([
             { tap(any(app, "taskComposer.agents"), "Agents pill") },
-            { any(app, "taskComposer.agents.done").waitForExistence(timeout: 6) ? nil : "the Agents list did not open" },
+            { item.waitForExistence(timeout: 6) ? nil : "the agents menu did not open" },
         ])
+    }
+
+    /// Closes an open menu: a tap on the bar's title, away from every control.
+    @MainActor
+    private static func closeMenu(_ app: XCUIApplication) -> String? {
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.075)).tap()
+        pause(0.8)
+        return nil
     }
 
     @MainActor
@@ -80,7 +89,7 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             { type(app, "Fix the flaky upload test and open a PR") },
             { openAgents(app) },
             { tap(any(app, "taskComposer.agent.claude-cr"), "Claude Code Router row") },
-            { closeSheet(app, "taskComposer.agents.done") },
+            { closeMenu(app) },
             { check(app.buttons["taskComposer.start"].firstMatch.label == "Start 2", "two agents not picked") },
         ])
     }
@@ -190,7 +199,7 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                          { C.tap(C.any(app, "taskComposer.agent.claude-cr"), "Router") },
                          { C.tap(C.any(app, "taskComposer.agent.claude-work"), "work") },
                          { C.tap(C.any(app, "taskComposer.agent.claude-review"), "review") },
-                         { Self.closeSheet(app, "taskComposer.agents.done") },
+                         { Self.closeMenu(app) },
                          { Self.check(app.buttons["taskComposer.start"].firstMatch.label == "Start 4", "not four agents") }])
             },
             Scene(group: g, id: "model-unavailable", args: Self.list + ["-cmux-mobile-task-catalog", "many"]) { app in
@@ -297,7 +306,7 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "draft-resumed", args: Self.list, env: ["CMUX_MOBILE_TASK_DRAFT_IMAGES": "2"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Match this design") },
                          { Self.openAgents(app) }, { C.tap(C.any(app, "taskComposer.agent.claude-cr"), "Router") },
-                         { Self.closeSheet(app, "taskComposer.agents.done") },
+                         { Self.closeMenu(app) },
                          { Self.leaveSavingDraft(app) },
                          { Self.openComposer(app) },
                          { Self.check(((C.any(app, "taskComposer.prompt").value as? String) ?? "").isEmpty, "the next task did not start empty") },

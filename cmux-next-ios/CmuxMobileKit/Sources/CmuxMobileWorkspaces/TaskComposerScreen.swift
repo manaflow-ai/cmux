@@ -31,7 +31,6 @@ struct TaskComposerScreen: View {
     @State private var choosingPhotos = false
     @State private var loadingPhotos = 0
     @State private var showsOptions = false
-    @State private var showsAgents = false
     @State private var showsDrafts = false
     @State private var confirmsLeave = false
     /// What Start sent, shown while the screen closes (the composer's draft is cleared at once).
@@ -81,20 +80,15 @@ struct TaskComposerScreen: View {
                 .sheet(isPresented: $showsOptions) {
                     TaskComposerOptionsSheet(creator: creator, sameNames: sameNames, sent: sent, blocker: blocker)
                 }
-                .sheet(isPresented: $showsAgents) {
-                    TaskComposerAgentsSheet(creator: creator, phase: phase, reload: { Task { await reload() } })
-                }
                 .sheet(isPresented: $showsDrafts) {
                     TaskComposerDraftsSheet(creator: creator, macName: macName)
                 }
-                .confirmationDialog("Save this task as a draft?", isPresented: $confirmsLeave, titleVisibility: .visible) {
+                .alert("Save this task as a draft?", isPresented: $confirmsLeave) {
                     Button("Save Draft") { finishLeaving(keep: true) }
                         .accessibilityIdentifier("taskComposer.leave.save")
                     Button("Delete Draft", role: .destructive) { finishLeaving(keep: false) }
                         .accessibilityIdentifier("taskComposer.leave.delete")
                     Button("Cancel", role: .cancel) {}
-                } message: {
-                    Text("It stays in Drafts, ready to finish and start later.")
                 }
                 .photosPicker(isPresented: $choosingPhotos, selection: $photoItems,
                               maxSelectionCount: max(1, TaskDraft.imageLimit - draft.images.count), matching: .images)
@@ -102,6 +96,9 @@ struct TaskComposerScreen: View {
         .task(id: mac?.id) { await reload() }
         .task { await creator.taskDrafts.load() }
         .onAppear { promptFocused = true }
+        // Back from Task Options or Drafts: the keyboard comes back (never while a menu is open).
+        .onChange(of: showsOptions) { _, open in if !open { promptFocused = true } }
+        .onChange(of: showsDrafts) { _, open in if !open { promptFocused = true } }
         // Leaving the app saves the draft (the app may not come back): Drafts has it.
         .onChange(of: scenePhase) { _, now in if now != .active, sent == nil { creator.saveTaskDraft() } }
         .onChange(of: photoItems) { _, items in
@@ -156,8 +153,8 @@ struct TaskComposerScreen: View {
     private var accessory: some View {
         VStack(spacing: 10) {
             if let refusal = creator.taskRefusal, sent == nil {
-                TaskComposerBanner(title: "Last start didn't go through", message: refusal, symbol: "exclamationmark.triangle.fill",
-                                   tint: theme.colors.warning.color)
+                TaskComposerBanner(title: "Couldn't start this task", message: refusal, symbol: "exclamationmark.circle.fill",
+                                   tint: theme.colors.dangerText.color)
                     .accessibilityIdentifier("taskComposer.refusal")
             } else if let blocker, ![.noPrompt, .noAgent].contains(blocker) {
                 TaskComposerBanner(title: nil, message: blocker.message, symbol: "exclamationmark.triangle.fill",
@@ -224,7 +221,7 @@ struct TaskComposerScreen: View {
             Image(systemName: "slider.horizontal.3")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(theme.colors.label.color)
-                .frame(width: 36, height: 36)
+                .frame(width: 38, height: 38)
                 .background(Color.cmuxMobileFill, in: .circle)
                 .frame(width: 44, height: 44)
                 .contentShape(.rect)
@@ -240,17 +237,18 @@ struct TaskComposerScreen: View {
     private var attachMenu: some View {
         let full = draft.images.count >= TaskDraft.imageLimit
         return Menu {
-            Button("Photos", systemImage: "photo.on.rectangle") { choosingPhotos = true }
-                .disabled(full)
-                .accessibilityIdentifier("taskComposer.addPhotos")
-            Button("Paste Photo", systemImage: "doc.on.clipboard") { pastePhotos() }
+            // Classic's order: Paste, then the library (files aren't sent with a task's first message).
+            Button("Paste", systemImage: "doc.on.clipboard") { pastePhotos() }
                 .disabled(full || !UIPasteboard.general.hasImages)
                 .accessibilityIdentifier("taskComposer.pastePhoto")
+            Button("Photo Library", systemImage: "photo.on.rectangle") { choosingPhotos = true }
+                .disabled(full)
+                .accessibilityIdentifier("taskComposer.addPhotos")
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 17))
                 .foregroundStyle(theme.colors.label.color)
-                .frame(width: 36, height: 36)
+                .frame(width: 38, height: 38)
                 .background(Color.cmuxMobileFill, in: .circle)
                 .frame(width: 44, height: 44)
                 .contentShape(.rect)
@@ -260,15 +258,19 @@ struct TaskComposerScreen: View {
         .accessibilityIdentifier("taskComposer.attach")
     }
 
-    /// The agents that run the task: tap for the list (several at once, one workspace each).
+    /// The agents that run the task (classic's agent pill and menu). Past classic, several at
+    /// once: a tap toggles an agent and the menu stays open, each picked agent has its model,
+    /// and each one gets the task in its own workspace.
     private var agentsPill: some View {
-        Button { showsAgents = true } label: {
+        Menu {
+            agentsMenu
+        } label: {
             HStack(spacing: 7) {
                 switch phase {
                 case .loading:
                     Text("Loading agents")
                     CmuxSpinner()
-                        .frame(width: 12, height: 12)
+                        .frame(width: 11, height: 11)
                 case .failed:
                     Image(systemName: "exclamationmark.triangle").accessibilityHidden(true)
                     Text("Couldn't load agents")
@@ -276,10 +278,11 @@ struct TaskComposerScreen: View {
                     let shown = shownAgents(catalog)
                     if let first = shown.first {
                         AgentBrandMark(agent: first.family, size: 16, style: .brand)
+                            .frame(width: 18, height: 18)
                             .accessibilityHidden(true)
                         Text(shown.count > 1 ? "\(first.name) +\(shown.count - 1)" : first.name)
                     } else {
-                        Image(systemName: "exclamationmark.triangle").accessibilityHidden(true)
+                        Image(systemName: "person.crop.circle.badge.exclamationmark").accessibilityHidden(true)
                         Text("No agents")
                     }
                 }
@@ -288,20 +291,80 @@ struct TaskComposerScreen: View {
                     .foregroundStyle(theme.colors.label2.color)
                     .accessibilityHidden(true)
             }
-            .font(.subheadline.weight(.medium))
-            .foregroundStyle(agentsPillIsError ? theme.colors.dangerText.color : theme.colors.label.color)
-            .lineLimit(1)
-            .padding(.horizontal, 12)
-            .frame(minHeight: 34)
-            .background(Color.cmuxMobileFill, in: .capsule)
-            .frame(minHeight: 44)
-            .contentShape(.rect)
+            .modifier(TaskComposerPillLabel(isError: agentsPillIsError))
         }
-        .buttonStyle(.plain)
+        .menuActionDismissBehavior(.disabled)
+        .menuOrder(.fixed)
         .disabled(sent != nil)
         .accessibilityLabel("Agents")
         .accessibilityValue(agentsValue)
         .accessibilityIdentifier("taskComposer.agents")
+    }
+
+    @ViewBuilder private var agentsMenu: some View {
+        switch phase {
+        case .loading:
+            Button("Loading agents…") {}
+                .disabled(true)
+                .accessibilityIdentifier("taskComposer.agents.loading")
+        case .failed(let message):
+            Button {} label: {
+                Text("Couldn't load the agents")
+                Text(message)
+            }
+            .disabled(true)
+            .accessibilityIdentifier("taskComposer.agents.failed")
+            Button("Try Again", systemImage: "arrow.clockwise") { Task { await reload() } }
+                .accessibilityIdentifier("taskComposer.agents.retry")
+        case .loaded(let catalog):
+            if catalog.harnesses.isEmpty {
+                Button {} label: {
+                    Text("No agents")
+                    Text(catalog.unavailableReason ?? "No agents are set up in cmux on this Mac.")
+                }
+                .disabled(true)
+                .accessibilityIdentifier("taskComposer.agents.empty")
+            }
+            Section(draft.picks.count > 1 ? "Each gets its own workspace · up to \(TaskDraft.agentLimit)" : "Pick several to run it on each") {
+                ForEach(catalog.harnesses) { harness in
+                    agentItem(harness, catalog: catalog)
+                }
+            }
+            let picked = shownAgents(catalog).filter { !$0.models.isEmpty }
+            if picked.count > 1 {
+                Section("Models") {
+                    ForEach(picked) { harness in
+                        TaskComposerModelMenu(creator: creator, harness: harness, catalog: catalog, style: .submenu)
+                    }
+                }
+            }
+        }
+    }
+
+    private func agentItem(_ harness: AgentHarnessChoice, catalog: AgentCatalog) -> some View {
+        let on = draft.picks.isEmpty ? TaskComposerPhase.defaultHarness(catalog)?.id == harness.id
+            : draft.picks.contains { $0.harness == harness.id }
+        return Button {
+            switch creator.taskDraft.toggle(harness, fallback: TaskComposerPhase.defaultHarness(catalog)) {
+            case .added, .removed: theme.haptics.selection()
+            case .keptLast, .atLimit: theme.haptics.warning()
+            case .unavailable: break
+            }
+        } label: {
+            if on {
+                Label(harness.name, systemImage: "checkmark")
+            } else {
+                Text(harness.name)
+            }
+            if let reason = harness.unavailableReason {
+                Text(reason)
+            } else if TaskComposerPhase.defaultHarness(catalog)?.id == harness.id {
+                Text("Default on this Mac")
+            }
+        }
+        .disabled(!harness.canStart)
+        .accessibilityAddTraits(on ? .isSelected : [])
+        .accessibilityIdentifier("taskComposer.agent.\(harness.id)")
     }
 
     private var agentsPillIsError: Bool {
@@ -341,7 +404,7 @@ struct TaskComposerScreen: View {
             Image(systemName: "arrow.up")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(enabled ? Color.white : theme.colors.label3.color)
-                .frame(width: 36, height: 36)
+                .frame(width: 38, height: 38)
                 .background(enabled ? theme.colors.accent.color : Color.cmuxMobileFill, in: .circle)
                 .overlay(alignment: .topTrailing) {
                     if count > 1 {
@@ -480,6 +543,24 @@ enum TaskComposerPhase: Equatable {
     }
 }
 
+/// Classic's dock pill: caption semibold on a 38 pt capsule of the label color at a low
+/// opacity, inside a 44 pt target.
+struct TaskComposerPillLabel: ViewModifier {
+    let isError: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(isError ? theme.colors.dangerText.color : theme.colors.label.color)
+            .lineLimit(1)
+            .padding(.horizontal, 12)
+            .frame(minHeight: 38)
+            .background(Color.cmuxMobileFill, in: .capsule)
+            .frame(minHeight: 44)
+            .contentShape(.rect)
+    }
+}
+
 /// A warning above the controls: a refused start (with the Mac's words) or why Start is off.
 struct TaskComposerBanner: View {
     let title: String?
@@ -510,9 +591,10 @@ struct TaskComposerBanner: View {
     }
 }
 
-/// An agent's model: a pill above the keyboard (one agent) or a row's menu in the agents list.
+/// An agent's model: a pill above the keyboard (one agent) or a submenu of the agents menu
+/// (several, one per agent).
 struct TaskComposerModelMenu: View {
-    enum Style { case pill, row }
+    enum Style { case pill, submenu }
 
     @Bindable var creator: WorkspaceCreator
     let harness: AgentHarnessChoice
@@ -539,26 +621,17 @@ struct TaskComposerModelMenu: View {
             case .pill:
                 HStack(spacing: 7) {
                     Image(systemName: "cpu").accessibilityHidden(true)
-                    Text(label).lineLimit(1)
+                    Text(label)
                     Image(systemName: "chevron.down")
                         .font(.caption2.weight(.bold))
                         .foregroundStyle(theme.colors.label2.color)
                         .accessibilityHidden(true)
                 }
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(theme.colors.label.color)
-                .padding(.horizontal, 12)
-                .frame(minHeight: 34)
-                .background(Color.cmuxMobileFill, in: .capsule)
-                .frame(minHeight: 44)
-                .contentShape(.rect)
-            case .row:
-                HStack(spacing: 4) {
-                    Text(label).lineLimit(1)
-                    Image(systemName: "chevron.up.chevron.down").imageScale(.small)
-                }
-                .font(theme.type.meta)
-                .foregroundStyle(theme.colors.accent.color)
+                .modifier(TaskComposerPillLabel(isError: false))
+            case .submenu:
+                // A menu row: the agent, its model as the subtitle.
+                Text(harness.name)
+                Text(label)
             }
         }
         .accessibilityLabel("\(harness.name) model, \(label)")

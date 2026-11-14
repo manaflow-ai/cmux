@@ -134,10 +134,9 @@ struct TaskComposerOptionsSheet: View {
     private func routeLabel(symbol: String, title: String, value: String, chevron: String?, path: Bool = false) -> some View {
         HStack(spacing: 12) {
             Image(systemName: symbol)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 17, weight: .regular))
                 .foregroundStyle(theme.colors.accent.color)
                 .frame(width: 30, height: 30)
-                .background(theme.colors.accent.color.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -186,114 +185,6 @@ struct TaskComposerOptionsSheet: View {
     private var cardShape: RoundedRectangle { RoundedRectangle(cornerRadius: 16, style: .continuous) }
 }
 
-/// The agents that run the task: the Mac's agents, several at once (one workspace each, up
-/// to `TaskDraft.agentLimit`), each with its model. An agent a phone can't start shows why.
-struct TaskComposerAgentsSheet: View {
-    @Bindable var creator: WorkspaceCreator
-    let phase: TaskComposerPhase
-    let reload: () -> Void
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            List {
-                switch phase {
-                case .loading:
-                    HStack(spacing: 10) {
-                        CmuxSpinner()
-                        Text("Loading agents…").foregroundStyle(theme.colors.label2.color)
-                    }
-                    .accessibilityIdentifier("taskComposer.agents.loading")
-                case .failed(let message):
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label("Couldn't load the agents", systemImage: "exclamationmark.circle")
-                        Text(message).font(theme.type.meta).foregroundStyle(theme.colors.label2.color)
-                        Button("Try Again", action: reload)
-                            .accessibilityIdentifier("taskComposer.agents.retry")
-                    }
-                    .accessibilityIdentifier("taskComposer.agents.failed")
-                case .loaded(let catalog):
-                    Section {
-                        if catalog.harnesses.isEmpty {
-                            Text(catalog.unavailableReason ?? "No agents are set up in cmux on this Mac.")
-                                .foregroundStyle(theme.colors.label2.color)
-                                .accessibilityIdentifier("taskComposer.agents.empty")
-                        }
-                        ForEach(catalog.harnesses) { harness in
-                            row(harness, catalog: catalog)
-                        }
-                    } footer: {
-                        Text(footer)
-                    }
-                }
-            }
-            .navigationTitle("Agents")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                        .accessibilityIdentifier("taskComposer.agents.done")
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
-    }
-
-    private var footer: String {
-        let count = max(creator.taskDraft.picks.count, 1)
-        if count == 1 { return "The task opens in a new workspace with this agent. Pick more to run it on each." }
-        let limit = count >= TaskDraft.agentLimit ? " A task takes up to \(TaskDraft.agentLimit) agents." : ""
-        return "Each agent gets the task in its own new workspace (\(count) workspaces).\(limit)"
-    }
-
-    private func isOn(_ harness: AgentHarnessChoice, _ catalog: AgentCatalog) -> Bool {
-        let picks = creator.taskDraft.picks
-        return picks.isEmpty ? TaskComposerPhase.defaultHarness(catalog)?.id == harness.id : picks.contains { $0.harness == harness.id }
-    }
-
-    private func row(_ harness: AgentHarnessChoice, catalog: AgentCatalog) -> some View {
-        let on = isOn(harness, catalog)
-        return HStack(spacing: 12) {
-            Button {
-                switch creator.taskDraft.toggle(harness, fallback: TaskComposerPhase.defaultHarness(catalog)) {
-                case .added, .removed: theme.haptics.selection()
-                case .keptLast, .atLimit: theme.haptics.warning()
-                case .unavailable: break
-                }
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: on ? "checkmark.circle.fill" : "circle")
-                        .font(theme.type.body)
-                        .foregroundStyle(on ? theme.colors.accent.color : theme.colors.label3.color)
-                        .accessibilityHidden(true)
-                    AgentBrandMark(agent: harness.family, size: 22, style: .brand)
-                        .opacity(harness.canStart ? 1 : 0.4)
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(harness.name)
-                            .foregroundStyle(harness.canStart ? theme.colors.label.color : theme.colors.label2.color)
-                        if let reason = harness.unavailableReason {
-                            Text(reason).font(theme.type.meta).foregroundStyle(theme.colors.label2.color)
-                        } else if TaskComposerPhase.defaultHarness(catalog)?.id == harness.id {
-                            Text("Default on this Mac").font(theme.type.meta).foregroundStyle(theme.colors.label2.color)
-                        }
-                    }
-                    Spacer(minLength: 0)
-                }
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .disabled(!harness.canStart)
-            .accessibilityAddTraits(on ? .isSelected : [])
-            .accessibilityIdentifier("taskComposer.agent.\(harness.id)")
-            if on, !harness.models.isEmpty {
-                TaskComposerModelMenu(creator: creator, harness: harness, catalog: catalog, style: .row)
-            }
-        }
-    }
-}
-
 /// Drafts (classic's): the saved, unsent tasks but the one the composer holds. A row opens its
 /// draft in the composer (the one it held is saved first); swipe to delete; New Draft saves the
 /// one held and starts an empty one.
@@ -313,7 +204,7 @@ struct TaskComposerDraftsSheet: View {
                     ContentUnavailableView {
                         Label("No Other Drafts", systemImage: "tray")
                     } description: {
-                        Text("Leave New Task with a task you haven't started, and it's saved here.")
+                        Text("Leave New Task with a task you haven't started and it's saved here.")
                     }
                     .accessibilityIdentifier("taskComposer.drafts.empty")
                 } else {
@@ -345,8 +236,9 @@ struct TaskComposerDraftsSheet: View {
                         creator.newTaskDraft()
                         dismiss()
                     } label: {
-                        Label("New Draft", systemImage: "plus")
+                        Image(systemName: "plus")
                     }
+                    .accessibilityLabel("New Draft")
                     .disabled(creator.taskDraft.isEmpty)
                     .accessibilityIdentifier("taskComposer.newDraft")
                 }
