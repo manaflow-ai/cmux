@@ -149,6 +149,11 @@ impl HeadlessSource {
         self.driver.is_open()
     }
 
+    /// The running Chromium's process id (tests stop it by its own pid).
+    pub fn browser_pid(&self) -> Option<u32> {
+        self._browser.pid()
+    }
+
     /// Installs the combined filter: a request of a tab is refused when a
     /// session that drives the tab refuses it; a fetch shell's requests
     /// follow the session that fetches; a tab no session drives yet (a
