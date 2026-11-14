@@ -1005,6 +1005,17 @@ where
         }
     }
 
+    fn remember_missing_parent(mirror: &mut MirrorState, id: &(String, String)) {
+        if mirror.parent_children.contains_key(id) {
+            mirror.parent_facts.entry(id.clone()).or_insert(ParentFacts {
+                known: true,
+                answered: false,
+                ..ParentFacts::default()
+            });
+        }
+        Self::invalidate_parent(mirror, id);
+    }
+
     fn start_mirror_walk(&mut self, sid: &str) {
         if self
             .subscriptions
@@ -1605,7 +1616,7 @@ where
                     && let Some(mirror) = sub.mirror.as_mut()
                 {
                     let id = Self::row_identity(&key);
-                    Self::invalidate_parent(mirror, &id);
+                    Self::remember_missing_parent(mirror, &id);
                     Self::remove_held(mirror, &id);
                     mirror.caller_wanted.remove(&id);
                     if !mirror.internal_wanted.contains(&id) {
@@ -1632,7 +1643,7 @@ where
                 && let Some(mirror) = sub.mirror.as_mut()
             {
                 let id = Self::row_identity(&key);
-                Self::invalidate_parent(mirror, &id);
+                Self::remember_missing_parent(mirror, &id);
                 mirror.caller_wanted.remove(&id);
                 mirror.internal_wanted.remove(&id);
                 mirror.wanted.remove(&id);
@@ -1851,7 +1862,7 @@ where
                         if mirror.walking {
                             mirror.touched.insert(id.clone());
                         }
-                        Self::invalidate_parent(mirror, &id);
+                        Self::remember_missing_parent(mirror, &id);
                         Self::remove_held(mirror, &id);
                         mirror.wanted.remove(&id);
                         mirror.internal_wanted.remove(&id);
@@ -3314,6 +3325,71 @@ tail"#;
         let changes: Vec<_> = std::iter::from_fn(|| client.next_change()).collect();
         assert!(matches!(changes.as_slice(), [Change::Summary { .. }]));
         assert!(take_pages(&mut client).is_empty());
+    }
+
+    #[test]
+    fn mirror_missing_parent_answer_stops_repeated_child_reads() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        while client.take_send().is_some() {}
+        let mut sub = Sub::new("m", "list");
+        sub.rows = Some("v1".into());
+        client.subscribe_mirror(sub, std::iter::empty(), false).unwrap();
+        let _ = client.take_send();
+
+        let mut child = Summary::new("child");
+        child.state = "waiting".into();
+        child.parent = Some(RowKey::new("local", "missing-parent"));
+        let window = Frame::json(
+            FrameKind::Window,
+            &serde_json::json!({
+                "sid":"m","cursor":1,"rows":[serde_json::to_value(&child).unwrap()],
+                "hasBefore":false,"hasAfter":false,"edition":1
+            }),
+        )
+        .unwrap()
+        .encode();
+        client.received(&window);
+        assert!(matches!(client.next_change(), Some(Change::Window(_))));
+        let _ = client.take_send().expect("first walk page");
+        finish_empty_walk(&mut client);
+        let parent_read = take_pages(&mut client);
+        assert_eq!(parent_read.len(), 1);
+        assert_eq!(
+            parent_read[0].pointer("/params/keys/0/chatId"),
+            Some(&Value::String("missing-parent".into()))
+        );
+
+        let missing = Frame::json(
+            FrameKind::Page,
+            &serde_json::json!({
+                "sid":"m","rows":[],"missing":[{"origin":"local","chatId":"missing-parent","lastActivity":0}],
+                "hasBefore":false,"hasAfter":false
+            }),
+        )
+        .unwrap()
+        .encode();
+        client.received(&missing);
+        assert!(client.next_change().is_none());
+
+        for seq in 2..=3 {
+            child.last_activity = seq;
+            let changes = receive_changes(
+                &mut client,
+                FrameKind::Delta,
+                serde_json::json!({
+                    "sid":"m","ops":[{"op":"summary","seq":seq,"summary":serde_json::to_value(&child).unwrap()}]
+                }),
+            );
+            assert!(matches!(changes.as_slice(), [Change::Summary { .. }]));
+            assert!(take_pages(&mut client).is_empty());
+        }
     }
 
     #[test]
