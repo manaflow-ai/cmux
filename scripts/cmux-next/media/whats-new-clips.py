@@ -146,7 +146,8 @@ def run(argv: list[str], **kw: Any) -> subprocess.CompletedProcess:
     return done
 
 
-def load_spec(clip_id: str, specs: Path = SPECS) -> dict:
+def load_spec(clip_id: str, specs: Path | None = None) -> dict:
+    specs = SPECS if specs is None else specs  # read at call time, so a test can point it elsewhere
     if not ID.fullmatch(clip_id):
         raise ClipError(f"{clip_id!r} is not a highlight id")
     path = specs / f"{clip_id}.json"
