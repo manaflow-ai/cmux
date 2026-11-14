@@ -62,6 +62,23 @@ import Testing
         #expect(reconnects == 1, "the first try goes at once")
     }
 
+    /// Stop, then the transport's own lost-path status arrives late: the pane stays stopped.
+    @Test func aLostPathAfterStopDoesNotReconnect() async {
+        let source = MockRemoteStreamSource(status: RemoteViewStatus(state: .streaming))
+        let pane = RemoteDesktopPane(hostName: "vm", source: source, inputSink: nil, initialMode: .view, viaCloudTunnel: true,
+                                     modeControl: .takeOver)
+        pane.autoReconnectsLost = true
+        var reconnects = 0
+        pane.handlers.reconnect = { reconnects += 1 }
+        pane.apply(.status(RemoteViewStatus(state: .streaming)))
+        pane.apply(.frameShown)
+        pane.apply(.stop)
+        pane.apply(.status(RemoteViewStatus(state: .ended(.connectionLost))))
+        #expect(pane.state.isEnded)
+        for _ in 0 ..< 50 { await Task.yield() }
+        #expect(reconnects == 0)
+    }
+
     /// A first connect that never showed a frame keeps its card and Reconnect button.
     @Test func aLostPathWithNoPictureYetKeepsTheEndedCard() {
         let source = MockRemoteStreamSource(status: RemoteViewStatus(state: .connecting))

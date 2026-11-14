@@ -159,14 +159,17 @@ public final class RemoteDesktopPane {
     /// Applies one event through the reducer and re-renders.
     public func apply(_ event: RemotePaneEvent) {
         var next = RemotePaneReducer().reduce(state, event)
-        if autoReconnectsLost, next.isEnded, case .ended(.connectionLost) = next.sessionState, state.hasFrame || state.reconnecting,
-           autoReconnects < Self.autoReconnectBackoff.count {
+        // Not after an end the pane already shows (Stop, or the card past the last try): a late
+        // lost-path status never reconnects against the person's Stop.
+        if autoReconnectsLost, !state.isEnded, next.isEnded, case .ended(.connectionLost) = next.sessionState,
+           state.hasFrame || state.reconnecting, autoReconnects < Self.autoReconnectBackoff.count {
             // A path that closed under a session that showed frames comes back by itself, over
             // the last frame and silently under the notice bound; Reconnect stays for the end.
             next = RemotePaneReducer().reduce(next, .reconnect)
             scheduleAutoReconnect()
         }
-        if case .frameShown = event { autoReconnects = 0 }
+        // A session that shows its first frame came back: the next drop gets its own tries.
+        if case .frameShown = event, next.hasFrame, !state.hasFrame || state.reconnecting { autoReconnects = 0 }
         // A frame that arrived before the session streamed did not count: wait for the next one.
         if !next.hasFrame { firstFrame.arm() }
         guard next != state else { return }
