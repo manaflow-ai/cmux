@@ -21,6 +21,7 @@ import {
   appleSubscriptionStateFrom,
   appleTransactionRowFrom,
   AppleStateError,
+  isFamilySharedAppleTransaction,
   lifecycleEventForNotification,
   type AppleSubscriptionState,
 } from "./state";
@@ -63,7 +64,8 @@ export class AppleTransactionRejectedError extends Error {
       | "invalid_transaction"
       | "not_subscription"
       | "unknown_product"
-      | "account_mismatch",
+      | "account_mismatch"
+      | "family_shared",
   ) {
     super(`Apple transaction rejected: ${reason}`);
     this.name = "AppleTransactionRejectedError";
@@ -127,6 +129,7 @@ async function freshAppleState(
     if (!snapshot) return fallback("no_status");
     const fresh = await deps.verifier.verifyTransaction(snapshot.signedTransactionInfo);
     if (fresh.originalTransactionId !== transaction.originalTransactionId) return fallback("transaction_mismatch");
+    if (isFamilySharedAppleTransaction(fresh)) return fallback("family_shared");
     const renewal = snapshot.signedRenewalInfo
       ? await deps.verifier.verifyRenewalInfo(snapshot.signedRenewalInfo, {
           environment,
@@ -144,6 +147,7 @@ export type AppleClientFallbackReason =
   | "unsigned_environment"
   | "no_status"
   | "transaction_mismatch"
+  | "family_shared"
   | "lookup_failed";
 
 /**
@@ -163,6 +167,16 @@ function reportClientTransactionFallback(
     bundleId: transaction.bundleId,
     originalTransactionId: transaction.originalTransactionId,
     ...(error === undefined ? {} : { error: errorText(error) }),
+  });
+}
+
+function reportFamilyShared(transaction: JWSTransactionDecodedPayload, source: "client" | "notification"): void {
+  console.warn("apple_iap.family_shared_refused", {
+    metric: "apple_iap.family_shared_refused",
+    source,
+    environment: transaction.environment,
+    bundleId: transaction.bundleId,
+    originalTransactionId: transaction.originalTransactionId,
   });
 }
 
@@ -208,6 +222,12 @@ export async function recordClientAppleTransaction(
   if (transaction.type !== AUTO_RENEWABLE_TYPE) throw new AppleTransactionRejectedError("not_subscription");
   if (!transaction.originalTransactionId || !transaction.transactionId) {
     throw new AppleTransactionRejectedError("invalid_transaction");
+  }
+  if (isFamilySharedAppleTransaction(transaction)) {
+    // Audit only, attributed to the account that posted it; never a grant.
+    await deps.store.recordTransaction(appleTransactionRowFrom(transaction, input.userId));
+    reportFamilyShared(transaction, "client");
+    throw new AppleTransactionRejectedError("family_shared");
   }
   await assertTransactionOwner(transaction, input.userId, deps.store);
   const fresh = await freshAppleState(transaction, deps);
@@ -348,6 +368,13 @@ async function applyNotification(
     return { kind: "skip", reason: "not_subscription" };
   }
   const owner = await tokenOwner(transaction.appAccountToken, deps.store);
+  if (isFamilySharedAppleTransaction(transaction)) {
+    // Never touches a subscription row, not even the purchaser's (a REVOKE
+    // of a family member's access must not revoke the purchaser).
+    if (owner) await deps.store.recordTransaction(appleTransactionRowFrom(transaction, owner));
+    reportFamilyShared(transaction, "notification");
+    return { kind: "skip", reason: "family_shared" };
+  }
   const existing = await deps.store.subscription(transaction.originalTransactionId);
   if (!owner && !existing) return { kind: "skip", reason: "unlinked_account" };
   let state: AppleSubscriptionState;

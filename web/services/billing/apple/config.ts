@@ -166,16 +166,21 @@ export function appleEnvironmentGrantsEntitlement(
 ): boolean {
   if (input.environment === "Production") return true;
   if (input.environment !== "Sandbox") return false;
-  if (!appleSandboxMayGrant(input.bundleId, env)) return false;
-  if (!appleSandboxGrantNeedsAccountEmail(env)) return true;
+  const override = trimmed(env.APPLE_IAP_SANDBOX_ENTITLEMENTS);
+  if (override === "all") return true;
+  if (override === "none") return false;
+  if (override) return list(override)?.includes(input.bundleId) ?? false;
+  if (env.VERCEL_ENV !== "production") return true;
+  if (input.bundleId !== APP_STORE_BUNDLE_ID) return false;
   const email = input.accountEmail?.trim().toLowerCase();
   return email ? appleSandboxAccountEmails(env).includes(email) : false;
 }
 
 /**
  * Whether any account's Sandbox purchase of `bundleId` can grant a plan in
- * this deployment (the account allowlist aside). The notification backfill
- * reads Sandbox history only for these bundles.
+ * this deployment (the account allowlist aside): appleEnvironmentGrantsEntitlement
+ * without the email check. The notification backfill reads Sandbox history
+ * only for these bundles.
  */
 export function appleSandboxMayGrant(bundleId: string, env: Env = process.env): boolean {
   const override = trimmed(env.APPLE_IAP_SANDBOX_ENTITLEMENTS);

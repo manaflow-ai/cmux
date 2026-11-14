@@ -15,7 +15,13 @@ import { isSignedAppleEnvironment } from "./config";
 import { applyEntitlements, captureEntitlementGranted, errorText, tokenOwner } from "./effects";
 import { appleStatusGrantsAt } from "./entitlement";
 import type { AppleIapDependencies } from "./service";
-import { appleSubscriptionStateFrom, appleTransactionRowFrom, AppleStateError, type AppleSubscriptionState } from "./state";
+import {
+  appleSubscriptionStateFrom,
+  appleTransactionRowFrom,
+  AppleStateError,
+  isFamilySharedAppleTransaction,
+  type AppleSubscriptionState,
+} from "./state";
 import { appleAccessEndsAt, type AppleLapsedSubscription, type AppleSubscriptionRow, type AppleSubscriptionWrite } from "./store";
 
 const MINUTE = 60 * 1000;
@@ -73,6 +79,8 @@ async function askApple(target: RecheckTarget, deps: AppleIapDependencies): Prom
     if (transaction.originalTransactionId !== target.originalTransactionId || transaction.bundleId !== target.bundleId) {
       throw new Error("Apple status describes another subscription");
     }
+    // A Family Sharing transaction never grants (only the purchaser does).
+    if (isFamilySharedAppleTransaction(transaction)) return { kind: "unknown" };
     const renewal = snapshot.signedRenewalInfo
       ? await deps.verifier.verifyRenewalInfo(snapshot.signedRenewalInfo, { environment, bundleId: target.bundleId })
       : null;
