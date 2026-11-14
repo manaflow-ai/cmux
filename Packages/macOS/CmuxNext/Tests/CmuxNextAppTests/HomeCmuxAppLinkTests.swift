@@ -15,6 +15,7 @@ struct HomeCmuxAppLinkTests {
         "cmux-dev-tag://workspace/ws_0123456789abcdef0123456789abcdef",
         "cmux://workspace/ws_0123456789abcdef0123456789abcdef?machine=machine_0123456789abcdef0123456789abcdef",
         "cmux://settings/background",
+        "cmux://settings/start-agent-from-any-app",
     ])
     func appLinks(_ text: String) {
         #expect(URL(string: text)!.isCmuxAppLink)
