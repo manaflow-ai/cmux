@@ -149,7 +149,7 @@ fn nanos(at: std::io::Result<std::time::SystemTime>) -> u64 {
 
 /// The identity of the folder at `dir`; `None` when there is none.
 pub(super) fn folder_id(dir: &Path) -> std::io::Result<Option<FolderId>> {
-    match std::fs::symlink_metadata(dir) {
+    match crate::home_fs::symlink_metadata(dir) {
         Ok(meta) => Ok(Some(FolderId { ino: file_id(&meta), birth_ns: nanos(meta.created()) })),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error),
@@ -241,7 +241,7 @@ fn journaled_image(dir: &Path, journal: u64) -> Option<(Lsn, Vec<u8>)> {
 /// The stamp of `dir`'s `session.json` for a save's record: one `lstat`, no read. `None` when
 /// there is none, or when it does not stat (a file there at the replay then counts as moved on).
 fn saw_file(dir: &Path) -> Option<FileStamp> {
-    std::fs::symlink_metadata(dir.join("session.json")).ok().map(|meta| FileStamp::of(&meta))
+    crate::home_fs::symlink_metadata(dir.join("session.json")).ok().map(|meta| FileStamp::of(&meta))
 }
 
 /// The newest image of a chat that its `session.json` does not hold yet.
@@ -538,14 +538,15 @@ fn write_session_json(
     lsn: Lsn,
     journal: u64,
 ) -> Result<()> {
-    use std::os::unix::fs::OpenOptionsExt;
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let path = dir.join("session.json");
+    // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
+    // gets the file.
     crate::config::refuse_lost_home(&path)?;
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
     let written = (|| -> Result<()> {
-        let mut file = OpenOptions::new()
+        let mut file = crate::home_fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
@@ -559,11 +560,12 @@ fn write_session_json(
             .map_err(SyncFailed)
             .with_context(|| format!("sync {}", tmp.display()))?;
         drop(file);
-        std::fs::rename(&tmp, &path).with_context(|| format!("rename to {}", path.display()))?;
+        crate::home_fs::rename(&tmp, &path)
+            .with_context(|| format!("rename to {}", path.display()))?;
         log_sync::sync_directory_ordered(dir).with_context(|| format!("sync {}", dir.display()))
     })();
     if written.is_err() {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::home_fs::remove_file(&tmp);
     }
     written
 }
@@ -652,7 +654,7 @@ impl Inner {
         // The large fields go to the parts file, only when they changed (`store/meta_parts.rs`),
         // before the record: the record's image is the rest. A new chat's folder is made below,
         // and its parts file after the record.
-        let parts = match std::fs::symlink_metadata(&dir) {
+        let parts = match crate::home_fs::symlink_metadata(&dir) {
             Ok(_) => {
                 let _open = self.local.writable()?;
                 Some(self.local.parts.write(&dir, meta)?)

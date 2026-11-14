@@ -3,7 +3,7 @@
 // words in their code colors ("$ grep -nE …", shellHighlight.ts), its output (the end of a long one)
 // under it and, when the command failed, its exit code between the two; a caller's `footer` closes the card. Past
 // eight lines the output scrolls inside an eight-line box, its bottom edge fading while more lies
-// under it, with Show all N lines to drop the cap (BlockParts.tsx), so a long or streaming output
+// under it and no Show all row (BlockParts.tsx), so a long or streaming output
 // never pushes the transcript down; while the command runs the box follows its newest line unless
 // the reader scrolled up. By default the output wraps its long lines down under their start, but a
 // table keeps each printed row on its own line, columns aligned, its right edge fading while more
@@ -12,7 +12,7 @@ import { cornerAction } from "./cornerActions";
 import { memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useT } from "../i18n";
 import { outputWraps, useBlockWrap } from "./blockWrap";
-import { Lines, PreviewMore, WrapButton } from "./BlockParts";
+import { Lines, WrapButton } from "./BlockParts";
 import { lineCount, PREVIEW_LINES, SIDEWAYS_SCROLLER, usePreview, useSidewaysEdge } from "./blockPartsModel";
 import { commandFolder } from "./commandFolder";
 import { CopyButton } from "./CopyButton";
@@ -20,7 +20,7 @@ import { menuPartRef } from "./menuParts";
 import { moreBelow, useMoreBelowOn } from "./moreBelow";
 import { SHELL_ROLE_COLOR, shellTokens } from "./shellHighlight";
 import { OutputMore } from "./toolOutput";
-import { previewedOutput, useOutput } from "./toolOutputModel";
+import { useOutput } from "./toolOutputModel";
 
 export function ShellBlock({
   id,
@@ -55,25 +55,23 @@ export function ShellBlock({
   const [wrap] = useBlockWrap("output", shaped);
   const body = useRef<HTMLPreElement>(null);
   // Wrapped, a few printed lines can still take more than eight rows (one 10,000-character line):
-  // they are cut to eight rows too, with Show all, as a call's output is (outputViewport.ts).
+  // they scroll in an eight-row box too, as a call's output does (outputViewport.ts).
   const lines = whole ? 0 : lineCount(raw.text);
   const tall = useWrappedRows(body, wrap && lines > 0 && lines <= PREVIEW_LINES);
-  // The output's lines, though a long output draws only its end until opened (none to cut when whole).
   const preview = usePreview(lines, reveal, tall);
-  const shown = previewedOutput(raw, preview);
-  const marked = shown.cut || Boolean(cut && shown.shown);
+  const marked = raw.cut || Boolean(cut && raw.shown);
   // `outputTail` returns a suffix, so keep the source line number alongside it. Without this,
   // every memoized chunk appears to start at line zero whenever the live 400-line window slides.
   const shownStartLine =
-    raw.text && shown.shown && shown.shown !== raw.text
-      ? raw.text.slice(0, raw.text.length - shown.shown.length).split("\n").length - 1
+    raw.text && raw.shown && raw.shown !== raw.text
+      ? raw.text.slice(0, raw.text.length - raw.shown.length).split("\n").length - 1
       : 0;
   useSidewaysEdge(body);
   // Following first, so the fade reads where the box ends up, not where it was.
-  useFollowEnd(body, shown.shown, live && preview.cut);
-  useMoreBelowOn(body, shown.shown);
+  useFollowEnd(body, raw.shown, live && preview.cut);
+  useMoreBelowOn(body, raw.shown);
   return (
-    <div className="cv-shell" id={id} ref={menuPartRef({ command, output: shown.text })}>
+    <div className="cv-shell" id={id} ref={menuPartRef({ command, output: raw.text })}>
       <div className="cv-shell__label">
         <span className="cv-shell__title">
           {t("shell.label")}
@@ -92,7 +90,7 @@ export function ShellBlock({
           {/* One choice for every Shell block (blockWrap.ts): shown on this block's hover or focus only,
               so Verbose's open blocks don't repeat it; the chat menu's Transcript view has it at rest. */}
           <WrapButton kind="output" shaped={shaped} className={`${cornerAction()} cv-shell__wrap`} />
-          {shown.text && <CopyButton text={shown.text} label={t("turn.copy")} />}
+          {raw.text && <CopyButton text={raw.text} label={t("turn.copy")} />}
         </span>
       </div>
       {rest && <ShellCommand command={rest} />}
@@ -118,14 +116,13 @@ export function ShellBlock({
             …
           </span>
         )}
-        {shown.shown ? (
+        {raw.shown ? (
           <span className="cv-shell__output">
-            <Lines text={shown.shown} windowed={live && !preview.all} startLine={shownStartLine} />
+            <Lines text={raw.shown} windowed={live && !raw.all} startLine={shownStartLine} />
           </span>
         ) : null}
       </pre>
-      <PreviewMore preview={preview} />
-      {!preview.long && <OutputMore output={shown} />}
+      <OutputMore output={raw} />
       {footer}
     </div>
   );
@@ -193,9 +190,9 @@ function useWrappedRows(ref: RefObject<HTMLElement | null>, watching: boolean): 
     measure();
     const view = box.ownerDocument.defaultView;
     if (!view?.ResizeObserver) return;
-    const sized = new view.ResizeObserver(measure);
-    sized.observe(box);
-    const watched = new Set<Element>();
+    // Everything that can throw runs before the observers exist, so the cleanup below always owns them.
+    const first = box.querySelector(".cv-shell__output");
+    const watched = new Set<Element>(first ? [first] : []);
     const watchOutput = () => {
       const output = box.querySelector(".cv-shell__output");
       if (output && !watched.has(output)) {
@@ -204,8 +201,10 @@ function useWrappedRows(ref: RefObject<HTMLElement | null>, watching: boolean): 
       }
       measure();
     };
-    watchOutput();
+    const sized = new view.ResizeObserver(measure);
     const changed = new view.MutationObserver(watchOutput);
+    sized.observe(box);
+    if (first) sized.observe(first);
     changed.observe(box, { childList: true });
     return () => {
       sized.disconnect();

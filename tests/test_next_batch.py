@@ -26,6 +26,10 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import next_batch as nb  # noqa: E402
+# next_batch.log prints fixture verdicts ("error error: y" at fake shas) into the job log, where
+# base_red_excuse.py's whole-log reading of an unplaced cmux-next checks log took them for a second red
+# beside a step-A PR's app FFI pin (cmux#41132). No test reads them: keep them out of the CI log.
+nb.log = lambda message: None
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
@@ -33,6 +37,9 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
+
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 # The suite also runs on Actions. Start every test from a host environment, so the
 # "never land from Actions" refusal (landing_refusal) applies only where a test sets
@@ -1861,7 +1868,7 @@ class WorkflowShape(unittest.TestCase):
                 self.assertNotIn("git push", script)
                 self.assertNotIn("git -c", script.replace("git -c user.", ""))
                 self.assertIn("format-patch", script)
-                self.assertFalse(any("secrets." in json.dumps(step) for step in spec["steps"]))
+                self.assertFalse(any(workflow_jobs.secret_names(step) for step in spec["steps"]))
 
     def run_format(self, bun: str) -> dict:
         """Run regen-linux's real step script for `kinds: format` with a stub bun."""
