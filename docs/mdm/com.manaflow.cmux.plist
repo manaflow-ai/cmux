@@ -335,7 +335,7 @@
 			<key>pfm_default</key>
 			<array/>
 			<key>pfm_description</key>
-			<string>Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back.</string>
+			<string>Actions shown as buttons at the tab bar's trailing end. Pin or unpin one from Show in Tab Bar in the tab bar's right-click menu.</string>
 			<key>pfm_name</key>
 			<string>tabs.toolbarButtons</string>
 			<key>pfm_subkeys</key>
