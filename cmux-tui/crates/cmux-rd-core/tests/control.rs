@@ -479,3 +479,45 @@ fn stale_overuse_does_not_reduce_bitrate_without_new_timing_evidence() {
         assert_eq!(cc.target_bps(), reduced, "an ACK or NACK alone is not more congestion");
     }
 }
+
+#[test]
+fn one_frame_split_over_wire_feedback_does_not_create_congestion() {
+    use cmux_rd_proto::MAX_ARRIVALS;
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
+    let (mut seq, mut now) = (0u16, 0u64);
+    feed(&mut cc, &mut seq, &mut now, 0, 3);
+    // All shards belong to one send burst. Its 12 ms serialization spans three
+    // real feedback packets; splitting the receipt is not a growing path queue.
+    let arrivals: Vec<_> = (0..300u64)
+        .map(|i| {
+            cc.on_sent(seq, now);
+            let arrival = Arrival { transport_seq: seq, arrival_us: (now + 5_000 + i * 40) as u32 };
+            seq = seq.wrapping_add(1);
+            arrival
+        })
+        .collect();
+    let before = cc.target_bps();
+    for chunk in arrivals.chunks(MAX_ARRIVALS) {
+        cc.on_feedback(chunk, 0.0, now + 50_000);
+        assert_ne!(
+            cc.usage(),
+            Usage::Overuse,
+            "another receipt of the same burst is not new queue growth"
+        );
+        assert!(cc.target_bps() >= before);
+    }
+}
+
+#[test]
+fn an_older_frame_arrival_cannot_replace_a_newer_delay_sample() {
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
+    cc.on_sent(0, 0);
+    cc.on_sent(1, 0);
+    cc.on_feedback(&[Arrival { transport_seq: 0, arrival_us: 25_000 }], 0.0, 50_000);
+    cc.on_sent(2, 100_000);
+    cc.on_feedback(&[Arrival { transport_seq: 2, arrival_us: 125_000 }], 0.0, 150_000);
+    let before = cc.target_bps();
+    cc.on_feedback(&[Arrival { transport_seq: 1, arrival_us: 135_000 }], 0.0, 160_000);
+    assert_eq!(cc.target_bps(), before, "a reordered old shard is not a new path sample");
+    assert_ne!(cc.usage(), Usage::Overuse);
+}
