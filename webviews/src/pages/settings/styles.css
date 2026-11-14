@@ -1975,19 +1975,13 @@ mark {
   margin: 4px 0 10px;
 }
 
-/* The menu itself: a rounded panel of 24 px rows, as macOS draws a context menu. */
+/* Preview the same glass, rim and grid as the menu the person is arranging. */
 .menu-preview {
   list-style: none;
   margin: 0;
 }
 
 .menu-preview {
-  padding: var(--ds-space-1);
-  border: 1px solid var(--border-strong);
-  border-radius: 9px;
-  /* A context menu's own surface (WebTheme's --surface-popup) and drop, so it reads as the menu. */
-  background: var(--surface-popup);
-  box-shadow: var(--ui-popup-drop);
   max-width: 420px;
   position: relative;
 }
@@ -1996,9 +1990,9 @@ mark {
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
-  min-height: 24px;
+  min-height: var(--ui-row-height);
   padding: 0 var(--ds-space-1);
-  border-radius: 5px;
+  border-radius: var(--ui-row-radius);
   position: relative;
 }
 
@@ -2153,13 +2147,14 @@ button.menu-disclosure {
 .menus-move-picker {
   display: flex;
   flex-direction: column;
-  margin-top: 8px;
+  margin-top: var(--ds-space-2);
   max-width: 420px;
-  padding: var(--ds-space-1);
-  border: 1px solid var(--border-strong);
-  border-radius: 9px;
-  background: var(--surface-popup);
-  box-shadow: var(--ui-popup-drop);
+}
+
+.menus-move-picker .menus-list-item {
+  min-height: var(--ui-row-height);
+  padding-inline: var(--ui-row-padding-inline);
+  border-radius: var(--ui-row-radius);
 }
 
 @media (max-width: 640px) {
