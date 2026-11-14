@@ -15,7 +15,7 @@ import {
   unreadPending,
   unreadRead,
 } from "./conversation/unreadState";
-import { jumpUpShown, jumpUpTarget, placeOffScreen, placeOffView, pressJumpUp, type ManualMark } from "./jumpUp";
+import { placeOffScreen, placeOffView } from "./jumpUp";
 import { TRANSCRIPT_OVERLAYS, ZONE_KIND, topZoneOffset } from "./overlayLayout";
 
 beforeEach(() => resetUnreadForTest());
@@ -62,25 +62,13 @@ test("hiding the banner keeps the line; Jump and the latest message end it (#400
   expect(unreadPending("s:41", readUnread())).toBe(false);
 });
 
-const mark = (rowId: string, at: number): ManualMark => ({ place: { rowId, offset: 0 }, at, why: "idle" });
-
-test("Jump up goes to the unread line first, else where the reader's idle stretch pinned its mark", () => {
-  expect(jumpUpTarget("sinceDivider", mark("r", 9))?.rowId).toBe("sinceDivider");
-  expect(jumpUpTarget("sinceDivider", undefined)?.rowId).toBe("sinceDivider");
-  expect(jumpUpTarget(undefined, mark("r", 9))?.rowId).toBe("r");
-  expect(jumpUpTarget(undefined, undefined)).toBeUndefined();
-});
-
-test("Jump up shows only while its place is off screen, and while it holds a way back", () => {
+test("a place is off screen above or below the view, and under the header", () => {
   expect(placeOffScreen(100, 0, 400)).toBe(false);
   expect(placeOffScreen(500, 0, 400)).toBe(true);
   expect(placeOffScreen(100, 200, 400)).toBe(true);
   // The header covers the view's top: a place under it is off screen.
   expect(placeOffScreen(210, 200, 400, 24)).toBe(true);
   expect(placeOffScreen(undefined, 0, 400)).toBe(false);
-  expect(jumpUpShown(false, false)).toBe(false);
-  expect(jumpUpShown(true, false)).toBe(true);
-  expect(jumpUpShown(false, true)).toBe(true);
 });
 
 test("Jump up reads a place where its row draws: a prompt in sight at the chat's top is on screen", () => {
@@ -94,13 +82,6 @@ test("Jump up reads a place where its row draws: a prompt in sight at the chat's
   expect(placeOffView(420, view)).toBe(false);
   expect(placeOffView(440, view)).toBe(true);
   expect(placeOffView(undefined, view)).toBe(false);
-});
-
-test("a second press goes back to where the view was", () => {
-  const first = pressJumpUp(undefined, { top: 900, atLatest: true });
-  expect(first).toEqual({ kind: "go", back: { top: 900, atLatest: true } });
-  const second = pressJumpUp(first.back, { top: 120, atLatest: false });
-  expect(second).toEqual({ kind: "back", back: { top: 900, atLatest: true } });
 });
 
 test("every overlay has one zone; a shared zone is one stack, and each sheet draws it there", () => {
@@ -126,12 +107,15 @@ test("every overlay has one zone; a shared zone is one stack, and each sheet dra
   expect(ZONE_KIND[TRANSCRIPT_OVERLAYS.jumpUp.zone]).toBe("dynamic");
   expect(ZONE_KIND[TRANSCRIPT_OVERLAYS.sessionInfo.zone]).toBe("stable");
   // The sheets agree: the banner's zone starts on the column's start inset, Jump up stands one
-  // control and one gap above Jump to latest, which is centered on the composer's line.
+  // control turned: its arrow turns up in place on Jump to latest's disc (jumpControl.ts).
   const unreadCss = readFileSync(join(import.meta.dir, "conversation/unread.css"), "utf8");
   expect(unreadCss).toMatch(/\.acpmux-over-top\s*\{[^}]*justify-content:\s*flex-start/);
   expect(unreadCss).toMatch(/\.acpmux-over-top\s*\{[^}]*padding-inline:\s*var\(--cv-inset/);
   const pairCss = readFileSync(join(import.meta.dir, "jumpPair.css"), "utf8");
-  expect(pairCss).toMatch(/\.acpmux-jump-up\s*\{[^}]*var\(--ds-control-primary\)\s*\+\s*var\(--ds-space-2\)/);
+  expect(pairCss).toMatch(
+    /\.acpmux-jump-latest\[data-jump="up"\] \.acpmux-jump-latest__arrow\s*\{[^}]*rotate\(180deg\)/,
+  );
+  expect(pairCss).not.toMatch(/\.acpmux-jump-up\s*\{[^}]*bottom:/);
   const conversationCss = readFileSync(join(import.meta.dir, "conversation/conversation.css"), "utf8");
   expect(conversationCss).toMatch(/\.acpmux-jump-latest\s*\{[^}]*height:\s*32px/);
   expect(conversationCss).not.toMatch(/\.cv-since\s*\{/);

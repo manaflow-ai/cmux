@@ -86,7 +86,8 @@ await requireBrowserLane("agent-pane-since-jump-tab-row.test.ts", async () => {
       case "_acpmux/watch":
         return { sessions: [session] };
       case "_acpmux/attach":
-        return { session, lastSeq: events.length, events };
+        // The reader's seen cursor (acpmux hub/seen.rs `read_through`): the first turn.
+        return { session, lastSeq: events.length, events, readThrough: 4 };
       case "_acpmux/events":
         return { events: [], hasMore: false, lastSeq: events.length };
       default:

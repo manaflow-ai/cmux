@@ -58,6 +58,10 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
 
     public func view(_ visible: Bool) async throws { _ = try await mapped { try await client.view(visible); return Data() } }
 
+    public func view(_ visible: Bool, attending: Bool, seenSeq: UInt64?) async throws -> Data {
+        try await mapped { try await client.view(visible, attending: attending, seenSeq: seenSeq) }
+    }
+
     public func setModel(_ modelId: String) async throws -> Data { try await mapped { try await client.setModel(modelId) } }
 
     public func setMode(_ modeId: String) async throws -> Data { try await mapped { try await client.setMode(modeId) } }

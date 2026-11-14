@@ -108,6 +108,8 @@ public actor AgentSessionAttachClient {
         var side = false
         /// `agent-session-presence-v1`.
         var presence = false
+        /// `agent-session-attention-v1`.
+        var attention = false
         /// `agent-session-folders-v1`.
         var folders = false
         /// `agent-session-settings-v1`.
@@ -503,6 +505,21 @@ public actor AgentSessionAttachClient {
         _ = try await call("agent-session-view", ["visible": visible])
     }
 
+    /// `agent-session-view` with whether the person attends the chat it shows
+    /// (`agent-session-attention-v1`; acpmux `hub/seen.rs`): acpmux's answer, `{lastReturn?}`. A
+    /// daemon without it hears only `visible`, and the chat there counts as seen while shown.
+    public func view(_ visible: Bool, attending: Bool, seenSeq: UInt64?) async throws -> Data {
+        _ = try await liveTransport()
+        guard served.presence else { return Data("{}".utf8) }
+        guard served.attention else {
+            _ = try await call("agent-session-view", ["visible": visible])
+            return Data("{}".utf8)
+        }
+        var params: [String: any Sendable] = ["visible": visible, "attending": attending]
+        if let seenSeq { params["seen_seq"] = seenSeq }
+        return try await call("agent-session-view", params)
+    }
+
     /// The code the setting verbs throw for a daemon without `agent-session-settings-v1`.
     public static let settingsUnsupported = "agent_session.settings_unsupported"
 
@@ -792,6 +809,7 @@ public actor AgentSessionAttachClient {
                             fork: identity.supports(DaemonCapability.agentSessionFork.rawValue),
                             side: identity.supports(DaemonCapability.agentSessionSide.rawValue),
                             presence: identity.supports(DaemonCapability.agentSessionPresence.rawValue),
+                            attention: identity.supports(DaemonCapability.agentSessionAttention.rawValue),
                             folders: identity.supports(DaemonCapability.agentSessionFolders.rawValue),
                             settings: identity.supports(DaemonCapability.agentSessionSettings.rawValue),
                             login: identity.supports(DaemonCapability.agentSessionLogin.rawValue),

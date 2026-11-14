@@ -1418,6 +1418,9 @@ export type AcpmuxSnapshot = {
   /// The mark of "New since you looked" drawn in the rows (`SINCE_DIVIDER`, its `key`): Jump to new
   /// follows it.
   sinceKey?: string;
+  /// The reader's seen cursor on this chat, a log seq (direct.ts `readCursor`, acpmux hub/seen.rs
+  /// `read_through`): rows after it by an agent or another person are unseen (jumpControl.ts).
+  readThrough?: number;
   permission?: AcpmuxPermission;
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;
@@ -2115,6 +2118,9 @@ export type AcpmuxMessageRun = {
   failed: number;
   running: boolean;
   rows: string[];
+  /// The newest log seq among the rows it folds: the line is unseen while any of them is
+  /// (jumpControl.ts `newestSeq`); the row's own `seq` is its first's, where it sorts.
+  through?: number;
 };
 /// A one-line activity row drawn on the tool rows' line: another agent's message, a task's notice and
 /// an inbox notice (each a user row, IncomingMessageCard.tsx and InboxNoticeCard.tsx), a report

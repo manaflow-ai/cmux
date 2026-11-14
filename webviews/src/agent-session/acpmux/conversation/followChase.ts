@@ -33,6 +33,7 @@
 // moves nothing and the view steps at once, as before.
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../../motion/scale.generated";
 import { motionMode } from "../../../ui/motion/motionMode";
+import { pageAway } from "../../shared/pageReveal";
 import { currentChatMetrics } from "../chatDisplay";
 import { bezierAt, parseBezier } from "../../../ui/cubicBezier";
 import { MAX_FRAME_STEP_MS } from "../threadMinimap/scrollMotion";
@@ -254,10 +255,14 @@ export function alongsideMove(animations: Iterable<Animation> | undefined, dt: n
 }
 
 /// The host's motion speed as a factor of the standard step (`--agent-motion-move`), 0 with motion
-/// off, Reduce Motion or a hidden page.
+/// off, Reduce Motion, or while the reader is away: the page is hidden, or shows again and its first
+/// frame back has not passed (shared/pageReveal.ts `pageAway`). What landed while they were away
+/// (WebKit runs a streamed reply's held reveal in that first frame, its whole backlog at once,
+/// conversation/revealedMarkdownModel.ts) draws where it rests: chased, the first frame back drew
+/// the rows a block below it (agent-pane-reveal-in-place.webkit.test.ts, 165 px).
 function speedOf(node: HTMLElement): number {
   const doc = node.ownerDocument;
-  if (motionMode(doc, node) !== "full") return 0;
+  if (motionMode(doc, node) !== "full" || pageAway(doc)) return 0;
   const token = cssTimeMs(doc.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-move") ?? "");
   return token === undefined ? 1 : token / MOTION_MS.standard;
 }

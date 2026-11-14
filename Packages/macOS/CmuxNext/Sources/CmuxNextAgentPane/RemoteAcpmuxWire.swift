@@ -205,16 +205,38 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             run(id) { client in try await client.typing(on); return Data("{}".utf8) }
         case "_acpmux/view":
             guard names(params["sessionId"]), let visible = params["visible"] as? Bool else { return refuse(id, method) }
-            run(id) { client in try await client.view(visible); return Data("{}".utf8) }
+            // Whether the person attends the chat on screen (webviews attention.ts): absent, they do.
+            // A chat on another machine keeps its turns unread while they are away, as a local one.
+            let attending: Bool
+            switch params["attending"] {
+            case nil, is NSNull: attending = true
+            case let value as Bool: attending = value
+            default: return refuse(id, method)
+            }
+            let seenSeq: UInt64?
+            switch params["seenSeq"] {
+            case nil, is NSNull: seenSeq = nil
+            case let value as NSNumber where value.int64Value >= 0 && !(value is Bool): seenSeq = value.uint64Value
+            default: return refuse(id, method)
+            }
+            run(id) { client in try await client.view(visible, attending: attending, seenSeq: seenSeq) }
         case "_acpmux/watch" where state.withLock({ $0.client == nil }):
             // A new chat before its first send: no session on that machine yet.
             reply(id, ["sessions": [Any]()])
         case "_acpmux/watch", "_acpmux/attach", "_acpmux/events":
             guard method == "_acpmux/watch" || names(params["sessionId"]) else { return refuse(id, method) }
             let page = Self.page(params, method: method)
+            // The daemon's attach only pages, so a chat opened while its page is hidden or its person
+            // away says so with a view before the attach answers: the page counts that state as told
+            // (direct.ts `sendAttach`) and sends no view of its own, so turns then stay unseen there too.
+            let visible = params["visible"] as? Bool ?? true
+            let attending = params["attending"] as? Bool ?? visible
+            let tell = method == "_acpmux/attach" && (!visible || !attending)
             run(id) { [weak self] client in
                 guard let self else { throw AgentSessionRemoteError(code: Self.unsupported, message: "closed") }
-                return try await self.page(method, page, client: client)
+                let result = try await self.page(method, page, client: client)
+                if tell { _ = try? await client.view(visible, attending: attending, seenSeq: nil) }
+                return result
             }
         case "link.inspect":
             // Remote paths are classified by the host that owns the chat. Image paths are

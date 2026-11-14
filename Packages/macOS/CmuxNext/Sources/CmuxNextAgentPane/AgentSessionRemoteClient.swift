@@ -37,6 +37,10 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func typing(_ on: Bool) async throws
     /// Whether the person's window shows the chat now (`agent-session-presence-v1`).
     func view(_ visible: Bool) async throws
+    /// Whether the person's window shows the chat, and whether they attend it: on screen, window
+    /// key, input within the pane's idle window (`agent-session-attention-v1`, acpmux `hub/seen.rs`).
+    /// `seenSeq` is the chat's log seq at their last input. Answers acpmux's `{lastReturn?}`.
+    func view(_ visible: Bool, attending: Bool, seenSeq: UInt64?) async throws -> Data
     /// The person's model, mode and option picks for the chat (`agent-session-settings-v1`):
     /// acpmux's `session/set_model`, `session/set_mode` and `session/set_config_option` on that
     /// machine, answered as acpmux answers them (a config option answers `{configOptions}`).
@@ -79,6 +83,11 @@ extension AgentSessionRemoteClient {
     /// A daemon without `agent-session-presence-v1` shows no one: typing and view go nowhere.
     public func typing(_ on: Bool) async throws {}
     public func view(_ visible: Bool) async throws {}
+    /// A daemon without `agent-session-attention-v1` hears only whether the chat shows.
+    public func view(_ visible: Bool, attending: Bool, seenSeq: UInt64?) async throws -> Data {
+        try await view(visible)
+        return Data("{}".utf8)
+    }
     /// A daemon without `agent-session-settings-v1` changes nothing: the pick says so.
     public func setModel(_ modelId: String) async throws -> Data { throw Self.settingsUnsupported }
     public func setMode(_ modeId: String) async throws -> Data { throw Self.settingsUnsupported }

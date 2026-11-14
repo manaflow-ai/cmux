@@ -7,7 +7,8 @@
 // - Hiding the page (a tab in a background workspace, an occluded window) sends
 //   `_acpmux/view` visible false; showing it again sends true.
 // - A reader who steps away (no pointer move, wheel, key or focus for the idle time, attention.ts)
-//   leaves the chat unshown: `_acpmux/view` visible false; their next move sends true.
+//   leaves the chat shown but unattended: `_acpmux/view` visible true, `attending: false`, with the
+//   seq it had at their last input; their next move sends `attending: true`.
 // - acpmux handles each request on its own task, so a view sent while the attach is in flight
 //   could overtake it and be refused; the pane sends it once the attach is answered.
 //
@@ -47,13 +48,20 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
   /// While set, the stand-in holds the attach's reply until `releaseAttach` runs.
   let holdAttach = false;
   let releaseAttach: (() => void) | undefined;
+  /// While set, a view that says the person attends again is answered with their return.
+  let returnOnAttend = false;
+  /// While set, the stand-in holds the next view's reply until `releaseView` runs.
+  let holdView = false;
+  let releaseView: (() => void) | undefined;
   /// The socket of the pane that last spoke to the daemon.
   let socket: { send(data: string): void } | undefined;
   /// The waits on what the daemon heard: each message it takes wakes them.
   const waiting = new Set<() => void>();
 
-  function answer(method: string): unknown {
+  function answer(method: string, params: Record<string, unknown> = {}): unknown {
     switch (method) {
+      case "_acpmux/view":
+        return returnOnAttend && params.attending === true ? { lastReturn: { since: 0, turns: 2 } } : {};
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: ["_acpmux/view"] } } };
       case "_acpmux/watch":
@@ -82,7 +90,7 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, unknown> };
           sent.push({ method: message.method, params: message.params ?? {} });
           socket = ws;
-          const result = answer(message.method);
+          const result = answer(message.method, message.params);
           const reply = () => ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
           if (message.id === undefined) {
             for (const wake of waiting) wake();
@@ -94,7 +102,10 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
             return;
           }
           if (holdAttach && message.method === "_acpmux/attach") releaseAttach = reply;
-          else reply();
+          else if (holdView && message.method === "_acpmux/view") {
+            holdView = false;
+            releaseView = reply;
+          } else reply();
           for (const wake of waiting) wake();
         },
       },
@@ -216,8 +227,9 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
       }
     }, 120_000);
 
-    test("a reader who steps away leaves the chat unshown, and their next move shows it", async () => {
+    test("a reader who steps away leaves the chat shown but unattended, and their next move attends it", async () => {
       const from = sent.length;
+      returnOnAttend = true;
       const pane = await openPane((p) => p.clock.install());
       try {
         await until(
@@ -227,18 +239,128 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
         );
         await caughtUp(pane);
         expect(views(from)).toEqual([]);
-        // Nobody touched the page for the idle time (attention.ts ATTENTION_IDLE_MS).
+        const viewsFrom = () =>
+          sent.slice(from).filter((m) => m.method === "_acpmux/view" && m.params.sessionId === SESSION);
+        // Nobody touched the page for the idle time (attention.ts ATTENTION_IDLE_MS): the chat stays
+        // shown (its process and presence), and acpmux hears where the reader left off.
         await pane.clock.fastForward(2 * 60_000 + 1000);
-        await until(() => views(from).length >= 1, "the away view");
+        await until(() => viewsFrom().length >= 1, "the away view");
+        const away = viewsFrom()[0]!;
+        expect(away.params.visible).toBe(true);
+        expect(away.params.attending).toBe(false);
+        expect(typeof away.params.seenSeq).toBe("number");
         await pane.mouse.move(200, 200);
         await pane.mouse.move(240, 260);
-        await until(() => views(from).length >= 2, "the return view");
+        await until(() => viewsFrom().length >= 2, "the return view");
         await settled();
-        expect(views(from)).toEqual([
-          { sessionId: SESSION, visible: false },
-          { sessionId: SESSION, visible: true },
+        expect(viewsFrom().map((m) => [m.params.visible, m.params.attending])).toEqual([
+          [true, false],
+          [true, true],
+        ]);
+        // The New line comes from the reader's seen cursor (acpmux `readThrough`), not this answer:
+        // agent-pane-jump-unseen.browser.test.ts draws it.
+      } finally {
+        returnOnAttend = false;
+        await pane.close();
+      }
+    }, 120_000);
+
+    test("a live reply that lands after the reader's last input is not counted seen when they step away", async () => {
+      const from = sent.length;
+      const pane = await openPane((p) => p.clock.install());
+      try {
+        await until(
+          () => sent.slice(from).some((m) => m.method === "_acpmux/attach" && m.params.visible === true),
+          "the attach",
+          ATTACH_MS,
+        );
+        await caughtUp(pane);
+        // The reader's last input, then a reply streams in over the socket (`apply`, not `feed`).
+        await pane.mouse.move(200, 200);
+        await pane.mouse.move(240, 260);
+        const event = {
+          sessionId: SESSION,
+          seq: 1,
+          at: Date.now(),
+          dir: "in",
+          kind: "agent_message_chunk",
+          msg: {
+            method: "session/update",
+            params: {
+              sessionId: SESSION,
+              update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "landed while away" } },
+            },
+          },
+        };
+        socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
+        await pane.waitForFunction(() => document.body.innerText.includes("landed while away"));
+        const viewsFrom = () =>
+          sent.slice(from).filter((m) => m.method === "_acpmux/view" && m.params.sessionId === SESSION);
+        await pane.clock.fastForward(2 * 60_000 + 1000);
+        await until(() => viewsFrom().length >= 1, "the away view");
+        const away = viewsFrom()[0]!;
+        expect(away.params.attending).toBe(false);
+        // Where they left off is the seq at their last input: the reply after it stays unread.
+        expect(away.params.seenSeq).toBe(0);
+      } finally {
+        await pane.close();
+      }
+    }, 120_000);
+
+    test("an away view queued behind a slow one still says where the reader stopped, not where they came back", async () => {
+      const from = sent.length;
+      const pane = await openPane((p) => p.clock.install());
+      try {
+        await until(
+          () => sent.slice(from).some((m) => m.method === "_acpmux/attach" && m.params.visible === true),
+          "the attach",
+          ATTACH_MS,
+        );
+        await caughtUp(pane);
+        const viewsFrom = () =>
+          sent.slice(from).filter((m) => m.method === "_acpmux/view" && m.params.sessionId === SESSION);
+        // acpmux is slow to answer the first away view: every view after it waits in line (`syncView`).
+        holdView = true;
+        releaseView = undefined;
+        await pane.clock.fastForward(2 * 60_000 + 1000);
+        await until(() => releaseView !== undefined, "the first away view");
+        // Back, a reply lands, away again (queued), then back once more after the reply.
+        await pane.mouse.move(200, 200);
+        await pane.mouse.move(240, 260);
+        const event = {
+          sessionId: SESSION,
+          seq: 1,
+          at: Date.now(),
+          dir: "in",
+          kind: "agent_message_chunk",
+          msg: {
+            method: "session/update",
+            params: {
+              sessionId: SESSION,
+              update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "landed in line" } },
+            },
+          },
+        };
+        socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
+        await pane.waitForFunction(() => document.body.innerText.includes("landed in line"));
+        await pane.clock.fastForward(2 * 60_000 + 1000);
+        await pane.mouse.move(300, 300);
+        await pane.mouse.move(340, 360);
+        await caughtUp(pane);
+        releaseView!();
+        await until(() => viewsFrom().length >= 4, "the queued views");
+        await settled();
+        const sentViews = viewsFrom().map((m) => [m.params.attending, m.params.seenSeq]);
+        expect(sentViews).toEqual([
+          [false, 0],
+          [true, undefined],
+          // Stopped before the reply landed: it stays unseen, though they came back after it.
+          [false, 0],
+          [true, undefined],
         ]);
       } finally {
+        holdView = false;
+        releaseView?.();
         await pane.close();
       }
     }, 120_000);

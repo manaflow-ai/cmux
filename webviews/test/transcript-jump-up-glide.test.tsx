@@ -1,15 +1,14 @@
-// Jump up (jumpUp.ts) glides to where the reader left off, on Jump to latest's ride, instead of cutting
-// there in one frame (Leo, 2026-11-11: "This kind of thing needs to happen a h*ll of a lot more
+// Jump up (jumpControl.ts) glides to the first row the reader has not seen, on Jump to latest's ride,
+// instead of cutting there in one frame (Leo, 2026-11-11: "This kind of thing needs to happen a h*ll of a lot more
 // gracefully than whatever's going on here."). A long way skips at once to one viewport from the
-// place and eases the rest; the way back glides too. The place is set by idle detection (Leo,
-// 2026-11-12: "at least one full screen of idleness"), kept per chat across reloads, and Jump up
-// never shows with Jump to latest nor right after a press of it.
-import { afterAll, beforeEach, afterEach, expect, test } from "bun:test";
+// place and eases the rest; the way back glides too. With nothing unseen there is no up arrow: not on
+// an open (a restart, a reconnect), nor after a press of Jump to latest (Leo, 2026-11-12: "after
+// clicking the jump to bottom button, this appears... maybe a bit extra?").
+import { afterAll, expect, test, beforeEach, afterEach } from "bun:test";
 import { settleReact } from "./support/domTeardown";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
-import { keepIdle, loadIdle } from "../src/agent-session/acpmux/jumpUp";
 import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -22,7 +21,6 @@ const replacements: Record<string, unknown> = {
   window: dom.window,
   document: dom.window.document,
   navigator: dom.window.navigator,
-  localStorage: dom.window.localStorage,
   HTMLElement: dom.window.HTMLElement,
   Element: dom.window.Element,
   customElements: dom.window.customElements,
@@ -71,12 +69,20 @@ afterAll(async () => {
   }
 });
 
-const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
-// One prompt, then a long reply: the prompt (where the reader left off) is many viewports up.
+const row = (id: string, kind: string, seq: number, text?: string): AcpmuxRow => ({
+  id,
+  kind,
+  seq,
+  text,
+  version: 1,
+  at: 1,
+});
+// One prompt the reader saw (their cursor), then a long reply they did not: its first row is many
+// viewports up.
 const rows: AcpmuxRow[] = [
-  row("prompt", "user", "Look into the failing build."),
+  row("prompt", "user", 1, "Look into the failing build."),
   ...Array.from({ length: 80 }, (_, index) =>
-    row(`answer-${index}`, "assistant", `Step ${index}.\n\nWith a second paragraph so the row has height.`),
+    row(`answer-${index}`, "assistant", index + 2, `Step ${index}.\n\nWith a second paragraph so the row has height.`),
   ),
 ];
 const nextFrame = () => new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
@@ -95,6 +101,7 @@ async function frames(scroller: HTMLElement): Promise<number[]> {
   return seen;
 }
 
+// Jump up is off by default (jumpUp.experiment.ts, #42247): these press the control while it is on.
 beforeEach(() => {
   globalThis.cmuxExperiments = { "jump-up": "on" };
 });
@@ -102,54 +109,29 @@ afterEach(() => {
   globalThis.cmuxExperiments = undefined;
 });
 
-const SESSION = "chat-jump-up";
-/// Renders the chat as it opens, with what it kept of the reader's idle stretch.
-async function open(kept: Parameters<typeof keepIdle>[2]) {
-  dom.window.localStorage.clear();
-  keepIdle(dom.window.localStorage, SESSION, kept);
+test("Jump up glides to the place and back, never cutting a viewport or more in one frame", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
   const expanded = new Set<string>();
-  await act(async () =>
-    root.render(
-      <VirtualTranscript
-        rows={turnView(rows, expanded)}
-        sessionId={SESSION}
-        jumpButton
-        onToggleActivity={() => {}}
-        expanded={expanded}
-      />,
-    ),
-  );
-  await act(async () => nextFrame());
-  const doc = dom.window.document;
-  return {
-    root,
-    scroller: doc.querySelector<HTMLElement>(".acpmux-scroll")!,
-    up: doc.querySelector<HTMLButtonElement>(".acpmux-jump-up")!,
-    latest: doc.querySelector<HTMLButtonElement>(".acpmux-jump-latest:not(.acpmux-jump-up)")!,
-  };
-}
-
-test("with nothing kept and nothing new since the chat opened, Jump up stays away", async () => {
-  const { root, up } = await open({});
   try {
-    expect(up.hasAttribute("data-shown")).toBe(false);
-  } finally {
-    await act(async () => root.unmount());
-  }
-});
-
-test("Jump up glides to the place and back, never cutting a viewport or more in one frame", async () => {
-  // The reader went idle at their prompt and a screen of reply came in since: the kept mark.
-  const { root, scroller, up, latest } = await open({
-    mark: { place: { rowId: "prompt", offset: 0 }, at: 1, why: "idle" },
-  });
-  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={turnView(rows, expanded)}
+          readThrough={1}
+          jumpButton
+          onToggleActivity={() => {}}
+          expanded={expanded}
+        />,
+      ),
+    );
+    await act(async () => nextFrame());
+    const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const end = scrollerEnd(scroller);
     expect(end).toBeGreaterThan(VIEWPORT * 4);
     expect(scroller.scrollTop).toBe(end);
+    const up = dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-up")!;
     expect(up.hasAttribute("data-shown")).toBe(true);
-    expect(latest.hasAttribute("data-shown")).toBe(false);
+    expect(up.getAttribute("data-jump")).toBe("up");
 
     await act(async () => up.click());
     // The press skips the far middle at once, to one viewport from the place: not there yet.
@@ -165,109 +147,156 @@ test("Jump up glides to the place and back, never cutting a viewport or more in 
       expect(upFrames[i]!).toBeLessThanOrEqual(upFrames[i - 1]!);
       expect(upFrames[i - 1]! - upFrames[i]!).toBeLessThan(VIEWPORT);
     }
-    // The glide's own steps are not the reader's stop: the way back is still held. Up there Jump to
-    // latest shows, so Jump up steps aside: never the two stacked (Leo, 2026-11-12: "a bit extra").
-    expect(up.hasAttribute("data-back")).toBe(true);
-    expect(latest.hasAttribute("data-shown")).toBe(true);
-    expect(up.hasAttribute("data-shown")).toBe(false);
+    // There the first unseen row is in view: the same control is Jump to latest now.
+    expect(up.getAttribute("data-jump")).toBe("latest");
 
-    // Esc goes back to the latest message, also on a glide.
-    await act(async () => {
-      dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape" }));
-    });
+    // A second press goes back to the latest message, also on a glide.
+    await act(async () => up.click());
     const backFrames = [scroller.scrollTop, ...(await frames(scroller))];
     expect(backFrames.at(-1)).toBe(scrollerEnd(scroller));
     expect(new Set(backFrames).size).toBeGreaterThan(4);
-    // The way back is the press's return, not the reader's act: the mark stays, and Jump up with it.
-    expect(up.hasAttribute("data-shown")).toBe(true);
   } finally {
     await act(async () => root.unmount());
   }
 });
 
-test("pressing Jump to latest is the reader's act: Jump up does not come up at the bottom after it", async () => {
-  const { root, scroller, up, latest } = await open({
-    mark: { place: { rowId: "prompt", offset: 0 }, at: 1, why: "idle" },
+/// Renders the chat as it opens, its cursor at `readThrough`.
+async function open(readThrough: number) {
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const expanded = new Set<string>();
+  await act(async () =>
+    root.render(
+      <VirtualTranscript
+        rows={turnView(rows, expanded)}
+        readThrough={readThrough}
+        jumpButton
+        onToggleActivity={() => {}}
+        expanded={expanded}
+      />,
+    ),
+  );
+  await act(async () => nextFrame());
+  const doc = dom.window.document;
+  return {
+    root,
+    scroller: doc.querySelector<HTMLElement>(".acpmux-scroll")!,
+    jump: doc.querySelector<HTMLButtonElement>(".acpmux-jump-latest")!,
+  };
+}
+
+/// Moves the view to `top` as the page does (no input held): a reconnect's, a reveal's or Find's move.
+async function moveTo(scroller: HTMLElement, top: number) {
+  await act(async () => {
+    scroller.scrollTop = top;
+    scroller.dispatchEvent(new dom.window.Event("scroll"));
   });
+  await act(async () => nextFrame());
+}
+
+const LAST = rows.at(-1)!.seq!;
+
+test("a restart or reconnect with nothing new, and the page's own moves, bring no up arrow", async () => {
+  // The chat reopens with the cursor at its last row (what an attach answers after a restart).
+  const { root, scroller, jump } = await open(LAST);
   try {
-    // Scrolled up to the top: only Jump to latest shows.
+    expect(scroller.scrollTop).toBe(scrollerEnd(scroller));
+    expect(jump.hasAttribute("data-shown")).toBe(false);
+    // The page moves the view far up and back (a reveal, Find): Jump to latest while away, never up.
+    await moveTo(scroller, 0);
+    expect(jump.hasAttribute("data-shown")).toBe(true);
+    expect(jump.getAttribute("data-jump")).toBe("latest");
+    await moveTo(scroller, VIEWPORT * 2);
+    expect(jump.getAttribute("data-jump")).toBe("latest");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("after a press of Jump to latest no up arrow comes, and none going back up a little", async () => {
+  const { root, scroller, jump } = await open(LAST);
+  try {
+    await moveTo(scroller, 0);
+    expect(jump.getAttribute("data-jump")).toBe("latest");
+    // Only ever one disc.
+    expect(dom.window.document.querySelectorAll(".acpmux-jump-latest").length).toBe(1);
+    await act(async () => jump.click());
+    // The ride to the latest message, its scroll events as the browser sends them: never up on the way.
+    for (let i = 0; i < 120 && scroller.scrollTop !== scrollerEnd(scroller); i++) {
+      await act(async () => {
+        await nextFrame();
+        scroller.dispatchEvent(new dom.window.Event("scroll"));
+      });
+      expect(jump.getAttribute("data-jump")).not.toBe("up");
+    }
+    expect(scroller.scrollTop).toBe(scrollerEnd(scroller));
+    await act(async () => nextFrame());
+    expect(jump.hasAttribute("data-shown")).toBe(false);
+    // Back up a little: nothing unseen above, so it is Jump to latest again, not up.
+    await moveTo(scroller, scrollerEnd(scroller) - VIEWPORT / 2);
+    expect(jump.hasAttribute("data-shown")).toBe(true);
+    expect(jump.getAttribute("data-jump")).toBe("latest");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+/// The chat as the page draws it: the transcript's seen reports move its cursor (direct.ts
+/// `noteVisibleThrough`, the reader attending), as acpmux's `readThrough` comes back.
+async function openSeeing(readThrough: number) {
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const expanded = new Set<string>();
+  let cursor = readThrough;
+  const draw = () =>
+    root.render(
+      <VirtualTranscript
+        rows={turnView(rows, expanded)}
+        readThrough={cursor}
+        onSeenThrough={(seq) => {
+          if (seq === undefined || seq <= cursor) return;
+          cursor = seq;
+          queueMicrotask(draw);
+        }}
+        jumpButton
+        onToggleActivity={() => {}}
+        expanded={expanded}
+      />,
+    );
+  await act(async () => draw());
+  await act(async () => nextFrame());
+  const doc = dom.window.document;
+  return {
+    root,
+    scroller: doc.querySelector<HTMLElement>(".acpmux-scroll")!,
+    jump: doc.querySelector<HTMLButtonElement>(".acpmux-jump-latest")!,
+    cursor: () => cursor,
+  };
+}
+
+async function rideToEnd(scroller: HTMLElement) {
+  for (let i = 0; i < 120 && scroller.scrollTop !== scrollerEnd(scroller); i++)
     await act(async () => {
-      scroller.scrollTop = 0;
+      await nextFrame();
       scroller.dispatchEvent(new dom.window.Event("scroll"));
     });
-    await act(async () => nextFrame());
-    expect(latest.hasAttribute("data-shown")).toBe(true);
-    expect(up.hasAttribute("data-shown")).toBe(false);
-    await act(async () => latest.click());
-    // The ride to the latest message, its scroll events as the browser sends them.
-    for (let i = 0; i < 120 && scroller.scrollTop !== scrollerEnd(scroller); i++)
-      await act(async () => {
-        await nextFrame();
-        scroller.dispatchEvent(new dom.window.Event("scroll"));
-      });
-    expect(up.hasAttribute("data-shown")).toBe(false);
-  } finally {
-    await act(async () => root.unmount());
-  }
-  // The press let go of the mark: what the chat keeps for its next load has none.
-  expect(loadIdle(dom.window.localStorage, SESSION).mark).toBeUndefined();
-});
+  await act(async () => nextFrame());
+}
 
-test("a press on text while scrolled up is no hand scroll: a row moving the view under it keeps the mark", async () => {
-  const kept = { mark: { place: { rowId: "prompt", offset: 0 }, at: 1, why: "idle" as const } };
-  for (const input of ["press", "wheel"] as const) {
-    const { root, scroller } = await open(kept);
-    try {
-      // Up in the reply, put there by no input of the reader's.
-      await act(async () => {
-        scroller.scrollTop = VIEWPORT * 2;
-        scroller.dispatchEvent(new dom.window.Event("scroll"));
-      });
-      await act(async () => nextFrame());
-      const text = dom.window.document.querySelector<HTMLElement>(".acpmux-row")!;
-      await act(async () => {
-        if (input === "press") {
-          // A click to select: pressed and released in place.
-          text.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true, clientX: 200, clientY: 300 }));
-          dom.window.document.dispatchEvent(
-            new dom.window.MouseEvent("pointerup", { bubbles: true, clientX: 200, clientY: 300 }),
-          );
-        } else text.dispatchEvent(new dom.window.WheelEvent("wheel", { bubbles: true, deltaY: -40 }));
-        // The view moves inside that input's hold: a row settling for the press, the wheel's own step.
-        scroller.scrollTop = VIEWPORT * 2 - 40;
-        scroller.dispatchEvent(new dom.window.Event("scroll"));
-      });
-      await act(async () => nextFrame());
-    } finally {
-      await act(async () => root.unmount());
-    }
-    // What the chat keeps for its next load: the press kept the mark, the wheel let it go.
-    const mark = loadIdle(dom.window.localStorage, SESSION).mark;
-    if (input === "press") expect(mark?.place.rowId).toBe("prompt");
-    else expect(mark).toBeUndefined();
-  }
-});
-
-test('Jump up, then Jump to latest: at the bottom Jump up does not come back pointing down (Leo: "it appears again")', async () => {
-  const { root, scroller, up, latest } = await open({
-    mark: { place: { rowId: "prompt", offset: 0 }, at: 1, why: "idle" },
-  });
+test('Jump up, then Jump to latest: at the bottom the control does not come back (Leo: "it appears again")', async () => {
+  const { root, scroller, jump, cursor } = await openSeeing(1);
   try {
-    await act(async () => up.click());
+    expect(jump.getAttribute("data-jump")).toBe("up");
+    await act(async () => jump.click());
     await frames(scroller);
-    expect(up.hasAttribute("data-back")).toBe(true);
-    expect(latest.hasAttribute("data-shown")).toBe(true);
-    await act(async () => latest.click());
-    for (let i = 0; i < 120 && scroller.scrollTop !== scrollerEnd(scroller); i++)
-      await act(async () => {
-        await nextFrame();
-        scroller.dispatchEvent(new dom.window.Event("scroll"));
-      });
-    await act(async () => nextFrame());
+    // At the first unseen row: the same control is Jump to latest.
+    expect(jump.getAttribute("data-jump")).toBe("latest");
+    await act(async () => jump.click());
+    await rideToEnd(scroller);
     expect(scroller.scrollTop).toBe(scrollerEnd(scroller));
-    expect(latest.hasAttribute("data-shown")).toBe(false);
-    expect(up.hasAttribute("data-back")).toBe(false);
-    expect(up.hasAttribute("data-shown")).toBe(false);
+    // The reader asked for the latest message: what they skipped on the way is theirs to have
+    // passed, so the cursor is at the end and no arrow points up.
+    expect(cursor()).toBe(LAST);
+    expect(jump.hasAttribute("data-shown")).toBe(false);
+    expect(jump.getAttribute("data-jump")).not.toBe("up");
   } finally {
     await act(async () => root.unmount());
   }

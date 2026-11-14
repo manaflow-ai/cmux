@@ -35,6 +35,16 @@ const TURN_LIVE = [
   "subagentStructureVersion",
 ] as const satisfies readonly (keyof AcpmuxSnapshot)[];
 
+/// What the transcript alone reads and the reader moves as rows stream in: the seen cursor
+/// (`readThrough`, direct.ts `readCursor`), which the jump control (jumpControl.ts) reads and which
+/// steps forward with each streamed row the reader has in view. With it in the view, every streamed
+/// row drew the composer again (26 draws over a 4 s turn in test/agent-pane-tool-call-renders.test.ts).
+const TRANSCRIPT_LIVE = ["readThrough"] as const satisfies readonly (keyof AcpmuxSnapshot)[];
+
+/// Every snapshot field the composer's view leaves out: no composer file may read one
+/// (composerView.test.ts checks Composer*.tsx and composer/).
+export const COMPOSER_UNREAD: readonly (keyof AcpmuxSnapshot)[] = [...TURN_LIVE, ...TRANSCRIPT_LIVE];
+
 /// What another chat changes as it runs (its status, its dot, its times, its unread mark, its latest
 /// words and pull request): the chat list's and the sidebar's, never a started chat's composer, which
 /// reads another chat only for the @ menu (its title, folder and whether it is listed; mentionItems.ts)
@@ -138,16 +148,17 @@ export function sameComposerView(a: AcpmuxSnapshot, b: AcpmuxSnapshot): boolean 
 
 /// The composer's view of `snapshot`: its rows cut to `composerRows`, its `connection` (which names
 /// why the client emitted, a streamed event's kind among them; model.ts `linkUp`) to whether the link
-/// is up, which is all the composer could read of it, and the turn's live fields (`TURN_LIVE`) left
-/// out. The last view while it holds the same members (sameComposerView), so a snapshot that changed
-/// only what the composer does not show leaves it be.
+/// is up, which is all the composer could read of it, and what it never reads that moves while a turn
+/// streams (`COMPOSER_UNREAD`: the turn's live fields, the reader's seen cursor) left out. The last
+/// view while it holds the same members (sameComposerView), so a snapshot that changed only what the
+/// composer does not show leaves it be.
 export function composerView(snapshot: AcpmuxSnapshot): AcpmuxSnapshot {
   const view: AcpmuxSnapshot = {
     ...snapshot,
     rows: composerRows(snapshot.rows),
     connection: linkUp(snapshot.connection) ? "connected" : snapshot.connection,
   };
-  for (const key of TURN_LIVE) delete view[key];
+  for (const key of COMPOSER_UNREAD) delete view[key];
   return view;
 }
 

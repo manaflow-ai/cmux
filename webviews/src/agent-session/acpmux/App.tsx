@@ -45,10 +45,10 @@ import { type HeldAnswer, type QueuedMessageActionsValue } from "./conversation/
 import {
   AcpmuxDirectClient,
   type AcpmuxHostConfig,
+  type CarriedChat,
   harnessBlock,
   type HarnessBlock,
   isTrustRefusal,
-  type CarriedChat,
 } from "./direct";
 import { readHostTail } from "./tailCache";
 import { watchRestoredTail } from "./restoredTail";
@@ -314,13 +314,13 @@ import { runResume as runSubagentResume } from "./subagents/resumeState";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/workflowCardModel";
 import {
   type DoneLineCache,
+  endedInFailure,
   finishedTrayItems,
   type TrayItem,
   trayItemKey,
   trayItems,
   useSubagentTray,
   withSubagentLines,
-  endedInFailure,
 } from "./subagents/runningTray";
 import { lingeringTrayItems, trayItemEnd, useTrayLinger } from "./subagents/trayLinger";
 import { useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
@@ -436,7 +436,6 @@ import { isFindRow, type ChatFind } from "./conversation/chatFind";
 import { revealedSaid, saidRows, type SaidReveal } from "./conversation/saidReveal";
 import { ChatFindScope } from "./conversation/ChatFindScope";
 import {
-  closeTurnRuns,
   ACTIVITY_LINE,
   DATE,
   THINKING,
@@ -444,7 +443,6 @@ import {
   openViewTurnFold,
   toggleTurnFold,
   toggleViewTurnFold,
-  turnInsideIds,
   hiddenRowFolds,
   WORKING,
   type TurnView,
@@ -456,6 +454,8 @@ import {
   withEarlierPlan,
   samePlanEntries as sameEntries,
   waitingAsks,
+  closeTurnRuns,
+  turnInsideIds,
 } from "./conversation/turns";
 import { PendingAsks } from "./conversation/PendingAsks";
 import { forgetInsideTurn } from "./conversation/transcriptDisclosureModel";
@@ -472,7 +472,6 @@ import { turnPreviewUrl, turnServedUrl } from "./conversation/previewUrl";
 import { projectInboxRows } from "./conversation/laneNoticeBatches";
 import {
   canFork,
-  switchForks,
   forkRefusal,
   forkToTarget,
   forksAnyTurn,
@@ -481,6 +480,7 @@ import {
   messageMenuSessionMatches,
   openReportedImage,
   setMessageMenuSource,
+  switchForks,
   withSendPromptAgain,
 } from "./conversation/messageMenu";
 import { actOnReportedImage } from "./conversation/imageMenuActions";
@@ -548,7 +548,6 @@ import type { LocalCommand } from "./localCommands";
 import {
   cloudPageRefusal,
   cloudRunsHere,
-  cloudSendAfterCheck,
   composerAgentLocal,
   cloudFolderGrants,
   cloudStartFolder,
@@ -560,6 +559,7 @@ import {
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
   type CloudStartAnswer,
+  cloudSendAfterCheck,
   heldPromptShown,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
@@ -630,13 +630,13 @@ import { readWakeFolds, wakeFolds, type PaneFolds } from "./conversation/wakeFol
 import {
   callsToHold,
   foldsToHold,
-  lastTurnWorkedKeys,
   linedCallOf,
   oneKeyPerMessageRun,
-  rowsToHold,
   withHeldFolds,
   withoutHeldCalls,
+  rowsToHold,
   withoutHeldRows,
+  lastTurnWorkedKeys,
 } from "./conversation/turnEndHold";
 import { HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type HarnessHealth, type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
@@ -5968,6 +5968,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Jump to new (conversation/SinceDivider.tsx): "New since you looked" is a row like any other, so
   // the transcript brings it in by its place in the chat even when it is far above the view.
   const sinceKey = snapshot.sinceKey;
+  // The newest row in view, seen once the reader attends (direct.ts `noteVisibleThrough`).
+  const noteSeenThrough = useCallback((seq: number | undefined) => directClient.current?.noteVisibleThrough(seq), []);
   const jumpToSince = useCallback(() => {
     const key = Date.now();
     setRevealRow({ rowId: SINCE_DIVIDER, key, toolId: "" });
@@ -11652,6 +11654,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                     }
                                                                     sinceKey={childRows ? undefined : sinceKey}
                                                                     promptAuthor={directClient.current?.presence.selfId}
+                                                                    readThrough={
+                                                                      childRows ? undefined : snapshot.readThrough
+                                                                    }
+                                                                    onSeenThrough={
+                                                                      childRows ? undefined : noteSeenThrough
+                                                                    }
                                                                     onJumpToSince={jumpToSince}
                                                                     clockOffset={snapshot.clockOffsetMs ?? 0}
                                                                     coldOpen={

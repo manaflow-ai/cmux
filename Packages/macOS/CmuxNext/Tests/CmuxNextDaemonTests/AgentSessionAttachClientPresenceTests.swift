@@ -24,6 +24,32 @@ import CmuxNextCompat
         #expect(sent[3]["visible"] as? Bool == false)
     }
 
+    /// `agent-session-attention-v1`: the person away from the chat on screen goes with the view, so
+    /// a chat on that machine keeps its turns unread (acpmux `hub/seen.rs`); a daemon without it
+    /// hears only `visible`, never a param its `deny_unknown_fields` would refuse.
+    @Test func attentionGoesOnlyToADaemonThatServesIt() async throws {
+        let daemon = try PresenceDaemon(capabilities: [
+            "agent-session-attach-v1", "agent-session-presence-v1", "agent-session-attention-v1",
+        ])
+        defer { daemon.stop() }
+        let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
+        _ = try await client.view(true, attending: false, seenSeq: 41)
+        await client.close()
+        let view = try #require(daemon.frames.last { $0["cmd"] as? String == "agent-session-view" })
+        #expect(view["visible"] as? Bool == true)
+        #expect(view["attending"] as? Bool == false)
+        #expect(view["seen_seq"] as? Int == 41)
+
+        let older = try PresenceDaemon(capabilities: ["agent-session-attach-v1", "agent-session-presence-v1"])
+        defer { older.stop() }
+        let plain = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: older.path) }
+        _ = try await plain.view(true, attending: false, seenSeq: 41)
+        await plain.close()
+        let sent = try #require(older.frames.last { $0["cmd"] as? String == "agent-session-view" })
+        #expect(sent["visible"] as? Bool == true)
+        #expect(sent["attending"] == nil && sent["seen_seq"] == nil)
+    }
+
     @Test func anOlderDaemonGetsNoNewVerbAndNoEcho() async throws {
         let daemon = try PresenceDaemon(capabilities: ["agent-session-attach-v1"])
         defer { daemon.stop() }

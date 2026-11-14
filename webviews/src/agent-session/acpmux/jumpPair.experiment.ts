@@ -44,3 +44,34 @@ export const jumpPairLook = defineExperiment({
 });
 
 export type JumpPairLook = keyof typeof jumpPairLook.arms;
+
+/// The mark the one jump control carries while it points up to unseen rows (VirtualTranscript.tsx
+/// `JumpToLatest` `up`, jumpPair.css, jumpControl.ts). #41506 drew the accent dot the sidebar draws
+/// for an unread chat, #40813 a count of the unseen turns; the plain arm turns only the arrow. Leo,
+/// 2026-11-12: "it doesn't actually keep track of, like, when the things". Compare the arms in the
+/// gallery's `agent-pane.jump-up-badge`. The dot ships: it says "new" without a number to read, in
+/// the same mark as the sidebar.
+export const jumpUpBadge = defineExperiment({
+  id: "jump-up-badge",
+  title: "Jump up to unseen rows: the mark",
+  description:
+    "The one jump control while rows you have not seen lie above the view: its arrow points up. Look at whether the mark says there is something new to read without crowding the disc.",
+  arms: {
+    dot: {
+      label: "Accent dot",
+      description:
+        "The theme's accent dot at the disc's top end, the dot the sidebar draws for an unread chat (#41506).",
+    },
+    count: {
+      label: "Count badge",
+      description: "A small accent badge with how many turns are unseen, as chat apps count unread messages (#40813).",
+    },
+    plain: {
+      label: "Plain arrow",
+      description: "Only the arrow turned up: no dot, no count.",
+    },
+  },
+  defaultArm: "dot",
+});
+
+export type JumpUpBadge = keyof typeof jumpUpBadge.arms;

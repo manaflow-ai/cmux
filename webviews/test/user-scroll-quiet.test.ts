@@ -105,8 +105,8 @@ for (const ending of ["pointermove without buttons", "window blur"] as const) {
   });
 }
 
-// A press on text while scrolled up holds automatic motion like any input, but scrolls nothing: Jump
-// up's idle mark (jumpUp.ts) must not read a row settling inside that hold as the reader scrolling.
+// A press on text while scrolled up holds automatic motion like any input, but scrolls nothing: a row
+// settling inside that hold must not read as the reader scrolling (`scrolledByHand`).
 // The press counts once it drags past its slop, and a press on the scrollbar (the scroller) at once.
 test("a press on text is held but not scrolled by hand until it drags; the scrollbar and a wheel scroll", () => {
   const listeners = new Map<string, (event: Event) => void>();

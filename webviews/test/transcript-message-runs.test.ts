@@ -242,3 +242,20 @@ test("hidden discovery never invents a second line or work count beside a coordi
   expect(visible.messageRun!.work).toEqual([failed]);
   expect(visible.messageRun!.failed).toBe(1);
 });
+
+test("a folded run that came after the reader's seen cursor is where Jump up lands, while any row it folds is new", async () => {
+  const { firstUnseen, emptyUnseenScan, seenThrough } = await import("../src/agent-session/acpmux/jumpControl");
+  // The turn's records in log order: the run's line sorts by its first and draws them all.
+  const rows = turn().map((row, at) => ({ ...row, seq: at + 1 }));
+  const view = turnView(rows, new Set(), claude);
+  const line = view.findIndex((row) => row.kind === MESSAGE_RUN);
+  const first = (readThrough: number) => firstUnseen(view, readThrough, { current: emptyUnseenScan() });
+  // Seen through the prompt: the run is the first new row, not the answer under it.
+  expect(first(1)).toBe(line);
+  // Seen through its first rows only (the run grew after the reader looked): still new.
+  expect(first(3)).toBe(line);
+  // Seen through all it folds: the answer is next.
+  expect(view[first(5)]?.id).toBe("answer");
+  // In view, the line moves the cursor past every row it folds.
+  expect(seenThrough(view, { first: line, last: line }, -1)).toBe(5);
+});
