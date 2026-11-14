@@ -294,7 +294,7 @@ pub fn direct_sign_in() -> bool {
     find(&env).signed_in()
 }
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Spawned {
     pub env: BTreeMap<String, String>,
     pub routed: bool,
@@ -306,6 +306,38 @@ pub(crate) struct Spawned {
 }
 
 static SPAWNED: Mutex<Option<HashMap<String, Spawned>>> = Mutex::new(None);
+
+/// Where [`remember`] keeps `session_id`'s record for the next daemon, which adopts the agent
+/// and spawns none (bench round 5, row 10: an adopted chat's `/status` had no sign-in).
+fn kept_path(home: &Path, session_id: &str) -> PathBuf {
+    let name = crate::subagent_notice::safe_name(session_id);
+    home.join("run").join("claude-spawn").join(format!("{name}.json"))
+}
+
+/// Keep `record` on disk, owner-only. A failure costs only the `/status` rows after a restart.
+fn keep(home: &Path, session_id: &str, record: &Spawned) {
+    let write = || -> anyhow::Result<()> {
+        let path = kept_path(home, session_id);
+        if let Some(folder) = path.parent() {
+            crate::config::private_state_dir(folder)?;
+        }
+        crate::config::write_atomic(&path, &serde_json::to_vec(record)?)
+    };
+    if let Err(e) = write() {
+        tracing::warn!(session = session_id, "Claude sign-in facts not kept: {e:#}");
+    }
+}
+
+/// The record [`keep`] wrote for `session_id`, if any.
+fn kept_record(home: &Path, session_id: &str) -> Option<Spawned> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    crate::config::private_state_file(&kept_path(home, session_id))
+        .ok()?
+        .read_to_end(&mut bytes)
+        .ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
 
 /// Remember a Claude agent's spawn environment for its session: the
 /// Claude home, HOME, the endpoint and shell as they are, and only the
@@ -331,20 +363,37 @@ pub fn remember(
     if explains && !found.signed_in() {
         tracing::info!(session = session_id, home = %found.home.display(), "Claude agent starts with no sign-in in its env, settings or credentials file (a keychain sign-in is not checked)");
     }
+    let record = Spawned { env: kept, routed, route, explains };
+    // On disk for the next daemon (token values are already replaced). Not from unit tests,
+    // which build commands with no daemon home of their own.
+    if !cfg!(test) {
+        keep(&crate::config::home(), session_id, &record);
+    }
     let mut map = SPAWNED.lock().unwrap_or_else(|e| e.into_inner());
-    map.get_or_insert_with(HashMap::new)
-        .insert(session_id.to_owned(), Spawned { env: kept, routed, route, explains });
+    map.get_or_insert_with(HashMap::new).insert(session_id.to_owned(), record);
 }
 
-/// What [`remember`] kept for `session_id`'s agent.
+/// What [`remember`] kept for `session_id`'s agent: this daemon's, else the one an earlier
+/// daemon kept on disk (an adopted agent).
 pub(crate) fn spawned(session_id: &str) -> Option<Spawned> {
-    SPAWNED.lock().unwrap_or_else(|e| e.into_inner()).as_ref()?.get(session_id).cloned()
+    if let Some(found) =
+        SPAWNED.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|m| m.get(session_id))
+    {
+        return Some(found.clone());
+    }
+    let found = kept_record(&crate::config::home(), session_id)?;
+    let mut map = SPAWNED.lock().unwrap_or_else(|e| e.into_inner());
+    map.get_or_insert_with(HashMap::new).insert(session_id.to_owned(), found.clone());
+    Some(found)
 }
 
-/// The session now runs another harness: its Claude spawn env no longer applies.
+/// The session now runs another harness, or is purged: its Claude spawn env no longer applies.
 pub fn forget(session_id: &str) {
     if let Some(map) = SPAWNED.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
         map.remove(session_id);
+    }
+    if !cfg!(test) {
+        let _ = std::fs::remove_file(kept_path(&crate::config::home(), session_id));
     }
 }
 
