@@ -35,6 +35,11 @@ assert.ok(parsed.keys[0]?.scopes.has("snapshot:write"));
 // Each Cloud platform key captures snapshots (cloud.snapshot.create); production was refused without it.
 for (const id of ["cloud-platform-dev", "cloud-platform-staging", "cloud-platform-production"]) assert.ok(grants[id]?.includes("snapshot:write"), `${id} lacks snapshot:write`);
 
+// The classic migration imports through staging's Cloud key only; production gets import:classic when the founders cut over.
+assert.ok(grants["cloud-platform-staging"]?.includes("import:classic"), "cloud-platform-staging lacks import:classic");
+assert.ok(!grants["cloud-platform-production"]?.includes("import:classic"), "import:classic reached production");
+assert.ok(!grants["cloud-platform-dev"]?.includes("import:classic"), "import:classic reached dev");
+
 const dir = mkdtempSync(join(tmpdir(), "key-grants-"));
 for (const [name, body] of [["admin", { x: ["admin"] }], ["empty", { x: [] }], ["list", ["acl:read"]]] as const) {
   const file = join(dir, `${name}.json`);

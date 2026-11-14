@@ -7,6 +7,7 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
 import { Conflict, Forbidden, NotFound, PaymentRequired, QuotaExceeded } from "../errors.ts";
 import { SnapshotId, VmId } from "../lib/ids.ts";
+import { hasReservedLabel } from "../domain/classic-import.ts";
 import { CreatedByCaller, describe, DisplayName, GroupCreateHeaders, GroupCreationKeyHeaders, GroupTeamHeaders, InvalidRequest } from "./common.ts";
 
 const MAX_RETENTION_SECONDS = 365 * 24 * 60 * 60;
@@ -30,6 +31,14 @@ export const Labels = Schema.Record({ key: Schema.String, value: LabelValue })
     identifier: "SnapshotLabels",
     description: `Up to ${MAX_LABELS} key/value labels for finding snapshots (list filters by them). Same rules as VM labels. Stored by cmux, not secret.`,
   });
+
+/** Labels a caller writes: the same rules, and the import-only `classic.` prefix is refused. */
+const WritableSnapshotLabels = Labels.pipe(
+  Schema.filter((labels) => !hasReservedLabel(labels), { message: () => "label keys under classic. are reserved for the classic import" }),
+).annotations({
+  identifier: "WritableSnapshotLabels",
+  description: `Up to ${MAX_LABELS} key/value labels, as SnapshotLabels. Keys under classic. are reserved for the classic import and refused (400).`,
+});
 
 const RESTORE_NOTE =
   "A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is " +
@@ -87,7 +96,7 @@ const CreationListParams = Schema.Struct({
 
 export class CreateSnapshotRequest extends Schema.Class<CreateSnapshotRequest>("CreateSnapshotRequest")({
   displayName: Schema.optional(DisplayName),
-  labels: Schema.optional(Labels),
+  labels: Schema.optional(WritableSnapshotLabels),
   /** Delete the snapshot this many seconds after it is taken. Omit for no deadline. */
   ttlSeconds: Schema.optional(RetentionSeconds),
   /** Delete the snapshot once this many seconds pass without a VM being created from it. Omit for never. */

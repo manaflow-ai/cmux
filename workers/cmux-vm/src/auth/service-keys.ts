@@ -17,6 +17,7 @@
 import { Context, Effect, Layer, Option, Schema } from "effect";
 import { Scope } from "../domain/scopes.ts";
 import { TenantId } from "../lib/ids.ts";
+import { RESERVED_LABEL_PREFIX } from "../domain/classic-import.ts";
 
 const LABEL_KEY = /^[a-z0-9]([a-z0-9._/-]{0,61}[a-z0-9])?$/u;
 const LABEL_VALUE = /^[A-Za-z0-9._:/@-]{1,63}$/u;
@@ -32,9 +33,9 @@ const ServiceKeyEntry = Schema.Struct({
     Schema.filter(
       (labels) => {
         const entries = Object.entries(labels);
-        return entries.length >= 1 && entries.every(([key, value]) => LABEL_KEY.test(key) && LABEL_VALUE.test(value));
+        return entries.length >= 1 && entries.every(([key, value]) => LABEL_KEY.test(key) && LABEL_VALUE.test(value) && !key.startsWith(RESERVED_LABEL_PREFIX));
       },
-      { message: () => "a service key needs at least one label it is limited to" },
+      { message: () => "a service key needs at least one label it is limited to, none under the reserved classic. prefix" },
     ),
   ),
   teams: Schema.optionalWith(Schema.NullOr(Schema.Array(TenantId).pipe(Schema.minItems(1))), { default: () => null }),

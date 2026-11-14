@@ -7,6 +7,7 @@
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiMiddleware, HttpApiSchema, HttpApiSecurity, OpenApi } from "@effect/platform";
 import { Schema } from "effect";
 import { CurrentPrincipal } from "./domain/principal.ts";
+import { hasReservedLabel } from "./domain/classic-import.ts";
 import {
   BadRequest,
   Conflict,
@@ -22,6 +23,7 @@ import {
 import { SnapshotId, VmId } from "./lib/ids.ts";
 import { VmCreationsGroupDefinition } from "./api/creations.ts";
 import { SnapshotsGroupDefinition } from "./api/snapshots.ts";
+import { ClassicImportsGroupDefinition } from "./api/classic-imports.ts";
 import { TerminalsGroupDefinition } from "./api/terminals.ts";
 import { ApiKeysGroupDefinition } from "./api/api-keys.ts";
 import { AgentsGroupDefinition } from "./api/agents.ts";
@@ -76,6 +78,14 @@ export const Labels = Schema.Record({ key: Schema.String, value: LabelValue })
     identifier: "Labels",
     description: `Up to ${MAX_LABELS} key/value labels for finding VMs (list filters by them). Keys: lowercase letters, digits and . _ / - (1-63 characters); values: letters, digits and . _ : / @ - (0-63 characters). Stored by cmux, not secret.`,
   });
+
+/** Labels a caller writes: the same rules, and the import-only `classic.` prefix is refused. */
+export const WritableLabels = Labels.pipe(
+  Schema.filter((labels) => !hasReservedLabel(labels), { message: () => "label keys under classic. are reserved for the classic import" }),
+).annotations({
+  identifier: "WritableLabels",
+  description: `Up to ${MAX_LABELS} key/value labels, as Labels. Keys under classic. are reserved for the classic import and refused (400).`,
+});
 
 export const VmResources = Schema.Struct({
   vcpus: Schema.Number,
@@ -169,7 +179,7 @@ export class CreateVmRequest extends Schema.Class<CreateVmRequest>("CreateVmRequ
     idleTimeoutSeconds: Schema.optional(IdleTimeoutSeconds),
     maxRunSeconds: Schema.optional(MaxRunSeconds),
     autoDeleteSeconds: Schema.optional(AutoDeleteSeconds),
-    labels: Schema.optional(Labels),
+    labels: Schema.optional(WritableLabels),
   },
   {
     description: BASE_IMAGE_DESCRIPTION,
@@ -182,7 +192,7 @@ export class ForkVmRequest extends Schema.Class<ForkVmRequest>("ForkVmRequest")(
   idleTimeoutSeconds: Schema.optional(IdleTimeoutSeconds),
   maxRunSeconds: Schema.optional(MaxRunSeconds),
   autoDeleteSeconds: Schema.optional(AutoDeleteSeconds),
-  labels: Schema.optional(Labels.annotations({ description: "Labels for the new VM; the source's labels are not copied." })),
+  labels: Schema.optional(WritableLabels.annotations({ description: "Labels for the new VM; the source's labels are not copied. Keys under classic. are reserved and refused." })),
 }) {}
 
 /** `key=value`: keeps VMs whose label `key` equals `value`. */
@@ -558,6 +568,8 @@ export class CmuxVmApi extends HttpApi.make("cmux-vm")
   .add(ExecGroup)
   .add(FilesGroup)
   .add(SnapshotsGroupDefinition.middleware(Authentication))
+  // Classic -> NEXT migration: service keys with import:classic only.
+  .add(ClassicImportsGroupDefinition.middleware(Authentication))
   .add(TerminalsGroupDefinition.middleware(Authentication))
   .add(ApiKeysGroupDefinition.middleware(Authentication))
   .add(AgentsGroupDefinition.middleware(Authentication))
