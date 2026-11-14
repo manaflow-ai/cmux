@@ -13,6 +13,9 @@
 //   wakeups/s         the timer, frame and idle callbacks all pages ran over IDLE_MS of nothing (bench/stability.ts);
 //   warm load         from navigation to the newest reply drawn, for every chat after the first: a chat page built
 //                     in the warm shared renderer, as a released hidden chat is when it shows again.
+// HIDDEN=1 hides every chat but the newest before each sample (the document turns hidden, as a chat tab that is not
+// shown does in the app), so a row is what hidden chats cost; after the last count the oldest chat shows again and
+// its time from shown to the newest reply drawn is printed (chat_pages_memory.reshow).
 // The empty row (count 0) is the renderer holding one about:blank page of the same site, what the app's renderer
 // holds with no chat open: the per-chat target is a chat page costing about nothing beside it.
 //   bun bench/chat-pages-memory.bench.ts [counts=1,10,30] [turns=100]
@@ -209,6 +212,18 @@ try {
     }
     return sizes;
   };
+  // A chat tab that is not shown: its document turns hidden (CEF's WasHidden). Headless Chromium keeps every page
+  // visible, so the page's own view of it is set and announced as the engine would.
+  const setHidden = (page: Page, hidden: boolean) =>
+    page.evaluate((hide) => {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => (hide ? "hidden" : "visible"),
+      });
+      Object.defineProperty(document, "hidden", { configurable: true, get: () => hide });
+      document.dispatchEvent(new Event("visibilitychange"));
+    }, hidden);
+  const hiddenPages = new Set<Page>();
   const warmLoads: number[] = [];
   let kindsAt: { count: number; sizes: Map<string, number> } | undefined;
   let first: { count: number; mb: number } | undefined;
@@ -230,6 +245,14 @@ try {
     // The newest pages' own settling (read-ahead, fonts, the first paints) is not idle.
     await new Promise((resolve) => setTimeout(resolve, 3000));
     for (const { page } of pages) await settledAt(page).catch(() => undefined);
+    if (process.env.HIDDEN === "1") {
+      for (const { page } of pages.slice(0, -1)) {
+        if (hiddenPages.has(page)) continue;
+        await setHidden(page, true);
+        hiddenPages.add(page);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
     const idle = await measureIdle(
       pages.map(({ page }) => ({ page, cdp: null })),
       IDLE_WINDOW_MS,
@@ -273,6 +296,20 @@ try {
     console.log(
       `${pages.length} purged | ${purged.renderers} | ${purged.mb.toFixed(1)} | ${((purged.mb - empty.mb) / pages.length).toFixed(1)} | ${purged.heap.toFixed(1)} | -`,
     );
+  }
+  if (process.env.HIDDEN === "1" && hiddenPages.size) {
+    const { page } = pages[0]!;
+    const start = await page.evaluate(() => performance.now());
+    await setHidden(page, false);
+    hiddenPages.delete(page);
+    const shown = await page.waitForFunction(
+      (text) => (document.body.textContent?.includes(text) ? performance.now() : false),
+      FIRST_TEXT,
+      { timeout: 120_000, polling: "raf" },
+    );
+    const reshow = Number(await shown.jsonValue()) - start;
+    console.log(`chat-pages-memory: a hidden chat shown again draws its newest reply in ${reshow.toFixed(0)} ms`);
+    perfRow({ name: "chat_pages_memory.reshow", p50: reshow, p95: reshow, unit: "ms" });
   }
   if (warmLoads.length) {
     const sorted = [...warmLoads].sort((a, b) => a - b);
