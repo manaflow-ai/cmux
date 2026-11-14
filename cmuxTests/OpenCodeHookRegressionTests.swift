@@ -334,6 +334,43 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertFalse(raw.contains("./plugins/cmux\""))
     }
 
+    func testOpenCodeInstallRemovesRegistrationFromCompactJSON() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-opencode-compact-json-\(UUID().uuidString)", isDirectory: true)
+        let configDir = root.appendingPathComponent("opencode", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false)
+        try #"{"plugin": ["./plugins/cmux"], "model": "provider/model"}"#.write(to: configURL, atomically: true, encoding: .utf8)
+        let jsoncURL = configDir.appendingPathComponent("opencode.jsonc", isDirectory: false)
+        try #"{"plugin": ["./plugins/cmux-session.js"]}"#.write(to: jsoncURL, atomically: true, encoding: .utf8)
+        let fakeOpenCodeURL = binDir.appendingPathComponent("opencode", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: fakeOpenCodeURL, atomically: true, encoding: .utf8)
+        chmod(fakeOpenCodeURL.path, 0o755)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["OPENCODE_CONFIG_DIR"] = configDir.path
+        environment["PATH"] = "\(binDir.path):\(environment["PATH"] ?? "/usr/bin")"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let result = runProcess(executablePath: cliPath, arguments: ["hooks", "opencode", "install", "--yes"], environment: environment, timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let raw = try String(contentsOf: configURL, encoding: .utf8)
+        XCTAssertFalse(raw.contains("./plugins/cmux"))
+        let object = try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any]
+        XCTAssertEqual(object?["model"] as? String, "provider/model")
+        XCTAssertNil(object?["plugin"])
+
+        let jsoncRaw = try String(contentsOf: jsoncURL, encoding: .utf8)
+        let jsoncObject = try JSONSerialization.jsonObject(with: Data(jsoncRaw.utf8)) as? [String: Any]
+        XCTAssertNotNil(jsoncObject)
+        XCTAssertNil(jsoncObject?["plugin"])
+    }
+
     func testOpenCodeInstallLeavesBroadPluginsEntryAlone() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-opencode-broad-plugin-\(UUID().uuidString)", isDirectory: true)

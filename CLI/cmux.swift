@@ -37303,7 +37303,10 @@ export default {
             }
 
             guard changed, updated != source.text,
-                  let output = updated.data(using: source.encoding) else {
+                  let output = updated.data(using: source.encoding),
+                  let sanitizedOutput = try? JSONCParser.preprocess(data: output),
+                  let reparsed = try? JSONSerialization.jsonObject(with: sanitizedOutput),
+                  reparsed is [String: Any] else {
                 continue
             }
             try? output.write(to: configURL, options: .atomic)

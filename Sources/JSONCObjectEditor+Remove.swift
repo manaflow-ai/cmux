@@ -66,8 +66,12 @@ extension JSONCObjectEditor {
         from parentObject: ObjectRange,
         in source: String
     ) -> String? {
-        // Eat the removed entry's leading indentation.
-        let removeStart = startOfLine(containing: child.keyStart, in: source)
+        // Eat the removed entry's leading indentation, but never text before the
+        // parent object's opening brace. A compact document such as
+        // `{"plugin":["x"],"model":"y"}` keeps the brace and the entry on one
+        // line, and trimming to the line start would delete the brace.
+        let lineStart = startOfLine(containing: child.keyStart, in: source)
+        let removeStart = lineStart > parentObject.openBrace ? lineStart : child.keyStart
         var removeEnd = child.valueEnd
 
         // Trailing spaces, then an optional trailing comma.

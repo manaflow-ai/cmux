@@ -52,12 +52,13 @@ def main() -> int:
         config_json.write_text(
             json.dumps(
                 {
+                    "plugin": ["./plugins/cmux"],
                     "plugins": [
                         "oh-my-opencode",
                         ["existing-plugin", {"enabled": True}],
                         "cmux-session",
                         "./plugins/cmux-session.js",
-                    ]
+                    ],
                 }
             ),
             encoding="utf-8",
