@@ -24,7 +24,7 @@ final class AccountDeletionAppStoreUITests: XCTestCase {
     func testRenewingAppStoreSubscriptionWarnsBeforeDeleting() throws {
         for appearance in [XCUIDevice.Appearance.light, .dark] {
             XCUIDevice.shared.appearance = appearance
-            let app = openDeleteAccount(demo: "app-store-renewing")
+            let app = openDeleteAccount(demo: "app-store-renewing", appearance: appearance)
             let alert = app.alerts.firstMatch
             XCTAssertTrue(alert.waitForExistence(timeout: 10), "a renewing App Store subscription must warn; on screen: \(app.debugDescription.prefix(800))")
             XCTAssertTrue(alert.staticTexts[Self.warningTitle].exists)
@@ -46,7 +46,7 @@ final class AccountDeletionAppStoreUITests: XCTestCase {
         for (demo, name) in [("none", "no-subscription"), ("unavailable", "check-unavailable")] {
             for appearance in [XCUIDevice.Appearance.light, .dark] {
                 XCUIDevice.shared.appearance = appearance
-                let app = openDeleteAccount(demo: demo)
+                let app = openDeleteAccount(demo: demo, appearance: appearance)
                 let ask = app.staticTexts[Self.confirmationTitle]
                 XCTAssertTrue(ask.waitForExistence(timeout: 10), "\(demo): Delete Account must ask with the plain confirmation")
                 XCTAssertFalse(app.staticTexts[Self.warningTitle].exists, "\(demo): no App Store warning")
@@ -86,13 +86,16 @@ final class AccountDeletionAppStoreUITests: XCTestCase {
     // MARK: - Helpers
 
     @MainActor
-    private func openDeleteAccount(demo: String) -> XCUIApplication {
+    private func openDeleteAccount(demo: String, appearance: XCUIDevice.Appearance = .light) -> XCUIApplication {
         let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
         if safari.state != .notRunning { safari.terminate() }
         let app = XCUIApplication()
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-cmux-mobile-no-restore",
                                 "-cmuxMobile.setupComplete", "YES",
-                                "-cmux-mobile-tab", "settings", "-cmux-mobile-settings-page", "account"]
+                                "-cmux-mobile-tab", "settings", "-cmux-mobile-settings-page", "account",
+                                // The app's own Appearance setting (Settings > Appearance) wins
+                                // over the device's, so each capture sets it.
+                                "-cmuxMobile.settings.appearance", appearance == .dark ? "dark" : "light"]
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchEnvironment["CMUX_MOBILE_ACCOUNT_DELETION_DEMO"] = demo
         app.launch()
