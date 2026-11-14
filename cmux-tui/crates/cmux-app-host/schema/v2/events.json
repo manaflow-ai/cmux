@@ -1,5 +1,5 @@
 {
-  "$comment": "The event streams an extension can subscribe to (cmux.events.on, cmux.live). An event is an invalidation with no payload: the app reads again. The daemon delivers <family>.changed only to an app that may call <family>.list or <family>.get (apps/subscriptions.rs stream_readable), so `reads` names that op and its scope is the stream's scope. tools/gen-cmux-global.ts checks each `reads` against the catalog and writes the SDKs' table (cmux-extension-sdk/api.json); cmux-tui-core's routing tests check that every stream the daemon publishes is listed here.",
+  "$comment": "The event streams an extension can subscribe to (cmux.events.on, cmux.live). An event is an invalidation with no payload: the app reads again. The daemon delivers a stream only to an app that may call its `reads` op (apps/subscriptions.rs stream_readable), so that op's scope is the stream's scope. tools/gen-cmux-global.ts checks each `reads` against the catalog and writes the SDKs' table (cmux-extension-sdk/api.json); cmux-tui-core's routing tests check that every stream the daemon publishes is listed here.",
   "version": 1,
   "events": {
     "workspace.changed": {
@@ -33,6 +33,14 @@
     "chat.changed": {
       "docs": "A listed field of an agent chat changed (state, title, unread, pin, step, pull requests); not fired for updated_ms alone.",
       "reads": "chat.list"
+    },
+    "settings.changed": {
+      "docs": "A cmux setting changed (cmux-next.json, a managed layer, Settings, the CLI or an agent). Read the keys you use again with settings.get; the event names none and carries no values.",
+      "reads": "settings.get"
+    },
+    "theme.changed": {
+      "docs": "The theme changed: the theme, app theme, theme file, theme edits, accent, hue, saturation or highlight color. Theme tones (cmux.theme) repaint on their own; read settings.get again for anything you derive from them.",
+      "reads": "settings.get"
     }
   }
 }

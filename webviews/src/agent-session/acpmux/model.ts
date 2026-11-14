@@ -2142,6 +2142,17 @@ export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxR
   for (let next = index + 1; next < rows.length; next += 1) if (!drawsNothing(rows[next]!)) return rows[next];
   return undefined;
 }
+/// The rows a mounted row's frame props are read from (VirtualTranscript's step joins, footer and
+/// status edges, reply room): from the drawn row above `index - 1` through the next drawn row under
+/// `index`, both included. `last` is `rows.length` when nothing drawn follows, so a row appended
+/// after it changes the window too.
+export function rowPropsWindow(rows: readonly AcpmuxRow[], index: number): { first: number; last: number } {
+  let first = index - 2;
+  while (first > 0 && drawsNothing(rows[first]!)) first -= 1;
+  let last = index + 1;
+  while (last < rows.length && drawsNothing(rows[last]!)) last += 1;
+  return { first: Math.max(0, first), last };
+}
 /// The drawn row above `index` (`statusEdge` reads it for a status row over a reply).
 export function prevDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxRow | undefined {
   for (let prev = index - 1; prev >= 0; prev -= 1) if (!drawsNothing(rows[prev]!)) return rows[prev];
