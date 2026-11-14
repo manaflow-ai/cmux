@@ -2,7 +2,7 @@ import { authorizeCronRequest } from "../../../../services/cronAuth";
 import { reconcileStripeSubscriptions } from "../../../../services/billing/reconcile";
 import { captureCoderouterError } from "../../../../services/errors";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function GET(request: Request): Promise<Response> {
   if (!authorizeCronRequest(request).ok) {
