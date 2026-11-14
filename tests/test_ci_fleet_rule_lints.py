@@ -298,6 +298,23 @@ class Patterns(unittest.TestCase):
         self.assertTrue(reads_fleet_sudo('KEYCHAIN_SERVICE = "manaflow-fleet-sudo"\nrun(["security", "find-generic-password"])'))
         self.assertFalse(reads_fleet_sudo('KEYCHAIN_SERVICE = "cmuxterm-circleci"\nrun(["security", "find-generic-password"])'))
 
+    def test_attributes_only_keychain_probe_is_not_a_secret_read(self):
+        vector = '["/usr/bin/security", "find-generic-password", "-s", namespace + ".device-hub"]'
+        for source in ('subprocess.run(' + vector + ', capture_output=True)',
+                       'def probe(run=subprocess.run):\n    run(' + vector + ')',
+                       'self.assertEqual(argv, ' + vector + ')'):
+            self.assertEqual(keychain_lines(source), 0, source)
+        for source in ('subprocess.run(' + vector[:-1] + ', "-w"])',
+                       'subprocess.run(' + vector[:-1] + ', "-g"])',
+                       'subprocess.run(' + vector[:-1] + ', *options])',
+                       'subprocess.run(' + vector + ', shell=True)',
+                       'run(' + vector + ')', 'unknown(' + vector + ')',
+                       'argv=' + vector + '\nargv.append("-w")\nsubprocess.run(argv)',
+                       'subprocess.run(["security", "find-generic-password", "-ws", service])',
+                       'security find-generic-password -s "$service"',
+                       'subprocess.run(' + vector + ')\nkeyring.get_password("service", "account")'):
+            self.assertEqual(keychain_lines(source), 1, source)
+
     def test_pkill_catches_kills_by_name(self):
         for line in ('pkill -f "cmux DEV"', "killall Dock", "sudo pkill -x tccd",
                      'subprocess.run(["/usr/bin/pkill", "-9", "x"])', 'exec.Command("pkill", "-f", tag)'):
