@@ -614,3 +614,104 @@ fn w3h_screen_read_shows_text_unless_details_is_asked() {
     assert_eq!(parse(&["terminal", id, "read"]), ResponseView::ScreenText);
     assert_eq!(parse(&["terminal", id, "screen", "read", "--details"]), ResponseView::Full);
 }
+
+/// A stream that answers each read with the next scripted step: some bytes,
+/// or a read timeout (the 250 ms timeout a stream read uses).
+struct ScriptedStream(std::sync::Mutex<std::collections::VecDeque<Option<&'static [u8]>>>);
+
+impl ScriptedStream {
+    fn boxed(steps: &[Option<&'static [u8]>]) -> Box<dyn transport::Stream> {
+        Box::new(Self(std::sync::Mutex::new(steps.iter().copied().collect())))
+    }
+}
+
+impl Read for ScriptedStream {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        let mut steps = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        match steps.pop_front() {
+            None => Ok(0),
+            Some(None) => Err(io::Error::from(io::ErrorKind::WouldBlock)),
+            Some(Some(bytes)) => {
+                let count = bytes.len().min(buffer.len());
+                buffer[..count].copy_from_slice(&bytes[..count]);
+                if count < bytes.len() {
+                    steps.push_front(Some(&bytes[count..]));
+                }
+                Ok(count)
+            }
+        }
+    }
+}
+
+impl Write for ScriptedStream {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl transport::Stream for ScriptedStream {
+    fn try_clone_box(&self) -> io::Result<Box<dyn transport::Stream>> {
+        Err(io::Error::other("not cloneable"))
+    }
+
+    fn set_read_timeout(&self, _: Option<Duration>) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn set_write_timeout(&self, _: Option<Duration>) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn shutdown(&self, _: Shutdown) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// A stream line whose bytes arrive on both sides of a read timeout is one
+/// line: the bytes read before the timeout stay, and the next read finishes
+/// the line.
+#[test]
+fn a_stream_line_split_by_a_read_timeout_is_read_whole() {
+    let stream =
+        ScriptedStream::boxed(&[Some(br#"{"event":"ou"#), None, Some(b"tput\",\"n\":1}\n"), None]);
+    let mut reader = BufReader::new(stream);
+    let line = read_envelope(&mut reader, true);
+    assert_eq!(line, Ok(Some(json!({"event": "output", "n": 1}))));
+    // The peer closes in the middle of the next line: that is an error,
+    // not a clean end of the stream.
+    let stream = ScriptedStream::boxed(&[Some(br#"{"event":"#), None]);
+    let mut reader = BufReader::new(stream);
+    assert_eq!(
+        read_envelope(&mut reader, true),
+        Err("transport closed with a partial JSON line".to_string())
+    );
+}
+
+/// A failure before the request was sent (the connection's preflight timed
+/// out or dropped) leaves nothing on the daemon to join or to run twice, so
+/// every request is tried again, a mutation and a wait with its own timeout
+/// too, and none of them reports an unknown outcome.
+#[test]
+fn a_request_whose_preflight_failed_before_it_was_sent_is_tried_again() {
+    for operation in [
+        ResourceOperation::WorkspaceCreate,
+        ResourceOperation::TerminalWait,
+        ResourceOperation::TerminalScreenRead,
+    ] {
+        let tries = retry::Tries::new(&plan(operation));
+        assert!(
+            tries.may_retry_before_send(retry::Failure::Timeout),
+            "{operation:?}: a preflight timeout"
+        );
+        assert!(
+            tries.may_retry_before_send(retry::Failure::Dropped),
+            "{operation:?}: a preflight drop"
+        );
+        assert!(!tries.may_retry_before_send(retry::Failure::Other), "{operation:?}");
+        assert!(!tries.sent_before(), "{operation:?}: nothing was sent");
+    }
+}

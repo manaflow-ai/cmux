@@ -206,7 +206,7 @@ extension SidebarViewComponents {
         let (aboveHeight, belowHeight) = SidebarBandHeights.resolve(
             above: aboveRegion.layoutResult, below: belowRegion.layoutResult, available: available,
             preferences: SidebarAppHeights.preferences(below: belowRegion), minimumList: SidebarDensityTokens.rowHeight * 3,
-            bandFloor: SidebarRowTokens.current.band.rowHeight + Metrics.space2)
+            bandFloor: SidebarRowTokens.current.band.listRowHeight + Metrics.space2)
         aboveFade.frame = NSRect(x: 0, y: y, width: b.width, height: aboveHeight)
         size(aboveRegion, in: aboveScroll, width: b.width)
         // The band below sits on the footer section; the dots and cards go above it.
@@ -271,15 +271,13 @@ extension SidebarViewComponents {
         return cards.isHidden ? 0 : cards.fittingSize.height
     }
 
-    /// A space switch (R99): after a swipe the real list takes the page's
-    /// place; else the old page slides out toward the side away from the new
-    /// space's dot (a new space at the end comes in from the trailing edge).
-    func switchSpace(from old: ProfileKey?, to new: ProfileKey?, profiles: [SidebarProfile], oldSections: [SidebarSection] = []) {
-        if spacePaging.modelDidSwitch(to: new) { return list.reload(animated: false) }
-        let oldIndex = profiles.firstIndex { $0.id == old }, newIndex = profiles.firstIndex { $0.id == new }
-        guard let oldIndex, let newIndex, oldIndex != newIndex else { return list.reload(animated: false) }
-        spacePaging.prepareSlide(oldSections: oldSections)
-        list.reload(animated: false)
-        spacePaging.slide(direction: SpacePager.direction(from: oldIndex, to: newIndex))
+    /// A space switch (R99): the list shows the new space's rows at rest in the frame of the switch, as a
+    /// browser shows a tab (Lawrence 2026-11-10: a press on a space "instantly switches"). After a swipe the
+    /// list takes the page's place. Nothing slides: a dot, a key, the wheel, the palette and the CLI all end here.
+    /// `left` is the space the list showed, `shown` the model's now: a space shown again takes the rows the list
+    /// kept for it (`SidebarListView.showSpace`).
+    func showSpace(leaving left: ProfileKey?, entering shown: ProfileKey?) {
+        spacePaging.modelDidSwitch()
+        list.showSpace(leaving: left, entering: shown)
     }
 }

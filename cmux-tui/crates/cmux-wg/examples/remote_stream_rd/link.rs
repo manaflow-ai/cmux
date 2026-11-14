@@ -510,6 +510,24 @@ mod tests {
         assert_eq!(frames_in_flight(&args), 9);
     }
 
+    /// The automatic RTT-sized bound keeps the 50 ms bench above the issue's
+    /// 50 fps on-time target (the old one-frame bound measured 16.1 fps).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn fifty_ms_rtt_keeps_on_time_fps_above_fifty() {
+        let mut args = crate::args_from(Vec::new());
+        args.path = "rd-link".into();
+        args.rtt_ms = 50;
+        args.seconds = 6;
+        args.bulk_bytes = 0;
+        let clock = Arc::new(Clock(Instant::now()));
+        let record: Shared = Arc::default();
+        run(&args, clock, record.clone()).await.expect("bench");
+        let record = lock(&record);
+        let received = record.frame_us.len() as u64 + u64::from(record.first_frame_us.is_some());
+        let on_time = (received.saturating_sub(record.late)) as f64 / args.seconds as f64;
+        assert!(on_time >= 50.0, "on-time fps {on_time:.1} below 50");
+    }
+
     /// The whole path on a lossy link: frames still arrive (FEC and NACKs
     /// repair them), and input reaches the host and comes back as photons.
     #[tokio::test(flavor = "multi_thread")]

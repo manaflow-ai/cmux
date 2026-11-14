@@ -120,6 +120,12 @@ struct DaemonCursor {
     revision: u64,
     #[serde(rename = "k", default, skip_serializing_if = "is_zero")]
     skip: usize,
+    /// The daemon's live position (`live` in its cursor), sent back as it
+    /// came: the next call then gets only the terminals whose live facts
+    /// changed after this one. `None` from a daemon that has no live
+    /// position, and in a cursor of a build before it.
+    #[serde(rename = "l", default, skip_serializing_if = "Option::is_none")]
+    live: Option<String>,
 }
 
 fn is_zero(value: &usize) -> bool {
@@ -144,7 +150,12 @@ impl Cursor {
 
     fn daemon_param(&self) -> Option<Value> {
         let daemon = self.daemon.as_ref()?;
-        Some(json!({"generation": daemon.generation, "revision": daemon.revision.to_string()}))
+        let mut cursor =
+            json!({"generation": daemon.generation, "revision": daemon.revision.to_string()});
+        if let (Some(live), Some(fields)) = (&daemon.live, cursor.as_object_mut()) {
+            fields.insert("live".to_owned(), json!(live));
+        }
+        Some(cursor)
     }
 }
 
@@ -510,10 +521,14 @@ impl<'a> Poll<'a> {
                 let changes = item["changes"].as_array().map(Vec::as_slice).unwrap_or_default();
                 for (index, change) in changes.iter().enumerate().skip(skip) {
                     if !self.change(change) {
+                        // Before this item, so its live position too: the
+                        // daemon sends the item again.
+                        let live = self.cursor.daemon.take().and_then(|from| from.live);
                         self.cursor.daemon = Some(DaemonCursor {
                             generation: next.generation,
                             revision: previous.unwrap_or(next.revision.saturating_sub(1)),
                             skip: index,
+                            live,
                         });
                         return false;
                     }
@@ -744,14 +759,16 @@ impl<'a> Poll<'a> {
     }
 }
 
-/// `{generation, revision}` as the daemon writes it.
+/// `{generation, revision}` as the daemon writes it, with `live` when the
+/// daemon gives the live position.
 fn daemon_cursor(cursor: &Value, skip: usize) -> Option<DaemonCursor> {
     let generation = cursor["generation"].as_str()?.to_owned();
     let revision = match &cursor["revision"] {
         Value::String(text) => text.parse().ok()?,
         other => other.as_u64()?,
     };
-    Some(DaemonCursor { generation, revision, skip })
+    let live = cursor["live"].as_str().map(str::to_owned);
+    Some(DaemonCursor { generation, revision, skip, live })
 }
 
 /// The state of each daemon agent record in a session snapshot.
@@ -837,11 +854,52 @@ fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|since| since.as_millis() as u64).unwrap_or(0)
 }
 
+/// Every event `cmux agents events --kind KINDS` answers from now on, handed
+/// to `each` in order until it answers false. Each read is one long-poll
+/// (the daemon's pushed journal, and the app's state as `agents events`
+/// reads it), resumed from the last read's cursor, so nothing between two
+/// reads is lost. `cmux automation events agent-idle` is this. A read that
+/// fails ends it with the error object.
+pub(in crate::cli) fn follow(
+    global: &super::super::GlobalArgs,
+    kinds: &str,
+    each: &mut dyn FnMut(&Value) -> bool,
+) -> Result<(), Value> {
+    let backend = mcp::cli_backend(global.clone());
+    let session = global.session.as_deref();
+    let mut after: Option<String> = None;
+    loop {
+        let timeout = MAX_TIMEOUT_SECONDS.to_string();
+        let mut words = vec!["--kind", kinds, "--timeout", timeout.as_str()];
+        if let Some(cursor) = &after {
+            words.extend(["--after", cursor.as_str()]);
+        }
+        let request = parse(&words).map_err(|error| {
+            json!({"code": "usage.invalid", "message": error.0, "details": {}, "retryable": false})
+        })?;
+        let answer = match run(&backend, session, &request) {
+            Ok(answer) => answer,
+            Err(AgentFailure::Usage(message)) => {
+                return Err(
+                    json!({"code": "usage.invalid", "message": message, "details": {}, "retryable": false}),
+                );
+            }
+            Err(AgentFailure::Owner(failure)) => return Err(mcp::agent_failure_value(failure)),
+        };
+        for event in answer.get("events").and_then(Value::as_array).into_iter().flatten() {
+            if !each(event) {
+                return Ok(());
+            }
+        }
+        after = answer.get("next_after").and_then(Value::as_str).map(str::to_owned).or(after);
+    }
+}
+
 /// One line per event for `cmux agents events` without `--json`:
 /// `seq kind change id detail`.
 pub(in crate::cli) fn human_lines(answer: &Value) -> String {
     let mut out = String::new();
-    for event in answer["events"].as_array().into_iter().flatten() {
+    for event in answer.get("events").and_then(Value::as_array).into_iter().flatten() {
         let text = |name: &str| event[name].as_str().unwrap_or("").to_owned();
         let detail = match event["kind"].as_str() {
             Some("agent") => text("state"),

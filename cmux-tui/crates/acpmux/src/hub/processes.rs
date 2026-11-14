@@ -37,9 +37,12 @@ const TAIL_DEFAULT: u64 = 64 << 10;
 /// The most one tail reads, whatever `maxBytes` asks.
 const TAIL_MAX: u64 = 1 << 20;
 
-/// Leave ample room for JSON-RPC framing and a potentially long cursor. A page never
-/// constructs or sends the full completed-process history.
-const PROCESS_PAGE_BUDGET: usize = crate::rpc::MAX_MESSAGE_BYTES - (64 << 10);
+/// The most one `_acpmux/process/list` reply holds, paged or not: a client path's reply bound
+/// ([`REPLY_PAGE_BYTES`](crate::rpc::REPLY_PAGE_BYTES)) less room for JSON-RPC framing and a
+/// long cursor. A page never constructs or sends the full completed-process history, and an
+/// unpaged list keeps the newest processes that fit ([`process_window_values`]): a 34 MB
+/// unpaged list was serialized whole only to be refused as too large (2026-11-11).
+const PROCESS_PAGE_BUDGET: usize = crate::rpc::REPLY_PAGE_BYTES - (16 << 10);
 
 /// Where a process is in its life.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -399,6 +402,55 @@ fn process_values(processes: Vec<Process>, length: impl Fn(&str) -> u64) -> Vec<
         .collect()
 }
 
+/// A process row too large for a reply alone: its identity and state, with its size, as a
+/// page's oversized row goes.
+fn process_stub(row: &Value, full_bytes: usize) -> Value {
+    // `get` serializes a missing field as null, as an index did.
+    json!({
+        "id": row.get("id"), "sessionId": row.get("sessionId"),
+        "toolCallId": row.get("toolCallId"), "taskId": row.get("taskId"),
+        "harness": row.get("harness"), "command": "",
+        "startedAt": row.get("startedAt"), "endedAt": row.get("endedAt"),
+        "state": row.get("state"), "origin": row.get("origin"),
+        "omitted": {"reason": "too_large", "bytes": full_bytes}
+    })
+}
+
+/// The newest of `processes` (in the order given, oldest first) whose rows fit in `budget`
+/// bytes, oldest first, and `omitted`, how many older ones did not fit, when any. Walked from
+/// the newest and stopped at the first that does not fit: an unpaged list costs one reply's
+/// work, not the history's. A row too large alone goes as its [`process_stub`].
+fn process_window_values(
+    processes: Vec<Process>,
+    budget: usize,
+    length: impl Fn(&str) -> u64,
+) -> Value {
+    let total = processes.len();
+    let (mut rows, mut used) = (Vec::new(), 64_usize);
+    for mut process in processes.into_iter().rev() {
+        process.output_bytes = process.output_file.as_deref().map(&length);
+        let Ok(mut row) = serde_json::to_value(process) else { continue };
+        let mut bytes = row.to_string().len();
+        if bytes.saturating_add(64) > budget {
+            row = process_stub(&row, bytes);
+            bytes = row.to_string().len();
+        }
+        if used.saturating_add(bytes).saturating_add(1) > budget {
+            break;
+        }
+        used = used.saturating_add(bytes).saturating_add(1);
+        rows.push(row);
+    }
+    let omitted = total.saturating_sub(rows.len());
+    rows.reverse();
+    let mut reply = serde_json::Map::new();
+    reply.insert("processes".to_owned(), Value::Array(rows));
+    if omitted > 0 {
+        reply.insert("omitted".to_owned(), json!(omitted));
+    }
+    Value::Object(reply)
+}
+
 /// A byte-bounded process page. Resolve file sizes and serialize after releasing the
 /// table mutex, stopping as soon as the page fills. An oversized command/detail becomes
 /// an explicit identity-preserving stub; a cursor/identity too large even for a stub is
@@ -421,15 +473,7 @@ fn process_page_values(
         let mut bytes = row.to_string().len();
         if bytes.saturating_add(cursor_bytes).saturating_add(64) > budget {
             let full_bytes = bytes;
-            // `get` serializes a missing field as null, as an index did.
-            row = json!({
-                "id": row.get("id"), "sessionId": row.get("sessionId"),
-                "toolCallId": row.get("toolCallId"), "taskId": row.get("taskId"),
-                "harness": row.get("harness"), "command": "",
-                "startedAt": row.get("startedAt"), "endedAt": row.get("endedAt"),
-                "state": row.get("state"), "origin": row.get("origin"),
-                "omitted": {"reason": "too_large", "bytes": full_bytes}
-            });
+            row = process_stub(&row, full_bytes);
             bytes = row.to_string().len();
             if bytes.saturating_add(cursor_bytes).saturating_add(64) > budget {
                 return Err(RpcError::too_large(full_bytes));
@@ -663,6 +707,30 @@ impl Hub {
                 .collect(),
         };
         json!({"processes": process_values(processes, output_len)})
+    }
+
+    /// `_acpmux/process/list` with no page (`limit`), as a client reads it: [`Self::list_processes`]
+    /// cut to the newest processes that fit one reply ([`PROCESS_PAGE_BUDGET`]), in the order they
+    /// started, with `omitted`, how many older ones it left out, when any. Across every chat
+    /// (no `session`) the newest are by start. Only the rows it keeps have their output file's
+    /// size read and are serialized: its cost is the reply's, however long the history.
+    pub(crate) fn list_processes_reply(&self, session: Option<&Session>) -> Value {
+        let mut processes: Vec<Process> = match session {
+            Some(session) => self.process_table(session).snapshot(),
+            None => self
+                .sessions()
+                .iter()
+                .flat_map(|s| {
+                    let table = s.processes.lock().unwrap_or_else(|e| e.into_inner());
+                    if table.loaded { table.snapshot() } else { Vec::new() }
+                })
+                .collect(),
+        };
+        if session.is_none() {
+            // Stable: one chat's processes keep their order.
+            processes.sort_by_key(|p| p.started_at);
+        }
+        process_window_values(processes, PROCESS_PAGE_BUDGET, output_len)
     }
 
     /// Optional byte-bounded process-list pages, scoped to one session. The caller

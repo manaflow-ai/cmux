@@ -119,9 +119,10 @@ fn per_turn_reads(turns: u64, print: bool) -> Vec<String> {
 
     let hub = hub_over(&sessions);
     let s = hub.resolve("c").unwrap();
-    // Once per chat, ever: the log load makes the copies of the indexed kinds, and the first
-    // Session Info folds the log and saves the fold.
+    // Once per chat, ever: the log load makes the copies of the indexed kinds, and the one fold
+    // of the log (a turn's end, `start_time_breakdown_backfill`) saves the fold.
     hub.load_session_log(&s);
+    hub.seed_time_breakdown(&s, true);
     let folded = hub.session_detail(&s)["timeBreakdown"].clone();
     assert!(folded.is_object(), "{folded}");
 
@@ -164,11 +165,12 @@ fn per_turn_reads(turns: u64, print: bool) -> Vec<String> {
     measure("machine_info's secrets (machine_info.rs)", &mut || {
         let _ = hub.machine_info(&s);
     });
-    // A later daemon's first open of the chat: Session Info from the saved fold.
+    // A later daemon's first open of the chat: Session Info's seed restores the saved fold.
     let later = hub_over(&sessions);
     let again = later.resolve("c").unwrap();
     later.load_session_log(&again);
-    measure("a later daemon's Session Info (views.rs time_breakdown_of)", &mut || {
+    measure("a later daemon's Session Info (views.rs seed_time_breakdown)", &mut || {
+        later.seed_time_breakdown(&again, false);
         let saved = later.session_detail(&again)["timeBreakdown"].clone();
         assert_eq!(saved, folded, "the saved fold is the log's");
     });
@@ -208,6 +210,7 @@ fn a_forks_session_info_never_copies_its_chats_history() {
     }
     let hub = hub_over(&sessions);
     let fork = hub.resolve("fork").unwrap();
+    hub.seed_time_breakdown(&fork, true);
     let breakdown = hub.session_detail(&fork)["timeBreakdown"].clone();
     assert!(breakdown.is_object(), "{breakdown}");
     assert!(fork.meta().history_from.is_some(), "the fork's history is still a reference");

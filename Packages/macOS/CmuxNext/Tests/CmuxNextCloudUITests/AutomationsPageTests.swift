@@ -69,6 +69,12 @@ import Testing
         #expect(page.badgeCount == 1, "the badge counts failures only")
     }
 
+    @Test func aLocalTriggerReadsAsTheCLISaysIt() {
+        // `cmux automation create review --when pr-opened` lists its trigger in words.
+        let json = Data(#"{"automations": [{"id": "auto_ffffffffffffffffffff", "name": "Review PRs", "enabled": true, "trigger": {"type": "event", "event": "pr-opened", "debounce_seconds": 5}, "trigger_label": "When a pull request is opened", "body": {"type": "prompt", "prompt": "Review it"}}]}"#.utf8)
+        #expect(AutomationRow.local(json).first?.schedule == "When a pull request is opened")
+    }
+
     @Test func aSourceThatFailsKeepsTheOthersRowsAndSaysWhy() async {
         let page = AutomationsPage(local: { Self.localJSON }, cloud: { throw Offline() })
         await page.reload(now: Self.now)

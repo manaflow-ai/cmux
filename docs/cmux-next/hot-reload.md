@@ -5,6 +5,9 @@ cmux checkout and the app you're using right now changes as you save: no build, 
 windows, chats and terminals stay where they are. It works in every cmux build, in WebKit and in
 Chromium, and it's on by default. The feature is called **cmux Live**.
 
+For a tagged Debug app with separate chat and pages servers, use
+[live chat editing](live-chat-editing.md). It includes the chat scenario workbench and source checks.
+
 ### Is cmux Live the same as Live Web Reload?
 
 Yes. It is one feature, and Live Web Reload was its old name. The setting Settings > General >
@@ -482,7 +485,14 @@ what feat-cmux-next published for SHA and diffs it against the app's `CMUXCommit
   `completion.json`, replaces the app's `bin/cmux`. The app's daemon then hands off to it as in
   `cmux live start --rust`: same app pid, terminals kept. `bin/cmux` is also `cmux-tui` and `acpmux`,
   so `cmux link`, the CLI in the app's terminals and acpmux daemons started after the swap run SHA's
-  build. A running acpmux daemon keeps its build until it restarts (`--acpmux-home H` restarts one).
+  build. A running acpmux daemon keeps its build until it restarts: `--restart-acpmux` restarts every
+  acpmux daemon running from the app's bin folder (`acpmux daemon run` or `cmux acp daemon run`, each
+  found by its socket's `daemon status`), so the agent daemon swaps too, its hosted sessions kept. Each
+  restarts with its own launch environment, read from the process, and must answer from a new pid. A
+  daemon a restart would cost its chats (a memory store without agent hosts), or one whose environment
+  can't be read, is left;
+  `--acpmux-home H` restarts one by its home. Without either, the receipt lists the acpmux daemons
+  left on the old build (`acpmux_left_on_old_build`), and `rollback` restarts the ones it restarted.
 - **Web:** SHA's published web bundles go into the app's web overlay, as long as SHA's web ABI is
   the app's.
 - **Neither:** Swift, resources, Rust the app links through FFI, and helpers such as
