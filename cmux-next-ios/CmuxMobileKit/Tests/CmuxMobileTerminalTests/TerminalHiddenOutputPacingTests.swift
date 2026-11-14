@@ -113,7 +113,10 @@ import UIKit
         let pumps = counts.pumps - before.pumps
         let batches = counts.batches - before.batches
         let draws = rig.screen.surface.drawRequests - drawsBefore
-        print("hidden-output: \(bytes / 1024) KB over \(duration) s hidden: display-link ticks \(ticks), pump calls \(pumps), batches \(batches), draw requests \(draws)")
+        let line = "hidden-output: \(bytes / 1024) KB over \(duration) s hidden: display-link ticks \(ticks), pump calls \(pumps), batches \(batches), draw requests \(draws)"
+        print(line)
+        // The simulator step keeps attachments, not the console.
+        Attachment.record(line, named: "hidden-output.txt")
 
         #expect(ticks == 0, "hidden: the output display link ran \(ticks) frames")
         // One coalesced batch per interval (and one more for a batch in flight at the end).
@@ -144,10 +147,12 @@ import UIKit
         rig.hide()
         try await Task.sleep(for: .milliseconds(200)) // test: the reveal's own work settles
 
-        // Over the high water in one go (a `cat` of a large file).
+        // Over the high water in one go (a `cat` of a large file): written
+        // until the screen pauses the Mac, with room for the batches it took
+        // meanwhile, so the check does not depend on how many it took.
         var written = 0
         var bytes = 0
-        while bytes <= TerminalOutputQueue.highWater {
+        while rig.session.pauses.isEmpty, bytes <= TerminalOutputQueue.highWater + (4 << 20) {
             let chunk = Self.lines("cat", from: written, count: 1024)
             rig.session.write(chunk)
             written += 1024
