@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43558668565",
+  "recorded_at": "2026-11-14T05:00:49Z",
+  "reason": "cmux-tui a27af61ce394 changes the image's cmux-tui (pinned 0263d77af6b9)",
+  "dry_run": false,
+  "cmux_tui": "a27af61ce394634bf05fead33e678d120461ec97",
+  "fixes": [
+    {
+      "sha": "a27af61ce394634bf05fead33e678d120461ec97",
+      "mergedAt": "2026-11-13T20:28:29-08:00",
+      "subject": "cmux-next: remove the iroh phone listener (Phone Access) (#42780)"
+    },
+    {
+      "sha": "bec759bc95c4f415b1594ecbd1f4b2ebde5a171b",
+      "mergedAt": "2026-11-13T20:27:46-08:00",
+      "subject": "Classic import: the operation catalog carries what the daemon now returns and accepts (#42741)"
+    },
+    {
+      "sha": "9d91de65c577e3958aad2103972305a7c42497d4",
+      "mergedAt": "2026-11-13T20:22:48-08:00",
+      "subject": "cmux chat: start a chat on your own joined machine (#38355)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T05:00:49Z",
+    "snapshot_id": "sh-89bd1a50bf324b2dbd13ea259a17e78d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43558668565): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5a0cf89cc3daa15b5c50edf49e31d637ad123142",
+    "image": "cloud-native-auto-a27af61c-43558668565-1",
+    "revision": "ci-43558668565-1",
+    "at": "2026-11-14T05:00:49Z"
+  },
+  "rolled_back": false
+}
