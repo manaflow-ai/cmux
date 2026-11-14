@@ -146,8 +146,8 @@ pub(super) fn remove_local(home: &std::path::Path, copy: bool) -> Result<Vec<&'s
     let key_lock = if made { node_key_removable(home)? } else { None };
     let node_key =
         key_lock.as_ref().map(|_| (cmux_link::key_holder::KeyFile::Node.file_name(), "nodeKey"));
-    let key_gone =
-        node_key.is_some() || std::fs::symlink_metadata(cmux_link::key_holder::KeyFile::Node.path_in(home)).is_err();
+    let key_gone = node_key.is_some()
+        || std::fs::symlink_metadata(cmux_link::key_holder::KeyFile::Node.path_in(home)).is_err();
     let marker = key_gone.then_some((NODE_KEY_MADE, ""));
     for (file, label) in
         [Some((CREDENTIAL_FILE, "credential")), node_key, marker].into_iter().flatten()
