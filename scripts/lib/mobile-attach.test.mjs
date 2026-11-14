@@ -58,100 +58,6 @@ function removeStaleSocket(socketPath) {
   );
 }
 
-function waitForUsableSession(
-  status = 0,
-  baseline = "100",
-  timeout = "15",
-  event = '{"seq":101,"name":"mobile.rpc.ready","payload":{"connection_id":"connection-a","client_id":"phone-a","transport":"iroh","stream_id":"events"}}',
-  expectedClientID = "phone-a",
-  graceSeconds = "0",
-) {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-admission-test-"));
-  const argsPath = path.join(tempRoot, "args");
-
-  try {
-    const result = run(
-      "bash",
-      [
-        "-c",
-        [
-          'source "$1"',
-          'cmux_attach_events() {',
-          '  shift 2',
-          '  printf "%s\\n" "$*" > "$CMUX_TEST_ARGS"',
-          '  [[ "$CMUX_TEST_STATUS" == "0" ]] && printf "%s\\n" "$CMUX_TEST_EVENT"',
-          '  return "$CMUX_TEST_STATUS"',
-          '}',
-          'cmux_attach_wait_for_usable_session "ready" "$2" "$3" "$4" "$5"',
-        ].join("\n"),
-        "mobile-admission-test",
-        validator,
-        repoRoot,
-        baseline,
-        timeout,
-        expectedClientID,
-      ],
-      {
-        CMUX_TEST_ARGS: argsPath,
-        CMUX_TEST_EVENT: event,
-        CMUX_TEST_STATUS: String(status),
-        CMUX_ATTACH_READY_GRACE_SECONDS: graceSeconds,
-      },
-    );
-    result.eventArgs = fs.existsSync(argsPath) ? fs.readFileSync(argsPath, "utf8").trim() : "";
-    return result;
-  } finally {
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-  }
-}
-
-function writeReadinessReceipt(eventJSON) {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-receipt-test-"));
-  const receiptPath = path.join(tempRoot, "receipt.json");
-  const result = run(
-    "bash",
-    [
-      "-c",
-      [
-        'source "$1"',
-        'cmux_attach_write_readiness_receipt "$2" "$3" iosrdy dev.cmux.ios.iosrdy physical_device phone-a iosrdy /tmp/cmux-debug-iosrdy.sock 8421 1 "$4"',
-      ].join("\n"),
-      "mobile-readiness-receipt-test",
-      validator,
-      receiptPath,
-      "0123456789abcdef0123456789abcdef01234567",
-      eventJSON,
-    ],
-  );
-  result.receipt = fs.existsSync(receiptPath)
-    ? JSON.parse(fs.readFileSync(receiptPath, "utf8"))
-    : null;
-  result.directoryMode = fs.statSync(tempRoot).mode & 0o777;
-  result.receiptMode = fs.existsSync(receiptPath)
-    ? fs.statSync(receiptPath).mode & 0o777
-    : null;
-  fs.rmSync(tempRoot, { recursive: true, force: true });
-  return result;
-}
-
-function readinessCursor(snapshot) {
-  return run(
-    "bash",
-    [
-      "-c",
-      [
-        'source "$1"',
-        'cmux_attach_events() { printf "%s\\n" "$CMUX_TEST_SNAPSHOT"; }',
-        'cmux_attach_readiness_cursor "ready" "$2"',
-      ].join("\n"),
-      "mobile-admission-cursor-test",
-      validator,
-      repoRoot,
-    ],
-    { CMUX_TEST_SNAPSHOT: snapshot },
-  );
-}
-
 function monotonicMilliseconds() {
   return run("bash", [
     "-c",
@@ -499,15 +405,6 @@ test("tagged stale-socket cleanup refuses a non-socket path", () => {
   }
 });
 
-test("dogfood readiness captures the Mac event sequence before launch", () => {
-  const result = readinessCursor(
-    '{"type":"ack","resume":{"latest_seq":842,"next_seq":843}}',
-  );
-
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout, "842");
-});
-
 test("dogfood readiness clock is stable across helper processes", () => {
   const first = monotonicMilliseconds();
   const second = monotonicMilliseconds();
@@ -522,81 +419,6 @@ test("dogfood readiness clock is stable across helper processes", () => {
     secondMilliseconds >= firstMilliseconds,
     `expected monotonic clock, got ${firstMilliseconds} -> ${secondMilliseconds}`,
   );
-});
-
-test("dogfood readiness blocks on the post-launch usable RPC event", () => {
-  const result = waitForUsableSession(0, "842", "15");
-
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(
-    result.eventArgs,
-    "--after 842 --name mobile.rpc.ready --limit 1 --timeout 15 --no-ack --no-heartbeat",
-  );
-  assert.match(result.stdout, /"name":"mobile\.rpc\.ready"/);
-});
-
-test("dogfood readiness rejects an event from another client", () => {
-  const result = waitForUsableSession(
-    0,
-    "842",
-    "1",
-    '{"seq":843,"name":"mobile.rpc.ready","payload":{"client_id":"other-phone"}}',
-    "phone-a",
-  );
-
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /did not establish a usable RPC session/i);
-});
-
-test("dogfood readiness fails when a usable RPC session misses its deadline", () => {
-  const result = waitForUsableSession(1, "100", "1");
-
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /did not establish a usable RPC session.*readiness deadline/i);
-});
-
-test("dogfood readiness writes a secret-free identity and latency receipt", () => {
-  const result = writeReadinessReceipt(
-    '{"name":"mobile.rpc.ready","payload":{"connection_id":"connection-a","client_id":"phone-a","workspace_count":2,"stream_id":"events","transport":"iroh","access_token":"must-not-appear"}}',
-  );
-
-  assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(result.receipt, {
-    schema: "cmux-ios-dogfood-readiness-v1",
-    git_sha: "0123456789abcdef0123456789abcdef01234567",
-    tooling_checkout_sha: "0123456789abcdef0123456789abcdef01234567",
-    installed_bundle: {
-      bundle_id: "dev.cmux.ios.iosrdy",
-      executable_sha256: null,
-      source: "legacy_receipt_writer",
-      target: "physical_device",
-      target_id: "phone-a",
-    },
-    tag: "iosrdy",
-    bundle_id: "dev.cmux.ios.iosrdy",
-    target: "physical_device",
-    target_id: "phone-a",
-    mac_tag: "iosrdy",
-    socket_path: "/tmp/cmux-debug-iosrdy.sock",
-    readiness_latency_ms: 8421,
-    attempt_count: 1,
-    connection_id: "connection-a",
-    client_id: "phone-a",
-    workspace_count: 2,
-    stream_id: "events",
-    transport: "iroh",
-    tooling_checkout_sha: "0123456789abcdef0123456789abcdef01234567",
-    installed_bundle: {
-      bundle_id: "dev.cmux.ios.iosrdy",
-      target: "physical_device",
-      target_id: "phone-a",
-      source: "legacy_receipt_writer",
-      executable_sha256: null,
-    },
-  });
-  assert.equal(result.directoryMode, 0o700);
-  assert.equal(result.receiptMode, 0o600);
-  assert.doesNotMatch(JSON.stringify(result.receipt), /must-not-appear|access_token/);
 });
 
 test("macOS and iOS reloads share the dev API backend override", () => {
@@ -854,23 +676,11 @@ test("ensure-mac rotates an armed exact-tag app before using explicit credential
 });
 
 test("release gate grants asynchronous Iroh publication a bounded startup window", () => {
-  const launcher = fs.readFileSync(
-    path.join(repoRoot, "scripts/mobile-dev-launch.sh"),
-    "utf8",
-  );
   const gate = fs.readFileSync(
     path.join(repoRoot, "scripts/run-iroh-release-gate.sh"),
     "utf8",
   );
 
-  assert.match(
-    launcher,
-    /ATTACH_MINT_MAX_ATTEMPTS="\$\{CMUX_ATTACH_MINT_MAX_ATTEMPTS:-20\}"/,
-  );
-  assert.match(
-    launcher,
-    /cmux_attach_mint_url[^\n]+"\$ATTACH_TARGET" "\$ATTACH_MINT_MAX_ATTEMPTS"/,
-  );
   assert.match(
     gate,
     /CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \\[\s\S]{0,800}\.\/scripts\/mobile-dev-launch\.sh/,
@@ -886,9 +696,10 @@ test("simulator launch seeds a deterministic durable device id before app launch
     path.join(repoRoot, "scripts/mobile-dev-launch.sh"),
     "utf8",
   );
+  const branchStart = launcher.indexOf('\nif [[ "$TARGET" == "simulator" ]]');
   const simulatorBranch = launcher.slice(
-    launcher.indexOf('if [[ "$TARGET" == "simulator" ]]'),
-    launcher.indexOf("\nelse\n", launcher.indexOf('if [[ "$TARGET" == "simulator" ]]')),
+    branchStart,
+    launcher.indexOf("\nelse\n", branchStart),
   );
   const seed = simulatorBranch.indexOf(
     'cmux_attach_seed_simulator_device_id "$SIM_UDID" "$BUNDLE_ID"',
@@ -897,7 +708,7 @@ test("simulator launch seeds a deterministic durable device id before app launch
     'SIMCTL_CHILD_CMUX_SIMULATOR_DEVICE_ID="$SIMULATOR_DEVICE_ID"',
   );
   const terminate = simulatorBranch.indexOf('xcrun simctl terminate');
-  const launch = simulatorBranch.indexOf('xcrun simctl "${launch_args[@]}"');
+  const launch = simulatorBranch.indexOf('xcrun simctl launch "$SIM_UDID" "$BUNDLE_ID"');
 
   assert.notEqual(terminate, -1, "existing simulator app must terminate before seeding");
   assert.notEqual(seed, -1, "simulator launch must seed the durable identity mirror");
@@ -967,7 +778,7 @@ test("mobile launch accepts an explicit no-attach override", () => {
   assert.doesNotMatch(result.stderr, /unknown arg/);
 });
 
-test("ensure-mac fails closed before a simulator can launch unpaired", () => {
+test("a simulator app without the app-receipt contract is refused before launch", () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-ensure-mac-test-"));
   const binDir = path.join(tempRoot, "bin");
   const xcrunLog = path.join(tempRoot, "xcrun.log");
@@ -1018,8 +829,11 @@ test("ensure-mac fails closed before a simulator can launch unpaired", () => {
       },
     );
 
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /could not prepare tagged Mac.*auto-pair/i);
+    // No installed app means no CMUXDogfoodReadiness, which used to fall back
+    // to mac-rpc. That needs the Mac's iroh listener, which is gone.
+    assert.equal(result.status, 2, result.stderr);
+    assert.match(result.stderr, /no longer runs the iroh phone listener/);
+    assert.match(result.stderr, /--readiness app-receipt/);
     const calls = fs.existsSync(xcrunLog) ? fs.readFileSync(xcrunLog, "utf8") : "";
     assert.doesNotMatch(calls, /simctl launch/);
   } finally {
@@ -1116,7 +930,7 @@ test("release gate points Mac and iOS at one explicit presence backend", () => {
   );
 });
 
-test("physical-route attach reports a missing tagged Mac before blaming Iroh", () => {
+test("the Iroh release gate launch is refused before any Mac or simulator work", () => {
   const tag = `missing-mac-${process.pid}`;
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-missing-mac-test-"));
   fs.mkdirSync(path.join(tempRoot, ".secrets"));
@@ -1139,11 +953,10 @@ test("physical-route attach reports a missing tagged Mac before blaming Iroh", (
   ], { HOME: tempRoot });
   fs.rmSync(tempRoot, { recursive: true, force: true });
 
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /tagged Mac.*not running|debug socket.*not ready/i);
-  assert.match(result.stderr, /--ensure-mac/);
-  assert.doesNotMatch(result.stderr, /must advertise an encrypted Iroh route/i);
-  assert.doesNotMatch(result.stderr, /--no-attach/);
+  assert.equal(result.status, 2, result.stderr);
+  assert.match(result.stderr, /--iroh-release-gate has no target/);
+  assert.match(result.stderr, /mobile\.attach_ticket\.create \/ mobile\.rpc\.ready/);
+  assert.equal(result.stdout, "");
 });
 
 for (const entrypoint of [

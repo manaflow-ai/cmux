@@ -191,6 +191,24 @@ impl SummaryIndex {
         }
     }
 
+    /// An empty derived view for a rebuild. Sequence numbers remain monotonic
+    /// with the writer's published history while the old disk generation is
+    /// absent, so new source-walk rows can be appended immediately.
+    pub fn empty_for_rebuild(&self) -> Self {
+        let mut next = self.clone();
+        next.disk = None;
+        next.shadowed = OrdSet::new();
+        next.removed_snapshot_seq = OrdMap::new();
+        next
+    }
+
+    /// Constructs a first-start index with an explicit edition fence.
+    pub fn empty_with_edition(edition: u32) -> Self {
+        let mut index = Self::new();
+        index.edition = edition;
+        index
+    }
+
     /// Merge the immutable disk generation with the current hot/tail overlay.
     /// This iterator owns one bounded disk piece, never a materialized list.
     pub fn merged_rows(&self) -> impl Iterator<Item = io::Result<Arc<Summary>>> + '_ {

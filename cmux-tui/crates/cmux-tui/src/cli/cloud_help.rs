@@ -156,6 +156,12 @@ const GROUPS: &[Group] = &[
                 "マシンのデスクトップを新しいワークスペースに表示",
             ),
             verb(
+                "setup-desktop",
+                "{target}",
+                "Set up the machine's desktop, then show it",
+                "マシンのデスクトップを設定して表示",
+            ),
+            verb(
                 "setup-github",
                 "{target} [--focus]",
                 "Set up git and GitHub on the machine",

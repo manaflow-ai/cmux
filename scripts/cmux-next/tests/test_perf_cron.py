@@ -61,15 +61,45 @@ class DecideTests(unittest.TestCase):
         d = cron.decide(cron.empty_state(T0), T0, None, None, lambda sha: ALL, None)
         self.assertEqual(d["action"], "none")
 
-    def test_a_busy_github_fleet_holds_the_mac_parts_but_not_the_linux_part(self):
+    def test_a_busy_github_fleet_holds_the_mac_parts_of_a_runner_host_but_not_the_linux_part(self):
+        busy = "nightly.yml waits for a runner"
         state = cron.empty_state(T0)
-        d = cron.decide(state, T0, "a" * 40, None, lambda sha: FLEET, "nightly.yml waits for a runner")
+        cron.decide(state, T0, "a" * 40, None, lambda sha: FLEET, None)
+        state["current"]["host"] = "aws-m4pro-9"  # a host that also runs CI jobs built the app
+        d = cron.decide(state, at(1), None, None, lambda sha: FLEET, busy)
         self.assertEqual(d["action"], "none")
         self.assertTrue(d["yielded"])
         self.assertIsNotNone(state["current"])
-        state = cron.empty_state(T0)
-        d = cron.decide(state, T0, "a" * 40, None, lambda sha: ALL, "nightly.yml waits for a runner")
+        state["current"]["parts_todo"].append("diff-viewer")
+        d = cron.decide(state, at(1), None, None, lambda sha: ALL, busy)
         self.assertEqual((d["action"], d["part"], d["linux_part"]), ("part", "", "diff-viewer"))
+
+    def test_a_measurement_held_by_a_busy_fleet_gives_its_runner_host_up_for_the_bench_host(self):
+        # Nightly runs start about every 25 minutes, so a job of one is queued at most ticks: a pinned measurement
+        # that only waited would never run a Mac part again.
+        busy = "nightly.yml waits for a runner"
+        state = cron.empty_state(T0)
+        cron.decide(state, T0, "a" * 40, None, lambda sha: FLEET, None)
+        state["current"]["host"] = "aws-m4pro-9"
+        d = cron.decide(state, at(1), None, None, lambda sha: FLEET, busy)
+        self.assertEqual(d["action"], "none")
+        d = cron.decide(state, at(1 + cron.HOST_WAIT_HOURS + 0.1), None, None, lambda sha: FLEET, busy)
+        self.assertEqual((d["action"], d.get("worker")), ("part", cron.BENCH_WORKER))
+        self.assertNotIn("host", state["current"])
+        self.assertEqual(state["current"]["gave_up"][0]["host"], "aws-m4pro-9")
+
+    def test_a_busy_github_fleet_sends_the_mac_parts_to_the_bench_host(self):
+        # 2026-11-13 16:43Z to 11-14 02:29Z: no Mac part ran. Every tick found a nightly job queued for a signing
+        # runner and measured nothing, while cmux20-bench, which runs no CI job, could have taken the part.
+        busy = "nightly.yml waits for a runner"
+        state = cron.empty_state(T0)
+        d = cron.decide(state, T0, "a" * 40, None, lambda sha: FLEET, busy)
+        self.assertEqual((d["action"], d.get("part"), d.get("worker")), ("part", "build", cron.BENCH_WORKER))
+        self.assertIn(busy, d["reason"])
+        self.assertNotIn("host", state["current"], "the part's result pins the measurement, not the request")
+        state["current"]["host"] = cron.BENCH_WORKER
+        d = cron.decide(state, at(1), None, None, lambda sha: FLEET, busy)
+        self.assertEqual((d["action"], d["worker"]), ("part", cron.BENCH_WORKER))
 
     def test_the_measurement_in_flight_goes_on_before_a_newer_tip(self):
         state = cron.empty_state(T0)
@@ -132,6 +162,20 @@ class RegressionTests(unittest.TestCase):
     def test_noise_under_the_floor_does_not(self):
         regs = cron.find_regressions({"x.input_to_commit": row(5.6)}, {"x.input_to_commit": row(5.0)}, 16.67, 16.67, budgets_mod)
         self.assertEqual(regs, [])
+
+    def test_terminal_throughput_rows_are_stored_never_judged(self):
+        # MB/s and the NEXT/Ghostty ratio are higher-is-better: a faster run must not read as a regression, and the
+        # rows stay reporting only (the CMUX-571 goal reads terminal.throughput.ratio).
+        now = {"terminal.throughput.next_mb_s@cmux20-bench": row(400.0, unit="MB/s", floor=40.0),
+               "terminal.throughput.ratio@cmux20-bench": row(2.0, unit="x", floor=0.1)}
+        base = {"terminal.throughput.next_mb_s@cmux20-bench": row(100.0, unit="MB/s", floor=10.0),
+                "terminal.throughput.ratio@cmux20-bench": row(0.5, unit="x", floor=0.1)}
+        self.assertEqual(cron.find_regressions(now, base, 8.33, 8.33, budgets_mod), [])
+        self.assertEqual(cron.part_for_row("terminal.throughput.ratio@cmux20-bench"), "throughput")
+        report = {"rows": [{"name": "terminal.throughput.ratio", "p50": 0.8, "p95": 0.8, "unit": "x", "budget": None,
+                            "floor": 0.1}]}
+        rows = cron.rows_of_part(cron.PART_BY_NAME["throughput"], report, budgets_mod, {})
+        self.assertEqual(rows["terminal.throughput.ratio"]["p95"], 0.8)
 
     def test_newly_over_target_regresses_under_ten_percent(self):
         # A frame row's target at 60 Hz is 20.8 ms: 20.0 -> 21.5 is +7.5 % but crosses it by more than the floor.
@@ -540,6 +584,31 @@ class WebUiTests(unittest.TestCase):
         self.assertIsNone(cron.mac_host("webui.chat_open.compact.latest@blacksmith-4vcpu-ubuntu-2404"))
         self.assertEqual(cron.part_config("diff-viewer"), "9c9749c7fe76", "the diff-viewer rows are not rebased")
         self.assertNotEqual(cron.part_config("web-ui"), cron.part_config("diff-viewer"))
+
+    def test_the_memory_agents_part_owns_its_rows_and_reads_its_suites_report(self):
+        """CMUX-571: goals ram-baseline and memory-per-chat read these rows (memory-agents-cron.py)."""
+        self.assertIn("memory-agents", FLEET, "a Mac part on the measure host")
+        self.assertEqual(cron.part_for_row("memory.app_agents.empty.total_footprint_mb@cmux20-bench"), "memory-agents")
+        self.assertEqual(cron.part_for_row("memory.app_agents.ratio_vs_empty@cmux20-bench"), "memory-agents")
+        self.assertEqual(cron.part_for_row("idle.terminals.app_cpu_pct@cmux20-bench"), "home-idle")
+        spec2 = importlib.util.spec_from_file_location("memory_agents", os.path.join(HERE, "..", "memory-agents-cron.py"))
+        mem = importlib.util.module_from_spec(spec2)
+        spec2.loader.exec_module(mem)
+        bench = {"samples": [
+            {"label": "idle-launch", "workspaces": 1, "total_footprint_mb": 904.2, "pane_failures": 0},
+            {"label": "idle-10", "workspaces": 10, "total_footprint_mb": 1500.0, "pane_failures": 0},
+            {"label": "idle-20", "workspaces": 17, "total_footprint_mb": 1900.0, "pane_failures": 0}]}  # partial
+        report = {"rows": mem.rows_from(bench)}
+        part = cron.PART_BY_NAME["memory-agents"]
+        rows = cron.rows_of_part(part, report, budgets_mod, {})
+        self.assertEqual(rows["memory.app_agents.empty.total_footprint_mb"]["p95"], 904.2)
+        self.assertEqual(rows["memory.app_agents.10.total_footprint_mb"]["unit"], "MB")
+        self.assertNotIn("memory.app_agents.20.total_footprint_mb", rows, "a count whose chats did not all open")
+        self.assertEqual(rows["memory.app_agents.ratio_vs_empty"]["p95"], round(1500.0 / 904.2, 3),
+                         "the highest complete count over the empty app, from one run")
+        self.assertEqual(mem.rows_from({"samples": [{"label": "idle-10", "workspaces": 10, "total_footprint_mb": 1}]}), [],
+                         "no empty sample: no ratio either")
+        self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": ["no empty-app sample"]}))
 
     def test_the_update_one_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-scale"))
@@ -1219,11 +1288,13 @@ class Review2Tests(OneRunRule):
     def test_yielding_does_not_count_against_abandon_hours(self):
         state = cron.empty_state(T0)
         cron.decide(state, T0, "a" * 40, None, lambda sha: ["motion"], None)
+        state["current"]["host"] = "aws-m4pro-9"  # a host that also runs CI jobs: its parts wait for the build
         cron.decide(state, at(1), None, None, lambda sha: ["motion"], "nightly.yml waits")
         self.assertEqual(state["current"]["yield_since"], cron.iso(at(1)))
         d = cron.decide(state, at(cron.ABANDON_HOURS + 6), "b" * 40, None, lambda sha: ["motion"], "nightly.yml waits")
         self.assertEqual(state["current"]["sha"], "a" * 40, "17 h old, but only 1 h of it active")
-        self.assertTrue(d["yielded"])
+        # The runner host was given up after HOST_WAIT_HOURS; the wait stays a yield until a part answers.
+        self.assertEqual(d["worker"], cron.BENCH_WORKER)
         cron.record_part(state["current"], "build", {"state": "done"}, "r", at(cron.ABANDON_HOURS + 7))
         self.assertAlmostEqual(state["current"]["yield_hours"], cron.ABANDON_HOURS + 6)
         cron.decide(state, at(cron.ABANDON_WALL_HOURS + 1), "b" * 40, None, lambda sha: ["motion"], "nightly.yml waits")
