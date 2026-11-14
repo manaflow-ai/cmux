@@ -129,6 +129,9 @@ pub(super) struct Request {
     /// `--make-room`: at a machine cap, free the machine the refusal offers (cap.rs [`cap::room`])
     /// and start again once.
     pub make_room: bool,
+    /// A deadline a caller already holds (the carrier fault drill's one `--timeout`): every step is bounded by it,
+    /// with or without a prompt and `--wait`. `None`: [`Deadline::of`] reads `--timeout` from the run's start.
+    pub until: Option<Instant>,
     /// `--allow-large`: copy `from_folder` even past the copy's limits (link/sync_cli/size_cap.rs).
     pub allow_large: bool,
 }
@@ -243,6 +246,7 @@ pub(super) fn send_existing(
         wait,
         timeout: timeout.unwrap_or(DEFAULT_TIMEOUT).min(MAX_TIMEOUT),
         make_room: false,
+        until: None,
         allow_large: false,
     };
     let mut runner = SelfRunner { globals: forwarded_globals(global), global: global.clone() };
@@ -513,6 +517,7 @@ pub(super) fn parse(
         wait,
         timeout,
         make_room,
+        until: None,
         allow_large,
     })))
 }
@@ -851,6 +856,9 @@ pub(super) struct Deadline(Option<Instant>);
 
 impl Deadline {
     pub(super) fn of(request: &Request, began: Instant) -> Self {
+        if let Some(until) = request.until {
+            return Self(Some(until));
+        }
         let bounded = request.wait && request.prompt.is_some();
         Self(bounded.then(|| began.checked_add(request.timeout).unwrap_or(began)))
     }
@@ -1465,6 +1473,8 @@ fn steps(
         let ready_ms = runner.now().saturating_duration_since(began).as_millis();
         answer.set("sent", json!(false));
         answer.set("ready_ms", json!(u64::try_from(ready_ms).unwrap_or(u64::MAX)));
+        // The chat tab's handle on the machine's daemon, for a caller that attaches to it (the carrier fault drill).
+        internal::fault_routes::keep_chat_tab(&mut answer, &started);
         // A chat with no `--cwd` (a fresh folder, or a copy of a Mac folder) runs where the machine put
         // it: one read says where, as the send's own exec does with a prompt. Before the deadline only;
         // a read that fails leaves the answer without `cwd`, never fails a chat that started.

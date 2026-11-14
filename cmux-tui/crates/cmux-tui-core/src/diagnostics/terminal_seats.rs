@@ -31,9 +31,23 @@
 //! seated host. A terminal that starts another way takes over the
 //! connections that came first at the moment it takes its seat
 //! (`seat_terminal`, `ConnectionLease::join_terminal`).
+//!
+//! A host that an earlier daemon of the session started lives on when that
+//! daemon ends, and the daemon that starts next adopts it. That daemon
+//! holds no process of the host, so the system does not keep the host's
+//! process id for it: the id alone is no proof. Such a host is seated by
+//! its process id and its start ([`KeptHost`]). The daemon reads the start
+//! when it starts, and a client is in the host's terminal only when the
+//! parent of its session's leader has that id and, at the accept, that
+//! start. The seat is held from the daemon's start to the end of the host's
+//! adoption. An adoption that gives the terminal the seat of its session
+//! ends the host's seat after that. Each other end of an adoption leaves the
+//! terminal with no seat.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
+
+use cmux_tui_platform::process_resources::{ProcessStart, process_start};
 
 use super::ConnectionStats;
 
@@ -53,6 +67,22 @@ struct Seated {
     /// terminal's child to the moment the terminal has the seat of that
     /// child's session ([`HostSeat`]).
     hosts: Seats,
+    /// By the process of a terminal host that an earlier daemon started,
+    /// from this daemon's start to the end of the host's adoption
+    /// ([`KeptHostSeat`]).
+    kept_hosts: HashMap<u32, KeptSeats>,
+}
+
+/// The seats under the process of one kept host.
+struct KeptSeats {
+    host: KeptHost,
+    terminal: Terminal,
+    /// How many [`KeptHostSeat`] values hold this entry.
+    held: usize,
+    /// Two seats were taken for this one process. One host has one terminal,
+    /// so one of the two is wrong: the entry names no terminal while it
+    /// lives.
+    taken_twice: bool,
 }
 
 /// The seats of the session's terminals and of the hosts that start one.
@@ -150,6 +180,75 @@ impl Drop for HostSeat {
     }
 }
 
+/// A terminal host that an earlier daemon of the session started: its
+/// process id and its start, as this daemon read them when it started
+/// ([`KeptHost::read`]).
+///
+/// A later process can have the same id, but it starts after this daemon
+/// did, so it does not have this start: [`KeptHost::read`] gives a value
+/// only for a start before this daemon's own.
+#[derive(Clone, Copy)]
+pub struct KeptHost {
+    process: u32,
+    started: ProcessStart,
+    /// The read of a process's start (`process_start`; a test gives its own).
+    start_of: fn(u32) -> Option<ProcessStart>,
+}
+
+impl KeptHost {
+    /// The process `process` with its start, read now. The caller reads it
+    /// BEFORE it asks if the host of a record lives: when the answer is that
+    /// the host lives, the host had this process id for the whole time
+    /// between the two, so the start is the host's.
+    ///
+    /// Nil: the process is gone, or a start is not read (this daemon's own
+    /// too), or the process did not start before this daemon.
+    pub fn read(process: u32) -> Option<Self> {
+        static DAEMON_STARTED: OnceLock<Option<ProcessStart>> = OnceLock::new();
+        let daemon_started = *DAEMON_STARTED.get_or_init(|| process_start(std::process::id()));
+        Self::read_by(process, daemon_started, process_start)
+    }
+
+    /// [`Self::read`] with the daemon's own start and the read of a start
+    /// given.
+    pub(crate) fn read_by(
+        process: u32,
+        daemon_started: Option<ProcessStart>,
+        start_of: fn(u32) -> Option<ProcessStart>,
+    ) -> Option<Self> {
+        let started = start_of(process)?;
+        (started < daemon_started?).then_some(Self { process, started, start_of })
+    }
+
+    /// The process with this id now is the host: it has the host's start.
+    /// One read of one process.
+    fn is_there(&self) -> bool {
+        (self.start_of)(self.process) == Some(self.started)
+    }
+}
+
+/// The seat of a kept host, while this value lives
+/// ([`HostSeating::seat_kept`]). The default is no seat.
+#[derive(Default)]
+#[must_use = "the seat ends when this value is dropped"]
+pub struct KeptHostSeat {
+    seated: Option<(Arc<ConnectionStats>, u32)>,
+}
+
+impl Drop for KeptHostSeat {
+    fn drop(&mut self) {
+        let Some((connections, host)) = &self.seated else { return };
+        let mut seats = connections.terminal_seats.lock();
+        let ended = seats.kept_hosts.get_mut(host).is_some_and(|kept| {
+            kept.held = kept.held.saturating_sub(1);
+            kept.held == 0
+        });
+        if ended {
+            seats.kept_hosts.remove(host);
+        }
+    }
+}
+
 /// Where a terminal host that starts takes its seat, and for which terminal.
 /// The default seats no host (a terminal with no session).
 #[derive(Default, Clone)]
@@ -186,6 +285,28 @@ impl HostSeating {
         take(&mut connections.terminal_seats.lock().hosts, host, self.terminal.clone());
         HostSeat { seated: Some((connections.clone(), host, self.terminal.clone())) }
     }
+
+    /// The seat of a host that an earlier daemon started and that lives
+    /// (`host`: [`KeptHost::read`], read before the caller knew that the
+    /// host lives). The owner holds it to the end of the host's adoption.
+    ///
+    /// No seat: `host` is nil, or the terminal has no session. A second seat
+    /// for one process makes that process name no terminal.
+    pub fn seat_kept(&self, host: Option<KeptHost>) -> KeptHostSeat {
+        let (Some(connections), Some(host)) = (&self.connections, host) else {
+            return KeptHostSeat::default();
+        };
+        let mut seats = connections.terminal_seats.lock();
+        let kept = seats.kept_hosts.entry(host.process).or_insert_with(|| KeptSeats {
+            host,
+            terminal: self.terminal.clone(),
+            held: 0,
+            taken_twice: false,
+        });
+        kept.taken_twice |= kept.held > 0;
+        kept.held = kept.held.saturating_add(1);
+        KeptHostSeat { seated: Some((connections.clone(), host.process)) }
+    }
 }
 
 impl ConnectionStats {
@@ -221,18 +342,25 @@ impl ConnectionStats {
 
     /// The terminal that a client in process session `session` is in, by the
     /// seats: the terminal with the seat of that session, or the terminal of
-    /// a host that starts and that is the parent of the session's leader.
-    /// Nil: the client is in no terminal that has a seat.
+    /// a host that is the parent of the session's leader and that starts, or
+    /// that an earlier daemon started ([`KeptHost`]). Nil: the client is in
+    /// no terminal that has a seat.
     ///
     /// `parent_of`: the parent of a process. One call asks it at most one
-    /// time, only while a host starts a terminal, and not under the seats'
-    /// lock. A connection makes two calls, one for its lane and one for its
-    /// class, each with its own read.
+    /// time, only while a host has a seat, and not under the seats' lock. A
+    /// connection makes two calls, one for its lane and one for its class,
+    /// each with its own read.
     /// The leader's process id is the session's id, and the system gives
     /// that id to no other process while the session has a process.
     ///
     /// A host's seat ends after its terminal has the seat of its session, so
     /// the second look finds one of the two for a client of that terminal.
+    ///
+    /// For a kept host the call also reads the start of the leader's parent,
+    /// one time, after the read of the parent and not under the lock. The
+    /// start is the kept host's only when the process with that id is the
+    /// host at that read, and then it was the host at the read of the parent
+    /// too: the host had the id for the whole time before.
     pub fn seated_terminal(
         &self,
         session: u32,
@@ -243,17 +371,24 @@ impl ConnectionStats {
             if let Some(held) = seats.sessions.get(&session) {
                 return Some(seated(held));
             }
-            if seats.hosts.is_empty() {
+            if seats.hosts.is_empty() && seats.kept_hosts.is_empty() {
                 return None;
             }
         }
         let host = parent_of(session);
-        let seats = self.terminal_seats.lock();
-        let held = seats
-            .sessions
-            .get(&session)
-            .or_else(|| host.and_then(|host| seats.hosts.get(&host)))?;
-        Some(seated(held))
+        let (kept, terminal) = {
+            let seats = self.terminal_seats.lock();
+            let held = seats
+                .sessions
+                .get(&session)
+                .or_else(|| host.and_then(|host| seats.hosts.get(&host)));
+            if let Some(held) = held {
+                return Some(seated(held));
+            }
+            let kept = seats.kept_hosts.get(&host?).filter(|kept| !kept.taken_twice)?;
+            (kept.host, kept.terminal.clone())
+        };
+        kept.is_there().then_some(SeatedTerminal { id: terminal })
     }
 
     /// The connections the terminals hold in their short lane now (of

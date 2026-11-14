@@ -7,6 +7,8 @@ public import CmuxNextDesign
 // omnibar's suggestions and the toolbar's menus open toward the page
 // (`NSView.toolbarOpensUpward`).
 extension BrowserChromeView: ToolbarEdgeHosting {
+    public var showsToolbarRow: Bool { !isToolbarHidden }
+
     func applyToolbarPosition() {
         toolbarEdge.activate(toolbarPosition)
         needsLayout = true

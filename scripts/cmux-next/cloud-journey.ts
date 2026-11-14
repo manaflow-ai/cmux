@@ -110,7 +110,7 @@ import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSy
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { chaosProbeRow, countingTurnScript, runChaos } from "./cloud-chaos.ts";
+import { chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
 
 export const STACK_API = "https://api.stack-auth.com";
 export const STACK = {
@@ -1360,7 +1360,7 @@ export const JOURNEY_STUB_SCRIPT = {
   version: 1,
   steps: [{ shell: "printf '%s-%s\\n' {{nonce}} tool" }, { text: "Stub reply {{nonce}}. The tool printed {{result.0}}." }],
   // The chaos leg's counting turn (cloud-chaos.ts), played only for a prompt that carries its marker.
-  turns: [countingTurnScript()],
+  turns: [countingTurnScript(), feltTurnScript()],
 };
 
 /** The Mac's installer (CloudCredentialInstaller.swift), relative to this script in a cmux checkout. */
