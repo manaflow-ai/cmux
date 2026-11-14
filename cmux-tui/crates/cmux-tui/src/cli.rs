@@ -200,6 +200,7 @@ mod terminal_lifecycle;
 mod terminal_talk;
 #[cfg(unix)]
 mod theme_file;
+#[cfg(unix)]
 mod theme_scheme;
 mod topology_help;
 mod wire;
