@@ -441,7 +441,10 @@ mod tests {
         // /tmp/acpmux-<uid>/t/<8 hex>/<UUIDv7>/ + a tool's socket name.
         let dir = daemon_root(Path::new("/tmp/acpmux-4294967294"), Path::new("/x")).join(A);
         assert!(dir.as_os_str().len() <= 72, "{}", dir.display());
-        assert!(dir.join("tmux-12345/default.sock").as_os_str().len() < 104);
+        assert!(
+            dir.join("tmux-12345/default.sock").as_os_str().len()
+                <= cmux_unix_socket::PORTABLE_MAX_PATH_BYTES
+        );
     }
 
     #[test]
