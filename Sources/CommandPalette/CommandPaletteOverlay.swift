@@ -17,6 +17,8 @@ struct CommandPaletteRenderResultRow: Identifiable, Equatable {
     let title: String
     let matchedIndices: Set<Int>
     let trailingLabel: CommandPaletteRenderTrailingLabel?
+    /// Hex color the row is shaded with under its highlight, such as a remote workspace's host color.
+    var tintColorHex: String? = nil
 }
 
 /// Result-row fill. Selection wins over hover, and hover stays quieter than
@@ -111,6 +113,7 @@ struct CommandPaletteCommandListRenderView: View {
 
 struct CommandPaletteCommandListRowsView: View {
     @Environment(\.cmuxAccentColor) private var cmuxAccent
+    @Environment(\.colorScheme) private var colorScheme
     let state: CommandPaletteCommandListRenderState
     let onRunResult: (String) -> Void
     @State private var hoveredIndex: Int?
@@ -118,6 +121,8 @@ struct CommandPaletteCommandListRowsView: View {
     private static let listMaxHeight: CGFloat = 450
     private static let rowHeight: CGFloat = 24
     private static let emptyStateHeight: CGFloat = 44
+    /// Light enough that the title and the selection highlight drawn over it stay legible.
+    private static let tintOpacity: Double = 0.22
 
     var body: some View {
         let contentHeight = state.rows.isEmpty
@@ -159,6 +164,7 @@ struct CommandPaletteCommandListRowsView: View {
                             .padding(.vertical, 2)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(rowBackground)
+                            .background(rowTint(row.tintColorHex))
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -192,5 +198,12 @@ struct CommandPaletteCommandListRowsView: View {
                 self.hoveredIndex = nil
             }
         }
+    }
+
+    private func rowTint(_ hex: String?) -> Color {
+        guard let hex, let color = WorkspaceTabColorSettings.displayColor(hex: hex, colorScheme: colorScheme) else {
+            return .clear
+        }
+        return color.opacity(Self.tintOpacity)
     }
 }
