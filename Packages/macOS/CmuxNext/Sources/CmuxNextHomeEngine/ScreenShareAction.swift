@@ -2,10 +2,18 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextWindowRules
 
-/// Routes a Session Info screen-share intent after the App has resolved its tab facts.
-/// The App remains a composition root: it supplies facts and the existing action registry.
-public enum ScreenShareAction {
-    public static func run(
+/// Shared routing and page-action plumbing for Session Info screen sharing.
+/// App code supplies native chat facts and the one target resolver it owns.
+public struct ScreenShareAction {
+    private let localMachineID: String
+    private let showsInApp: (String) -> Bool
+
+    public init(localMachineID: String, showsInApp: @escaping (String) -> Bool) {
+        self.localMachineID = localMachineID
+        self.showsInApp = showsInApp
+    }
+
+    public func run(
         registry: ActionRegistry,
         session: String,
         actualSession: String,
@@ -24,12 +32,25 @@ public enum ScreenShareAction {
         let action: ActionID
         let target: ActionTargetRef
         switch route.decision {
-        case "shareLocal": action = "macScreen.shareThisMac"; target = .init(kind: .machine, id: MachineRegistry.localID)
+        case "shareLocal": action = "macScreen.shareThisMac"; target = .init(kind: .machine, id: localMachineID)
         case "cloudDesktop":
             guard let machine = route.machineId else { return .refused(unavailable) }
             action = "cloudOpenDesktop"; target = .init(kind: .machine, id: machine)
         default: return .refused(unavailable)
         }
-        return registry.runPageAction(action, invocation: .init(target: target, origin: .user), showsInApp: CmuxSignInOffer.signInReasons.contains)
+        return registry.runPageAction(action, invocation: .init(target: target, origin: .user), showsInApp: showsInApp)
+    }
+
+    public func runPageAction(
+        registry: ActionRegistry,
+        id: String,
+        arguments: [String: String],
+        machine: String,
+        target: () -> ActionTargetRef?,
+        screenShare: () -> AgentPaneActionRun,
+    ) -> AgentPaneActionRun {
+        if id == "session.screenShare" { return screenShare() }
+        guard let target = target() else { return .notRun }
+        return registry.runPageAction(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user).onMachine(target.kind == .tab ? machine : nil), showsInApp: showsInApp)
     }
 }
