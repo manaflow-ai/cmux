@@ -10,7 +10,7 @@
 //!   "encoder" returns an access unit of the bench's frame size (the
 //!   keyframe size for every IDR, recovery keyframes too).
 //! - Viewer: the Mac viewer's Rust, `cmux-rd-ffi`'s `Receiver` (reassembly,
-//!   NACKs, feedback; 200 ms deadline, 25 ms minimum reorder grace) and `InputChannel`
+//!   NACKs, feedback; 200 ms deadline, NACK after 5 ms) and `InputChannel`
 //!   (input repeated until acknowledged, every 20 ms), compiled in from
 //!   their source files.
 //! - Between them: one `cmux_rd_link::Endpoint` per side (Noise_XX, sealed
@@ -46,8 +46,7 @@ use crate::{
 pub const MAX_DATAGRAM: usize = cmux_rd_proto::MAX_DATAGRAM_VPC - cmux_rd_link::SEAL_OVERHEAD;
 /// The Noise prologue both ends share (the hub's session id in a real session).
 const SESSION: &[u8] = b"remote-stream-bench";
-/// The Mac viewer's requested NACK delay (`RemoteRdSession` `nackAfterMicros`).
-/// The shared reassembler enforces a 25 ms minimum for jitter-safe reorder.
+/// The Mac viewer's NACK delay (`RemoteRdSession` `nackAfterMicros`).
 const NACK_AFTER_US: u64 = 5_000;
 /// The Mac viewer's input resend interval (`RemoteRdInput` `resendMicros`).
 const INPUT_RESEND_US: u64 = 20_000;

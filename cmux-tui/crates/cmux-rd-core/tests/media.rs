@@ -196,11 +196,10 @@ fn nack_grace_does_not_request_the_unseen_tail_of_an_arriving_frame() {
         let now = 25_000 + i as u64 * 4_000;
         let (h, payload) = DatagramHeader::decode(d).expect("decode");
         assert!(r.push(&h, payload, now).is_empty());
+        assert_eq!(r.next_nack_us(5_000, 50_000), Some(now + 5_000));
+        assert!(r.take_nacks(now + 3_999, 5_000, 50_000).is_empty());
     }
-    let last_seen = 25_000 + (last as u64 - 1) * 4_000;
-    assert_eq!(r.next_nack_us(5_000, 50_000), Some(last_seen + 25_000));
-    assert!(r.take_nacks(last_seen + 24_999, 5_000, 50_000).is_empty());
-    let tail_due = last_seen + 25_000;
+    let tail_due = 25_000 + (last as u64 - 1) * 4_000 + 5_000;
     let requests = r.take_nacks(tail_due, 5_000, 50_000);
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].indexes, vec![last as u16]);
@@ -212,7 +211,7 @@ fn nack_grace_does_not_request_the_unseen_tail_of_an_arriving_frame() {
         let (h, payload) = DatagramHeader::decode(&sent.datagrams[i]).expect("decode");
         assert!(r.push(&h, payload, now).is_empty());
     }
-    let requests = r.take_nacks(26_000, 5_000, 50_000);
+    let requests = r.take_nacks(6_000, 5_000, 50_000);
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].indexes, vec![1]);
 }
@@ -231,16 +230,16 @@ fn nack_deadlines_are_per_frame_and_only_sent_requests_start_retrying() {
             assert!(r.push(&h, payload, 25_000).is_empty());
         }
     }
-    assert_eq!(r.next_nack_us(5_000, 50_000), Some(50_000));
-    assert!(r.take_nacks(49_999, 5_000, 50_000).is_empty());
-    let first = r.take_nacks(50_000, 5_000, 50_000);
+    assert_eq!(r.next_nack_us(5_000, 50_000), Some(30_000));
+    assert!(r.take_nacks(29_999, 5_000, 50_000).is_empty());
+    let first = r.take_nacks(30_000, 5_000, 50_000);
     assert_eq!(first.iter().map(|n| n.frame).collect::<Vec<_>>(), vec![1, 2, 3, 4]);
-    assert_eq!(r.next_nack_us(5_000, 50_000), Some(50_000));
-    let rest = r.take_nacks(50_000, 5_000, 50_000);
+    assert_eq!(r.next_nack_us(5_000, 50_000), Some(30_000));
+    let rest = r.take_nacks(30_000, 5_000, 50_000);
     assert_eq!(rest.iter().map(|n| n.frame).collect::<Vec<_>>(), vec![5, 6]);
     assert!(first.iter().chain(&rest).all(|n| n.indexes == vec![0]));
     assert!(r.take_nacks(30_000, 5_000, 50_000).is_empty());
-    assert_eq!(r.next_nack_us(5_000, 50_000), Some(100_000));
+    assert_eq!(r.next_nack_us(5_000, 50_000), Some(80_000));
 
     // A new frame does not inherit the retry deadline of previous gaps.
     let out = p.packetize(7, 0, &body(7, 5000, false), 0).expect("packetize");
@@ -248,8 +247,8 @@ fn nack_deadlines_are_per_frame_and_only_sent_requests_start_retrying() {
         let (h, payload) = DatagramHeader::decode(d).expect("decode");
         assert!(r.push(&h, payload, 40_000).is_empty());
     }
-    assert_eq!(r.next_nack_us(5_000, 50_000), Some(65_000));
-    assert_eq!(r.take_nacks(65_000, 5_000, 50_000)[0].frame, 7);
+    assert_eq!(r.next_nack_us(5_000, 50_000), Some(45_000));
+    assert_eq!(r.take_nacks(45_000, 5_000, 50_000)[0].frame, 7);
     for d in repairs.iter().chain(std::iter::once(&out.datagrams[0])) {
         let (h, payload) = DatagramHeader::decode(d).expect("decode");
         assert_eq!(r.push(&h, payload, 75_000).len(), 1);

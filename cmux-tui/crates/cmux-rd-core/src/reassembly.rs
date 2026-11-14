@@ -69,12 +69,6 @@ pub const MAX_FRAME_LEAD: u32 = 4096;
 /// Released frames a recovery frame may reference.
 pub const RECOVERY_WINDOW: usize = 64;
 
-/// Minimum time to allow packets of one frame to arrive out of order before
-/// asking for a repair. A 50 ms path with ±12.5 ms per-leg jitter can spread
-/// shards by 25 ms even when no packet is lost; a shorter grace turns reorder
-/// into a false loss and starts an unnecessary keyframe recovery cycle.
-pub const MIN_REORDER_GRACE_US: u64 = 25_000;
-
 impl Reassembler {
     /// `deadline_us`: how long a frame may wait for missing shards.
     pub fn new(deadline_us: u64) -> Self {
@@ -196,9 +190,8 @@ impl Reassembler {
         // observed gap can be requested now; its unseen tail only becomes
         // a gap after arrivals stop for a grace period.
         let observed_gap = p.shards.iter().take(Self::observed_data(p)).any(Option::is_none);
-        let grace_us = after_us.max(MIN_REORDER_GRACE_US);
         let gap_at =
-            if observed_gap { p.first_seen_us } else { p.last_seen_us }.saturating_add(grace_us);
+            if observed_gap { p.first_seen_us } else { p.last_seen_us }.saturating_add(after_us);
         p.last_nack_us.map_or(gap_at, |last| gap_at.max(last.saturating_add(retry_us.max(1))))
     }
 
@@ -215,8 +208,7 @@ impl Reassembler {
             .filter(|(_, p)| !Self::decodable(p) && now_us >= Self::nack_at(p, after_us, retry_us))
             .take(MAX_NACK_FRAMES)
             .map(|(&frame, p)| {
-                let grace_us = after_us.max(MIN_REORDER_GRACE_US);
-                let end = if now_us >= p.last_seen_us.saturating_add(grace_us) {
+                let end = if now_us >= p.last_seen_us.saturating_add(after_us) {
                     p.count
                 } else {
                     Self::observed_data(p) as u16
