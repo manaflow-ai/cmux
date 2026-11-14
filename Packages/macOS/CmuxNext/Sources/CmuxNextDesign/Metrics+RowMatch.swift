@@ -15,6 +15,12 @@ public extension Metrics {
         return height + (tokens.id == DensityPreset.cozy.rawValue ? space1 : 0)
     }
 
+    /// ``densityRowHeight`` at Default, unscaled (30 pt): the reference the page density scale divides by.
+    static var defaultDensityRowHeight: CGFloat {
+        let row = MetricTunables.sidebarRowHeight, cozy = DensityPreset.cozy.tokens
+        return cozy.resolve(compact: row.compact, comfortable: row.comfortable, token: row.name) + cozy.space(ChromeTunables.space1.value)
+    }
+
     /// Whether the tab pill takes ``densityRowHeight``: no explicit tab or tab strip height (a Debug tunable,
     /// `appearance.metrics.*` or a density's own token) and no tight tab strip. A set strip keeps the tab's own size
     /// in it, as before.

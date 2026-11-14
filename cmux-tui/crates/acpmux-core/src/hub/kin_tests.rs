@@ -147,3 +147,20 @@ fn restart_hydrates_tables_from_hot_rows_without_appending_log_records() {
         log_bytes = Some(after);
     }
 }
+
+#[test]
+fn live_pages_refuse_every_table_filter_even_with_keys() {
+    let (hub, _writer) = Hub::new(SummaryIndex::new());
+    for filter in [
+        ListFilter::family(RowKey::new("local", "root")),
+        ListFilter::forks(RowKey::new("local", "root")),
+        ListFilter::folder(acpmux_book::index::FolderKey::new("local", "one")),
+        ListFilter { cold: true, ..ListFilter::default() },
+    ] {
+        let mut request = page(filter);
+        request.view = Some(crate::wire::ListView::Live);
+        assert!(matches!(hub.page(&request), Err(HubError::InvalidParams(_))));
+        request.keys = Some(vec![wire_key(SortKey::of(&Summary::new("key"))).into()]);
+        assert!(matches!(hub.page(&request), Err(HubError::InvalidParams(_))));
+    }
+}
