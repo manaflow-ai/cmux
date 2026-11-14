@@ -15139,6 +15139,299 @@
         }
       },
       "extra": false
+    },
+    "ThemeScheme": {
+      "kind": "object",
+      "fields": {
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The scheme's own name, when the file has one."
+        },
+        "author": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The scheme's author, when the file has one."
+        },
+        "background": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 16
+          },
+          "description": "#rrggbb."
+        },
+        "foreground": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 16
+          },
+          "description": "#rrggbb."
+        },
+        "cursor": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 16
+            }
+          },
+          "description": "#rrggbb, or null when the cursor follows the cell."
+        },
+        "cursorText": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 16
+            }
+          },
+          "description": "#rrggbb or null."
+        },
+        "selectionBackground": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 16
+            }
+          },
+          "description": "#rrggbb or null."
+        },
+        "selectionForeground": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 16
+            }
+          },
+          "description": "#rrggbb or null."
+        },
+        "palette": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 16
+            },
+            "max_items": 16
+          },
+          "description": "ANSI 0-15, #rrggbb."
+        },
+        "accent": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 16
+            }
+          },
+          "description": "The theme's own chrome accent (# cmux-accent), #rrggbb or null."
+        },
+        "base16": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 16
+            },
+            "max_items": 16
+          },
+          "description": "base00-base0F: the file's own for base16, else derived from the terminal colors."
+        }
+      },
+      "extra": false
+    },
+    "ThemeSchemeText": {
+      "kind": "object",
+      "fields": {
+        "from": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "enum",
+              "values": [
+                "ghostty",
+                "base16",
+                "iterm2",
+                "windows-terminal"
+              ]
+            }
+          },
+          "description": "The format the text was read as (convert only)."
+        },
+        "name": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The theme's name (export only)."
+        },
+        "format": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "ghostty",
+              "base16",
+              "iterm2",
+              "windows-terminal"
+            ]
+          },
+          "description": "The format text is written in."
+        },
+        "text": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The scheme file."
+        },
+        "scheme": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ThemeScheme"
+          },
+          "description": "The colors read."
+        }
+      },
+      "extra": false
+    },
+    "ThemeSchemeSwatch": {
+      "kind": "object",
+      "fields": {
+        "color": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 16
+          },
+          "description": "#rrggbb."
+        },
+        "share": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "Part of the sampled image, 0-1."
+        }
+      },
+      "extra": false
+    },
+    "ThemeSchemeFromImageResult": {
+      "kind": "object",
+      "fields": {
+        "appearance": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "dark",
+              "light"
+            ]
+          },
+          "description": "The scheme's appearance."
+        },
+        "accent": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 16
+          },
+          "description": "The chrome accent, #rrggbb."
+        },
+        "glassTint": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 16
+          },
+          "description": "The window's glass tint ThemeTokens.derive makes from the scheme, #rrggbbaa."
+        },
+        "swatches": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ThemeSchemeSwatch"
+            },
+            "max_items": 16
+          },
+          "description": "The image's colors, most of the image first."
+        },
+        "format": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "ghostty",
+              "base16",
+              "iterm2",
+              "windows-terminal"
+            ]
+          },
+          "description": "The format text is written in."
+        },
+        "text": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The scheme file."
+        },
+        "scheme": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ThemeScheme"
+          },
+          "description": "The colors."
+        }
+      },
+      "extra": false
     }
   },
   "generics": {
@@ -39744,6 +40037,254 @@
         "A timeout returns the pending result variant and is not an error.",
         "The exited result is reconnect-safe and uses the terminal registry's durable exit record.",
         "Explicit terminal.close wakes active waiters with terminal.closed; detaching the last view does not settle them."
+      ]
+    },
+    "theme.scheme.convert": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "text": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 262144
+            },
+            "description": "The scheme file's text (at most 256 KiB)."
+          },
+          "file": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string",
+                "max_length": 1024
+              }
+            },
+            "description": "The file's name: errors name it, and its extension picks the format when from is absent."
+          },
+          "from": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "enum",
+                "values": [
+                  "ghostty",
+                  "base16",
+                  "iterm2",
+                  "windows-terminal"
+                ]
+              }
+            },
+            "description": "The text's format; absent detects it from file and the text (an XML plist is iterm2, a JSON object windows-terminal, baseXX lines base16, else a Ghostty theme)."
+          },
+          "to": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "enum",
+                "values": [
+                  "ghostty",
+                  "base16",
+                  "iterm2",
+                  "windows-terminal"
+                ]
+              }
+            },
+            "description": "The format to write (default ghostty)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Stateless: nothing is written or kept between calls; installing a scheme as a theme file is the app's or `cmux theme import`'s.",
+          "A file that does not parse is validation.invalid whose message is FILE:LINE: what is wrong.",
+          "base16 maps base00 to the background, base05 to the foreground and cursor, base02 to the selection, and ANSI 0-15 as base16-shell does."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ThemeSchemeText"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "theme.scheme.export": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "name": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 255
+            },
+            "description": "An installed theme's name (a Ghostty theme file in one of Ghostty's theme folders), never a path."
+          },
+          "format": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "enum",
+                "values": [
+                  "ghostty",
+                  "base16",
+                  "iterm2",
+                  "windows-terminal"
+                ]
+              }
+            },
+            "description": "The format to write (default base16)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Stateless: nothing is written or kept between calls; installing a scheme as a theme file is the app's or `cmux theme import`'s."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ThemeSchemeText"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "theme.scheme.from_image": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "width": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int32",
+              "minimum": 1,
+              "maximum": 65536
+            },
+            "description": "Pixels per row."
+          },
+          "height": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int32",
+              "minimum": 1,
+              "maximum": 65536
+            },
+            "description": "Rows."
+          },
+          "channels": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int32",
+              "minimum": 3,
+              "maximum": 4
+            },
+            "description": "3 (RGB) or 4 (RGBA; fully transparent pixels are skipped)."
+          },
+          "pixels": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 349528
+            },
+            "description": "The decoded 8-bit sRGB pixels, row by row, base64 (at most 256 x 256 pixels: downsample first)."
+          },
+          "appearance": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "enum",
+                "values": [
+                  "dark",
+                  "light"
+                ]
+              }
+            },
+            "description": "Dark or light; absent picks from the image's average lightness."
+          },
+          "format": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "enum",
+                "values": [
+                  "ghostty",
+                  "base16",
+                  "iterm2",
+                  "windows-terminal"
+                ]
+              }
+            },
+            "description": "The format to write (default ghostty)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Stateless: nothing is written or kept between calls; installing a scheme as a theme file is the app's or `cmux theme import`'s.",
+          "Deterministic: median cut over a 64 x 64 sample grid.",
+          "The accent, cursor and ANSI 1-15 reach the spec's minimumMarkContrast and the foreground its minimumTextContrast on the background (ThemeTokens.derive's floors)."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ThemeSchemeFromImageResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
       ]
     },
     "window_record.delete": {

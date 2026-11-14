@@ -403,6 +403,11 @@ const fn access(operation: Op) -> Access {
         // through its allow list (page-router.json: home-channels reads
         // palette.rank).
         | Op::PaletteRank
+        // Scheme conversion and a palette from pixels the page sends: a page
+        // reaches them only through its allow list (theme-scheme-v1).
+        | Op::ThemeSchemeConvert
+        | Op::ThemeSchemeExport
+        | Op::ThemeSchemeFromImage
         // A page never reads or writes the person's conversations.
         | Op::ConversationList
         | Op::ConversationGet
