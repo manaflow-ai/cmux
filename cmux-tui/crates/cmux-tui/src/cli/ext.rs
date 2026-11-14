@@ -359,10 +359,10 @@ fn capabilities(global: &GlobalArgs, op: Option<&str>, json_out: bool) -> i32 {
             return exit::NO_DAEMON;
         }
     };
-    let mut request = json!({ "cmd": "apps-capabilities" });
-    if let Some(op) = op {
-        request["op"] = json!(op);
-    }
+    let request = match op {
+        Some(op) => json!({ "cmd": "apps-capabilities", "op": op }),
+        None => json!({ "cmd": "apps-capabilities" }),
+    };
     let data = match daemon.call(request) {
         Ok(Ok(data)) => data,
         Ok(Err(message)) => {
@@ -416,13 +416,13 @@ pub(super) fn capabilities_table(data: &Value) -> String {
             [text("op"), text("scope"), format!("{} {risk}", text("class")), notes.join("; ")]
         })
         .collect();
-    let widths: [usize; 3] = std::array::from_fn(|i| {
-        rows.iter()
-            .map(|r| r[i].chars().count())
-            .max()
-            .unwrap_or(0)
-            .max(["OP", "SCOPE", "CLASS RISK"][i].len())
-    });
+    const HEADERS: [&str; 4] = ["OP", "SCOPE", "CLASS RISK", "NOTES"];
+    let mut widths = HEADERS.map(str::len);
+    for row in &rows {
+        for (width, cell) in widths.iter_mut().zip(row) {
+            *width = (*width).max(cell.chars().count());
+        }
+    }
     let mut out = String::new();
     let mut line = |cells: [&str; 4]| {
         let text = format!(
@@ -438,7 +438,7 @@ pub(super) fn capabilities_table(data: &Value) -> String {
         out.push_str(text.trim_end());
         out.push('\n');
     };
-    line(["OP", "SCOPE", "CLASS RISK", "NOTES"]);
+    line(HEADERS);
     for row in &rows {
         line([&row[0], &row[1], &row[2], &row[3]]);
     }
