@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { ComposerAttachment } from "../attachments";
-import { composerReadback, externalFiles, takeExternalFiles } from "./externalAttach";
+import { composerReadback, externalFiles, takeExternalFiles, takeExternalInto } from "./externalAttach";
 
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
@@ -54,4 +54,27 @@ test("the readback is the contract chat.composer.get answers", () => {
       { name: "b.png", mimeType: "image/png", bytes: 1234, source: "" },
     ],
   });
+});
+
+test("only a composer takes the files, with the keyboard; without one the host keeps them", async () => {
+  const asked: string[] = [];
+  const call = async (method: string) => {
+    asked.push(method);
+    return { files: [{ name: "x.png", type: "image/png", data: PNG }] };
+  };
+  takeExternalInto(() => null, call);
+  expect(asked).toEqual([]);
+  const took: string[] = [];
+  let focused = 0;
+  takeExternalInto(
+    () => ({
+      attachFiles: (files, kind) => took.push(...files.map((file) => `${kind}:${file.name}`)),
+      focus: () => focused++,
+    }),
+    call,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(asked).toEqual(["chat.attach.external"]);
+  expect(took).toEqual(["external:x.png"]);
+  expect(focused).toBe(1);
 });

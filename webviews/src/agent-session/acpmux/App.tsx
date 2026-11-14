@@ -184,7 +184,7 @@ import { drawsAsIs, setStreamingRowBlocked, streamingRow, streamingRowBlocked, t
 import { liveToolOutput, toolOutputOnly } from "./liveToolOutput";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
-import { composerReadback, takeExternalFiles, type ComposerReadback } from "./composer/externalAttach";
+import { composerReadback, takeExternalInto, type ComposerReadback } from "./composer/externalAttach";
 import { StuckBanner } from "./StuckBanner";
 import { prefillStuckNudge } from "./stuckNudge";
 import { FolderContinuation, folderContinuationRequest } from "./folderContinuation";
@@ -6823,6 +6823,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       pendingWake.current = undefined;
     }
     replayHeldForComposer(handle, heldBack, heldQuotes);
+    // Files another app sent before this composer was there (composer/externalAttach.ts).
+    if (handle) takeExternalInto(() => composerHandle.current, callNative);
   }, []);
   const composerUnplacedQuotes = useCallback(
     (quotes: string[]) => handBackQuotes(composerHandle, heldQuotes, quotes),
@@ -7621,18 +7623,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         setRegistry(currentRegistry());
       },
     };
-    // The host's files for this chat (composer/externalAttach.ts): on its `attachExternal` command, and
-    // once now, since a page still loading on the old host never got a command sent before it ran.
-    // Only a page with a composer takes them; the host keeps them for one that has none (a review).
-    const takeExternal = () => {
-      if (!composerHandle.current) return;
-      void takeExternalFiles(callNative).then((files) => {
-        if (!files.length) return;
-        composerHandle.current?.attachFiles(files, "external");
-        composerHandle.current?.focus();
-      });
-    };
-    takeExternal();
     window.cmuxAcpmuxBridge = {
       toggleInspector,
       perfCapture: (options) => chatPerfCapture.capture(options),
@@ -7725,7 +7715,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         if (name === "focusComposer") composerHandle.current?.focus();
         // Files another app sent to this chat (Send to cmux Chat, an image opened with cmux): the
         // composer takes them as a drop's, an unsent draft, with the keyboard (composer/externalAttach.ts).
-        if (name === "attachExternal") takeExternal();
+        if (name === "attachExternal") takeExternalInto(() => composerHandle.current, callNative);
         // Archive Chat (Ctrl-Cmd-A), as in the Codex app: the chat menu's row, so it does nothing where
         // the menu has none or the chat is archived.
         if (name === "archiveChat") archiveChatRef.current?.();

@@ -37,6 +37,22 @@ export async function takeExternalFiles(call: Call): Promise<File[]> {
   }
 }
 
+/// Takes the host's files into the composer `composer` answers, with the keyboard: on the
+/// `attachExternal` command, and when a composer mounts, since a page still loading on the old host
+/// never got a command sent before it ran. Without a composer nothing is asked, so the host keeps them.
+export function takeExternalInto(
+  composer: () => { attachFiles(files: File[], kind: "external"): void; focus(): void } | null | undefined,
+  call: Call,
+): void {
+  if (!composer()) return;
+  void takeExternalFiles(call).then((files) => {
+    const target = composer();
+    if (!files.length || !target) return;
+    target.attachFiles(files, "external");
+    target.focus();
+  });
+}
+
 /// What `chat.composer.get` answers of the composer: its text and each chip's name, type, size and
 /// the name of the app it came from (empty when none).
 export type ComposerReadback = {
