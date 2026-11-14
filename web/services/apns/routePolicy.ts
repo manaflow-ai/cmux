@@ -100,6 +100,16 @@ const PROD_BUNDLE_IDS = new Set([
   "dev.cmux.app.classic",
 ]);
 
+// Bundles that no longer ship. They can't register or receive pushes, but a
+// leftover install may still unregister, so its device_tokens row (which
+// counts toward the per-account ceiling) can be removed.
+const RETIRED_BUNDLE_IDS = new Set(["dev.cmux.app.demo"]);
+
+/** Whether this bundle id belonged to a retired TestFlight app (cmux DEMO). */
+export function isRetiredApnsBundle(bundleId: string): boolean {
+  return RETIRED_BUNDLE_IDS.has(bundleId.trim());
+}
+
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }

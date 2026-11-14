@@ -13,6 +13,8 @@ import textwrap
 import os
 import subprocess
 import sys
+import atexit
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,6 +28,7 @@ SCRIPT = ROOT / "scripts/ci/ios_upload_batch_decision.py"
 # only workflow (the retired classic INTERNAL lane) is gone, so a fixture
 # carries the same shape.
 _FIXTURE_DIR = tempfile.mkdtemp(prefix="ios-batch-fixture-")
+atexit.register(shutil.rmtree, _FIXTURE_DIR, True)
 INTERNAL = Path(_FIXTURE_DIR, "path-filter-workflow.yml")
 INTERNAL.write_text(
     "script: |\n  const iosRelevantPaths = ['ios/', 'Packages/iOS/', 'Packages/Shared/', "

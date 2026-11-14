@@ -63,6 +63,28 @@ struct MobileHostIdentityTests {
         )
     }
 
+    @Test func storedRetiredDemoTargetFallsBackToTheAppStoreApp() throws {
+        let suiteName = "mobile-ios-target-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        // A Mac that picked cmux DEMO before it was retired.
+        defaults.set(
+            "dev.cmux.app.demo",
+            forKey: MobileIOSPairingTargetStore.defaultsKey
+        )
+        let store = MobileIOSPairingTargetStore(
+            defaults: defaults,
+            macInstanceTag: "default"
+        )
+
+        #expect(!store.availableNamespaces.map(\.bundleIdentifier).contains("dev.cmux.app.demo"))
+        #expect(store.selectedNamespace?.bundleIdentifier == "com.cmux.app")
+        #expect(
+            store.selectedPairingURLScheme?.rawValue
+                == "cmux-ios-com.cmux.app"
+        )
+    }
+
     @Test func nightlyMacOffersOfficialIOSBuildsInsteadOfTaggedDev() throws {
         let suiteName = "mobile-ios-target-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

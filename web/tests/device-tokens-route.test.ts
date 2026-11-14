@@ -187,6 +187,46 @@ describe("device token route", () => {
     expect(remaining.total).toBe(0);
   });
 
+  dbTest("a leftover cmux DEMO install can still unregister its token", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const token = "d".repeat(64);
+    await sql`
+      insert into device_tokens (
+        user_id,
+        device_token,
+        bundle_id,
+        environment,
+        platform
+      ) values (
+        'push-user-1',
+        ${token},
+        'dev.cmux.app.demo',
+        'production',
+        'ios'
+      )
+    `;
+
+    const response = await DELETE(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "DELETE",
+        headers: {
+          authorization: testAccessHeader,
+          "x-stack-refresh-token": "refresh-token",
+          "x-cmux-app-namespace": "dev.cmux.app.demo",
+        },
+        body: JSON.stringify({ deviceToken: token }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const [remaining] = await sql<{ total: number }[]>`
+      select count(*)::int as total
+      from device_tokens
+      where user_id = 'push-user-1' and device_token = ${token}
+    `;
+    expect(remaining.total).toBe(0);
+  });
+
   dbTest("legacy unregister fails closed when token bytes span app namespaces", async () => {
     if (!sql) throw new Error("test database not initialized");
     const token = "c".repeat(64);

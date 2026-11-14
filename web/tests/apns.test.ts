@@ -32,6 +32,7 @@ import {
   MAX_PUSH_BODY_CHARS,
   MAX_PUSH_DISMISS_IDS,
   MAX_PUSH_ID_CHARS,
+  isRetiredApnsBundle,
   normalizeApnsBundle,
   parsePushPayload,
   readBoundedJsonObject,
@@ -535,6 +536,9 @@ describe("apns route policy", () => {
     // cmux DEMO (dev.cmux.app.demo) no longer ships, so its devices cannot
     // register a push topic.
     expect(normalizeApnsBundle("dev.cmux.app.demo")).toBeNull();
+    // A leftover install can still unregister its token.
+    expect(isRetiredApnsBundle("dev.cmux.app.demo")).toBe(true);
+    expect(isRetiredApnsBundle("dev.cmux.app.classic")).toBe(false);
   });
 
   test("bounds and trims push payloads before sending to APNs", () => {

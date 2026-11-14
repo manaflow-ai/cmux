@@ -1100,8 +1100,8 @@ CLOUD_VPN_BUNDLE_IDENTIFIER="${PRODUCT_BUNDLE_IDENTIFIER}.CloudVPN"
 # The beta app has a provisioned packet-tunnel extension. The official App
 # Store app is permanently VPN-free: do not let a stale or manually inherited
 # IOS_APPSTORE_ENABLE_CLOUD_VPN value re-enable Apple's rejected capability.
-# Internal/demo app identities are separate Apple registrations and do not opt
-# in implicitly.
+# Internal and classic app identities are separate Apple registrations and do
+# not opt in implicitly.
 CLOUD_VPN_REQUIRED=0
 if [[ "$LANE" == "beta" && "$PRODUCT_BUNDLE_IDENTIFIER" == "dev.cmux.app.beta" ]]; then
   CLOUD_VPN_REQUIRED=1

@@ -18,6 +18,7 @@ import {
   MAX_DEVICE_TOKENS_PER_ACCOUNT,
   MAX_DEVICE_TOKENS_PER_USER,
   MAX_PUSH_REQUEST_BYTES,
+  isRetiredApnsBundle,
   normalizeApnsBundle,
   readBoundedJsonObject,
   registrationApnsBundle,
@@ -538,7 +539,7 @@ function parseDeviceTokenDeletionRequest(
     return jsonResponse({ error: "invalid_installation_id" }, 400);
   }
   if (clientNamespace && (
-    !normalizeApnsBundle(clientNamespace) ||
+    (!normalizeApnsBundle(clientNamespace) && !isRetiredApnsBundle(clientNamespace)) ||
     (headerNamespace !== null && bodyBundleId !== "" && headerNamespace !== bodyBundleId)
   )) {
     return jsonResponse({ error: "invalid_client_namespace" }, 400);
