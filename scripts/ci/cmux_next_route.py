@@ -618,34 +618,7 @@ def _app_ffi_inputs(root: Path) -> list[str]:
     reaches through Cargo path dependencies (its own or the workspace's), the toolchain and the build
     script, as scripts/cmux-next/check-app-ffi-pin.sh derives them, plus the swift test job's crates. A
     change to one also needs a new pin (app-ffi-pin.json, which runs every tier)."""
-    workspace: dict[str, str] = {}
-    try:
-        manifest = (root / "cmux-tui/Cargo.toml").read_text(encoding="utf-8")
-        for line in manifest.splitlines():
-            named = re.match(r'\s*([A-Za-z0-9_-]+)\s*=\s*\{[^}]*\bpath\s*=\s*"([^"]+)"', line)
-            if named:
-                workspace[named.group(1)] = "cmux-tui/" + named.group(2).strip("/")
-    except OSError:
-        pass
-    seen: set[str] = set()
-    pending = [APP_FFI_CRATE]
-    while pending:
-        crate = pending.pop()
-        if crate in seen or not (root / crate / "Cargo.toml").is_file():
-            continue
-        seen.add(crate)
-        text = (root / crate / "Cargo.toml").read_text(encoding="utf-8")
-        found = [(Path(crate) / dep).as_posix() for dep in CARGO_PATH.findall(text)]
-        found += [workspace[name] for name in CARGO_WORKSPACE_DEP.findall(text) if name in workspace]
-        for dep in found:
-            resolved = (root / dep).resolve()
-            try:
-                relative = resolved.relative_to(root.resolve()).as_posix()
-            except ValueError:
-                continue
-            if (resolved / "Cargo.toml").is_file():
-                pending.append(relative)
-    prefixes = {crate + "/" for crate in seen}
+    prefixes = {crate + "/" for crate in app_ffi_pin.library_crates(root)}
     prefixes |= {p for p in SWIFT_JOB_INPUTS if p.startswith(CMUX_TUI)}
     prefixes |= {"cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh"}
     return sorted(prefixes)

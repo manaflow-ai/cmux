@@ -23,7 +23,8 @@ crate_dir="$crates/cmux-app-ffi"
 out_root="${CMUX_APP_FFI_OUT:-$repo_root/cmux-tui/target/cmux-app-ffi}"
 case "$out_root" in ""|"/") echo "error: CMUX_APP_FFI_OUT must name a directory" >&2; exit 2 ;; esac
 lib_name="libcmux_app_ffi.a"
-headers_in=("$crates/cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI"
+headers_in=("$crates/acpmux-client/include/acpmux_client.h:CAcpmuxClientFFI"
+            "$crates/cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI"
             "$crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h:CCmuxLayoutReducerFFI"
             "$crates/cmux-palette-ranker/include/cmux_palette_ranker.h:CCmuxPaletteRankerFFI"
             "$crates/cmux-app-ffi/include/cmux_motion_ffi.h:CCmuxMotionFFI"
@@ -82,7 +83,7 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/cmux-app-ffi.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 exports="$work/exports.txt"
 for entry in "${headers_in[@]}"; do
-  grep -oE '\bcmux_[a-z0-9_]+\(' "${entry%%:*}" | tr -d '(' | sort -u | sed 's/^/_/'
+  grep -oE '\b(cmux_|acpmux_client_)[a-z0-9_]+\(' "${entry%%:*}" | tr -d '(' | sort -u | sed 's/^/_/'
 done | sort -u > "$exports"
 
 headers="$out_root/headers"

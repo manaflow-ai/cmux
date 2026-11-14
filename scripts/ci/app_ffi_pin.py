@@ -38,6 +38,7 @@ import json
 import os
 import re
 import sys
+import tomllib
 from pathlib import Path
 
 REPO = "manaflow-ai/cmux"
@@ -60,6 +61,37 @@ NOT_BUILT = ("tests", "benches", "examples")
 # of a test vector, a #[path], a [lib] path, even from a #[cfg(test)] file) keeps that directory an input; so does a
 # build script that names the directory at all, since it may compute the path.
 _LITERAL = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
+
+
+def library_crates(root: Path) -> list[str]:
+    """Path crates compiled into the app library, excluding test-only dependencies."""
+    root = root.resolve()
+    workspace_file = root / "cmux-tui/Cargo.toml"
+    workspace = tomllib.loads(workspace_file.read_text()).get("workspace", {}).get("dependencies", {}) if workspace_file.is_file() else {}
+    seen: set[str] = set()
+    pending = [root / "cmux-tui/crates/cmux-app-ffi"]
+    while pending:
+        crate = pending.pop().resolve()
+        if not crate.is_relative_to(root) or not (crate / "Cargo.toml").is_file():
+            continue
+        relative = crate.relative_to(root).as_posix()
+        if relative in seen:
+            continue
+        seen.add(relative)
+        manifest = tomllib.loads((crate / "Cargo.toml").read_text())
+        scopes = [manifest, *manifest.get("target", {}).values()]
+        for scope in scopes:
+            for kind in ("dependencies", "build-dependencies"):
+                for name, dep in scope.get(kind, {}).items():
+                    if not isinstance(dep, dict):
+                        continue
+                    base = crate
+                    if dep.get("workspace"):
+                        dep = workspace.get(name, {})
+                        base = root / "cmux-tui"
+                    if isinstance(dep, dict) and "path" in dep:
+                        pending.append(base / dep["path"])
+    return sorted(seen)
 
 
 def not_built(root: Path, inputs: list[str]) -> list[str]:
@@ -361,6 +393,9 @@ def main(argv: list[str]) -> int:
             path = Path(argv[1]) if len(argv) >= 2 else PACKAGE / "Package.swift"
             pin = Path(argv[2]) if len(argv) == 3 else path.with_name("app-ffi-pin.json")
             check_manifest(path.read_text(encoding="utf-8"), read(pin.read_text(encoding="utf-8"))[1])
+            return 0
+        if argv[:1] == ["library-crates"] and len(argv) == 2:
+            print("\n".join(library_crates(Path(argv[1]))))
             return 0
         if argv[:1] == ["not-built"] and len(argv) >= 2:
             for directory in not_built(Path(argv[1]), argv[2:]):
