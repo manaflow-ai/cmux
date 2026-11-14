@@ -308,7 +308,7 @@ cleanup() {
     note "- exit status: $result" || result=1
     (cd "$out" && zip -qr evidence.zip . -x evidence.zip) || result=1
   fi
-  if [[ -n "${CMUX_IOS_CLOUD_PROOF_FILE:-}" ]]; then
+  if [[ -n "${CMUX_IOS_CLOUD_PROOF_FILE:-}" || "${CMUX_IOS_OWNER_ACCESS_PROOF:-0}" == 1 ]]; then
     python3 -I scripts/ci/cmux_next_cloud_pair_proof.py --export-out "$out" --status "$result" || result=1
   fi
   return "$result"
@@ -935,7 +935,7 @@ fi
 # mode keeps its existing diagnostics and app artifact. This boundary runs
 # after Python teardown, so a Python failure cannot leave raw Cloud captures in
 # the public archive; a missing receipt makes the step fail.
-if [[ -n "${CMUX_IOS_CLOUD_PROOF_FILE:-}" ]]; then
+if [[ -n "${CMUX_IOS_CLOUD_PROOF_FILE:-}" || "${CMUX_IOS_OWNER_ACCESS_PROOF:-0}" == 1 ]]; then
   python3 -I scripts/ci/cmux_next_cloud_pair_proof.py --export-out "$out" --status "${pair_status:-0}" || pair_status=1
   cat "$out/SUMMARY.md"
   [[ "${pair_status:-0}" -eq 0 ]] || pair_status=1
@@ -952,7 +952,7 @@ else
   fi
   (cd "$out" && rm -f evidence.zip && zip -qr evidence.zip . -x evidence.zip)
 fi
-if [[ -z "${CMUX_IOS_CLOUD_PROOF_FILE:-}" ]]; then
+if [[ -z "${CMUX_IOS_CLOUD_PROOF_FILE:-}" && "${CMUX_IOS_OWNER_ACCESS_PROOF:-0}" != 1 ]]; then
   cat "$summary"
 fi
 if [[ "${test_status:-0}" -ne 0 ]]; then exit "$test_status"; fi

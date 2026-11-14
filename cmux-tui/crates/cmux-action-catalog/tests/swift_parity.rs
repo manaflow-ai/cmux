@@ -22,12 +22,7 @@ fn repo() -> PathBuf {
 /// Actions this crate has and the pinned app FFI does not yet (step A of an app FFI change,
 /// docs/ci/app-ffi-release.md). The exports are written from the pinned catalog, so they gain
 /// these rows with the re-pin, which takes them off this list (#38644, #41954).
-const AWAITING_REPIN: &[&str] = &[
-    "agentBoard.show",
-    "macScreen.stopViewing",
-    "debug.densityOverlayPlayground",
-    "sidebar.customize",
-];
+const AWAITING_REPIN: &[&str] = &["sidebar.customize"];
 
 /// Each id on [`AWAITING_REPIN`] is a catalog action that `export` (one of the exports' action
 /// lists) does not have yet: once the export has it, it comes off the list.
@@ -49,7 +44,7 @@ fn check_awaiting_repin(export: &[Value], file: &str) {
 /// catalog, so until the re-pin they show no shortcut for these rows. An export may show
 /// either no shortcut or this crate's; any other value still fails. Take an id off once both
 /// exports carry its shortcut.
-const SHORTCUT_AWAITING_REPIN: &[&str] = &["palette.toggleTerminalChat"];
+const SHORTCUT_AWAITING_REPIN: &[&str] = &[];
 
 /// Whether `id`'s exported shortcut may be `null` while the crate has one (see
 /// [`SHORTCUT_AWAITING_REPIN`]).
@@ -71,8 +66,7 @@ fn shortcut_awaits_repin(id: &str, exported: &Value) -> bool {
 /// action's catalog row. Until the re-pin the dump keeps the old value of each; every other
 /// field of the row is still compared. A listed field the dump already shows as this crate has
 /// it fails: the re-pin landed, so take it off.
-const FIELDS_AWAITING_REPIN: &[(&str, &[&str])] =
-    &[("macScreen.open", &["/arguments", "/surfacePlan/contextMenus"])];
+const FIELDS_AWAITING_REPIN: &[(&str, &[&str])] = &[];
 
 /// Gives `rust`'s rows the dump's value of each field on [`FIELDS_AWAITING_REPIN`], after
 /// checking that the two still differ there.

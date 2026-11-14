@@ -646,6 +646,9 @@ impl Hub {
         // The subagents the host still runs, before its first replayed line reaches the tap:
         // a child's line is tagged with its session from the first one (`work_below.rs`).
         self.seed_subagents_from_log(session);
+        // So is the turn its log has open: the replay's model work is that turn's, not one the
+        // person did not start, until recovery below rebuilds it (`background_turn.rs`).
+        let _adopted_turn = self.hold_adopted_turn(session);
         let tap = self.session_tap(session);
         let incarnation = record.incarnation.clone();
         let caller_token = record.caller_token.clone();
