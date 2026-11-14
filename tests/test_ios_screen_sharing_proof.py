@@ -413,7 +413,7 @@ class HostTests(unittest.TestCase):
                 self.assertEqual(call.call_args.args[2]["lease_id"], instance.lease)
 
     def test_credentials_wait_for_all_namespace_claims(self):
-        for refusal in (None, "auth", "device", "remote"):
+        for refusal in (None, "auth", "device", "remote", "resume", "resume-account"):
             with self.subTest(refusal=refusal), tempfile.TemporaryDirectory(prefix="ss-") as directory:
                 instance = self.host.Host(Path("/owned.app"),
                                           {"CFBundleIdentifier": "owned", "CFBundleExecutable": "cmux"},
@@ -433,13 +433,21 @@ class HostTests(unittest.TestCase):
                     order.append(phase + "-remote")
                     if phase == "prepare" and refusal == "remote":
                         raise self.host.HostFailure("host_remote_prepare_failed")
+                def resume():
+                    order.append("resume-remote")
+                    if refusal == "resume":
+                        raise self.host.HostFailure("host_remote_resume_failed")
+                accounts = [{"signed_in": False},
+                            {"signed_in": True, "user_id": "unexpected"} if refusal == "resume-account"
+                            else {"signed_in": False}]
                 with patch.object(self.host, "command", return_value=""), \
                         patch.object(self.host, "identity_service", return_value="owned.cloud.development.device-hub"), \
                         patch.object(self.host.subprocess, "run", return_value=Mock(returncode=44)), \
                         patch.object(instance, "_launch", side_effect=launch), \
-                        patch.object(instance, "_account", return_value={"signed_in": False}), \
+                        patch.object(instance, "_account", side_effect=accounts), \
                         patch.object(instance, "_capture", side_effect=claim), \
                         patch.object(instance, "_remote_capture", side_effect=remote_claim), \
+                        patch.object(instance, "_remote_resume", side_effect=resume, create=True), \
                         patch.object(instance, "hub", return_value={"signed_in": True, "this_device": "owned-device"}), \
                         patch.object(self.host, "rpc", return_value={"signed_in": True, "email": "account"}), \
                         patch.object(self.host, "stop", side_effect=lambda proc: order.append("stop")):
@@ -449,10 +457,17 @@ class HostTests(unittest.TestCase):
                         instance.__enter__()
                 if instance.log and not instance.log.closed: instance.log.close()
                 self.assertNotIn("CMUX_UITEST_STACK_PASSWORD", launches[0])
-                self.assertEqual(len(launches), 1 if refusal else 2)
+                expected_launches = 2 if refusal in ("resume", "resume-account") else 1 if refusal else 3
+                self.assertEqual(len(launches), expected_launches)
+                for launch_env in launches[:-1] if not refusal else launches:
+                    self.assertNotIn("CMUX_UITEST_STACK_PASSWORD", launch_env)
                 if not refusal:
-                    self.assertEqual(order, ["launch", "prepare-auth", "prepare-device", "prepare-remote", "stop", "launch"])
-                    self.assertEqual(launches[1]["CMUX_UITEST_STACK_PASSWORD"], "password")
+                    self.assertEqual(order, ["launch", "prepare-auth", "prepare-device", "prepare-remote", "stop",
+                                             "launch", "resume-remote", "stop", "launch"])
+                    self.assertEqual(launches[2]["CMUX_UITEST_STACK_PASSWORD"], "password")
+                if refusal == "resume-account":
+                    self.assertTrue(instance.account_mismatch)
+                    self.assertNotIn("resume-remote", order)
 
     def test_capture_rejects_incomplete_or_wrongly_typed_absence_proof(self):
         instance = self.make_host()
