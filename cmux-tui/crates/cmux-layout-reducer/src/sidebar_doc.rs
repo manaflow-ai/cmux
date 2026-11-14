@@ -41,6 +41,8 @@ pub mod project;
 mod project_tests;
 pub mod reduce;
 pub mod reset;
+#[cfg(test)]
+mod stale_tests;
 pub mod view;
 
 #[cfg(test)]
