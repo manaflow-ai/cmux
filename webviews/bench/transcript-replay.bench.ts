@@ -360,7 +360,22 @@ async function openRound(ctx: Ctx, log: ReplayLog): Promise<Open> {
   }
 }
 
-type BurstResult = { kind: string; rows: number; msPerRecord: number; selfMs?: Map<string, number> };
+type BurstResult = {
+  kind: string;
+  rows: number;
+  msPerRecord: number;
+  selfMs?: Map<string, number>;
+  /// What the page held when the burst ended: its elements, the transcript rows mounted and the animations running.
+  dom?: { elements: number; mounted: number; animations: number };
+};
+/// The page's size as a burst leaves it: a per-update cost that grows with the transcript while these stay flat is
+/// script work over every row; one that grows with them is the page's own (style, layout).
+const domSize = (page: Page) =>
+  page.evaluate(() => ({
+    elements: document.getElementsByTagName("*").length,
+    mounted: document.querySelectorAll("[data-row-id]").length,
+    animations: document.getAnimations().length,
+  }));
 type CpuProfile = {
   nodes: {
     id: number;
@@ -450,7 +465,9 @@ async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promis
         const records = burst.toSeq - burst.fromSeq + 1;
         const profiled = PROFILE ? ((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile : undefined;
         burstWindows.push([windowStart, await page.evaluate(() => performance.now())]);
+        const dom = await domSize(page);
         bursts.push({
+          dom,
           kind: burst.kind,
           rows: burst.rows,
           msPerRecord: Math.round((taskMs / records) * 1000) / 1000,
@@ -750,7 +767,12 @@ if (import.meta.main) {
         ])
           if (!note.includes(" 0.0000 ")) console.log(`  ${note}`);
         for (const burst of live?.bursts ?? [])
-          console.log(`  ${burst.kind} at ${burst.rows} rows: ${burst.msPerRecord} ms per record`);
+          console.log(
+            `  ${burst.kind} at ${burst.rows} rows: ${burst.msPerRecord} ms per record` +
+              (burst.dom
+                ? ` (${burst.dom.elements} elements, ${burst.dom.mounted} rows mounted, ${burst.dom.animations} animations)`
+                : ""),
+          );
         for (const kind of BURST_KINDS) {
           const profiled = (live?.bursts ?? []).filter((burst) => burst.kind === kind && burst.selfMs);
           if (profiled.length < 2) continue;

@@ -257,11 +257,11 @@ import { routeCurrentTrustRefusal, routeOwnedTrustRefusal, type TrustRefusalOwne
 import { heldPrompts, type SendGesture } from "./heldPrompt";
 import { bindsHeldSendNow } from "./heldSendBinding";
 import {
-  queuedStartingSends,
   StartingSends,
-  startingQueueEntry,
-  withStartingPrompt,
   type StartingSend,
+  startingQueueEntry,
+  queuedStartingSends,
+  withStartingPrompt,
   startingIn,
 } from "./startingSends";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
@@ -548,6 +548,8 @@ import type { LocalCommand } from "./localCommands";
 import {
   cloudPageRefusal,
   cloudRunsHere,
+  cloudSendAfterCheck,
+  heldPromptShown,
   composerAgentLocal,
   cloudFolderGrants,
   cloudStartFolder,
@@ -559,8 +561,6 @@ import {
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
   type CloudStartAnswer,
-  cloudSendAfterCheck,
-  heldPromptShown,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
@@ -632,11 +632,11 @@ import {
   foldsToHold,
   linedCallOf,
   oneKeyPerMessageRun,
-  rowsToHold,
   withHeldFolds,
   withoutHeldCalls,
-  withoutHeldRows,
   lastTurnWorkedKeys,
+  rowsToHold,
+  withoutHeldRows,
 } from "./conversation/turnEndHold";
 import { HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type HarnessHealth, type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
@@ -659,6 +659,7 @@ import {
   hostErrorShows,
   hostIsReconnecting,
   hostRefusedTooLarge,
+  hostSelfRetrying,
   nextRetryDelay,
   offersAcpmuxRestart,
   readHostRestoring,
@@ -2107,6 +2108,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The finished runs that came back between rows a reader scrolled up had in view, kept out of the
   /// rows until the view follows again (conversation/turnEndHold.ts `rowsToHold`).
   const heldRuns = useRef<{ session?: string; keys: ReadonlySet<string>; asked?: true }>({ keys: new Set() });
+  /// The ended turn's "Worked for" over rows a reader scrolled up had in view: open until the view
+  /// follows again, then closed (conversation/turnEndHold.ts `foldsToHold`; cmux#24569's turn_end rows).
+  const heldWorked = useRef<{ session?: string; keys: ReadonlySet<string> }>({ keys: new Set() });
   /// Moves when the view follows again with commands or runs held out, so they go back in.
   const [callRelease, releaseCalls] = useReducer((count: number) => count + 1, 0);
   /// A held run the reader asks for (Find's match, a link to a call or to a message) goes back in,
@@ -3053,6 +3057,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const asked = heldRuns.current.asked === true;
       if (heldRuns.current.session !== shownSessionId || asked || (!viewNow && heldRuns.current.keys.size > 0))
         heldRuns.current = { session: shownSessionId, keys: new Set() };
+      if (heldWorked.current.session !== shownSessionId || (!viewNow && heldWorked.current.keys.size > 0))
+        heldWorked.current = { session: shownSessionId, keys: new Set() };
       const shapeFrom = (source: readonly AcpmuxRow[], open: Folds) =>
         turnViewFrom(
           source,
@@ -3082,14 +3088,24 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       foldsSeen.current = { session: shownSessionId, folds };
       if (heldFolds.current.session !== shownSessionId)
         heldFolds.current = { session: shownSessionId, keys: new Set() };
-      let turns = shape(withHeldFolds(folds, heldFolds.current.keys));
+      // The open folds with what a turn's end holds: the reader's held folds and a deferred Worked for.
+      const heldOpen = () =>
+        heldWorked.current.keys.size === 0
+          ? heldFolds.current.keys
+          : new Set([...heldFolds.current.keys, ...heldWorked.current.keys]);
+      let turns = shape(withHeldFolds(folds, heldOpen()));
       const inView = ownChange ? null : transcriptInView.current?.();
       if (inView) {
-        const held = foldsToHold(rows, turns.rows, last?.turns.rows, turns.reusedRows, inView, folds);
+        const worked = new Set<string>();
+        const held = foldsToHold(rows, turns.rows, last?.turns.rows, turns.reusedRows, inView, folds, worked);
+        if (worked.size > 0) {
+          heldWorked.current = { session: shownSessionId, keys: new Set([...heldWorked.current.keys, ...worked]) };
+          turns = shape(withHeldFolds(folds, heldOpen()));
+        }
         if (held.length > 0) {
           const kept = heldFolds.current.keys;
           heldFolds.current = { session: shownSessionId, keys: new Set([...kept, ...held]) };
-          turns = shape(withHeldFolds(folds, heldFolds.current.keys));
+          turns = shape(withHeldFolds(folds, heldOpen()));
           // One key per message run, the one its line closes by (turnEndHold.ts): the line and its
           // rows draw the same with it alone.
           const one = oneKeyPerMessageRun(held, turns.rows, turns.reusedRows);
@@ -3102,7 +3118,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         const back = asked ? [] : rowsToHold(rows, turns.rows, last?.turns.rows, turns.reusedRows, inView);
         if (back.length > 0) {
           heldRuns.current = { session: shownSessionId, keys: new Set([...heldRuns.current.keys, ...back]) };
-          turns = shape(withHeldFolds(folds, heldFolds.current.keys));
+          turns = shape(withHeldFolds(folds, heldOpen()));
         }
       }
       // A command the live line named out of its run, which it no longer names, stays out of the
@@ -3112,19 +3128,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // line and finished) goes back to the line, out of its run as before, so it never reads
       // nowhere: in neither its run nor the line. Shaped from every row only while one is held.
       if (snapshot.isWorking && heldCalls.current.keys.size > 0) {
-        const again = linedCallOf(shapeFrom(rows, withHeldFolds(folds, heldFolds.current.keys)).rows);
+        const again = linedCallOf(shapeFrom(rows, withHeldFolds(folds, heldOpen())).rows);
         if (again !== undefined && heldCalls.current.keys.has(again)) {
           const keys = new Set(heldCalls.current.keys);
           keys.delete(again);
           heldCalls.current = { ...heldCalls.current, keys };
-          turns = shape(withHeldFolds(folds, heldFolds.current.keys));
+          turns = shape(withHeldFolds(folds, heldOpen()));
           lined = linedCallOf(turns.rows);
         }
       }
       const letGo = viewNow ? callsToHold(heldCalls.current.lined, lined, heldCalls.current.keys) : undefined;
       if (letGo !== undefined) {
         heldCalls.current = { ...heldCalls.current, keys: new Set([...heldCalls.current.keys, letGo]) };
-        turns = shape(withHeldFolds(folds, heldFolds.current.keys));
+        turns = shape(withHeldFolds(folds, heldOpen()));
         lined = linedCallOf(turns.rows);
       }
       heldCalls.current.lined = lined;
@@ -5312,8 +5328,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         here: setSubagentView,
         title: subagentTitleRef.current.title(id),
         tone: workflowPaneRequest(id) ? undefined : agentTone(id),
-        // Seed a new pane from this chat's kept tail before its own attach answers.
-        beforeOpen: () => directClient.current?.handOverCurrentTail(),
+        // Seed a new pane from this chat's kept tail before its own attach answers: carried on the
+        // pane's request, so the host holds it before it decides how the pane opens (#36650).
+        beforeOpen: () => directClient.current?.tailHandOver(),
         mark: workflowPaneRequest(id) ? undefined : subagentTitleRef.current.mark(id),
       }),
     [autoOpenSubagents],
@@ -6807,8 +6824,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const transcriptFollowing = useCallback(() => followingTranscript.current, []);
   const onTranscriptFollowingChange = useCallback((following: boolean) => {
     followingTranscript.current = following;
+    // Only a chat followed at its latest row lets go of its oldest records (direct.ts `shedOlderHeld`).
+    directClient.current?.setFollowing(following);
     // Back at the latest row: the commands held out while scrolled up go back into their runs.
-    if (following && (heldCalls.current.keys.size > 0 || heldRuns.current.keys.size > 0)) releaseCalls();
+    // An ended turn's Worked for held open over what they read closes there too.
+    if (
+      following &&
+      (heldCalls.current.keys.size > 0 || heldRuns.current.keys.size > 0 || heldWorked.current.keys.size > 0)
+    )
+      releaseCalls();
   }, []);
   const composerRef = useCallback((handle: ComposerHandle | null) => {
     composerHandle.current = handle;
@@ -8297,6 +8321,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         acpmuxPerf.markLaunch("connected");
         connectingClient = client;
         directClient.current = client;
+        client.setFollowing(followingTranscript.current);
         client.toastSink = (text, kind) => (kind === "error" ? notices.failed(text) : notices.transient(text));
         connectedClients.connected(client);
         // connect() may have delivered its first snapshot before returning. Associate that
@@ -9813,7 +9838,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The catalog arrives through the query cache, which composerSnapshot carries.
   // A socket the pane is already asking for again is quiet in the header; only a failure said above
   // the composer is a failure.
-  const header = paneHeader(composerSnapshot, t, { hostRecovering: !hostErrorShown });
+  // A failure the pane clears by asking again by itself (a machine rebooting) is quiet in the
+  // header too: the one line above the composer says Reconnecting… (HostError.tsx).
+  const header = paneHeader(composerSnapshot, t, {
+    hostRecovering: !hostErrorShown || hostSelfRetrying(hostFailure, acpmuxRestartOffered),
+  });
   // The pane header never says where the chat runs (Leo 2026-10-26); Session Info's Environment does.
   const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness, snapshot.summary?.family);
   const canContinue = continueAvailable;
@@ -11394,6 +11423,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Stable: memoized transcript rows compare it.
   const toggleActivity = useCallback((id: string, covers?: readonly string[]) => {
     const view = chatViewRef.current;
+    // A Worked for the turn's end left open over what the reader reads (`heldWorked`) is closed by
+    // their click: it was never their open fold.
+    if (heldWorked.current.keys.has(id)) {
+      const keys = new Set(heldWorked.current.keys);
+      keys.delete(id);
+      heldWorked.current = { ...heldWorked.current, keys };
+      releaseCalls();
+      return;
+    }
     // A turn's fold opens with every line in it closed, whatever the reader opened there before
     // (Lucas, 2026-11-11): its toggle forgets them. Closed, nothing in it draws, so open or close alike.
     if (isWorkedFold(id)) {
@@ -12854,7 +12892,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         onRetry={() => retryHost.current?.()}
         // The pane asks again by itself unless asking cannot change the answer: a chat too large to
         // open, or another build's acpmux holding the socket (only Restart clears it).
-        selfRetrying={!hostRefusedTooLarge(hostFailure) && !acpmuxRestartOffered}
+        selfRetrying={hostSelfRetrying(hostFailure, acpmuxRestartOffered)}
         restarting={restartingAcpmux}
         onRestart={
           acpmuxRestartOffered
