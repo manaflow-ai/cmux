@@ -177,8 +177,10 @@
 }
 :root:not([data-top-strip]) .nt-screen .nt-composer .acpmux-composer-strip {
   /* The chat composer's strip height (composerLocation.css), so the two heads match (Leo
-     2026-10-29: "stop making them take up so much space"). */
-  --acpmux-strip-height: 24px;
+     2026-10-29: "stop making them take up so much space"), at New Tab's size scale: a fixed 24 px held the chips'
+     band still while they and the box grew, and Spacious's 31 px chips overflowed it (Lucas 2026-11-14: "the top
+     part should scale down with the composer ... and up too for spacious"). */
+  --acpmux-strip-height: calc(24px * var(--nt-density, 1));
   margin: 0;
   /* Subtract the context and ghost button insets from the + center. The location slot scales
      with density; the ghost button's 4.5 px leading inset does not. */
