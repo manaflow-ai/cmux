@@ -105,12 +105,22 @@ concurrency:
 
 jobs:
   plan:
+    # The routing App key for the walks' pick (below); a run called from
+    # another workflow never takes an owned Mac, so it needs none.
+    environment: ${{ contains(github.workflow_ref, '/.github/workflows/ios-review-gate.yml@') && !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read  # the pick reads the runner queue and the placement markers
     outputs:
       sha: ${{ steps.plan.outputs.sha }}
       lane: ${{ steps.plan.outputs.lane }}
       gate_sha: ${{ steps.plan.outputs.gate_sha }}
+      runs_on: ${{ steps.pool.outputs.runs_on }}
+      retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
+      label: ${{ steps.pool.outputs.label }}
+      persistent: ${{ steps.pool.outputs.persistent }}
     steps:
       - id: plan
         env:
@@ -152,117 +162,19 @@ jobs:
             echo "lane=$lane"
           } >> "$GITHUB_OUTPUT"
           echo "App Review gate judges $sha ($lane)" | tee -a "$GITHUB_STEP_SUMMARY"
-
-  lint:
-    needs: plan
-    name: Guideline lint (${{ needs.plan.outputs.lane }})
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      actions: read  # ipa_artifact_run: another run's artifact
-    env:
-      LANE: ${{ needs.plan.outputs.lane }}
-    steps:
-      - name: Checkout the gate
+      # Where the iPhone and Duo walks run: an owned simulator mini when
+      # the review-gate lane of scripts/ci/ios_runner_pool.py finds two free
+      # now, else the ephemeral macOS 26 pool, as before. Every leg used to
+      # wait there beside nightly and pull request jobs (run 43591424745:
+      # 34 to 65 minutes). A call from another workflow, a re-run and a fork
+      # pull request stay on the ephemeral pool. A step here, not a job of
+      # its own: the pull request job budget (ci/steps.toml) only goes down,
+      # and every device job already waits for plan, so they are all
+      # created after the pick. The helper comes from the gate's own commit.
+      - name: Checkout the pool helper
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          # The gate's own commit (plan's gate_sha): a caller on another
-          # branch (main's production pipeline) still runs the gate's scripts.
-          ref: ${{ needs.plan.outputs.gate_sha }}
-          path: gate
-          persist-credentials: false
-          sparse-checkout: |
-            cmux-next-ios/scripts
-            cmux-next-ios/AppStoreReview
-            cmux-next-ios/UITests
-      - name: Checkout the app source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ needs.plan.outputs.sha }}
-          path: app
-          persist-credentials: false
-      - name: Overlay the gate's history and tests
-        run: |
-          set -euo pipefail
-          # The gate's own history and UI tests judge any source (an older
-          # SHA being submitted). A source with no cmux-next-ios gets none,
-          # and the lint says it is not the NEXT app.
-          if [ -d app/cmux-next-ios ]; then
-            mkdir -p app/cmux-next-ios/AppStoreReview
-            cp gate/cmux-next-ios/AppStoreReview/rejection-history.json app/cmux-next-ios/AppStoreReview/
-            cp gate/cmux-next-ios/UITests/AppReviewGateUITests.swift app/cmux-next-ios/UITests/
-          fi
-      - name: Download the exact binary
-        if: inputs.ipa_artifact_name != ''
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: ${{ inputs.ipa_artifact_name }}
-          # The runner's temp folder, emptied before each job: a self-hosted worker keeps its workspace, and an
-          # .ipa an earlier job left in `ipa/` would be linted as this binary (the self-hosted downloads guard, test_ci_self_hosted_downloads_are_fresh, run by hand).
-          path: ${{ runner.temp }}/ipa
-      - name: Download the dispatched run's binary
-        if: inputs.ipa_artifact_run != ''
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: app-store-ipa
-          run-id: ${{ inputs.ipa_artifact_run }}
-          github-token: ${{ github.token }}
-          path: ${{ runner.temp }}/ipa
-      - name: Lint
-        env:
-          WANT_IPA: ${{ inputs.ipa_artifact_name != '' || inputs.ipa_artifact_run != '' }}
-          JUDGED_SHA: ${{ needs.plan.outputs.sha }}
-        run: |
-          set -euo pipefail
-          args=(lint --source-root app --lane "$LANE" --check-urls --json "lint-$LANE.json")
-          ipa="$(find "$RUNNER_TEMP/ipa" -name '*.ipa' 2>/dev/null | head -n 1 || true)"
-          if [ -n "$ipa" ]; then
-            # The binary must be built from the judged commit.
-            args+=(--ipa "$ipa" --expect-commit "$JUDGED_SHA")
-          elif [ "$WANT_IPA" = true ]; then
-            # Asked to judge an exact binary and none arrived: never lint
-            # the source alone and call that the binary's verdict.
-            echo "::error::an .ipa was requested but none was downloaded" >&2
-            exit 1
-          fi
-          # The report decides; a blocking lint still uploads its result.
-          python3 -I gate/cmux-next-ios/scripts/app_review_gate.py "${args[@]}" || true
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        continue-on-error: true
-        with:
-          name: review-gate-lint-${{ env.LANE }}
-          path: lint-${{ env.LANE }}.json
-          retention-days: 3
-
-  # Where the iPhone and Duo walks run (the walk job): an owned simulator
-  # mini when the review-gate lane of scripts/ci/ios_runner_pool.py finds
-  # two free now, else the ephemeral macOS 26 pool, as before. Every leg
-  # used to wait there beside nightly and pull request jobs (run
-  # 43591424745: 34 to 65 minutes). A submission (a call from the
-  # production pipeline), a re-run and a fork pull request stay on the
-  # ephemeral pool. Both device jobs wait for this pick, so another run's
-  # picker never reads this run's iPad leg as "all on Blacksmith" while
-  # its phones are still being placed.
-  runner:
-    needs: plan
-    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      actions: read
-    outputs:
-      runs_on: ${{ steps.pool.outputs.runs_on }}
-      retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
-      label: ${{ steps.pool.outputs.label }}
-      persistent: ${{ steps.pool.outputs.persistent }}
-    steps:
-      # The gate's own commit: called from main, github.sha has no
-      # review-gate lane.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ needs.plan.outputs.gate_sha }}
+          ref: ${{ steps.plan.outputs.gate_sha }}
           sparse-checkout: |
             scripts/ci/ios_runner_pool.py
             scripts/ci/e2e_runner_pool.py
@@ -354,8 +266,90 @@ jobs:
           path: ${{ steps.marker.outputs.path }}
           retention-days: 1
 
+  lint:
+    needs: plan
+    name: Guideline lint (${{ needs.plan.outputs.lane }})
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read  # ipa_artifact_run: another run's artifact
+    env:
+      LANE: ${{ needs.plan.outputs.lane }}
+    steps:
+      - name: Checkout the gate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The gate's own commit (plan's gate_sha): a caller on another
+          # branch (main's production pipeline) still runs the gate's scripts.
+          ref: ${{ needs.plan.outputs.gate_sha }}
+          path: gate
+          persist-credentials: false
+          sparse-checkout: |
+            cmux-next-ios/scripts
+            cmux-next-ios/AppStoreReview
+            cmux-next-ios/UITests
+      - name: Checkout the app source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          path: app
+          persist-credentials: false
+      - name: Overlay the gate's history and tests
+        run: |
+          set -euo pipefail
+          # The gate's own history and UI tests judge any source (an older
+          # SHA being submitted). A source with no cmux-next-ios gets none,
+          # and the lint says it is not the NEXT app.
+          if [ -d app/cmux-next-ios ]; then
+            mkdir -p app/cmux-next-ios/AppStoreReview
+            cp gate/cmux-next-ios/AppStoreReview/rejection-history.json app/cmux-next-ios/AppStoreReview/
+            cp gate/cmux-next-ios/UITests/AppReviewGateUITests.swift app/cmux-next-ios/UITests/
+          fi
+      - name: Download the exact binary
+        if: inputs.ipa_artifact_name != ''
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ inputs.ipa_artifact_name }}
+          # The runner's temp folder, emptied before each job: a self-hosted worker keeps its workspace, and an
+          # .ipa an earlier job left in `ipa/` would be linted as this binary (the self-hosted downloads guard, test_ci_self_hosted_downloads_are_fresh, run by hand).
+          path: ${{ runner.temp }}/ipa
+      - name: Download the dispatched run's binary
+        if: inputs.ipa_artifact_run != ''
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: app-store-ipa
+          run-id: ${{ inputs.ipa_artifact_run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/ipa
+      - name: Lint
+        env:
+          WANT_IPA: ${{ inputs.ipa_artifact_name != '' || inputs.ipa_artifact_run != '' }}
+          JUDGED_SHA: ${{ needs.plan.outputs.sha }}
+        run: |
+          set -euo pipefail
+          args=(lint --source-root app --lane "$LANE" --check-urls --json "lint-$LANE.json")
+          ipa="$(find "$RUNNER_TEMP/ipa" -name '*.ipa' 2>/dev/null | head -n 1 || true)"
+          if [ -n "$ipa" ]; then
+            # The binary must be built from the judged commit.
+            args+=(--ipa "$ipa" --expect-commit "$JUDGED_SHA")
+          elif [ "$WANT_IPA" = true ]; then
+            # Asked to judge an exact binary and none arrived: never lint
+            # the source alone and call that the binary's verdict.
+            echo "::error::an .ipa was requested but none was downloaded" >&2
+            exit 1
+          fi
+          # The report decides; a blocking lint still uploads its result.
+          python3 -I gate/cmux-next-ios/scripts/app_review_gate.py "${args[@]}" || true
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        continue-on-error: true
+        with:
+          name: review-gate-lint-${{ env.LANE }}
+          path: lint-${{ env.LANE }}.json
+          retention-days: 3
+
   reviewer-path:
-    needs: [plan, runner]
+    needs: plan
     name: Reviewer path (${{ needs.plan.outputs.lane }}, ${{ matrix.family }})
     # One job per device, side by side: each builds the app (about 6
     # minutes) and walks one device (about 20), where one job walking all
@@ -577,23 +571,25 @@ jobs:
 
   # The iPhone and Duo legs: the iPad leg's steps without the agent pass,
   # so no secret and no environment, and so an owned simulator mini when the
-  # runner job found one (a re-run takes its retry pool, a fork pull request
-  # the ephemeral label). Each leg walks a simulator it creates and deletes:
-  # an owned Mac keeps its simulators between jobs.
+  # plan job's pick found one (a re-run takes its retry pool, a fork pull
+  # request the ephemeral label). On an owned Mac each leg walks a simulator
+  # it creates and deletes.
   walk:
-    needs: [plan, runner]
+    needs: plan
     name: Reviewer path (${{ needs.plan.outputs.lane }}, ${{ matrix.family }})
     strategy:
       fail-fast: false
       matrix:
         family: [iphone, duo]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.plan.outputs.retry_runs_on || needs.plan.outputs.runs_on) }}
     timeout-minutes: 120
     env:
       LANE: ${{ needs.plan.outputs.lane }}
-      FRESH_SIMULATOR: "1"
+      # A simulator of its own on an owned Mac, which keeps its simulators
+      # between jobs; on the ephemeral pool the image's device, as before.
+      FRESH_SIMULATOR: ${{ github.run_attempt == 1 && needs.plan.outputs.persistent == 'true' && '1' || '' }}
       # An owned Mac's label names the pull request lane's Xcode pin.
-      CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && startsWith(needs.plan.outputs.label, 'glaeda-') && (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
       - name: Result paths
         run: |
@@ -727,7 +723,7 @@ jobs:
           if-no-files-found: error
           retention-days: 3
       - name: Remove the leg's simulator
-        if: always() && env.UDID != ''
+        if: always() && env.UDID != '' && env.FRESH_SIMULATOR != ''
         run: |
           xcrun simctl shutdown "$UDID" >/dev/null 2>&1 || true
           xcrun simctl delete "$UDID"
