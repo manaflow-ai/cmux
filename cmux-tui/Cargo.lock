@@ -136,6 +136,7 @@ version = "1.0.0"
 name = "acpmux-client"
 version = "1.0.0"
 dependencies = [
+ "acpmux-book",
  "acpmux-list-types",
  "serde",
  "serde_json",
