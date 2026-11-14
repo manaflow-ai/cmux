@@ -125,6 +125,29 @@ import Testing
         #expect(store.turns.map(\.id) == ["t0", "t1", "t2", "t3", "t4"])
     }
 
+    /// The first frame reads only the head: the newest turns, bounded, from a prompt, marked
+    /// `earlier`; the whole kept copy stays on disk for the next save and the offline reader.
+    @Test func theHeadHoldsOnlyTheNewestTurns() async throws {
+        let directory = Self.folder()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let key = try #require(AgentTranscriptCache.key(accountID: "acct", macID: "mac1", tabID: "s7"))
+        let writer = Self.cache(directory)
+        writer.save(key, sessionID: "s1", earlier: false, records: Self.json((0..<120).flatMap(Long.turnRecords)))
+        writer.flush()
+
+        let relaunched = Self.cache(directory)
+        let head = try #require(relaunched.firstScreen(key))
+        #expect(head.records.count <= AgentTranscriptCache.firstScreenRecords)
+        #expect(head.earlier)
+        #expect(head.lastSeq == 600)
+        #expect(AgentTranscriptCache.isPrompt(try #require(head.records.first)))
+        #expect(await relaunched.load(key)?.records.count == 600)
+
+        let store = AgentChatStore(source: Self.hub(Self.cache(directory)).source(sessionID: "s1", summary: Self.summary))
+        await Long.waitUntil { store.turns.last?.id == "t119" }
+        #expect(store.turns.count == head.records.count / 5)
+    }
+
     /// Records kept for another session of the tab (the Mac started a new one) are not shown.
     @Test func keptRecordsOfAnotherSessionAreIgnored() async throws {
         let cache = Self.cache()
