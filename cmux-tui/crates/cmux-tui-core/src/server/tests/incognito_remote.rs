@@ -540,3 +540,279 @@ fn a_cloud_phones_channel_is_a_remote_device_without_saying_so() {
     }
     mux.shutdown();
 }
+
+/// `list-workspaces` with `known` from `conn`: its `data`.
+fn listed_since(mux: &Arc<Mux>, conn: &Conn, known: Value) -> Value {
+    let reply = line(mux, conn, json!({"id": "since", "cmd": "list-workspaces", "known": known}));
+    assert_eq!(reply["ok"], true, "{reply}");
+    reply["data"].clone()
+}
+
+fn known_of(data: &Value) -> Value {
+    json!({
+        "registry_id": data["registry_id"],
+        "generation": data["generation"],
+        "workspace_revision": data["workspace_revision"],
+        "pane_revision": data["pane_revision"],
+        "terminal_revision": data["terminal_revision"],
+        "tree_revision": data["tree_revision"],
+    })
+}
+
+#[test]
+fn a_remote_devices_known_never_moves_with_an_incognito_workspace() {
+    // hq#8813: the daemon's tree revision counts every change, so a phone
+    // that held it would see an incognito workspace's changes as a revision
+    // that moved while its rows did not.
+    let mux = test_mux();
+    let app = app(&mux);
+    let private = create(&mux, &app, "private-space", true);
+    let normal = create(&mux, &app, "normal-space", false);
+    let local = listed(&mux, &app);
+    let private_id = row(&local, &private).unwrap()["id"].as_u64().unwrap();
+    let normal_id = row(&local, &normal).unwrap()["id"].as_u64().unwrap();
+    let rename = |workspace: u64, name: &str| {
+        let reply = line(
+            &mux,
+            &app,
+            json!({"id": "rename", "cmd": "rename-workspace", "workspace": workspace, "name": name}),
+        );
+        assert_eq!(reply["ok"], true, "{reply}");
+    };
+
+    let phone = phone(&mux);
+    let first = listed_since(&mux, &phone, json!({}));
+    assert!(!first.to_string().contains(&private), "{first}");
+    let known = known_of(&first);
+    let again = listed_since(&mux, &phone, known.clone());
+    assert_eq!(again["unchanged"], true, "{again}");
+    assert_eq!(again["tree_revision"], known["tree_revision"]);
+
+    // The Mac renames its incognito workspace: nothing the phone may see changed.
+    let app_known = known_of(&listed_since(&mux, &app, json!({})));
+    rename(private_id, "secret-plans");
+    let app_after = listed_since(&mux, &app, app_known);
+    assert!(app_after.get("unchanged").is_none(), "the app sees its own rename: {app_after}");
+    let after = listed_since(&mux, &phone, known.clone());
+    assert_eq!(after["unchanged"], true, "an incognito rename moved the phone's tree: {after}");
+    assert_eq!(after["tree_revision"], known["tree_revision"]);
+    // The daemon's counters moved with the rename; the phone's answer carries
+    // none of them, only what it holds, so it never learns of the edit.
+    let counters = ["workspace_revision", "pane_revision", "terminal_revision"];
+    let daemon = line(&mux, &app, json!({"id": "d", "cmd": "list-workspaces"}))["data"].clone();
+    assert!(
+        counters.iter().any(|counter| daemon[*counter] != known[*counter]),
+        "the incognito rename moved no daemon counter, so this test proves nothing: {daemon}"
+    );
+    for counter in counters {
+        assert_eq!(
+            after[counter], known[counter],
+            "{counter} moved with an incognito edit: {after}"
+        );
+    }
+
+    // A normal rename does.
+    rename(normal_id, "visible-name");
+    let renamed = listed_since(&mux, &phone, known.clone());
+    assert!(renamed.get("unchanged").is_none(), "{renamed}");
+    assert!(renamed.to_string().contains("visible-name"), "{renamed}");
+    assert!(!renamed.to_string().contains(&private), "{renamed}");
+    assert_ne!(renamed["tree_revision"], known["tree_revision"]);
+}
+
+#[test]
+fn a_remote_devices_first_screen_counts_and_fills_with_what_it_may_see() {
+    // hq#8813: `limit` takes the first N of the workspaces the phone may see,
+    // and `total` counts only those, so neither the page nor the count says
+    // that an incognito workspace exists.
+    let mux = test_mux();
+    let app = app(&mux);
+    let first_private = create(&mux, &app, "private-first", true);
+    let visible = ["one", "two", "three"].map(|name| create(&mux, &app, name, false));
+    let second_private = create(&mux, &app, "private-second", true);
+    let all = listed(&mux, &app).len();
+
+    let phone = phone(&mux);
+    let whole = listed(&mux, &phone);
+    let seen = whole.len();
+    assert_eq!(seen, all - 2, "{whole:?}");
+    let first_ids = |page: &Value| -> Vec<Value> {
+        page["workspaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["resource_id"].clone())
+            .collect()
+    };
+    let whole_ids: Vec<Value> = whole.iter().map(|row| row["resource_id"].clone()).collect();
+    // The sidebar order of what the phone may see: every row of its whole list.
+    let all_page =
+        line(&mux, &phone, json!({"id": "all", "cmd": "list-workspaces", "limit": seen + 5}));
+    let order = first_ids(&all_page["data"]);
+    let (mut sorted_order, mut sorted_whole) = (order.clone(), whole_ids.clone());
+    sorted_order.sort_by_key(Value::to_string);
+    sorted_whole.sort_by_key(Value::to_string);
+    assert_eq!(sorted_order, sorted_whole, "{all_page}");
+    for limit in [1, 2, seen, seen + 5] {
+        let reply =
+            line(&mux, &phone, json!({"id": "first", "cmd": "list-workspaces", "limit": limit}));
+        assert_eq!(reply["ok"], true, "{reply}");
+        let page = &reply["data"];
+        assert_eq!(page["total"], json!(seen), "limit {limit}: {page}");
+        assert_eq!(first_ids(page), order[..limit.min(seen)], "limit {limit}: {page}");
+        let text = page.to_string();
+        assert!(!text.contains(&first_private) && !text.contains(&second_private), "{text}");
+    }
+    for name in visible {
+        assert!(whole_ids.contains(&json!(name.clone())), "{name} missing: {whole_ids:?}");
+    }
+    // The Mac still counts and lists every workspace.
+    let reply = line(&mux, &app, json!({"id": "first", "cmd": "list-workspaces", "limit": 1}));
+    assert_eq!(reply["data"]["total"], json!(all), "{reply}");
+
+    // With `known`, a part never carries a revision; the whole one does, and is unchanged next.
+    let reply =
+        line(&mux, &phone, json!({"id": "k", "cmd": "list-workspaces", "known": {}, "limit": 1}));
+    assert!(reply["data"].get("tree_revision").is_none(), "{reply}");
+    let reply = line(
+        &mux,
+        &phone,
+        json!({"id": "k", "cmd": "list-workspaces", "known": {}, "limit": seen}),
+    );
+    let page = &reply["data"];
+    assert_eq!(page["total"], json!(seen), "{page}");
+    assert!(page["tree_revision"].is_string(), "{page}");
+    let known = json!({"registry_id": page["registry_id"], "tree_revision": page["tree_revision"]});
+    let again = line(
+        &mux,
+        &phone,
+        json!({"id": "k", "cmd": "list-workspaces", "known": known, "limit": 1}),
+    );
+    assert_eq!(again["data"]["unchanged"], true, "{again}");
+}
+
+#[test]
+fn a_remote_devices_known_moves_with_the_sidebar_order_it_sees() {
+    // hq#8813: a `limit` page is taken in sidebar order, so the digest a
+    // phone holds moves when the sidebar order of what it may see moves,
+    // although no row of the tree changed.
+    let mux = test_mux();
+    let app = app(&mux);
+    let _private = create(&mux, &app, "private-order", true);
+    let names = ["first", "second", "third"].map(|name| create(&mux, &app, name, false));
+    let (registry_id, _) = mux.registry_identity();
+    let item_of = |doc: &Value, workspace: &str| -> Option<Value> {
+        doc["items"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|item| {
+                item["body"]["type"] == "workspace" && item["body"].to_string().contains(workspace)
+            })
+            .cloned()
+    };
+    let sidebar = |key: &str| -> Value {
+        // A read carries no idempotency key.
+        let params = json!({"machine": "current", "session": "current"});
+        let request = resource_request(key, "sidebar.get", params, None);
+        assert!(handle_connection_message(&mux, app.0, &request, &app.1, &app.3));
+        let reply = pop_json(&app.2);
+        assert_eq!(reply["ok"], true, "{reply}");
+        let result = &reply["result"];
+        let doc = if result["value"]["items"].is_array() { &result["value"] } else { result };
+        assert!(doc["items"].is_array(), "no sidebar items: {reply}");
+        doc.clone()
+    };
+    let doc = sidebar("get-1");
+    let missing: Vec<Value> = names
+        .iter()
+        .filter(|name| item_of(&doc, name).is_none())
+        .map(|name| json!({"session_id": registry_id, "workspace_id": name}))
+        .collect();
+    if !missing.is_empty() {
+        let adopted = v2(&mux, &app, "sidebar.adopt", json!({"refs": missing}), "adopt");
+        assert_eq!(adopted["ok"], true, "{adopted}");
+    }
+
+    let phone = phone(&mux);
+    let held = listed_since(&mux, &phone, json!({}));
+    let known = known_of(&held);
+    let again = listed_since(&mux, &phone, known.clone());
+    assert_eq!(again["unchanged"], true, "{again}");
+
+    // The Mac drags a workspace that is not the phone's first row to the top
+    // of its section (new workspaces may already list first by default).
+    let page = line(&mux, &phone, json!({"id": "p0", "cmd": "list-workspaces", "limit": 1}));
+    let top = page["data"]["workspaces"][0]["resource_id"].clone();
+    let target = names.iter().find(|name| json!(name) != top).expect("a row below the top");
+    let doc = sidebar("get-2");
+    let last = item_of(&doc, target).unwrap_or_else(|| panic!("no item: {doc}"));
+    let moved = v2(
+        &mux,
+        &app,
+        "sidebar.move",
+        json!({"items": [last["id"]], "to": {"section": last["section"], "index": 0}}),
+        "move",
+    );
+    assert_eq!(moved["ok"], true, "{moved}");
+    let page = line(&mux, &phone, json!({"id": "p", "cmd": "list-workspaces", "limit": 1}));
+    assert_eq!(page["data"]["workspaces"][0]["resource_id"], json!(target), "{page}");
+
+    let after = listed_since(&mux, &phone, known.clone());
+    assert!(
+        after.get("unchanged").is_none(),
+        "a sidebar reorder left the phone unchanged: {after}"
+    );
+    assert_ne!(after["tree_revision"], known["tree_revision"], "{after}");
+    mux.shutdown();
+}
+
+#[test]
+fn a_remote_devices_page_counts_with_the_view_its_rows_were_read_with() {
+    // hq#8813 review: a workspace that turns incognito while a page is read
+    // is read again with the new view, never left out of the rows by a later
+    // prune but still counted in `total`.
+    let mux = test_mux();
+    let app = app(&mux);
+    let _first = create(&mux, &app, "page-first", false);
+    let phone = phone(&mux);
+    let mut reads = 0;
+    let reply = crate::server::incognito_remote::list_with_one_view(&mux, phone.0, |view| {
+        reads += 1;
+        if reads == 1 {
+            // After the view was read, before the rows are.
+            create(&mux, &app, "page-private", true);
+        }
+        Ok(list_workspaces_reply_first(&mux, 50, view)?.0)
+    })
+    .unwrap();
+    assert_eq!(reads, 2, "the page was not read again with the new view: {reply}");
+    assert!(!reply.to_string().contains("page-private"), "{reply}");
+    let rows = reply["workspaces"].as_array().unwrap();
+    assert_eq!(reply["total"], json!(rows.len()), "{reply}");
+
+    // Through the socket: the page and `total` agree on what the phone sees.
+    let page = line(&mux, &phone, json!({"id": "p", "cmd": "list-workspaces", "limit": 50}));
+    let rows = page["data"]["workspaces"].as_array().unwrap();
+    assert!(!page.to_string().contains("page-private"), "{page}");
+    assert_eq!(page["data"]["total"], json!(rows.len()), "{page}");
+    mux.shutdown();
+}
+
+#[test]
+fn a_remote_devices_unchanged_reply_leaves_out_counters_it_did_not_send() {
+    // `Tree` declares the counters optional, not nullable: a `known` with only
+    // the registry and tree revision is answered without them, never null.
+    let mux = test_mux();
+    let app = app(&mux);
+    let _private = create(&mux, &app, "private-partial", true);
+    let phone = phone(&mux);
+    let held = listed_since(&mux, &phone, json!({}));
+    let known = json!({"registry_id": held["registry_id"], "tree_revision": held["tree_revision"]});
+    let again = listed_since(&mux, &phone, known);
+    assert_eq!(again["unchanged"], true, "{again}");
+    for counter in ["workspace_revision", "pane_revision", "terminal_revision"] {
+        assert!(again.get(counter).is_none(), "{counter} must be left out, not null: {again}");
+    }
+    mux.shutdown();
+}

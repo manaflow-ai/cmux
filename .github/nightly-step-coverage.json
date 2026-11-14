@@ -520,7 +520,8 @@
       "build-nightly-deltas": {
         "Download published variant (parallel)": {"plumbing": true, "note": "a ranged, digest-checked download (download-run-artifact.py, tests/test_download_run_artifact_modes.py); download-artifact stays the fallback"},
         "Select Xcode": {"plumbing": true}, "Select the SDK of the selected Xcode": {"plumbing": true},
-        "Build the deltas without the key": {"nightly_only": "diffs the published DMG against earlier releases' DMGs with BinaryDelta (tests/test_nightly_deltas_keyless_prebuild.py)"}},
+        "Build the deltas without the key": {"nightly_only": "diffs the published DMG against earlier releases' DMGs with BinaryDelta (tests/test_nightly_deltas_keyless_prebuild.py)"},
+        "Yield the signer Mac to the nightly-next build loop": {"nightly_only": "waits on the live nightly-next feed and refs between two builds (logic tested by tests/test_nightly_deltas_yield.py)"}},
       "published-in": {
         "Add the workflow commit's new step scripts to an older build tree": {"plumbing": true, "note": "only runs when the build tree predates the step scripts it calls"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},

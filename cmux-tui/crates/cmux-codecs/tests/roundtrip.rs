@@ -73,6 +73,8 @@ fn bench_row_runs() {
         codec: Codec::H264,
         scene: SceneKind::Scroll,
         loss_pct: 2.0,
+        burst_len: 0.0,
+        max_kbps: None,
         rtt_ms: 50,
         link_mbps: 30.0,
         seconds: 2,
