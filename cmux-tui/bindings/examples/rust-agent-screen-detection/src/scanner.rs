@@ -47,6 +47,27 @@ const PROCESS_ACQUISITION_SLOW_RECHECK: Duration = Duration::from_secs(2);
 const RETRY_BACKOFF_MIN: Duration = Duration::from_millis(250);
 const RETRY_BACKOFF_MAX: Duration = Duration::from_secs(5);
 const PLUGIN_VERSION: u32 = 1;
+
+/// PROBE ONLY (never merged): append one line to /tmp/cmux-sd-wakes-<pid>.log.
+fn probe_log(line: &str) {
+    use std::io::Write;
+    let ms = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(format!("/tmp/cmux-sd-wakes-{}.log", std::process::id()))
+    {
+        let _ = writeln!(file, "{ms} {line}");
+    }
+}
+
+fn probe_change(change: &ResourceChange) -> String {
+    match change {
+        ResourceChange::Upsert { resource, id, .. } => format!("U:{resource:?}:{id:?}"),
+        ResourceChange::Delete { resource, id, .. } => format!("D:{resource:?}:{id:?}"),
+        ResourceChange::Unknown { kind, .. } => format!("X:{kind}"),
+    }
+}
 const RESERVED_AGENT_HOOK_PRODUCER_ID: &str = "cmux_agent";
 
 /// An exact journal request retained after an uncertain transport outcome.
@@ -436,6 +457,17 @@ fn scan_connection(
         sender.clone(),
         move || {
             let item = journal.recv().map_err(|error| error.to_string())?;
+            if let Some(item) = &item {
+                probe_log(&format!(
+                    "J kind={} subjects={:?}",
+                    item.value.kind,
+                    item.value
+                        .subjects
+                        .iter()
+                        .map(|s| format!("{}:{}", s.kind, s.id))
+                        .collect::<Vec<_>>()
+                ));
+            }
             Ok(item.map(|item| {
                 item.value
                     .subjects
@@ -448,6 +480,19 @@ fn scan_connection(
     )?;
     spawn_wake_stream("record-wakes", "session event stream ended", sender, move || {
         let item = records.recv().map_err(|error| error.to_string())?;
+        if let Some(item) = &item {
+            let summary = match &item.value {
+                SessionEvent::Delta(delta) => format!(
+                    "delta prev={} rev={} {:?}",
+                    delta.previous_revision,
+                    delta.revision,
+                    delta.changes.iter().map(probe_change).collect::<Vec<_>>()
+                ),
+                SessionEvent::Snapshot(_) => "snapshot".to_string(),
+                SessionEvent::Unknown { kind, .. } => format!("unknown {kind}"),
+            };
+            probe_log(&format!("E {summary}"));
+        }
         Ok(item.map(|item| terminal_wakes(&item.value)))
     })?;
     let snapshots = session.terminal_snapshots().map_err(|error| error.to_string())?;
@@ -488,7 +533,13 @@ fn scan_connection(
                 }
                 Err(error) => return Err(error.to_string()),
             };
+            let scan_started = Instant::now();
             scan_terminal(&terminal, &snapshot, plugin_id, &manifests, plugin_generation, state)?;
+            probe_log(&format!(
+                "S {id} rev={:?} us={}",
+                snapshot.stream_revision,
+                scan_started.elapsed().as_micros()
+            ));
             if let Some(deadline) = state.tracker.next_deadline(&id, Instant::now()) {
                 deadlines.insert(id.clone(), deadline);
             }
