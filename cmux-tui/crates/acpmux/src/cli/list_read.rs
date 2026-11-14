@@ -75,6 +75,19 @@ impl Via {
     }
 }
 
+/// The `_acpmux/status` count of the closed rows other machines list, which the v2 list does
+/// not hold (a peer's closed chats are read by a relayed `page`, row 8b).
+/// v1 while another machine's closed row is listed: deleted with 8b.
+const CLOSED_REMOTE: &str = "closedRemoteListed";
+
+/// Whether a form that walks the whole view reads v1, whole, from `_acpmux/status`'s `status`
+/// (decision 213): while another machine lists a closed row, or when the status does not say (a
+/// daemon with rows by key and without the count, or no status read). Read once, before the
+/// walk: a peer's chat that closes during it is missed by that one command.
+pub(crate) fn closed_remote_listed(status: Option<&Value>) -> bool {
+    status.and_then(|status| status.get(CLOSED_REMOTE)?.as_u64()).is_none_or(|n| n > 0)
+}
+
 /// The `initialize` feature of a daemon whose v2 list holds the hub machines' rows (row 5h).
 pub(crate) const HUB_ROWS: &str = "listHubRows";
 

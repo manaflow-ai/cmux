@@ -1081,6 +1081,7 @@ impl Hub {
         // Read after every wait above and held through no other.
         let cfg = self.config.read().await;
         let exe_unstable = crate::daemon::exe_path::current_unstable();
+        let closed = self.closed_listed(&sessions);
         json!({
             "version": VERSION,
             "build": build(),
@@ -1089,7 +1090,11 @@ impl Hub {
             // The closed rows `_acpmux/sessions` lists with no filter, counted with no row built
             // (`Hub::closed_listed`): `acpmux ls` counts them on its hidden line while it reads
             // only the live view (agent service v2, row 7b). Not one snapshot with that read.
-            "closedListed": self.closed_listed(&sessions),
+            "closedListed": closed.all,
+            // Of those, the peers' and hub machines' (decision 213): the v2 list holds no closed
+            // row of another machine, so `ls --all` and the other forms that walk the whole view
+            // read v1 while this is not 0.
+            "closedRemoteListed": closed.remote,
             "pid": std::process::id(),
             // Its own executable, and whether it runs as `cmux-tui acp …`, so a
             // client (host enroll) tells which program runs it without scanning

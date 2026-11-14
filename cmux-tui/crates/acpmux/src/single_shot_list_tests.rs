@@ -188,10 +188,17 @@ const V1_WHILE_HUB_LISTED: &[(&str, &str, &str)] = &[(
     "v1 while a hub machine is listed: deleted with the status read before row 13",
 )];
 
+/// The count that sends a walk of the whole view to v1 (decision 213), named once.
+const V1_WHILE_CLOSED_REMOTE_LISTED: &[(&str, &str, &str)] = &[(
+    "cli/list_read.rs",
+    "const CLOSED_REMOTE: &str = \"closedRemoteListed\";",
+    "v1 while another machine's closed row is listed: deleted with 8b (the relayed `page`)",
+)];
+
 #[test]
 fn the_hub_machines_read_is_named_once() {
     let files = crate_sources();
-    for (file, text, why) in V1_WHILE_HUB_LISTED {
+    for (file, text, why) in V1_WHILE_HUB_LISTED.iter().chain(V1_WHILE_CLOSED_REMOTE_LISTED) {
         let found = files.iter().find(|(rel, _)| rel == file).map(|(_, source)| source.matches(text).count());
         assert_eq!(found, Some(1), "src/{file} names `{text}` once ({why})");
     }

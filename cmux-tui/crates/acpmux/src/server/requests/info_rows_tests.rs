@@ -1,6 +1,6 @@
-//! `_acpmux/info` with `sessionIds`: the session list's rows by key, byte for byte the rows
-//! `_acpmux/sessions` lists, bounded, and a peer's row read here with nothing sent on its link;
-//! and `_acpmux/status`'s `closedListed`.
+//! `_acpmux/info` with `sessionIds`: the session list's rows by key, equal once parsed to the
+//! rows `_acpmux/sessions` lists, bounded, and a peer's row read here with nothing sent on its
+//! link; and `_acpmux/status`'s `closedListed` and `closedRemoteListed`.
 
 use crate::config::{Config, StoreMode};
 use crate::hub::Hub;
@@ -100,7 +100,7 @@ fn listed_by_key(list: &Value) -> HashMap<String, Value> {
 }
 
 #[tokio::test]
-async fn the_rows_by_key_are_the_lists_rows_byte_for_byte() {
+async fn the_rows_by_key_are_the_lists_rows_once_parsed() {
     for ready in [true, false] {
         let (hub, _, live, closed) = fixture(ready);
         for tools in [false, true] {
@@ -215,14 +215,15 @@ async fn status_counts_the_closed_rows_the_list_holds() {
     let (hub, _, _, _) = fixture(true);
     let (status, _) = call(&hub, method::MUX_STATUS, json!({})).await;
     let (list, _) = call(&hub, method::MUX_SESSIONS, json!({})).await;
-    let closed = list.unwrap()["sessions"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|row| row["status"] == "closed")
-        .count();
-    assert_eq!(closed, 2);
-    assert_eq!(status.unwrap()["closedListed"], json!(closed));
+    let list = list.unwrap();
+    let closed: Vec<&Value> =
+        list["sessions"].as_array().unwrap().iter().filter(|row| row["status"] == "closed").collect();
+    assert_eq!(closed.len(), 2);
+    let remote = closed.iter().filter(|row| row["peer"].is_string()).count();
+    assert_eq!(remote, 1, "the peer's closed row");
+    let status = status.unwrap();
+    assert_eq!(status["closedListed"], json!(closed.len()));
+    assert_eq!(status["closedRemoteListed"], json!(remote));
     assert!(crate::capabilities::ids().contains(&crate::capabilities::INFO_ROWS));
 }
 

@@ -625,7 +625,14 @@ pub(crate) async fn ls_via(
     // Closed sessions are most of a fleet's list; the daemon leaves them out unless asked for.
     let closed = arg(args, "status") == Some("closed");
     let params = if closed { json!({}) } else { json!({"excludeStatus": ["closed"]}) };
-    let source = match via.open(daemon).await {
+    // The closed rows are of the whole view, which holds no other machine's closed row: v1 while
+    // one is listed (decision 213).
+    let remote_closed = closed
+        && list_read::closed_remote_listed(
+            daemon.request(method::MUX_STATUS, json!({})).await.ok().as_ref(),
+        );
+    let source = if remote_closed { Ok(None) } else { via.open(daemon).await };
+    let source = match source {
         Ok(source) => source,
         Err(e) => return refusal(e),
     };

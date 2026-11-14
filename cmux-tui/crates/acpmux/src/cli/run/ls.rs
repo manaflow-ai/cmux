@@ -223,35 +223,42 @@ pub(crate) async fn output(
     // The compact view: closed rows are hidden and counted, so only the live view is read and
     // the count comes from `_acpmux/status`.
     let compact = !json_out && fields.is_none() && !filtered && !all;
+    let live_status = status.as_deref().is_some_and(|s| s != "closed");
+    // The v1 list a `--limit` read's `nextCursor` speaks of holds closed rows unless a daemon
+    // filter drops them: such a read walks the whole view to know.
+    let daemon_live = live || daemon_status.is_some_and(|s| s != "closed");
+    let view = if daemon_live || (want.is_none() && (pending || live_status || compact)) {
+        ListView::Live
+    } else {
+        ListView::All
+    };
+    let walks_all = view == ListView::All;
     let mut status_read = None;
-    if compact && let Some(read) = peers.take() {
+    if (compact || walks_all) && let Some(read) = peers.take() {
         status_read = Some(read.await.ok().and_then(Result::ok));
+    }
+    if walks_all && status_read.is_none() {
+        status_read = Some(client.request(method::MUX_STATUS, json!({})).await.ok());
     }
     let closed_listed = status_read
         .as_ref()
         .and_then(|status| status.as_ref()?.get("closedListed")?.as_u64())
         .map(|n| usize::try_from(n).unwrap_or(usize::MAX));
     // `--cursor` is a v1 read kept; it moves before the v1 list is deleted. The compact view
-    // needs the closed count: a status without it means the v1 path.
+    // needs the closed count: a status without it means the v1 path. A walk of the whole view
+    // reads v1 while another machine's closed row is listed (decision 213).
     let known_peers = status_read
         .as_ref()
         .and_then(|status| status.as_ref()?.get("peers")?.as_array().cloned());
-    let source = if !one_page && (!compact || closed_listed.is_some()) {
+    let remote_closed =
+        walks_all && list_read::closed_remote_listed(status_read.as_ref().and_then(Option::as_ref));
+    let source = if !one_page && !remote_closed && (!compact || closed_listed.is_some()) {
         via.open_knowing(client, known_peers.as_deref()).await?
     } else {
         None
     };
     let (read, closed) = match source {
         Some(mut source) => {
-            let live_status = status.as_deref().is_some_and(|s| s != "closed");
-            // The v1 list a `--limit` read's `nextCursor` speaks of holds closed rows unless a
-            // daemon filter drops them: such a read walks the whole view to know.
-            let daemon_live = live || daemon_status.is_some_and(|s| s != "closed");
-            let view = if daemon_live || (want.is_none() && (pending || live_status || compact)) {
-                ListView::Live
-            } else {
-                ListView::All
-            };
             let may_keep = |s: &Summary| {
                 let peer = (s.origin != "local").then_some(s.origin.as_str());
                 (!live || !list_read::closed(s))

@@ -106,6 +106,11 @@ async fn serve(serves: Serves, seed: impl FnOnce(&Hub) -> usize) -> Daemon {
 /// parent is archived, tags, and a peer whose link is down (its rows stale), with one live and
 /// one closed row. No closed chat holds a message (decision 209). The rows the v2 index holds.
 fn fixture(hub: &Hub) -> usize {
+    fixture_with(hub, true)
+}
+
+/// [`fixture`], its peer listing a closed row when `peer_closed`, else only its live one.
+fn fixture_with(hub: &Hub, peer_closed: bool) -> usize {
     let now = crate::store::now_ms();
     let at = |n: u64| now - 600_000 + n * 1_000;
     let mut rows = 0;
@@ -124,12 +129,13 @@ fn fixture(hub: &Hub) -> usize {
     for n in 0..5 {
         add(meta(&format!("c-old-{n}"), &format!("old-{n}"), "closed", at(30 + n), json!({"area": "acpmux"})));
     }
-    let peer_rows = vec![
-        json!({"sessionId": "p-live", "qualifiedSessionId": "far/p-live", "name": "far/lane",
-               "status": "idle", "updatedAt": at(40), "tags": {"area": {"value": "acpmux"}}}),
-        json!({"sessionId": "p-closed", "qualifiedSessionId": "far/p-closed", "name": "far/done",
-               "status": "closed", "updatedAt": at(5)}),
-    ];
+    let mut peer_rows = vec![json!({"sessionId": "p-live", "qualifiedSessionId": "far/p-live",
+        "name": "far/lane", "status": "idle", "updatedAt": at(40),
+        "tags": {"area": {"value": "acpmux"}}})];
+    if peer_closed {
+        peer_rows.push(json!({"sessionId": "p-closed", "qualifiedSessionId": "far/p-closed",
+            "name": "far/done", "status": "closed", "updatedAt": at(5)}));
+    }
     hub.seed_down_peer("far", peer_rows);
     // The v2 index keeps a peer's live rows only (`SummaryIndex::apply_summary`).
     rows + 1
@@ -175,10 +181,19 @@ async fn callers(daemon: &Daemon, v2: bool) -> Vec<(&'static str, String)> {
 }
 
 /// Every form of the four callers prints the same bytes read through the v2 list as through
-/// v1, on one daemon: the recorded run prints each pair.
+/// v1, on one daemon whose peer lists a closed row (the forms that walk the whole view read v1,
+/// decision 213) and on one whose peer does not (they walk v2): the recorded run prints each
+/// pair.
 #[tokio::test]
 async fn every_form_prints_the_same_bytes_on_v2_as_on_v1() {
-    let daemon = serve(Serves::List, fixture).await;
+    for peer_closed in [false, true] {
+        eprintln!("=== the peer lists a closed row: {peer_closed} ===");
+        every_form_on(serve(Serves::List, |hub| fixture_with(hub, peer_closed)).await, peer_closed)
+            .await;
+    }
+}
+
+async fn every_form_on(daemon: Daemon, peer_closed: bool) {
     // The live rows: nine here and the peer's one.
     let live_text = 10.to_string();
     let now = crate::store::now_ms();
@@ -233,7 +248,11 @@ async fn every_form_prints_the_same_bytes_on_v2_as_on_v1() {
         all["sessions"].as_array().unwrap().iter().find(|r| r["sessionId"] == id).cloned().unwrap()
     };
     assert_eq!(row("c-under-closed")["spawnedBy"], "c-closed-parent");
-    assert_eq!(row("p-closed")["stale"], true);
+    if peer_closed {
+        // v1's own row, stale while its peer is down.
+        assert_eq!(row("p-closed")["stale"], true);
+    }
+    assert_eq!(row("p-live")["stale"], true);
     let exact: Value =
         serde_json::from_str(&ls(&daemon, &["--json", "--live", "--limit", &live_text], true, now).await)
             .unwrap();
@@ -242,6 +261,21 @@ async fn every_form_prints_the_same_bytes_on_v2_as_on_v1() {
         serde_json::from_str(&ls(&daemon, &["--json", "--live", "--limit", "1"], true, now).await)
             .unwrap();
     assert!(more["nextCursor"].is_string(), "{more}");
+}
+
+/// A walk of the whole view reads v1, whole, while another machine lists a closed row, and when
+/// the status does not say; a live form walks v2 all the same (decision 213).
+#[tokio::test]
+async fn a_walk_of_the_whole_view_reads_v1_while_another_machines_closed_row_is_listed() {
+    use crate::cli::list_read::closed_remote_listed;
+    for (peer_closed, listed) in [(true, true), (false, false)] {
+        let daemon = serve(Serves::List, |hub| fixture_with(hub, peer_closed)).await;
+        let status = daemon.client.request(crate::rpc::method::MUX_STATUS, json!({})).await.unwrap();
+        assert_eq!(closed_remote_listed(Some(&status)), listed, "{status}");
+    }
+    assert!(closed_remote_listed(Some(&json!({"closedListed": 3}))), "a status without the count");
+    assert!(closed_remote_listed(None), "no status read");
+    assert!(!closed_remote_listed(Some(&json!({"closedRemoteListed": 0}))));
 }
 
 /// A daemon without v2, one with v2 and `list` off, and one whose v2 list lacks the rows of the
