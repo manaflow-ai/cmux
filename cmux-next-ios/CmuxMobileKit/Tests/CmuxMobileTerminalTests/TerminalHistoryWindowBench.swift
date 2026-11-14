@@ -58,6 +58,7 @@ struct TerminalHistoryWindowBench {
         let before = Self.footprint()
         let surface = TerminalSurfaceView(frame: CGRect(x: 0, y: 0, width: 390, height: 2400))
         window.addSubview(surface)
+        #expect(surface.surface != nil, "a live Ghostty surface parses the replay")
         let started = CFAbsoluteTimeGetCurrent()
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             surface.feed(data, completion: { done.resume() })
@@ -81,9 +82,11 @@ struct TerminalHistoryWindowBench {
             var runs: [(ms: Double, grew: Int64)] = []
             for _ in 0..<3 { runs.append(await measure(data)) }
             let ms = runs.map(\.ms).sorted()[1]
-            let grew = runs.map(\.grew).sorted()[1]
+            // The first surface grows the heap; later ones reuse what it freed, so
+            // the largest growth is the shape's cost.
+            let grew = runs.map(\.grew).max() ?? 0
             let megabytes = (Double(grew) / 1_048_576 * 10).rounded() / 10
-            out.append("VIEWPORT-WINDOW-SIM \(name): \(data.count) bytes, parsed in \(Int(ms.rounded())) ms (median of 3), footprint +\(megabytes) MB")
+            out.append("VIEWPORT-WINDOW-SIM \(name): \(data.count) bytes, parsed in \(Int(ms.rounded())) ms (median of 3), footprint +\(megabytes) MB (largest of 3)")
         }
         for line in out { print(line) }
         #expect(out.count == shapes.count)
