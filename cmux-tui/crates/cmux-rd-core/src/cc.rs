@@ -63,6 +63,9 @@ pub struct CongestionController {
     /// Smoothed one-way delay change per feedback (microseconds).
     trend_us: f64,
     last_delay_us: Option<i64>,
+    /// New timing evidence must come from a newer send burst. All packets of
+    /// one encoded frame share a send timestamp, even across feedback chunks.
+    last_delay_sent_us: Option<u64>,
     usage: Usage,
 }
 
@@ -77,6 +80,7 @@ impl CongestionController {
             last_increase_us: None,
             trend_us: 0.0,
             last_delay_us: None,
+            last_delay_sent_us: None,
             usage: Usage::Normal,
         };
         cc.clamp();
@@ -120,6 +124,7 @@ impl CongestionController {
     pub fn on_path_changed(&mut self, path: PathKind) {
         self.path = path;
         self.last_delay_us = None;
+        self.last_delay_sent_us = None;
         self.trend_us = 0.0;
         self.usage = Usage::Normal;
         self.clamp();
@@ -130,16 +135,25 @@ impl CongestionController {
     /// grows only on evidence (feedback with arrivals and a flat delay), by
     /// at most 8 % per second of elapsed time.
     pub fn on_feedback(&mut self, arrivals: &[Arrival], loss: f64, now_us: u64) {
-        // One sample per feedback: the minimum one-way delay among its arrivals. A burst
-        // (a large keyframe) serializes its own packets, so per-packet deltas inside one
-        // burst rise without any queue on the path; the minimum filters that out.
+        // One sample per feedback, from send bursts not sampled before. A frame's
+        // packets share a send timestamp but can span multiple feedback chunks.
+        // Its tail serializes behind its head (and may be read after decoding),
+        // so treating each chunk's minimum as fresh evidence invents queue growth.
+        // Older/reordered chunks still feed loss accounting in the caller, but
+        // cannot change this baseline or cause another bitrate adjustment.
         let mut min_delay: Option<i64> = None;
+        let mut newest_sent = self.last_delay_sent_us;
         for a in arrivals {
             let Some(sent) = self.sent_us.remove(&a.transport_seq) else { continue };
+            if self.last_delay_sent_us.is_some_and(|last| sent <= last) {
+                continue;
+            }
+            newest_sent = Some(newest_sent.map_or(sent, |last| last.max(sent)));
             // Arrival clock wraps at u32; only differences between samples matter.
             let delay = i64::from(a.arrival_us) - (sent & 0xffff_ffff) as i64;
             min_delay = Some(min_delay.map_or(delay, |m| m.min(delay)));
         }
+        self.last_delay_sent_us = newest_sent;
         let mut deltas = Vec::new();
         if let Some(delay) = min_delay {
             if let Some(prev) = self.last_delay_us {
