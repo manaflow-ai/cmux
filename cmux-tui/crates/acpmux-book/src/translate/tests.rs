@@ -441,7 +441,44 @@ fn chat(seed: u32) -> (Vec<String>, Vec<Stretch>, Vec<String>) {
     (c.lines, stretches, pending)
 }
 
+fn assert_disjoint_group_ranges(mirror: &Mirror) {
+    let mut previous_last = 0;
+    for group in mirror.rows.values().filter(|row| row.kind == RowKind::Group) {
+        assert!(
+            group.id > previous_last,
+            "group {} begins inside a preceding fold ending at {previous_last}",
+            group.id
+        );
+        let last = if group.open {
+            group.id
+        } else {
+            group.fields.get("last").unwrap().parse::<u64>().unwrap()
+        };
+        assert!(last >= group.id, "group {} ends before it begins", group.id);
+        previous_last = last;
+    }
+}
+
+#[test]
+fn recorded_translation_fixtures_have_disjoint_fold_ranges() {
+    for fixture in [
+        SEED,
+        include_str!("fixtures/r1-reply-1.ndjson"),
+        include_str!("fixtures/r1-reply-2.ndjson"),
+    ] {
+        let mut state = State::default();
+        let mut mirror = Mirror::default();
+        let mut place = 0;
+        for line in fixture.lines() {
+            mirror.line_at(&mut state, Harness::V1, place, line.len() as u64, line);
+            assert_disjoint_group_ranges(&mirror);
+            place += line.len() as u64;
+        }
+    }
+}
+
 fn assert_settled_group_out(mirror: &Mirror) {
+    assert_disjoint_group_ranges(mirror);
     for group in mirror.rows.values().filter(|row| row.kind == RowKind::Group && !row.open) {
         let last = group
             .fields
@@ -510,6 +547,7 @@ fn th_ten_thousand_random_splits_restore_identical_ops_and_final_replies() {
         );
         assert_eq!(view.queue, whole.queue, "seed {seed}");
         assert_settled_group_out(&view);
+        assert_disjoint_group_ranges(&split_view);
         let mut floor = 0;
         for stretch in stretches {
             let answer = if stretch.worked && !stretch.steered {
@@ -1312,6 +1350,32 @@ fn turn_start_after_a_result_is_not_compared_with_the_old_turn() {
         mux(6, "turn_result", r#"{"turnId":"t2"}"#),
     ]);
     assert!(!m.reply("answer").open);
+}
+
+#[test]
+fn in_turn_ends_with_the_turn_and_a_restore_agrees() {
+    let mut s = State::default();
+    assert!(!s.in_turn());
+    let lines: Vec<_> = SEED.lines().collect();
+    for (index, line) in lines.iter().enumerate() {
+        t(&mut s, Harness::V1, line.as_bytes()).unwrap();
+        // The seed's last line is its turn's result.
+        assert_eq!(s.in_turn(), index + 1 < lines.len(), "line {index}");
+        let restored = State::restore(&s.checkpoint().unwrap()).unwrap();
+        assert_eq!(restored.in_turn(), s.in_turn(), "line {index}");
+    }
+    // A background tool's late update keeps the ended turn's id and starts no turn.
+    let late = update(
+        10,
+        r#"{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed"}"#,
+    );
+    t(&mut s, Harness::V1, late.as_bytes()).unwrap();
+    assert!(!s.in_turn());
+    // A turn the daemon starts with no prompt is a turn until its result.
+    t(&mut s, Harness::V1, mux(11, "turn_started", r#"{"turnId":"t2"}"#).as_bytes()).unwrap();
+    assert!(s.in_turn());
+    t(&mut s, Harness::V1, mux(12, "turn_result", r#"{"turnId":"t2"}"#).as_bytes()).unwrap();
+    assert!(!s.in_turn());
 }
 
 #[test]

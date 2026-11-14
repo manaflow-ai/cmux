@@ -107,6 +107,14 @@ impl CongestionController {
         }
     }
 
+    /// A retransmission keeps the original transport sequence, so its
+    /// receipt cannot distinguish the original packet from the repair.
+    /// Exclude that ambiguous sample rather than counting the repair wait
+    /// as new queueing delay on the path.
+    pub fn on_retransmitted(&mut self, transport_seq: u16) {
+        self.sent_us.remove(&transport_seq);
+    }
+
     /// A path change resets the delay baseline (RTT and capacity change at
     /// once) and applies the relay cap immediately.
     pub fn on_path_changed(&mut self, path: PathKind) {
@@ -163,7 +171,7 @@ impl CongestionController {
             self.last_increase_us = Some(now_us);
         }
         match self.usage {
-            Usage::Overuse => target *= 0.85,
+            Usage::Overuse if evidence => target *= 0.85,
             Usage::Normal if evidence => {
                 let elapsed_s = self
                     .last_increase_us
@@ -172,7 +180,7 @@ impl CongestionController {
                 target *= 1.0 + 0.08 * elapsed_s;
                 self.last_increase_us = Some(now_us);
             }
-            Usage::Normal | Usage::Underuse => {}
+            Usage::Normal | Usage::Underuse | Usage::Overuse => {}
         }
         if loss > 0.10 {
             target *= 1.0 - 0.5 * loss.min(1.0);

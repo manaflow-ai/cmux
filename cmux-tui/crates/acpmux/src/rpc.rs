@@ -444,6 +444,8 @@ pub mod method {
     pub const MUX_ATTACH: &str = "_acpmux/attach";
     pub const MUX_VIEW: &str = "_acpmux/view";
     pub const MUX_MARK_UNREAD: &str = "_acpmux/markUnread";
+    /// The person marks a chat read without showing it (`hub/seen.rs`, cmux's `chat.mark_read`).
+    pub const MUX_MARK_READ: &str = "_acpmux/markRead";
     /// The person saw a chat through a log seq (`hub/seen.rs` `read_through`): moves their seen
     /// cursor forward only.
     pub const MUX_SEEN: &str = "_acpmux/seen";

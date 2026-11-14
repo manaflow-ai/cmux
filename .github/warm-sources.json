@@ -84,6 +84,8 @@
     "cmux-next-docs-shortcuts.yml:docs-shortcuts": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "cmux-next-fast-tier-seed.yml:seed": {"class": "warm-seed", "warm": ["deriveddata-reuse", "actions-cache"]},
     "cmux-next-frame-pacing.yml:bench": {"class": "mac-run-product", "warm": [], "exempt": "benchmarks a downloaded tagged app; its only compile is a one-file clang virtual display helper"},
+    "first-user-journey-ios.yml:journey": {"class": "ios", "warm": ["actions-cache"]},
+    "cmux-next-iphone-clips.yml:record": {"class": "fleet-dispatch", "warm": ["deriveddata-reuse"]},
     "cmux-next-ios-kit.yml:kit-tests": {"class": "ios", "warm": ["actions-cache"]},
     "cmux-next-media.yml:tour": {"class": "mac-build", "warm": ["deriveddata-reuse", "product-reuse"]},
     "cmux-next-perf-bench.yml:bench": {"class": "fleet-dispatch", "warm": ["deriveddata-reuse"]},

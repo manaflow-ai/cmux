@@ -325,6 +325,16 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/markRead",
+      "params": {
+        "$ref": "#/types/SessionRef"
+      },
+      "result": {
+        "$ref": "#/types/Done"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/seen",
       "params": {
         "$ref": "#/types/SeenParams"
