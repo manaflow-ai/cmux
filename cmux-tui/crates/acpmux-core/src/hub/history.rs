@@ -875,11 +875,17 @@ mod tests {
         history.append(&gone(1)).unwrap();
         history.append(&gone(2)).unwrap();
         assert_eq!(history.used, history.bytes.len());
+        let snapshot = history.snapshot_after(0);
+        assert_eq!(snapshot.reserved_bytes, history.used);
+        assert_eq!(snapshot.bytes.as_ref(), history.after(0, 2).unwrap());
         assert_eq!(decode(history.after(0, 2).unwrap()).unwrap().len(), 2);
         assert_eq!(decode(history.after(1, 2).unwrap()).unwrap().len(), 1);
         history.append(&gone(3)).unwrap();
         assert!(history.after(0, 3).is_none());
         assert_eq!(decode(history.after(1, 3).unwrap()).unwrap().len(), 2);
+        let snapshot = history.snapshot_after(1);
+        assert_eq!(snapshot.reserved_bytes, history.used);
+        assert_eq!(snapshot.bytes.as_ref(), history.after(1, 3).unwrap());
     }
 
     #[test]
