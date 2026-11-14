@@ -350,7 +350,8 @@ async fn quiet_live_turn_crossing_marks_without_another_record() {
     // while the unmarked chunk below moves it past that tick.
     config.stalled_turn_ms = Some(1_500);
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
-    let v1 = Hub::new(config, store);
+    let v1 =
+        Hub::build(config, store, crate::mailbox::Mailbox::memory(), false, false, None, false);
     let mut metadata = meta("quiet");
     metadata.status = crate::store::SessionStatus::Running;
     let session = v1.insert_test_session(metadata);
@@ -636,7 +637,8 @@ async fn start_saved_peers_loads_a_cache_file_before_opening_remote_reconciliati
         },
     );
     let store = crate::store::open(&config.store, dir.path()).unwrap();
-    let v1 = Hub::new(config, store);
+    let v1 =
+        Hub::build(config, store, crate::mailbox::Mailbox::memory(), false, false, None, false);
     let state = Arc::new(TeeState::default());
     v1.install_v2_tee(Arc::new(TeeHandle { state: state.clone() }));
 
@@ -676,7 +678,8 @@ async fn shutdown_before_saved_peers_start_does_not_open_remote_reconciliation()
         },
     );
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
-    let v1 = Hub::new(config, store);
+    let v1 =
+        Hub::build(config, store, crate::mailbox::Mailbox::memory(), false, false, None, false);
     let state = Arc::new(TeeState::default());
     v1.install_v2_tee(Arc::new(TeeHandle { state: state.clone() }));
     v1.begin_shutdown();
