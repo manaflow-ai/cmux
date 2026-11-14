@@ -1,0 +1,9 @@
+{
+  "title": "The account menu alone, then with its profile submenu open (the submenu key, the menu not): both keep the themed glass. Record it with: cmux-ci capture SHA --state tour:account-submenu-material --whole-host",
+  "steps": [
+    {"title": "Launch", "wait": 3, "shot": false},
+    {"title": "The account menu alone", "rpc": {"method": "action.run", "params": {"action": "sidebar.profileMenu"}}, "wait": 1.5},
+    {"title": "Highlight the profile row", "rpc": {"method": "debug.key", "params": {"sequence": [{"key_code": 125, "down": true}, {"key_code": 125, "down": false, "after_ms": 40}]}}, "wait": 0.5, "shot": false},
+    {"title": "Its submenu open: the parent menu keeps the same glass", "rpc": {"method": "debug.key", "params": {"sequence": [{"key_code": 124, "down": true}, {"key_code": 124, "down": false, "after_ms": 40}]}}, "wait": 1.5}
+  ]
+}
