@@ -185,6 +185,13 @@ impl Peer {
                         return BackoffWait::Done;
                     }
                 }
+                // The network changed (`peer_network.rs`), often the one this peer failed on coming
+                // back: one attempt now. The backoff is not started over, so a network that keeps
+                // changing while the peer is down costs one attempt per change, not quick retries.
+                () = self.network_changed() => {
+                    tracing::info!(peer = %self.name, "this computer's network changed; reconnecting now");
+                    return BackoffWait::Done;
+                }
                 _ = self.stop_signal.notified() => return BackoffWait::Stopped,
             }
         }
