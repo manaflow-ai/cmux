@@ -281,6 +281,9 @@ pub(super) struct CarrierRoutes {
     session: SessionId,
     next: AtomicUsize,
     current: Arc<CurrentRoute>,
+    /// A reconnect connected a route of this session ([`Self::connect`]): from then on the session's carrier is
+    /// what the reconnect set, never the first dial's ([`Self::first_route`]). Held while `current` is set.
+    moved: Mutex<bool>,
 }
 
 impl CarrierRoutes {
@@ -307,6 +310,16 @@ impl CarrierRoutes {
             session,
             next: AtomicUsize::new(selected.saturating_add(1)),
             current,
+            moved: Mutex::new(false),
+        }
+    }
+
+    /// The first dial's route `name`, once its session opened: the session's carrier, unless a reconnect already
+    /// moved the session off it (the first route failed while the first mux stream opened), whose route stays.
+    pub(super) fn first_route(&self, name: &'static str) {
+        let moved = self.moved.lock().unwrap_or_else(PoisonError::into_inner);
+        if !*moved {
+            self.current.set(name);
         }
     }
 
@@ -415,7 +428,10 @@ impl ReconnectRouteAttempt<Arc<dyn LinkGroup>> for CarrierRoutes {
                 group
             }
         };
+        let mut moved = self.moved.lock().unwrap_or_else(PoisonError::into_inner);
+        *moved = true;
         self.current.set(dialer.name());
+        drop(moved);
         Ok(group)
     }
 }

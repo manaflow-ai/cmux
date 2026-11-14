@@ -404,6 +404,8 @@ mod usage_view;
 pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
 mod background_cause;
 pub mod background_turn;
+#[cfg(test)]
+mod background_turn_end_tests;
 mod goal_tools;
 pub mod plan_build;
 #[cfg(test)]
