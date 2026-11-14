@@ -5545,6 +5545,16 @@
 			<string>boolean</string>
 		</dict>
 		<dict>
+			<key>pfm_description</key>
+			<string>The id of an installed extension that draws the whole workspace list (cmux.sidebar/1), such as local/workspace-list. Empty draws the built-in list, which also shows while the extension loads, fails or is removed.</string>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceListApp</string>
+			<key>pfm_title</key>
+			<string>Workspace List Extension</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_name</key>
