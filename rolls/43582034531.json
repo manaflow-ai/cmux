@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43582034531",
+  "recorded_at": "2026-11-14T09:55:53Z",
+  "reason": "cmux-tui 55c59f579ef0 changes the image's cmux-tui (pinned 7a9bf6bc0016)",
+  "dry_run": false,
+  "cmux_tui": "55c59f579ef0d5093ddecfb6ed0bb3719a347505",
+  "fixes": [
+    {
+      "sha": "55c59f579ef0d5093ddecfb6ed0bb3719a347505",
+      "mergedAt": "2026-11-14T01:25:42-08:00",
+      "subject": "Cloud: a stalled Keychain call answers within Rust's deadline, naming its item (step A: Rust) (#42942)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T09:55:53Z",
+    "snapshot_id": "sh-af4adb3dbbc240bb897a6dcf500375f0",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43582034531): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "479108f09adc057717b4604963d3fc8d978d3a1b",
+    "image": "cloud-native-auto-55c59f57-43582034531-1",
+    "revision": "ci-43582034531-1",
+    "at": "2026-11-14T09:55:53Z"
+  },
+  "rolled_back": false
+}
