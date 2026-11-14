@@ -214,3 +214,40 @@ fn a_click_while_a_repair_is_out_gets_a_new_token() {
     h.repair_result(ID, ReloadPage, Some(2), false, 10_700);
     assert_eq!(h.next_tick_ms(), Some(10_700));
 }
+
+#[test]
+fn a_resting_page_arms_no_timer_until_it_is_sent_input_or_beats_again() {
+    let mut h = model();
+    register(&mut h, ID, Kind::Page, "Agent chat", 0);
+    h.beat(ID, 0);
+    h.rest(ID, 10_000);
+    // At rest the page beats no more: no deadline, so the host's one timer is off and an idle app
+    // wakes for no page, however long it rests.
+    assert_eq!(h.next_tick_ms(), None, "a resting page is not timed");
+    assert!(run(&mut h, 3_600_000).is_empty());
+    assert_eq!(part(&h, ID), None);
+
+    // A click it never handles is still timed from the click: slow at 3 s, reloaded at 10 s.
+    h.input(ID, 1, 0, 3_600_000);
+    assert_eq!(h.next_tick_ms(), Some(3_603_000));
+    assert_eq!(run(&mut h, 3_610_000), vec![(3_610_000, ReloadPage, 1)]);
+
+    // The reloaded page beats again: it is timed for silence again until its next rest.
+    h.event(ID, "loaded", 3_610_100, None);
+    h.beat(ID, 3_610_200);
+    assert_eq!(h.next_tick_ms(), Some(3_615_200));
+    h.rest(ID, 3_620_000);
+    assert_eq!(h.next_tick_ms(), None);
+}
+
+#[test]
+fn a_resting_page_that_is_shown_again_is_timed_from_the_show() {
+    let mut h = model();
+    register(&mut h, ID, Kind::Page, "Agent chat", 0);
+    h.rest(ID, 1_000);
+    h.visibility(ID, false, 2_000);
+    h.visibility(ID, true, 3_000);
+    // The show makes the page beat at once (pageHealth.ts); one that never does is silent from it.
+    assert_eq!(h.next_tick_ms(), Some(8_000));
+    assert_eq!(run(&mut h, 13_000), vec![(13_000, ReloadPage, 1)]);
+}

@@ -98,10 +98,12 @@ fn check(mux: &Mux, client: u64, envelope: &RequestEnvelope) -> Result<Actor, Re
 /// (`diagnostics/terminal_seats.rs`), as the peer's lane does
 /// (`terminal_admission`), and not from the session state: a terminal has
 /// its seat before it is in that state, and the host that starts a terminal
-/// has one before the terminal's first process runs. So a process of a
-/// terminal is that terminal's from its first connection, and never the
-/// local user by the order of two events. `parent_of`: the parent of a
-/// process (`ConnectionStats::seated_terminal`).
+/// has one before the terminal's first process runs. A host that an earlier
+/// daemon started has one from this daemon's start to the end of its
+/// adoption, when the daemon read its start and knew that it lives. So a
+/// process of such a terminal is that terminal's from its first connection,
+/// and never the local user by the order of two events. `parent_of`: the
+/// parent of a process (`ConnectionStats::seated_terminal`).
 fn classify_local_peer(
     mux: &Mux,
     peer_key: Option<&str>,

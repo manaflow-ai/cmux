@@ -1,5 +1,10 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-13 (a590): no line under Home. Lawrence (msg 31467), verbatim: "get rid of line under "home"". Minimal Mode
+  draws the Lines look, whose pinned block joined under Home's block took a leading separator; a band drew a line (or,
+  under `appearance.borders` none, a tonal step) after Home's section, and the band hairline under a band ending in
+  Home. None of those draw under Home now; Home keeps the Lines look's `sectionGap`, so it still reads apart from the
+  rows under it. Lines between other sections stay. Regression: `HomeHasNoLineUnderItTests` (every app x sidebar density).
 - 2026-11-14 (New Tab rounder, #42717): a sidebar row's fill reads its corner on every layout, not once when the row
   is made, so it is the tab's corner at the density now. Lucas, verbatim: "the left sidebar tab becoems too circular.
   however the tabs at the top are fine. so match the sidebar item roundness to the tab roundness". A row made at a
