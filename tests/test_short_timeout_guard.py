@@ -106,6 +106,15 @@ class ShortTimeoutGuardTests(unittest.TestCase):
             [hit["pattern"] for hit in guard.scan_source(rust, "cmux-tui/crates/acpmux/src/hub/start.rs")],
             ["rust-duration", "rust-duration", "rust-duration"],
         )
+        # The file an out-of-line `#[cfg(test)] mod tests;` loads is the same test code as the inline module above.
+        test_body = "const TEST_TIMEOUT: Duration = Duration::from_secs(1);\n"
+        for rel in ("cmux-tui/crates/acpmux/src/hub/start/tests.rs", "cmux-tui/crates/acpmux/src/hub/test.rs",
+                    "cmux-tui/crates/acpmux/src/hub/start_tests.rs"):
+            self.assertEqual(guard.scan_source(test_body, rel), [], rel)
+        self.assertEqual(
+            [hit["pattern"] for hit in guard.scan_source(test_body, "cmux-tui/crates/acpmux/src/hub/contests.rs")],
+            ["rust-duration"],
+        )
 
         ts = (
             "const deadline = performance.now() + 2_000;\n"
