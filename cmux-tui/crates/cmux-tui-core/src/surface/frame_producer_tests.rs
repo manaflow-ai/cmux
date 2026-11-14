@@ -209,27 +209,22 @@ fn an_update_started_after_an_expired_hold_is_held_again() {
 }
 
 /// A program that never leaves the mode when the producer looks but begins a
-/// new update every few milliseconds is still shown: a hold a new update
-/// began ends with a frame before another new update can hold again.
+/// new update between every two looks is still shown: a hold a new update
+/// began ends with a frame before another new update can hold again. The
+/// producer's looks are driven directly, every cadence, so the result does
+/// not hang on where the last look before a hold's end happens to land.
 #[test]
 fn a_program_that_keeps_starting_updates_is_still_shown() {
-    let mux = Mux::new_for_test("frame-sync-output-restarts", SurfaceOptions::default());
-    let surface =
-        Surface::spawn_for_test(9_956, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
-    spawn_frame_producer(&surface).unwrap();
-    let pty = surface.as_pty().unwrap();
-    let _viewer = surface.attach_render_stream().unwrap();
-
-    let first = feed_sync_output(pty, b"\x1b[?2026h\x1b[1;1Hbusy");
-    let started = Instant::now();
-    while built_generation(pty) < first {
-        assert!(
-            started.elapsed() < SYNCHRONIZED_OUTPUT_HOLD * 2 + Duration::from_millis(500),
-            "a program always starting a new update was never shown"
-        );
-        feed_sync_output(pty, b"\x1b[?2026l\x1b[?2026h\x1b[1;1Hbusy");
-        std::thread::sleep(Duration::from_millis(4));
-    }
+    let slot = Slot::default();
+    // Looks are stamped against the producer clock, which starts at its epoch.
+    let start = epoch() + Duration::from_millis(1);
+    let bound = SYNCHRONIZED_OUTPUT_HOLD * 2 + RENDER_FRAME_CADENCE * 2;
+    let looks = (bound.as_millis() / RENDER_FRAME_CADENCE.as_millis()) as u32;
+    let shown = (0..=looks).any(|look| {
+        let now = start + RENDER_FRAME_CADENCE * look;
+        sync_hold(&slot, Some(u64::from(look) + 1), now).is_none()
+    });
+    assert!(shown, "a program always starting a new update was never shown");
 }
 
 /// With no render viewer nothing is held: the output event still goes out.
