@@ -51,9 +51,12 @@ await requireBrowserLane("chat-image-first-frame-browser.test.ts", async () => {
       define: { "process.env.NODE_ENV": '"production"' },
     });
     if (!built.success) throw new Error(built.logs.map(String).join("\n"));
-    const outputs = await Promise.all(built.outputs.map(async (o) => ({ path: o.path, text: await o.text() })));
+    // The page's script is the entry's bundle alone; the build also emits assets (images, fonts) that are no script.
+    const outputs = await Promise.all(
+      built.outputs.map(async (o) => ({ path: o.path, kind: o.kind, text: await o.text() })),
+    );
     const script = outputs
-      .filter((o) => !o.path.endsWith(".css"))
+      .filter((o) => o.kind === "entry-point")
       .map((o) => o.text)
       .join("\n");
     const css = [
