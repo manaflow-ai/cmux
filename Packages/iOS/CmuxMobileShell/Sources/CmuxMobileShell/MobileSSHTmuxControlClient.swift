@@ -50,8 +50,17 @@ extension SSHSessionChannel: MobileSSHTmuxControlTransport {}
 final class MobileSSHTmuxControlClient {
     /// Lines of history seeded into the phone's scrollback on attach.
     nonisolated static let historyLines = 2_000
-    /// Suffix marking the phone's grouped sessions, hidden from the workspace list.
+    /// Infix of the names generated for the phone's grouped sessions. It only
+    /// makes them recognizable to a person: a name is the user's to choose, so
+    /// it never decides which sessions the phone owns.
     nonisolated static let groupedSessionMarker = "-cmux-ios-"
+    /// tmux user option the start command sets on a grouped session to the
+    /// session's own name. This is the ownership record: a session the user
+    /// created does not carry it, and one the user renamed no longer matches.
+    nonisolated static let groupedSessionOption = "@cmux-ios-grouped"
+    /// tmux format that prints `1` for a session the phone owns and `0` for
+    /// every other session, in `list-sessions` and `list-panes` alike.
+    nonisolated static let groupedSessionFlagFormat = "#{==:#{\(groupedSessionOption)},#{session_name}}"
 
     let sessionName: String
     let groupedSessionName: String
@@ -97,12 +106,15 @@ final class MobileSSHTmuxControlClient {
     }
 
     /// The shell command that starts the control client: create the grouped
-    /// session and attach to it in one step, then make sure tmux never
-    /// destroys it on its own (see the type comment).
+    /// session and attach to it in one step, make sure tmux never destroys
+    /// it on its own (see the type comment), then record that the phone
+    /// owns it (``groupedSessionOption``).
     nonisolated static func startCommand(tmux: String, session: String, grouped: String) -> String {
-        "\(tmux) -C new-session -t \(("=" + session).posixShellSingleQuoted) -s \(grouped.posixShellSingleQuoted)"
-            // `set-option -t` takes a pane target: `=name:` selects the session exactly.
-            + " \\; set-option -t \(("=" + grouped + ":").posixShellSingleQuoted) destroy-unattached off"
+        // `set-option -t` takes a pane target: `=name:` selects the session exactly.
+        let target = ("=" + grouped + ":").posixShellSingleQuoted
+        return "\(tmux) -C new-session -t \(("=" + session).posixShellSingleQuoted) -s \(grouped.posixShellSingleQuoted)"
+            + " \\; set-option -t \(target) destroy-unattached off"
+            + " \\; set-option -t \(target) \(groupedSessionOption) \(grouped.posixShellSingleQuoted)"
     }
 
     /// Starts `tmux -C` in a new grouped session of `session`. `tmux` is the
