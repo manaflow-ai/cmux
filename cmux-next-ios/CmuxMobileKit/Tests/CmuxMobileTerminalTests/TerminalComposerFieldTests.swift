@@ -26,11 +26,11 @@ import UIKit
 
     @Test func growsToMaxLinesThenScrollsWithTheCaretInside() {
         let maxLines = ComposerTextView.maxLines
-        #expect(maxLines == ComposerFieldHeight.defaultMaxLines)
-        let heights = (1...12).map { Self.field($0).bounds.height }
+        #expect(maxLines == 14)
+        let heights = (1...17).map { Self.field($0).bounds.height }
         for index in 1..<maxLines { #expect(heights[index] > heights[index - 1]) }
         for index in maxLines..<heights.count { #expect(heights[index] == heights[maxLines - 1]) }
-        let tall = Self.field(12)
+        let tall = Self.field(17)
         tall.selectedRange = NSRange(location: (tall.text as NSString).length, length: 0)
         tall.followCaret()
         tall.layoutIfNeeded()

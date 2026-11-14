@@ -72,9 +72,11 @@ final class ComposerGrowUpUITests: XCTestCase {
             print("composer-grow \(name) lines=\(count) frame=\(frame)")
             XCTAssertEqual(frame.maxY, oneLine.maxY, accuracy: 1, "\(name): the bottom edge stays put at \(count) lines")
         }
-        let nine = try XCTUnwrap(frames[9]), six = try XCTUnwrap(frames[6]), three = try XCTUnwrap(frames[3])
+        // Each typed line after the first wraps to two, so eight entries are 15
+        // lines: past both maximums (the chat's six, the terminal's 14).
+        let nine = try XCTUnwrap(frames[9]), eight = try XCTUnwrap(frames[8]), three = try XCTUnwrap(frames[3])
         XCTAssertGreaterThan(three.height, oneLine.height, "\(name): grows with its lines")
-        XCTAssertEqual(nine.height, six.height, accuracy: 1, "\(name): stops growing at six lines and scrolls")
+        XCTAssertEqual(nine.height, eight.height, accuracy: 1, "\(name): stops growing at its maximum and scrolls")
         XCTAssertEqual(afterKey.minY, nine.minY, accuracy: 0.5, "\(name): a key on the same line moves nothing")
         XCTAssertEqual(afterKey.height, nine.height, accuracy: 0.5, "\(name): a key on the same line keeps the height")
     }
