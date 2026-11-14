@@ -16,8 +16,8 @@ use crate::app::surface_sync::{
 };
 use crate::app::{AppEvent, SessionEventSender};
 use crate::session::{
-    Session, SurfaceAttach, is_remote_surface_unavailable, is_remote_timeout,
-    is_remote_transport_failure,
+    Session, SurfaceAttach, is_remote_surface_pending, is_remote_surface_unavailable,
+    is_remote_timeout, is_remote_transport_failure,
 };
 
 pub(super) fn perform_surface_attach(
@@ -102,6 +102,17 @@ pub(super) fn perform_surface_attach(
                     error: format!("surface {id} is unavailable"),
                     reconnect_required: false,
                 },
+                surface: None,
+                requested_size: size,
+            }
+        }
+        Err(error) if is_remote_surface_pending(&error, id) => {
+            // The daemon still adopts the tab's terminal (the tree was older):
+            // keep the tab, read the tree again, attach when it lists it running.
+            attach_failures.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&id);
+            session.invalidate_remote_tree();
+            SurfaceAttachResult {
+                outcome: SurfaceAttachOutcome::Deferred,
                 surface: None,
                 requested_size: size,
             }

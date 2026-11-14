@@ -217,14 +217,18 @@ pub(super) fn reconnect_until<T>(
 }
 
 /// The reconnected session, ready to install: its event worker starts paused
-/// and its tree is the new daemon's. Unlike a first start, an empty session
-/// gets no new workspace: the replacement may still be restoring it.
+/// and its tree is the new daemon's, read before the install so the client
+/// keeps the tab it showed in every pane (`preserve_client_view` against a
+/// new connection's empty cache kept nothing, and the next tree showed the
+/// daemon's selected tabs). Unlike a first start, an empty session gets no
+/// new workspace: the replacement may still be restoring it.
 fn prepare_reconnected_session(
     session: Session,
     label: String,
     preparation: &MachineSessionPreparation,
     app_events: &SyncSender<AppEvent>,
 ) -> anyhow::Result<PreparedMachineSession> {
+    session.refresh_tree()?;
     let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
         session,
         preparation.pty_input.clone(),

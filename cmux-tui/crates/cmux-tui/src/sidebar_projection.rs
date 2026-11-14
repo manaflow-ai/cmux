@@ -476,6 +476,7 @@ mod tests {
 
     fn tab(surface: SurfaceId, title: &str) -> TabView {
         TabView {
+            terminal_pending: false,
             surface,
             public_id: None,
             content_id: None,

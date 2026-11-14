@@ -12,8 +12,8 @@ use crate::app::{
 use crate::localization;
 use crate::pty_input::PtyInputEnqueueResult;
 use crate::session::{
-    SurfaceAttach, TreeView, is_remote_surface_unavailable, is_remote_timeout,
-    is_remote_transport_failure,
+    SurfaceAttach, TreeView, is_remote_surface_pending, is_remote_surface_unavailable,
+    is_remote_timeout, is_remote_transport_failure,
 };
 
 impl OrderedSession {
@@ -177,6 +177,18 @@ impl OrderedSession {
                         drop(attach_claims);
                         Ok(())
                     }
+                    Err(error) if is_remote_surface_pending(&error, id) => {
+                        // The tree was older than the daemon's adoption: read
+                        // it again; the tab attaches once it lists it running.
+                        attach_failures
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .remove(&id);
+                        session.invalidate_remote_tree();
+                        pending.defer(SessionMutationOutcome::Success { tree: None });
+                        drop(attach_claims);
+                        Ok(())
+                    }
                     Err(error) if retired && is_remote_surface_unavailable(&error, id) => {
                         attach_failures.lock().unwrap().remove(&id);
                         pending.defer(SessionMutationOutcome::Success { tree: None });
@@ -225,6 +237,7 @@ impl OrderedSession {
         let attach_claimed = self.surface_attach_claims.lock().unwrap().contains_key(&id);
         self.inner.cached_surface(id).is_none()
             && self.inner.can_attach_after_overflow(id)
+            && !self.inner.surface_terminal_pending(id)
             && !self.retired_surfaces.lock().unwrap().contains(&id)
             && !failure_blocks
             && !attach_claimed

@@ -9,6 +9,7 @@ use crate::app::adjust_active_tab_after_removal;
 
 fn pane(count: u64, active: usize) -> PaneView {
     let tab = |surface: u64| TabView {
+        terminal_pending: false,
         surface,
         public_id: None,
         content_id: None,

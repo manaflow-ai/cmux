@@ -211,6 +211,7 @@ fn viewport_animation_leases_every_column_in_its_swept_range() {
         short_id: format!("p{id}"),
         name: None,
         tabs: vec![TabView {
+            terminal_pending: false,
             surface,
             public_id: None,
             content_id: None,
@@ -274,6 +275,7 @@ fn viewport_animation_rejects_an_unbounded_synchronization_sweep() {
         short_id: format!("p{id}"),
         name: None,
         tabs: vec![TabView {
+            terminal_pending: false,
             surface,
             public_id: None,
             content_id: None,
@@ -350,6 +352,7 @@ fn viewport_reclip_work_is_bounded_by_visible_panes() {
                 short_id: format!("p{id}"),
                 name: None,
                 tabs: vec![TabView {
+                    terminal_pending: false,
                     surface: 100 + id,
                     public_id: None,
                     content_id: None,
@@ -415,6 +418,7 @@ fn viewport_projection_cache_matches_full_projection_for_overlapping_ranges() {
         short_id: format!("p{id}"),
         name: None,
         tabs: vec![TabView {
+            terminal_pending: false,
             surface: 100 + id,
             public_id: None,
             content_id: None,
@@ -552,6 +556,7 @@ fn viewport_animation_tick_reclips_without_authoritative_layout_draw() {
                         short_id: "p1".to_string(),
                         name: None,
                         tabs: vec![TabView {
+                            terminal_pending: false,
                             surface: 11,
                             public_id: None,
                             content_id: None,
@@ -577,6 +582,7 @@ fn viewport_animation_tick_reclips_without_authoritative_layout_draw() {
                         short_id: "p2".to_string(),
                         name: None,
                         tabs: vec![TabView {
+                            terminal_pending: false,
                             surface: 12,
                             public_id: None,
                             content_id: None,
