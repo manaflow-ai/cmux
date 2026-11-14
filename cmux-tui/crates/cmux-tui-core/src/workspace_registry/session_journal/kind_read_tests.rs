@@ -410,6 +410,61 @@ fn reducer_record_backfill_starts_over_after_an_older_builds_output_cleanup() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A legacy kind backfill stopped partway (its marker still `0`) can leave
+/// a segment's kind map without some of its kinds: here, every segment's
+/// `agent.*` kinds. The reducer record backfill does not trust such a map
+/// to pass a segment over: it decodes the segments that have no kept
+/// records, so the records are there once the kind backfill finishes and
+/// the map names the agent kinds again. A cursor written before this rule
+/// (it may have passed segments over on such a map) starts over.
+#[test]
+fn reducer_record_backfill_does_not_trust_a_partly_filled_kind_map() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-reducer-record-partial-map-{}", new_uuid_v4().replace('-', "")));
+    let mut registry = WorkspaceRegistry::open(&root, "reducer-record-partial-map").unwrap();
+    registry.append_journal_records_for_test(&sealed_history(6_000));
+    registry.seal_journal_for_test("partial_map");
+    {
+        let db = registry.connection.get();
+        db.execute("DELETE FROM journal_segment_reducer_records", []).unwrap();
+        db.execute("DELETE FROM journal_segment_kinds WHERE kind LIKE 'agent.%'", []).unwrap();
+        db.execute(
+            "INSERT INTO meta(key, value) VALUES('journal_segment_kinds_backfill', '0')
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [],
+        )
+        .unwrap();
+    }
+    run_reducer_record_backfill(&registry, usize::MAX);
+    // A read finishes the kind backfill: the map names the agent kinds.
+    assert_eq!(read_agent_records(&registry).len(), SEALED_AGENT_RECORDS);
+    run_reducer_record_backfill(&registry, usize::MAX);
+    assert_eq!(
+        kept_reducer_records(&registry),
+        SEALED_AGENT_RECORDS as i64,
+        "the backfill passed over segments on a partly filled kind map"
+    );
+
+    // A cursor of a build before the rule, at the last segment.
+    {
+        let db = registry.connection.get();
+        db.execute(
+            "UPDATE meta SET value = json_remove(value, '$.kind_map')
+             WHERE key = 'journal_segment_reducer_records_backfill'",
+            [],
+        )
+        .unwrap();
+        db.execute("DELETE FROM journal_segment_reducer_records", []).unwrap();
+    }
+    assert!(run_reducer_record_backfill(&registry, usize::MAX) > 0, "an older cursor starts over");
+    assert_eq!(kept_reducer_records(&registry), SEALED_AGENT_RECORDS as i64);
+    assert_eq!(run_reducer_record_backfill(&registry, usize::MAX), 0, "a done backfill stays done");
+    destroy_sealed_segments(&registry);
+    assert_eq!(read_agent_records(&registry).len(), SEALED_AGENT_RECORDS);
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// A `terminal.output` record: what the output cleanup drops.
 fn sealed_terminal_output(index: usize) -> TestJournalRecord {
     TestJournalRecord {
@@ -497,10 +552,15 @@ fn an_output_cleanup_swap_drops_the_kept_reducer_records_and_the_backfill_rebuil
 
     let outcome = stage_registry(
         &db_path,
-        &StageControl { on_pending: &|| {}, next_segment: &|| true, stopped: Arc::new(|| false) },
+        &StageControl {
+            on_pending: &|| {},
+            next_segment: &|| true,
+            catch_up: &|| false,
+            stopped: Arc::new(|| false),
+        },
     )
     .unwrap();
-    assert!(matches!(outcome, StageOutcome::Complete { .. }), "not staged: {outcome:?}");
+    assert!(matches!(outcome, StageOutcome::Built), "not built: {outcome:?}");
     let registry = WorkspaceRegistry::open(&root, session).unwrap();
     assert!(
         output_cleanup::previous_path(&db_path).is_file(),
@@ -523,5 +583,60 @@ fn an_output_cleanup_swap_drops_the_kept_reducer_records_and_the_backfill_rebuil
     destroy_sealed_segments(&registry);
     assert_eq!(agent_read(&registry), before, "the read decodes no segment after the backfill");
     drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A registry with `count` active agent records and a reader on it; the
+/// reader's next read meets a seal of all of them between its sealed part
+/// and its active rows, as a concurrent maintenance seal would.
+fn reader_raced_by_a_seal(label: &str, count: usize) -> (PathBuf, SessionJournalReader) {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-journal-read-race-{label}-{}", new_uuid_v4().replace('-', "")));
+    let mut registry = WorkspaceRegistry::open(&root, label).unwrap();
+    registry
+        .append_journal_records_for_test(&(0..count).map(sealed_agent_record).collect::<Vec<_>>());
+    let reader =
+        SessionJournalReader::open(&registry.session_journal_database_path().unwrap()).unwrap();
+    let key = label.to_string();
+    BETWEEN_JOURNAL_READS_FOR_TEST.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(move || {
+            registry.seal_journal_for_test(&key);
+            assert!(registry.journal_segments_end().unwrap() > 0, "the hook sealed the journal");
+        }));
+    });
+    (root, reader)
+}
+
+/// A page reads from one snapshot: a seal that commits between the page's
+/// sealed read and its active read (moving records from the active table
+/// into a segment) must not show as a gap.
+#[test]
+fn a_journal_page_read_during_a_seal_sees_every_record() {
+    let (root, reader) = reader_raced_by_a_seal("after", 8);
+    let page = reader.after(0, 64);
+    let ran = BETWEEN_JOURNAL_READS_FOR_TEST.with(|slot| slot.borrow().is_none());
+    assert!(ran, "the seal ran inside the read");
+    let page = page.expect("a seal during the read is not a gap");
+    assert_eq!(
+        page.records.iter().map(|record| record.sequence).collect::<Vec<_>>(),
+        (1..=8).collect::<Vec<_>>()
+    );
+    drop(reader);
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// The same for a subject-filtered page, which reads the records it found
+/// in the subject index from the segments, then from the active table.
+#[test]
+fn a_subject_page_read_during_a_seal_sees_every_record() {
+    let (root, reader) = reader_raced_by_a_seal("subjects", 8);
+    let subject = JournalSubject { kind: "terminal".into(), id: format!("term_{:032x}", 3) };
+    let page = reader.after_subjects(0, 64, std::slice::from_ref(&subject));
+    let ran = BETWEEN_JOURNAL_READS_FOR_TEST.with(|slot| slot.borrow().is_none());
+    assert!(ran, "the seal ran inside the read");
+    let page = page.expect("a seal during the read loses no record");
+    assert_eq!(page.records.len(), 1);
+    assert_eq!(page.records[0].subjects, vec![subject]);
+    drop(reader);
     fs::remove_dir_all(root).unwrap();
 }

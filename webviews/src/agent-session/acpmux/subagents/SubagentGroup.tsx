@@ -15,7 +15,11 @@ import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "./agentI
 import { useSenderIconLook } from "./senderIconLook";
 import { subagentProgress } from "./subagentProgress";
 import { subagentDisplayName } from "./subsessions";
+import { namedAction } from "./trayDetail";
 import { waveProps } from "../../../ui/wave";
+import { TurnActionsContext } from "../conversation/turnActions";
+import { ResumeControl } from "./ResumeControl";
+import { canResume } from "./resumeState";
 import {
   SubagentHarnessContext,
   SubagentNavContext,
@@ -120,12 +124,13 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   const open = pane ?? nav;
   const stop = useContext(SubagentStopContext);
   const tones = useContext(AgentTonesContext);
+  const actions = useContext(TurnActionsContext);
   const agent = row.subagents?.[0];
   const now = useNow(agent ? ticking(agent) : false);
   if (!agent) return null;
   const label = STATE_LABEL[agent.state as keyof typeof STATE_LABEL] ?? STATE_LABEL.completed;
   const state = [
-    running(agent) ? (agent.action ?? t(label)) : t(label),
+    running(agent) ? (namedAction(t, agent.action, agent.actionShell) ?? t(label)) : t(label),
     ...subagentProgress(t, language, agent, { usage: false }),
   ].join(" · ");
   const content = (
@@ -166,6 +171,14 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       <Icon name="disclosure.collapsed" size={12} />
     </button>
   );
+  // A stopped one offers Resume beside its line, as its end line does (ResumeControl.tsx).
+  if (!running(agent) && actions.resumeAgent && canResume(agent, actions.retryCapabilities))
+    return (
+      <div className="cv-subagent-stoppable">
+        {line}
+        <ResumeControl agent={agent} actions={actions} />
+      </div>
+    );
   // An agent a shell call started stops with that call, not through Claude.
   if (!stop || !running(agent) || agent.command) return line;
   return (
@@ -218,6 +231,7 @@ export function StopButton({
 export function SubagentOfRow({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const open = useContext(SubagentNavContext);
+  const actions = useContext(TurnActionsContext);
   const agent = row.subagents?.[0];
   if (!agent) return null;
   // The pill's text goes back to the parent (its parent subagent's view, else the chat's); its ×
@@ -249,6 +263,9 @@ export function SubagentOfRow({ row }: { row: AcpmuxRow }) {
           <Icon name="action.close" size={12} />
         </button>
       </span>
+      {/* The helper's own tab: a stopped one offers Resume here, at its head (Leo, 2026-11-12: "A
+          Resume button in cmux on a stopped helper's row and tab"). */}
+      <ResumeControl agent={agent} actions={actions} />
     </div>
   );
 }

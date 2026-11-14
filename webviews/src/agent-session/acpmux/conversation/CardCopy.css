@@ -18,6 +18,8 @@
 }
 .cv-disclosure__panel:hover > .cv-card-copy,
 .cv-agentmsg__card:hover > .cv-card-copy,
+.cv-whole-report:hover > .cv-card-copy,
+.cv-whole-report:has([data-popup-open]) > .cv-card-copy,
 .cv-agentmsg__card:has([data-popup-open]) > .cv-card-copy,
 .cv-card-copy:focus-within,
 .cv-card-copy:has([data-copied]) {
@@ -39,7 +41,7 @@
   min-width: var(--cv-context-copy);
   height: var(--cv-context-copy);
   padding: 0 var(--ds-space-1);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   cursor: default;
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);

@@ -56,6 +56,8 @@ const fixture = (name: string) => readFileSync(join(import.meta.dir, "fixtures/r
 
 async function setup(doc = DOC) {
   const sent: string[] = [];
+  // Each host answer, so a test waits until the editor has taken it (its handlers run before a later await's).
+  const answers: Promise<void>[] = [];
   const runnable: boolean[] = [];
   const root = document.createElement("div");
   document.body.append(root);
@@ -66,9 +68,13 @@ async function setup(doc = DOC) {
       imageURL: (src) => src,
       label: (key) => key,
       run: {
-        runBlock: async (command) => {
-          sent.push(command);
-          if (command === "make") throw new Error("refused");
+        runBlock: (command) => {
+          const answer = (async () => {
+            sent.push(command);
+            if (command === "make") throw new Error("refused");
+          })();
+          answers.push(answer);
+          return answer;
         },
         label: (key) => key,
       },
@@ -78,7 +84,7 @@ async function setup(doc = DOC) {
   editors.push(editor);
   await editor.create();
   editor.load(doc);
-  return { root, sent, runnable, editor };
+  return { root, sent, answers, runnable, editor };
 }
 
 const click = (element: Element | null | undefined) =>
@@ -92,12 +98,12 @@ describe("Run buttons", () => {
   });
 
   test("Run sends the block's command; a console block sends its prompt lines; only a taken one reads Sent", async () => {
-    const { root, sent } = await setup();
+    const { root, sent, answers } = await setup();
     const blocks = root.querySelectorAll(".md-code");
     click(blocks[0]!.querySelector(".md-run-button"));
     click(blocks[1]!.querySelector(".md-run-button"));
     expect(sent).toEqual(["npm ci", "make"]);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Promise.allSettled(answers);
     expect(blocks[0]!.querySelector(".md-run")!.getAttribute("data-state")).toBe("sent");
     // The host refused `make`: its block still offers Run.
     expect(blocks[1]!.querySelector(".md-run")!.hasAttribute("data-state")).toBe(false);
@@ -105,11 +111,11 @@ describe("Run buttons", () => {
   });
 
   test("a pointer that left before the host answered never sees a stuck Sent", async () => {
-    const { root } = await setup();
+    const { root, answers } = await setup();
     const block = root.querySelector(".md-code")!;
     click(block.querySelector(".md-run-button"));
     block.querySelector(".md-run")!.dispatchEvent(new dom.window.Event("pointerleave"));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Promise.allSettled(answers);
     expect(block.querySelector(".md-run")!.hasAttribute("data-state")).toBe(false);
   });
 

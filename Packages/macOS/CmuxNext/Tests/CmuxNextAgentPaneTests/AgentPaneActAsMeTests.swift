@@ -48,7 +48,7 @@ struct AgentPaneActAsMeTests {
         }
         for method in ["_acpmux/permission_respond", "_acpmux/permission_group_respond", "acp.trust.set", "session/set_mode",
                        "session/set_config_option", "_acpmux/harness_enable", "_acpmux/secret_submit", "_acpmux/btw",
-                       "_acpmux/agent_login/start", "session/new"] {
+                       "_acpmux/agent_login/start", "session/new", "_acpmux/presets"] {
             gestures.recordPosted(driver: Self.driver)
             #expect(!gestures.consumePosted(for: method), "the grant reached \(method)")
             #expect(!gestures.consume(), "a posted gesture stood in for the person's on \(method)")

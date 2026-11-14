@@ -3,9 +3,13 @@ use std::cell::Cell;
 use serde_json::{Value, json};
 
 use super::super::cloud_start_chat::Machine;
+use super::joined::{self, JoinedMachine, Settled, Sources};
+use std::time::Duration;
+
 use super::{
-    Parsed, Reads, Route, Start, TAKES_VALUE, cloud_words, global_words, here_words, parse,
-    parse_with, pick_target, route, setting_stream, start_words,
+    Parsed, Reads, Route, Start, TAKES_VALUE, USAGE, cloud_words, global_words, here_preflight,
+    here_wait, here_words, in_environment, names_cloud, new_args, parse, parse_with, pick_target,
+    read_setting, route, route_or_joined, route_start, setting_stream, start_words,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -186,11 +190,127 @@ fn a_vm_chat_is_the_cloud_start_chat_run() {
         ])
     );
     assert_eq!(cloud_words(&start(&["go"]), &Machine::New).unwrap(), words(&["--prompt", "go"]));
-    // A Cloud chat needs a prompt, and takes no model or chat name.
+    // A Cloud chat needs a prompt, and takes no chat name.
     assert!(cloud_words(&start(&[]), &Machine::New).is_err());
-    assert!(cloud_words(&start(&["--model", "m", "go"]), &Machine::New).is_err());
-    // A chat here does not wait.
-    assert!(here_words(&[], &start(&["--wait", "go"])).is_err());
+    assert!(cloud_words(&start(&["--name", "n", "go"]), &Machine::New).is_err());
+}
+
+/// Leo, 2026-11-10: a Cloud chat runs the Claude model the person asked for. `--model` reaches
+/// `cloud start-chat`, which hands it to `cloud start-session --model`.
+#[test]
+fn a_cloud_chat_takes_the_model_asked_for() {
+    let vm = start(&["--on", "vm:dev", "--model", "claude-haiku-5-5", "-p", "go"]);
+    let words_out = cloud_words(&vm, &Machine::Target("vm-dev".into())).unwrap();
+    assert_eq!(
+        words_out,
+        words(&["--prompt", "go", "--target", "machine:vm-dev", "--model", "claude-haiku-5-5"])
+    );
+    let super::super::cloud_start_chat::Parsed::Run(request) =
+        super::super::cloud_start_chat::parse(&words_out, || Ok(String::new())).unwrap()
+    else {
+        panic!("help")
+    };
+    assert_eq!(request.model.as_deref(), Some("claude-haiku-5-5"));
+    assert_eq!(request.agent, "claude");
+}
+
+/// Leo, 2026-11-10: "Does it work across every expected possible workspace?" `cmux chat --on
+/// vm:new` copied no folder, so a chat started from a project never saw it. `--from-folder DIR`
+/// goes to `cloud start-chat --from-folder`, which copies it the way New Cloud chat does.
+#[test]
+fn from_folder_goes_to_the_cloud_start() {
+    let picked = start(&["--on", "vm:new", "--from-folder", ".", "go"]);
+    assert_eq!(picked.from_folder.as_deref(), Some("."));
+    assert_eq!(
+        cloud_words(&picked, &Machine::New).unwrap(),
+        words(&["--prompt", "go", "--from-folder", "."])
+    );
+    assert!(TAKES_VALUE.contains(&"--from-folder"));
+    assert!(USAGE.contains("--from-folder DIR"));
+    assert!(parse(&words(&["--from-folder", "a", "--from-folder", "b", "go"]), None).is_err());
+}
+
+/// The copy-size refusal's recovery, `--allow-large`, works on `cmux chat` too: it goes to the
+/// Cloud start with the folder.
+#[test]
+fn allow_large_goes_to_the_cloud_start() {
+    let picked = start(&["--on", "vm:new", "--from-folder", ".", "--allow-large", "go"]);
+    assert!(picked.allow_large);
+    assert_eq!(
+        cloud_words(&picked, &Machine::New).unwrap(),
+        words(&["--prompt", "go", "--from-folder", ".", "--allow-large"])
+    );
+}
+
+/// Leo, 2026-11-06: "Shared chat commands can start in cloud." `cmux chat --on cloud` takes the
+/// Environment the composer's chip picks: none is Auto, and one makes the chat's machine in it.
+#[test]
+fn a_cloud_chat_takes_an_environment_and_auto_is_none() {
+    let auto = start(&["--on", "cloud", "go"]);
+    assert_eq!(auto.environment, None);
+    assert_eq!(
+        in_environment(&auto, Route::Cloud(Machine::Target("vm-dev".into()))),
+        Ok(Route::Cloud(Machine::Target("vm-dev".into())))
+    );
+    assert_eq!(in_environment(&start(&["go"]), Route::Here), Ok(Route::Here));
+
+    let picked = start(&["--on", "cloud", "--environment", "staging-db", "go"]);
+    assert_eq!(picked.environment.as_deref(), Some("staging-db"));
+    assert!(TAKES_VALUE.contains(&"--environment"));
+    // cmux Cloud's choice of place: a new machine in the environment, decided before any VM is
+    // read, so several VMs of yours (which `--on cloud` alone refuses as `which_vm`) never matter.
+    let reads = |signed_in: bool| Reads {
+        catalog: || -> Result<Value, Value> { panic!("no catalog read") },
+        signed_in: move || signed_in,
+        cloud_machines: || -> Result<Value, Value> { panic!("no VM is looked at") },
+    };
+    assert_eq!(route_start(&picked, reads(true)), Ok(Route::Cloud(Machine::New)));
+    let signed_out = route_start(&picked, reads(false)).unwrap_err();
+    assert_eq!(signed_out["code"], "chat_target.signed_out");
+    assert_eq!(
+        cloud_words(&picked, &Machine::New).unwrap(),
+        words(&["--prompt", "go", "--environment", "staging-db"])
+    );
+    let made = start(&["--on", "vm:new", "--environment=env_1", "go"]);
+    assert_eq!(in_environment(&made, Route::Cloud(Machine::New)), Ok(Route::Cloud(Machine::New)));
+    // Refused, never dropped: a VM that exists has its environment, and a chat here has none.
+    let existing = start(&["--on", "vm:dev", "--environment", "env_1", "go"]);
+    assert!(in_environment(&existing, Route::Cloud(Machine::Target("vm-dev".into()))).is_err());
+    let here = start(&["--environment", "env_1", "go"]);
+    assert!(in_environment(&here, Route::Here).is_err());
+    assert!(parse(&words(&["--environment", " ", "go"]), None).is_err());
+    assert!(USAGE.contains("--environment ENV"));
+}
+
+/// Before, `cmux chat --prompt X --wait` here was refused ("--wait and --timeout wait for a Cloud
+/// chat; for a chat here, `cmux agents wait`"): a chat here took three commands. Now it waits, as
+/// a Cloud chat does, with Cloud's default and cap.
+#[test]
+fn a_chat_here_waits_for_its_reply_as_a_cloud_chat_does() {
+    assert_eq!(here_wait(&start(&["go"])).unwrap(), None);
+    assert_eq!(here_wait(&start(&["--wait", "go"])).unwrap(), Some(Duration::from_secs(900)));
+    assert_eq!(
+        here_wait(&start(&["--wait", "--timeout", "60", "go"])).unwrap(),
+        Some(Duration::from_secs(60))
+    );
+    assert_eq!(
+        here_wait(&start(&["--wait", "--timeout", "999999", "go"])).unwrap(),
+        Some(Duration::from_secs(4 * 60 * 60))
+    );
+    // `--timeout` alone bounds nothing, and is seconds, more than none.
+    assert!(here_wait(&start(&["--timeout", "60", "go"])).is_err());
+    assert!(here_wait(&start(&["--wait", "--timeout", "0", "go"])).is_err());
+    assert!(here_wait(&start(&["--wait", "--timeout", "soon", "go"])).is_err());
+    // The start it waits on is the `agents chat new` a chat here always was.
+    let waits = start(&["--wait", "--agent", "codex", "--name", "n", "--prompt", "go"]);
+    assert_eq!(
+        new_args(&waits).unwrap(),
+        words(&["--harness", "codex", "--name", "n", "--", "go"])
+    );
+    let mut expected = words(&["agents", "chat", "new"]);
+    expected.extend(new_args(&waits).unwrap());
+    assert_eq!(here_words(&[], &waits).unwrap(), expected);
+    assert!(!USAGE.contains("Wait for a Cloud chat"), "the help says --wait works here too");
 }
 
 #[test]
@@ -434,4 +554,488 @@ fn a_daemon_socket_reads_the_setting_from_its_owning_app() {
         setting_stream(|| Ok(named), || -> Result<_, String> { panic!("asked the owner") })
             .is_some()
     );
+}
+
+/// acpmux's peers: an ssh peer, and the machines only the mesh hub reaches.
+fn hub() -> Vec<Value> {
+    vec![
+        json!({"name": "box", "connected": true, "state": "connected"}),
+        json!({"name": "studio", "connected": true, "state": "connected", "via": "hub"}),
+        json!({"name": "mini-2", "connected": true, "state": "connected", "via": "hub"}),
+    ]
+}
+
+/// The account's joined machines, as `cmux machine list` shows them.
+fn joined_rows() -> Vec<Value> {
+    vec![
+        json!({"kind": "joined", "id": "m_studio", "name": "studio", "hostname": "studio",
+               "state": "online"}),
+        // Labelled: the hub knows it by its hostname.
+        json!({"kind": "joined", "id": "m_desk", "name": "Desk Mac", "hostname": "mini-2",
+               "state": "offline"}),
+        json!({"kind": "joined", "id": "m_attic", "name": "attic", "hostname": "attic",
+               "state": "offline"}),
+        json!({"kind": "joined", "id": "m_old", "name": "old", "hostname": "old",
+               "state": "revoked"}),
+        json!({"kind": "joined", "id": "m_twin_a", "name": "twin-j", "hostname": "twin-a",
+               "state": "online"}),
+        json!({"kind": "joined", "id": "m_twin_b", "name": "twin-j", "hostname": "twin-b",
+               "state": "online"}),
+    ]
+}
+
+/// `route_or_joined` with the device fixtures and the joined machines; `rows` None: the
+/// account's list could not be read.
+fn on_joined(on: &str, rows: Option<Vec<Value>>) -> Result<Route, Value> {
+    route_or_joined(
+        Some(on),
+        || {
+            route(
+                Some(on),
+                Reads {
+                    catalog: || Ok(catalog()),
+                    signed_in: || true,
+                    cloud_machines: || Ok(listed()),
+                },
+            )
+        },
+        Sources { hub, rows: || rows.ok_or_else(|| "not signed in".to_owned()) },
+    )
+}
+
+fn joined_at(id: Option<&str>, name: &str, host: &str) -> Result<Route, Value> {
+    Ok(Route::Joined(JoinedMachine {
+        id: id.map(str::to_owned),
+        name: name.to_owned(),
+        host: host.to_owned(),
+    }))
+}
+
+/// A joined machine is found by its name, the hub's host name, or `joined:ID`, with no ssh.
+#[test]
+fn a_joined_machine_is_a_chat_target_by_name_or_id() {
+    // By name: the account's list is read even though the hub lists it (it decides).
+    let read = Cell::new(false);
+    let by_hub = route_or_joined(
+        Some("studio"),
+        || {
+            route(
+                Some("studio"),
+                Reads {
+                    catalog: || Ok(catalog()),
+                    signed_in: || true,
+                    cloud_machines: || Ok(listed()),
+                },
+            )
+        },
+        Sources {
+            hub,
+            rows: || -> Result<Vec<Value>, String> {
+                read.set(true);
+                Ok(joined_rows())
+            },
+        },
+    );
+    assert_eq!(by_hub, joined_at(Some("m_studio"), "studio", "studio"));
+    assert!(read.get(), "the account's list decides, not the hub's");
+    // By its account id, and by its label: the hub's host name is the hostname.
+    assert_eq!(
+        on_joined("joined:m_studio", Some(joined_rows())),
+        joined_at(Some("m_studio"), "studio", "studio")
+    );
+    assert_eq!(
+        on_joined("Desk Mac", Some(joined_rows())),
+        joined_at(Some("m_desk"), "Desk Mac", "mini-2")
+    );
+    // The account calls it offline, but the hub lists it now: the hub's word is newer.
+    assert_eq!(
+        on_joined("joined:m_desk", Some(joined_rows())),
+        joined_at(Some("m_desk"), "Desk Mac", "mini-2")
+    );
+    // Without the account's list, a name the hub lists still works.
+    assert_eq!(on_joined("mini-2", None), joined_at(None, "mini-2", "mini-2"));
+}
+
+/// An offline or revoked joined machine is refused with what to do; nothing starts.
+#[test]
+fn an_offline_or_revoked_joined_machine_is_refused_clearly() {
+    let offline = on_joined("attic", Some(joined_rows())).unwrap_err();
+    assert_eq!(offline["code"], "chat_target.unavailable");
+    assert_eq!(offline["retryable"], true);
+    assert!(offline["message"].as_str().unwrap().contains("attic is offline"), "{offline}");
+    assert!(offline["details"]["next"].as_str().unwrap().contains("machine doctor attic"));
+    assert_eq!(code(on_joined("joined:m_attic", Some(joined_rows()))), "chat_target.unavailable");
+
+    let revoked = on_joined("old", Some(joined_rows())).unwrap_err();
+    assert_eq!(revoked["code"], "chat_target.revoked");
+    assert!(revoked["message"].as_str().unwrap().contains("old was revoked"), "{revoked}");
+    assert!(revoked["details"]["next"].as_str().unwrap().contains("cmux machine add"));
+    assert_eq!(code(on_joined("joined:m_old", Some(joined_rows()))), "chat_target.revoked");
+}
+
+/// Unknown, ambiguous and unread joined machines keep a refusal that says what to run next;
+/// the catalog's devices and refusals win over a joined machine.
+#[test]
+fn joined_lookups_never_guess() {
+    assert_eq!(code(on_joined("joined:m_gone", Some(joined_rows()))), "chat_target.unknown_device");
+    assert_eq!(code(on_joined("joined:", Some(joined_rows()))), "chat_target.unknown_device");
+    // Not joined and not a device: the catalog's own refusal.
+    assert_eq!(code(on_joined("nowhere", Some(joined_rows()))), "chat_target.unknown_device");
+    assert_eq!(code(on_joined("twin-j", Some(joined_rows()))), "chat_target.ambiguous_device");
+    // `joined:ID` without the account's list says why it could not be read.
+    let unread = on_joined("joined:m_studio", None).unwrap_err();
+    assert_eq!(unread["code"], "chat_target.unknown_device");
+    assert!(unread["message"].as_str().unwrap().contains("not signed in"), "{unread}");
+    // A catalog device runs as before; an ssh device no joined machine names keeps no_route.
+    assert_eq!(on_joined("machine_mac", Some(joined_rows())), Ok(Route::Here));
+    assert_eq!(code(on_joined("machine_box", Some(joined_rows()))), "chat_target.no_route");
+    assert_eq!(code(on_joined("machine_term", Some(joined_rows()))), "chat_target.not_permitted");
+    // Reserved selectors never become a joined machine.
+    assert_eq!(on_joined("here", Some(joined_rows())), Ok(Route::Here));
+}
+
+/// A device the catalog lists but the CLI had no route to (no_route) starts through acpmux when
+/// a joined machine has that name: the e2e's `cmux chat --on DEVICE` case.
+#[test]
+fn a_catalog_device_without_a_route_is_its_joined_machine() {
+    let catalog = || {
+        Ok(json!([{"id": "machine_studio", "name": "studio", "origin": "server",
+                   "status": "running", "capabilities": ["agent_session"]}]))
+    };
+    let found = route_or_joined(
+        Some("studio"),
+        || {
+            route(
+                Some("studio"),
+                Reads { catalog, signed_in: || true, cloud_machines: || Ok(listed()) },
+            )
+        },
+        Sources { hub, rows: || Ok(joined_rows()) },
+    );
+    assert_eq!(found, joined_at(Some("m_studio"), "studio", "studio"));
+}
+
+/// The acpmux start: `session start NAME --machine HOST`, with the harness and folder.
+#[test]
+fn a_joined_start_is_acpmuxs_mesh_start() {
+    let machine =
+        JoinedMachine { id: Some("m_desk".into()), name: "Desk Mac".into(), host: "mini-2".into() };
+    // A joined machine has no Cloud environment to pick: refused, never dropped.
+    let in_env = start(&["--on", "Desk Mac", "--environment", "env_1", "go"]);
+    assert!(in_environment(&in_env, Route::Joined(machine.clone())).is_err());
+    let plain = start(&["--on", "Desk Mac", "Run the tests"]);
+    assert_eq!(
+        joined::start_words(&plain, &machine, "run-the-tests-abcd").unwrap(),
+        words(&["session", "start", "run-the-tests-abcd", "--machine", "mini-2", "--json"])
+    );
+    let full = start(&["--on", "x", "--agent", "codex", "--model", "gpt-6", "--cwd", "/w", "go"]);
+    assert_eq!(
+        joined::start_words(&full, &machine, "n").unwrap(),
+        words(&[
+            "session",
+            "start",
+            "n",
+            "--machine",
+            "mini-2",
+            "-m",
+            "codex/gpt-6",
+            "--cwd",
+            "/w",
+            "--json"
+        ])
+    );
+    // --wait waits for a Cloud chat only.
+    assert!(joined::start_words(&start(&["--wait", "go"]), &machine, "n").is_err());
+    // The name: --name, else a few words of the prompt and four letters.
+    assert_eq!(joined::chat_name(&plain, "abcd"), "run-the-tests-abcd");
+    assert_eq!(joined::chat_name(&start(&["--name", "lane-a", "go"]), "abcd"), "lane-a");
+    assert_eq!(joined::chat_name(&start(&[]), "abcd"), "chat-abcd");
+    assert_eq!(joined::chat_name(&start(&["-"]), "abcd"), "chat-abcd");
+}
+
+/// The start's receipt: delivered means the chat runs there.
+#[test]
+fn a_joined_start_settles_on_its_receipt() {
+    assert_eq!(joined::settled(&json!({"state": "queued"})), Settled::Pending);
+    assert_eq!(joined::settled(&json!({"state": "leased"})), Settled::Pending);
+    assert_eq!(joined::settled(&json!({"state": "delivered", "detail": "s1"})), Settled::Started);
+    assert_eq!(
+        joined::settled(&json!({"state": "refused", "detail": "no harness"})),
+        Settled::Refused("refused: no harness".into())
+    );
+}
+
+#[test]
+fn a_chat_here_takes_a_repository() {
+    let parsed = start(&["--repo", "https://gitlab.com/gitlab-org/gitlab-test", "hi"]);
+    let repo = parsed.repo.unwrap();
+    assert_eq!((repo.host.as_str(), repo.name.as_str()), ("gitlab.com", "gitlab-test"));
+    assert!(parse(&words(&["--repo", "nope"]), None).is_err());
+    assert!(parse(&words(&["--repo", "o/n", "--repo", "o/m"]), None).is_err());
+    assert!(TAKES_VALUE.contains(&"--repo"));
+    // The local start matrix reads the usage block for `[--repo` (hq local_chat_probe.py takes_repo).
+    assert!(USAGE.split("\n\n").next().unwrap().contains("[--repo URL]"));
+    for on in ["cloud", "vm", "vm:new", "vm:dev"] {
+        assert!(names_cloud(on), "{on}");
+    }
+    assert!(!names_cloud("here") && !names_cloud("studio-mac"));
+    // Checked before anything is cloned: a bad wait, and `agents chat new`'s own refusals.
+    assert!(here_preflight(&start(&["--repo", "o/n", "hi"])).is_ok());
+    assert!(here_preflight(&start(&["--repo", "o/n", "--wait", "--timeout", "0", "hi"])).is_err());
+    assert!(here_preflight(&start(&["--repo", "o/n", "--attach", "/tmp/note.txt"])).is_err());
+    assert!(here_preflight(&start(&["--repo", "o/n", "--cwd", "rel", "hi"])).is_err());
+}
+
+/// A fake app for the `chat.on` read: every `settings.get` gets the next of `answers` after its
+/// delay, and a plain `ping` on its own connection (the liveness probe) gets `PONG` at once while
+/// the app is up. Joins to the `settings.get` requests it read.
+fn slow_app(
+    answers: Vec<(Duration, Value)>,
+) -> (std::path::PathBuf, App, cmux_unix_socket::TestDir) {
+    use std::io::{BufRead as _, BufReader, Write as _};
+    use std::sync::{Arc, Mutex};
+    let dir = cmux_unix_socket::short_test_dir("cmux-chat-on");
+    let socket = dir.path().join("app.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let answers = Arc::new(Mutex::new(answers.into_iter()));
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let (done, stop) = std::sync::mpsc::channel::<()>();
+    let app = {
+        let seen = Arc::clone(&seen);
+        std::thread::spawn(move || {
+            listener.set_nonblocking(true).unwrap();
+            let mut served = Vec::new();
+            loop {
+                if !matches!(stop.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+                    break;
+                }
+                let Ok((stream, _)) = listener.accept() else {
+                    std::thread::sleep(Duration::from_millis(5));
+                    continue;
+                };
+                stream.set_nonblocking(false).unwrap();
+                let (answers, seen) = (Arc::clone(&answers), Arc::clone(&seen));
+                served.push(std::thread::spawn(move || {
+                    let mut reader = BufReader::new(stream.try_clone().unwrap());
+                    let mut writer = stream;
+                    let mut line = String::new();
+                    while reader.read_line(&mut line).unwrap_or(0) > 0 {
+                        if line.trim() == "ping" {
+                            let _ = writer.write_all(b"PONG\n");
+                            return;
+                        }
+                        let request: Value = serde_json::from_str(&line).unwrap();
+                        line.clear();
+                        seen.lock().unwrap().push(request);
+                        let Some((delay, answer)) = answers.lock().unwrap().next() else { return };
+                        std::thread::sleep(delay);
+                        if writeln!(writer, "{answer}").is_err() {
+                            return;
+                        }
+                    }
+                }));
+            }
+            for one in served {
+                let _ = one.join();
+            }
+            seen.lock().unwrap().clone()
+        })
+    };
+    (socket, App { done, app }, dir)
+}
+
+/// A running [`slow_app`]; [`finish`] stops it.
+struct App {
+    done: std::sync::mpsc::Sender<()>,
+    app: std::thread::JoinHandle<Vec<Value>>,
+}
+
+fn connected(socket: &std::path::Path) -> std::os::unix::net::UnixStream {
+    std::os::unix::net::UnixStream::connect(socket).unwrap()
+}
+
+/// Stops `app` and gives back the `settings.get` requests it read.
+fn finish(app: App) -> Vec<Value> {
+    drop(app.done);
+    app.app.join().unwrap()
+}
+
+/// The `chat.on` setting decides where the chat runs, so a live app that is only slow is waited
+/// for: one that answers after 2 s (20 read windows) is still the setting. With the old 1.5 s hard
+/// deadline the read was no setting, and a person's Cloud setting started the chat here.
+#[test]
+fn a_slow_live_app_still_names_the_chat_target() {
+    let value = json!({ "ok": true, "result": { "value": "vm:new" } });
+    let (socket, app, _dir) = slow_app(vec![(Duration::from_millis(2_000), value)]);
+    let read =
+        read_setting(&mut connected(&socket), Duration::from_millis(100), Duration::from_secs(30));
+    let seen = finish(app);
+    assert_eq!(read, Ok(Some("vm:new".to_owned())));
+    assert_eq!(seen.len(), 1, "one ask, never resent while the app answered pings: {seen:?}");
+    // The read catches up with the daemon first, so a value `cmux config set on` just wrote is read.
+    assert_eq!(seen[0]["params"], json!({ "path": "chat.on", "after": "sync" }), "{seen:?}");
+}
+
+/// The app's own request deadline passing on a loaded host (`timeout`, `busy`) is asked again
+/// while the app lives, until it answers.
+#[test]
+fn an_app_that_refuses_while_busy_is_asked_again() {
+    let busy = json!({ "ok": false, "error": { "code": "timeout", "message": "no reply within 2.0 seconds" } });
+    let value = json!({ "ok": true, "result": { "value": "cloud" } });
+    let answers = vec![
+        (Duration::ZERO, busy.clone()),
+        (Duration::ZERO, busy.clone()),
+        (Duration::ZERO, json!({ "ok": false, "error": { "code": "busy", "message": "busy" } })),
+        (Duration::ZERO, busy),
+        (Duration::ZERO, value),
+    ];
+    let (socket, app, _dir) = slow_app(answers);
+    let read =
+        read_setting(&mut connected(&socket), Duration::from_millis(50), Duration::from_secs(30));
+    finish(app);
+    assert_eq!(read, Ok(Some("cloud".to_owned())));
+}
+
+/// An app that keeps refusing past the whole wait starts nothing: the answer is a retryable
+/// error, not a chat started here when the person's setting may name a Cloud VM.
+#[test]
+fn an_app_that_never_answers_starts_nothing() {
+    let busy = json!({ "ok": false, "error": { "code": "timeout", "message": "no reply" } });
+    let answers = (0..200).map(|_| (Duration::from_millis(10), busy.clone())).collect();
+    let (socket, app, _dir) = slow_app(answers);
+    let read = read_setting(
+        &mut connected(&socket),
+        Duration::from_millis(50),
+        Duration::from_millis(300),
+    );
+    finish(app);
+    let error = read.unwrap_err();
+    assert_eq!(error["code"], "app.setting_unanswered", "{error}");
+    assert_eq!(error["retryable"], true, "{error}");
+}
+
+/// An app that answers its liveness ping but never this ask is held to the whole wait: the read
+/// gives up at `total` with `app.setting_unanswered`, not when (or if) the app replies. Before, a
+/// pending ask waited as long as pings were answered, so `cmux chat` could hang forever.
+#[test]
+fn an_app_that_answers_pings_but_not_the_ask_is_held_to_the_wait() {
+    let value = json!({ "ok": true, "result": { "value": "cloud" } });
+    let (socket, app, _dir) = slow_app(vec![(Duration::from_secs(3), value)]);
+    let began = std::time::Instant::now();
+    let read = read_setting(
+        &mut connected(&socket),
+        Duration::from_millis(50),
+        Duration::from_millis(300),
+    );
+    let took = began.elapsed();
+    finish(app);
+    let error = read.unwrap_err();
+    assert_eq!(error["code"], "app.setting_unanswered", "{error}");
+    assert_eq!(error["retryable"], true, "{error}");
+    assert!(took < Duration::from_secs(2), "gave up after {took:?}, not at the 300 ms wait");
+}
+
+/// A refusal that will not pass (an app with no `settings.get`) and an unset key are no setting.
+#[test]
+fn a_refused_or_unset_setting_is_no_setting() {
+    let unknown = json!({ "ok": false, "error": { "code": "method_not_found", "message": "no" } });
+    let (socket, app, _dir) = slow_app(vec![(Duration::ZERO, unknown)]);
+    assert_eq!(
+        read_setting(&mut connected(&socket), Duration::from_millis(50), Duration::from_secs(30)),
+        Ok(None)
+    );
+    finish(app);
+    let unset = json!({ "ok": true, "result": { "value": null } });
+    let (socket, app, _dir) = slow_app(vec![(Duration::ZERO, unset)]);
+    assert_eq!(
+        read_setting(&mut connected(&socket), Duration::from_millis(50), Duration::from_secs(30)),
+        Ok(None)
+    );
+    finish(app);
+}
+
+/// #38355 review F2: the account's list decides before the hub's. A machine revoked on the
+/// account that the hub still lists (revocation reaches the hub later) is refused, never
+/// started on; so is it by its id.
+#[test]
+fn a_revoked_machine_the_hub_still_lists_is_refused() {
+    let stale_hub = || {
+        vec![
+            json!({"name": "old", "connected": true, "state": "connected", "via": "hub"}),
+            json!({"name": "studio", "connected": true, "state": "connected", "via": "hub"}),
+        ]
+    };
+    for on in ["old", "OLD", "joined:m_old"] {
+        let refused = route_or_joined(
+            Some(on),
+            || {
+                route(
+                    Some(on),
+                    Reads {
+                        catalog: || Ok(catalog()),
+                        signed_in: || true,
+                        cloud_machines: || Ok(listed()),
+                    },
+                )
+            },
+            Sources { hub: stale_hub, rows: || Ok(joined_rows()) },
+        );
+        assert_eq!(code(refused), "chat_target.revoked", "--on {on}");
+    }
+}
+
+/// #38355 review F3: a name matches without regard to case, and the start names the machine
+/// as the account (and the hub) spell it: `--on STUDIO` sends `--machine studio`.
+#[test]
+fn a_joined_machine_named_in_another_case_starts_under_its_own_name() {
+    let found = on_joined("STUDIO", Some(joined_rows()));
+    assert_eq!(found, joined_at(Some("m_studio"), "studio", "studio"));
+    let Ok(Route::Joined(machine)) = found else { unreachable!() };
+    let sent = joined::start_words(&start(&["--on", "STUDIO", "go"]), &machine, "n").unwrap();
+    assert_eq!(sent, words(&["session", "start", "n", "--machine", "studio", "--json"]));
+    // Without the account's list, the hub's spelling.
+    assert_eq!(on_joined("Mini-2", None), joined_at(None, "mini-2", "mini-2"));
+    // A label in another case: the account's label and the hub's host name.
+    assert_eq!(
+        on_joined("desk mac", Some(joined_rows())),
+        joined_at(Some("m_desk"), "Desk Mac", "mini-2")
+    );
+}
+
+/// #38355 review F1: `cmux acp` starts with no cmux credential in its environment (the list
+/// every `cmux` child is started without), whatever this process has; other variables pass.
+#[test]
+fn cmux_acp_starts_without_the_cmux_credentials() {
+    assert!(crate::devices::CREDENTIAL_ENV.contains(&"CMUX_JOIN"));
+    assert!(crate::devices::CREDENTIAL_ENV.contains(&"CMUX_CLOUD_ACCESS_TOKEN"));
+    let mut shell = cmux_process::Command::new("/bin/sh");
+    shell
+        .args([
+            "-c",
+            r#"printf '{"join":"%s","token":"%s","keep":"%s","argv":"%s"}' "${CMUX_JOIN-unset}" "${CMUX_CLOUD_ACCESS_TOKEN-unset}" "${KEEP_ME-unset}" "$0 $1 $2""#,
+        ])
+        .env("CMUX_JOIN", "cmj_secret")
+        .env("CMUX_CLOUD_ACCESS_TOKEN", "bearer_secret")
+        .env("KEEP_ME", "kept");
+    let command = joined::acp_command(shell, &["host", "ls"]);
+    let seen = joined::run_acp(command, &["host", "ls"], None, Duration::from_secs(60)).unwrap();
+    assert_eq!(seen["join"], "unset", "{seen}");
+    assert_eq!(seen["token"], "unset", "{seen}");
+    assert_eq!(seen["keep"], "kept", "{seen}");
+    assert_eq!(seen["argv"], "acp host ls", "{seen}");
+}
+
+/// The SHIP review's follow-up: a `cmux acp` that never answers is ended at the limit and the
+/// answer is `acpmux.timeout`, not a wait with no end.
+#[test]
+fn a_cmux_acp_that_hangs_ends_with_a_timeout_error() {
+    let mut hang = cmux_process::Command::new("/bin/sh");
+    hang.args(["-c", "exec sleep 600"]);
+    let began = std::time::Instant::now();
+    let answer =
+        joined::run_acp(hang, &["send", "h/n", "-"], Some("hi"), Duration::from_millis(300));
+    let error = answer.unwrap_err();
+    assert_eq!(error["code"], "acpmux.timeout", "{error}");
+    assert_eq!(error["retryable"], true);
+    assert!(began.elapsed() < Duration::from_secs(20), "{:?}", began.elapsed());
 }

@@ -259,6 +259,19 @@ extension DaemonConnection {
                                                       activate: activate, after: after, split: split).send(on: self)
     }
 
+    /// App-rendered browser tab in workspace `workspace` itself (`frontend-browser-tab-workspace-v1`): in its pane, or in a
+    /// first pane the daemon makes when it has none, so no terminal hosts it. A daemon without the capability gets
+    /// `missingCapabilities` and no request.
+    @discardableResult
+    public func newFrontendBrowserTab(_ request: NewFrontendBrowserTabRequest, inWorkspace workspace: WorkspaceHandle) async throws -> NewFrontendBrowserTabRequest.Response {
+        guard identity?.supports(DaemonCapability.frontendBrowserTabWorkspace.rawValue) == true else {
+            throw DaemonError.missingCapabilities([DaemonCapability.frontendBrowserTabWorkspace.rawValue])
+        }
+        var request = request
+        (request.pane, request.workspace) = (nil, workspace)
+        return try await request.send(on: self)
+    }
+
     @discardableResult
     public func updateFrontendBrowserTab(_ surface: SurfaceID, url: String? = nil, title: String? = nil,
                                          faviconURL: FieldUpdate<String> = .unchanged) async throws -> UpdateFrontendBrowserTabRequest.Response {
@@ -279,6 +292,15 @@ extension DaemonConnection {
 
     public func setSplitRatio(_ split: SplitID, ratio: Double, transaction: UInt64? = nil) async throws {
         _ = try await request(SetSplitRatioRequest(split: split, ratio: ratio, transaction: transaction))
+    }
+
+    /// `set-divider-visible`: needs `split-divider-visibility-v1`; a daemon without it gets
+    /// `missingCapabilities` and no request.
+    public func setDividerVisible(_ split: SplitID, visible: Bool) async throws {
+        guard identity?.supports(DaemonCapability.splitDividerVisibility.rawValue) == true else {
+            throw DaemonError.missingCapabilities([DaemonCapability.splitDividerVisibility.rawValue])
+        }
+        _ = try await request(SetDividerVisibleRequest(split: split, visible: visible))
     }
 
     public func setColumnWidth(of pane: PaneID, width: Double, transaction: UInt64? = nil) async throws {
@@ -392,6 +414,14 @@ extension DaemonConnection {
     @discardableResult
     public func acknowledgeNotifications(of surface: SurfaceID) async throws -> AckTabNotificationsRequest.Response {
         try await requestNew(AckTabNotificationsRequest(surface: surface))
+    }
+
+    /// ``acknowledgeNotifications(of:)`` on the transport `stamp` names only (``DaemonStore/liveTreeStamp()``):
+    /// `surface` is that connection's number, so on any other transport it fails as not connected and goes again.
+    public func acknowledgeNotifications(of surface: SurfaceID, on stamp: DaemonControlStamp) async throws
+        -> AckTabNotificationsRequest.Response {
+        guard stamp.sourceID == eventSourceID else { throw DaemonError.notConnected }
+        return try await request(AckTabNotificationsRequest(surface: surface), timeout: configuration.requestTimeout, on: stamp.serial)
     }
 
     public func notificationLedger(limit: Int? = nil) async throws -> [ListNotificationsRequest.Entry] {

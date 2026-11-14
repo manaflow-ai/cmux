@@ -8,7 +8,9 @@ import {
 } from "../summary/transcriptPullRequests";
 import { ChildRowView, type ChildEntry } from "./childRows";
 import { hiddenCall, isPlumbingName, showsNothing } from "../hiddenTools";
+import { toolForName } from "../toolNames";
 import { applyRetry, applyRetryStep, type RetryState } from "./retryState";
+import { applyResume } from "./resumeState";
 import { mergeWorkflowAgents, workflowPhases, type WorkflowAgent, type WorkflowPhase } from "./workflowAgents";
 import {
   type AgentRun,
@@ -21,6 +23,9 @@ import {
   runModel,
   runReply,
 } from "./agentRuns";
+
+/// A call titled only by its shell tool's name ("Bash", "shell"), not by what it runs.
+const isBareShellTitle = (title: string): boolean => /^\S+$/.test(title.trim()) && toolForName(title) === "shell";
 
 /// The transcript row of a batch of subagents (SubagentGroup.tsx).
 export const SUBAGENTS = "subagents";
@@ -115,6 +120,12 @@ export type Subagent = {
   retry?: RetryState;
   retryable?: boolean;
   retriedOut?: RetryState;
+  /// acpmux can start this stopped (or lost) subagent again from its transcript and brief, the
+  /// run a Resume started that continues it (its old id), and the run that continues this one
+  /// (resumeState.ts).
+  resumable?: boolean;
+  resumes?: string;
+  resumedBy?: string;
   /// Why it failed, as acpmux recorded it (`error`): its end line says it.
   error?: string;
   /// When it last did anything (a line of its own, a call, new tokens) while none of its calls is
@@ -275,6 +286,8 @@ export class SubagentFold {
   private readonly latestCall = new Map<string, string>();
   /// Each subagent's calls whose ACP kind is `execute` (`agent\u0000call`): a shell call's title is its command.
   private readonly shellCalls = new Set<string>();
+  /// Calls titled only by their shell tool's name (`isBareShellTitle`), by `<owner>\u0000<call>`.
+  private readonly bareShellCalls = new Set<string>();
   private readonly calls = new Set<string>();
   /// Each subagent's calls still open (`agent\u0000call`): one with any open is not quiet (``quietSince``).
   private readonly openCalls = new Set<string>();
@@ -364,17 +377,31 @@ export class SubagentFold {
         this.latestCall.set(owner.id, call);
       }
       const newest = call === undefined || (this.latestCall.get(owner.id) ?? call) === call;
-      if (tool && update.title && newest) {
-        owner.action = String(update.title);
+      const key = call === undefined ? undefined : `${owner.id}\u0000${call}`;
+      // A call titled only by its shell tool ("Bash", announced before its input) is its command,
+      // whether the command comes with that title or in a later update that repeats no title.
+      const title = update?.title ? String(update.title) : undefined;
+      if (tool && key && title !== undefined) {
+        if (isBareShellTitle(title)) this.bareShellCalls.add(key);
+        else this.bareShellCalls.delete(key);
+      }
+      const command = update?.rawInput?.command;
+      const typed =
+        typeof command === "string" &&
+        command.trim() !== "" &&
+        (title !== undefined ? isBareShellTitle(title) : key !== undefined && this.bareShellCalls.has(key));
+      if (tool && newest && (title !== undefined || typed)) {
+        owner.action = typed ? command : title!;
         // A shell call's title is its command as typed (ACP kind `execute`); the tray says it in words.
         // An update that omits its kind keeps what its own call said, never another call's.
-        const key = call === undefined ? undefined : `${owner.id}\u0000${call}`;
         if (key && typeof update.kind === "string") {
           if (update.kind === "execute") this.shellCalls.add(key);
           else this.shellCalls.delete(key);
         }
         const shell =
-          update.kind === "execute" || (update.kind === undefined && key !== undefined && this.shellCalls.has(key));
+          typed ||
+          update.kind === "execute" ||
+          (update.kind === undefined && key !== undefined && this.shellCalls.has(key));
         if (shell) owner.actionShell = true;
         else delete owner.actionShell;
       }
@@ -869,6 +896,29 @@ export class SubagentFold {
     return [...this.agents.values()];
   }
 
+  /// The subagent ids record `event` names, for a rebuild's cut (direct.ts `rebuild`): its
+  /// `_meta.acpmux` tag and progress list (ids and parents), a child session under the chat's
+  /// (`ownerOf`) and an acpmux child's session. More than the fold reads is
+  /// fine: a name too many only moves a cut back.
+  static namedIn(event: Event, update: any, chat: string | undefined, add: (id: string) => void): void {
+    const params = event.msg?.params;
+    const mux = params?._meta?.acpmux;
+    if (typeof mux?.subagent === "string") add(mux.subagent);
+    if (Array.isArray(mux?.subagents))
+      for (const change of mux.subagents) {
+        if (typeof change?.id === "string") add(change.id);
+        if (typeof change?.parent === "string") add(change.parent);
+      }
+    const session = params?.sessionId;
+    if (typeof session === "string" && chat && session.startsWith(`${chat}/`)) add(session);
+    if (typeof event.msg?.childSessionId === "string") add(event.msg.childSessionId);
+  }
+
+  /// Whether `id` is the chat's own thread, never one of its subagents (``isChat``).
+  isChatThread(id: string): boolean {
+    return this.isChat(id);
+  }
+
   /// Each subagent's own view (its text, thoughts and tool calls, and the subagents it spawned
   /// as group rows), for the child view. Unchanged views keep their rows.
   views(): Record<string, AcpmuxRow[]> {
@@ -1138,6 +1188,7 @@ export class SubagentFold {
     if (!spawn) agent.progressVersion = event.seq;
     if (change.reason === "paused") agent.paused = true;
     applyRetry(agent, change);
+    applyResume(agent, change);
     const state = text(change.state);
     // An end the harness reported holds against a progress report that trails it; a spawn or a
     // state update saying it runs again still does.

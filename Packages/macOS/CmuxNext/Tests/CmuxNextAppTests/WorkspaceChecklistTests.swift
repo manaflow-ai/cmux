@@ -142,6 +142,25 @@ struct WorkspaceChecklistTests {
         }
     }
 
+    /// A key or menu run on a checklist with no item to do is a no-op, not a toast over the
+    /// composer (Leo, 2026-11-12: "the bottom pill is weird and probably unnecessary"); a caller
+    /// (CLI, MCP) still gets the reason.
+    @Test func anEmptyChecklistRefusesQuietly() throws {
+        var thrown: (any Error)?
+        do {
+            _ = try WorkspaceChecklistEdit.make(for: "toggleChecklistItemComplete", invocation: ActionInvocation(), items: [])
+        } catch { thrown = error }
+        let failure = try #require(thrown as? ActionFailure)
+        #expect(failure.isQuiet, "an empty checklist's refusal shows the refusal toast")
+        let registry = ActionRegistry(catalog: [])
+        var refusals: [(String, Bool)] = []
+        registry.refusalObserver = { reason, quiet in refusals.append((reason, quiet)) }
+        registry.refuse(thrown: failure)
+        #expect(refusals.count == 1)
+        #expect(refusals.first?.0 == failure.message, "a caller no longer gets the reason")
+        #expect(refusals.first?.1 == true, "the refusal is not quiet")
+    }
+
     // MARK: Surfaces
 
     @Test func theSidebarRowAndItsHoverCardListTheChecklist() throws {

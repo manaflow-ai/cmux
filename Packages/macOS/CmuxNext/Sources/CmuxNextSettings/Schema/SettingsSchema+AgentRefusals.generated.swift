@@ -14,6 +14,8 @@ extension SettingsSchema {
         "agentPane.dictationShortcut": .userOnly,
         // Whether an agent starts Cloud machines and sessions with no Start card: only the person delegates it.
         "cloud.agentsStartWithoutAsking": .userOnly,
+        // Turn checkpoints save the person's whole Cloud machine to their snapshot storage after every turn: only the person turns that on.
+        "cloud.turnCheckpoints": .userOnly,
         // The person's consent to copy their own Claude login to their own Cloud machines: only theirs to give.
         "cloud.useMyClaudeLoginOnMyCloudMachines": .privacy, "cloud.useMyCodexLoginOnMyCloudMachines": .privacy,
         "agents.chats.roots": .privacy, "agents.chats.discovery": .privacy,
@@ -44,8 +46,6 @@ extension SettingsSchema {
         "feed.needsYouInChief": .userOnly,
         "feed.github.enabled": .network, "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
-        // The weather widget asks Open-Meteo (and names a city) only once the person turns it on.
-        "tabs.newTabWidgets.weather": .network, "tabs.newTabWidgets.weatherCity": .network,
         // Off, Chromium tabs load ads and trackers again.
         "browser.builtInAdBlocker": .privacy,
         // On, merely opening attacker-authored Markdown contacts its web image hosts.
@@ -88,7 +88,8 @@ extension SettingsSchema {
         "agentPane.links.outsideRoots": .privacy,
         // A reply's file link outside the project, and a reply's web image (D4, D5).
         "agentPane.images.remote": .network,
-        "app.quitBehavior": .destructive,
+        // The quit behavior ends sessions; confirmQuit off lets one Cmd-Q end them without asking.
+        "app.quitBehavior": .destructive, "app.confirmQuit": .destructive,
         // Voice Room records mic and screen text and posts it to the configured room.
         "labs.voiceRoom": .privacy,
         // The room address chooses the network endpoint that receives that capture.
@@ -99,6 +100,8 @@ extension SettingsSchema {
         "labs.liveCode": .userOnly,
         // Whether cmux's own pages open developer tools, which read and change their live content: the person's call.
         "developerTools.appPages": .userOnly,
+        // Whether the person's Command Palette lists the debug commands: the person's call.
+        "app.internalDeveloperMode": .userOnly,
         // On, a key is taken from every other app system-wide.
         "app.globalHotKey": .userOnly, "app.startAgentGlobalHotKey": .userOnly,
         // Off, a close ends running programs and agents without asking.
@@ -115,6 +118,8 @@ extension SettingsSchema {
         "announcements.fetch": .network,
         // Whether this Mac sends hang reports (stacks and timings) to cmux: the person's choice only.
         "diagnostics.hangReports": .privacy,
+        // Whether this computer counts how the person uses cmux: the person's choice only.
+        "diagnostics.usagePatterns": .privacy,
         // What a new chat may do without asking: an agent must not widen its own approvals.
         "agents.defaultPermissionMode": .userOnly,
         // How long Claude Code chats keep their prompt cache: it moves the person's model bill.
@@ -152,8 +157,6 @@ extension SettingsSchema {
         "agents.trust.autoTrust": .userOnly, "agents.trust.projectRoots": .userOnly, "agents.trust.ownOrgs": .userOnly,
         // Which hosts an ssh:// link from another app connects to without asking: only the person trusts a host, so a page or an agent cannot add one and skip the confirmation.
         "ssh.linkAllowedHosts": .network,
-        // What reaches this Mac from outside and what leaves it: only the person opens phone access.
-        "phone.allowConnections": .network, "phone.startSessions": .network,
         "phone.keepAwake": .userOnly,
         // Workspace names leave this Mac for the Cloud service: only the person turns it on.
         "phone.cloudReplica": .privacy, "phone.cloudDesktop": .privacy,

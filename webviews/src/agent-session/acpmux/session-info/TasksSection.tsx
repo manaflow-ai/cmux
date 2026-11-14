@@ -18,7 +18,7 @@
 import { useContext, useState } from "react";
 import { useArrivals } from "../../../ui/presence";
 import { OpenBackgroundTasks } from "../backgroundTasks/openBackgroundTasks";
-import { formatDuration } from "../conversation/turns";
+import { formatDuration, spanDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -194,7 +194,7 @@ export function TasksSection({
                       ? row(
                           entry.command,
                           entry.command.endedAt !== undefined && entry.command.startedAt !== undefined
-                            ? formatDuration(Math.max(0, entry.command.endedAt - entry.command.startedAt))
+                            ? spanDuration(t, entry.command.endedAt - entry.command.startedAt)
                             : undefined,
                           t(COMMAND_STATE[entry.command.state]),
                         )

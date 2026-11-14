@@ -2,15 +2,45 @@
 //! dispatch with its cancellation, and the VT-state command reply. Moved out of
 //! server.rs unchanged (cx-6so.3).
 
+mod command_names;
+#[cfg(test)]
+mod command_stats_tests;
 #[cfg(unix)]
 mod machine_catalog;
 
+use super::tree_reply_text::TreeReply;
 use super::*;
+use crate::diagnostics::ClientKind;
+
+/// One frame of a connection, counted (`server-stats` section `commands`): under its command
+/// name where a handler below counts it, else as `other`.
+// perf-hot: <1us command-stats
+pub(super) fn handle_connection_frame(
+    mux: &Arc<Mux>,
+    client: u64,
+    transport: ClientTransport,
+    message: &str,
+    writer: &MessageWriter,
+    scheduler: &Arc<ConnectionSurfaceScheduler>,
+) -> bool {
+    let commands = mux.connection_stats().commands();
+    // A connection that no listener counted at its accept is counted at its first line.
+    writer.kind.registered(
+        commands,
+        match transport {
+            ClientTransport::Unix => ClientKind::Unknown,
+            ClientTransport::WebSocket => ClientKind::WebSocket,
+            ClientTransport::Remote => ClientKind::Remote,
+        },
+    );
+    let _counted = commands.start_line(&writer.kind);
+    handle_frame(mux, client, transport, message, writer, scheduler)
+}
 
 /// One frame of a connection. `transport` is the connection's own value
 /// (not a registry lookup), so a remote-entry connection always takes the
 /// remote path, also after its registry record is gone.
-pub(super) fn handle_connection_frame(
+fn handle_frame(
     mux: &Arc<Mux>,
     client: u64,
     transport: ClientTransport,
@@ -20,18 +50,31 @@ pub(super) fn handle_connection_frame(
 ) -> bool {
     // Keep an idle shutdown requester connected until owner cleanup closes
     // the transport, so lifecycle clients receive authoritative completion.
-    // A pipelined message after the acknowledgement must not reach parsing or
-    // dispatch; returning false makes the connection loop close that client.
+    // A message after the shutdown began (an accepted `shutdown-daemon`, or a
+    // SIGTERM at an update, logout or reboot) must not reach dispatch: it
+    // gets the pending handoff's refusal (`daemon_shutdown_pending`, "request
+    // was not executed") so its client can send it again to the next daemon
+    // without typing anything twice, and returning false makes the connection
+    // loop close that client once the refusal is written. A close with no
+    // answer left the client unable to tell whether its input arrived.
     if mux.daemon_shutdown_requested() || mux.daemon_handoff_committed() {
+        let _ = pending_handoff::reject_message_during_pending_handoff(message, writer);
         return false;
     }
+    // The slow request log's record of this line, from here to its reply written
+    // (diagnostics/request_log.rs). It ends on this thread, or travels with the queued request.
+    let _slow_log = mux.connection_stats().request_log().map(|log| {
+        log.begin(client, mux.control_clients.log_labels(client), &writer.open, message)
+    });
     if matches!(transport, ClientTransport::Remote) || mux.is_remote_client(client) {
         return remote_relay::handle_frame(mux, client, message, writer);
     }
+    // The hooks below that ask what the line is share its one JSON parse.
+    let line = line_value::LineValue::new(message);
     // A carrier stream's signed role, stamped by the session host before the person's first
     // byte (carrier_role.rs).
     #[cfg(unix)]
-    if let Some(keep_open) = carrier_role::try_handle(mux, client, message, writer) {
+    if let Some(keep_open) = carrier_role::try_handle(mux, client, &line, writer) {
         return keep_open;
     }
     // A phone's channel reaches only what hostd's Cloud ACP adapter sends (phone_carrier.rs).
@@ -51,6 +94,14 @@ pub(super) fn handle_connection_frame(
     // An older client's line, upgraded to this daemon's API revision before
     // any parse (server/api_revision_wire.rs); borrowed unchanged otherwise.
     let upgraded = writer.api_revision.upgrade_request(message);
+    let upgraded_line;
+    let line = match &upgraded {
+        std::borrow::Cow::Borrowed(_) => &line,
+        std::borrow::Cow::Owned(text) => {
+            upgraded_line = line_value::LineValue::new(text);
+            &upgraded_line
+        }
+    };
     let message: &str = &upgraded;
     // A remote device never names an incognito workspace's objects (#31210).
     if let Some(keep_open) = incognito_remote::refuse_line(mux, client, message, writer) {
@@ -62,7 +113,9 @@ pub(super) fn handle_connection_frame(
     if agent_session_attach::proxy_bound(mux, client) {
         return agent_session_attach::handle_bound(mux, client, message, writer);
     }
-    if let Some(request) = crate::resource_router::parse_resource_line(message) {
+    if let Some(request) =
+        crate::resource_router::parse_resource_line_given(message, || line.value())
+    {
         // A v2 line the catalog parse refuses may name a routed namespace
         // operation (page-router-v1): the same JSON parse decides, so every
         // spelling of the line gets one answer.
@@ -70,6 +123,9 @@ pub(super) fn handle_connection_frame(
             && let Some(keep_open) = page_router::try_handle(mux, client, message, writer)
         {
             return keep_open;
+        }
+        if let Ok(envelope) = &request {
+            crate::diagnostics::request_log::decoded_operation(envelope.operation.wire_name());
         }
         // Debug timing marks of a resource create, from the arrival of its
         // line to its reply (`CMUX_TUI_DEBUG_SPANS`; cx-b4sjc).
@@ -87,6 +143,14 @@ pub(super) fn handle_connection_frame(
                 crate::debug_spans::install(Some(trace));
                 true
             });
+        // The count of a v2 method, by its catalog name (`server-stats` section `commands`).
+        let _counted = request.as_ref().ok().map(|envelope| {
+            if hook_report(envelope) {
+                writer.kind.observed(ClientKind::Hook);
+            }
+            let commands = mux.connection_stats().commands();
+            commands.start(envelope.operation.wire_name(), &writer.kind)
+        });
         let keep_open = origin_gate::handle_resource_line(mux, client, message, request, writer);
         if traced {
             crate::debug_spans::mark("reply.sent");
@@ -130,14 +194,25 @@ pub(super) fn handle_connection_frame(
         return keep_open;
     }
     #[cfg(unix)]
-    if let Some(keep_open) = cloud_repos::try_handle(mux, client, message, writer) {
+    if let Some(keep_open) = cloud_repos::try_handle(mux, client, line, writer) {
         return keep_open;
     }
     let mut request = match serde_json::from_str::<Request>(message) {
         Ok(request) => request,
         Err(error) => return send_bad_request(writer, message, &error),
     };
+    // Opt-in usage patterns: the command's wire name (it parsed as a `Command`, so it is one of
+    // the enum's names), never its params. One atomic load when off.
+    if cmux_usage_patterns::enabled()
+        && let Some(name) = command_wire_name(message)
+    {
+        cmux_usage_patterns::count("command", &name);
+    }
     request.remote_line = incognito_remote::line_to_recheck(mux, client, message);
+    // The command is counted under its name where it runs, here or on the connection's
+    // dispatch thread (`handle_request_with_cancellation`).
+    crate::diagnostics::line_is_named();
+    crate::diagnostics::request_log::decoded_command();
     // Key-press flows: the reader parsed the key's line. With `daemon.send.write` on the dispatcher it separates the
     // wait in the connection's queue from the wait before the line was read (`CMUX_TRACE_FLOWS` only).
     if let Command::Send(send) = &request.cmd
@@ -161,6 +236,29 @@ pub(super) fn handle_connection_frame(
     }
 }
 
+/// The top-level `cmd` member of a line that parsed as a [`Request`] (so it is one of the
+/// `Command` enum's wire names), never a nested one. Parsed only while usage patterns count.
+fn command_wire_name(message: &str) -> Option<String> {
+    #[derive(Deserialize)]
+    struct CmdName<'a> {
+        #[serde(borrow)]
+        cmd: std::borrow::Cow<'a, str>,
+    }
+    serde_json::from_str::<CmdName<'_>>(message).ok().map(|name| name.cmd.into_owned())
+}
+
+/// Whether a v2 request is an agent hook's report (`session.journal.append` of the agent hook
+/// producer): its connection is a hook child. Reads the producer's fixed word, keeps nothing.
+fn hook_report(envelope: &crate::resource::RequestEnvelope) -> bool {
+    envelope.operation == ResourceOperation::SessionJournalAppend
+        && envelope
+            .params
+            .get("event")
+            .and_then(|event| event.get("producer_id"))
+            .and_then(Value::as_str)
+            == Some(crate::AGENT_HOOK_PRODUCER_ID)
+}
+
 impl Command {
     /// Commands that read nothing a request on the same connection changes, so they need not wait
     /// for the connection's queue: `ping` and a plain `identify`. `identify` with `machine_metadata`
@@ -179,7 +277,28 @@ pub(super) fn handle_request(
     handle_request_with_cancellation(mux, client, request, writer, None)
 }
 
+/// One decoded legacy command, counted under its wire name from here to its reply queued
+/// (`server-stats` section `commands`). The direct path and the connection's dispatch
+/// thread both come through here.
+// perf-hot: <1us command-stats
 pub(super) fn handle_request_with_cancellation(
+    mux: &Arc<Mux>,
+    client: u64,
+    request: Request,
+    writer: &MessageWriter,
+    cancellation: Option<&ConnectionCancellation>,
+) -> bool {
+    let commands = mux.connection_stats().commands();
+    // What the client says it is, for the counters only (never a trust decision), before its
+    // reply: the client's next line already counts under it.
+    if let Some(kind) = request.cmd.declared_kind() {
+        writer.kind.declare(kind);
+    }
+    let _counted = commands.start(request.cmd.wire_name(), &writer.kind);
+    handle_request_uncounted(mux, client, request, writer, cancellation)
+}
+
+fn handle_request_uncounted(
     mux: &Arc<Mux>,
     client: u64,
     request: Request,
@@ -197,6 +316,9 @@ pub(super) fn handle_request_with_cancellation(
     }
     if let Command::ChiefInspect(params) = cmd {
         return chief_inspect::start(mux, client, id, params, writer);
+    }
+    if let Command::ShellRead(params) = cmd {
+        return shell_wire::read(mux, client, id, params, writer);
     }
     if cloud_conversations::is_network(&cmd) {
         return cloud_conversations::start(mux, client, id, cmd, writer);
@@ -227,20 +349,24 @@ pub(super) fn handle_request_with_cancellation(
     };
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
     let (mut reason, mut retryable, mut details) = (None, None, None);
-    // Under `dx serve --hot-patch` every request runs the newest patched code.
-    #[cfg(feature = "hotpatch")]
-    let result = crate::hotpatch::call(
-        handle_command_with_cancellation,
-        (mux, client, cmd, writer, cancellation),
-    )
-    .and_then(|result| result);
-    #[cfg(not(feature = "hotpatch"))]
-    let result = handle_command_with_cancellation(mux, client, cmd, writer, cancellation);
+    let result = if matches!(cmd, Command::ListWorkspaces) && reads_the_built_tree(mux, client) {
+        // The readers of one build share its tree's text (tree_reply_text.rs).
+        cmd_workspaces::list_workspaces_text(mux, writer).map(ReplyData::Tree)
+    } else {
+        run_command(mux, client, cmd, writer, cancellation).map(ReplyData::Value)
+    };
+    let mut tree = None;
     let response = match result {
-        Ok(data) => Response {
+        Ok(reply) => Response {
             id,
             ok: true,
-            data: Some(data),
+            data: match reply {
+                ReplyData::Value(data) => Some(data),
+                ReplyData::Tree(text) => {
+                    tree = Some(text);
+                    None
+                }
+            },
             error: None,
             error_code: None,
             error_delivery: None,
@@ -267,7 +393,11 @@ pub(super) fn handle_request_with_cancellation(
     let (response, reason) = remote_relay::redact_response(mux, client, response, reason);
     let details = details.filter(|_| !mux.is_remote_client(client));
     let response_ok = response.ok;
-    let sent = responses::send_response_with_details(writer, response, reason, retryable, details);
+    let sent = match &tree {
+        // A tree reply is a success, which `redact_response` keeps as it is.
+        Some(tree) if response.ok => responses::send_tree_reply(writer, response, tree),
+        _ => responses::send_response_with_details(writer, response, reason, retryable, details),
+    };
     // The reply is out; the request's registry commits (already in the WAL)
     // go to disk now, in one flush that none of them waited for.
     mux.request_registry_flush();
@@ -288,6 +418,37 @@ pub(super) fn handle_request_with_cancellation(
         return false;
     }
     sent
+}
+
+/// A command's reply data: a value, or a `list-workspaces` tree as its build's shared text.
+enum ReplyData {
+    Value(Value),
+    Tree(TreeReply),
+}
+
+/// Whether `client`'s `list-workspaces` reply is the tree as its build made it, so the reply can
+/// be written from the build's shared text. The command path changes it only for a remote client
+/// (`remote_relay::intercept`) and a remote device (`incognito_remote::prune_reply`).
+fn reads_the_built_tree(mux: &Mux, client: u64) -> bool {
+    !mux.is_remote_client(client) && !incognito_remote::is_remote_device(mux, client)
+}
+
+fn run_command(
+    mux: &Arc<Mux>,
+    client: u64,
+    cmd: Command,
+    writer: &MessageWriter,
+    cancellation: Option<&ConnectionCancellation>,
+) -> anyhow::Result<Value> {
+    // Under `dx serve --hot-patch` every request runs the newest patched code.
+    #[cfg(feature = "hotpatch")]
+    return crate::hotpatch::call(
+        handle_command_with_cancellation,
+        (mux, client, cmd, writer, cancellation),
+    )
+    .and_then(|result| result);
+    #[cfg(not(feature = "hotpatch"))]
+    handle_command_with_cancellation(mux, client, cmd, writer, cancellation)
 }
 
 fn send_vt_state_command_response(

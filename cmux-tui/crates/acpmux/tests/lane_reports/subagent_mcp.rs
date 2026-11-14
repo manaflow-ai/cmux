@@ -66,12 +66,24 @@ async fn socket(hub: &Arc<Hub>, name: &str) -> std::path::PathBuf {
 /// harness runs it (its caller token, this daemon's socket), with `meta` as Claude Code's
 /// `_meta`; the call's result.
 async fn mcp(sock: &Path, session: &str, name: &str, arguments: Value, meta: Value) -> Value {
+    mcp_in(&acpmux::config::home(), sock, session, name, arguments, meta).await
+}
+
+/// [`mcp`] with `home` as the server's `ACPMUX_HOME` (its `config.json`, its subagent records).
+async fn mcp_in(
+    home: &Path,
+    sock: &Path,
+    session: &str,
+    name: &str,
+    arguments: Value,
+    meta: Value,
+) -> Value {
     let scratch = std::env::temp_dir().join(format!("w5m-mcp-{}", std::process::id()));
     std::fs::create_dir_all(&scratch).unwrap();
     let mut command = daemon_env::acpmux(&scratch);
     command
         .arg("acpmux-mcp")
-        .env("ACPMUX_HOME", acpmux::config::home())
+        .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", sock)
         .env("ACPMUX_SESSION_ID", session)
         .env(acpmux::hub::person::CALLER_TOKEN_ENV, acpmux::hub::person::caller_token(session))
@@ -251,7 +263,7 @@ async fn subagent_bg_start(sock: &Path, parent: &str, call: &str, n: u8) {
 #[tokio::test]
 async fn lane_report_subagent_mcp_a_bg_task_end_goes_to_the_subagent_that_started_it() {
     let hub = hub();
-    hub.set_bg_runner(daemon_env::bin().into(), acpmux::bg_run::SEGMENT);
+    hub.set_bg_runner(daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
     let sock = socket(&hub, "bgend").await;
     let mut person = Client::new(&hub);
     let gate = super::subagents::fifo("mcp-bgend");
@@ -280,7 +292,7 @@ async fn lane_report_subagent_mcp_a_bg_task_end_goes_to_the_subagent_that_starte
 #[tokio::test]
 async fn lane_report_subagent_mcp_a_bg_task_end_the_subagent_never_took_goes_to_the_lead() {
     let hub = hub();
-    hub.set_bg_runner(daemon_env::bin().into(), acpmux::bg_run::SEGMENT);
+    hub.set_bg_runner(daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
     let sock = socket(&hub, "bgswept").await;
     let mut person = Client::new(&hub);
     let gate = super::subagents::fifo("mcp-bgswept");
@@ -319,4 +331,118 @@ async fn lane_report_subagent_mcp_a_bg_task_end_the_subagent_never_took_goes_to_
     let t = &got[0];
     assert!(t.contains("bg-finding-2"), "{t}");
     assert!(t.contains("general-purpose subagent a0a68e7a") && t.contains("has ended"), "{t}");
+}
+
+/// Review of #39667: a cmux workflow runner a subagent started runs with that subagent's mark
+/// (`ACPMUX_CALLER_SUBAGENT`, set by the daemon), and so does the acpmux MCP server it starts for
+/// the script's tool calls, which carry no tool use id: its `send` names the subagent.
+#[tokio::test]
+async fn w5s_lane_report_subagent_mcp_a_marked_server_sends_as_the_subagent() {
+    let hub = hub();
+    let sock = socket(&hub, "marked").await;
+    let mut person = Client::new(&hub);
+    let parent = person.new_session("parent", json!({})).await;
+    let lane = Client::as_session(&hub, &parent).await.new_session("wf-lane", json!({})).await;
+    let scratch = std::env::temp_dir().join(format!("w5s-mcp-marked-{}", std::process::id()));
+    std::fs::create_dir_all(&scratch).unwrap();
+    let mut command = daemon_env::acpmux(&scratch);
+    command
+        .arg("acpmux-mcp")
+        .env("ACPMUX_HOME", acpmux::config::home())
+        .env("ACPMUX_SOCKET", &sock)
+        .env("ACPMUX_SESSION_ID", &parent)
+        .env(acpmux::hub::person::CALLER_TOKEN_ENV, acpmux::hub::person::caller_token(&parent))
+        .env(acpmux::hub::person::CALLER_SOCKET_ENV, &sock)
+        .env("ACPMUX_CALLER_SUBAGENT", MARK)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped());
+    let requests = [
+        json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion":
+            "2025-06-18", "capabilities": {}, "clientInfo": {"name": "cmux", "version": "2"}}}),
+        json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+        // A workflow script's call: no `_meta`, so no tool use id.
+        json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "send",
+            "arguments": {"to": "wf-lane", "text": "workflow finding"}}}),
+    ];
+    let sent = tokio::task::spawn_blocking(move || {
+        let mut child = command.spawn().unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        for request in requests {
+            writeln!(stdin, "{request}").unwrap();
+        }
+        let mut lines = std::io::BufReader::new(child.stdout.take().unwrap()).lines();
+        let result = loop {
+            let line = lines.next().expect("an MCP reply").unwrap();
+            let v: Value = serde_json::from_str(&line).unwrap();
+            if v["id"] == 2 {
+                break v["result"].clone();
+            }
+        };
+        drop(stdin);
+        let _ = child.kill();
+        let _ = child.wait();
+        result
+    })
+    .await
+    .unwrap();
+    assert_eq!(sent["isError"], false, "{sent}");
+    super::subagents::turn_ended(&hub, &lane, 1).await;
+    let page = person.ok("_acpmux/events", json!({"sessionId": lane, "limit": 5000})).await;
+    let prompts: String = page["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["dir"] == "out" && e["kind"] == "session/prompt")
+        .map(|e| e["msg"]["params"]["prompt"].to_string())
+        .collect();
+    assert!(prompts.contains("parent's general-purpose subagent a0a68e7a"), "{prompts}");
+}
+
+/// W5-M (b): a subagent's MCP `send` that goes to the send relay (no session here or on a peer)
+/// names the subagent to the relay as a label (`ACPMUX_FROM_SUBAGENT`, `ACPMUX_FROM_LABEL`), as
+/// the CLI's does (`cli/send_relay.rs`); the lead's own relayed send names none.
+#[tokio::test]
+async fn w5s_lane_report_subagent_mcp_relayed_send_names_the_subagent_as_a_label() {
+    use std::os::unix::fs::PermissionsExt;
+    let hub = hub();
+    let sock = socket(&hub, "relay").await;
+    let mut person = Client::new(&hub);
+    let parent = person.new_session("parent", json!({})).await;
+    // The server's own home: a config naming a relay that records what it was told.
+    let home = std::env::temp_dir().join(format!("w5s-relay-home-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let labels = home.join("labels");
+    let relay = home.join("relay");
+    let script = format!(
+        "#!/bin/sh\ncat >/dev/null\nprintf '%s|%s|%s\\n' \"${{ACPMUX_FROM-unset}}\" \"${{ACPMUX_FROM_SUBAGENT-unset}}\" \"${{ACPMUX_FROM_LABEL-unset}}\" >> '{}'\necho delivery-7\n",
+        labels.display()
+    );
+    std::fs::write(&relay, script).unwrap();
+    std::fs::set_permissions(&relay, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let config = json!({"sendRelay": {"argv": [relay, "send"]}});
+    std::fs::write(home.join("config.json"), config.to_string()).unwrap();
+    // What acpmux's PreToolUse hook records for the subagent's call (`bg_hook.rs`).
+    acpmux::subagent_call::record(&home, &parent, "toolu_01relay", SUB, "general-purpose").unwrap();
+    let send = json!({"to": "far-coordinator", "text": "relayed finding"});
+    let meta = |id: &str| json!({"claudecode/toolUseId": id});
+    let r = mcp_in(&home, &sock, &parent, "send", send.clone(), meta("toolu_01relay")).await;
+    assert_eq!(r["isError"], false, "{r}");
+    let r = mcp_in(&home, &sock, &parent, "send", send, meta("toolu_01lead")).await;
+    assert_eq!(r["isError"], false, "{r}");
+    let said = std::fs::read_to_string(&labels).unwrap_or_default();
+    let said: Vec<&str> = said.lines().collect();
+    let _ = std::fs::remove_dir_all(&home);
+    assert_eq!(said.len(), 2, "{said:?}");
+    assert!(!said[0].starts_with("unset|"), "the relay names a sender: {said:?}");
+    let from = said[0].split('|').next().unwrap();
+    assert_eq!(
+        said,
+        [
+            format!("{from}|{MARK}|{from}'s general-purpose subagent a0a68e7a"),
+            format!("{from}|unset|unset"),
+        ],
+        "the relay is told which subagent sent it, and the lead's own send names none"
+    );
 }

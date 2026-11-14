@@ -1,3 +1,4 @@
+import AppKit
 @testable import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextSettings
@@ -197,6 +198,77 @@ import Testing
         #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "signedOut")
     }
 
+    /// Claude Code's Keychain login reads as unknown until a session proves it. Opening its login from the card
+    /// proves nothing (it may be cancelled), so the row waits for the person to say it finished, then the card can end.
+    @Test func aKeychainLoginFinishesOnlyWhenThePersonConfirmsIt() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+        let source = MockAgentSignInSource(agents: [OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .unknown)])
+        let provider = SetupCardPageProvider(setup: setup, agents: source, environment: SetupCardEnvironment(
+            account: { (true, nil) }, signInAccount: {}, cliState: { "installed" }, installCLI: { _ in }, openAgents: {},
+            historySources: { false }, importHistory: { false }))
+        defer { provider.stop() }
+        await until { provider.agents.loaded && provider.cli != nil && provider.history != nil }
+        #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "signedOut")
+
+        // The login opens, then is cancelled: the sign-in still reads as unknown.
+        _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": "signInAgent", "id": "claude"]], context: click(1))
+        await until { provider.agents.loginsOpened.contains("claude") }
+        provider.agents.refresh(recheck: true)
+        await until { !provider.agents.loading }
+        #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "unverified")
+        #expect(!provider.allDone && setup.shows, "an opened login is no proof: the card stays")
+
+        _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": "confirmAgent", "id": "claude"]], context: click(2))
+        #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "signedIn")
+        #expect(provider.allDone)
+    }
+
+    /// I'm Signed In does nothing for an agent whose login never opened here.
+    @Test func confirmingWithoutAnOpenedLoginDoesNothing() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        let source = MockAgentSignInSource(agents: [OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .unknown)])
+        let provider = SetupCardPageProvider(setup: setup, agents: source, environment: SetupCardEnvironment(
+            account: { (true, nil) }, signInAccount: {}, cliState: { "installed" }, installCLI: { _ in }, openAgents: {},
+            historySources: { false }, importHistory: { false }))
+        defer { provider.stop() }
+        await until { provider.agents.loaded && provider.cli != nil && provider.history != nil }
+        _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": "confirmAgent", "id": "claude"]], context: click(1))
+        #expect(provider.agents.confirmedLogins.isEmpty)
+        #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "signedOut")
+        #expect(!provider.allDone)
+    }
+
+    private func click(_ event: TimeInterval) -> PageCallContext {
+        PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: event)
+    }
+
+    /// Every card this launch shares one agents model: a card made again mid-install (another Home conversation)
+    /// shows the install running, starts no second one, and the install's sign-in still runs when it ends.
+    @Test func aCardMadeAgainKeepsTheRunningInstall() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        let source = HeldInstallSource()
+        let environment = SetupCardEnvironment(account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in },
+                                               openAgents: {}, historySources: { false }, importHistory: { false })
+        let first = SetupCardPageProvider(setup: setup, agents: source, environment: environment)
+        await until { first.agents.loaded }
+        let click = { (at: TimeInterval) in PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: at) }
+        _ = try await first.call("cmux.setup.run", params: ["action": ["kind": "installAgent", "id": "claude"]], context: click(1))
+        await until { source.running != nil }
+        first.stop()
+
+        let again = SetupCardPageProvider(setup: setup, agents: source, environment: environment)
+        defer { again.stop() }
+        #expect(again.agents === first.agents)
+        #expect(again.agents.installs["claude"] == .installing)
+        _ = try await again.call("cmux.setup.run", params: ["action": ["kind": "installAgent", "id": "codex"]], context: click(2))
+        #expect(source.installsRun == ["claude"], "one install at a time, across cards")
+
+        source.running?.resume()
+        await until { !source.signIns.isEmpty }
+        #expect(source.signIns == ["claude"], "the install's sign-in runs after the card was made again")
+    }
+
     /// Not Now on the chat history row answers it for good.
     @Test func notNowDismissesTheChatHistoryRow() async throws {
         let defaults = try defaults()
@@ -215,6 +287,20 @@ import Testing
         let deadline = ContinuousClock.now + .seconds(5)
         // test-only: waits for the provider's one async read, bounded by the deadline
         while !done(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(10)) }
+    }
+
+    /// `--skip-onboarding` or `CMUX_NEXT_SKIP_ONBOARDING=1` (UI tests, captures): no card, even one still
+    /// pending from an earlier launch, and the pending state survives for the next launch that does not skip.
+    @Test func skippingOnboardingHidesAPendingCardWithoutEndingIt() throws {
+        let defaults = try defaults()
+        #expect(!FirstRunSetup(defaults: defaults, skipsOnboarding: true).begin(isFirstRun: true, replacedKeys: Self.replaced))
+        #expect(defaults.string(forKey: FirstRunSetup.stateKey) == nil, "a skipped launch starts nothing")
+        #expect(FirstRunSetup(defaults: defaults).begin(isFirstRun: true, replacedKeys: Self.replaced))
+
+        let skipped = FirstRunSetup(defaults: defaults, skipsOnboarding: true)
+        #expect(!skipped.shows)
+        #expect(defaults.string(forKey: FirstRunSetup.stateKey) == "pending")
+        #expect(FirstRunSetup(defaults: defaults).shows, "the next launch that does not skip shows it again")
     }
 
     /// VoiceOver presses the Agents window's Chromium page but not the card's WebKit one (manaflow-ai/cmux#37809).
@@ -268,4 +354,23 @@ import Testing
     var cliAfter = "missing"
     var installRuns: CheckedContinuation<Void, Never>?
     var importShows = false
+}
+
+/// Claude Code and Codex missing; an install holds until the test resumes it, then reads as installed.
+@MainActor private final class HeldInstallSource: AgentSignInSource {
+    var agents = [OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .unknown, installed: false),
+                  OnboardingAgent(id: "codex", name: "Codex", brand: "codex", auth: .unknown, installed: false)]
+    var running: CheckedContinuation<Void, Never>?
+    private(set) var installsRun: [String] = []
+    private(set) var signIns: [String] = []
+
+    func agentSignIns(recheck: Bool) async -> [OnboardingAgent] { agents }
+    func signInAgent(_ id: String) async -> Bool { signIns.append(id); return true }
+    func installAgent(_ id: String) async -> String? {
+        installsRun.append(id)
+        await withCheckedContinuation { running = $0 }
+        agents = agents.map { $0.id == id ? OnboardingAgent(id: id, name: $0.name, brand: $0.brand, auth: .signedOut) : $0 }
+        return nil
+    }
+    func agentIcon(_ agent: OnboardingAgent, side: CGFloat) -> NSImage? { nil }
 }

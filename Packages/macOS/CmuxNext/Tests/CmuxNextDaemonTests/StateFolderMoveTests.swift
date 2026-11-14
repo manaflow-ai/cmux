@@ -66,6 +66,25 @@ struct StateFolderMoveTests {
         #expect(try String(contentsOf: new.appending(path: "b"), encoding: .utf8) == "new")
     }
 
+    /// The move kept the old folder (NEXT's was in use), so its adoption marker stays there: NIGHTLY still runs the
+    /// session it adopted, as the CLI does (`legacy_session_marker_before_move`).
+    @Test func anAdoptionLeftInTheOldFolderStillCounts() throws {
+        let support = try Self.support()
+        defer { try? FileManager.default.removeItem(at: support) }
+        let old = support.appending(path: "cmux/tags/nightly", directoryHint: .isDirectory)
+        let new = support.appending(path: "cmux-next/tags/nightly/tui", directoryHint: .isDirectory)
+        for folder in [old.appending(path: "tui"), new] { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+        try Data("used".utf8).write(to: new.appending(path: "b"))
+        try Data("{}".utf8).write(to: old.appending(path: LegacyChannelSession.markerName))
+
+        guard case .kept = StateFolderMove(applicationSupport: support).run(build: Self.nightly) else {
+            Issue.record("a move over a used folder")
+            return
+        }
+        let names = DaemonLauncher.appNames(build: Self.nightly, applicationSupport: support)
+        #expect(names.session == LegacyChannelSession.session && names.stateDirectory == nil)
+    }
+
     @Test func nothingToMoveForAFreshMacOrRelease() throws {
         let support = try Self.support()
         defer { try? FileManager.default.removeItem(at: support) }

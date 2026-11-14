@@ -12,15 +12,9 @@ import Foundation
 /// `LOGNAME`, `LANG`, `TMPDIR` and `SHELL`, so every build and tag of the
 /// app captures the same environment, and a new dogfood tag starts with it
 /// on its first launch.
+///
+/// The file's format and its filter are Rust's (cmux-daemon-launch-core src/login_env.rs).
 struct LoginEnvironmentStore: Sendable {
-    /// The file's JSON.
-    struct Record: Codable {
-        var version: Int
-        var environment: [String: String]
-    }
-
-    static let version = 1
-
     private let read: @Sendable () -> Data?
     private let write: @Sendable (Data) -> Void
 
@@ -48,19 +42,17 @@ struct LoginEnvironmentStore: Sendable {
     }
 
     /// The remembered environment, or nil when there is none, it cannot be
-    /// read, or it has no `PATH`.
+    /// read, or it has no `PATH` (`login_store_decode`).
     func load() -> [String: String]? {
-        guard let data = read(),
-              let record = try? JSONDecoder().decode(Record.self, from: data),
-              record.version == Self.version else { return nil }
-        let environment = TerminalEnvironment.instance.filter(record.environment)
-        return environment["PATH"] == nil ? nil : environment
+        guard let data = read(), let text = String(data: data, encoding: .utf8) else { return nil }
+        return DaemonLaunchRules.call("login_store_decode", ["text": text]) as? [String: String]
     }
 
-    /// Remembers the allowlisted part of `environment`.
+    /// Remembers the allowlisted part of `environment` (`login_store_encode`), when it has a `PATH`.
     func save(_ environment: [String: String]) {
-        let record = Record(version: Self.version, environment: TerminalEnvironment.instance.filter(environment))
-        guard record.environment["PATH"] != nil, let data = try? JSONEncoder().encode(record) else { return }
-        write(data)
+        guard let text = DaemonLaunchRules.call("login_store_encode", ["environment": environment]) as? String else {
+            return
+        }
+        write(Data(text.utf8))
     }
 }
