@@ -88,7 +88,7 @@ async fn no_frame_is_lost_or_reordered_across_random_stalls_of_either_end() {
             if rng.below(4) == 0 {
                 tokio::time::sleep(Duration::from_micros(rng.below(200))).await;
             }
-            lines.push(tokio::time::timeout(WAIT, slot.next()).await.expect("a frame line"));
+            lines.push(tokio::time::timeout(WAIT, slot.next_frame()).await.expect("a frame line"));
         }
         connection.await.unwrap();
         for (line, frame) in lines.iter().zip(&frames) {
@@ -148,9 +148,9 @@ async fn a_writer_that_stops_leaves_one_frame_in_the_slot_and_the_write_waits() 
         tokio::time::timeout(Duration::from_millis(50), &mut second_write).await.is_err(),
         "a second frame waits for the slot"
     );
-    assert!(parse(&slot.take().unwrap()).unwrap().payload.ends_with(b"1}"));
+    assert!(parse(&slot.take_frame().unwrap()).unwrap().payload.ends_with(b"1}"));
     tokio::time::timeout(WAIT, second_write).await.unwrap().unwrap();
-    assert!(parse(&slot.take().unwrap()).unwrap().payload.ends_with(b"2}"));
+    assert!(parse(&slot.take_frame().unwrap()).unwrap().payload.ends_with(b"2}"));
 }
 
 #[tokio::test]
@@ -549,7 +549,7 @@ pub(super) fn dial(
     });
     let writing = tokio::spawn(async move {
         loop {
-            let line = slot.next().await;
+            let line = slot.next_frame().await;
             if to_daemon.send(line).await.is_err() {
                 break;
             }
