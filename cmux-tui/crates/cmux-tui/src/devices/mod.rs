@@ -490,6 +490,12 @@ fn print_listing(listing: &Listing, notes: &[String]) {
             );
         }
     }
+    for pool in &listing.pools {
+        println!(
+            "\n{} short-lived {}-* machines on your network are not listed (an autoscaled pool).",
+            pool.count, pool.stem
+        );
+    }
     for note in notes {
         println!("\nNote: {note}");
     }
