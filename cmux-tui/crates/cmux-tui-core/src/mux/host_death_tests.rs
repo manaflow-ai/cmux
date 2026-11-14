@@ -181,7 +181,9 @@ fn terminal_hex(prefix: &str, index: usize) -> String {
 /// cannot tell which came first there, and it keeps the tab: a status exit
 /// from the recorded shutdown start on is a host loss (`session-shutdown`).
 /// A restart step that starts its shutdown one millisecond later keeps that
-/// case out of the run. No test asserts on it.
+/// case out of the run. The test
+/// `a_status_exit_in_the_start_millisecond_of_a_shutdown_keeps_its_tab` asserts
+/// on it, with the session clock set.
 ///
 /// The wait is less than a millisecond while the wall clock goes forward. A
 /// wall clock that was set back is waited out for [`LATER_MILLISECOND_WAIT`]
@@ -603,6 +605,74 @@ fn session_shutdown_keeps_the_tab_of_a_status_exit() {
     assert_eq!(topology(&reopened), after_normal, "a restart removed a shutdown status-exit tab");
     reopened.shutdown();
     drop(reopened);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// The shutdown window of a status exit starts at the stamped start, with no
+/// lead before it and with the start itself in it. A shell that ends with a
+/// status in the millisecond of the start is part of the shutdown: its tab
+/// stays, dead. A shell that ended 1 ms before the start is a real end: its
+/// tab goes. The test sets the session clock, so the exit is on the start
+/// millisecond with no wait.
+#[cfg(unix)]
+#[test]
+fn a_status_exit_in_the_start_millisecond_of_a_shutdown_keeps_its_tab() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-shutdown-start-ms-{}", crate::workspace_registry::new_uuid_v4()));
+    let session = "shutdown-start-millisecond";
+    let options = SurfaceOptions {
+        terminal_host_root: Some(crate::terminal_host_runtime::terminal_host_root(&root, session)),
+        ..SurfaceOptions::default()
+    };
+    let mux = Mux::open_persistent(session, options, &root).unwrap();
+    let at = crate::session_shutdown::unix_now_ms() - 60_000;
+    mux.set_session_clock_now_for_test(at);
+    let seed = |index: usize| {
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let before = tabs_of(&topology(&mux));
+        let surface = mux
+            .seed_running_terminal_with_on_exit_for_test(
+                &terminal_hex("00", index),
+                &terminal_hex("10", index),
+                &workspace.key,
+                TerminalOnExit::Close,
+            )
+            .unwrap();
+        let tabs = tabs_of(&topology(&mux)).difference(&before).cloned().collect::<BTreeSet<_>>();
+        (surface, tabs)
+    };
+    let (before_start, before_start_tabs) = seed(1);
+    let (at_start, at_start_tabs) = seed(2);
+    assert_eq!((before_start_tabs.len(), at_start_tabs.len()), (1, 1), "one tab for each shell");
+    let status = |exited_at_ms| TerminalExit {
+        outcome: TerminalExitOutcome::Exit { code: 1 },
+        exited_at_ms,
+    };
+    let full = topology(&mux);
+    mux.begin_session_shutdown();
+
+    // 1 ms before the start: a real end. A status exit has no lead.
+    mux.surface(before_start).unwrap().record_process_end_for_test(status(at - 1));
+    mux.surface_exited(before_start);
+    let after_real_end = topology(&mux);
+    assert_eq!(
+        tabs_of(&after_real_end),
+        tabs_of(&full).difference(&before_start_tabs).cloned().collect::<BTreeSet<_>>(),
+        "a status exit 1 ms before the start of a shutdown kept its tab"
+    );
+
+    // The millisecond of the start: part of the shutdown.
+    mux.surface(at_start).unwrap().record_process_end_for_test(status(at));
+    mux.surface_exited(at_start);
+    let resolved = mux.resolve_terminal(&terminal_hex("00", 2)).unwrap().unwrap();
+    assert_eq!(resolved.terminal.lifecycle, TerminalLifecycle::Exited);
+    assert_eq!(
+        topology(&mux),
+        after_real_end,
+        "a status exit in the start millisecond of a shutdown removed its tab"
+    );
+    mux.shutdown();
+    drop(mux);
     let _ = std::fs::remove_dir_all(root);
 }
 
