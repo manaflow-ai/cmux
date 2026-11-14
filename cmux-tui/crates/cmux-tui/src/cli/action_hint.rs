@@ -94,3 +94,24 @@ pub(super) fn report(name: &str, output: OutputMode) -> Option<i32> {
     let id = non_verb_action(name)?;
     Some(super::app::failure("usage.not_a_verb", &message(name, id), output, EXIT_CODE))
 }
+
+/// Whether `word` starts a built-in command the CLI routes after the mux grammar:
+/// the first word of any catalog action's CLI name (`share` of `share revoke`),
+/// and `agent view`. An installed app's `cli.name` never shadows one of these.
+pub(super) fn builtin_first_word(word: &str) -> bool {
+    static FIRST: OnceLock<std::collections::HashSet<String>> = OnceLock::new();
+    FIRST
+        .get_or_init(|| {
+            let doc: Value = serde_json::from_str(ACTIONS_JSON).unwrap_or(Value::Null);
+            let mut words: std::collections::HashSet<String> = doc["actions"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|action| action["cli_name"].as_str()?.split(' ').next())
+                .map(str::to_owned)
+                .collect();
+            words.extend(["share", "agent"].map(str::to_owned));
+            words
+        })
+        .contains(word)
+}
