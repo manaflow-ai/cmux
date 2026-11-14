@@ -705,6 +705,26 @@ pub const GATE_ROWS: &[GateRow] = &[
         ratio_all: None,
         god_max: None,
     },
+    // Measured by the web bench harness (webviews/bench/page-row-store.bench.ts), which the Linux
+    // gate script does not run.
+    GateRow {
+        pr: "6c",
+        name: "v2.pr06.page_store_apply",
+        done_when: "p95 for the page's row store to take one batch holding one settled row op: a chat of 100,000 rows within 1.2x of one of 100, rounds alternating, the same samples a side.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "6c",
+        name: "v2.pr06.page_store_held",
+        done_when: "The rows and row bytes the page's row store holds after paging through a chat of 20,000 rows against one of 200: at the store's cap or under it.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
     GateRow {
         pr: "7",
         name: "v2.pr07.sidebar_list_stream",
