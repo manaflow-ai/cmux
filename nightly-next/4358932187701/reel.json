@@ -1,0 +1,161 @@
+{
+  "version": 1,
+  "build": "4358932187701",
+  "notes": "notes/4358932187701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43001,
+      "title": "cmux-tui: a synchronized update that starts after an expired hold holds again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42979,
+      "title": "CMUX-572: measure congestion loss over packet-weighted windows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42972,
+      "title": "ci(cmux-next): the action exports judge keeps HEAD's build instead of rebuilding it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42928,
+      "title": "Agent chat: a streamed token's layout reads do not follow the rows in view",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42977,
+      "title": "ci: build once for repeated suite admission",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41538,
+      "title": "cmux NEXT: native menus and popovers on our own glass (GlassMenu, account menu)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42974,
+      "title": "cmux-next-ios: a full-screen app in a tab gets every row above the composer",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42985,
+      "title": "Extension SDK: cmux.theme and cmux.integrations type as the runtime gives them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38319,
+      "title": "Signing in enrolls this machine on the hub",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42923,
+      "title": "v2 chat book reads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42904,
+      "title": "cmux-tui: the daemon's readers of a process stat line read it as bytes",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42971,
+      "title": "CMUX-570: support per-architecture engine release pins",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42967,
+      "title": "cmux-tui: terminal.output_read windows keep their trailing line breaks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42956,
+      "title": "ci: the acpmux tests job runs every acpmux-* crate acpmux is built from",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42949,
+      "title": "nightly-next: every feat-cmux-next landing wakes the tick at once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42966,
+      "title": "CMUX-572: keep repair wait out of screen-share congestion estimates",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42920,
+      "title": "What's New clips: an iPhone route, recorded on a fleet simulator",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41978,
+      "title": "fix(ui): floating popovers, cards and chips follow Text Size",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42917,
+      "title": "CMUX-383 Step B: native sidebar section customization",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42927,
+      "title": "acpmux v2 3b (part one): v1's event log as a book's raw source",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42963,
+      "title": "fix(next): CMUX-383 reconcile published action catalog exports",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34699,
+      "title": "acpmux: a streaming turn adopted after a restart with a gap is live within seconds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37713,
+      "title": "perf-hidden-chat-pages: page older chat history incrementally",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42968,
+      "title": "test(cmux-tui): verify orphan host discovery cleanup on NEXT",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41974,
+      "title": "desktop-lease: computer use as leased desktops, suspended while the model thinks (prototype, opt-in)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
