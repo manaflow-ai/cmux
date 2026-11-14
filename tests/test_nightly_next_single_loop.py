@@ -122,6 +122,14 @@ case "$2" in
 esac
 """)
         fake.chmod(0o755)
+        git = Path(tmp) / "git"
+        git.write_text(f"""#!/bin/sh
+[ "$1" = ls-remote ] || exit 1
+n=$(cat {tmp}/n 2>/dev/null || echo 1); h=$(sed -n "${{n}}p" {tmp}/heads | grep .) || h=$(tail -n 1 {tmp}/heads)
+echo $((n + 1)) > {tmp}/n
+[ -n "$h" ] && printf '%s\\trefs/heads/nightly-next\\n' "$h"
+""")
+        git.chmod(0o755)
         out = Path(tmp) / "out"
         env = {key: value for key, value in os.environ.items() if key not in ("LOOP_RETRY", "SUPERSEDE_SKIP")}
         env.update(PATH=f"{tmp}:{os.environ['PATH']}", GITHUB_OUTPUT=str(out), TIP_SHA=tip, REPOSITORY="o/r",

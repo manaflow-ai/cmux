@@ -15,6 +15,9 @@
 # a push run leaves without waiting only with 1); YIELD_STALE_MINUTES (5), YIELD_MINUTES (6), YIELD_POLL_SECONDS (15).
 set -euo pipefail
 next_head() { gh api "repos/$REPOSITORY/git/ref/heads/nightly-next" --jq .object.sha 2>/dev/null || true; }
+# The wait reads the ref with git ls-remote against the public repository: no API budget
+# (tests/test_ci_no_github_token_polling.py).
+poll_head() { git ls-remote "${NIGHTLY_NEXT_REMOTE:-https://github.com/$REPOSITORY}" refs/heads/nightly-next 2>/dev/null | cut -f1 || true; }
 moved() { [[ "$1" =~ ^[0-9a-f]{40}$ && "$1" != "$TIP_SHA" ]]; }
 leave() {
   echo "superseded=true" >> "$GITHUB_OUTPUT"
@@ -41,7 +44,7 @@ fi
 echo "$stale, and feat-cmux-next is at $tip: waiting up to ${YIELD_MINUTES:-6} min for the tick to promote the newest buildable commit"
 deadline=$(( $(date -u +%s) + ${YIELD_MINUTES:-6} * 60 ))
 while (( $(date -u +%s) < deadline )); do
-  current="$(next_head)"
+  current="$(poll_head)"
   moved "$current" && leave "$current"
   sleep "${YIELD_POLL_SECONDS:-15}"
 done
