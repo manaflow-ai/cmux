@@ -27,7 +27,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     static let warmLimit = 4
     private var hosts: [String: TerminalTabHost] = [:]
     private var warm = TerminalWarmSet<String>(limit: GhosttyTerminalTabContent.warmLimit)
-    /// Cooled tabs' pages as last seen.
+    /// Cooled tabs' pages as last seen, only while they are not on disk (no `frameStore`): a
+    /// cooled tab's frame otherwise waits in its JPEG, read back when its next host is built
+    /// (as a cold launch does), not as a full-size image in memory for as long as the tab is
+    /// open. A memory warning lets these go.
     private var lastFrames: [TerminalFrameKey: UIImage] = [:]
     /// The frame identity captured when each live host was built. This keeps
     /// a frame tied to the account that owned it even if auth changes later.
@@ -83,6 +86,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.setAppActive(true) }
         }
+        // A cooled tab's frame in memory is only a still for its next page: it can go.
+        MemoryPressure.shared.register(self) { [weak self] in self?.lastFrames = [:] }
     }
 
     private func setAppActive(_ active: Bool) {
@@ -321,9 +326,16 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // shown in the grid lacks): its next host shows it at once while it attaches.
         // A tab cooled before it drew the Mac's output keeps the cached frame it
         // had; its blank page never goes over it, in memory or on disk.
+        // Its frame waits on disk: the live page is written now; a frame it was given came from
+        // disk (`host(for:in:)`) and is still there. Memory holds it only when there is no disk.
+        var frameState = "none"
         if let key, let frame = host.model.frameToKeep() {
-            lastFrames[key] = frame
-            if host.model.drewLiveOutput, let data = frame.jpegData(compressionQuality: 0.7) { frameStore?.save(data, for: key) }
+            frameState = frameStore == nil ? "in memory" : "on disk"
+            if let frameStore {
+                if host.model.drewLiveOutput, let data = frame.jpegData(compressionQuality: 0.7) { frameStore.save(data, for: key) }
+            } else {
+                lastFrames[key] = frame
+            }
         }
         slots[id] = nil
         cardViews[id] = nil
@@ -332,7 +344,6 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         host.model.session.stop()
         stopWatching(id)
         liveTabs.remove(id)
-        let frameState = key.flatMap { self.lastFrames[$0] } == nil ? "none" : "kept"
         warmLog.info("terminal tab \(id, privacy: .public) cooled (warm set of \(Self.warmLimit, privacy: .public)), last frame \(frameState, privacy: .public)")
     }
 

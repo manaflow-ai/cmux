@@ -64,4 +64,32 @@ import Testing
         while chat.turnsOnDisk > 0 { await chat.loadEarlierFromDisk() }
         #expect(chat.turns.map(\.id) == (0..<5000).map { "t\($0)" })
     }
+
+    /// A chat a list shows is left to the list, which knows where the reader is
+    /// (`ChatTranscriptList.spillIfResting`): the store spills nothing then, also on a warning.
+    /// Once the list goes, the store keeps the window itself. A page of history built on its
+    /// own (`prependEarlier`) never spills: it must hold every turn it read.
+    @Test func aShownChatIsLeftToItsList() {
+        let pressure = MemoryPressure(observesSystem: false)
+        let chat = AgentChatSpillTests.store()
+        defer { chat.spill?.reset() }
+        chat.boundsMemoryOffScreen(memoryPressure: pressure)
+        var list: NSObject? = NSObject()
+        chat.shown(by: list!)
+        AgentChatSpillTests.fill(chat, count: 300)
+        #expect(chat.turns.count == 300)
+        pressure.relieve()
+        #expect(chat.turns.count == 300, "the list handles the warning for the chat it shows")
+        chat.hidden(by: list!)
+        #expect(chat.turns.count == AgentChatStore.windowKeep)
+        chat.shown(by: list!)
+        list = nil
+        #expect(!chat.isShown, "a list that goes stops counting")
+        pressure.relieve()
+        #expect(chat.turns.count == AgentChatStore.pressureKeep)
+
+        let page = AgentChatSpillTests.store()
+        AgentChatSpillTests.fill(page, count: 300)
+        #expect(page.turns.count == 300)
+    }
 }
