@@ -627,7 +627,7 @@ public final class DaemonService {
     func runReportingTimeout(_ label: String, _ body: DaemonCommandBody) async -> CommandOutcome {
         let ticket = openTicket(label)
         guard let connection else {
-            logger.error("\(label, privacy: .public): not connected")
+            logger.error("\(CommandFailureDiagnostic(label: label, error: DaemonError.notConnected).message, privacy: .public)")
             await closeTicket(ticket, label: label, error: DaemonError.notConnected)
             return .failed(code: nil)
         }
@@ -636,11 +636,11 @@ public final class DaemonService {
             await closeTicket(ticket, label: label, error: nil, replying: connection)
             return .succeeded
         } catch DaemonError.timedOut(let what) {
-            logger.info("\(label, privacy: .public) outcome unknown: \(what, privacy: .public)")
+            logger.info("\(CommandFailureDiagnostic(label: label, error: DaemonError.timedOut(what)).message, privacy: .public)")
             await closeTicket(ticket, label: label, error: DaemonError.timedOut(what))
             return .unknown
         } catch {
-            logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            logger.error("\(CommandFailureDiagnostic(label: label, error: error).message, privacy: .public)")
             await closeTicket(ticket, label: label, error: error)
             if case DaemonError.command(_, _, let code, _, _) = error { return .failed(code: code) }
             return .failed(code: nil)
@@ -679,7 +679,7 @@ public final class DaemonService {
     func failure(_ label: String, ticket: CommandTicket?,
                          _ body: DaemonCommandBody) async -> ActionWorkFailure? {
         guard let connection else {
-            logger.error("\(label, privacy: .public): not connected")
+            logger.error("\(CommandFailureDiagnostic(label: label, error: DaemonError.notConnected).message, privacy: .public)")
             await closeTicket(ticket, label: label, error: DaemonError.notConnected)
             var failure = ActionWorkFailure("\(label): \(notConnectedReason ?? DaemonError.notConnected.description)")
             failure.cause = .connection
@@ -690,7 +690,7 @@ public final class DaemonService {
             await closeTicket(ticket, label: label, error: nil, replying: connection)
             return nil
         } catch {
-            logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            logger.error("\(CommandFailureDiagnostic(label: label, error: error).message, privacy: .public)")
             await closeTicket(ticket, label: label, error: error)
             return workFailure(label, error)
         }
