@@ -4,12 +4,12 @@ import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey";
-import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { claudeLoginPrograms, loginBearer, loginPrograms, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimHealthSnapshot, preclaimSummaryMarkdown, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("preclaim records preserve the claim-to-bound split and receipt state", () => {
@@ -33,10 +33,40 @@ describe("cloud journey", () => {
       claim: 2,
       machine: "vm_claim",
       spare: "vm_spare",
+      lease_id: null,
       lease_hit: true,
+      health_before: { http_status: 0, outcome: "error", commit: null },
+      health_after: { http_status: 0, outcome: "error", commit: null },
       claim_to_bound: { claim_answer_ms: 40, join_ms: 52, guest_bind_ms: 60, connect_info_ms: 70, bound_ms: 75 },
       post_bind_login: "receipt",
+      first_chat_ms: null,
+      first_reply_ms: null,
     });
+  });
+
+  test("preclaim health and lease evidence stay bounded and opaque", () => {
+    expect(opaquePreclaimLeaseId("lease-secret-value")).toMatch(/^lease:[0-9a-f]{12}$/);
+    expect(opaquePreclaimLeaseId("lease-secret-value")).not.toContain("secret");
+    expect(preclaimHealthSnapshot({ status: 200, body: { commit: "c684eb73", account: "other-account" } })).toEqual({ http_status: 200, outcome: "ok", commit: "c684eb73" });
+    const row = preclaimClaimRecord({ claim: 1, leaseId: "lease:opaque", healthBefore: { http_status: 200, outcome: "ok", commit: "a" }, healthAfter: { http_status: 200, outcome: "ok", commit: "b" }, firstChatMs: 11, firstReplyMs: 22 });
+    expect(row.lease_id).toBe("lease:opaque");
+    expect(row.machine).toBeNull();
+    expect(row.health_before.commit).toBe("a");
+    expect(row.first_reply_ms).toBe(22);
+    const publicText = preclaimSummaryMarkdown([preclaimClaimRecord({ claim: 1, machine: "vm_private", spare: "vm_spare", leaseId: "lease:opaque", leaseHit: true, firstChatMs: 11, firstReplyMs: 22 })]);
+    expect(publicText).toContain("lease:opaque");
+    expect(publicText).toContain("11");
+    expect(publicText).not.toContain("vm_private");
+    expect(publicText).not.toContain("vm_spare");
+  });
+
+  test("preclaim public journey output drops setup identifiers", () => {
+    const safe = preclaimPublicStep({ step: "user.ensure", status: "pass", ms: 17, detail: "user user_secret install install_secret" });
+    expect(safe).toEqual({ step: "user.ensure", status: "pass", ms: 17, detail: "pass" });
+    const md = summaryMarkdown(resolveBackend("staging"), [safe], preclaimPublicMeta());
+    expect(md).toContain("mode: preclaim");
+    expect(md).not.toContain("user_secret");
+    expect(md).not.toContain("install_secret");
   });
 
   test("lease classification uses explicit broker evidence and keeps unknown separate from a miss", () => {

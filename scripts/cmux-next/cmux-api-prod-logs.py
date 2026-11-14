@@ -538,12 +538,30 @@ def main():
     if os.environ.get("GITHUB_EVENT_NAME") not in (None, "workflow_dispatch"):
         sys.exit("logs: only workflow_dispatch may query")
     ap = argparse.ArgumentParser()
-    ap.add_argument("--from", dest="frm", required=True, help="UTC start, e.g. 2026-11-11T13:20:00Z")
+    ap.add_argument("--from", dest="frm", required=False, help="UTC start, e.g. 2026-11-11T13:20:00Z")
     ap.add_argument("--minutes", type=int, default=30)
     ap.add_argument("--needles", default="")
     ap.add_argument("--needles-from-event", default="", help="read inputs.needles from this workflow event file")
     ap.add_argument("--account", default="", help="exact parsed team/account id; required")
+    ap.add_argument("--private-json", default="", help="store a pre-filtered private JSON object through the existing HQ route")
     args = ap.parse_args()
+    if args.private_json:
+        private_token = private_destination()
+        try:
+            with open(args.private_json) as stream:
+                payload = json.load(stream)
+        except (OSError, ValueError):
+            sys.exit("private rows: invalid JSON input")
+        if not isinstance(payload, dict) or not isinstance(payload.get("header"), dict) or not isinstance(payload.get("rows"), list):
+            sys.exit("private rows: expected {header: object, rows: array}")
+        rows = [row for row in payload["rows"] if isinstance(row, dict)]
+        if len(rows) != len(payload["rows"]):
+            sys.exit("private rows: every row must be an object")
+        pointer = private_upload(private_token, payload["header"], rows)
+        print(json.dumps({"row_count": len(rows), "pointer": pointer}))
+        return 0
+    if not args.frm:
+        sys.exit("logs: --from is required")
     account = args.account or (event_input(args.needles_from_event, "account") if args.needles_from_event else "")
     if not ID_OK.fullmatch(account):
         sys.exit("account: an exact team/account id is required")
