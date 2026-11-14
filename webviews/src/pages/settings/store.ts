@@ -400,6 +400,11 @@ export class SettingsStore {
     void this.request("cmux.settings.theme.overrides.open", {});
   }
 
+  /** Open Theme File: the host opens the active theme file, making one from the current look first. */
+  openThemeFile(): void {
+    void this.request("cmux.settings.theme.file.open", {});
+  }
+
   /** After a theme file lands, the theme names and colors are read again so every picker lists it. */
   private async themeFileSaved(reply: Reply<{ name?: string }>): Promise<Reply<{ name?: string }>> {
     if (reply.ok && reply.value.name) await Promise.all([this.refresh(), this.fetchNative(settingsKeys.themeColors)]);

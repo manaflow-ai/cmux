@@ -358,3 +358,11 @@ test("with an App Theme set, a space or workspace theme says it replaces the App
   await run(() => page!.store.reset("appearance.appTheme"));
   expect(theme(page).querySelector('[data-override="workspace"]')?.textContent).not.toContain("App Theme included");
 });
+
+test("Open Theme File, below the Theme File row, asks the host to open the theme file", async () => {
+  page = await renderPage({ path: "/settings/theme" });
+  const row = theme(page).querySelector<HTMLElement>('[data-theme-row="themeFileOpen"]')!;
+  expect(row.previousElementSibling?.getAttribute("data-row-key")).toBe("appearance.themeFile");
+  await click(row.querySelector<HTMLButtonElement>('[data-theme-file-action="open"]')!);
+  expect(ops(page.provider, "cmux.settings.theme.file.open")).toEqual([{}]);
+});

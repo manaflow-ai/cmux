@@ -483,6 +483,7 @@ export class MockSettingsProvider {
         return { files };
       },
       "cmux.settings.theme.overrides.open": () => ({}),
+      "cmux.settings.theme.file.open": () => ({}),
       "cmux.settings.file.reveal": () => ({}),
       // The registry buttons SettingsSchema.actions(in:) lists for these sections.
       "cmux.settings.section.actions": (params) =>
