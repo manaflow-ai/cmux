@@ -226,6 +226,7 @@ pub struct ListReceiver {
     subscriber: Arc<Subscriber>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
     history: Arc<Mutex<History>>,
+    replay_snapshot: Option<Arc<history::HistorySnapshot>>,
     peer_history: Option<Arc<Mutex<Option<PeerHistory>>>>,
     folders: bool,
     folder_state: Arc<Mutex<folders::FolderState>>,
@@ -246,6 +247,18 @@ impl Drop for ListReceiver {
 }
 
 impl ListReceiver {
+    #[cfg(test)]
+    pub(crate) fn replay_snapshot_probe(&self) -> Option<std::sync::Weak<dyn Send + Sync>> {
+        self.replay_snapshot.as_ref().map(|snapshot| {
+            let snapshot: Arc<dyn Send + Sync> = snapshot.clone();
+            Arc::downgrade(&snapshot)
+        })
+    }
+
+    pub(crate) fn clear_replay_snapshot(&mut self) {
+        self.replay_snapshot = None;
+    }
+
     pub fn advance_to(&self, cursor: u64) {
         if let Ok(mut state) = self.subscriber.state.lock() {
             state.cursor = state.cursor.max(cursor);
@@ -359,6 +372,16 @@ impl ListReceiver {
                 return None;
             }
             history.after_frame(cursor, target, max_bytes)
+        } else if let (Some(through), Some(snapshot)) = (through, self.replay_snapshot.as_deref()) {
+            let target = through.min(snapshot.last_seq().unwrap_or(through));
+            if cursor >= target {
+                return None;
+            }
+            if snapshot.first_seq().is_some_and(|first| cursor.saturating_add(1) < first) {
+                None
+            } else {
+                snapshot.after_frame(cursor, target, max_bytes)
+            }
         } else {
             let history = self.history.lock().ok()?;
             let last = history.last_seq().unwrap_or_else(|| self.published.load().seq());
@@ -368,7 +391,7 @@ impl ListReceiver {
             if cursor >= target {
                 return None;
             }
-            if history.first_seq().is_some_and(|first| cursor.saturating_add(1) < first) {
+            if history.first_seq().is_some_and(|seq| cursor.saturating_add(1) < seq) {
                 None
             } else {
                 history.after_frame(cursor, target, max_bytes)
@@ -865,6 +888,22 @@ impl Hub {
         self.history.lock().map_or(0, |history| history.raw_copies())
     }
 
+    #[cfg(test)]
+    pub(crate) fn history_raw_copy_control(&self) -> (Arc<AtomicBool>, Arc<AtomicBool>) {
+        self.history.lock().map_or_else(
+            |_| (Arc::new(AtomicBool::new(true)), Arc::new(AtomicBool::new(false))),
+            |history| history.raw_copy_control(),
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn history_snapshot_control(&self) -> (Arc<AtomicBool>, Arc<AtomicBool>) {
+        self.history.lock().map_or_else(
+            |_| (Arc::new(AtomicBool::new(true)), Arc::new(AtomicBool::new(false))),
+            |history| history.snapshot_open_control(),
+        )
+    }
+
     pub fn set_page_provider(&self, provider: Arc<dyn PageProvider>) {
         if let Ok(mut slot) = self.page_provider.lock() {
             *slot = Some(provider);
@@ -958,6 +997,7 @@ impl Hub {
                 subscriber,
                 subscribers: self.subscribers.clone(),
                 history: self.history.clone(),
+                replay_snapshot: None,
                 peer_history: peer.then(|| self.peer_history.clone()),
                 folder_state: self.folder_state.clone(),
                 folders: folders::is_folders(sub.view),
@@ -991,12 +1031,20 @@ impl Hub {
         if folders::is_folders(sub.view) {
             return Err(HubError::InvalidParams("folders always starts with a window".into()));
         }
+        let replay_snapshot = if peer {
+            None
+        } else {
+            Some(Arc::new(
+                self.history.lock().map_err(|_| HubError::WriterGone)?.snapshot_after(cursor),
+            ))
+        };
         let subscriber = Arc::new(Subscriber::new(cursor));
         self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());
         Ok(ListReceiver {
             subscriber,
             subscribers: self.subscribers.clone(),
             history: self.history.clone(),
+            replay_snapshot,
             peer_history: peer.then(|| self.peer_history.clone()),
             folder_state: self.folder_state.clone(),
             folders: folders::is_folders(sub.view),

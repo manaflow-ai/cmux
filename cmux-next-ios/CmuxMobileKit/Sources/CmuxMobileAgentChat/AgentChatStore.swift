@@ -634,7 +634,7 @@ public final class AgentChatStore {
             } catch {
                 guard let self else { return }
                 if on { self.bookmarkedSeqs.remove(seq) } else { self.bookmarkedSeqs.insert(seq) }
-                self.clientError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                self.clientError = UserFacingError.message(error)
             }
         }
     }
