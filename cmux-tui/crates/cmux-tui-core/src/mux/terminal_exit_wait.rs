@@ -38,6 +38,17 @@ impl Mux {
         Ok(Some(terminal_output_read_result(text, 0, end, true, true)))
     }
 
+    /// Opt-in recovery cursor entry point. Kept separate from legacy numeric reads.
+    pub(crate) fn terminal_output_read_with_recovery(
+        &self,
+        terminal_id: &TerminalPublicId,
+        after: Option<u64>,
+        max_bytes: u64,
+        _recovery: Option<&str>,
+    ) -> anyhow::Result<Value> {
+        self.terminal_output_read(terminal_id, after, max_bytes)
+    }
+
     /// Read only public terminal completion state. The host UUID and
     /// incarnation remain an internal fencing mechanism and never enter the
     /// resource API result.

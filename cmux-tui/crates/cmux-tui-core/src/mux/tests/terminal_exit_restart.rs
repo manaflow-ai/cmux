@@ -774,7 +774,12 @@ fn output_read_projects_a_live_reconnect_snapshot_at_the_same_cursor() {
     // are the host's no-tap interval, recovered only by the live snapshot.
     mux.output_store.stream_gap(&terminal, &Arc::from(INCARNATION));
     surface.apply_stream_output_for_test(b"3\r\n4\r\n").unwrap();
-    let recovered = mux.terminal_output_read(&terminal, Some(prefix_end), 1 << 20).unwrap();
+    let recovered = mux
+        .terminal_output_read_with_recovery(&terminal, Some(prefix_end), 1 << 20, Some(""))
+        .unwrap();
+    assert_eq!(recovered["snapshot"], true, "{recovered}");
+    let token = recovered["recovery"].as_str().expect("recovery cursor");
+    assert!(!token.is_empty());
     assert_eq!(recovered["start_offset"], "0", "{recovered}");
     assert_eq!(recovered["next_offset"], prefix_end.to_string(), "{recovered}");
     assert_eq!(recovered["complete"], true, "{recovered}");
@@ -783,18 +788,25 @@ fn output_read_projects_a_live_reconnect_snapshot_at_the_same_cursor() {
     assert_eq!(&recovered_lines[..4], ["1", "2", "3", "4"], "{recovered}");
     assert!(recovered_lines[4..].iter().all(|line| line.is_empty()), "{recovered}");
 
-    // A second reader at the same cursor receives the same projection rather
-    // than racing the first reader and losing the no-tap interval.
-    let repeated = mux.terminal_output_read(&terminal, Some(prefix_end), 1 << 20).unwrap();
-    assert_eq!(repeated["start_offset"], "0", "{repeated}");
-    assert_eq!(repeated["next_offset"], prefix_end.to_string(), "{repeated}");
-    assert_eq!(repeated["complete"], true, "{repeated}");
-
-    // The projection remains idempotent for a retry at the same cursor. The
-    // client replaces its held text when start_offset returns to zero.
-    let drained = mux.terminal_output_read(&terminal, Some(prefix_end), 1 << 20).unwrap();
-    assert_eq!(drained["start_offset"], "0", "{drained}");
-    assert_eq!(drained["next_offset"], prefix_end.to_string(), "{drained}");
+    // Lost response retries and independent readers get the identical cut,
+    // even if more output has arrived since the first reader captured it.
+    surface.apply_stream_output_for_test(b"5\r\n").unwrap();
+    mux.output_store.append(&terminal, &Arc::from(INCARNATION), b"5\r\n", None);
+    let repeated = mux
+        .terminal_output_read_with_recovery(&terminal, Some(prefix_end), 1 << 20, Some(""))
+        .unwrap();
+    assert_eq!(repeated, recovered);
+    let suffix = mux
+        .terminal_output_read_with_recovery(&terminal, Some(prefix_end), 1 << 20, Some(token))
+        .unwrap();
+    assert_eq!(suffix["snapshot"], false, "{suffix}");
+    assert_eq!(suffix["text"], "5\n", "{suffix}");
+    assert_eq!(suffix["next_offset"], (prefix_end + 3).to_string());
+    let drained = mux
+        .terminal_output_read_with_recovery(&terminal, Some(prefix_end + 3), 1 << 20, Some(token))
+        .unwrap();
+    assert_eq!(drained["snapshot"], false, "{drained}");
+    assert_eq!(drained["text"], "", "{drained}");
     assert_eq!(drained["complete"], true, "{drained}");
 
     mux.shutdown();
