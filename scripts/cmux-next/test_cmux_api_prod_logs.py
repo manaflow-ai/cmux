@@ -2,10 +2,12 @@
 """cmux-api-prod-logs publishes default-deny: tenant text, serialized objects and unlisted msgs never reach the
 public row; ids print only hashed (python3 scripts/cmux-next/test_cmux_api_prod_logs.py)."""
 import importlib.util
+import io
 import json
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 _spec = importlib.util.spec_from_file_location(
     "cmux_api_prod_logs", os.path.join(os.path.dirname(os.path.abspath(__file__)), "cmux-api-prod-logs.py"))
@@ -212,6 +214,37 @@ class AccountIsolationTests(unittest.TestCase):
         head, rows = logs.publish([own, other], ["/auth/"], account=TEAM)
         self.assertEqual(len(rows), 1)
         self.assertEqual(head["events_in_window"], 1)
+
+    def test_duplicate_serialized_identity_fails_closed(self):
+        candidate = event('{"msg":"team selection unreachable","team":"team_foreign","team":"' + TEAM + '"}')
+        self.assertEqual(logs.publish([candidate], [], account=TEAM)[1], [])
+
+    def test_main_reads_account_from_event_and_filters_before_output(self):
+        own = event({"msg": "team selection unreachable", "team": TEAM})
+        foreign = event({"msg": "team selection unreachable", "team": "team_foreign"})
+        response = {"result": {"events": {"events": [own, foreign]}}}
+        with tempfile.NamedTemporaryFile("w", suffix=".json") as f:
+            json.dump({"inputs": {"account": TEAM, "needles": ""}}, f)
+            f.flush()
+            args = ["logs", "--from", "2026-11-11T13:20:00Z", "--needles-from-event", f.name]
+            output = io.StringIO()
+            with patch.object(logs.sys, "argv", args), patch.object(logs.sys, "stdin", io.StringIO("fixture-token\n")), \
+                    patch.object(logs.sys, "stdout", output), patch.object(logs, "query", return_value=response) as query:
+                self.assertEqual(logs.main(), 0)
+            query.assert_called_once()
+            text = output.getvalue()
+            self.assertIn('"events_in_window": 1', text)
+            self.assertIn(logs.tag(TEAM), text)
+            self.assertNotIn(logs.tag("team_foreign"), text)
+            self.assertNotIn(TEAM, text)
+            self.assertNotIn("fixture-token", text)
+
+    def test_main_without_account_refuses_before_query(self):
+        args = ["logs", "--from", "2026-11-11T13:20:00Z", "--needles", TEAM]
+        with patch.object(logs.sys, "argv", args), patch.object(logs, "query") as query:
+            with self.assertRaisesRegex(SystemExit, "exact team/account id is required"):
+                logs.main()
+        query.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -395,6 +395,16 @@ def matches(row, needles):
     return any(n in text or tag(n) in text for n in needles)
 
 
+def unique_identity_fields(pairs):
+    """Reject ambiguous JSON identities instead of silently using the last occurrence."""
+    result = {}
+    for key, value in pairs:
+        if key in ("team", "account") and key in result:
+            raise ValueError("duplicate identity")
+        result[key] = value
+    return result
+
+
 def belongs_to_account(event, account):
     """Only parsed identity fields establish scope; all supplied identities must agree.
 
@@ -408,9 +418,9 @@ def belongs_to_account(event, account):
                       dig(event, "message"), dig(event, "source")):
         if isinstance(candidate, str):
             try:
-                candidate = json.loads(candidate)
+                candidate = json.loads(candidate, object_pairs_hook=unique_identity_fields)
             except ValueError:
-                continue
+                return False
         if isinstance(candidate, dict):
             identities.extend(candidate[key] for key in ("team", "account") if key in candidate)
     return bool(identities) and all(isinstance(value, str) and value == account for value in identities)
