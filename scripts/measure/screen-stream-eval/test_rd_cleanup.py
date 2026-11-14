@@ -11,11 +11,11 @@ class CleanupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)
             source = Path(os.environ.get('RD_CLEANUP_SCRIPT', str(Path(__file__).with_name('targets')/'rd.sh')))
-            (root/'functions.sh').write_text(source.read_text().split('case "$verb" in')[0])
-            (root/'pid').write_text('12345\n')
-            (root/'pid.start').write_text('original birth\n')
-            p = subprocess.run(['bash','-c','source "$TMP_EVAL/functions.sh" ignored\n'+body],
-                               env={**os.environ,'TMP_EVAL':name,'EVAL_ROOT':name,'EVAL_BIN':name},
+            (root/'subject.sh').write_text(source.read_text())
+            (root/'host.pid').write_text('12345\n')
+            (root/'host.pid.start').write_text('original birth\n')
+            p = subprocess.run(['bash','-c',body+'\nsource "$TMP_EVAL/subject.sh" host-stop'],
+                               env={**os.environ,'TMP_EVAL':name,'EVAL_ROOT':name,'EVAL_BIN':name,'EVAL_STATE':name},
                                text=True, capture_output=True)
             self.assertEqual(p.returncode, 0, p.stderr)
             return p.stdout
@@ -24,7 +24,6 @@ class CleanupTests(unittest.TestCase):
         output = self.script('''
 ps() { echo 'original birth'; }
 kill() { if [[ "$1" == -0 ]]; then return 1; fi; echo "SIGNAL $*"; }
-stop_pid "$TMP_EVAL/pid"
 ''')
         self.assertEqual(output.strip(), 'SIGNAL 12345')
 
@@ -32,7 +31,6 @@ stop_pid "$TMP_EVAL/pid"
         output = self.script('''
 ps() { echo 'different birth'; }
 kill() { echo "SIGNAL $*"; }
-stop_pid "$TMP_EVAL/pid"
 ''')
         self.assertEqual(output, '')
 
