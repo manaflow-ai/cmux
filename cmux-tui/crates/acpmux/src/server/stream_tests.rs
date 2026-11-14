@@ -374,13 +374,14 @@ async fn an_upgrade_naming_a_surface_that_is_off_keeps_the_rest() {
     tokio::time::timeout(WAIT, async {
         let (hub, writer) = acpmux_core::hub::Hub::new(SummaryIndex::new());
         let v2 = V2::with_surfaces(hub, writer, ["list".to_owned()].into_iter().collect());
+        let v1 = memory_v1();
         let (mut client, server) = tokio::io::duplex(8192);
         let (rd, wr) = tokio::io::split(server);
         let (tx, _rx) = mpsc::channel(16);
         let (last, _last_rx) = oneshot::channel();
         let task = tokio::spawn(async move {
             let upgrade = read_lines(rd, tx, last, LIMITS, Some(&v2)).await.unwrap();
-            upgrade.serve(wr, &v2, "test".into()).await.unwrap();
+            upgrade.serve(wr, &v1, &v2, "test".into()).await.unwrap();
         });
         let request =
             |value: serde_json::Value| Frame::json(FrameKind::Request, &value).unwrap().encode();
