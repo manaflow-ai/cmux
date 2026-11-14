@@ -179,6 +179,7 @@ function paramsType(op: Op): string {
 }
 
 const SIGNALS = join(here, "../schema/v2/signals.json")
+const EVENTS = join(here, "../schema/v2/events.json")
 const SIGNALS_SCHEMA = join(here, "../schema/v2/signals.schema.json")
 
 interface SignalDef {
@@ -233,6 +234,28 @@ export function loadSignals(scopes: Record<string, { scope: string; class: strin
   }
   const table = Object.fromEntries(names.map((n) => [n, file.signals[n]]))
   return { json: JSON.stringify({ version: 1, signals: table }, null, 2) + "\n", dts: lines.join("\n") }
+}
+
+/**
+ * schema/v2/events.json, each stream's `reads` op checked against the catalog: the daemon delivers
+ * `<family>.changed` only to an app that may call `<family>.list` or `<family>.get`, so that op's
+ * scope is the stream's scope.
+ */
+export function loadEvents(scopes: Record<string, { scope: string; class: string }>): Record<string, { docs: string; reads: string; scope: string }> {
+  const file = JSON.parse(readFileSync(EVENTS, "utf8")) as { version: number; events: Record<string, { docs: string; reads: string }> }
+  if (file.version !== 1) throw new Error(`schema/v2/events.json: version ${file.version}, expected 1`)
+  const out: Record<string, { docs: string; reads: string; scope: string }> = {}
+  for (const name of Object.keys(file.events).sort()) {
+    const { docs, reads } = file.events[name]!
+    const family = name.match(/^([a-z][a-z0-9_]*)\.changed$/)?.[1]
+    if (!family) throw new Error(`events.json: ${name} is not <family>.changed`)
+    if (reads !== `${family}.list` && reads !== `${family}.get`) throw new Error(`events.json: ${name} reads ${reads}; the daemon checks ${family}.list or ${family}.get`)
+    const known = scopes[reads]
+    if (!known) throw new Error(`events.json: ${name} reads ${reads}, which apps cannot call`)
+    if (known.class !== "read") throw new Error(`events.json: ${name} reads ${reads}, which is not a read (${known.class})`)
+    out[name] = { docs, reads, scope: known.scope }
+  }
+  return out
 }
 
 export function generate(): Record<string, string> {
@@ -471,7 +494,11 @@ declare function Reorderable<T>(spec: CmuxListSpec<T>, template: (item: CmuxSign
 `
   const scopesJson = JSON.stringify({ apiVersion: API_VERSION, ops: Object.fromEntries(Object.entries(scopes).sort(([a], [b]) => a.localeCompare(b))), never: never.sort() }, null, 2) + "\n"
   const opsJson = JSON.stringify({ apiVersion: API_VERSION, ops: Object.keys(scopes).sort() }, null, 2) + "\n"
-  return { "cmux-app.d.ts": dts, "scopes.json": scopesJson, "ops.json": opsJson, "signals.json": signals.json }
+  // Checked here, read where it is used: the SDKs read events.json with scopes.json (cmux-extension-sdk).
+  loadEvents(scopes)
+  return {
+    "cmux-app.d.ts": dts, "scopes.json": scopesJson, "ops.json": opsJson, "signals.json": signals.json
+  }
 }
 
 if (import.meta.main) {
