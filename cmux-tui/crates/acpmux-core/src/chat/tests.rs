@@ -6,7 +6,7 @@
     reason = "fault injection and test assertions"
 )]
 use super::*;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 
 const SEED: &str = include_str!("../../../acpmux-book/src/translate/fixtures/seed-turn.ndjson");
@@ -733,9 +733,15 @@ fn actor_line_and_checkpoint_open_gate() {
         ("v2.pr03a3.actor_line", small.0, god.0, god.1),
         ("v2.pr03a3.checkpoint_open", small.2, god.2, god.3),
     ] {
-        println!(
+        let line = format!(
             "{{\"name\":\"{name}\",\"small_p95\":{small},\"god_p95\":{god},\"god_p95_all\":{all},\"unit\":\"ns\"}}"
         );
+        println!("{line}");
+        if let Ok(path) = std::env::var("V2_GATE_OUT") {
+            let mut output =
+                std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
+            writeln!(output, "{line}").unwrap();
+        }
         assert!((god as f64) <= small as f64 * 1.2, "{name} best p95");
         assert!((all as f64) <= small as f64 * 2.0, "{name} aggregate p95");
     }
