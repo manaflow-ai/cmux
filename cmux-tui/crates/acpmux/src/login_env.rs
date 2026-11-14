@@ -38,6 +38,8 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 mod machine;
+#[cfg(test)]
+mod read_block_tests;
 mod watch;
 pub use watch::start as watch_startup_files;
 
@@ -243,6 +245,13 @@ pub async fn import() -> bool {
             tracing::info!("shell startup files changed during the read; reading them again");
         }
     }
+    if outcome() == Outcome::Failed {
+        // A read that failed (a shell slower than TIMEOUT, at the daemon's start too) settled
+        // nothing: the next spawn's check reads again (`refresh`, at most every RECHECK), as it
+        // would after an edit. Kept, the fingerprint made every later check see "no change", so
+        // every agent of this daemon started without the login env until an edit or a restart.
+        STATE.write().unwrap_or_else(|e| e.into_inner()).fingerprint = None;
+    }
     READS.fetch_add(1, Ordering::SeqCst);
     READ_ENDED.notify_waiters();
     changed
@@ -369,6 +378,41 @@ pub(crate) async fn build_ready<T, E>(
         }
     }
     build()
+}
+
+/// `build_ready` from synchronous code (a sign-in check on a blocking
+/// thread, or outside any runtime), waiting at most `TIMEOUT`. Free when the
+/// first build's plan takes nothing only the shell holds and no read ended
+/// meanwhile; otherwise the wait runs on a thread of its own, so it never
+/// blocks a runtime's worker.
+pub(crate) fn build_ready_blocking<T: Send, E: Send>(
+    plan: &mut ChildEnv<'_>,
+    mut build: impl FnMut() -> Result<T, E> + Send,
+    explicit: impl Fn(&T) -> Vec<(String, Option<String>)> + Send,
+    refuse: impl Fn(String) -> E + Sync,
+) -> Result<T, E> {
+    let reads = READS.load(Ordering::SeqCst);
+    let built = build();
+    plan.explicit = built.as_ref().ok().map(&explicit);
+    if !ENABLED.load(Ordering::SeqCst)
+        || (plan.blocking().is_empty() && READS.load(Ordering::SeqCst) == reads)
+    {
+        return built;
+    }
+    let refuse = &refuse;
+    std::thread::scope(|scope| {
+        scope
+            .spawn(move || {
+                let runtime =
+                    tokio::runtime::Builder::new_current_thread()
+                        .enable_time()
+                        .build()
+                        .map_err(|e| refuse(format!("cannot wait for the login shell: {e}")))?;
+                runtime.block_on(build_ready(plan, build, explicit, refuse))
+            })
+            .join()
+            .unwrap_or_else(|_| Err(refuse("the login shell wait stopped".to_owned())))
+    })
 }
 
 /// A provider base URL (`ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`): the
@@ -506,12 +550,9 @@ fn refresh(throttled: bool) {
     STATE.write().unwrap_or_else(|e| e.into_inner()).fingerprint = Some(now);
     rt.spawn(async {
         tracing::info!("shell startup files changed; reading the login environment again");
+        // A failed read clears the fingerprint itself (`import`): a later spawn or edit tries again.
         import().await;
         let failed = outcome() == Outcome::Failed;
-        if failed {
-            // Try again at a later spawn or edit.
-            STATE.write().unwrap_or_else(|e| e.into_inner()).fingerprint = None;
-        }
         REFRESHING.store(false, Ordering::SeqCst);
         if !failed {
             // An edit after the read's last check found REFRESHING set.
@@ -526,11 +567,18 @@ fn refresh(throttled: bool) {
 /// not passed in, so what comes back is the person's setup.
 async fn run_shell(shell: &str, marker: &str) -> Option<String> {
     let mut cmd = tokio::process::Command::new(shell);
-    cmd.args(["-l", "-i", "-c", &format!("printf '\\n{marker}\\n'; command env -0")])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .kill_on_drop(true);
+    // The environment between two markers: output with both is a whole read; anything else (a
+    // startup file that replaced the shell first, a shell cut off mid-print) is a failed one.
+    cmd.args([
+        "-l",
+        "-i",
+        "-c",
+        &format!("printf '\\n{marker}\\n'; command env -0; printf '\\n{marker}{END_SUFFIX}\\n'"),
+    ])
+    .stdin(std::process::Stdio::null())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::null())
+    .kill_on_drop(true);
     // Only the identity a login shell starts from, as a terminal gives it:
     // nothing of the daemon's own environment (a sandboxed starter's proxy,
     // PATH or endpoints) can come back as "the login environment".
@@ -560,7 +608,7 @@ async fn run_shell(shell: &str, marker: &str) -> Option<String> {
             Ok(())
         });
     }
-    let child = match cmd.spawn() {
+    let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
             tracing::warn!("login shell env: {shell}: {e}");
@@ -568,23 +616,62 @@ async fn run_shell(shell: &str, marker: &str) -> Option<String> {
         }
     };
     let pid = child.id();
-    match tokio::time::timeout(TIMEOUT, child.wait_with_output()).await {
-        Ok(Ok(out)) => Some(String::from_utf8_lossy(&out.stdout).into_owned()),
-        Ok(Err(e)) => {
-            tracing::warn!("login shell env: {shell}: {e}");
-            None
-        }
-        Err(_) => {
-            // The future (and the shell) is dropped; its group goes too.
-            #[cfg(unix)]
-            if let Some(pid) = pid {
-                unsafe {
-                    libc::killpg(pid as i32, libc::SIGKILL);
-                }
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    let out = match child.stdout.take() {
+        Some(stdout) => read_env_block(stdout, marker, deadline).await,
+        None => None,
+    };
+    // The shell ends right after its last printf. What its startup files left running in the
+    // background (`cmd &`) keeps running, as after a terminal's login shell; it may hold the
+    // pipe open, so the read above ends at the end marker, never at the pipe's end. Only a shell
+    // still running at the deadline is ended, with its process group.
+    if tokio::time::timeout_at(deadline, child.wait()).await.is_err() {
+        #[cfg(unix)]
+        if let Some(pid) = pid {
+            // SAFETY: the shell is not reaped (its wait did not end), so its group id is still
+            // the one it made with setsid.
+            unsafe {
+                libc::killpg(pid as i32, libc::SIGKILL);
             }
-            None
         }
     }
+    out
+}
+
+/// What follows the run's marker on the line after the environment (`run_shell`).
+const END_SUFFIX: &str = "-end";
+/// A login environment larger than this is not one: the read fails.
+const MAX_SHELL_OUTPUT: usize = 16 << 20;
+
+/// The shell's output from the run's marker up to its end marker, read until the end marker
+/// arrives (never the pipe's end, which a background job can hold back); `None` when the pipe
+/// ends, the deadline passes, the output outgrows `MAX_SHELL_OUTPUT` or either marker is missing.
+async fn read_env_block(
+    mut stdout: impl tokio::io::AsyncRead + Unpin,
+    marker: &str,
+    deadline: tokio::time::Instant,
+) -> Option<String> {
+    use tokio::io::AsyncReadExt;
+    let end = format!("\n{marker}{END_SUFFIX}\n");
+    let mut out = Vec::new();
+    let mut chunk = vec![0u8; 64 << 10];
+    let at = loop {
+        let n = match tokio::time::timeout_at(deadline, stdout.read(&mut chunk)).await {
+            Ok(Ok(0)) | Ok(Err(_)) | Err(_) => return None,
+            Ok(Ok(n)) => n,
+        };
+        // Only the bytes that can hold an end marker this read completed.
+        let from = out.len().saturating_sub(end.len());
+        out.extend_from_slice(chunk.get(..n)?);
+        if let Some(i) = out.get(from..)?.windows(end.len()).position(|w| w == end.as_bytes()) {
+            break from + i;
+        }
+        if out.len() > MAX_SHELL_OUTPUT {
+            return None;
+        }
+    };
+    let text = String::from_utf8_lossy(out.get(..at)?).into_owned();
+    text.contains(&format!("\n{marker}\n")).then_some(text)
 }
 
 /// The login variables children get: those the daemon's environment lacks,
@@ -833,6 +920,14 @@ pub fn allowed_with(
     {
         return true;
     }
+    // A provider key's own family (`foreign_login::provider_key_owner`): Codex's
+    // AZURE_OPENAI_API_KEY, Grok's XAI_API_KEY, DeepSeek's DEEPSEEK_API_KEY.
+    if family.is_some()
+        && PROVIDER_KEYS.contains(&key)
+        && crate::agent::foreign_login::provider_key_owner(key) == family
+    {
+        return true;
+    }
     match family {
         Some("claude") => {
             key.starts_with("ANTHROPIC_")
@@ -989,6 +1084,15 @@ pub(crate) fn nested_local(
         .chain(machine)
         .filter(|(key, _)| crate::config::is_nested_claude_key(key))
         .collect()
+}
+
+/// The login, vault and machine values every local child gets whatever its family (the
+/// allow-list's common part and `loginEnvAllow`), with the profile `profile` deciding the
+/// Bedrock and Vertex conditions. A family's own keys and the daemon's own env are not here.
+pub(crate) fn every_child_pairs(
+    profile: Option<&BTreeMap<String, String>>,
+) -> Vec<(String, String)> {
+    pairs_for(None, profile)
 }
 
 fn pairs_for(
@@ -1267,9 +1371,10 @@ pub fn agent_shell_env() -> Option<(OsString, Option<OsString>)> {
 }
 
 /// Parse `env -0` output: (variables worth importing, the login PATH).
-/// Output before the marker line is rc-file chatter; without a marker,
-/// anything an rc file printed before `env` ran is discarded up to the
-/// last newline. Shell-private and per-process variables are dropped.
+/// Output before the marker line is rc-file chatter (`run_shell` takes only
+/// output that holds the marker; without one, anything printed before `env`
+/// ran is discarded up to the last newline). Shell-private and per-process
+/// variables are dropped.
 pub(crate) fn parse_env0(text: &str, marker: &str) -> (Vec<(String, String)>, Option<String>) {
     let marker = format!("\n{marker}\n");
     let text = match text.rfind(&marker) {
@@ -1637,6 +1742,35 @@ mod machine_file_tests {
 
     /// Gemini and Muse credentials follow their ACP harness across the
     /// daemon-to-agent boundary, while staying scoped away from other agents.
+    /// A provider key with one owning family besides the multi-provider
+    /// harnesses (`foreign_login::provider_key_owner`) comes from the login
+    /// shell for that family, as it stays in the daemon's env for it, and for
+    /// no other single-agent family.
+    #[test]
+    fn a_provider_key_reaches_its_own_family_from_the_login_shell() {
+        for (key, own) in [
+            ("AZURE_OPENAI_API_KEY", "codex"),
+            ("XAI_API_KEY", "grok"),
+            ("DEEPSEEK_API_KEY", "deepseek"),
+            ("OPENAI_BASE_URL", "codex"),
+            ("ANTHROPIC_BASE_URL", "claude"),
+            ("GOOGLE_API_KEY", "gemini"),
+        ] {
+            assert!(allowed(key, "dummy", Some(own)), "{own} gets {key}");
+            for other in ["claude", "codex", "gemini", "grok", "deepseek", "muse"] {
+                if other != own && !(other == "gemini" && key.starts_with("GOOGLE_")) {
+                    assert!(!allowed(key, "dummy", Some(other)), "{other} never gets {key}");
+                }
+            }
+        }
+        // Every owned key, by the one table both sides read.
+        for key in super::PROVIDER_KEYS {
+            if let Some(own) = crate::agent::foreign_login::provider_key_owner(key) {
+                assert!(allowed(key, "dummy", Some(own)), "{own} gets {key}");
+            }
+        }
+    }
+
     #[test]
     fn provider_credentials_are_scoped_to_gemini_and_muse() {
         assert!(allowed("GEMINI_API_KEY", "secret", Some("gemini")));
@@ -1847,6 +1981,10 @@ mod machine_file_tests {
                 assert!(!allowed(key, "dummy", family), "{family:?} never gets {key}");
             }
             for family in ["chief", "unii", "cursor", "deepseek", "fake"] {
+                // DeepSeek Harness gets only its own key (`foreign_login::provider_key_owner`).
+                if family == "deepseek" && key == "DEEPSEEK_API_KEY" {
+                    continue;
+                }
                 assert!(!allowed(key, "dummy", Some(family)), "{family} never gets {key}");
             }
         }

@@ -69,7 +69,7 @@ graph there costs frames. "Cold" means a page or window opened on demand.
 | `CmuxNextBookmarks/UI` | 8 | 621 | 6 | 2 | warm | Bookmark manager page, edit bubble popover | `NSOutlineView`, AppKit popover |
 | `CmuxNextApp/Vault` | 4 | 181 | 2 | 1 | cold | Vault list | AppKit |
 | `CmuxNextApp/Checklist` | 3 | 180 | 2 | 1 | cold | Workspace todo page | AppKit |
-| `CmuxNextApp/TaskManager`, `CmuxNextResources/TaskManager` | 2 | 161 | 1 | 1 | warm (live) | Task manager page | `NSTableView` |
+| `CmuxNextApp/TaskManager`, `CmuxNextResources/TaskManager` | done | | | | warm (live) | Task manager page | React page `cmux.task-manager` (webviews/src/pages/task-manager) |
 | `CmuxNextChiefMemory` | 3 | 259 | 3 | 0 | cold | Chief memory inspector | AppKit |
 | `CmuxNextAccounts/Views` | 4 | 358 | 6 | 0 | cold | Accounts palette and section | AppKit |
 | `CmuxNextAppPermissions/UI` | 3 | 106 | 1 | 0 | cold | App permissions | AppKit |
@@ -167,8 +167,6 @@ transitions); and what the file uses when it declares no view.
 | `CmuxNextApp/Checklist/WorkspaceTodoRow.swift` | 67 | 1 |  | 0 | views |
 | `CmuxNextApp/Handlers/BrowserDownloadsPopup.swift` | 468 | 4 | NSHosting | 0 | views |
 | `CmuxNextApp/Handlers/ChiefMemoryPageService.swift` | 176 | 0 | NSHosting | 0 | bridge |
-| `CmuxNextApp/RightSidebar/DockSectionHostView.swift` | 63 | 0 | NSHosting | 0 | bridge |
-| `CmuxNextApp/RightSidebar/DockSectionListView.swift` | 35 | 1 |  | 0 | views |
 | `CmuxNextApp/RightSidebar/MachineSectionHostView.swift` | 52 | 0 | NSHosting | 0 | bridge |
 | `CmuxNextApp/SleepyMode/SleepyOverlayWindows.swift` | 71 | 0 | NSHosting | 0 | bridge |
 | `CmuxNextApp/SleepyMode/SleepySceneView.swift` | 91 | 1 |  | 2 | views |

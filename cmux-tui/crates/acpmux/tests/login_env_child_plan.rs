@@ -192,5 +192,47 @@ async fn only_a_login_value_the_childs_plan_takes_holds_or_refuses_its_start() {
     let (base, took) = local.base_url(&root, "fake-codex").await;
     assert_eq!(base.as_deref(), Ok(""), "codex-login chat");
     assert!(took < Duration::from_secs(3), "codex-login chat waited {took:?}");
+
+    // The sign-in check and the live-model probe start through the same check: one whose plan
+    // takes the URL waits, then refuses, and one whose plan never takes it starts at once.
+    let ok = ["sh", "-c", "exit 0"].map(String::from);
+    let none = std::collections::BTreeMap::new();
+    let (auth, took) = tokio::task::spawn_blocking({
+        let ok = ok.clone();
+        let none = none.clone();
+        move || {
+            let started = Instant::now();
+            (acpmux::harness_health::probe::auth_check(&ok, &none, "pi"), started.elapsed())
+        }
+    })
+    .await
+    .unwrap();
+    let error = auth.expect_err("a pi sign-in check ran without its base URL");
+    assert!(error.contains("OPENAI_BASE_URL"), "{error}");
+    assert!(took >= Duration::from_secs(3), "refused after {took:?}");
+    let (auth, took) = tokio::task::spawn_blocking({
+        let ok = ok.clone();
+        let none = none.clone();
+        move || {
+            let started = Instant::now();
+            (acpmux::harness_health::probe::auth_check(&ok, &none, "claude"), started.elapsed())
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(auth.map(|(ok, _)| ok), Ok(true), "a Claude check never takes OPENAI_BASE_URL");
+    assert!(took < Duration::from_secs(3), "a Claude check waited {took:?}");
+    let started = Instant::now();
+    let probe = acpmux::live_models::probe(
+        acpmux::live_models::Cli::Codex,
+        &ok,
+        &none,
+        &root.join("work"),
+        Duration::from_secs(10),
+    )
+    .await;
+    let error = format!("{:#}", probe.expect_err("a Codex model probe ran without its base URL"));
+    assert!(error.contains("OPENAI_BASE_URL"), "{error}");
+    assert!(started.elapsed() >= Duration::from_secs(3), "refused after {:?}", started.elapsed());
     let _ = std::fs::remove_dir_all(&root);
 }

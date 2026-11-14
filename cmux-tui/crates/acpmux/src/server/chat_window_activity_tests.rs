@@ -201,3 +201,76 @@ async fn a_chat_past_the_page_that_folds_or_unfolds_moves_has_more() {
     assert_eq!(keys(&diff), vec![chat(2)], "{diff}");
     drop(input);
 }
+
+/// The next window message whose `total` is `total`.
+async fn total_becomes(out: &mut mpsc::Receiver<String>, total: u64) -> Value {
+    loop {
+        let message = next_window(out).await;
+        if message["total"] == total {
+            return message;
+        }
+    }
+}
+
+fn recomputes(window: &str) -> usize {
+    super::chat_windows::RECOMPUTES.lock().unwrap().get(window).copied().unwrap_or(0)
+}
+
+/// A `topLevel` window that ranks a query and counts its total reads every chat's fold, but a
+/// record moves its result only when it folds or unfolds the chat it names, or that chat is shown.
+/// A record of any other chat recomputed the window: a ranked recompute reads every chat (150 ms
+/// per keystroke at 2,000 chats), once per status, turn and permission record of any session.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_ranked_top_level_window_recomputes_only_when_a_chats_fold_moves() {
+    const WINDOW: &str = "w-ranked-fold";
+    let Setup { _home, hub, input, mut out } = setup().await;
+    // Chat 1 has two sessions: a child of chat 0's session, and one of its own. The newest of
+    // them (each record makes it so) decides whether chat 1 folds.
+    let parent = session(&hub, "s-parent", 0, false);
+    let child = session(&hub, "s-child", 1, false);
+    let own = session(&hub, "s-own", 1, false);
+    let two = session(&hub, "s-two", 2, false);
+    hub.edit_test_meta(&child, |m| {
+        let tag = crate::store::Tag { value: "s-parent".into(), expires_at: None };
+        m.tags.insert("spawnedBy".into(), tag);
+        m.updated_at = 2;
+    });
+    let open = json!({"window": WINDOW, "limit": 1, "topLevel": true, "query": "chat",
+        "count": true});
+    input.send(Message::request(2, "_acpmux/chats_window", open).to_line()).await.unwrap();
+    let full = next_window(&mut out).await;
+    assert_eq!(full["total"], 2, "chat 1 folds: {full}");
+    let shown = keys(&full);
+    // The chat of 0 and 2 the window does not show, and its session.
+    let unshown = if shown.contains(&chat(0)) { &two } else { &parent };
+
+    // A first record of each session recomputes (what chat it continues is learned); the child's
+    // last, so it is newest and chat 1 stays folded.
+    for s in [&parent, &two, &own, &child] {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        hub.append(s, "mux", "status", json!({"status": "idle"}));
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    // What those recomputes sent: the totals below are read from later messages only.
+    while out.try_recv().is_ok() {}
+    let before = recomputes(WINDOW);
+
+    // Records of a chat the window does not show and whose fold stays: no recompute.
+    for _ in 0..3 {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        hub.append(unshown, "mux", "status", json!({"status": "idle"}));
+        hub.append(&child, "mux", "status", json!({"status": "idle"}));
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(recomputes(WINDOW) - before, 0, "records that move nothing recomputed the window");
+
+    // Chat 1 unfolds (its own session is newest): the total counts it.
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    hub.append(&own, "mux", "status", json!({"status": "idle"}));
+    total_becomes(&mut out, 3).await;
+    // And folds again.
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    hub.append(&child, "mux", "status", json!({"status": "idle"}));
+    total_becomes(&mut out, 2).await;
+    drop(input);
+}

@@ -21,9 +21,13 @@ test "${ACPMUX_ENV:-}" = 1 && echo "I am session $ACPMUX_SESSION_NAME ($ACPMUX_S
 When set, `@` names your own session (`acpmux last @`, `acpmux history @`).
 Sessions you start are siblings, not children: they outlive you.
 
-Inside a session, run the daemon's own CLI: `"$ACPMUX_BIN"` is one absolute
-path that runs it, also inside cmux. Use it in place of `acpmux` in every
-command, as in `"$ACPMUX_BIN" send NAME "text"`. The `acpmux` on your PATH can
+To message another session from a chat, use the `send` tool
+(`mcp__acpmux__send`, `mcp__cmux__acpmux_send` when cmux lists every tool, or
+`cmux.acpmux_send` in a cmux_exec script), not
+`acpmux send` in Bash ("Messages between agents" below). For the rest, run
+the daemon's own CLI: `"$ACPMUX_BIN"` is one absolute path that runs it, also
+inside cmux. Use it in place of `acpmux` in every command, as in
+`"$ACPMUX_BIN" last NAME`. The `acpmux` on your PATH can
 be another, older build (a login profile puts `~/.local/bin` first). A CLI
 older than the daemon does not say who runs it: the daemon records its sends as
 an unverified program, not as you or the person, and refuses it what only the
@@ -118,6 +122,9 @@ knows; the session is not created.
 
 ## 3. Core loop
 
+From a chat with acpmux's MCP tools, message with the `send` tool, not the
+`send` lines below; they are for shells and scripts.
+
 ```bash
 acpmux run -m codex --cwd ~/proj --policy approve-edits --tag task=fix "fix the failing test"   # create, send, print only the reply
 acpmux --json run -m claude "…"                    # {"sessionId","name","reply","stopReason"}
@@ -159,7 +166,8 @@ output says `queued behind …`.
 ### Messages between agents
 
 In a chat with acpmux's MCP tools, message with the `send` tool
-(`mcp__acpmux__send`; `cmux.acpmux_send` in a cmux_exec script), not
+(`mcp__acpmux__send`; `mcp__cmux__acpmux_send` when cmux lists every tool;
+`cmux.acpmux_send` in a cmux_exec script), not
 `acpmux send` in Bash: one call, or `messages` for several, with `file`,
 `attach`, `class`, `pr`, `notice` and `supersede`, through the same outbox as
 `send --no-wait`. The CLI is for shells and scripts.
@@ -171,7 +179,7 @@ the person's prompt. What the receiver gets depends on who you are to it:
 | --- | --- | --- | --- |
 | the session that started it or first gave it work | a prompt, its own turn | yes | `send --wait` prints it |
 | another session, with `--wait` | a question in its inbox | yes | `send --wait` prints that turn's reply |
-| another session, with `--no-wait` | an action in its inbox | no: it goes with its next turn | it answers with `inbox_reply` or `acpmux send YOU` |
+| another session, with `--no-wait` | an action in its inbox | no: it goes with its next turn | it answers with `inbox_reply` or the `send` tool |
 | another session, `--no-wait --class question` or `block` | a question in its inbox | yes | that turn's report comes back to you (to your subagent, if one asked); not to a session on another machine |
 | the person, in a plain terminal | the person's prompt | yes | streamed |
 
@@ -194,12 +202,19 @@ the person's prompt. What the receiver gets depends on who you are to it:
   `SubagentStop` hook, its reports wait until no subagent of the lead runs. The
   end message of a background task it started (`bg_start`, `run_wait`) takes
   the same rule. A cmux workflow it starts (`cmux.cmux_workflow`) runs as it:
-  the workflow's commands and its script's sends name it. On a path that names
-  no subagent, a subagent passes `notify: false` and reads the task with
-  `bg_output`. The receiver reads `From another agent (LEAD's TYPE
-  subagent ID)` and ends its turn with its answer; it does not send it to the
-  lead.
-  `acpmux send LEAD` reaches the lead.
+  the workflow's commands and its script's sends name it. Its work on another
+  machine (an `agent()` or `machine()` with `on: HOST`, a CI machine) still runs
+  as the lead. On a path that names no subagent, a subagent passes
+  `notify: false` and reads the task with `bg_output`. The receiver reads
+  `From another agent (LEAD's TYPE subagent ID)` and ends its turn with its
+  answer; it does not send it to the lead.
+  A subagent's send that goes to the send relay (`sendRelay`: no session here
+  or on a peer) names the subagent to the relay as a label only
+  (`ACPMUX_FROM_SUBAGENT`, `ACPMUX_FROM_LABEL`). Both are unverified claims:
+  nothing on the far side can check them yet. A Codex subagent's relayed send
+  has no label. `ACPMUX_FROM` stays the lead's name, the one reply address the
+  relay has, so the far side's answer reaches the lead, not the subagent.
+  The `send` tool (`to: LEAD`) reaches the lead.
   A Codex subagent is named `LEAD's codex subagent THREAD` (its own
   `CODEX_THREAD_ID`); when acpmux does not know the lead's thread, the line
   says `LEAD (subagent identity not available for codex)`.
@@ -209,8 +224,35 @@ the person's prompt. What the receiver gets depends on who you are to it:
 - An inbox notice ends with how to reply. Answer in your turn, with
   `inbox_reply` or the `send` tool (`acpmux send NAME` without them); never
   with your harness's own SendMessage, which reaches no acpmux session.
+- In a Claude Code agent acpmux started, Claude Code's own cross-session
+  messaging is off (no `ListAgents`; its peer list was every Claude Code on the
+  machine, other daemons' too, and a message it held showed nowhere).
+  `SendMessage` to an acpmux session is refused with the command to use:
+  `"$ACPMUX_BIN" send NAME --wait "…"` (its reply in this turn) or the `send`
+  tool. `SendMessage` still reaches your own subagents. `acpmux ls` is the peer
+  list. A profile that sets `CLAUDE_CODE_HARBOR_KITE` itself keeps its value.
+  That variable is an undocumented Claude Code switch: if a later Claude Code
+  renames it, `ListAgents` may list other Claude Code sessions again, but the
+  refusal above still applies.
 - `wait` right after `send --no-wait` waits for the turn the message brings;
   it never answers with the idle state from before the message.
+
+A Claude Code session acpmux did not start (the Claude desktop app's Code tab,
+a terminal `claude`) takes a stable name from its own shell (a Codex thread gets
+one by being started with acpmux):
+
+```bash
+acpmux register desktop-zoe            # in its Bash tool; then run the --code line it receives
+acpmux send --no-wait desktop-zoe "…"  # from any machine that peers this one: queued, retried, --status
+```
+
+The daemon checks who runs the shell by the kernel's process tree, never by
+what you type. A Claude Code session's message opens with its own
+`CLAUDE_CODE_MESSAGING_TOKEN` (the inbox Claude Code documents for a script or
+hook) and arrives as another session's message, under its inbound rules. While
+the app is closed the message waits as `bridge.not_running`; register again
+after the session restarts. Which harness can send, receive, steer and wake:
+`cmux-tui/crates/acpmux/docs/address-book.md`.
 
 Start an agent for a task (its own worktree and brief) with one command; running
 it again reuses the session and worktree and sends nothing:
@@ -289,7 +331,7 @@ $X daemon shutdown --end-agents             # done: end its agents too, then rm 
 ## 5. Permissions
 
 ```bash
-acpmux pending                               # every pending request, and how to answer it
+acpmux pending                               # every pending request, and how to answer it; also messages a chat's Claude Code holds
 acpmux session deny NAME                     # allowing is the cmux app's alone (the chat's permission card)
 acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"]}'
 acpmux run --on-permission deny|fail …       # never hang a script on a prompt (fail = exit 5)
@@ -298,7 +340,12 @@ acpmux run --on-permission deny|fail …       # never hang a script on a prompt
 `acpmux pending --json` gives each request a `needsYou` link
 (`cmux://needs-you/<permissionId>`). Put it in a reply to point the user at an
 open ask instead of restating it; cmux draws it as a chip that opens the ask in
-its Needs you list.
+its Needs you list. Its `heldMessages` lists another session's message that a
+chat's Claude Code holds instead of reading it (`session`, `fromName`, `from`,
+`cause`, `messageUuid`, `heldAt`; also `heldMessages` of `session info`). Claude
+Code gives acpmux no way to release it: it waits for that chat's approval or
+expires, so have the sender send it with `acpmux send` instead. acpmux keeps
+held messages in memory only: after a daemon restart they no longer show.
 
 Show UI instead of describing it. A reply in cmux draws `![alt](/abs/path.png)`,
 a bare image path (`.png`, `.jpg`, `.gif`, `.webp`), a `file://` URL or an
@@ -327,6 +374,21 @@ you: a wider `--mode` is refused. A start from a plain shell with no session
 gets the defaults. Some requests still ask in full access, because the harness
 raises them itself (Claude Code's guard on an `rm` whose target it cannot
 resolve): your policy answers those, and `ask` sends them to a person.
+
+A policy narrower than approve-all holds or the chat does not run: the start
+fails, or a live agent stops, with `policy_unenforceable`. It holds through
+acpmux's own Claude Code gate, a harness mode that asks, OpenCode asked to ask,
+or an ACP agent that says at `initialize` that it asks before every tool call
+(`agentCapabilities._meta.acpmux.asksBeforeTools: true`). acpmux believes that
+claim only from an agent it started from a harness entry of its own config
+(`config.json` or a discovered harness), and only while that entry still has
+the argv and env the agent started with. It does not believe it from a folder
+profile (`.cmux/harnesses/*.toml`, which the repository supplies), from an
+entry changed or removed after the start, or from a fork or moved chat that
+has a copy of another agent's claim. Each claim is in the session events as
+`asks_before_tools_claim`, with `trusted` and, when false, `reason`
+(`not_started_here`, `not_a_config_entry`, `entry_changed`); see them with
+`acpmux session tail NAME`.
 
 ## 6. Other machines
 

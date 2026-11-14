@@ -50,12 +50,9 @@ final class SidebarBridge {
     let groupEditor = PersonalGroupEditorState()
     /// Rows of the spaces beside the current one, for swipe pages (R99).
     let spaceCache = SpaceSectionsCache()
-    /// Each listed row's content, observed per row: a status change patches one row, not the sidebar (rows lane).
-    /// Its flushes run on the display frame, so a frame's row patches and its scroll update commit together.
-    let rowFeed: SidebarRowFeed = {
-        let frames = FrameBatcher(owner: "SidebarRows")
-        return SidebarRowFeed(schedule: { work in frames.scheduleFrame(work) })
-    }()
+    /// Each row's content, observed per row: a status change patches one row, not the sidebar (rows lane). Its flushes
+    /// run on the display frame (one commit with the scroll update); it keeps the rows of the window's other spaces.
+    let rowFeed: SidebarRowFeed
     let faceBuffers = SidebarFaceBatch() // the face rules' buffers its passes and band items reuse (`sections(faces:)`)
 
     static func driveMenuItem(_ services: AppServices) -> (CmuxNextSidebar.WorkspaceID, SidebarDriveCommand, String) -> NSMenuItem? { // the agent's terminals from its tab's daemon
@@ -65,6 +62,8 @@ final class SidebarBridge {
     init(services: AppServices, state: WindowState) {
         self.services = services
         self.state = state
+        let frames = FrameBatcher(owner: "SidebarRows") // `state.id` is read on each call: the launch window adopts a saved id
+        rowFeed = SidebarRowFeed(schedule: { frames.scheduleFrame($0) }, keeps: { [weak services, weak state] id in state.map { services?.windows.registry.value.owner(of: id.rawValue) == $0.id } ?? false })
         container = SidebarContainerView(model: model)
         model.onIntent = { [weak self] intent in self?.handle(intent) }
         // Link rows draw the favicon at their item's icon address, from this app's favicons.
@@ -160,8 +159,7 @@ final class SidebarBridge {
         // And the New Tab pages (a chat lists as a chat) and the muted set.
         // The spaces and the current space come from the same observation
         // as the rows (cx-5k3r): a space switch reaches the sidebar as one
-        // change (new space and its rows together), so the sidebar runs
-        // one slide, not a slide of the old rows and then a row reload.
+        // change (new space and its rows together).
         // The band's layout comes with the rows it projects too (cx-odqn):
         // a pinned workspace leaves the list in the turn it joins the band.
         sameTurn.observe(listsRows: true, {
@@ -256,7 +254,7 @@ final class SidebarBridge {
     /// band's `layout` in the same turn, then saves it.
     private func show(_ live: [SidebarRowSection], shownAt: UInt64?, layout: SidebarLayoutDocument, launching: Bool, failed: Set<MachineID>,
                       creating: [PendingWorkspaceRows.Row] = []) {
-        var sections = seed.connecting.holdingConnectingLabels(seed.merge(live, launching: launching, failed: failed))
+        var sections = seed.connecting.holdingConnectingLabels(seed.merge(live, launching: launching, failed: failed, unloaded: Set(services.machines.daemons.lazy.filter { !$0.store.isLoaded }.map { MachineID($0.machineID) })))
         // After the merge, so a reconnecting machine's saved rows stand in first (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections, window: state?.id, windows: services.windows.connectingRowWindows(making: state?.id)) }
         let hadDocDrag = model.docDrag != nil
@@ -319,7 +317,7 @@ final class SidebarBridge {
     /// The window's live sidebar, whether the app is still launching (its
     /// saved rows stand in until then), and the Cloud machines whose first
     /// connection gave up (their launch placeholders end). Rows from the
-    /// daemon's launch snapshot are `.stale` until the live tree replaces them.
+    /// daemon's launch snapshot, or the last live tree while the session owner restores again, are `.stale` until it answers.
     static func liveSections(_ machines: MachineRegistry, doc: SidebarDocument, registry: WindowRegistryStore,
                              window: WindowState, creations: CloudCreations? = nil, hidesHome: Bool = true,
                              newTabPages: Set<String> = [], rowNewTabPages: AgentTabStore? = nil, muted: Set<String> = [],
@@ -335,7 +333,7 @@ final class SidebarBridge {
         // cmux.json `workspaceGroups.byCwd`: a configured group's color and icon.
         sections = WorkspaceGroupConfigLook(config: groupConfig, machines: machines).applying(to: sections)
         if let creations { sections = CloudCreationRows.adding(creations.shown(in: window.id), to: sections) }
-        if machines.local.store.isProvisional { sections = SidebarRowSection.stale(sections) }
+        if machines.local.store.isProvisional || machines.local.recovery.isRestoring { sections = SidebarRowSection.stale(sections) }
         // Debug Settings: sample rows to compare the row badges and the row names.
         sections += SidebarRowSection.debugPreviews()
         let failed = Set(machines.cloud.filter { $0.daemon.startup.isUnavailable }.map { MachineID($0.daemon.machineID) })

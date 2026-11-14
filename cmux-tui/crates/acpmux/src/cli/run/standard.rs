@@ -189,7 +189,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // take as long as it needs to page a large transcript, while EOF
             // still fails the request promptly.
             let id = resolve_id(&client, &session).await?;
-            let replies = last_replies(&client, &id, count).await?;
+            let replies = crate::cli::slow_notice::noted(
+                "the last replies",
+                last_replies(&client, &id, count),
+            )
+            .await?;
             if json_out {
                 print_json(&json!({"sessionId": id, "replies": replies}));
             } else {
@@ -206,7 +210,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let client = connect(true).await?;
             let v = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
             let mut out = Vec::new();
-            for s in v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default() {
+            let sessions = v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
+            // Other sessions' messages a chat's Claude Code holds (`hub/native_messaging.rs`).
+            let held = held_messages(&sessions);
+            for s in sessions {
                 if s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) == 0 {
                     continue;
                 }
@@ -239,8 +246,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
             }
             if json_out {
-                print_json(&json!({"pending": out}));
-            } else if out.is_empty() {
+                print_json(&json!({"pending": out, "heldMessages": held}));
+            } else if out.is_empty() && held.is_empty() {
                 println!("no pending permissions");
             } else {
                 for p in &out {
@@ -252,6 +259,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         g("kind"),
                         g("answer")
                     );
+                }
+                for h in &held {
+                    println!("{}", held_message_line(h));
                 }
             }
             Ok(())
@@ -344,6 +354,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             if let Some(m) = &args.mode {
                 meta["mode"] = json!(m);
+            }
+            if args.require_asking {
+                // A daemon that does not list it would start the session unchecked.
+                if !client.daemon_lists(crate::hub::require_asking::FEATURE) {
+                    anyhow::bail!(
+                        "the running acpmux daemon is older than this CLI and cannot refuse a \
+                         start that would not ask, so nothing started; run `acpmux daemon \
+                         restart`, then try again"
+                    );
+                }
+                meta.set(crate::hub::require_asking::FIELD, json!(true));
             }
             if let Some(e) = &args.effort {
                 meta["effort"] = json!(e);
@@ -486,7 +507,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     .first_prompt(&args, &v)
                     .filter(|_| !lost_race && launch::never_prompted(info));
                 if let Some(text) = &first {
-                    let prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
+                    let prompt = first_prompt_id(&args);
                     let accepted = before_deadline(
                         deadline,
                         route_id,
@@ -522,7 +543,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // is interrupted while the app is opening its workspace.
             let queue_before_open = args.detach && !one_shot;
             if queue_before_open && let Some(text) = &first {
-                let prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
+                let prompt = first_prompt_id(&args);
                 let accepted = before_deadline(
                     deadline,
                     route_id,
@@ -535,7 +556,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             if let Err(mut open_error) = show() {
                 if !queue_before_open && let Some(text) = &first {
-                    let prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
+                    let prompt = first_prompt_id(&args);
                     if let Err(error) = before_deadline(
                         deadline,
                         route_id,
@@ -602,7 +623,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
             }
             if let Some(text) = first {
-                let prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
+                let prompt = first_prompt_id(&args);
                 if one_shot {
                     let opts = CollectOpts {
                         timeout: args.timeout,
@@ -683,6 +704,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             stall,
             prompt_id,
             from,
+            sender_token_file,
             status,
             supersede,
             class,
@@ -731,6 +753,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             prompt_id.from_harness =
                 crate::cli::sender::harness_of_this_process().map(str::to_owned);
             prompt_id.cli_host = crate::cli::sender::person_host(prompt_id.from_agent.is_some());
+            // This host's sender token, which proves a named sender is one the owner set up
+            // (`sender_token.rs`). Read before connecting, so a missing file fails the send at once.
+            prompt_id.sender_token =
+                crate::sender_token::of_this_send(sender_token_file.as_deref())?;
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;
             let classed = class.is_some();
@@ -813,6 +839,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let relay_from = crate::cli::send_relay::sender(prompt_id.from_agent.as_deref(), |k| {
                 std::env::var(k).ok()
             });
+            // The Claude Code subagent this shell runs for (the Bash hook's mark), a label only.
+            let relay_sub = crate::cli::sender::subagent_of_this_process().map(|s| s.to_value());
+            let relay_from =
+                crate::cli::send_relay::RelaySender::new(relay_from, relay_sub.as_ref());
             let (relay_session, relay_text, attaching) =
                 (session.clone(), text.clone(), !attach.is_empty());
             // A send that waits, to a name nobody here resolves, goes to this daemon's outbox once
@@ -949,7 +979,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         &relay,
                         &relay_session,
                         &relay_text,
-                        relay_from.as_deref(),
+                        &relay_from,
                         attaching,
                         json_out,
                         deadline,
@@ -1103,7 +1133,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         Command::Info { session, fields } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
-            let v = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+            let v = crate::cli::slow_notice::noted(
+                "the session's details",
+                client.request(method::MUX_INFO, json!({"sessionId": id})),
+            )
+            .await?;
             if let Some(fields) = fields {
                 return super::fanout::print_info_fields(&v, &fields, json_out);
             }
@@ -1445,6 +1479,42 @@ fn new_requires_tty(
     !json_out && new_without_prompt_requires_tty(no_prompt, detach, stdin_terminal, stdout_terminal)
 }
 
+/// The messages each listed session's Claude Code holds (`heldMessages` of its row), as
+/// `pending` lists them: each with its session's name and id, and what the person can do.
+fn held_messages(sessions: &[Value]) -> Vec<Value> {
+    let mut out = Vec::new();
+    for s in sessions {
+        let name = s.get("name").cloned().unwrap_or(Value::Null);
+        let id = s.get("sessionId").cloned().unwrap_or(Value::Null);
+        for h in s.get("heldMessages").and_then(Value::as_array).into_iter().flatten() {
+            let mut row = h.clone();
+            row.set("session", name.clone());
+            row.set("sessionId", id.clone());
+            row.set("answer", json!(HELD_ANSWER));
+            out.push(row);
+        }
+    }
+    out
+}
+
+/// What the person can do about a message Claude Code holds: Claude Code gives a host no way to
+/// release it, so it waits for that chat's approval or expires.
+const HELD_ANSWER: &str = "Claude Code holds it for approval (it expires); acpmux cannot release it. Have the sender send it again with acpmux send";
+
+/// One `pending` line for a held message.
+fn held_message_line(h: &Value) -> String {
+    let g = |k: &str| h.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+    let from = Some(g("fromName")).filter(|n| !n.is_empty()).unwrap_or_else(|| g("from"));
+    let from = if from.is_empty() { "another session".to_owned() } else { from };
+    let cause = g("cause");
+    let cause = if cause.is_empty() { String::new() } else { format!(" ({cause})") };
+    format!(
+        "{:<24} message from {from} held by Claude Code{cause}  answer: {}",
+        g("session"),
+        g("answer")
+    )
+}
+
 /// Parse the compact durations accepted by `ls --since` (`30m`, `24h`, `7d`, or combinations).
 fn team_receipt_line(receipt: &Value) -> String {
     let canonical =
@@ -1453,6 +1523,17 @@ fn team_receipt_line(receipt: &Value) -> String {
     let state = receipt.get("state").and_then(Value::as_str).unwrap_or("queued");
     let id = receipt.get("messageId").and_then(Value::as_str).unwrap_or("?");
     format!("{state} to {canonical}; startWork={decision} (acpmux send --status mesh:{id})")
+}
+
+/// The id of a `new`'s first prompt: it names the Claude Code subagent that sends it
+/// (`naming_this_caller`), and the sender `--from` names, whose message it then is
+/// (`fromAgent`): never the person's words, whatever the connection declared (a guest's `new`,
+/// `acpmux_mcp_guest.rs`).
+fn first_prompt_id(args: &crate::cli::command::NewArgs) -> PromptId {
+    let mut prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
+    prompt.from_agent =
+        args.from.as_deref().map(str::trim).filter(|f| !f.is_empty()).map(str::to_owned);
+    prompt
 }
 
 /// `--relay NAME --relayed-from MACHINE[/SESSION] [--relayed-harness FAMILY]` as the daemon reads

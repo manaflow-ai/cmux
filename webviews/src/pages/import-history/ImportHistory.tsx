@@ -2,28 +2,81 @@ import { useId, useState, useSyncExternalStore } from "react";
 import { ChevronRight } from "../../agent-session/acpmux/conversation/icons";
 import { AgentMark } from "../../agent-session/shared/AgentMark";
 import { DialogButton } from "../../ui/DialogButton";
-import { Switch } from "../../ui/Switch";
 import type { Strings } from "../shared/i18n";
 import { canImport, type HistoryRow, type ImportHistoryStore, type Origin, type RowID } from "./model";
 
-/** `groups` ships: two toggles (Chats, Memories) in one list, each source one level deeper behind
- * its group's Sources disclosure. `sections` and `tiles` are gallery alternatives. */
-export type HistoryLayout = "groups" | "sections" | "tiles";
+/** `list` ships: one row per tool in one inset list, its sources one level deeper behind Sources.
+ * `chips` puts a Chats and a Memories toggle on each tool's row; `cards` gives each tool its own card
+ * with every source listed. Both are gallery alternatives. */
+export type HistoryLayout = "list" | "chips" | "cards";
 export interface ImportHistoryProps {
   store: ImportHistoryStore;
   strings: Strings;
   layout?: HistoryLayout;
-  /** Opens every group's Sources at first draw (gallery states). */
+  /** Opens every tool's Sources at first draw (gallery states). */
   defaultOpen?: boolean;
 }
 
-export type GroupID = "chats" | "memories";
-export const GROUPS: readonly GroupID[] = ["chats", "memories"];
+export type KindID = "chats" | "memories";
+export const KINDS: readonly KindID[] = ["chats", "memories"];
 
 /** Conversations and chat exports are chats; memory notes and pasted summaries are memories. */
-export function groupOf(row: HistoryRow): GroupID {
+export function kindOf(row: HistoryRow): KindID {
   if (row.kind === "text" || row.id === "claude-memory" || row.id === "codex") return "memories";
   return "chats";
+}
+
+export type ToolID = "chatgpt" | "claude" | "codex" | "dot" | "grok" | "instinct" | "muse" | "other";
+
+/** The tool a source belongs to: its chats and its memories share one row. */
+export function toolOf(row: Pick<HistoryRow, "id" | "title">): ToolID {
+  switch (row.id) {
+    case "claude-code":
+    case "claude-memory":
+    case "claude":
+      return "claude";
+    case "codex":
+    case "codex-sessions":
+      return "codex";
+    case "chatgpt":
+    case "dots":
+      return "chatgpt";
+    case "grok-bot":
+      return "grok";
+    case "muse":
+      return "muse";
+    case "instinct":
+      return "instinct";
+    case "dot":
+      return "dot";
+    default:
+      return row.title?.toLowerCase().startsWith("dot") ? "dot" : "other";
+  }
+}
+
+/** Product names stay as they are in every language; only the catch-all row is translated. */
+const TOOL_NAMES: Record<Exclude<ToolID, "other">, string> = {
+  chatgpt: "ChatGPT",
+  claude: "Claude",
+  codex: "Codex",
+  dot: "Dot",
+  grok: "Grok",
+  instinct: "Instinct",
+  muse: "Muse",
+};
+
+export function toolName(tool: ToolID, strings: Strings): string {
+  return tool === "other" ? strings.t("history.tool.other") : TOOL_NAMES[tool];
+}
+
+/** The tools these rows belong to, in alphabetical order in the page's language; saved exports
+ * that belong to no tool come last. */
+export function toolsOf(rows: HistoryRow[], strings: Strings): ToolID[] {
+  const collator = new Intl.Collator(strings.language, { sensitivity: "base" });
+  const tools = [...new Set(rows.map(toolOf))];
+  return tools.sort((a, b) =>
+    a === "other" ? 1 : b === "other" ? -1 : collator.compare(toolName(a, strings), toolName(b, strings)),
+  );
 }
 
 /** A row the importer can take now: found on this Mac, picked, or holding a pasted summary. */
@@ -31,7 +84,7 @@ export function isAvailable(row: HistoryRow): boolean {
   return row.kind === "text" ? Boolean(row.text?.trim()) : Boolean(row.source);
 }
 
-export function ImportHistory({ store, strings, layout = "groups", defaultOpen = false }: ImportHistoryProps) {
+export function ImportHistory({ store, strings, layout = "list", defaultOpen = false }: ImportHistoryProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const t = strings.t;
   const busy = snapshot.phase === "importing" || snapshot.undoing;
@@ -46,23 +99,23 @@ export function ImportHistory({ store, strings, layout = "groups", defaultOpen =
       }}
     >
       {/* One scroll region holds everything above the footer, so nothing scrolls under a fixed
-          header and no card is clipped beneath it. */}
+          header and no row is clipped beneath it. */}
       <div className="history-scroll">
         <div className="history-content">
           <header className="history-header">
             <h1>{t("history.title")}</h1>
             <p className="history-lead">{t("history.subtitle")}</p>
           </header>
-          <div className="history-groups">
-            {GROUPS.map((group) => (
-              <Group
-                key={group}
-                group={group}
-                rows={snapshot.rows.filter((row) => groupOf(row) === group)}
+          <div className="history-tools">
+            {toolsOf(snapshot.rows, strings).map((tool) => (
+              <ToolRow
+                key={tool}
+                tool={tool}
+                rows={snapshot.rows.filter((row) => toolOf(row) === tool)}
                 store={store}
                 strings={strings}
                 busy={busy || snapshot.phase === "detecting"}
-                alwaysOpen={layout === "sections"}
+                layout={layout}
                 defaultOpen={defaultOpen}
               />
             ))}
@@ -80,7 +133,17 @@ export function ImportHistory({ store, strings, layout = "groups", defaultOpen =
               )}
             </div>
           )}
-          <p className="history-safety">{t("history.safety")}</p>
+          <div className="history-notes">
+            <p className="history-safety">{t("history.safety")}</p>
+            <button
+              type="button"
+              className="history-link history-find"
+              disabled={busy || snapshot.phase === "detecting" || Boolean(snapshot.picking)}
+              onClick={() => void store.findExports()}
+            >
+              {t("history.findExports")}
+            </button>
+          </div>
         </div>
       </div>
       <footer className="history-footer">
@@ -120,50 +183,88 @@ export function ImportHistory({ store, strings, layout = "groups", defaultOpen =
   );
 }
 
-function Group({
-  group,
+/** Turns every available source in `rows` on or off. */
+function selectAll(store: ImportHistoryStore, rows: HistoryRow[], selected: boolean): void {
+  for (const row of rows) if (isAvailable(row) && row.selected !== selected) store.select(row.id, selected);
+}
+
+function ToolRow({
+  tool,
   rows,
   store,
   strings,
   busy,
-  alwaysOpen,
+  layout,
   defaultOpen,
 }: {
-  group: GroupID;
+  tool: ToolID;
   rows: HistoryRow[];
   store: ImportHistoryStore;
   strings: Strings;
   busy: boolean;
-  alwaysOpen: boolean;
+  layout: HistoryLayout;
   defaultOpen: boolean;
 }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const t = strings.t;
   const id = useId();
   const [opened, setOpened] = useState(defaultOpen);
-  const sorted = sortByTitle(rows, strings);
   const available = rows.filter(isAvailable);
   const included = available.filter((row) => row.selected);
-  // A failed source or an open paste box needs its row seen: the group stays open while one does.
+  const all = available.length > 0 && included.length === available.length;
+  const some = included.length > 0 && !all;
+  // A failed source or an open paste box needs its row seen: the tool stays open while one does.
   const pinned = rows.some((row) => row.phase === "error" || (row.kind === "text" && row.expanded));
+  const alwaysOpen = layout === "cards";
   const open = alwaysOpen || opened || pinned;
-  const title = t(`history.group.${group}`);
+  const name = toolName(tool, strings);
+  const kinds = KINDS.filter((kind) => rows.some((row) => kindOf(row) === kind));
   return (
-    <section className={`history-group group-${group}`} aria-labelledby={`${id}-title`}>
-      <div className="history-group-line">
-        <div className="history-group-marks" aria-hidden="true">
-          {uniqueMarks(available.length ? available : rows).map((mark) => (
-            <span key={mark} className="history-source-icon">
-              <AgentMark agent={mark} size={16} label="" fallback={<span>{mark.charAt(0).toUpperCase()}</span>} />
-            </span>
-          ))}
-        </div>
-        <div className="history-group-text">
-          <label className="history-group-title" id={`${id}-title`} htmlFor={`${id}-switch`}>
-            {title}
+    <section className={`history-tool tool-${tool}`} aria-labelledby={`${id}-title`}>
+      <div className="history-tool-line">
+        <input
+          type="checkbox"
+          id={`${id}-check`}
+          ref={(input) => {
+            if (input) input.indeterminate = some;
+          }}
+          checked={all}
+          disabled={busy || available.length === 0}
+          aria-labelledby={`${id}-title`}
+          aria-describedby={`${id}-summary`}
+          onChange={(event) => selectAll(store, rows, event.target.checked)}
+        />
+        <span className="history-source-icon" aria-hidden="true">
+          <AgentMark agent={tool} size={16} label="" fallback={<span>{name.charAt(0)}</span>} />
+        </span>
+        <span className="history-tool-text">
+          <label className="history-tool-title" id={`${id}-title`} htmlFor={`${id}-check`}>
+            {name}
           </label>
-          <span className="history-group-summary">{summary(sorted, included, available, snapshot.phase, strings)}</span>
-        </div>
+          <span className="history-tool-summary" id={`${id}-summary`}>
+            {summary(included, available, snapshot.phase, strings)}
+          </span>
+        </span>
+        {layout === "chips" && (
+          <span className="history-kind-chips">
+            {kinds.map((kind) => {
+              const ofKind = available.filter((row) => kindOf(row) === kind);
+              const on = ofKind.length > 0 && ofKind.every((row) => row.selected);
+              return (
+                <button
+                  key={kind}
+                  type="button"
+                  className="history-chip"
+                  aria-pressed={on}
+                  disabled={busy || ofKind.length === 0}
+                  onClick={() => selectAll(store, ofKind, !on)}
+                >
+                  {t(`history.group.${kind}`)}
+                </button>
+              );
+            })}
+          </span>
+        )}
         {!alwaysOpen && (
           <button
             type="button"
@@ -177,46 +278,28 @@ function Group({
             <ChevronRight size={12} className="history-chevron" aria-hidden="true" />
           </button>
         )}
-        <Switch
-          id={`${id}-switch`}
-          aria-labelledby={`${id}-title`}
-          checked={available.length > 0 && included.length === available.length}
-          disabled={busy || available.length === 0}
-          onCheckedChange={(checked) => {
-            // On from a partial selection turns every available source on; off turns them all off.
-            for (const row of available) if (row.selected !== checked) store.select(row.id, checked);
-          }}
-        />
       </div>
       {open && (
         <div className="history-sources" id={`${id}-sources`}>
-          {sorted.map((row) => (
-            <SourceRow key={row.id} row={row} store={store} strings={strings} busy={busy} />
+          {kinds.map((kind) => (
+            <fieldset key={kind} className={`history-kind kind-${kind}`}>
+              <legend className="history-kind-title">{t(`history.group.${kind}`)}</legend>
+              {sortByTitle(
+                rows.filter((row) => kindOf(row) === kind),
+                strings,
+              ).map((row) => (
+                <SourceRow key={row.id} row={row} store={store} strings={strings} busy={busy} />
+              ))}
+            </fieldset>
           ))}
-          {group === "chats" && (
-            <button
-              type="button"
-              className="history-link history-find"
-              disabled={busy || Boolean(snapshot.picking)}
-              onClick={() => void store.findExports()}
-            >
-              {t("history.findExports")}
-            </button>
-          )}
         </div>
       )}
     </section>
   );
 }
 
-/** The line under a group's title: what it brings, or its progress once Import runs. */
-function summary(
-  sorted: HistoryRow[],
-  included: HistoryRow[],
-  available: HistoryRow[],
-  phase: string,
-  strings: Strings,
-): string {
+/** The line under a tool's name: which kinds it brings, or its progress once Import runs. */
+function summary(included: HistoryRow[], available: HistoryRow[], phase: string, strings: Strings): string {
   const t = strings.t;
   if (phase === "detecting") return t("history.row.planning");
   const running = included.filter((row) => row.phase !== "idle");
@@ -228,8 +311,8 @@ function summary(
   }
   if (!available.length) return t("history.group.none");
   if (!included.length) return t("history.group.off");
-  const names = sorted.filter((row) => included.includes(row)).map((row) => titleOf(row, strings));
-  return new Intl.ListFormat(strings.language, { style: "short", type: "unit" }).format(names);
+  const kinds = KINDS.filter((kind) => included.some((row) => kindOf(row) === kind));
+  return kinds.length === KINDS.length ? t("history.tool.both") : t(`history.group.${kinds[0]}`);
 }
 
 function SourceRow({
@@ -262,14 +345,6 @@ function SourceRow({
           disabled={busy || !isAvailable(row)}
           onChange={(event) => store.select(row.id, event.target.checked)}
         />
-        <span className="history-source-icon">
-          <AgentMark
-            agent={markFor(row.id, row.title)}
-            size={16}
-            label=""
-            fallback={<span aria-hidden="true">{title.charAt(0)}</span>}
-          />
-        </span>
         <span className="history-source-text">
           <label htmlFor={`history-select-${row.id}`}>{title}</label>
           {where && <span className="history-file">{where}</span>}
@@ -360,21 +435,6 @@ function localizedTitle(id: RowID, strings: Strings): string | undefined {
 
 export function titleOf(row: HistoryRow, strings: Strings): string {
   return row.title ?? localizedTitle(row.id, strings) ?? titleFor(row.id);
-}
-
-function uniqueMarks(rows: HistoryRow[]): string[] {
-  return [...new Set(rows.map((row) => markFor(row.id, row.title)))].slice(0, 3);
-}
-
-function markFor(id: string, title?: string): string {
-  if (id === "claude" || id === "claude-code" || id === "claude-memory") return "claude";
-  if (id === "codex" || id === "codex-sessions") return "codex";
-  if (id === "chatgpt" || id === "dots" || id === "dot") return "chatgpt";
-  if (id === "grok-bot" || title?.toLowerCase().includes("grok")) return "grok";
-  if (id === "muse" || title?.toLowerCase().includes("muse")) return "muse";
-  if (id === "instinct" || title?.toLowerCase().includes("instinct")) return "instinct";
-  if (title?.toLowerCase().includes("dot")) return "chatgpt";
-  return id;
 }
 
 function titleFor(id: string): string {

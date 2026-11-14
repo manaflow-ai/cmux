@@ -195,7 +195,8 @@ pub struct WindowRows {
     pub filling: bool,
     /// The chats a walk read but shows no row of: those a `topLevel` walk left out for their
     /// `parent` (one whose parent goes would take a row, or past the page make `hasMore` true)
-    /// and the first chat past the page (folded, it may make `hasMore` false). Their activity
+    /// and the first chat past the page (folded, it may make `hasMore` false); a window that
+    /// ranks a query or counts its total keeps every chat it folded and no other. Their activity
     /// recomputes the window ([`WindowState::shows_activity_of`]). Not shown, so not compared.
     pub folded: HashSet<String>,
 }
@@ -338,6 +339,7 @@ fn ranked_rows(
     let home = dirs::home_dir().map(|home| home.to_string_lossy().trim_end_matches('/').to_owned());
     let mut candidates: Vec<(String, &IndexedChat)> = Vec::new();
     let mut entries = Vec::new();
+    let mut folded = HashSet::new();
     for chat in index.newest_first() {
         if !spec.filter.matches(chat) {
             continue;
@@ -347,6 +349,8 @@ fn ranked_rows(
             continue;
         }
         if spec.top_level && activity.has_parent(&key) {
+            // Every one: one that unfolds counts in `total` (`WindowState::shows_activity_of`).
+            folded.insert(key);
             continue;
         }
         let entry = &chat.entry;
@@ -392,13 +396,7 @@ fn ranked_rows(
             rows.push((key.clone(), value));
         }
     }
-    WindowRows {
-        rows,
-        has_more: total > spec.filter.limit,
-        total: Some(total),
-        filling,
-        folded: HashSet::new(),
-    }
+    WindowRows { rows, has_more: total > spec.filter.limit, total: Some(total), filling, folded }
 }
 
 /// What a window last sent its client, so the next message is a diff against it.
@@ -436,11 +434,19 @@ impl WindowState {
     /// under its parent; never the index order or the filter. So a window recomputes for a chat
     /// it shows, names as a row's parent, folded or read past its page, and for a `tags` or
     /// `purged` record (a parent's tags or its going decide whether its children fold). A
-    /// `topLevel` window that ranks a query or counts its total reads every chat's fold, so any
-    /// chat counts.
+    /// `topLevel` window that ranks a query or counts its total reads every chat's fold, and
+    /// keeps every chat it folded: there a chat counts when `folds_now` (whether it folds under
+    /// a parent now) says its fold moved, or the window shows it or names it as a row's parent.
     /// Before, every status, turn and permission record of any session recomputed every window
-    /// of every connection: with ~3,000 chats, each read the whole index.
-    pub fn shows_activity_of(&self, chat: Option<&str>, kind: &str) -> bool {
+    /// of every connection: with ~3,000 chats, each read the whole index; and a ranked or counted
+    /// window still recomputed on every record of any chat (Leo 2026-11-04: "never ...
+    /// acceptable ... linear time growth degradation").
+    pub fn shows_activity_of(
+        &self,
+        chat: Option<&str>,
+        kind: &str,
+        folds_now: &mut dyn FnMut() -> bool,
+    ) -> bool {
         let Some(sent) = &self.sent else { return true };
         if matches!(kind, "tags" | "purged")
             || self.expires_at.is_some_and(|at| crate::store::now_ms() >= at)
@@ -448,13 +454,17 @@ impl WindowState {
             return true;
         }
         let Some(chat) = chat else { return false };
-        if self.spec.top_level && (self.spec.query.is_some() || self.spec.count) {
-            return true;
-        }
-        sent.folded.contains(chat)
-            || sent.rows.iter().any(|(key, value)| {
+        let shown = || {
+            sent.rows.iter().any(|(key, value)| {
                 key == chat || value.get("parent").and_then(Value::as_str) == Some(chat)
             })
+        };
+        if self.spec.top_level && (self.spec.query.is_some() || self.spec.count) {
+            // `folded` holds every chat it folded (`rows`, `ranked_rows`), so a fold that stays
+            // moves no row and no `total`.
+            return sent.folded.contains(chat) != folds_now() || shown();
+        }
+        sent.folded.contains(chat) || shown()
     }
 
     /// The `_acpmux/chats_window_changed` params that bring the client from what it was sent to
@@ -654,7 +664,7 @@ mod tests {
     #[test]
     fn only_a_window_that_shows_a_chat_recomputes_for_its_activity() {
         let mut state = WindowState::new(spec(json!({"window": "w", "topLevel": true})), 0);
-        assert!(state.shows_activity_of(Some("a:9"), "status"), "nothing sent yet");
+        assert!(state.shows_activity_of(Some("a:9"), "status", &mut || false), "nothing sent yet");
         let parented = ("a:2".to_owned(), json!({"key": "a:2", "parent": "a:7"}));
         let mut folded = HashSet::new();
         folded.insert("a:5".to_owned());
@@ -665,13 +675,22 @@ mod tests {
             filling: false,
             folded,
         });
-        assert!(state.shows_activity_of(Some("a:1"), "status"), "a row it shows");
-        assert!(state.shows_activity_of(Some("a:7"), "turn_end"), "a row's parent");
-        assert!(state.shows_activity_of(Some("a:5"), "status"), "folded or read past the page");
-        assert!(!state.shows_activity_of(Some("a:9"), "status"), "a chat past the window");
-        assert!(!state.shows_activity_of(None, "status"), "a session with no chat");
-        assert!(state.shows_activity_of(Some("a:9"), "tags"), "tags may fold or unfold rows");
-        assert!(state.shows_activity_of(None, "purged"));
+        assert!(state.shows_activity_of(Some("a:1"), "status", &mut || false), "a row it shows");
+        assert!(state.shows_activity_of(Some("a:7"), "turn_end", &mut || false), "a row's parent");
+        assert!(
+            state.shows_activity_of(Some("a:5"), "status", &mut || false),
+            "folded or read past the page"
+        );
+        assert!(
+            !state.shows_activity_of(Some("a:9"), "status", &mut || false),
+            "a chat past the window"
+        );
+        assert!(!state.shows_activity_of(None, "status", &mut || false), "a session with no chat");
+        assert!(
+            state.shows_activity_of(Some("a:9"), "tags", &mut || false),
+            "tags may fold or unfold rows"
+        );
+        assert!(state.shows_activity_of(None, "purged", &mut || false));
         // A refresh that sends nothing still keeps the chats it folded.
         let parented = ("a:2".to_owned(), json!({"key": "a:2", "parent": "a:7"}));
         let same = |folded: HashSet<String>| WindowRows {
@@ -682,12 +701,27 @@ mod tests {
             folded,
         };
         assert_eq!(state.next(same(HashSet::from(["a:6".to_owned()]))), None);
-        assert!(state.shows_activity_of(Some("a:6"), "status"), "a chat folded since");
-        assert!(!state.shows_activity_of(Some("a:5"), "status"), "a chat no longer folded");
+        assert!(
+            state.shows_activity_of(Some("a:6"), "status", &mut || false),
+            "a chat folded since"
+        );
+        assert!(
+            !state.shows_activity_of(Some("a:5"), "status", &mut || false),
+            "a chat no longer folded"
+        );
         let mut ranked =
             WindowState::new(spec(json!({"window": "q", "topLevel": true, "query": "x"})), 0);
-        ranked.next(WindowRows::default());
-        assert!(ranked.shows_activity_of(Some("a:9"), "status"), "a ranked window reads all");
+        ranked.next(WindowRows {
+            rows: vec![row("a:1", "one")],
+            folded: HashSet::from(["a:5".to_owned()]),
+            ..Default::default()
+        });
+        // A ranked window reads every chat's fold: a chat counts when its fold moved.
+        assert!(!ranked.shows_activity_of(Some("a:9"), "status", &mut || false), "fold stays");
+        assert!(!ranked.shows_activity_of(Some("a:5"), "status", &mut || true), "stays folded");
+        assert!(ranked.shows_activity_of(Some("a:9"), "status", &mut || true), "folds");
+        assert!(ranked.shows_activity_of(Some("a:5"), "status", &mut || false), "unfolds");
+        assert!(ranked.shows_activity_of(Some("a:1"), "status", &mut || false), "a row it shows");
     }
 
     #[test]

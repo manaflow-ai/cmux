@@ -283,7 +283,9 @@ function CommandField({
   const note = repository
     ? t("settingsPage.worktreeSetup.repository", firstLine(repository))
     : t("settingsPage.worktreeSetup.repositoryNone");
-  const state = repository && value === "" ? "off" : repository && value !== undefined ? "replaced" : "repository";
+  // "own": the project sets a script (or an empty one) where the repository has none. Use Repository's
+  // still shows, or a saved script could never go back to following the repository (CMUX-374).
+  const state = value === undefined ? "repository" : !repository ? "own" : value === "" ? "off" : "replaced";
   return (
     <label className="worktree-setup-field" data-worktree-field={id} data-source={state}>
       <span className="row-title">{label}</span>

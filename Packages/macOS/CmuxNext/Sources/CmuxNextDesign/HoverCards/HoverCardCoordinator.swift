@@ -29,6 +29,13 @@ public final class HoverCardCoordinator {
     private var owners: [HoverTargetID: WeakSource] = [:]
     private let timer: DemandTimer
     var panel: HoverCardPanel?
+    /// The source (or ``HoverCardGroup`` in a window) `panel` last showed a card for. A card moves only
+    /// within its own source or group (a sidebar row to the next, to the update card, a tab to the next
+    /// in one strip): another's card gets a window of its own, so it never flies across the screen from
+    /// the sidebar to a pane's tabs (user 2026-11-09).
+    private var panelSource: AnyHashable?
+    /// Card windows of a source the pointer left, fading out where they are.
+    var retiring: [HoverCardPanel] = []
     /// A card its owner shows in the one card window (`presentOwned`), nil while none does.
     var owned: HoverCardOwned?
     private var activated: HoverTargetID?
@@ -342,9 +349,11 @@ public final class HoverCardCoordinator {
     }
 
     /// Refits a shown card after a local disclosure changes its height without reconfiguring it.
-    public func refit(_ id: HoverTargetID) {
+    /// - Parameter animated: The card grows or folds to its new size on the hover cards' motion (its fixed
+    ///   corner stays put), as a retarget's resize does; off, it takes the new size at once.
+    public func refit(_ id: HoverTargetID, animated: Bool = false) {
         guard machine.shownTarget?.id == id else { return }
-        panel?.refit()
+        panel?.refit(animated: animated)
         updateCardMouse()
     }
 
@@ -376,6 +385,31 @@ public final class HoverCardCoordinator {
         pruneOwners()
     }
 
+    /// Whose card window `source`'s cards use: its group's in its window, else its own.
+    func cardKey(of source: any HoverCardSource) -> AnyHashable {
+        guard let group = source.hoverCardGroup else { return AnyHashable(ObjectIdentifier(source)) }
+        return cardKey(group, in: source.hoverCardWindow)
+    }
+
+    /// `group`'s card window key in `window` (two windows' sidebars do not share a card).
+    func cardKey(_ group: HoverCardGroup, in window: NSWindow?) -> AnyHashable {
+        AnyHashable([AnyHashable(group), AnyHashable(window.map(ObjectIdentifier.init))])
+    }
+
+    /// The card window for a card of `id` (``cardKey(of:)``): the shown one when it is that key's or
+    /// hidden, else a new one, and the other key's card fades out in place (no slide between sources).
+    func cardWindow(for id: AnyHashable) -> HoverCardPanel {
+        defer { panelSource = id }
+        if let panel, panelSource == id || !panel.isVisible { return panel }
+        if let old = panel {
+            retiring.append(old)
+            old.dismiss { [weak self] in self?.retiring.removeAll { !$0.isVisible } }
+        }
+        let fresh = HoverCardPanel()
+        panel = fresh
+        return fresh
+    }
+
     private var queue: [HoverCardEvent] = []
     private var draining = false
 
@@ -399,8 +433,7 @@ public final class HoverCardCoordinator {
                 send(.targetRemoved(target.id))
                 return
             }
-            let panel = panel ?? HoverCardPanel()
-            self.panel = panel
+            let panel = cardWindow(for: cardKey(of: source))
             panel.present(body: body.view, anchor: anchor, placement: body.placement, parent: parent,
                           themeAnchor: body.themeAnchor, sliding: sliding, interactive: body.interactive,
                           cornerRadius: body.cornerRadius, entrance: body.entrance, applyTheme: body.applyTheme)
@@ -547,7 +580,7 @@ public final class HoverCardCoordinator {
     /// shows what the machine says.
     public func singleCardViolations() -> [String] {
         var bad: [String] = []
-        if HoverCardPanel.liveInstances > 1 { bad.append("\(HoverCardPanel.liveInstances) hover card windows exist") }
+        if HoverCardPanel.liveInstances > 1 + retiring.count { bad.append("\(HoverCardPanel.liveInstances) hover card windows exist") }
         let showing = panel?.isShowingCard == true
         if showing, machine.shownTarget == nil, owned == nil { bad.append("a card shows while the machine has none") }
         if owned != nil, machine.shownTarget != nil { bad.append("an owner's card and \(machine.shownTarget?.id.rawValue ?? "-") share the window") }
@@ -567,6 +600,7 @@ public final class HoverCardCoordinator {
             "shown_target": machine.shownTarget?.id.rawValue ?? "-",
             "quiet": "\(machine.quiet)",
             "card_windows": "\(HoverCardPanel.liveInstances)",
+            "retiring_windows": "\(retiring.count)",
             "card_showing": "\(panel?.isShowingCard == true)",
             "card_frame": panel.map { NSStringFromRect($0.cardFrame) } ?? "-",
             "anchor_frame": panel.map { NSStringFromRect($0.anchorFrame) } ?? "-",

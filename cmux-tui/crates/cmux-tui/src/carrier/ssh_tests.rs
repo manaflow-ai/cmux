@@ -253,6 +253,61 @@ fn the_ssh_group_comes_after_the_relay_only_when_every_piece_is_there() {
     assert_eq!(codes, ["no_candidate", "no_tunnel", "no_key"]);
 }
 
+/// `carrier capabilities` reports ssh from the dial's own check: for every
+/// device setup, ssh is available exactly when an answer with an ssh
+/// candidate gets an ssh route, and unavailable with the same code.
+#[test]
+fn capabilities_and_the_dial_agree_on_every_setup() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = endpoints("10.20.0.7", 4_000_000_000);
+    let (full, _hub) = setup(dir.path(), true);
+    let quiet = tempfile::tempdir().unwrap();
+    let (no_listener, _) = setup(quiet.path(), false);
+    let with_ssh = answer(Some(candidate()));
+    for (tag, setup) in [
+        ("full", full.clone()),
+        ("no hub socket", no_listener),
+        ("no hub", SshSetup { hub: None, ..full.clone() }),
+        ("no exe", SshSetup { exe: None, ..full.clone() }),
+        ("no state", SshSetup { state: None, ..full.clone() }),
+        (
+            "a state dir ssh would expand",
+            SshSetup { state: Some(dir.path().join("a${b}")), ..full.clone() },
+        ),
+    ] {
+        let dial =
+            ssh_route(&setup, &with_ssh, MACHINE, source.clone(), far(), &SshRefusal::default())
+                .map(|_| ());
+        let ready = super::ssh_ready(&setup);
+        assert_eq!(ready, dial, "{tag}");
+        let caps = super::super::fault::capabilities(&super::super::fault::this_build(ready));
+        let ssh = &caps["carriers"]["ssh"];
+        assert_eq!(ssh["available"], dial.is_ok(), "{tag}: {caps}");
+        match dial {
+            Ok(()) => assert_eq!(caps["routes"], serde_json::json!(["relay", "ssh"]), "{tag}"),
+            Err(why) => {
+                assert_eq!(caps["routes"], serde_json::json!(["relay"]), "{tag}");
+                assert_eq!(ssh["code"], why.code(), "{tag}");
+                assert!(ssh["reason"].as_str().is_some_and(|r| !r.is_empty()), "{tag}");
+            }
+        }
+    }
+    // A path ssh would expand (`${`) is no route on either side, and no key
+    // is made where ssh could not use it.
+    let expanding = SshSetup { state: Some(dir.path().join("a${b}")), ..full };
+    assert_eq!(super::ssh_ready(&expanding), Err(Absent::Key));
+    let caps = super::super::fault::capabilities(&super::super::fault::this_build(
+        super::ssh_ready(&expanding),
+    ));
+    assert_eq!(caps["carriers"]["ssh"]["code"], "no_key", "{caps}");
+    assert!(!dir.path().join("a${b}").join("id_ed25519").exists(), "no key in an unusable dir");
+    assert_eq!(
+        super::ssh_ready(&SshSetup::default()),
+        Err(Absent::Tunnel),
+        "a setup with nothing in it has no ssh"
+    );
+}
+
 #[tokio::test]
 async fn a_link_authorizes_the_carrier_key_once_and_pins_the_endpoint_s_host_key() {
     let dir = tempfile::tempdir().unwrap();
@@ -383,8 +438,10 @@ fn ssh_runs_with_the_carrier_key_the_pin_and_the_tunnel_only() {
     )
     .unwrap();
     let options: Vec<_> = args.chunks(2).filter(|p| p[0] == "-o").map(|p| p[1].as_str()).collect();
-    assert_eq!(&args[..4], ["-F", "/dev/null", "-i", "/state/ssh/id_ed25519"]);
+    assert_eq!(&args[..2], ["-F", "/dev/null"]);
+    assert!(!args.iter().any(|a| a == "-i"), "the key goes as an option: {args:?}");
     for want in [
+        "IdentityFile=\"/state/ssh/id_ed25519\"",
         "IdentitiesOnly=yes",
         "IdentityAgent=none",
         "StrictHostKeyChecking=yes",
@@ -693,4 +750,92 @@ fn a_stderr_tail_is_one_quoted_safe_line_and_only_its_end_is_logged() {
     assert!(field.ends_with("yend"));
     let quiet = routes_line(MACHINE, Phase::Resume, None, None, None, Some("  "));
     assert!(!quiet.contains("ssh_stderr"), "{quiet}");
+}
+
+/// A state directory whose path holds `%`: every path reaches ssh as an
+/// option it expands, with `%` doubled, and none as `-i` (which ssh would
+/// `stat` unexpanded and drop). A path holding `${` is refused: ssh would
+/// expand it as an environment variable.
+#[test]
+fn a_state_path_with_percent_reaches_ssh_escaped_in_options_only() {
+    let args = ssh_arguments(
+        Path::new("/home/a%b/state/ssh/id_ed25519"),
+        Path::new("/home/a%b/state/ssh/vm/known_hosts"),
+        Path::new("/opt/cmux"),
+        Path::new("/home/a%b/state/carrier/tunnel.sock"),
+    )
+    .unwrap();
+    assert!(!args.iter().any(|a| a == "-i"), "{args:?}");
+    let options: Vec<_> = args.chunks(2).filter(|p| p[0] == "-o").map(|p| p[1].as_str()).collect();
+    for want in [
+        "IdentityFile=\"/home/a%%b/state/ssh/id_ed25519\"",
+        "UserKnownHostsFile=\"/home/a%%b/state/ssh/vm/known_hosts\"",
+        "ProxyCommand='/opt/cmux' wg dial --hub '/home/a%%b/state/carrier/tunnel.sock' %h %p",
+    ] {
+        assert!(options.contains(&want), "{want} in {options:?}");
+    }
+    assert!(!args.iter().any(|a| a.contains("a%b")), "no single % reaches ssh: {args:?}");
+    let dollar = Path::new("/home/${USER}/ssh/id_ed25519");
+    assert_eq!(ssh_arguments(dollar, Path::new("/p"), Path::new("/e"), Path::new("/h")), None);
+    assert!(
+        ssh_arguments(Path::new("/home/a$b/k"), Path::new("/p"), Path::new("/e"), Path::new("/h"))
+            .is_some(),
+        "a lone $ is literal to ssh"
+    );
+}
+
+/// An ssh-endpoint that answers only when the test says so, 501 then, and
+/// counts its asks.
+struct Gated {
+    calls: AtomicUsize,
+    gate: tokio::sync::Semaphore,
+}
+
+#[async_trait]
+impl CarrierSource for Gated {
+    async fn fetch(&self, _: &str, _: Option<&[u8; 32]>) -> Result<CarrierAnswer, SourceError> {
+        Err(SourceError::fatal("not here"))
+    }
+
+    async fn ssh_endpoint(&self, _: &str, _: &str) -> Result<SshEndpoint, SourceError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        let _open = self.gate.acquire().await;
+        let body = json!({"ok": false, "error": {"code": "not_implemented", "message": "no"}});
+        read_ssh_endpoint(501, &body, super::now_unix())
+    }
+}
+
+/// An open queued behind the pre-warm's authorization does not ask again
+/// when the pre-warm came back with a refusal for good: it fails at once
+/// with the refusal, and the endpoint was asked once.
+#[tokio::test]
+async fn an_open_queued_behind_a_refused_prewarm_skips_ssh_without_asking() {
+    let dir = tempfile::tempdir().unwrap();
+    let (full, _hub) = setup(dir.path(), true);
+    let source =
+        Arc::new(Gated { calls: AtomicUsize::new(0), gate: tokio::sync::Semaphore::new(0) });
+    let refusal = SshRefusal::default();
+    let route =
+        ssh_route(&full, &answer(Some(candidate())), MACHINE, source.clone(), far(), &refusal)
+            .unwrap();
+    route.prewarm();
+    // The pre-warm holds the authorization turn, waiting on the endpoint.
+    while source.calls.load(Ordering::SeqCst) == 0 {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let queued = tokio::spawn({
+        let route = route.clone();
+        async move { route.authorize().await }
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(!queued.is_finished(), "the open waits for the pre-warm's turn");
+    source.gate.add_permits(8);
+    let error = tokio::time::timeout(Duration::from_secs(5), queued).await.unwrap().unwrap();
+    let error = error.unwrap_err();
+    assert!(
+        error.to_string().contains("carrier ssh route dropped: cmux-platform answered 501"),
+        "{error}"
+    );
+    assert_eq!(source.calls.load(Ordering::SeqCst), 1, "the queued open asked nothing");
+    assert!(refusal.get().is_some());
 }

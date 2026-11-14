@@ -41,12 +41,18 @@ struct HomeScreen: View {
         NavigationStack(path: $shell.homePath) {
             ConversationsHome(store: shell.store, macFilter: shell.macFilter,
                               reconnect: shell.live.map { live in { macID in await live.reconnectFeed(macID: macID) } },
-                              selectMac: shell.live.map { live in { live.select(macID: $0) } }, open: { route in
+                              selectMac: shell.live.map { live in { live.select(macID: $0) } },
+                              inviteToTeam: { email in
+                                  guard let team = shell.store.activeTeam else { return }
+                                  shell.sendInvite(email: email, to: team)
+                              }, open: { route in
                 if let chief = route.chiefRoute {
                     shell.homePath.append(chief)
                 } else if case let .agent(destination) = route {
                     shell.homePath.append(destination)
                 } else if case let .mac(conversation) = route {
+                    shell.homePath.append(conversation)
+                } else if case let .cloud(conversation) = route {
                     shell.homePath.append(conversation)
                 }
             }) {
@@ -100,7 +106,7 @@ struct WorkspacesScreen: View {
                     // WorkspacesList owns the title and the Mac chip row.
                     SidebarToolbarItem(sidebar: shell.sidebar)
                 }
-                .cmuxMobileBanner(shell.banner, retry: shell.live.map { live in { live.retryConnection() } })
+                .cmuxMobileBanner(shell.banner, retry: shell.bannerHasAction ? { shell.bannerAction() } : nil)
         }
     }
 }
