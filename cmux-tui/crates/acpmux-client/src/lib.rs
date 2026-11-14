@@ -1116,12 +1116,14 @@ where
         else {
             return false;
         };
-        let retry = !mirror.read_error_since_progress;
-        mirror.read_error_since_progress = true;
         let Some(state) = state else { return false };
         if matches!(state.purpose, PagePurpose::User) {
-            return false;
+            // Freeing the caller's slot may release a waiting walk. The
+            // caller's error neither spends nor restores its retry allowance.
+            return mirror.walking && !mirror.whole && !mirror.reads_stopped;
         }
+        let retry = !mirror.read_error_since_progress;
+        mirror.read_error_since_progress = true;
         if matches!(state.purpose, PagePurpose::Wanted)
             && let Some(keys) = state.request.and_then(|request| request.keys)
         {
