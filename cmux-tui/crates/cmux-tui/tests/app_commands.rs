@@ -4,6 +4,10 @@
 //! the CLI builds the arguments from the op's input schema and runs it with
 //! `apps-run`. The app host is a script that answers each run with the run
 //! frame it got, so the test sees the export and arguments the op ran with.
+//!
+//! The same op is an agent tool (section 2): `cmux mcp serve` lists an op
+//! whose catalog entry offers it (`mcp.expose: "default"`) and runs it with
+//! `apps-run`, origin `mcp`; an op not offered is neither listed nor run.
 #![cfg(unix)]
 
 use std::io::{BufRead, BufReader, Write};
@@ -131,6 +135,99 @@ impl Daemon {
     }
 }
 
+impl Daemon {
+    /// One daemon command on its own connection; the whole reply.
+    fn request(&self, mut request: Value) -> Value {
+        let stream = UnixStream::connect(&self.socket).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(12))).unwrap();
+        let mut reader = BufReader::new(stream);
+        request["id"] = json!(1);
+        writeln!(reader.get_mut(), "{request}").unwrap();
+        loop {
+            let mut line = String::new();
+            assert_ne!(reader.read_line(&mut line).unwrap(), 0, "the daemon closed");
+            let reply: Value = serde_json::from_str(&line).unwrap();
+            if reply["id"] == json!(1) {
+                return reply;
+            }
+        }
+    }
+
+    /// `cmux mcp serve --all-tools` on this daemon, initialized.
+    fn mcp(&self) -> Mcp {
+        std::fs::write(self.dir.join("cmux-next.json"), r#"{"mcp":{"enabled":true}}"#).unwrap();
+        let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+            .arg("--socket")
+            .arg(&self.socket)
+            .arg("--app-socket")
+            .arg(self.dir.join("no-app.sock"))
+            .args(["mcp", "serve", "--all-tools"])
+            .env("HOME", &self.dir)
+            .env("CMUX_NEXT_CONFIG_FILE", self.dir.join("cmux-next.json"))
+            .env_remove("CMUX_TUI_SOCKET")
+            .env_remove("CMUX_SOCKET_PATH")
+            .env_remove("CMUX_MCP_TOOLS")
+            .env_remove("CMUX_AGENT_SESSION")
+            .env_remove("CMUX_TUI_TERMINAL_ID")
+            .env("LANG", "C")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut mcp = Mcp {
+            stdin: Some(child.stdin.take().unwrap()),
+            stdout: BufReader::new(child.stdout.take().unwrap()),
+            child,
+            next: 0,
+        };
+        mcp.rpc(
+            "initialize",
+            json!({ "protocolVersion": "2025-06-18", "capabilities": {},
+                "clientInfo": { "name": "app-commands", "version": "1" } }),
+        );
+        mcp.send(json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }));
+        mcp
+    }
+}
+
+/// A `cmux mcp serve` this test started.
+struct Mcp {
+    child: std::process::Child,
+    stdin: Option<std::process::ChildStdin>,
+    stdout: BufReader<std::process::ChildStdout>,
+    next: u64,
+}
+
+impl Mcp {
+    fn send(&mut self, message: Value) {
+        writeln!(self.stdin.as_mut().unwrap(), "{message}").unwrap();
+    }
+
+    /// One request; its whole response (`result` or `error`).
+    fn rpc(&mut self, method: &str, params: Value) -> Value {
+        self.next += 1;
+        let id = self.next;
+        self.send(json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }));
+        loop {
+            let mut line = String::new();
+            assert!(self.stdout.read_line(&mut line).unwrap() > 0, "mcp closed before {method}");
+            let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
+            if message["id"] == id {
+                return message;
+            }
+        }
+    }
+}
+
+impl Drop for Mcp {
+    fn drop(&mut self) {
+        // Closing stdin ends the server.
+        drop(self.stdin.take());
+        let _ = self.child.wait();
+    }
+}
+
 impl Drop for Daemon {
     fn drop(&mut self) {
         let _ = self.server("stop").arg("--end-terminals").output();
@@ -140,13 +237,14 @@ impl Drop for Daemon {
 
 /// Writes the app `acme/demo`, called `demo`, into `root`: the op
 /// `acme.demo.ping` at `cmux demo ping` and `acme.demo.start` at
-/// `cmux demo session start`.
+/// `cmux demo session start`. Ping is offered to agents; `acme.demo.secret`
+/// (`cmux demo secret`) only when the person turns it on.
 fn write_demo(root: &Path) {
     let app = root.join("demo");
     std::fs::create_dir_all(app.join("dist")).unwrap();
     std::fs::write(app.join("dist/main.js"), "var __cmuxAppExports = {};\n").unwrap();
-    let op = |verb: &str, path: &str| {
-        json!({
+    let op = |verb: &str, path: &str, expose: Option<&str>| {
+        let mut op = json!({
             "name": format!("acme.demo.{verb}"), "owner": "app:acme/demo", "class": "read",
             "risk": "read", "idempotency": "forbidden", "docs": format!("{verb} the demo"),
             "since": "demo/1", "export": verb,
@@ -154,9 +252,18 @@ fn write_demo(root: &Path) {
                 "text": { "type": "string" }, "loud": { "type": "boolean" }, "count": { "type": "integer" }
             } },
             "cli": { "path": path, "positional": ["text"] },
-        })
+        });
+        if let Some(expose) = expose {
+            op["mcp"] = json!({ "expose": expose });
+        }
+        op
     };
-    let catalog = json!({ "family": "acme.demo", "operations": [op("ping", "ping"), op("start", "session start")] });
+    let operations = [
+        op("ping", "ping", Some("default")),
+        op("start", "session start", None),
+        op("secret", "secret", Some("opt_in")),
+    ];
+    let catalog = json!({ "family": "acme.demo", "operations": operations });
     std::fs::write(app.join("catalog.json"), catalog.to_string()).unwrap();
     let manifest = json!({
         "manifestVersion": 2, "id": "acme/demo", "name": "Demo", "version": "1.0.0",
@@ -236,4 +343,48 @@ fn an_app_never_shadows_a_built_in_command_routed_after_the_grammar() {
     let shared = daemon.cmux(&["share", "revoke", "sh_1"]);
     let stdout = String::from_utf8_lossy(&shared.stdout);
     assert!(!stdout.contains("\"ran\""), "the app ran in place of cmux share: {shared:?}");
+}
+
+#[test]
+fn an_extension_op_offered_to_agents_is_an_mcp_tool_and_the_rest_are_refused() {
+    let daemon = Daemon::new("mcp");
+    write_demo(&daemon.dir.join("bundled"));
+    daemon.start();
+    daemon.install("acme/demo");
+    let mut mcp = daemon.mcp();
+
+    // `tools/list` has the offered op, with its input schema, and no other.
+    let listed = mcp.rpc("tools/list", json!({}));
+    let tools = listed["result"]["tools"].as_array().unwrap_or_else(|| panic!("{listed}"));
+    let ping = tools.iter().find(|tool| tool["name"] == "acme_demo_ping");
+    let ping = ping.unwrap_or_else(|| panic!("no acme_demo_ping in {listed}"));
+    assert_eq!(ping["inputSchema"]["properties"]["count"]["type"], "integer", "{ping}");
+    assert_eq!(ping["annotations"]["readOnlyHint"], true, "{ping}");
+    for hidden in ["acme_demo_secret", "acme_demo_start"] {
+        assert!(!tools.iter().any(|tool| tool["name"] == hidden), "{hidden} listed: {listed}");
+    }
+
+    // Calling it runs the op in the app's host and returns the op's result.
+    let called = mcp.rpc(
+        "tools/call",
+        json!({ "name": "acme_demo_ping", "arguments": { "text": "hi", "count": 2 } }),
+    );
+    let result = &called["result"];
+    assert_eq!(result["isError"], false, "{called}");
+    assert_eq!(result["structuredContent"]["value"]["ran"]["export"], "ping", "{called}");
+    assert_eq!(
+        result["structuredContent"]["value"]["ran"]["args"],
+        json!({ "text": "hi", "count": 2 })
+    );
+
+    // An op the person has not turned on for agents is no tool, and the
+    // daemon refuses an agent's run of it however the agent asks.
+    let secret = mcp.rpc("tools/call", json!({ "name": "acme_demo_secret", "arguments": {} }));
+    assert!(secret.get("error").is_some() || secret["result"]["isError"] == true, "{secret}");
+    let refused = daemon.request(json!({ "cmd": "apps-run", "origin": "mcp", "app": "acme/demo",
+        "op": "acme.demo.secret", "args": {} }));
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(refused["error_code"], "apps.op.not_offered", "{refused}");
+    // The person's own CLI still runs it.
+    assert_eq!(ran(&daemon.cmux(&["demo", "secret"]))["export"], "secret");
 }
