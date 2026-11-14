@@ -261,6 +261,8 @@ impl History {
     ) -> Option<RawSpan> {
         #[cfg(test)]
         let _copy_permit = RawCopyPermit::new(&self.raw_copy_permit, &self.raw_copy_waiting);
+        #[cfg(test)]
+        self.raw_copies.fetch_add(1, Ordering::Release);
         if cursor >= through {
             return Some(RawSpan { bytes: Vec::new(), last_seq: cursor, entries: Vec::new() });
         }
@@ -297,8 +299,6 @@ impl History {
     }
 
     fn copy_entry_into(&self, entry: Entry, out: &mut Vec<u8>) -> bool {
-        #[cfg(test)]
-        self.raw_copies.fetch_add(1, Ordering::Release);
         let capacity = self.bytes.len();
         let first_len = entry.len.min(capacity.saturating_sub(entry.start));
         let Some(first) = self.bytes.get(entry.start..entry.start + first_len) else {
