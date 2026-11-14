@@ -134,6 +134,11 @@ fn an_old_record_is_sent_with_its_kept_images_size() {
     assert_eq!(old["inlineParts"][0]["height"], json!(229));
     assert!(old["images"][1].get("width").is_none());
     assert!(old["inlineParts"][1].get("width").is_none());
+    // An image not kept yet is not remembered as sizeless: once a restore writes it, it is read.
+    let late = super::super::prompt_images::image_path(&missing).unwrap();
+    std::fs::write(&late, png(640, 100)).unwrap();
+    assert_eq!(kept_size(&missing), Some((640, 100)));
+    std::fs::remove_file(&late).unwrap();
     // Kept: the file going away does not take the size with it (an id names its bytes).
     std::fs::remove_file(&path).unwrap();
     assert_eq!(kept_size(&id), Some((1280, 229)));

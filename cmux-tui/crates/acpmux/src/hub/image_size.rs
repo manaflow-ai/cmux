@@ -119,7 +119,7 @@ fn exif_rotates(b: &[u8], start: usize, end: usize) -> bool {
     false
 }
 
-/// Kept images' sizes by id (`None`: no kept file, or no size its header says). An id is the
+/// Kept images' sizes by id (`None`: a kept file whose header names no size). An id is the
 /// SHA-256 of the image's bytes, so an entry is never stale; a size is a few bytes.
 static KEPT_SIZES: LazyLock<Mutex<HashMap<String, Option<(u32, u32)>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -134,17 +134,17 @@ pub(crate) fn kept_size(id: &str) -> Option<(u32, u32)> {
     if let Some(known) = KEPT_SIZES.lock().unwrap_or_else(|e| e.into_inner()).get(id) {
         return *known;
     }
-    let size = super::prompt_images::image_path(id).and_then(|path| {
-        let mut file = std::fs::File::open(&path).ok()?;
-        let mut head = Vec::with_capacity(FIRST_READ as usize);
-        (&mut file).take(FIRST_READ).read_to_end(&mut head).ok()?;
-        pixel_size(&head).or_else(|| {
-            if !head.starts_with(b"\xff\xd8") || (head.len() as u64) < FIRST_READ {
-                return None;
-            }
-            file.take(MAX_HEADER - FIRST_READ).read_to_end(&mut head).ok()?;
-            pixel_size(&head)
-        })
+    // An image this machine does not keep yet (a peer's chat, one a restore writes back later) is
+    // not remembered as sizeless: it is read again once it is kept.
+    let mut file = std::fs::File::open(super::prompt_images::image_path(id)?).ok()?;
+    let mut head = Vec::with_capacity(FIRST_READ as usize);
+    (&mut file).take(FIRST_READ).read_to_end(&mut head).ok()?;
+    let size = pixel_size(&head).or_else(|| {
+        if !head.starts_with(b"\xff\xd8") || (head.len() as u64) < FIRST_READ {
+            return None;
+        }
+        file.take(MAX_HEADER - FIRST_READ).read_to_end(&mut head).ok()?;
+        pixel_size(&head)
     });
     let mut sizes = KEPT_SIZES.lock().unwrap_or_else(|e| e.into_inner());
     if sizes.len() >= MAX_KEPT_SIZES {
