@@ -386,7 +386,14 @@ extension WorkspaceCreator {
         task.picks = []
         let why = reason?.isEmpty == false ? reason
             : "The Mac couldn't start this task. Check that cmux is running on it, then start it again."
-        if taskDraft.isEmpty {
+        if taskDraft.id == origin.id {
+            // The composer holds this task, given back for another of its agents (and maybe
+            // edited since): this agent joins it; the person's edits stay.
+            taskDraft.picks += origin.picks.filter { !taskDraft.picks.contains($0) }
+            refusedTasks[placeholderID] = .composer
+            taskRefusal = why
+            saveTaskDraft()
+        } else if taskDraft.isEmpty {
             // Only this agent comes back: the task's other agents may have started it already.
             // Saved at once too: the app may be gone before the composer opens again.
             taskDraft = origin
@@ -394,31 +401,15 @@ extension WorkspaceCreator {
             refusedTasks[placeholderID] = .composer
             taskRefusal = why
             saveTaskDraft()
-        } else if restoredTask == task, taskDraftMatches(origin) {
-            // Another agent of the same task failed too: it joins the draft given back.
-            taskDraft.picks += origin.picks.filter { !taskDraft.picks.contains($0) }
-            refusedTasks[placeholderID] = .composer
-            taskRefusal = why
-            saveTaskDraft()
-        } else if let saved = taskDrafts.entry(origin.id), saved.prompt == origin.prompt {
-            // Another agent of a task already saved to the drafts list: it joins that draft.
-            var merged = origin
-            merged.picks = saved.picks + origin.picks.filter { !saved.picks.contains($0) }
-            taskDrafts.save(merged)
+        } else if taskDrafts.entry(origin.id) != nil {
+            // Saved to the drafts list for another of its agents (maybe edited since): only
+            // this agent joins it, nothing else of the saved draft changes.
+            taskDrafts.addPicks(origin.picks, to: origin.id)
             refusedTasks[placeholderID] = .drafts
         } else {
-            // A draft saved under this id since (given back, then edited) is never written over.
-            var kept = origin
-            if taskDrafts.entry(origin.id) != nil { kept.id = UUID() }
-            taskDrafts.save(kept)
+            taskDrafts.save(origin)
             refusedTasks[placeholderID] = .drafts
         }
-    }
-
-    /// Whether the composer holds `origin`'s task (its prompt, photos, name and place).
-    private func taskDraftMatches(_ origin: TaskDraft) -> Bool {
-        taskDraft.prompt == origin.prompt && taskDraft.images == origin.images && taskDraft.name == origin.name
-            && taskDraft.macID == origin.macID && taskDraft.directory == origin.directory
     }
 
     /// Whether `placeholderID` was a New Task workspace the Mac refused (its task is back in the

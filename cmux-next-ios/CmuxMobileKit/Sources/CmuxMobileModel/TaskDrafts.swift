@@ -147,6 +147,20 @@ public final class TaskDraftStore {
         persist(newImages: blobs)
     }
 
+    /// Adds `picks` to the saved draft `id` (another agent of its task was refused), changing
+    /// nothing else of it.
+    public func addPicks(_ picks: [TaskAgentPick], to id: UUID, now: Date = Date()) {
+        guard let index = drafts.firstIndex(where: { $0.id == id }) else { return }
+        var entry = drafts.remove(at: index)
+        entry.picks += picks.filter { !entry.picks.contains($0) }
+        entry.updatedAt = now
+        drafts.insert(entry, at: drafts.firstIndex { $0.updatedAt <= now } ?? drafts.endIndex)
+        persist(newImages: [])
+    }
+
+    /// The last write of the index failed (the drafts on disk are older than these).
+    public private(set) var lastWriteFailed = false
+
     public func delete(_ ids: Set<UUID>) {
         guard drafts.contains(where: { ids.contains($0.id) }) else { return }
         drafts.removeAll { ids.contains($0.id) }
@@ -196,7 +210,8 @@ public final class TaskDraftStore {
             // What memory holds now, the read merged in.
             let index = self.drafts
             let keep = Set(index.flatMap(\.blobIDs))
-            await disk.write(index: index, images: writes.filter { keep.contains($0.id) }, keeping: keep)
+            let written = await disk.write(index: index, images: writes.filter { keep.contains($0.id) }, keeping: keep)
+            self.lastWriteFailed = !written
             for image in writes { self.memoryImages[image.id] = nil }
         }
     }
@@ -247,7 +262,9 @@ actor TaskDraftDisk {
         return try? Data(contentsOf: images.appendingPathComponent(id))
     }
 
-    func write(index drafts: [SavedTaskDraft], images new: [TaskImage], keeping kept: Set<String>) {
+    /// Whether the index was written.
+    @discardableResult
+    func write(index drafts: [SavedTaskDraft], images new: [TaskImage], keeping kept: Set<String>) -> Bool {
         let files = FileManager.default
         try? files.createDirectory(at: images, withIntermediateDirectories: true)
         // A file already written keeps its bytes (a draft's photos don't change under its id).
@@ -257,12 +274,15 @@ actor TaskDraftDisk {
             if files.fileExists(atPath: file.path) { continue }
             try? image.data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         }
-        if let data = try? JSONEncoder().encode(drafts) {
-            try? data.write(to: index, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        guard let data = try? JSONEncoder().encode(drafts),
+              (try? data.write(to: index, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])) != nil else {
+            // The old index stands, so the files it names stay too.
+            return false
         }
         for name in (try? files.contentsOfDirectory(atPath: images.path)) ?? [] where !kept.contains(name) {
             try? files.removeItem(at: images.appendingPathComponent(name))
         }
+        return true
     }
 
     /// A photo id is a file name: letters, digits and dashes only (never a path).

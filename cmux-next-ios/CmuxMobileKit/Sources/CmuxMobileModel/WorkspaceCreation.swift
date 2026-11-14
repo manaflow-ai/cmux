@@ -796,6 +796,15 @@ public final class WorkspaceCreator {
     private func run(_ request: NewWorkspaceRequest, placeholder: Workspace) async {
         defer { tasks[placeholder.id] = nil }
         do {
+            if request.task != nil {
+                // Off the drafts list on disk before anything reaches the Mac: a draft still
+                // there after a relaunch would start the task a second time.
+                await taskDrafts.flush()
+                if taskDrafts.lastWriteFailed {
+                    throw WorkspaceCreationError("Couldn't update this iPhone's saved drafts, so the task wasn't started. Try again.",
+                                                 isForPerson: true)
+                }
+            }
             let real = try await backend.create(request, placeholder: placeholder)
             store.resolvePending(placeholder.id, with: real)
             if let tab = Self.openingTab(of: real, for: request.start) {

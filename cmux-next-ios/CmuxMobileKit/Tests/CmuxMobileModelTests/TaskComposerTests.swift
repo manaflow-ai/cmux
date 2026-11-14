@@ -165,18 +165,41 @@ import Testing
     /// over by a late refusal of another of its agents; that one is saved beside it.
     @Test func aLateRefusalNeverWritesOverAnEditedDraft() {
         let (_, creator, _) = make()
-        let origin = Self.chat(TaskDraft(prompt: "Original", picks: [TaskAgentPick(harness: "codex")]))
-        // Given back once (another agent), then edited and saved under the same id.
+        let origin = Self.chat(TaskDraft(prompt: "Original", picks: [TaskAgentPick(harness: "claude")], name: "first name"))
+        // Given back once (for claude), then edited and saved; the person writes another task.
         var edited = origin
         edited.prompt = "Edited"
+        edited.name = "renamed"
         creator.taskDrafts.save(edited)
         creator.taskDraft.prompt = "Writing the next task"
-        // A late refusal of the task's other agent.
-        creator.taskOrigins["late"] = origin
+        // A late refusal of the task's other agent: it joins the saved draft, edits kept.
+        var late = origin
+        late.picks = [TaskAgentPick(harness: "codex")]
+        creator.taskOrigins["late"] = late
         creator.restoreTaskDraft(after: "late", reason: "No")
-        #expect(creator.taskDrafts.entry(origin.id)?.prompt == "Edited")
-        #expect(Set(creator.taskDrafts.drafts.map(\.prompt)) == ["Edited", "Original"])
+        let saved = try? #require(creator.taskDrafts.entry(origin.id))
+        #expect(saved?.prompt == "Edited" && saved?.name == "renamed")
+        #expect(saved?.picks.map(\.harness) == ["claude", "codex"])
+        #expect(creator.taskDrafts.drafts.count == 1)
         #expect(creator.refusedTaskPlace("late") == .drafts)
+    }
+
+    /// Third review 2026-11-14: the composer holds the task given back and edited; another
+    /// agent's late refusal joins it there (never lost, never written over).
+    @Test func aLateRefusalJoinsTheEditedTaskInTheComposer() {
+        let (_, creator, _) = make()
+        var held = Self.chat(TaskDraft(prompt: "Edited", picks: [TaskAgentPick(harness: "claude")], name: "renamed"))
+        creator.taskDraft = held
+        var late = held
+        late.prompt = "Original"
+        late.name = ""
+        late.picks = [TaskAgentPick(harness: "codex")]
+        creator.taskOrigins["late"] = late
+        creator.restoreTaskDraft(after: "late", reason: "No")
+        held.picks.append(TaskAgentPick(harness: "codex"))
+        #expect(creator.taskDraft == held)
+        #expect(creator.refusedTaskPlace("late") == .composer)
+        #expect(creator.taskDrafts.entry(held.id)?.picks.count == 2)
     }
 
     /// Review 2026-11-12: one refused agent of several brings back only that agent, so the
@@ -513,6 +536,30 @@ import Testing
 
 /// Drafts keep files and where the task runs; a draft saved before those were kept still reads.
 @MainActor @Suite struct TaskDraftFilesTests {
+    /// Third review 2026-11-14: a started draft leaves the disk before anything reaches the
+    /// Mac; when that write fails nothing is sent and the task stays in the composer.
+    @Test func aTaskIsNotSentWhileItsDraftCanStillBeReadBackFromDisk() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("drafts-\(UUID().uuidString)")
+        // A file where the folder should be: every write of the index fails.
+        try Data("x".utf8).write(to: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = TaskDraftStore(directory: root)
+        await store.load()
+        let backend = ScriptedBackend()
+        backend.creatable = ["mac-studio"]
+        backend.options = WorkspaceCreationOptions(directories: true, agents: [""], browser: true)
+        let defaults = try #require(UserDefaults(suiteName: "cmuxMobile.tests.unwritable.\(UUID().uuidString)"))
+        let creator = WorkspaceCreator(store: AppStore.mock(tabMemory: .inMemory()), backend: backend, defaults: defaults, taskDrafts: store)
+        var failures: [String] = []
+        creator.onFailure = { _, message in failures.append(message) }
+        creator.taskDraft = TaskDraft(prompt: "Ship it", picks: [TaskAgentPick(harness: "claude")], launch: .chat)
+        creator.startTask(creator.taskDraft)
+        await creator.settle()
+        #expect(backend.requests.isEmpty)
+        #expect(failures.count == 1)
+        #expect(creator.taskDraft.prompt == "Ship it")
+    }
+
     @Test func aDraftWithFilesAndATerminalLaunchResumesWithThem() async throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("drafts-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: folder) }
