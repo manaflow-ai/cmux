@@ -1646,3 +1646,95 @@ fn a_resize_withdraws_what_is_drawn() {
     session.engine.layout_changed(session.clock);
     assert_eq!(session.drawn(), "");
 }
+
+/// A shell at `prompt` whose line editor echoed `ls`: the prompt is known.
+fn session_at_prompt(prompt: &str) -> Session {
+    let mut session = Session::new();
+    session.remote(prompt);
+    session.advance(ms(500));
+    session.type_key("l");
+    session.remote("l");
+    session.type_key("s");
+    session.remote("s");
+    session.engine.presented_frame(session.clock);
+    session
+}
+
+#[test]
+fn the_first_key_at_a_known_prompt_draws_with_the_press() {
+    // Return's answer ends at the prompt the line editor echoed after: the
+    // next command's first key shows at once, not two echoes later.
+    let mut session = session_at_prompt("$ ");
+    session.type_key("\r");
+    session.remote("\r\nCargo.toml  src\r\n$ ");
+    session.advance(ms(400));
+    session.type_key("g");
+    assert_eq!(session.status(), Status::Predicting);
+    assert_eq!(session.drawn(), "g");
+    session.type_key("i");
+    assert_eq!(session.drawn(), "gi");
+    session.remote("g");
+    session.remote("i");
+    session.engine.presented_frame(session.clock);
+    assert_eq!(session.drawn(), "");
+}
+
+#[test]
+fn a_styled_prompt_with_mode_and_clear_sequences_is_known_again() {
+    // zsh: CR, SGR resets, clear below, a coloured prompt, clear right,
+    // bracketed paste on, and shell-integration marks.
+    let prompt = "\r\x1b[0m\x1b[27m\x1b[24m\x1b[J\x1b]133;A\x07\x1b[32m~/cmux\x1b(B\x1b[m % \x1b[K\x1b[?2004h";
+    let mut session = session_at_prompt(prompt);
+    session.type_key("\r");
+    session.remote(&format!("\x1b[?2004l\r\r\nok\r\n{prompt}"));
+    session.advance(ms(400));
+    session.type_key("g");
+    assert_eq!(session.drawn(), "g");
+}
+
+#[test]
+fn a_password_prompt_after_a_known_prompt_never_displays_a_typed_character() {
+    let mut session = session_at_prompt("$ ");
+    session.type_key("\r");
+    session.remote("\r\n[sudo] password for leo: ");
+    for character in ["h", "u", "n", "t", "e", "r", "2"] {
+        session.type_key(character);
+        assert_eq!(session.drawn(), "");
+    }
+    assert_eq!(session.status(), Status::Listening);
+}
+
+#[test]
+fn a_prompt_that_answers_an_older_key_keeps_the_two_echo_rule() {
+    // A key typed before Return's answer arrived is still on its way: the
+    // prompt does not answer it, so nothing arms.
+    let mut session = session_at_prompt("$ ");
+    session.type_key("\r");
+    session.type_key("g");
+    session.remote("\r\n$ ");
+    session.advance(ms(400));
+    session.type_key("i");
+    assert_eq!(session.drawn(), "");
+}
+
+#[test]
+fn a_row_the_engine_cannot_read_is_never_a_known_prompt() {
+    // The cursor moved after the prompt text (a right prompt drawn, then a
+    // jump back): where it stands is not known.
+    let mut session = session_at_prompt("$ ");
+    session.type_key("\r");
+    session.remote("\r\n$ \x1b[70Cmain\x1b[74D");
+    session.advance(ms(400));
+    session.type_key("g");
+    assert_eq!(session.drawn(), "");
+}
+
+#[test]
+fn a_full_screen_program_never_arms_at_a_known_prompt() {
+    let mut session = session_at_prompt("$ ");
+    session.type_key("\r");
+    session.remote("\x1b[?1049h\r\n$ ");
+    session.advance(ms(400));
+    session.type_key("j");
+    assert_eq!(session.drawn(), "");
+}
