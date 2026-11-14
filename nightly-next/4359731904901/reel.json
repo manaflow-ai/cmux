@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "build": "4359731904901",
+  "notes": "notes/4359731904901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 42955,
+      "title": "CMUX-383: publish action exports atomically after parity passes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42984,
+      "title": "Extensions: cmux.time.zone for any time zone, and local time that isn't UTC in the sandbox",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42970,
+      "title": "fix(acpmux): release paused replay copies and isolate append measurements",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43028,
+      "title": "v2 client: preserve v1 status and derived state",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43005,
+      "title": "Extension SDK: every first-party extension forks against cmux-extension-sdk (fork-check gaps empty)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41546,
+      "title": "Apps: render: web panes, Rust half (cmux-app:// pages, root, CSP, bridge limits)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42944,
+      "title": "CMUX-383: add the shared sidebar customization action (Step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43009,
+      "title": "screen-stream-eval: Sunshine/Moonlight target, timed from outside like any third-party viewer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42543,
+      "title": "agent pane: every Cloud error offers a way on in the pane",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42992,
+      "title": "Customize: a radio player and a start page of your own (media-player, start-page templates)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43035,
+      "title": "cmux-api: concurrent membership checks share one pace token; the journey says how it found its team",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42903,
+      "title": "Cloud start: the app's start waits for its first machine list too, one wait in cmux-cloud-start-core",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42976,
+      "title": "acpmux: rows by key from _acpmux/info, and status's closed count (v2 7b part A)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
