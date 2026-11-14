@@ -39,8 +39,10 @@ jobs:
       contents: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
     # Gate runs have taken up to about 2 hours (the reviewer-path jobs and their
-    # macOS queue); past this the push run is red with no verdict.
-    timeout-minutes: 240
+    # macOS queue), and a followed successor waits behind the run holding the
+    # gate's group first, so up to about 4; past this the push run is red with
+    # no verdict. 360 is the job ceiling.
+    timeout-minutes: 360
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
