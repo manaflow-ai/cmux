@@ -145,6 +145,13 @@ import Testing
         #expect(shown.lastMessage?.id == "m3")
         #expect(shown.unavailableTitle == MacHomeFeed.keptTitle)
         #expect(feed.keptSession(for: route) === shown)
+
+        let live = try await feed.session(for: route)
+        #expect(live === shown)
+        #expect(live.unavailableTitle == nil)
+        #expect(live.identity.chiefID == "agent_codex")
+        // Nothing kept for another account's key.
+        #expect(transcripts.cached("mac:mac-1") == nil)
     }
 
     @Test func nothingKeptGivesNoSessionUnlessAnEmptyOneIsAsked() {
@@ -155,12 +162,5 @@ import Testing
         let empty = feed.keptSession(for: route, orEmpty: true)
         #expect(empty != nil)
         #expect(empty?.lastMessage == nil)
-
-        let live = try await feed.session(for: route)
-        #expect(live === shown)
-        #expect(live.unavailableTitle == nil)
-        #expect(live.identity.chiefID == "agent_codex")
-        // Nothing kept for another account's key.
-        #expect(transcripts.cached("mac:mac-1") == nil)
     }
 }
