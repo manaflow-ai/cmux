@@ -64,6 +64,7 @@ extension TerminalController {
                         "memoryUpgradePlanId": limits.memoryUpgradePlanId.map { $0 as Any } ?? NSNull(),
                         "memoryUpgradePlansByMb": limits.memoryUpgradePlansByMb.map { $0 as Any } ?? NSNull(),
                         "vcpusByMemoryMb": limits.vcpusByMemoryMb.map { $0 as Any } ?? NSNull(),
+                        "diskByMemoryMb": limits.diskByMemoryMb.map { $0 as Any } ?? NSNull(),
                         "poolVcpus": limits.resourcePool.map { $0.poolVcpus as Any } ?? NSNull(),
                         "poolMemoryMb": limits.resourcePool.map { $0.poolMemoryMb as Any } ?? NSNull(),
                         "usedVcpus": limits.resourcePool.map { $0.usedVcpus as Any } ?? NSNull(),
@@ -915,6 +916,9 @@ extension TerminalController {
         }
         if let cmuxTuiContract = vm.cmuxTuiContract, !cmuxTuiContract.isEmpty {
             payload["cmuxTuiContract"] = cmuxTuiContract
+        }
+        if let desktopPort = vm.runtime?.desktopPort {
+            payload["runtime"] = ["desktopPort": desktopPort]
         }
         if let attach = vm.createAttach {
             payload["attach"] = socketWorkerCloudAttachPayload(attach)

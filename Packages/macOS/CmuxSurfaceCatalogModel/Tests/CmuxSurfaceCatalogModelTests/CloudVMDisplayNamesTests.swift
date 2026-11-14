@@ -52,6 +52,8 @@ struct CloudDisplayTitleBeforeDiscoveryTests {
     func placeholderIsNumbered() {
         let resource = CmuxTuiSnapshotParser.display(machine: .cloud("title-vm"))
         #expect(resource.title == "Display 1")
+        #expect(resource.port == CmuxTuiSnapshotParser.desktopPort)
+        #expect(CmuxTuiSnapshotParser.display(machine: .cloud("custom-port"), desktopPort: 7042).port == 7042)
         #expect(CmuxTuiSnapshotParser.displayTitle(key: "display:7") == "Display 7")
         #expect(CmuxTuiSnapshotParser.displayTitle(key: "screen-1") == "Desktop")
     }

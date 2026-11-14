@@ -2807,6 +2807,27 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertFalse(restoredInitialCommand.contains("ssh -p 22"), restoredInitialCommand)
     }
 
+    func testLegacyDefaultFreestyleSSHDRejectsVMIDWithTrailingNewline() throws {
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            destination: "71smiccrg35sw9pydt8k\n+cmux@vm-ssh.freestyle.sh",
+            port: 22,
+            identityFile: nil,
+            sshOptions: [],
+            preserveAfterTerminalExit: nil,
+            skipDaemonBootstrap: true,
+            relayPort: nil,
+            persistentDaemonSlot: nil,
+            managedCloudVMID: nil
+        )
+
+        let configuration = try XCTUnwrap(snapshot.workspaceConfiguration())
+        XCTAssertNil(configuration.managedCloudVMID)
+        let fallbackCommand = try XCTUnwrap(configuration.terminalStartupCommand)
+        XCTAssertTrue(fallbackCommand.contains("ssh -p 22"), fallbackCommand)
+        XCTAssertFalse(fallbackCommand.contains("vm-pty-attach"), fallbackCommand)
+    }
+
     func testSessionRemoteWorkspaceSnapshotRestoresOrdinarySSHWithLifecycleReporting() throws {
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,

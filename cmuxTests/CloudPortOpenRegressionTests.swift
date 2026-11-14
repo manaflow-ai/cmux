@@ -290,6 +290,19 @@ struct CloudPortOpenRegressionTests {
             from: scan,
             privateAddress: "10.16.179.6"
         ) == [3000, 5901, 6901])
+
+        let relocatedDesktop = VMExecResult(exitCode: 0, stdout: """
+        State Recv-Q Send-Q Local Address:Port Peer Address:Port
+        LISTEN 0 128 127.0.0.1:6042 0.0.0.0:*
+        LISTEN 0 128 0.0.0.0:7042 0.0.0.0:*
+        LISTEN 0 128 0.0.0.0:7043 0.0.0.0:*
+        LISTEN 0 128 0.0.0.0:3000 0.0.0.0:*
+        """, stderr: "")
+        #expect(CmuxTuiSurfaceProvider.ports(
+            from: relocatedDesktop,
+            displayPortsOwned: true,
+            desktopPort: 7042
+        ) == [3000], "server-advertised display ports stay out of generic previews")
     }
 
     @Test("Loopback services remain discoverable independently of private-address metadata")

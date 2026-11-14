@@ -43,6 +43,7 @@ extension VMClient {
                         .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 },
                     memoryUpgradePlansByMb: rawLimits["memoryUpgradePlansByMb"] as? [String: String],
                     vcpusByMemoryMb: Self.decodePositiveIntMap(rawLimits["vcpusByMemoryMb"]),
+                    diskByMemoryMb: Self.decodePositiveIntMap(rawLimits["diskByMemoryMb"]),
                     activeVmCount: rawLimits["activeVmCount"] as? Int,
                     imageKinds: Self.decodeImageKinds(rawLimits["imageKinds"]),
                     resourcePool: CloudVMResourcePool(limits: rawLimits)
@@ -118,6 +119,7 @@ extension VMClient {
             summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         }
         summary.cmuxTuiContract = (dict["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        summary.runtime = Self.decodeRuntimeMetadata(dict["runtime"])
         return summary
     }
 

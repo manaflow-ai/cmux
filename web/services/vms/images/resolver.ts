@@ -9,6 +9,7 @@ import {
   type VmImageSize,
   type VmImageSizeName,
 } from "./sizes";
+import { DEVBOX_DESKTOP_NOVNC_PORT } from "./desktop";
 
 /**
  * What a machine is for. Clients ask for a kind instead of pinning an image id so
@@ -190,6 +191,19 @@ export function deriveVmImageKind(entry: VmImageManifestEntry | null, image: str
 /** Kind for an image id as stored on a VM row (manifest entry when known, else the name heuristic). */
 export function vmImageKindFor(provider: ProviderId, image: string): VmImageKind {
   return deriveVmImageKind(findVmImageManifestEntry(provider, image), image);
+}
+
+/**
+ * Deployment details that clients need to route a machine's capabilities.
+ * Image ids and provider defaults stay private to this module; clients receive
+ * the runtime contract that applies to the resolved image instead.
+ */
+export function vmRuntimeMetadataFor(provider: ProviderId, image: string): {
+  readonly runtime?: { readonly desktopPort: number };
+} {
+  return vmImageKindFor(provider, image) === "desktop"
+    ? { runtime: { desktopPort: DEVBOX_DESKTOP_NOVNC_PORT } }
+    : {};
 }
 
 /**
