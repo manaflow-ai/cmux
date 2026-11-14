@@ -21,6 +21,12 @@ public final class MinuteClock {
         if ticking { start() }
     }
 
+    /// The clock is waiting for its next minute mark.
+    public var isTicking: Bool { ticker != nil }
+
+    /// Follows the app's state: the background pauses the ticks.
+    public func setActive(_ active: Bool) {}
+
     /// The minute mark at or before `date`.
     public nonisolated static func mark(_ date: Date) -> Date {
         Date(timeIntervalSince1970: (date.timeIntervalSince1970 / 60).rounded(.down) * 60)

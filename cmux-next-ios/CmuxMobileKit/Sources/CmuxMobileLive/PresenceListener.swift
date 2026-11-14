@@ -38,6 +38,8 @@ public final class PresenceListener {
     private var generation: UInt64 = 0
     private var failures = 0
     private var active = false
+    /// The app is in the background (set by the coordinator).
+    var backgrounded = false
     /// Poll interval while the socket is down.
     static let pollInterval: Duration = .seconds(20)
     static let pingInterval: Duration = .seconds(15)
