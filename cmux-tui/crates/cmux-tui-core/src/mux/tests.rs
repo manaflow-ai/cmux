@@ -38,6 +38,8 @@ mod create_entity_cost;
 mod creation_burst;
 mod diagnostics;
 mod disk_budget;
+#[cfg(target_os = "linux")]
+mod disk_read_cost;
 mod divider_visibility;
 mod dock_columns;
 mod exit_snapshot_cost;
