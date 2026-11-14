@@ -465,7 +465,7 @@ class AppReviewGateTests(unittest.TestCase):
 
     def test_the_phone_walks_hold_no_secret_and_take_an_owned_simulator_mini(self) -> None:
         # The iPhone and Duo walks need no credential, so they take the
-        # runner job's pick (an owned simulator mini when one is free)
+        # plan job's pick (an owned simulator mini when one is free)
         # instead of queueing on the ephemeral macOS pool beside the iPad
         # leg, which keeps that pool for the agent pass's token. In run
         # 43591424745 the legs waited 34 to 65 minutes there.
@@ -474,12 +474,20 @@ class AppReviewGateTests(unittest.TestCase):
         walk, ipad = jobs["walk"], jobs["reviewer-path"]
         self.assertNotIn("secrets.", yaml.safe_dump(walk))
         self.assertNotIn("environment", walk)
-        self.assertEqual(walk["needs"], ["plan", "runner"])
+        # The pick is a step of plan, not a job of its own: the pull request
+        # job budget (ci/steps.toml) only goes down.
+        self.assertNotIn("runner", jobs)
+        self.assertEqual(walk["needs"], "plan")
         self.assertEqual(walk["runs-on"], (
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && "
             "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
-            "fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}"))
-        self.assertEqual(walk["env"]["FRESH_SIMULATOR"], "1")
+            "fromJSON(github.run_attempt > 1 && needs.plan.outputs.retry_runs_on || needs.plan.outputs.runs_on) }}"))
+        # A simulator of its own only on an owned Mac: on the ephemeral pool
+        # the leg walks the image's device, as before (run 43604250455 on a
+        # fresh iPhone saw the sign-in links as dead, a blocker the walk on
+        # the image's device does not report).
+        self.assertEqual(walk["env"]["FRESH_SIMULATOR"],
+                         "${{ github.run_attempt == 1 && needs.plan.outputs.persistent == 'true' && '1' || '' }}")
         remove = next(step for step in walk["steps"] if step.get("name") == "Remove the leg's simulator")
         self.assertIn("always()", remove["if"])
         self.assertIn('xcrun simctl delete "$UDID"', remove["run"])
@@ -487,7 +495,7 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertIn("fromJSON(vars.RUNNER_POOLS).macos_26", ipad["runs-on"])
         self.assertEqual(ipad["environment"]["name"], "cmux-next-development")
         self.assertEqual(ipad["strategy"]["matrix"]["family"], ["ipad"])
-        pick = next(step for step in jobs["runner"]["steps"] if step.get("id") == "pool")
+        pick = next(step for step in jobs["plan"]["steps"] if step.get("id") == "pool")
         self.assertIn("--lane review-gate", pick["run"])
         self.assertIn('--called "$CALLED"', pick["run"])
         # The two legs' shared steps are copies (the pinned actionlint

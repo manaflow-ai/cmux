@@ -3396,7 +3396,10 @@ class IOSRouting(unittest.TestCase):
         self.assertEqual(ios_pool.sim_jobs("review-gate", None), 2)
         self.assertEqual(ios_pool.run_jobs("review-gate"), 2)
         workflow = yaml.safe_load((WORKFLOWS / "ios-review-gate.yml").read_text())
-        self.assertEqual(workflow["jobs"]["runner"].get("name", "runner"), ios_pool.PICKER_JOB)
+        # The gate picks in its plan job, which every job waits for, so its
+        # device jobs are created together after the pick.
+        self.assertIn("pool", [step.get("id") for step in workflow["jobs"]["plan"]["steps"]])
+        self.assertEqual(workflow["jobs"]["walk"]["needs"], "plan")
         name = workflow["jobs"]["walk"]["name"].replace("${{ needs.plan.outputs.lane }}", "appstore")
         legs = [{"name": name.replace("${{ matrix.family }}", family), "labels": [MINI, IOS_SIM],
                  "status": "in_progress", "runner_name": f"mini-{family}-glaeda"} for family in ("iphone", "duo")]
