@@ -406,11 +406,20 @@ mod tests {
     }
 
     fn report(core: &mut SenderCore, seqs: impl IntoIterator<Item = u16>, at_us: i64, now_us: u64) {
+        let seqs: Vec<_> = seqs.into_iter().collect();
         let mut recorder = Recorder::new(9);
-        for seq in seqs {
+        for &seq in &seqs {
             recorder.record(core.config.ssrc, seq, at_us);
         }
-        core.on_rtcp(&recorder.build_feedback_packet(), now_us);
+        let feedback = recorder.build_feedback_packet();
+        let reported: Vec<_> = feedback
+            .iter()
+            .filter_map(|p| p.as_any().downcast_ref::<TransportLayerCc>())
+            .flat_map(twcc::results)
+            .filter_map(|r| r.arrival_us.map(|_| r.seq))
+            .collect();
+        assert_eq!(reported, seqs, "fixture must report every supplied arrival");
+        core.on_rtcp(&feedback, now_us);
     }
 
     #[test]
@@ -444,8 +453,11 @@ mod tests {
         // The first tiny settlement must not become a25% congestion sample.
         report(&mut core, [0, 1, 3], 25_000, 50_000);
         report(&mut core, 4..100, 25_000, 100_000);
+        core.on_twcc(&TransportLayerCc::default(), 150_000);
+        assert!(core.state().loss > 0.0, "the first gap must have settled");
+        assert!(core.state().target_bps >= start, "four settled packets are not a congestion window");
         for i in 0..12 {
-            let now = 100_000 + i * 50_000;
+            let now = 150_000 + i * 50_000;
             let seq = core.twcc_seq;
             core.stamp(&mut Packet::default(), now);
             report(&mut core, [seq], now as i64 + 25_000, now + 50_000);
