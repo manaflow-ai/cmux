@@ -15,6 +15,8 @@
 //!
 //! - it reads no file through a link that stands where a folder was, in a work tree that was
 //!   made so and when the link came after git's listing.
+//! - a submodule counts by the commit that its folder is on, and the daemon reads that commit
+//!   only in a folder that it opens as it opens each other folder.
 //!
 //! The git on `PATH` is a stand-in that writes its arguments to a log named as its working
 //! directory, and then is the real git. After a `status` child it runs `.git/after-status` of
@@ -742,4 +744,51 @@ fn git_fingerprint_reads_no_file_above_64_mib_and_at_most_256_mib_in_one_read() 
     let rest = client.read(&repo, "uncommitted");
     assert_eq!(sum.fingerprint, rest.fingerprint);
     assert_eq!((rest.files, rest.bytes), (0, 0), "at rest");
+}
+
+#[test]
+fn git_fingerprint_moves_when_a_submodule_goes_to_another_commit() {
+    let repo = fresh_clone();
+    let source = fresh_clone();
+    let mut client = Client::of_a_new_daemon();
+    let name = unique("m");
+    git(&repo, &["submodule", "--quiet", "add", &source.to_string_lossy(), &name]);
+    git(&repo, &["commit", "--quiet", "-m", "a submodule"]);
+    let module = repo.join(&name);
+    for scope in ["uncommitted", "unstaged", "branch"] {
+        let before = client.fingerprint(&repo, scope);
+        commit(&module, "more.txt", scope);
+        let after = client.fingerprint(&repo, scope);
+        assert_ne!(before, after, "{scope}: a new commit of the submodule kept the fingerprint");
+    }
+}
+
+/// The index names a folder as a submodule, and the daemon does not open that folder: its
+/// `.git` file names the git folder of another work tree (the layout `named` of
+/// tests/git_opens_own_work_tree.rs). It counts as a submodule that is not opened.
+#[test]
+fn git_fingerprint_stays_for_a_submodule_folder_that_the_daemon_does_not_open() {
+    let repo = fresh_clone();
+    let other = fresh_clone();
+    let mut client = Client::of_a_new_daemon();
+    // The folder has a name of its own: the name of its log of git children.
+    let name = unique("m");
+    let module = repo.join(&name);
+    let entry = format!("160000,{},{name}", "1".repeat(40));
+    git(&repo, &["update-index", "--add", "--cacheinfo", &entry]);
+    git(&repo, &["commit", "--quiet", "-m", "a submodule"]);
+    std::fs::create_dir_all(&module).unwrap();
+    let git_file = format!("gitdir: {}\n", other.join(".git").display());
+    std::fs::write(module.join(".git"), git_file).unwrap();
+    for scope in ["uncommitted", "unstaged", "branch"] {
+        forget_children(&module);
+        let before = client.fingerprint(&repo, scope);
+        commit(&other, "more.txt", scope);
+        let after = client.fingerprint(&repo, scope);
+        assert_eq!(before, after, "{scope}: a commit of the other work tree moved the fingerprint");
+        // The daemon asked git about the folder, and not for a commit.
+        let asked = children(&module);
+        assert!(!asked.is_empty(), "{scope}: no git child ran in the folder");
+        assert!(with_word(&asked, "HEAD^{commit}").is_empty(), "{scope}: {asked:?}");
+    }
 }
