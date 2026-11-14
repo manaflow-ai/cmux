@@ -7,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import postgres, { type Sql } from "postgres";
 
 import { closeCloudDbForTests } from "../db/client";
+import { loadAnalyticsInputs, parseAnalyticsQuery } from "../services/billing/analytics/query";
 import { activeApplePlanForUser } from "../services/billing/apple/entitlement";
 import type { AppleSubscriptionState } from "../services/billing/apple/state";
 import {
@@ -240,6 +241,22 @@ describe("Apple IAP store", () => {
     expect((await store.renewalCheckCandidates({ ...query, checkedBefore: new Date(NOW + 1) })).map((row) => row.originalTransactionId))
       .toEqual(["checked", "sooner", "soon", "unknown-renew", "grace"]);
     expect(await store.renewalCheckCandidates({ ...query, limit: 1 })).toHaveLength(1);
+  });
+
+  dbTest("subscription analytics leave out family-shared transactions", async () => {
+    const row = {
+      transactionId: "tx-purchased", originalTransactionId: "otx-1", userId: "user-a", productId: "com.cmux.app.pro.monthly",
+      planId: "pro", environment: "Production", type: "PURCHASE", purchaseDate: new Date(NOW - DAY),
+      expiresAt: new Date(NOW + 29 * DAY), priceMilliunits: 74990, currency: "USD", storefront: "USA", offerType: null,
+      revokedAt: null, payload: { signedDate: NOW, inAppOwnershipType: "PURCHASED" },
+    };
+    await store.recordTransaction(row);
+    await store.recordTransaction({
+      ...row, transactionId: "tx-family", userId: "user-b", payload: { signedDate: NOW, inAppOwnershipType: "FAMILY_SHARED" },
+    });
+    const query = parseAnalyticsQuery(new URLSearchParams({ source: "apple" }), new Date(NOW))!;
+    const inputs = await loadAnalyticsInputs(query);
+    expect(inputs.appleTransactions.map((tx) => tx.transactionId)).toEqual(["tx-purchased"]);
   });
 
   dbTest("the history cursor upserts per bundle and environment", async () => {

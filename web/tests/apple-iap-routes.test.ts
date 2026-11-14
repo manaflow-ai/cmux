@@ -113,6 +113,11 @@ describe("POST /api/billing/apple/transactions", () => {
     expect(mismatch.status).toBe(403);
     expect(await mismatch.json()).toEqual({ error: "account_mismatch" });
 
+    transactionImpl = async () => { throw new RejectedError("family_shared"); };
+    const family = await transactionsRoute.POST(post("/api/billing/apple/transactions", { signedTransactionInfo: "jws" }));
+    expect(family.status).toBe(409);
+    expect(await family.json()).toEqual({ error: "family_shared" });
+
     transactionImpl = async () => { throw new AppleVerificationError("invalid_signature"); };
     expect((await transactionsRoute.POST(post("/api/billing/apple/transactions", { signedTransactionInfo: "jws" }))).status).toBe(400);
 
