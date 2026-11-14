@@ -74,7 +74,7 @@ enum HomeText {
 
     // MARK: Search
 
-    static var searchPlaceholder: String { String(localized: "home.search.placeholder", defaultValue: "Search Messages", bundle: .module) }
+    static var searchPlaceholder: String { String(localized: "home.search.placeholder", defaultValue: "Search messages", bundle: .module) }
     static var searchOfflineTitle: String { String(localized: "home.search.offlineTitle", defaultValue: "Search Is Unavailable Offline", bundle: .module) }
     static var searchOfflineBody: String { String(localized: "home.search.offlineBody", defaultValue: "Search runs on cmux. Try again when you're back online.", bundle: .module) }
 
