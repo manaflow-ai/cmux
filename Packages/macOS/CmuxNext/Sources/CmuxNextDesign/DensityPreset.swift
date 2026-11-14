@@ -30,7 +30,7 @@ public nonisolated enum DensityPreset: String, Sendable, CaseIterable {
                                                   "panePadding": 4])
         case .spacious: DensityTokens(id: rawValue, name: "Spacious", level: 2.25, spacing: 1.35, fontSize: 16,
                                       tokens: ["iconSize": 24, "smallIconSize": 20, "browserRowHeight": 34, "browserRowGap": 6,
-                                               "panePadding": 6])
+                                               "panePadding": 6, "omnibarChromeColumn": 1])
         }
     }
 }

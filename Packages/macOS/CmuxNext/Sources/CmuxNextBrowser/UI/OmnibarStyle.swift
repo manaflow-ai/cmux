@@ -100,9 +100,26 @@ enum OmnibarStyle {
     /// Chrome's omnibox padding, on the bar's height (Chrome's 30 pt row; Lucas 2026-11-14: "chrome's padding"): the
     /// chip's glyph centers 22 pt in and the text starts 42 pt in, so the typed text and each suggestion's text start
     /// on one column (the rows take these, `OmniboxSuggestionPanel`).
-    static var chipLeading: CGFloat { max(edgeInset, (barHeight * 22 / 30 - chipSize / 2).rounded()) }
-    /// Text distance after the chip: the text's column less the chip's end.
-    static var textLeading: CGFloat { max(fieldTrailingGap, (barHeight * 42 / 30 - chipLeading - chipSize).rounded()) }
+    ///
+    /// Only Spacious keeps Chrome's column (its `omnibarChromeColumn` token): every other density takes Helium's, on
+    /// its 28 pt bar the chip 2 pt in and the text 31 pt in (location-bar.patch: edge padding 2, a 24 pt decoration,
+    /// inner padding 5), the same shares of the bar (Lawrence 2026-11-13: "use helium for default, for spacious,
+    /// still keep helium details, but match chrome's sizing/padding").
+    static var chipLeading: CGFloat {
+        guard usesChromeColumn else { return max(edgeInset, half(barHeight * 2 / 28)) }
+        return max(edgeInset, (barHeight * 22 / 30 - chipSize / 2).rounded())
+    }
+    /// Text distance after the chip: the text's column less the chip's end (under Helium's column, less the field's
+    /// own insets too, so the text itself starts on the column).
+    static var textLeading: CGFloat {
+        guard usesChromeColumn else {
+            return max(0, half(barHeight * 31 / 28) - chipLeading - chipSize - fieldTextInsetCorrection - fieldTextInset)
+        }
+        return max(fieldTrailingGap, (barHeight * 42 / 30 - chipLeading - chipSize).rounded())
+    }
+    /// Whether the density keeps Chrome's omnibox column (Spacious) rather than Helium's.
+    static var usesChromeColumn: Bool { (Metrics.tokens.tokens["omnibarChromeColumn"] ?? 0) > 0 }
+    private static func half(_ value: CGFloat) -> CGFloat { (value * 2).rounded() / 2 }
     /// The bar's field draws its text 1 pt further in than a suggestion row's label does at the same x (the field
     /// editor's and the label's fixed text insets differ), so the field sits 1 pt further right and the typed text
     /// starts on the rows' column (Lucas 2026-11-14: "like 1pt to the right for search input"). A fixed inset of the
