@@ -17,6 +17,8 @@ final class FakeTerminalSurfaceNativeView: NSView {
     var deferredRuntimeInputs: [() -> Void] = []
     var deferredRuntimeInputBytes: [Int] = []
     var mobileMouseButtonEvents: [String] = []
+    /// Whether this fake native view simulates portal-owned geometry commits.
+    var paneGeometryIsPortalOwned = false
 
     func toggleKeyboardCopyMode() -> Bool { false }
     func cancelKeyboardCopyMode() {

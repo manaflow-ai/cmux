@@ -134,12 +134,15 @@ extension TerminalSurface {
     /// Whether the native surface view and its pane host have usable drawable
     /// geometry in the same real presentation window. A hidden bootstrap window
     /// can start the PTY, and a zero-sized real-window attachment can establish
-    /// ownership, but neither is enough to present a renderer.
+    /// ownership, but neither is enough to present a renderer. Portal-owned
+    /// surfaces also require a committed portal geometry snapshot so a reveal
+    /// before settled layout does not present against a stale placeholder frame.
     @MainActor
     private var isRendererPresentationReady: Bool {
         guard let attachedView,
               let presentationWindow = uiWindow,
-              attachedView.window === presentationWindow else { return false }
+              attachedView.window === presentationWindow,
+              !attachedView.paneGeometryIsPortalOwned || committedPaneGeometry != nil else { return false }
         let surfaceSize = attachedView.bounds.size
         let paneSize = paneHost.bounds.size
         return surfaceSize.width.isFinite && surfaceSize.height.isFinite &&
