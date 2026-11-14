@@ -48,6 +48,7 @@
 //! the same file. Any other marker states why the hook cannot race (one process per test, say), in
 //! at least three words.
 
+use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
@@ -71,6 +72,8 @@ const CELLS: [&str; 6] = ["Mutex", "RwLock", "OnceLock", "LazyLock", "OnceCell",
 const CLOSURES: [&str; 3] = ["Fn", "FnMut", "FnOnce"];
 const PER_THREAD: [&str; 2] = ["thread_local", "task_local"];
 const MARKER: &str = "test-hook-allow:";
+/// The most paths [`Resolver::used_paths`] gives for one type: one per cfg's `use` at each step.
+const USED_PATHS_MAX: usize = 64;
 const PRELUDE: &[&str] = &[
     "Self",
     "bool",
@@ -478,6 +481,9 @@ struct Names {
     file_mods: HashSet<String>,
     /// The names each block defines, by [`block_key`]; none of them is in the maps above.
     blocks: HashMap<String, Layer>,
+    /// Every definition of each name outside blocks, with its inline module (`defs` keeps one):
+    /// a name two inline modules define is read in its own (review of cmux#41693, F1).
+    mod_defs: HashMap<String, Vec<Def>>,
 }
 
 impl Names {
@@ -552,6 +558,7 @@ impl Collect<'_> {
         if self.scope.is_empty() {
             self.names.top.insert(name.to_string(), def.clone());
         }
+        self.names.mod_defs.entry(name.to_string()).or_default().push(def.clone());
         self.names.defs.insert(name.to_string(), def);
     }
 }
@@ -759,7 +766,7 @@ struct Resolver<'a> {
 /// every `use` of the name there).
 enum Named<'n> {
     Def(&'n Def),
-    Use(&'n str, &'n [(String, Vec<String>)]),
+    Use(&'n str, Cow<'n, [(String, Vec<String>)]>),
 }
 
 /// What each generic-free definition of the crate holds, read once for the whole tree: its facts
@@ -802,7 +809,9 @@ impl<'a> Resolver<'a> {
     }
 
     /// What `name` stands for here: the innermost block's that defines or `use`s it, else the
-    /// file's definition, else the file's `use`.
+    /// definition or `use` of the inline module it is read in, else the file's definition, else
+    /// the file's `use`. Two inline modules that bind one name each keep their own, whatever the
+    /// source order (review of cmux#41693, F1).
     fn named(&self, name: &str) -> Option<Named<'a>> {
         for layer in self.layers() {
             if let Some(def) = layer.defs.get(name) {
@@ -811,15 +820,39 @@ impl<'a> Resolver<'a> {
             if let Some(uses) = layer.uses.get(name)
                 && let Some((full, _)) = uses.last()
             {
-                return Some(Named::Use(full, uses));
+                return Some(Named::Use(full, Cow::Borrowed(uses)));
             }
         }
         let names = self.names;
+        let module: Vec<&String> = self.at.iter().filter(|s| !is_block_step(s)).collect();
+        let in_module = |scope: &[String]| scope.iter().eq(module.iter().copied());
+        if let Some(def) = names
+            .mod_defs
+            .get(name)
+            .and_then(|defs| defs.iter().rev().find(|d| in_module(&d.scope)))
+        {
+            return Some(Named::Def(def));
+        }
+        // Every `use` of the name in this module, each cfg's alternative among them: a reader
+        // takes them all, so source order hides none (review of cmux#42467, F1).
+        let own: Vec<&(String, Vec<String>)> = names
+            .candidates
+            .get(name)
+            .into_iter()
+            .flatten()
+            .filter(|(_, scope)| in_module(scope))
+            .collect();
+        if let Some(&last) = own.last() {
+            return Some(Named::Use(&last.0, Cow::Owned(own.into_iter().cloned().collect())));
+        }
         if let Some(def) = names.defs.get(name) {
             return Some(Named::Def(def));
         }
         let full = names.uses.get(name)?;
-        Some(Named::Use(full, names.candidates.get(name).map_or(&[][..], Vec::as_slice)))
+        Some(Named::Use(
+            full,
+            Cow::Borrowed(names.candidates.get(name).map_or(&[][..], Vec::as_slice)),
+        ))
     }
 
     /// Every `use` of `name` here: the innermost block's that defines or `use`s it (none when it
@@ -1251,12 +1284,27 @@ impl<'a> Resolver<'a> {
     ) -> bool {
         let leading = path.leading_colon.is_some();
         let mut segs: Vec<&syn::PathSegment> = path.segments.iter().collect();
-        if !leading && segs.len() == 2 && segs.first().is_some_and(|s| s.ident == "self") {
+        let own_module =
+            !leading && segs.len() == 2 && segs.first().is_some_and(|s| s.ident == "self");
+        if own_module {
             segs.remove(0);
         }
         let Some((last, init)) = segs.split_last() else {
             return false;
         };
+        if own_module {
+            // `self::Name` is the module's item: a name a block around it binds is no item of the
+            // module, so it is read with no block's layer (review of cmux#42384, F1).
+            let module: Vec<String> =
+                self.at.iter().filter(|s| !is_block_step(s)).cloned().collect();
+            return self.within(&module).name(
+                &last.ident.to_string(),
+                &last.arguments,
+                env,
+                stack,
+                facts,
+            );
+        }
         if !leading && segs.len() == 1 {
             return self.name(&last.ident.to_string(), &last.arguments, env, stack, facts);
         }
@@ -1334,7 +1382,7 @@ impl<'a> Resolver<'a> {
         match self.named(name) {
             Some(Named::Def(def)) => return self.def(self, name, def, args, env, stack, facts),
             Some(Named::Use(full, candidates)) => {
-                return self.use_name(name, full, candidates, args, env, stack, facts);
+                return self.use_name(name, full, &candidates, args, env, stack, facts);
             }
             None => {}
         }
@@ -1443,24 +1491,49 @@ impl<'a> Resolver<'a> {
     /// `idents` with its first segment replaced by the path a `use` gives it, again and again
     /// (`use std::sync as s; use s::Mutex as Lock;`), until no `use` names its head. Each head is
     /// read where the path is: a block's `use` before the file's ([`Resolver::named`]), and a
-    /// definition there stops it; the next head is read where that `use` is written.
-    fn used_path(&self, idents: &[String]) -> Vec<String> {
-        let mut path = idents.to_vec();
-        let mut at = self.at.clone();
-        let mut seen: Vec<(String, Vec<String>)> = Vec::new();
-        while let Some(head) = path.first().cloned()
-            && !seen.iter().any(|(h, s)| *h == head && *s == at)
-            && let Some(Named::Use(full, uses)) = self.within(&at).named(&head)
-        {
-            seen.push((head, at.clone()));
-            if let Some((_, scope)) = uses.last() {
-                at.clone_from(scope);
-            }
-            let mut next: Vec<String> = full.split("::").map(str::to_string).collect();
-            next.extend(path.drain(1..));
-            path = next;
+    /// definition there stops it; the next head is read where that `use` is written. A head with
+    /// several `use`s (one per cfg) gives one path for each, so no cfg's import is hidden by
+    /// source order (review of cmux#42467, F1).
+    fn used_paths(&self, idents: &[String]) -> Vec<Vec<String>> {
+        let mut out = Vec::new();
+        self.expand_used(idents.to_vec(), self.at.clone(), &mut Vec::new(), &mut out);
+        out
+    }
+
+    /// One step of [`Resolver::used_paths`]: `path` read at `at`, every finished path pushed to
+    /// `out` (at most [`USED_PATHS_MAX`]; a cycle through `seen` ends where it closes).
+    fn expand_used(
+        &self,
+        path: Vec<String>,
+        at: Vec<String>,
+        seen: &mut Vec<(String, Vec<String>)>,
+        out: &mut Vec<Vec<String>>,
+    ) {
+        if out.len() >= USED_PATHS_MAX {
+            return;
         }
-        path
+        let Some(head) = path.first().cloned() else {
+            out.push(path);
+            return;
+        };
+        if seen.iter().any(|(h, s)| *h == head && *s == at) {
+            out.push(path);
+            return;
+        }
+        let Some(Named::Use(full, uses)) = self.within(&at).named(&head) else {
+            out.push(path);
+            return;
+        };
+        let full = full.to_string();
+        let steps: Vec<(String, Vec<String>)> =
+            if uses.is_empty() { vec![(full, at.clone())] } else { uses.into_owned() };
+        seen.push((head, at));
+        for (full, scope) in steps {
+            let mut next: Vec<String> = full.split("::").map(str::to_string).collect();
+            next.extend(path.iter().skip(1).cloned());
+            self.expand_used(next, scope, seen, out);
+        }
+        seen.pop();
     }
 
     /// Whether `ty` is a `Mutex<()>`, std's or tokio's (through the file's aliases and its
@@ -1483,14 +1556,15 @@ impl<'a> Resolver<'a> {
                 _ => false,
             };
         }
-        let shape = match self.used_path(&idents).iter().map(String::as_str).collect::<Vec<_>>()[..]
-        {
-            // A bare `Mutex` no `use` here names is taken as std's (the prelude has none, so it
-            // is an import from another file or a glob).
-            ["Mutex"] => true,
-            ["std" | "tokio", "sync", "Mutex"] => true,
-            _ => false,
-        };
+        let shape = self.used_paths(&idents).iter().any(|path| {
+            match path.iter().map(String::as_str).collect::<Vec<_>>()[..] {
+                // A bare `Mutex` no `use` here names is taken as std's (the prelude has none, so it
+                // is an import from another file or a glob).
+                ["Mutex"] => true,
+                ["std" | "tokio", "sync", "Mutex"] => true,
+                _ => false,
+            }
+        });
         let Some(PathArguments::AngleBracketed(args)) =
             p.path.segments.last().map(|s| &s.arguments)
         else {

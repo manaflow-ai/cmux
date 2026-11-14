@@ -30,13 +30,40 @@ use crate::daemon_spec::{WORK_HOME, WORK_USER};
 
 /// The first check after `cmux host run` starts (a boot or an update's restart).
 const BOOT_DELAY: Duration = Duration::from_secs(30);
-/// Every minute while the machine runs: a merged fix reaches an idle machine
-/// within about a minute of the channel moving, not five. One check is a GET
-/// of the small signed channel file (served uncached, max-age 60) and a
-/// signature check; it logs only when its outcome changes.
-const INTERVAL: Duration = Duration::from_secs(60);
-/// An update waiting for a turn to end looks again this soon.
-const BUSY_RETRY: Duration = Duration::from_secs(60);
+/// Every 15 s while the machine runs (plus [`JITTER`]): a merged fix reaches
+/// an idle machine within about 20 s of the channel moving. The fleet's first
+/// machine on a new build waited half the interval on average, so at 60 s
+/// that wait was most of the published-to-first-seen stage (23 builds of
+/// 2026-11-13: p50 65 s over a 17 s floor). One check is a GET of the small
+/// signed channel file (about 2 KB; the CDN does not cache it, every GET
+/// reads the origin) and a signature check, no process but curl; it logs
+/// only when its outcome changes.
+const INTERVAL: Duration = Duration::from_secs(15);
+/// An update waiting for a turn to end or a carrier session to detach looks
+/// again this soon, so it goes within about 20 s of the machine going idle,
+/// not up to a minute after. The busy look is local (acpmux and the session
+/// host's admin channel) and runs only while an update waits.
+const BUSY_RETRY: Duration = Duration::from_secs(15);
+/// At most this much is added to each wait, a fresh draw each time
+/// ([`next_look`]), so machines that started together (spares restored from
+/// one snapshot, a fleet that restarted into one update) do not look in step.
+const JITTER: Duration = Duration::from_millis(3_750);
+
+/// How long the worker waits after a check that ended in `outcome` before it
+/// looks again: [`BUSY_RETRY`] while an update waits for idle, else
+/// [`INTERVAL`], plus `draw` folded into [`JITTER`].
+pub(super) fn next_look(outcome: &Outcome, draw: u64) -> Duration {
+    let base = if matches!(outcome, Outcome::Busy(_)) { BUSY_RETRY } else { INTERVAL };
+    base + Duration::from_millis(draw % (JITTER.as_millis() as u64 + 1))
+}
+
+/// A fresh random draw for [`next_look`] (std's per-process random hash keys).
+fn jitter_draw() -> u64 {
+    use std::hash::{BuildHasher as _, Hasher as _};
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u64(wall_ms());
+    hasher.finish()
+}
 pub(super) use super::gate::CONNECT_HOLD;
 /// The new build has this long to serve after its restart: a session host
 /// replays its journal before it listens (minutes for a large one).
@@ -164,7 +191,9 @@ fn clocks() -> (i128, u64) {
 
 /// The pause count ([`crate::agent::PauseWatch::pause_seq`]) this process's
 /// updater last handled, kept across its waits and checks. The role start
-/// takes the count then: a pause before it is covered by the start's hold.
+/// takes the count then: a pause before it is covered by the start's hold
+/// (or, at the own flip's restart, which takes none, was in the two minutes
+/// the mark is good for, and a restore in them makes the start a cold one).
 static HANDLED: AtomicU64 = AtomicU64::new(0);
 
 /// Starts the connect hold at `now` when `watch` counted a pause after the
@@ -466,7 +495,7 @@ impl Role for UpdaterRole {
         if !self.paths.at(store::CURRENT_LINK).exists() {
             return Ok(());
         }
-        hold_connects(&self.paths, HoldKind::Resume);
+        start_hold(&self.paths, wall_ms(), crate::linux::realtime_minus_boottime_ns());
         hold_after_restore(&self.paths);
         HANDLED.store(crate::agent::PAUSES.pause_seq(), Ordering::SeqCst);
         let (tx, rx) = mpsc::channel();
@@ -515,6 +544,25 @@ impl Role for UpdaterRole {
     }
 }
 
+/// The role start's hold at `now_ms` (`realtime - boottime` at `offset_ns`):
+/// a boot may be a new or claimed machine whose first link comes up in the
+/// next minutes, so it takes the connect hold (resume kind). The restart an
+/// update's own flip queued ([`super::gate::Gate::take_own_flip`]) is the
+/// machine that was just idle enough to flip, neither new nor claimed: it
+/// takes none, so the worker keeps looking at the channel and can take a
+/// newer build at once. A bind, a `Bound` or a new carrier session after it
+/// takes its own connect hold, and a pause or restore its resume hold, as on
+/// any machine; attached carrier sessions and busy agent turns still hold the
+/// flip. True when it was the own flip's restart.
+pub(super) fn start_hold(paths: &Paths, now_ms: u64, offset_ns: i128) -> bool {
+    if Gate::new(paths).take_own_flip(now_ms, offset_ns) {
+        log("the restart after this machine's own update: no start hold");
+        return true;
+    }
+    super::gate::hold_connects(paths, now_ms, HoldKind::Resume);
+    false
+}
+
 /// Waits `d` or until a message: false when the role stops.
 fn wait(rx: &Receiver<Msg>, d: Duration) -> bool {
     match rx.recv_timeout(d) {
@@ -543,7 +591,7 @@ fn run(paths: &Paths, rx: &Receiver<Msg>) {
             continue;
         }
         let (outcome, _) = check(paths, Honor::All);
-        let next = if matches!(outcome, Outcome::Busy(_)) { BUSY_RETRY } else { INTERVAL };
+        let next = next_look(&outcome, jitter_draw());
         if !wait_watching(paths, rx, next) {
             return;
         }
@@ -598,14 +646,18 @@ impl Outcome {
 
 /// The updater's lock (`<state>/lock`, flock): one check, commit, rollback
 /// or guard at a time, in this process or another (`cmux host update
-/// check`). Released when the holder exits, also when the restart ends it.
+/// check`). Released when the holder lets go (commit and rollback do while
+/// the service lives on) or exits, also when the restart ends it. The drop
+/// unlocks before it closes: a child the service forked meanwhile keeps no
+/// lock through its copy, so the next check does not fail as "another update
+/// check runs".
 struct Lock {
-    _file: fs::File,
+    _lock: cmux_file_lock::FileLock,
 }
 
 impl Lock {
     fn take(paths: &Paths, wait: bool) -> Option<Lock> {
-        use std::os::unix::io::AsRawFd as _;
+        use cmux_file_lock::{FileLock, Kind};
         let dir = paths.at(super::STATE_DIR);
         fs::create_dir_all(&dir).ok()?;
         let file = fs::OpenOptions::new()
@@ -614,9 +666,13 @@ impl Lock {
             .write(true)
             .open(dir.join("lock"))
             .ok()?;
-        let flags = if wait { libc::LOCK_EX } else { libc::LOCK_EX | libc::LOCK_NB };
-        // SAFETY: flock on a descriptor this function owns.
-        (unsafe { libc::flock(file.as_raw_fd(), flags) } == 0).then_some(Lock { _file: file })
+        // The same exclusive flock as before: blocking, or one try.
+        let lock = if wait {
+            FileLock::take(file, Kind::Exclusive).ok()?
+        } else {
+            FileLock::try_take(file, Kind::Exclusive).ok()?
+        };
+        Some(Lock { _lock: lock })
     }
 }
 
@@ -651,6 +707,9 @@ pub fn check(paths: &Paths, honor: Honor) -> (Outcome, Option<HoldKind>) {
     }
     state.last = Some(line);
     state.last_at = now();
+    // The same outcome as codes, for the machine's Cloud status report (`look.rs`).
+    state.look =
+        Some(super::look::Look::next(state.look.take(), super::look::seen_of(&outcome), wall_ms()));
     let _ = save_state(paths, &state);
     (outcome, skipped)
 }
@@ -658,7 +717,7 @@ pub fn check(paths: &Paths, honor: Honor) -> (Outcome, Option<HoldKind>) {
 /// Runs one check (`inner`), then the pause look over it on every way out
 /// but a flip (which looked right before it): a check that returned early
 /// after a pause (a busy look that timed out across it) starts the connect
-/// hold, or a flip could follow a minute later.
+/// hold, or a flip could follow at the next look.
 pub(super) fn check_step(
     paths: &Paths,
     watch: &crate::agent::PauseWatch,
@@ -690,13 +749,9 @@ fn check_inner(
     let Some(target) = channel::local_target() else {
         return Outcome::Off(format!("no build for {}", std::env::consts::ARCH));
     };
-    let body = match fetch(CHANNEL_URL, CHANNEL_MAX_BYTES as u64, None) {
-        Ok(body) => body,
-        Err(e) => return Outcome::Failed(format!("reading {CHANNEL_URL}: {e}")),
-    };
-    let payload = match channel::verify(&body, &channel::trusted_keys(), now()) {
+    let payload = match read_channel() {
         Ok(payload) => payload,
-        Err(e) => return Outcome::Failed(format!("refusing {CHANNEL_URL}: {e}")),
+        Err(e) => return Outcome::Failed(e),
     };
     let mut state = load_state(paths);
     let plan = match decide(paths, &state, &payload, target) {
@@ -775,7 +830,7 @@ fn check_inner(
             short_hex(&plan.cmux_tui.sha256),
             short_hex(&plan.commit)
         ));
-        inside.restart_queued(wall_ms());
+        inside.flip_restart_queued(wall_ms(), crate::linux::realtime_minus_boottime_ns());
         restart_after_flip(&store_binary(&plan.old_cmux_tui));
         Ok::<(), std::io::Error>(())
     });
@@ -821,13 +876,9 @@ pub fn adopt(paths: &Paths) -> Outcome {
     let Some(target) = channel::local_target() else {
         return Outcome::Off(format!("no build for {}", std::env::consts::ARCH));
     };
-    let body = match fetch(CHANNEL_URL, CHANNEL_MAX_BYTES as u64, None) {
-        Ok(body) => body,
-        Err(e) => return Outcome::Failed(format!("reading {CHANNEL_URL}: {e}")),
-    };
-    let payload = match channel::verify(&body, &channel::trusted_keys(), now()) {
+    let payload = match read_channel() {
         Ok(payload) => payload,
-        Err(e) => return Outcome::Failed(format!("refusing {CHANNEL_URL}: {e}")),
+        Err(e) => return Outcome::Failed(e),
     };
     let mut state = load_state(paths);
     let plan = match decide(paths, &state, &payload, target) {
@@ -1011,14 +1062,78 @@ fn free_bytes(path: &Path) -> Option<u64> {
     Some(st.f_bavail as u64 * st.f_frsize as u64)
 }
 
+/// The last channel file that verified in this process, with its validators
+/// ([`channel::Cache`]).
+static CHANNEL_CACHE: Mutex<channel::Cache> = Mutex::new(channel::Cache::new());
+
+/// The channel's payload, verified now: a conditional GET of [`CHANNEL_URL`]
+/// against [`CHANNEL_CACHE`].
+fn read_channel() -> Result<channel::Payload, String> {
+    read_channel_from(&CHANNEL_CACHE, CHANNEL_URL, "=https", &channel::trusted_keys(), now())
+}
+
+/// Room for the status line and headers `--include` puts before the body.
+const HEAD_MAX_BYTES: u64 = 32 << 10;
+
+/// [`read_channel`] from `url` over `proto` (curl's `--proto`): sends the
+/// kept file's validators, and hands the answer, a whole file or a 304, to
+/// [`channel::Cache::take`], which verifies whatever payload it returns. The
+/// cache is not held during the GET.
+pub(super) fn read_channel_from(
+    cache: &Mutex<channel::Cache>,
+    url: &str,
+    proto: &str,
+    keys: &[(String, [u8; 32])],
+    now: u64,
+) -> Result<channel::Payload, String> {
+    let (etag, last_modified) = cache.lock().unwrap_or_else(|e| e.into_inner()).validators();
+    let mut headers = Vec::new();
+    if let Some(etag) = etag {
+        headers.push(format!("If-None-Match: {etag}"));
+    }
+    if let Some(last_modified) = last_modified {
+        headers.push(format!("If-Modified-Since: {last_modified}"));
+    }
+    let max = CHANNEL_MAX_BYTES as u64;
+    let raw = curl(url, proto, max, max.saturating_add(HEAD_MAX_BYTES), &headers, true, None)
+        .map_err(|e| format!("reading {url}: {e}"))?;
+    let answer = channel::parse_response(&raw).map_err(|e| format!("reading {url}: {e}"))?;
+    cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take(answer, keys, now)
+        .map_err(|e| format!("refusing {url}: {e}"))
+}
+
 /// HTTPS GET with curl (the image has it; no redirects), at most `max`
 /// bytes; into `out`, or the body.
 fn fetch(url: &str, max: u64, out: Option<&Path>) -> Result<Vec<u8>, String> {
+    curl(url, "=https", max, max, &[], false, out)
+}
+
+/// GET `url` with curl over `proto`, a body of at most `max_body` bytes and
+/// at most `max` bytes on stdout, with `headers`; with `include`, stdout
+/// starts with the response's status line and headers. Into `out`, or stdout.
+fn curl(
+    url: &str,
+    proto: &str,
+    max_body: u64,
+    max: u64,
+    headers: &[String],
+    include: bool,
+    out: Option<&Path>,
+) -> Result<Vec<u8>, String> {
     let mut cmd = Command::new("curl");
-    cmd.args(["--fail", "--silent", "--show-error", "--proto", "=https", "--tlsv1.2"])
+    cmd.args(["--fail", "--silent", "--show-error", "--proto", proto, "--tlsv1.2"])
         .args(["--connect-timeout", "20", "--max-time", "900", "--retry", "2"])
         .arg("--max-filesize")
-        .arg(max.to_string());
+        .arg(max_body.to_string());
+    for header in headers {
+        cmd.arg("--header").arg(header);
+    }
+    if include {
+        cmd.arg("--include");
+    }
     if let Some(out) = out {
         cmd.arg("--output").arg(out);
     }
@@ -1636,5 +1751,30 @@ pub fn verb(args: &[String]) -> u8 {
             );
             2
         }
+    }
+}
+
+#[cfg(test)]
+mod lock_tests {
+    use super::*;
+    use crate::updater::gate::tests::{end, forked_keeper};
+
+    /// The updater's lock is free once a commit or rollback lets go, also while a child the
+    /// service forked meanwhile still has the descriptor: else the next check fails with
+    /// "another update check runs".
+    #[test]
+    fn a_dropped_updater_lock_is_free_while_a_forked_child_keeps_its_descriptor() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path());
+        let lock = Lock::take(&paths, false).expect("a free updater lock");
+        assert!(Lock::take(&paths, false).is_none(), "the lock is held");
+        let child = forked_keeper();
+        drop(lock);
+        let again = Lock::take(&paths, false);
+        end(child);
+        assert!(
+            again.is_some(),
+            "a dropped updater lock stayed held through a forked child's copy"
+        );
     }
 }

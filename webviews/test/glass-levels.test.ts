@@ -116,15 +116,14 @@ test("every overlay role's veil and rim is the design scale's glass material", (
 });
 
 test("Session Info, the composer and the running tray share the popover level", () => {
-  for (const file of [
-    "agent-session/acpmux/session-info/sessionInfo.css",
-    "agent-session/acpmux/composerStates.css",
-    "agent-session/acpmux/subagents/subagents.css",
-  ]) {
+  for (const file of ["agent-session/acpmux/session-info/sessionInfo.css", "agent-session/acpmux/composerStates.css"]) {
     const css = source(file);
     expect(css, file).toContain("var(--ds-glass-popover-blur)");
     expect(css, file).toContain("var(--ds-glass-popover-art-tint)");
   }
+  const tray = source("agent-session/acpmux/subagents/subagents.css");
+  expect(tray).toContain("background: var(--acpmux-stack-tint)");
+  expect(tray).toContain("--acpmux-tray-frost: var(--acpmux-stack-backdrop)");
 });
 
 test("the check fails a raw blur and passes a level, an element filter and a stated exception", () => {
