@@ -93,6 +93,8 @@ pub(super) fn read(directory: &Path, fields: &Map<String, Value>) -> Result<Valu
     let repository = &repository;
     digest.put(b"cmux git.fingerprint 1");
     digest.put(scope.name().as_bytes());
+    // The top folder, as git names it: the digits are those of one work tree.
+    digest.put(repository.root.as_os_str().as_encoded_bytes());
     if scope == Scope::Branch {
         digest.put(merge_base(repository)?.as_bytes());
     }

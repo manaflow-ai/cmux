@@ -1058,9 +1058,10 @@ linked worktree `git status` adds `worktree.main_root`, its main checkout.
 `git fingerprint` (`git.fingerprint`, capability `git-fingerprint-v1`) prints
 64 hex digits that stay equal while the scope's `git diff` stays equal, for a
 view that asks often if its diff is still current. It runs no patch: the
-digits come from HEAD, the merge base (the `branch` scope), the `core`, `diff`
-and `filter` settings and, for each file `git status` lists, its modes, blob
-ids and a hash of its work tree content. A file's hash is kept by its stat
+digits come from the work tree's top folder, HEAD, the merge base (the
+`branch` scope), the `core`, `diff` and `filter` settings (as one constant
+above 1 MiB) and, for each file `git status` lists, its modes, blob ids and a
+hash of its work tree content. A file's hash is kept by its stat
 entry, so a work tree at rest costs no file read (`files_read` and
 `bytes_read` say what one read cost), and a file whose time stamp alone moved
 gives the same digits. One read hashes at most 8192 files and 256 MiB and no
