@@ -162,6 +162,7 @@
     "key.palette.startAgentFromAnyApp": ["ctrl+opt+cmd+space"],
     "key.palette.toggleDictation": ["ctrl+cmd+v"],
     "key.palette.toggleTabPin": ["opt+cmd+p"],
+    "key.palette.toggleTerminalChat": ["opt+cmd+`"],
     "key.paletteKey.back": ["delete when paletteOpen && palette.queryEmpty && !palette.actionsMenuOpen"],
     "key.paletteKey.closeActions": ["shift+tab when paletteOpen"],
     "key.paletteKey.closeItem": ["cmd+w when paletteOpen"],

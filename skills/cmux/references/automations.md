@@ -15,7 +15,9 @@ has `--json`; the MCP tools `automation_*` are the same verbs (`automation_creat
 `cmux automation events` lists the events (MCP `automation_events`), each with where it comes
 from and how late it can be: `agent-idle` and `agent-needs-input` arrive within seconds;
 `pr-opened` is read from GitHub through `gh` every 5 minutes (nothing pushes GitHub changes to
-cmux yet), so it can be up to 5 minutes late. `cmux automation events NAME` prints that event's
+cmux yet), so it can be up to 5 minutes late; one opened and closed or merged between two reads
+still fires (its line's `state` says which). An automation's own run never fires an agent event.
+`cmux automation events NAME` prints that event's
 lines live, one JSON object each; the same line reaches `--if` on stdin and the prompt under
 "Event", so `--when pr-opened --if 'jq -e ".repo == \"me/app\""'` narrows it to one repo.
 Do not hand-write a `--watch` for these. `cmux automation edit NAME --when agent-idle` changes
