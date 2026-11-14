@@ -2,7 +2,8 @@
 
 The normal app actions create the session; the shipped test agent answers one
 marker. Every measured reopen must preserve its exact session and transcript.
-Configuration is private to the receipt directory, never the worker's config.
+Runtime state is private temporary data, separate from the artifact volume and
+the worker's config. Only readback receipts go into the output directory.
 """
 import json
 from pathlib import Path
@@ -35,13 +36,19 @@ class ChatFixture:
     def __init__(self, output):
         self.output = Path(output).resolve()
         self.output.mkdir(parents=True, exist_ok=False)
-        self.roots, self.expected = {}, {}
+        self.roots, self.receipts, self.expected = {}, {}, {}
+        self.runtime_directories = []
 
     def environment(self, tag):
         if tag not in self.roots:
-            root = Path(tempfile.mkdtemp(prefix="chat-", dir=self.output))
+            # Fleet artifact volumes may have writable, non-sticky ancestors.
+            # acpmux correctly refuses state there; /tmp permits a private child.
+            runtime = tempfile.TemporaryDirectory(prefix="cmux-startup-chat-", dir="/tmp")
+            self.runtime_directories.append(runtime)
+            root = Path(runtime.name)
+            receipts = Path(tempfile.mkdtemp(prefix="chat-", dir=self.output))
             (root / "project").mkdir()
-            (root / "acpmux").mkdir()
+            (root / "acpmux").mkdir(mode=0o700)
             profiles = root / "config/cmux/harnesses"
             profiles.mkdir(parents=True)
             agent = Path(__file__).resolve().parents[2] / "cmux-tui/crates/acpmux/tests/fake_agent.py"
@@ -52,8 +59,16 @@ class ChatFixture:
                 f"command = {json.dumps(sys.executable)}\nargs = [{json.dumps(str(agent))}]\n"
             )
             self.roots[tag] = root
+            self.receipts[tag] = receipts
+            (receipts / "runtime.json").write_text(json.dumps({"root": str(root)}) + "\n")
         root = self.roots[tag]
         return {"ACPMUX_HOME": str(root / "acpmux"), "XDG_CONFIG_HOME": str(root / "config")}
+
+    def close(self):
+        """Remove only this fixture's runtime state after its apps have stopped."""
+        for directory in self.runtime_directories:
+            directory.cleanup()
+        self.runtime_directories.clear()
 
     def seed(self, tag, client, timeout):
         marker = "STARTUP_FIXTURE_" + tag
@@ -63,7 +78,7 @@ class ChatFixture:
             raise RuntimeError("startup fixture refuses to replace an existing conversation")
         reply = client.call("debug.agent_pane", {"action": "new_chat", "harness": "startup-fixture",
                                                 "cwd": str(self.roots[tag] / "project")})
-        (self.roots[tag] / "create-reply.json").write_text(json.dumps(reply, indent=2) + "\n")
+        (self.receipts[tag] / "create-reply.json").write_text(json.dumps(reply, indent=2) + "\n")
         try:
             unwrap(reply)
         except RPCError as error:
@@ -87,7 +102,7 @@ class ChatFixture:
                                    ("query", {"selector": ".acpmux-trust-ask"})):
                 try:
                     diagnostic = client.call("debug.agent_pane", {"action": action, **params})
-                    (self.roots[tag] / f"failed-{action}.json").write_text(json.dumps(diagnostic, indent=2) + "\n")
+                    (self.receipts[tag] / f"failed-{action}.json").write_text(json.dumps(diagnostic, indent=2) + "\n")
                     print(f"startup fixture {action}: {json.dumps(diagnostic)[:24000]}", file=sys.stderr, flush=True)
                 except Exception as error:
                     print(f"startup fixture {action} diagnostic failed: {error}", file=sys.stderr, flush=True)
@@ -99,7 +114,7 @@ class ChatFixture:
         if transcript(state) != expected:
             raise RuntimeError("startup fixture did not create exactly one completed exchange")
         self.expected[tag] = {"sessionId": state["sessionId"], "transcript": expected}
-        (self.roots[tag] / "seed.json").write_text(json.dumps(state, indent=2) + "\n")
+        (self.receipts[tag] / "seed.json").write_text(json.dumps(state, indent=2) + "\n")
 
     @staticmethod
     def until(client, predicate, timeout):
@@ -126,6 +141,6 @@ class ChatFixture:
         if not expected or observed != expected or state.get("isWorking") or state.get("queued"):
             raise RuntimeError("startup sample lost, changed or duplicated the seeded conversation")
         # A receipt is taken after the paint marks, so it cannot reduce measured time.
-        path = self.roots[tag] / f"restored-{time.monotonic_ns()}.json"
+        path = self.receipts[tag] / f"restored-{time.monotonic_ns()}.json"
         path.write_text(json.dumps(state, indent=2) + "\n")
         return {**observed, "receipt": str(path)}

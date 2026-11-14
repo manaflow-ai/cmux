@@ -57,6 +57,7 @@ class Restoration(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.fixture = ChatFixture(Path(self.temp.name) / "receipts")
+        self.addCleanup(self.fixture.close)
         self.fixture.environment("test")
         self.exchange = [{"kind": "user", "text": "marker"}, {"kind": "assistant", "text": "echo: marker"}]
         self.fixture.expected["test"] = {"sessionId": "session-1", "transcript": self.exchange}
@@ -94,6 +95,7 @@ class Restoration(unittest.TestCase):
         shared.mkdir(mode=0o777)
         shared.chmod(0o777)
         fixture = ChatFixture(shared / "receipts")
+        self.addCleanup(fixture.close)
         environment = fixture.environment("shared")
         home = Path(environment["ACPMUX_HOME"]).resolve()
         for ancestor in (home, *home.parents):

@@ -1577,6 +1577,8 @@ def main():
     finally:
         for tag in args.tag:
             stop(tag_pids(tag))
+        if CHAT_FIXTURE:
+            CHAT_FIXTURE.close()
     print(f"load average: {' '.join(f'{x:.0f}' for x in os.getloadavg())}")
     counted = {tag: {mode: [r for r in runs if counts(r)] for mode, runs in modes_.items()}
                for tag, modes_ in results.items()}
