@@ -1,7 +1,9 @@
 # The extension dev loop
 
 An extension is a cmux app you write: a sidebar section today (more places as their interfaces
-land). `cmux ext dev` loads your folder into the cmux you are running and reloads it on every
+land). Write it against the public SDK, `cmux-extension-sdk`
+([`cmux-tui/crates/cmux-extension-sdk`](../../../cmux-tui/crates/cmux-extension-sdk/README.md): TypeScript
+for the extension, Rust for tools around it); `examples/extensions/activity` is a working one. `cmux ext dev` loads your folder into the cmux you are running and reloads it on every
 save, so cmux changes as you work. `cmux apps ...` keeps working; `ext` is the author's noun.
 
 ## For a person

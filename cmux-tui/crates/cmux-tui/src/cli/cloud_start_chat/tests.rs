@@ -68,6 +68,7 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             wait: false,
             timeout: Duration::from_secs(900),
             make_room: false,
+            until: None,
             allow_large: false,
         }
     );
@@ -2480,6 +2481,7 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         wait: true,
         timeout: Duration::from_secs(60),
         make_room: false,
+        until: None,
         allow_large: false,
     };
     let Outcome::Done(answer) = send_to(&mut fake, &asked, "vm-1", "sess-1") else {
@@ -2518,6 +2520,7 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         wait: true,
         timeout: Duration::from_secs(secs),
         make_room: false,
+        until: None,
         allow_large: false,
     };
     let big = big_prompt(200 * 1024);
@@ -2793,4 +2796,94 @@ fn the_folder_kind_and_the_session_folder_read() {
     let Outcome::Done(answer) = run(&mut fake, &given) else { panic!("{:?}", fake.ran) };
     assert_eq!(answer["folder"], "given");
     assert_eq!(answer["cwd"], "/home/cmux/work/api");
+}
+
+/// The carrier fault drill's start runs inside the drill's one `--timeout` deadline (`Request::until`), prompt or
+/// not: a start-session that answers past it ends the drill there, before the app's credential is asked, any
+/// carrier is dialed or anything is sent.
+#[test]
+fn a_drill_whose_start_answers_past_its_deadline_sends_nothing() {
+    use crate::carrier::fault::{FaultPlan, FaultSpec, Route};
+    let mut fake = Fake::new(vec![signed_in(), started()]);
+    fake.costs = vec![("start-session", Duration::from_secs(120))];
+    let asked = request(&["--prompt", "count", "--wait", "--timeout", "60"]);
+    let caps = json!({"routes": ["relay", "ssh"], "faults": ["kill-route"]});
+    let spec = FaultSpec { kill: Route::Relay, after_events: 3 };
+    let plan = FaultPlan::new(spec, vec![Route::Relay, Route::Ssh], &caps).unwrap();
+    let until = fake.now() + Duration::from_secs(60);
+    let global = GlobalArgs::default();
+    let Err(Outcome::Failed { error, .. }) =
+        fault::drill_source(&mut fake, &global, &asked, false, (&plan, &caps, until))
+    else {
+        panic!("a late start went on: {:?}", fake.ran)
+    };
+    assert_ne!(error["code"], "carrier_fault.no_credential", "{error}");
+    assert!(fake.called.is_empty(), "nothing after the start: {:?}", fake.called);
+    assert_eq!(fake.ran.len(), 2, "no exec, no send: {:?}", fake.ran);
+}
+
+/// The drill's prompt send past its deadline sends nothing: it never runs a step.
+#[test]
+fn a_drill_send_past_its_deadline_runs_nothing() {
+    let asked = request(&["--prompt", "count", "--wait"]);
+    // An app socket nobody serves: a send that ran a step would say so in its error, not the deadline.
+    let global = GlobalArgs {
+        app_socket: Some(std::path::PathBuf::from("/nonexistent/cmux-drill-test.sock")),
+        ..GlobalArgs::default()
+    };
+    let past = Instant::now() - Duration::from_millis(1);
+    let send =
+        fault::prompt_send(&global, &asked, "count".into(), ("vm-1".into(), "sess-1".into()), past);
+    assert_eq!(send(), Err("--timeout ran out before the prompt was sent".to_owned()));
+}
+
+/// A promptless start answers the chat tab's number on the machine's daemon as `daemon_tab` (start-session's
+/// `surface_id`), what the carrier fault drill attaches to; a start-session that names none leaves it out.
+#[test]
+fn a_promptless_start_answers_the_chat_s_daemon_tab() {
+    let mut named = started_value();
+    named["surface_id"] = json!("7");
+    for (started, tab) in [(named, json!(7)), (started_value(), Value::Null)] {
+        let mut fake = Fake::new(vec![signed_in(), ok(started), exec_out("@@cwd\n")]);
+        let Outcome::Done(answer) = run(&mut fake, &request(&[])) else { panic!("{:?}", fake.ran) };
+        assert_eq!(answer.get("daemon_tab").cloned().unwrap_or(Value::Null), tab);
+    }
+}
+
+/// A list the app never loaded says why (cmuxterm-hq run 43553290380): its refresh failed, and that failure
+/// reaches only the app's last Cloud error (`cloud.machines`' `last_error`), which `cloud.list_unread` now names.
+/// An app with no last error, or none that answers, refuses as before.
+#[test]
+fn an_unread_list_names_the_apps_last_cloud_error() {
+    let unread =
+        json!({"account": {"signed_in": true}, "loaded": false, "machines": [], "creating": []});
+    let why = "machine list failed: the cmux app did not answer in time";
+    let paths: [(&str, &[&str]); 2] = [
+        ("a fresh name", &["--prompt", "x"]),
+        ("--environment's name", &["--prompt", "x", "--environment", "env_1", "--name", "py-1"]),
+    ];
+    for (path, words) in paths {
+        for (stream, said) in [
+            (Some(Ok(json!({"loaded": false, "last_error": why}))), Some(why)),
+            (Some(Ok(json!({"loaded": false, "last_error": null}))), None),
+            (Some(Err(json!({"code": "policy_refused"}))), None),
+            (None, None),
+        ] {
+            let mut fake = Fake::new(vec![ok(unread.clone())]);
+            fake.stream = stream;
+            let Outcome::Failed { error, exit } = run(&mut fake, &request(words)) else {
+                panic!("{path}: {:?}", fake.ran)
+            };
+            assert_eq!((error["code"].as_str(), exit), (Some("cloud.list_unread"), 75), "{path}");
+            assert_eq!(error["details"]["last_error"].as_str(), said, "{path}: {error}");
+            let message = error["message"].as_str().unwrap();
+            assert_eq!(message.contains(why), said.is_some(), "{path}: {message}");
+            assert!(
+                message.contains("run this command again")
+                    || message.contains("Run this command again")
+            );
+            assert_eq!(fake.called[0].0, "cloud.machines", "{path}");
+            assert_eq!(fake.ran.len(), 1, "{path}: nothing started or made: {:?}", fake.ran);
+        }
+    }
 }

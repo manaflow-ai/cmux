@@ -241,4 +241,4 @@ jobs:
           name: cloud-vm-dogfood-${{ inputs.target }}
           path: ${{ runner.temp }}/dogfood
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 3

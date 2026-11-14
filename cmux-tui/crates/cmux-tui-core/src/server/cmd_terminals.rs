@@ -426,10 +426,6 @@ pub(super) fn process_info(mux: &Arc<Mux>, surface: SurfaceId) -> anyhow::Result
         "foreground_executable": surface
             .process_id()
             .and_then(platform::foreground_process_name),
-        // The program the job runs (a shell script's own name, `man` on
-        // macOS, where `foreground_executable` reads `sh`). The phone scrolls
-        // a pager with cursor keys only when this names one.
-        "foreground_program": surface.process_id().and_then(platform::foreground_program),
     }))
 }
 
