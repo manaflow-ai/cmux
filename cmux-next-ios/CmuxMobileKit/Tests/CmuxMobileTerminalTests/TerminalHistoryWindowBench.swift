@@ -5,8 +5,10 @@ import Testing
 import UIKit
 @testable import CmuxMobileTerminal
 
-/// Bench (opt-in: CMUX_VIEWPORT_WINDOW_BENCH=1; on the fleet, `cmux-ci run ...
-/// --env TEST_RUNNER_CMUX_VIEWPORT_WINDOW_BENCH=1`, which xcodebuild forwards).
+/// Bench, opt-in like the tick harness: CMUX_VIEWPORT_WINDOW_BENCH=1, or the
+/// CMUX_TICK_HARNESS=1 that `scripts/ci/cmux-next-ios-sim.sh` sets for an
+/// only= naming `*/TickHarnessCellsTests*` (its env is fixed), so on the fleet:
+/// `--arg only=CmuxMobileTerminalTests/TerminalHistoryWindowBench,CmuxMobileLiveTests/TickHarnessCellsTests/none`.
 ///
 /// What the phone's Ghostty mirror pays for each replay shape of a Mac
 /// terminal with 100,000 history rows, through the real surface: the bytes,
@@ -19,7 +21,7 @@ import UIKit
 /// tail holds now), a 4,000-row window far up (one step of a scroll back now),
 /// and the screen alone (the attach). Prints VIEWPORT-WINDOW-SIM lines.
 @MainActor
-@Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_VIEWPORT_WINDOW_BENCH"] == "1",
+@Suite(.serialized, .enabled(if: ["CMUX_VIEWPORT_WINDOW_BENCH", "CMUX_TICK_HARNESS"].contains { ProcessInfo.processInfo.environment[$0] == "1" },
                              "opt-in bench: CMUX_VIEWPORT_WINDOW_BENCH=1"))
 struct TerminalHistoryWindowBench {
     static let historyRows = 100_000
