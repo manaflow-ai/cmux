@@ -159,6 +159,28 @@ import Testing
         #expect(commands(daemon, "resize-surface").count == hidden, "a hidden terminal refreshed its size")
     }
 
+    /// Going to the background keeps the claim 45 s: the lease is renewed
+    /// then, so the Mac's 45 s run from that moment, not from the last
+    /// periodic refresh. A released size is never renewed.
+    @Test func renewingTheClaimSendsTheSameSizeOnlyWhileClaimed() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.sizeLease = true
+        let session = session(daemon)
+        session.sizeLeaseRefresh = .seconds(60)
+        session.start { _ in }
+        session.resize(columns: 54, rows: 42)
+        try await waitUntil { commands(daemon, "resize-surface").count == 1 }
+        session.renewSizeClaim()
+        try await waitUntil { commands(daemon, "resize-surface").count == 2 }
+        #expect(commands(daemon, "resize-surface").allSatisfy { $0["cols"] as? Int == 54 && $0["rows"] as? Int == 42 })
+
+        session.setClaimsSize(false)
+        try await waitUntil { commands(daemon, "release-surface-size").count == 1 }
+        session.renewSizeClaim()
+        try await settle()
+        #expect(commands(daemon, "resize-surface").count == 2, "a released size was renewed")
+    }
+
     @Test func aDaemonWithoutTheLeaseGetsNoRefresh() async throws {
         let daemon = FakeTerminalDaemon()
         let session = session(daemon)

@@ -21,9 +21,14 @@ pub(super) struct Home {
 
 impl Home {
     pub fn new() -> Self {
+        Self::with_segments(8 << 20)
+    }
+
+    /// A home whose store starts a new segment every `segment_bytes`.
+    pub fn with_segments(segment_bytes: u64) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let store: Arc<dyn Store> = Arc::new(ForkView::new(Box::new(
-            LocalStore::new(dir.path().join("sessions"), 8 << 20).unwrap(),
+            LocalStore::new(dir.path().join("sessions"), segment_bytes).unwrap(),
         )));
         Self { dir, store, last: Arc::default() }
     }
@@ -99,8 +104,22 @@ pub(super) fn wait_ready(actor: &ChatActor) {
     }
 }
 
+/// Waits until the actor's chunks stop growing for 100 ms: it read what v1 holds.
+pub(super) fn wait_read(log: &V1Log<Arc<dyn Store>>, actor: &ChatActor) {
+    wait_ready(actor);
+    let started = Instant::now();
+    loop {
+        let chunks = log.counters.chunks.load(Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(100));
+        if log.counters.chunks.load(Ordering::SeqCst) == chunks {
+            return;
+        }
+        assert!(started.elapsed() < Duration::from_secs(120), "the actor never stopped reading");
+    }
+}
+
 /// The book's settled records, in seq order: rowId, rev and the first raw place.
-pub(super) fn book_rows(book: &Path) -> Vec<(u64, u32, u64)> {
+pub(crate) fn book_rows(book: &Path) -> Vec<(u64, u32, u64)> {
     let (mut log, _) = Log::open(book, Options::default()).unwrap();
     let mut cursor = 0;
     let mut rows = Vec::new();
@@ -136,15 +155,20 @@ fn book_texts(book: &Path) -> Vec<(u64, Vec<u8>)> {
 /// What `translate` gives for the chat's events as v1 holds them, read through the store a
 /// chunk at a time: each settled row and each patch, in order.
 pub(super) fn translated(store: &dyn Store) -> Vec<(u64, u32, u64)> {
+    translated_of(store, ID)
+}
+
+/// [`translated`] for chat `id`.
+pub(crate) fn translated_of(store: &dyn Store, id: &str) -> Vec<(u64, u32, u64)> {
     let mut state = State::default();
     let mut rows = Vec::new();
     let mut marks = LogMarks::default();
     let mut bytes = Vec::new();
     let mut from = 1;
     loop {
-        let stamp = store.log_stamp(ID).unwrap();
+        let stamp = store.log_stamp(id).unwrap();
         let chunk =
-            store.read_log(ID, from, LogFilter::ALL, stamp, &mut marks, &mut bytes).unwrap();
+            store.read_log(id, from, LogFilter::ALL, stamp, &mut marks, &mut bytes).unwrap();
         for line in bytes.split_inclusive(|b| *b == b'\n') {
             let seq = seq_places(line, 0).unwrap().start;
             let line = line.strip_suffix(b"\n").unwrap_or(line);
@@ -228,10 +252,176 @@ fn ready_comes_only_from_a_read_that_said_at_end_and_the_hint_finds_new_lines() 
         assert!(started.elapsed() < Duration::from_secs(30), "the line was never read");
         std::thread::sleep(Duration::from_millis(5));
     }
+    let handle = actor.handle.clone();
     actor.join();
+    // The line past the start's last seq was synced and checkpointed: no failure, no restart.
+    assert_eq!(handle.failures(), 0, "the checkpoint after the new line did not fail");
+    assert_eq!(saved_cursor(&home.book()), seq + 1);
     let rows = book_rows(&home.book());
     assert!(rows.iter().any(|row| row.2 == seq), "the new line's row is in the book");
     assert_eq!(rows, translated(home.store.as_ref()));
+}
+
+/// The place of the book's saved cursor.
+pub(crate) fn saved_cursor(book: &Path) -> u64 {
+    let saved = log::saved_checkpoint(book).unwrap().unwrap();
+    Checkpoint::from_recovered(&saved).unwrap().cursors[0].place
+}
+
+#[test]
+fn a_read_with_no_mark_at_the_checkpoint_opens_at_most_8_segment_heads_at_both_sizes() {
+    // God's 1 GiB log is 128 segments of 8 MiB: 8 MiB of log in 64 KiB segments has as many.
+    // Small's 2 MiB is one segment.
+    for (name, segment_bytes) in [("god", 64 << 10), ("small", 8 << 20)] {
+        let home = Home::with_segments(segment_bytes);
+        let (_, last) =
+            crate::god_fixture::append_log(home.store.as_ref(), ID, 400, 8 << 20).unwrap();
+        home.last.store(last, Ordering::SeqCst);
+        let log = home.log();
+        let mut source = log.open().unwrap();
+        // The first read of a daemon's life at a checkpoint near the end, and one at its end.
+        for place in [last - 3, last + 1] {
+            let before = log.counters.heads.load(Ordering::SeqCst);
+            source.read_chunk(place).unwrap();
+            let heads = log.counters.heads.load(Ordering::SeqCst) - before;
+            assert!(heads <= 8, "{name}: a read at {place} opened {heads} segment heads");
+            source = log.open().unwrap();
+        }
+    }
+}
+
+#[test]
+fn a_thousand_reads_at_the_end_of_a_caught_up_log_list_the_directory_at_most_twice() {
+    let home = Home::with_segments(64 << 10);
+    let (_, last) = crate::god_fixture::append_log(home.store.as_ref(), ID, 200, 2 << 20).unwrap();
+    home.last.store(last, Ordering::SeqCst);
+    let log = home.log();
+    let mut source = log.open().unwrap();
+    let mut place = 1;
+    loop {
+        let chunk = source.read_chunk(place).unwrap();
+        place = chunk.lines().last().map_or(place, |line| line.unwrap().end);
+        if chunk.at_end {
+            break;
+        }
+    }
+    let lists = log.counters.lists.load(Ordering::SeqCst);
+    for _ in 0..1000 {
+        let chunk = source.read_chunk(place).unwrap();
+        assert!(chunk.at_end && chunk.lines().next().is_none());
+    }
+    let listed = log.counters.lists.load(Ordering::SeqCst) - lists;
+    assert!(listed <= 2, "1,000 reads at the end listed the directory {listed} times");
+    // A line appended now is found by the next read, in a new segment or not.
+    let seq = home.prompt("after the thousand");
+    let chunk = source.read_chunk(place).unwrap();
+    assert_eq!(chunk.lines().next().map(|line| line.unwrap().start), Some(seq));
+}
+
+/// The names of the chat's segments now, oldest first.
+fn segment_names(home: &Home) -> Vec<String> {
+    let events = home.store.session_path(ID).unwrap().join("events");
+    let mut names: Vec<String> = std::fs::read_dir(events)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| name.ends_with(".ndjson"))
+        .collect();
+    names.sort();
+    names
+}
+
+/// Reads `source` from `place` to its end; the place after its last line.
+fn read_to_end(source: &mut impl RawSource, mut place: u64) -> u64 {
+    loop {
+        let chunk = source.read_chunk(place).unwrap();
+        place = chunk.lines().last().map_or(place, |line| line.unwrap().end);
+        if chunk.at_end {
+            return place;
+        }
+    }
+}
+
+/// A reader at the end of a full last segment, with the listing kept, and v1's next line in
+/// the next segment: the next read finds the line and lists the directory exactly once.
+fn the_next_segment_is_followed(home: &Home, from: u64, full: &str, next: &str) {
+    let log = home.log();
+    let mut source = log.open().unwrap();
+    let place = read_to_end(&mut source, from);
+    assert_eq!(segment_names(home).last().map(String::as_str), Some(full));
+    for _ in 0..10 {
+        assert!(source.read_chunk(place).unwrap().lines().next().is_none());
+    }
+    let lists = log.counters.lists.load(Ordering::SeqCst);
+    let seq = home.prompt("in the next segment");
+    assert_eq!(segment_names(home).last().map(String::as_str), Some(next));
+    let chunk = source.read_chunk(place).unwrap();
+    assert_eq!(chunk.lines().next().map(|line| line.unwrap().start), Some(seq));
+    assert_eq!(log.counters.lists.load(Ordering::SeqCst), lists + 1);
+}
+
+#[test]
+fn a_kept_listing_follows_v1_into_the_segment_after_a_full_last_one() {
+    let home = Home::with_segments(64 << 10);
+    // Lines until the last segment holds `segment_bytes` or more: the store opens the next
+    // one only at the line after.
+    let events = home.store.session_path(ID).map(|dir| dir.join("events"));
+    loop {
+        home.prompt(&"p".repeat(900));
+        let names = segment_names(&home);
+        let last = events.as_ref().unwrap().join(names.last().unwrap());
+        if std::fs::metadata(last).unwrap().len() >= 64 << 10 {
+            break;
+        }
+    }
+    let names = segment_names(&home);
+    let full = names.last().unwrap().clone();
+    let index: u32 = full.trim_end_matches(".ndjson").parse().unwrap();
+    the_next_segment_is_followed(&home, 1, &full, &format!("{:06}.ndjson", index + 1));
+}
+
+#[test]
+fn a_kept_listing_follows_v1_from_a_fork_history_into_its_first_own_segment() {
+    let home = Home::with_segments(8 << 20);
+    // The log's only segment is a fork's history, `000000`, which is never appended to.
+    let mut writer = home.store.history_writer(ID).unwrap().unwrap();
+    for seq in 1..=50 {
+        writer
+            .write(&EventRecord {
+                seq,
+                at: seq,
+                dir: "mux".into(),
+                kind: "user_message".into(),
+                msg: serde_json::json!({ "text": format!("history {seq}") }),
+                host_seq: None,
+            })
+            .unwrap();
+    }
+    writer.commit().unwrap();
+    home.last.store(50, Ordering::SeqCst);
+    the_next_segment_is_followed(&home, 1, "000000.ndjson", "000001.ndjson");
+}
+
+#[test]
+fn a_first_source_that_reads_100_lines_past_the_start_checkpoints_with_no_failure() {
+    let home = Home::with_chat(200, 2 << 20);
+    let log = home.log();
+    let actor = ChatActor::spawn(home.config(&log));
+    wait_ready(&actor);
+    // The daemon's first source of the chat answers `holds` from the start's last seq; each
+    // line after it is a checkpoint (a prompt settles out of a turn) and a sync past that seq.
+    // Spread over more than a second, so a checkpoint falls inside the run as well as at its end.
+    let mut seq = 0;
+    for n in 0..100 {
+        seq = home.prompt(&format!("past the start {n}"));
+        let _ = actor.handle.wake();
+        std::thread::sleep(Duration::from_millis(15));
+    }
+    let handle = actor.handle.clone();
+    wait_read(&log, &actor);
+    actor.join();
+    assert_eq!(handle.failures(), 0);
+    assert_eq!(saved_cursor(&home.book()), seq + 1);
+    assert_eq!(book_rows(&home.book()), translated(home.store.as_ref()));
 }
 
 struct Gated {

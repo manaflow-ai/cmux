@@ -301,8 +301,20 @@ impl Hub {
         kinds: &[&str],
         f: &mut dyn FnMut(EventRecord) -> bool,
     ) -> anyhow::Result<()> {
+        self.scan_kinds_after_and_kept(session, 0, kinds, f)
+    }
+
+    /// [`Self::scan_kinds_and_kept`] of the journal records past `after` (a restore point's seq,
+    /// `restore_point.rs`); every kept one is numbered past the journal's end, so all are read.
+    pub(super) fn scan_kinds_after_and_kept(
+        &self,
+        session: &Session,
+        after: u64,
+        kinds: &[&str],
+        f: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> anyhow::Result<()> {
         let mut going = true;
-        self.store.scan_kinds(&session.id, kinds, &mut |e| {
+        self.store.scan_kinds_after(&session.id, after, kinds, &mut |e| {
             going = f(e);
             going
         })?;
