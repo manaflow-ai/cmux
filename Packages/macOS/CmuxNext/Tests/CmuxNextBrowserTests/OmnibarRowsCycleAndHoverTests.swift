@@ -1,6 +1,5 @@
 import AppKit
 @testable import CmuxNextBrowser
-import CmuxNextBrowserCore
 import Foundation
 import Testing
 
