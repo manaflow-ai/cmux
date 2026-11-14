@@ -19,6 +19,7 @@ members = [
     "crates/acpmux",
     "crates/acpmux-core",
     "crates/acpmux-client",
+    "crates/acpmux-list-types",
     "crates/cmux-tailnet",
     "crates/acpmux-build-id",
     "crates/acpmux-standalone",
@@ -101,6 +102,7 @@ members = [
     "crates/cmux-customize",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
+    "crates/cmux-extension-sdk",
     "crates/cmux-terminal-iface",
     "crates/cmux-rd-proto",
     "crates/cmux-rd-core",
@@ -141,6 +143,7 @@ default-members = [
     "crates/acpmux",
     "crates/acpmux-core",
     "crates/acpmux-client",
+    "crates/acpmux-list-types",
     "crates/acpmux-build-id",
     "crates/acpmux-standalone",
     "crates/acpmux-book",
@@ -210,6 +213,7 @@ default-members = [
     "crates/cmux-customize",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
+    "crates/cmux-extension-sdk",
     "crates/cmux-terminal-iface",
     "crates/cmux-rd-proto",
     "crates/cmux-rd-core",
@@ -315,6 +319,7 @@ cmux-daemon-conn-core = { path = "crates/cmux-daemon-conn-core" }
 acpmux-hot = { path = "crates/acpmux-hot" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
+cmux-theme-tokens = { path = "crates/cmux-theme-tokens" }
 cmux-action-catalog = { path = "crates/cmux-action-catalog" }
 cmux-host-budget = { path = "crates/cmux-host-budget" }
 cmux-usage-patterns = { path = "crates/cmux-usage-patterns" }
@@ -377,7 +382,12 @@ portable-pty = "0.9"
 crossterm = "0.29"
 crossbeam-channel = "0.5"
 ratatui = "0.30"
-unicode-width = "0.2"
+# ratatui-core 0.1 adds one cell for each halfwidth katakana sound mark
+# (U+FF9E, U+FF9F) because unicode-width gave them 0; unicode-width 0.2.3
+# gives them 1 itself, so with 0.2.3 each mark takes 2 cells in every layout
+# and table. Lift this bound together with a ratatui-core that drops its
+# own adjustment.
+unicode-width = ">=0.2.2, <0.2.3"
 unicode-segmentation = "1"
 unicode-normalization = "0.1"
 base64 = "0.22"
@@ -502,6 +512,7 @@ lto = "fat"
 codegen-units = 1
 
 [profile.release.package.cmux-tui]
+opt-level = "z"
 codegen-units = 1
 
 [profile.release.package.cmux-tui-core]

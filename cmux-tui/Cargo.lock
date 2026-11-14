@@ -118,6 +118,7 @@ dependencies = [
 name = "acpmux-book"
 version = "0.1.0"
 dependencies = [
+ "acpmux-list-types",
  "bincode",
  "crc32fast",
  "imbl",
@@ -136,6 +137,7 @@ name = "acpmux-client"
 version = "1.0.0"
 dependencies = [
  "acpmux-book",
+ "acpmux-list-types",
  "serde",
  "serde_json",
  "tokio",
@@ -165,6 +167,14 @@ dependencies = [
  "libc",
  "sha2 0.10.9",
  "wasmtime",
+]
+
+[[package]]
+name = "acpmux-list-types"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1528,6 +1538,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-extension-sdk"
+version = "1.0.0"
+dependencies = [
+ "cmux-app-manifest",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-feed-core"
 version = "0.1.0"
 dependencies = [
@@ -1867,6 +1885,7 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+ "windows-sys 0.61.2",
  "x11rb",
 ]
 
@@ -2201,10 +2220,12 @@ dependencies = [
  "cmux-relay",
  "cmux-remote",
  "cmux-remote-protocol",
+ "cmux-scope",
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
  "cmux-terminal-client",
+ "cmux-theme-tokens",
  "cmux-tui-cdp",
  "cmux-tui-core",
  "cmux-tui-hooks",
@@ -2230,6 +2251,7 @@ dependencies = [
  "notify",
  "parking_lot",
  "plist",
+ "png",
  "ratatui",
  "regex",
  "reqwest",
@@ -2326,6 +2348,7 @@ dependencies = [
  "cmux-tasks-core",
  "cmux-terminal-iface",
  "cmux-terminal-sizing",
+ "cmux-theme-tokens",
  "cmux-tui-cdp",
  "cmux-tui-cloud-conversations",
  "cmux-tui-image-paste",
@@ -2587,6 +2610,7 @@ name = "cmux-wg"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "blake2",
  "boringtun",
  "bytes",
  "cmux-rd-core",
@@ -8565,9 +8589,9 @@ dependencies = [
 
 [[package]]
 name = "unicode-width"
-version = "0.2.3"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca718471876992059f251e33aafc334346ada08042b7661dd1fe313a9bced557"
+checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
 
 [[package]]
 name = "unicode-xid"

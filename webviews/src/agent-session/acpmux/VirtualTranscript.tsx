@@ -3,20 +3,20 @@ import React, {
   useCallback,
   useDeferredValue,
   useEffect,
-  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
   useState,
   useSyncExternalStore,
+  useInsertionEffect,
 } from "react";
 import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
 import { LayeredMap } from "./conversation/layeredMap";
 import { isAgentMotionOff } from "../shared/motion";
 import { LOAD_FADE_CLASS, LoadFadeWindow } from "../shared/loadFade";
-import { entranceAllowed } from "../shared/pageReveal";
+import { entranceAllowed, pageAway } from "../shared/pageReveal";
 import { holdEntranceForFirstFrame } from "./conversation/entranceClock";
 import {
   layoutConversation,
@@ -52,15 +52,9 @@ import {
 } from "./model";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
-import { animateScroll, MOTION_SCROLL_EVENT, scrollRunning, stopScroll } from "./threadMinimap/scrollMotion";
+import { animateScroll, MOTION_SCROLL_EVENT, stopScroll, scrollRunning } from "./threadMinimap/scrollMotion";
 import { holdMomentum, installMomentumHold } from "./threadMinimap/momentumHold";
-import {
-  JUMP_CURVE,
-  jumpDuration,
-  jumpGlideStart,
-  railBottomShadowReach,
-  transcriptFadeReach,
-} from "./threadMinimap/model";
+import { JUMP_CURVE, jumpDuration, jumpGlideStart, transcriptFadeReach } from "./threadMinimap/model";
 import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
 import { minimapReserve } from "./chatMinimap/paint";
@@ -80,13 +74,13 @@ import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { createTailGlide, type TailGlide } from "./conversation/tailGlide";
 import { finishCarry, notePinPass, pinLiveLine, refreshPinned } from "./conversation/pinnedLiveLine";
 import {
-  ARRIVAL_EASE,
-  arrivalStepMs,
   createFollowChase,
   type FollowChase,
+  ARRIVAL_EASE,
+  arrivalStepMs,
   sendMotionMs,
 } from "./conversation/followChase";
-import { shareFrameBudget, type FrameBudget } from "./conversation/frameBudget";
+import { rowsMoved, shareFrameBudget, type FrameBudget } from "./conversation/frameBudget";
 import { followMotion } from "./conversation/followMotion.experiment";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
@@ -136,11 +130,11 @@ import {
   foldToggleAt,
   holdFold,
   keepFold,
-  notePlacement,
   pushUpCut,
   trimmedFoldRoom,
   verticalWheel,
   type FoldAnchor,
+  notePlacement,
 } from "./conversation/foldAnchor";
 import { settleTurnFold, startTurnFold, watchTurnFold, type TurnFold } from "./conversation/turnFold";
 import {
@@ -164,9 +158,9 @@ import {
   foldFind,
   findRowIndex,
   findMemberRowId,
-  rowHolds,
   paintFindHighlights,
   type ChatFind,
+  rowHolds,
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
 import { LIVE_THINKING, THINKING, WORKED, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
@@ -233,6 +227,11 @@ import {
 /// every 8 to 17 ms; a window's or a strip's one-off change never has a second within it), and how
 /// long a width holds before the whole chat is measured at it.
 const LIVE_RESIZE_MS = 120;
+/// How long the rows hold still before a chat held whole saves its prompts' places (`keepPromptTops`): a
+/// stream changes them every frame, and the save reads every row.
+const PROMPT_TOPS_QUIET_MS = 1000;
+/// Entries the prepared-text cache may hold past twice the rows before it drops those of rows that left.
+const MEASURED_SLACK = 512;
 /// The rows past each end of the mounted ones a live resize's frame still measures at the new width.
 const LIVE_RESIZE_ROWS = 40;
 /// The live width steps before the rows flow (`FLOW_CLASS`).
@@ -1829,9 +1828,13 @@ function TranscriptView({
       if (frameBudget.current === budget) frameBudget.current = undefined;
     };
   }, []);
-  // Every commit of the rows is the chat doing work: its frames are read for a moment after.
+  // A commit that moves the rows is the chat doing work: its frames are read for a moment after.
+  // Fresh row objects that change no row are no work (frameBudget.ts `rowsMoved`).
+  const pokedRows = useRef<readonly AcpmuxRow[]>([]);
   useEffect(() => {
-    frameBudget.current?.poke();
+    const before = pokedRows.current;
+    pokedRows.current = rows;
+    if (rowsMoved(before, rows)) frameBudget.current?.poke();
   }, [rows]);
   useEffect(() => {
     transcriptMounted.current = true;
@@ -3265,7 +3268,10 @@ function TranscriptView({
   /// shown in their place is a switch, which draws whole on its first frame, never a fold.
   const turnEndCapture = useRef<TurnEndCapture | undefined>(undefined);
   const turnEnd = useRef<TurnEndFold | undefined>(undefined);
-  if (sameChat && endsTurn(rowsBefore, rows))
+  // A turn that ended while the reader was away (its end among the frames held while the chat was
+  // hidden) draws ended in place: folding from the rows drawn before they left moved its rows by
+  // all that came since.
+  if (sameChat && endsTurn(rowsBefore, rows) && !pageAway())
     turnEndCapture.current = captureTurnEnd(thread.current, ref.current, rows, sessionId);
   else if (!sameChat) turnEndCapture.current = undefined;
   // A subagent's view starts with its "Subagent of" pill (subagentRows.ts): pinned over the top, where
@@ -3580,6 +3586,13 @@ function TranscriptView({
       resizing,
     );
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId, partial };
+    // Prepared text is kept by row id for every row measured. Rows that left (a chat that let go of its
+    // oldest records, direct.ts `shedOlderHeld`) take theirs with them, so the cache holds what the
+    // transcript holds: one pass over the rows, only once it holds a good many more entries than rows.
+    if (cache.size > rows.length * 2 + MEASURED_SLACK) {
+      const held = new Set(rows.map((row) => row.id));
+      for (const id of cache.keys()) if (!held.has(id)) cache.delete(id);
+    }
     return { layout, partial, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [rows, registry, sessionId, chatLook, attachmentView, scaledRowWidth, resizeSettled]);
   // A row that draws moves only the rows below it: place them again, measuring none.
@@ -3732,8 +3745,10 @@ function TranscriptView({
     draggedHeight,
   ]);
   // A chat held whole keeps each prompt's measured place (transcriptHeights.ts), so the next open on
-  // its tail holds exactly the older history's room. In idle time, once the rows stop changing: one
-  // pass over the rows per placement that settles, never per frame.
+  // its tail holds exactly the older history's room. In idle time, once the rows stop changing for
+  // PROMPT_TOPS_QUIET_MS: one pass over the rows per placement that settles, never per frame. Each
+  // pass reads every prompt's top (O(rows)); armed on every placement, it ran between the frames of
+  // a stream, about 3 ms of each token in a 35,000-row chat (bench/transcript-replay.bench.ts, god).
   useEffect(() => {
     if (canLoadOlder || !sessionId || rows.length === 0) return;
     const placed = measured.layout;
@@ -3746,12 +3761,15 @@ function TranscriptView({
           prompts.push({ id: rows[index]!.id, top: placed.geometry.topAt(index) - origin });
       keepPromptTops(sessionId, width, prompts);
     };
-    if (typeof requestIdleCallback === "function") {
-      const handle = requestIdleCallback(keep, { timeout: 2000 });
-      return () => cancelIdleCallback(handle);
-    }
-    const timer = setTimeout(keep, 500);
-    return () => clearTimeout(timer);
+    let idle: number | undefined;
+    const quiet = setTimeout(() => {
+      if (typeof requestIdleCallback === "function") idle = requestIdleCallback(keep, { timeout: 2000 });
+      else keep();
+    }, PROMPT_TOPS_QUIET_MS);
+    return () => {
+      clearTimeout(quiet);
+      if (idle !== undefined) cancelIdleCallback(idle);
+    };
   }, [canLoadOlder, sessionId, rows, measured, scaledRowWidth]);
   // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
   // alone placed the latest row's bottom that far under the view.
@@ -4489,6 +4507,13 @@ function TranscriptView({
           stopFollowMotion();
         }
         const resizing = now - resizedAt.current < MOTION_MS.standard;
+        // What came while the reader was away (the chat hidden behind another workspace, whose held
+        // frames land together as it shows: shared/pageReveal.ts), or a burst of rows in one update,
+        // is a load, not live: it is placed at once, as its rows draw in place. Chased or glided, the
+        // rows under it started where they were drawn before the reader left, a backlog's height up,
+        // and slid down into a gap at the bottom (Leo, 2026-11-11: "a new message from you seemed to
+        // come down from the heavens ... austin was navigating between workspaces").
+        const caughtUp = pageAway(node.ownerDocument) || rows.length - oldRows.length > LIVE_ROWS_PER_UPDATE;
         // The turn ending folds its work in one motion (turnEndFold.ts) from the rows as they were
         // drawn: it moves the rows on its own frames, so nothing chases or glides with it (a chase
         // that drew the thread back by the swap, then by the fold's own steps, moved the rows twice).
@@ -4526,7 +4551,7 @@ function TranscriptView({
           const folding = Boolean(thread.current?.hasAttribute(TURN_END_ATTR));
           // The slim arm is the send's (Leo, 2026-11-09: "the scroll up is extremely sluggish"): the
           // turn's end still drains here on every arm, so its reply never steps at the end.
-          if (folding && draining && !jumping && !bottomStacking && !heightFoldPlaying() && !resizing) {
+          if (folding && draining && !jumping && !bottomStacking && !heightFoldPlaying() && !resizing && !caughtUp) {
             // The fold plays and the reply's last lines still reveal: the fold takes every move but
             // theirs (it takes a late one only from its curve's remaining share, which moved the rest
             // at once, 12 to 18 px in a frame), and the chase takes the reply's growth, drawn back by
@@ -4556,10 +4581,10 @@ function TranscriptView({
               tailGlides = true;
               tailAnchor = reply.id;
             }
-          } else if (foldRiding && !resizing) {
+          } else if (foldRiding && !resizing && !caughtUp) {
             // The fold playing on: nothing noted, and a chase still landing lands on its own.
             chaseAnchor.current = undefined;
-          } else if (riding || resizing) {
+          } else if (riding || resizing || caughtUp) {
             stopFollowMotion();
             // The turn's end rides on its fold (turnEndFold.ts), or rests where nothing moved: the
             // reply's last lines still revealing after it are the turn's all the same, and chase
@@ -4651,6 +4676,7 @@ function TranscriptView({
           // Moved above.
         } else if (
           sendRows &&
+          !caughtUp &&
           !jumping &&
           !bottomStacking &&
           !resizing &&
@@ -4661,6 +4687,7 @@ function TranscriptView({
           followGlide.current?.sent(thread.current, rose);
         // A disclosure's height fold moves the rows on its own frames: easing them too lagged it.
         else if (
+          !caughtUp &&
           !jumping &&
           !bottomStacking &&
           !resizing &&
@@ -6504,7 +6531,6 @@ function TranscriptView({
               layout={layout}
               scroller={ref}
               scrollTop={renderScroll.top - origin}
-              latestShadowReach={railBottomShadowReach(renderFollowing ? 0 : below - FOLLOW_BOTTOM_DEADBAND_PX)}
               // Above the room under the last row, so a composer that grows while the reader is scrolled
               // up leaves the map as it was, as it does the scrollbar.
               viewportHeight={height - room}
