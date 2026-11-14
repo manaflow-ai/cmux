@@ -117,15 +117,23 @@ import UIKit
 
     /// The app's first row is inside the terminal area (its clip, under the
     /// toolbar), and its rows fill the area to the composer within one row.
-    static func expectFits(_ page: Page, _ state: String, areaTop: CGFloat) throws {
+    /// `cursorRow`: the app's cursor row (0 = its first row), where the
+    /// drawn grid is checked: the row Ghostty draws the cursor on, less that
+    /// many rows, is the app's first row on screen.
+    static func expectFits(_ page: Page, _ state: String, areaTop: CGFloat, cursorRow: Int = 1) throws {
         let view = try #require(page.screen.view)
         let host = try #require(page.screen.surface.superview, "\(state): the surface has no TUI host")
         let clip = try #require(host.superview, "\(state): the TUI host has no clip")
         let area = clip.convert(clip.bounds, to: view)
         let grid = host.convert(host.bounds, to: view)
         let cell = page.screen.surface.cellSize.height
-        let where_ = "\(state): area \(area), grid \(grid), cell \(cell), \(page.screen.debugState)"
+        let surface = page.screen.surface
+        let cursor = surface.visibleCursorCell.map { surface.convert($0, to: view) }
+        let where_ = "\(state): area \(area), grid \(grid), surface \(surface.convert(surface.bounds, to: view)), cursor \(cursor.map { "\($0)" } ?? "none"), cell \(cell), \(page.screen.debugState)"
         try #require(cell > 0, "\(where_)")
+        let drawnCursor = try #require(cursor, "the cursor is not drawn. \(where_)")
+        let firstRow = drawnCursor.minY - CGFloat(cursorRow) * cell
+        #expect(firstRow >= area.minY - 0.5, "the app's first drawn row is above the terminal area (\(Int(((area.minY - firstRow) / cell).rounded(.up))) rows cut). \(where_)")
         #expect(abs(area.minY - areaTop) < 0.5, "the terminal area starts under the toolbar. \(where_)")
         #expect(grid.minY >= area.minY - 0.5, "the app's first row is above the terminal area (\(Int(((area.minY - grid.minY) / cell).rounded(.up))) rows cut). \(where_)")
         #expect(grid.maxY <= area.maxY + 0.5, "the app's last row is under the composer. \(where_)")
@@ -162,7 +170,7 @@ import UIKit
         defer { TerminalScreenTestLock.release() }
         let page = try await Self.openTab(hostGrid: true)
         defer { page.close() }
-        try Self.expectFits(page, "host grid tab page, keyboard down", areaTop: Self.tabInsets.top)
+        try Self.expectFits(page, "host grid tab page, keyboard down", areaTop: Self.tabInsets.top, cursorRow: 6)
     }
 
     @Test func aFullScreenAppStandaloneStartsInsideTheTerminalArea() async throws {
