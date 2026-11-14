@@ -137,14 +137,14 @@ final class DeviceAgent {
     /// The hub refused this identity (removed): a new one; the app registers it.
     func renewIdentity() async -> DeviceIdentity? {
         stopHub()
-        let fresh = await Task.detached { [keychainScope, statePath] in
+        let fresh = await Task.detached { [keychainScope, statePath] () -> DeviceIdentity? in
             // A failed lease check must not fall through to a renewing Keychain write.
             do {
                 try CaptureLeaseMarker.authorizeIdentity(stateDirectory: URL(fileURLWithPath: statePath).deletingLastPathComponent().path,
                                                          keychainScope: keychainScope,
                                                          home: ProcessInfo.processInfo.environment["HOME"] ?? "")
                 return try DeviceIdentity.renew(bundleIdentifier: keychainScope)
-            } catch { return nil as DeviceIdentity? }
+            } catch { return nil }
         }.value
         if let fresh { identity = fresh }
         return fresh
