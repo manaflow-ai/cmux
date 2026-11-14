@@ -26,8 +26,9 @@
 //! `skylight.rs`, MIT, read as a reference) and the make-key pair uses the
 //! mouse-down/up record kinds, so the scope runs only on the macOS majors it
 //! was verified on live ([`VERIFIED_MAJORS`]) and never when
-//! `CMUX_CU_BG_ACTIVATE=0`. Off, disabled background menu items are refused
-//! with the reason.
+//! `CMUX_CU_BG_ACTIVATE=0` (in the worker's environment, or set for the user
+//! with `launchctl setenv CMUX_CU_BG_ACTIVATE 0` and then a cmux restart).
+//! Off, disabled background menu items are refused with the reason.
 
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -81,12 +82,26 @@ pub(super) fn gate(os_version: &str, env: Option<&str>) -> bool {
         .is_some_and(|m| VERIFIED_MAJORS.contains(&m))
 }
 
+/// The off switch's value: the worker's own environment, else the per-user
+/// launchd environment (`launchctl setenv CMUX_CU_BG_ACTIVATE 0`). The
+/// Computer Use worker is started with a fixed environment (cmux Remote
+/// passes nothing of the daemon's on), so a variable set for the app never
+/// reaches it; the launchd one does, whatever started the worker.
+fn off_switch() -> Option<String> {
+    if let Ok(v) = std::env::var(OFF_ENV) {
+        return Some(v);
+    }
+    let out = std::process::Command::new("/bin/launchctl").args(["getenv", OFF_ENV]).output().ok()?;
+    let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!v.is_empty()).then_some(v)
+}
+
 fn enabled() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
     *ON.get_or_init(|| {
         gate(
             &super::sys::sysctl_string(c"kern.osproductversion").unwrap_or_default(),
-            std::env::var(OFF_ENV).ok().as_deref(),
+            off_switch().as_deref(),
         )
     })
 }
