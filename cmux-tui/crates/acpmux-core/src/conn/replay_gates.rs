@@ -168,7 +168,7 @@ fn append_round() -> Vec<u128> {
     let target = fill_ring(&hub, &mut writer, true);
     // Keep fan-out identical on both sides. The control has the same one
     // subscriber registered, but it does not copy history during the samples.
-    let _receiver = hub.subscribe_replay(&crate::wire::Sub::new("replay", "list"), target).unwrap();
+    let _receiver = hub.subscribe_replay(&Sub::new("replay", "list"), target).unwrap();
     (0..SAMPLES)
         .map(|offset| {
             let start = Instant::now();
@@ -187,7 +187,7 @@ async fn append_replay_sample(
     offset: usize,
 ) -> (HubWriter, u128, usize) {
     let cursor = first_retained_cursor(&hub, target);
-    let receiver = hub.subscribe_replay(&crate::wire::Sub::new("replay", "list"), cursor).unwrap();
+    let receiver = hub.subscribe_replay(&Sub::new("replay", "list"), cursor).unwrap();
     let stop = Arc::new(AtomicBool::new(false));
     let (permit, waiting) = hub.history_raw_copy_control();
     permit.store(false, Ordering::Release);
@@ -355,10 +355,8 @@ async fn single_encode_gate() {
         let (hub, mut writer) = Hub::new(SummaryIndex::new());
         let mut receivers = Vec::with_capacity(subscribers);
         for index in 0..subscribers {
-            receivers.push(
-                hub.subscribe_replay(&crate::wire::Sub::new(format!("sub-{index}"), "list"), 0)
-                    .unwrap(),
-            );
+            receivers
+                .push(hub.subscribe_replay(&Sub::new(format!("sub-{index}"), "list"), 0).unwrap());
         }
         hub.reset_history_encoded_ops();
         writer.apply(summary("one-change".to_owned(), 1, true)).unwrap();
