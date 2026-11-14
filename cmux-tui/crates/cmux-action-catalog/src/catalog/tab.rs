@@ -191,7 +191,7 @@ pub static ACTIONS: &[Action] = &[
         category: "tab",
         symbol: "display",
         surfaces: PALETTE | MENU | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("newTab", "create", 3), Placement::at("pane", "create", 9).folder("new"), Placement::at("tab", "create", 6).folder("new")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("newTab", "create", 3), Placement::at("pane", "create", 10), Placement::at("tab", "create", 7)], ..SurfacePlan::DEFAULT },
         arguments: &[args::DEVICE.optional()],
         targets: &["pane"],
         cli_name: "tab new-mac-screen",
@@ -216,7 +216,8 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["mac", "screen", "sharing", "stop", "disconnect", "viewer", "leave", "close"],
         category: "tab",
         symbol: "display",
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("unimplemented"), ..SurfacePlan::DEFAULT },
+        surfaces: PALETTE | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("tab", "close", 600)], ..SurfacePlan::DEFAULT },
         targets: &["tab"],
         cli_name: "tab stop-mac-screen-viewing",
         ..Action::DEFAULT
