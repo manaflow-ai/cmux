@@ -111,14 +111,17 @@ fn a_press_that_may_have_run_is_not_clicked_again() {
     assert!(!roles::press_error_falls_back(-25200)); // failure
 }
 
-/// Review 1: the key-in-app scope runs only on a verified macOS major
-/// (26) and never with CMUX_CU_BG_ACTIVATE=0; macOS 27 was not verified.
+/// Review 1: the key-in-app scope runs only on the macOS majors verified
+/// live (26 and 27) and never with CMUX_CU_BG_ACTIVATE=0.
 #[test]
 fn the_key_in_app_scope_is_gated() {
     assert!(activation::gate("26.6.2", None));
     assert!(activation::gate("26.0", Some("1")));
     assert!(!activation::gate("26.6.2", Some("0")));
-    assert!(!activation::gate("27.0.1", None));
+    assert!(activation::gate("27.0.1", None));
+    assert!(activation::gate("27.2", None));
+    assert!(!activation::gate("27.2", Some("0")));
+    assert!(!activation::gate("28.0", None));
     assert!(!activation::gate("15.7", None));
     assert!(!activation::gate("", None));
 }

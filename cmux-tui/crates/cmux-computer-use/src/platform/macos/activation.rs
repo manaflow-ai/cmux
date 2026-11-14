@@ -49,9 +49,12 @@ struct Calls {
 }
 
 /// The macOS majors the scope was verified on live (front app, key window,
-/// menu bar owner, panels, input source and z-order sampled at the finest
-/// interval the probe allows; Safari, TextEdit, Finder, VS Code).
-pub(super) const VERIFIED_MAJORS: std::ops::RangeInclusive<u32> = 26..=26;
+/// menu bar owner, the target's windows and panels, input source, cursor and
+/// z-order sampled every 1 ms with the person typing; Safari, TextEdit,
+/// Finder, VS Code): 26.6 and 27.2 guests. On both, the focus record plus
+/// the make-key pair validated the menus in 0.8-0.9 s and either alone did
+/// not within 5 s; nothing the person sees changed.
+pub(super) const VERIFIED_MAJORS: std::ops::RangeInclusive<u32> = 26..=27;
 
 /// The environment variable that turns the scope off (`0`).
 pub(super) const OFF_ENV: &str = "CMUX_CU_BG_ACTIVATE";
