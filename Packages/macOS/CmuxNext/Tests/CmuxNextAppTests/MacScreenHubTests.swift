@@ -948,9 +948,9 @@ struct MacScreenRdHostRoutingTests {
         let candidate = ScreenSignal.candidate(ScreenICECandidate(candidate: "candidate:1 1 udp 1 10.0.0.2 5000 typ host",
                                                                   sdpMid: "0", sdpMLineIndex: 0))
         let received = Received()
-        let host = MacScreenRdHost(session: session) { signaling in
+        let host = MacScreenRdHost(session: session, webRTCServer: { signaling in
             for try await signal in signaling.messages() { received.append(signal) }
-        }
+        })
         let signaling = FedSignaling([offer, candidate, .bye])
         try await host.serve(signaling)
         #expect(received.signals == [offer, candidate, .bye])
@@ -961,9 +961,9 @@ struct MacScreenRdHostRoutingTests {
         var document = MacScreenRdDocument(key: String(repeating: "ab", count: 32))
         document.maxFps = 60
         let received = Received()
-        let host = MacScreenRdHost(session: session) { signaling in
+        let host = MacScreenRdHost(session: session, webRTCServer: { signaling in
             for try await signal in signaling.messages() { received.append(signal) }
-        }
+        })
         // No bundled cmux in the test runner: the rd host fails to start instead.
         let failures = Received()
         host.onEvent = { event in if case .sourceFailed = event { failures.append(.bye) } }
