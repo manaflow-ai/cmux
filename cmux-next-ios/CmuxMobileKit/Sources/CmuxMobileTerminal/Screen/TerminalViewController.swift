@@ -798,6 +798,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // accessory; the 8 pt below the (hidden) key bar are inside the stack.
         stackRestingLimit.constant = -(insets.bottom - 8)
         view.setNeedsLayout()
+        // The resting top moved: a keyboard up now lifts the stack another
+        // distance above it (a TUI's rows follow, R1-1).
+        guard view.window != nil else { return }
+        view.layoutIfNeeded()
+        settleKeyboardLift()
+        view.setNeedsLayout()
     }
 
     /// Top of the content area (under the navigation bar or the status bar).
@@ -3019,7 +3025,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// rotation with a hardware keyboard posts no keyboard notification.
     private func settleKeyboardLift() {
         guard view.window != nil else { return }
-        tuiSizing.keyboardSettled(stackTop: bottomStack.frame.minY + composerGrowth + jumpRowHeight, restingStackTop: restingStackTop, isTUI: model.isTUI)
+        tuiSizing.keyboardSettled(stackTop: bottomStack.frame.minY + composerGrowth + jumpRowHeight, restingStackTop: restingStackTop,
+                                  keyboardShown: dock.softKeyboard == .shown, isTUI: model.isTUI)
     }
 
     @objc private func keyboardDidChange() {
