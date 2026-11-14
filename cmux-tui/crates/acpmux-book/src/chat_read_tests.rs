@@ -191,6 +191,29 @@ fn resume_size_uses_sparse_offsets_and_at_most_one_segment_length() {
     }
 }
 
+/// A resume that missed 10 records of 16 KB, 78 records past a `seq.idx` entry: it is measured
+/// from the record after its cursor, so it is under the actor's 1 MiB cap, and the records
+/// before the cursor cost one header read each, never their text.
+#[test]
+fn a_resume_of_large_records_counts_and_reads_only_what_it_missed() {
+    use crate::log::ResumeSize;
+    let home = tempfile::tempdir().unwrap();
+    let (mut log, _) = open(home.path());
+    let text = vec![b'x'; crate::row::MAX_ROW_TEXT];
+    for id in 1..=600 {
+        log.append_settled(id, 1, RawRange::NONE, &text).unwrap();
+    }
+    let record = (crate::row::MAX_ROW_TEXT + RECORD_OVERHEAD) as u64;
+    let before = log.stats();
+    assert_eq!(log.resume_size(590, 1 << 20).unwrap(), ResumeSize::Within(10 * record));
+    let since = log.since(590, MAX_FRAME_BYTES).unwrap();
+    assert_eq!(since.rows.first().map(|row| row.seq), Some(591));
+    let read = log.stats().bytes_read - before.bytes_read;
+    // The 78 records from seq 512 to the cursor, a header each; then what the frame holds.
+    let headers = 2 * 78 * crate::log::HEADER_LEN as u64;
+    assert!(read <= headers + MAX_FRAME_BYTES as u64 + 64 * 1024, "{read} bytes read");
+}
+
 #[test]
 fn truncated_resume_record_names_a_stop_instead_of_a_clean_end() {
     let home = tempfile::tempdir().unwrap();
