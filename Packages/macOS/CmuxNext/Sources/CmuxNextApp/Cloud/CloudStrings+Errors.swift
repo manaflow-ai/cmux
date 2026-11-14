@@ -8,28 +8,14 @@ extension CloudStrings {
     /// One Cloud error as a person reads it, never a Swift dump: a server
     /// refusal is its message, its next step and "(trace …)"; the other
     /// ``CloudAPIError`` cases say what to do; a link error reads as ``CloudAppLinks/endedMessage(_:)``;
-    /// a Keychain call past Rust's deadline names its item (``keychainTimedOut(_:)``), also when the relay's refusal
-    /// of it came back through the Cloud app server; any other in plain words (``PlainErrorText/personal(_:)``).
-    /// Logs keep `String(describing:)`.
+    /// a stalled Keychain call names its item; any other in plain words (``PlainErrorText/personal(_:)``). Logs keep `String(describing:)`.
     static func errorText(_ error: any Error) -> String {
         switch error {
         case let error as CloudAPIError: apiErrorText(error)
         case let error as CloudLinkError: CloudAppLinks.endedMessage(error)
         case let error as ActionFailure: error.message
-        case let error as KeychainTimedOut: error.stall.map(keychainTimedOut) ?? PlainErrorText.generic
-        case let error as CloudAppOpFailure where KeychainStall(details: error.details) != nil:
-            KeychainStall(details: error.details).map(keychainTimedOut) ?? PlainErrorText.generic
-        default: PlainErrorText.personal(error)
+        default: CloudStrings.keychainTimedOut(error) ?? PlainErrorText.personal(error)
         }
-    }
-
-    /// The Keychain did not answer for one of cmux's own items within Rust's deadline (cmux-cloud-config
-    /// `keychain`): the item as Keychain Access lists it, the seconds waited and the next step.
-    nonisolated static func keychainTimedOut(_ stall: KeychainStall) -> String {
-        String(format: String(localized: "cloud.error.keychainTimedOut",
-                              defaultValue: "The Keychain didn't answer for \"%1$@\" (account %2$@) within %3$lld s. Unlock it or allow cmux access, then try again.",
-                              table: "Cloud", bundle: .module),
-               stall.service, stall.account, Int64(stall.seconds))
     }
 
     /// A ``CloudAPIError`` as a person reads it. Nonisolated: the approvals
