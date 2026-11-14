@@ -194,7 +194,8 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
             if let ghostty = members["ghostty"] { readGhostty(ghostty, into: &colors) }
             if let value = members["colors"] { readColorMap(value, into: &colors) }
             var themes = Set(ownEdits.keys.compactMap { key in key.lastIndex(of: "/").map { String(key[..<$0]) } })
-            var edits = (base.value(at: editsPath)?.objectValue ?? [:]).merging(ownEdits) { $1 }
+            let shown = base.value(at: editsPath)?.objectValue ?? [:]
+            var edits = shown.merging(ownEdits) { $1 }
             if !colors.isEmpty {
                 let themePath = AppThemeSetting.configPath
                 let theme = values.first { $0.path == themePath }?.value.stringValue ?? base.value(at: themePath)?.stringValue
@@ -208,7 +209,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
                 }
             }
             guard !themes.isEmpty else { return }
-            for name in themes.sorted() { guardContrast(&edits, theme: name) }
+            for name in themes.sorted() { guardContrast(&edits, shown: shown, theme: name) }
             values.removeAll { $0.path == editsPath }
             values.append((editsPath, .object(edits)))
         }
@@ -251,13 +252,19 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         }
 
         /// A foreground under 4.5:1 on its background takes the app theme's text color for them
-        /// (`AppTheme.derive`, the contract every chrome token meets).
-        private mutating func guardContrast(_ edits: inout [String: JSONValue], theme: String) {
-            func color(_ token: String) -> ThemeRGB? { edits[ThemeEditsSetting.key(theme: theme, token: token)]?.stringValue.flatMap(ThemeRGB.init(cssHex:)) }
-            guard let background = color("background"), let foreground = color("foreground"),
+        /// (`AppTheme.derive`, the contract every chrome token meets). A pair the settings already
+        /// show (`shown`, their own edits) stays as it is: a file that copies the settings changes nothing.
+        private mutating func guardContrast(_ edits: inout [String: JSONValue], shown: [String: JSONValue], theme: String) {
+            func color(_ token: String, of edits: [String: JSONValue]) -> ThemeRGB? {
+                edits[ThemeEditsSetting.key(theme: theme, token: token)]?.stringValue.flatMap(ThemeRGB.init(cssHex:))
+            }
+            guard let background = color("background", of: edits), let foreground = color("foreground", of: edits),
                   foreground.contrast(with: background) < AppTheme.textMinimum else { return }
+            let isShown = color("background", of: shown).map(AppTheme.hex) == AppTheme.hex(background)
+                && color("foreground", of: shown).map(AppTheme.hex) == AppTheme.hex(foreground)
+            guard !isShown else { return }
             let written = AppTheme.hex(foreground)
-            let fixed = AppTheme.hex(AppTheme.derive(background: background, foreground: foreground, palette: (0..<16).map { color(String($0)) })[.text])
+            let fixed = AppTheme.hex(AppTheme.derive(background: background, foreground: foreground, palette: (0..<16).map { color(String($0), of: edits) })[.text])
             let ratio = (foreground.contrast(with: background) * 10).rounded() / 10
             diagnostics.append(SettingsDiagnostic(
                 kind: .correctedValue, path: ThemeFileSetting.configPath.joined(separator: "."),
