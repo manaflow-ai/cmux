@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43555864975",
+  "recorded_at": "2026-11-14T04:24:37Z",
+  "reason": "cmux-tui d05233533178 changes the image's cmux-tui (pinned 0be1b442ef37)",
+  "dry_run": false,
+  "cmux_tui": "d05233533178732c194490109cfa81e46fe70638",
+  "fixes": [
+    {
+      "sha": "d05233533178732c194490109cfa81e46fe70638",
+      "mergedAt": "2026-11-13T19:51:54-08:00",
+      "subject": "acpmux: a paired phone's Full access is on by default (#42732)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T04:24:37Z",
+    "snapshot_id": "sh-9ae0813293b9444c91cc12b8fa6bc334",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43555864975): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c3382a311765d4cbcb1bbee63bc3f110b233517f",
+    "image": "cloud-native-auto-d0523353-43555864975-1",
+    "revision": "ci-43555864975-1",
+    "at": "2026-11-14T04:24:37Z"
+  },
+  "rolled_back": false
+}
