@@ -42,7 +42,7 @@ fn body_fields(ops: &[Op], id: u64) -> Vec<BodyField> {
         })
         .collect()
 }
-const OPTIONS: &str = r#"[{"optionId":"once","name":"Allow","kind":"allow_once"},{"optionId":"always","name":"Always","kind":"allow_always"},{"optionId":"no","name":"Deny","kind":"reject_once"},{"optionId":"chat","name":"Allow for this chat"},{"optionId":"plan","name":"Use the plan","kind":"other"}]"#;
+const OPTIONS: &str = r#"[{"optionId":"once","name":"Allow","kind":"allow_once"},{"optionId":"always","name":"Always","kind":"allow_always"},{"optionId":"no","name":"Deny","kind":"reject_once"},{"optionId":"chat","name":"Allow chat"},{"optionId":"this","name":"Allow for this chat"},{"optionId":"plan","name":"Use the plan","kind":"other"}]"#;
 fn request(id: &str) -> String {
     format!(
         r#"{{"permissionId":"{id}","groupId":null,"turnId":"t1","agentRequestId":4,"request":{{"toolCall":{{"toolCallId":"c1","title":"  Run make  ","kind":"execute"}},"options":{OPTIONS}}}}}"#
@@ -87,6 +87,8 @@ fn each_option_kind_reads_as_the_views_decision() {
         ("always", r#"{"kind":"allowedAlways"}"#),
         ("no", r#"{"kind":"denied"}"#),
         ("chat", r#"{"kind":"allowedAlways"}"#),
+        // The view reads `allow[_ -]?(chat|session)` only: other words between are an answer.
+        ("this", r#"{"kind":"answered","option":"this"}"#),
         ("plan", r#"{"kind":"answered","option":"plan"}"#),
         ("gone", r#"{"kind":"answered","option":"gone"}"#),
     ] {
