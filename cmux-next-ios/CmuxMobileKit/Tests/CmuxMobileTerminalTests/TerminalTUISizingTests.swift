@@ -132,6 +132,21 @@ import Testing
         #expect(hold.rows(page: 40) == 40)
     }
 
+    @Test func anAnswerAtEarlierRowsKeepsItsGridUntilThePagesOwn() {
+        var hold = TerminalTUIGridHold()
+        hold.rowsChanged(from: 40, to: 25, shownRows: 40)
+        hold.rowsChanged(from: 25, to: 30, shownRows: 40)
+        // The answer to 25 is drawn while 30 is still to be answered.
+        hold.replayed(rows: 25, page: 30, claimPending: true)
+        #expect(hold.rows(page: 30) == 25)
+        hold.replayed(rows: 30, page: 30, claimPending: false)
+        #expect(hold.rows(page: 30) == 30)
+        // A replay that answers nothing pending (the Mac kept its grid) shows the page's rows.
+        hold.rowsChanged(from: 30, to: 40, shownRows: 30)
+        hold.replayed(rows: 30, page: 40, claimPending: false)
+        #expect(hold.heldRows == nil)
+    }
+
     @Test func aLocalSessionOrAnotherDevicesGridIsNotHeld() {
         var hold = TerminalTUIGridHold()
         hold.rowsChanged(from: 40, to: 25, shownRows: nil)

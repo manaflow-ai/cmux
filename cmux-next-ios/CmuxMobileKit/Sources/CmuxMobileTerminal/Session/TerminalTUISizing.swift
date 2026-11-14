@@ -96,8 +96,22 @@ public struct TerminalTUIGridHold: Equatable, Sendable {
         heldRows = shownRows == old ? shownRows : nil
     }
 
-    /// The Mac's replay at its new grid is parsed (or the app left the
-    /// alternate screen): the area shows the page's rows.
+    /// A replay at the Mac's grid of `rows` rows is parsed; the page has
+    /// `page` rows, and `claimPending` says a resize to them is still to be
+    /// answered (unsent, or sent after the size this replay answers). The
+    /// grid on screen is now the replay's: the area shows the page's rows,
+    /// or, while the page's own answer is still coming, the replay's grid
+    /// (a second toggle before the first answer: 40, then 25 asked, then 30).
+    public mutating func replayed(rows: Int?, page: Int, claimPending: Bool) {
+        guard let rows, rows != page, claimPending else {
+            heldRows = nil
+            return
+        }
+        heldRows = rows
+    }
+
+    /// The app left the alternate screen, or no answer came: the area shows
+    /// the page's rows.
     public mutating func release() {
         heldRows = nil
     }
