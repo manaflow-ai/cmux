@@ -238,7 +238,7 @@ fn the_retention_pass_takes_a_copied_wal_past_its_limit_with_no_request() {
 #[test]
 fn a_wal_file_of_exactly_its_limit_is_room_and_one_more_byte_with_frames_held_is_not() {
     use crate::workspace_registry::wal_durability::{WalDurability, WalRoom};
-    let wait = std::time::Duration::from_secs(30);
+    let wait = Duration::from_secs(30);
     let dir = std::env::temp_dir().join(format!(
         "cmux-retention-wal-at-its-limit-{}",
         crate::workspace_registry::new_uuid_v4()
