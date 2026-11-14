@@ -40,6 +40,7 @@ public final class MockTerminalSession: TerminalSession {
     private var transcript: [String] = []
     private var transcriptBytes = 0
     private var resizeAnswer: Task<Void, Never>?
+    private var answers: [(due: ContinuousClock.Instant, columns: Int, rows: Int)] = []
 
     private enum Program {
         case shell
@@ -117,35 +118,50 @@ public final class MockTerminalSession: TerminalSession {
     /// The Mac's answer to a resize: its grid, a mirror reset and one replay
     /// (the primary screen's history, then the program's screen at the new
     /// size), in one turn of the main queue like a `resized` event line.
+    /// Every resize is answered, in order, as the daemon does (two toggles
+    /// inside a round trip get two answers).
     private func answerResize(columns: Int, rows: Int, after delay: Duration) {
         guard columns > 0, rows > 0 else { return }
-        resizeAnswer?.cancel()
-        let clock = clock
+        answers.append((ContinuousClock.now + delay, columns, rows))
+        guard resizeAnswer == nil else { return }
+        let clock = ContinuousClock()
         resizeAnswer = Task { [weak self] in
-            try? await clock.sleep(for: delay)
-            guard let self, !Task.isCancelled else { return }
-            if let grid = self.macGrid, grid.columns == columns, grid.rows == rows { return }
-            self.columns = columns
-            self.rows = rows
-            self.macGrid = (columns, rows)
-            self.handler?(.hostGrid(columns: columns, rows: rows))
-            self.handler?(.output(Data("\u{1B}c".utf8)))
-            var replay = self.transcript.joined()
-            switch self.program {
-            case .shell: break
-            case .htop(let tick):
-                replay += "\u{1B}[?1049h\u{1B}[H\u{1B}[2J" + MockHtop.render(columns: columns, rows: rows, tick: tick)
-            case .vim(var vim):
-                replay += "\u{1B}[?1049h\u{1B}[H\u{1B}[2J" + vim.render(columns: columns, rows: rows)
-                self.program = .vim(vim)
+            while let self, let next = self.answers.first {
+                try? await clock.sleep(until: next.due)
+                guard !Task.isCancelled else { return }
+                self.answers.removeFirst()
+                self.answer(columns: next.columns, rows: next.rows)
             }
-            self.handler?(.output(Data(replay.utf8)))
+            self?.resizeAnswer = nil
         }
+    }
+
+    /// The mouse reporting htop turns on (and the Mac's replay keeps).
+    static let htopMouse = "\u{1B}[?1000h\u{1B}[?1006h"
+
+    private func answer(columns: Int, rows: Int) {
+        if let grid = macGrid, grid.columns == columns, grid.rows == rows { return }
+        self.columns = columns
+        self.rows = rows
+        macGrid = (columns, rows)
+        handler?(.hostGrid(columns: columns, rows: rows))
+        handler?(.output(Data("\u{1B}c".utf8)))
+        var replay = transcript.joined()
+        switch program {
+        case .shell: break
+        case .htop(let tick):
+            replay += "\u{1B}[?1049h\u{1B}[H\u{1B}[2J" + Self.htopMouse + MockHtop.render(columns: columns, rows: rows, tick: tick)
+        case .vim(var vim):
+            replay += "\u{1B}[?1049h\u{1B}[H\u{1B}[2J" + vim.render(columns: columns, rows: rows)
+            program = .vim(vim)
+        }
+        handler?(.output(Data(replay.utf8)))
     }
 
     public func stop() {
         resizeAnswer?.cancel()
         resizeAnswer = nil
+        answers.removeAll()
         for task in tasks { task.cancel() }
         tasks.removeAll()
         delivery?.cancel()
@@ -332,6 +348,8 @@ public final class MockTerminalSession: TerminalSession {
             busy = false
             program = .htop(tick: 0)
             setAlternate(true, program: "htop")
+            // htop reports the mouse (button events, SGR coordinates).
+            handler?(.output(Data(Self.htopMouse.utf8)))
             startHtopTicker()
             return
         case "vim", "vi", "nvim":

@@ -21,7 +21,44 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
 
     @MainActor
     func testFullScreenAppKeepsItsGridOnTheComposerAcrossToggles() throws {
-        let values = try runDemo(phase: "kbtui")
+        try checkFullScreenApp(try runDemo(phase: "kbtui", name: "vim"))
+    }
+
+    /// htop reports the mouse; its screen redraws every 0.9 s on its own.
+    @MainActor
+    func testMouseReportingAppKeepsItsGridOnTheComposerAcrossToggles() throws {
+        try checkFullScreenApp(try runDemo(phase: "kbtui", name: "htop", defaults: ["CmuxMobileTerminalDemoTUI": "htop"]))
+    }
+
+    @MainActor
+    func testShellRidesTheKeyboardWithoutResizing() throws {
+        checkShell(try runDemo(phase: "kbshell", name: "prompt"), following: true)
+    }
+
+    @MainActor
+    func testLongOutputAtItsEndRidesTheKeyboard() throws {
+        checkShell(try runDemo(phase: "kbshell", name: "follow", defaults: ["CmuxMobileTerminalDemoShell": "follow"]), following: true)
+    }
+
+    /// Scrolled up, the rows a reader looks at may stay where they are; they
+    /// never move against the keyboard, blank or snap.
+    @MainActor
+    func testLongOutputScrolledUpNeverFlickers() throws {
+        checkShell(try runDemo(phase: "kbshell", name: "reading", defaults: ["CmuxMobileTerminalDemoShell": "reading"]), following: false)
+    }
+
+    @MainActor
+    func testStreamingOutputRidesTheKeyboard() throws {
+        checkShell(try runDemo(phase: "kbshell", name: "stream", defaults: ["CmuxMobileTerminalDemoShell": "stream"]), following: true)
+    }
+
+    /// An inline agent (Codex CLI's box) on the primary screen.
+    @MainActor
+    func testInlineAgentRidesTheKeyboardWithoutResizing() throws {
+        checkShell(try runDemo(phase: "kbshell", name: "inline", defaults: ["CmuxMobileTerminalDemoShell": "inline"]), following: true)
+    }
+
+    private func checkFullScreenApp(_ values: [String: String]) throws {
         let steps = resizeSteps(values)
         XCTAssertEqual(steps.count, 10, "five shows and five hides (\(values["rz"] ?? "-"))")
         for (step, resizes) in steps {
@@ -34,27 +71,29 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
         XCTAssertEqual(values["snap"], "0", "frames where the grid moved while the composer stood still")
     }
 
-    @MainActor
-    func testShellRidesTheKeyboardWithoutResizing() throws {
-        let values = try runDemo(phase: "kbshell")
+    private func checkShell(_ values: [String: String], following: Bool) {
         let steps = resizeSteps(values)
         XCTAssertEqual(steps.count, 10, "five shows and five hides (\(values["rz"] ?? "-"))")
-        XCTAssertTrue(steps.allSatisfy { $0.1 == 0 }, "a shell never resizes for the keyboard (\(values["rz"] ?? "-"))")
+        XCTAssertTrue(steps.allSatisfy { $0.1 == 0 }, "the primary screen never resizes for the keyboard (\(values["rz"] ?? "-"))")
         XCTAssertEqual(values["blank"], "0", "frames with blank rows")
         XCTAssertEqual(values["rev"], "0", "frames where the rows moved against the keyboard")
         XCTAssertEqual(values["snap"], "0", "frames where the rows moved while the composer stood still")
-        XCTAssertEqual(values["jump"], "0", "frames where the last row left the composer: largest \(values["jmax"] ?? "?") pt at \(values["jlog"] ?? "?")")
+        if following {
+            XCTAssertEqual(values["jump"], "0", "frames where the last row left the composer: largest \(values["jmax"] ?? "?") pt at \(values["jlog"] ?? "?")")
+        }
     }
 
     /// The demo's toggles, then the trace's counts (`key=value`).
     @MainActor
-    private func runDemo(phase: String) throws -> [String: String] {
+    private func runDemo(phase: String, name: String, defaults: [String: String] = [:]) throws -> [String: String] {
+        let label = "\(phase)-\(name)"
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
                                 "-CmuxMobileTerminalDemoMac", "-CmuxMobileTerminalFlickerTrace",
                                 "-CmuxMobileTerminalDemoPhases", phase]
+        for (key, value) in defaults { app.launchArguments += ["-\(key)", value] }
         app.launch()
 
         let demo = app.staticTexts["debug.terminal-demo"]
@@ -63,13 +102,13 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
         XCTAssertTrue(probe.waitForExistence(timeout: 30), "the flicker probe (-CmuxMobileTerminalFlickerTrace)")
         var shot: Set<String> = []
         var line = ""
-        let deadline = Date().addingTimeInterval(150)
+        let deadline = Date().addingTimeInterval(180)
         while Date() < deadline, !line.contains("demo=done.") {
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))
             let step = demo.label
             for name in ["show0", "hide0"] where step.hasPrefix(name) && !shot.contains(name) {
                 RunLoop.current.run(until: Date().addingTimeInterval(1.0))
-                attach(app, "\(phase)-\(name == "show0" ? "keyboard-up" : "keyboard-down")")
+                attach(app, "\(label)-\(name == "show0" ? "keyboard-up" : "keyboard-down")")
                 shot.insert(name)
             }
             line = probe.value as? String ?? ""
@@ -78,7 +117,7 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         line = probe.value as? String ?? line
         let summary = XCTAttachment(string: line)
-        summary.name = "\(phase)-flicker-summary.txt"
+        summary.name = "\(label)-flicker-summary.txt"
         summary.lifetime = .keepAlways
         add(summary)
         let values = Dictionary(line.split(separator: " ").compactMap { pair -> (String, String)? in
@@ -88,7 +127,7 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
         if let path = values["file"]?.replacingOccurrences(of: "%20", with: " "),
            let trace = try? String(contentsOfFile: path, encoding: .utf8) {
             let attachment = XCTAttachment(string: trace)
-            attachment.name = "\(phase)-flicker-trace.txt"
+            attachment.name = "\(label)-flicker-trace.txt"
             attachment.lifetime = .keepAlways
             add(attachment)
         }

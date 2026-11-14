@@ -93,7 +93,7 @@ final class TerminalFlickerTrace: NSObject {
         probe.isAccessibilityElement = true
         probe.accessibilityIdentifier = "debug.terminal-flicker"
         probe.accessibilityLabel = "terminal flicker probe"
-        let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
+        let link = CADisplayLink(target: WeakTick(self), selector: #selector(WeakTick.step(_:)))
         link.add(to: .main, forMode: .common)
         self.link = link
         // After Core Animation's commit observer (order 2_000_000).
@@ -102,6 +102,10 @@ final class TerminalFlickerTrace: NSObject {
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
         self.observer = observer
+    }
+
+    isolated deinit {
+        stop()
     }
 
     func stop() {
@@ -113,8 +117,9 @@ final class TerminalFlickerTrace: NSObject {
 
     private func count(_ key: String) { counts[key, default: 0] += 1 }
 
-    @objc private func tick(_ link: CADisplayLink) {
-        guard let host, let window = host.window else { return }
+    fileprivate func tick(_ link: CADisplayLink) {
+        guard let host else { return stop() }
+        guard let window = host.window else { return }
         if probe.window !== window { window.addSubview(probe) }
         guard let now = committed ?? sample() else { return }
         let t = link.timestamp - start
@@ -159,7 +164,7 @@ final class TerminalFlickerTrace: NSObject {
         let value: CGFloat
         if now.isTUI {
             value = now.gridTop + CGFloat(now.gridRows) * now.cellHeight - now.stackTop
-            if now.noteShown { count("note") }
+            if !now.held, now.noteShown { count("note") }
             if !now.held, now.nonBlankRows == 0 { count("blank") }
             if !now.held, now.gridTop - now.clipTop > now.cellHeight { count("band") }
         } else {
@@ -189,6 +194,17 @@ final class TerminalFlickerTrace: NSObject {
         parts.append("jlog=" + (jumpLog.isEmpty ? "-" : jumpLog.joined(separator: ",")))
         parts.append("file=" + Self.traceURL.path.replacingOccurrences(of: " ", with: "%20"))
         return parts.joined(separator: " ")
+    }
+}
+/// The display link's target: the link retains it, not the trace, so the
+/// trace goes with its page.
+@MainActor
+private final class WeakTick: NSObject {
+    weak var trace: TerminalFlickerTrace?
+    init(_ trace: TerminalFlickerTrace) { self.trace = trace }
+    @objc func step(_ link: CADisplayLink) {
+        guard let trace else { return link.invalidate() }
+        trace.tick(link)
     }
 }
 #endif
