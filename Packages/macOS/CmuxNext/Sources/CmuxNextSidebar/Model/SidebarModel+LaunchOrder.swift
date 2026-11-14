@@ -42,7 +42,7 @@ extension SidebarModel {
         let live = launchOrder.live
         launchOrder = LaunchOrderLists()
         guard !live.isEmpty else { return }
-        setDisplayedSections(Self.arranging(sections, live))
+        sections = Self.arranging(sections, live)
     }
 
     // MARK: Lists

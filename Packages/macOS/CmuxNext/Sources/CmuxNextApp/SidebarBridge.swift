@@ -165,13 +165,13 @@ final class SidebarBridge {
         sameTurn.observe(listsRows: true, {
             let (listed, launching, failed) = Self.passSections(services, window: windowState, feed: feed, faces: faces, rows: feed.laneRowSource(chiefAvatar: { [weak services] in SidebarChiefAvatar(home: services?.home.chiefFaces[$0]) }))
             // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
+            // The document projection these rows were built from (`SidebarRows.layoutCatchingUp`).
             return ((PendingWorkspaceRows.shared.listing(listed, in: windowState.id, machines: machines, doc: services.sidebarDoc), services.sidebarCustomization.rowDecorations,
-                     services.sidebarDoc.store?.shownChanges, services.settings?.snapshot.sidebarSections.projection ?? .defaults), launching, failed, SidebarSpaceBar.profiles(machines.local, window: windowState.id, windows: services.windows), SidebarProfileKey(windowState.profileID.rawValue),
+                     services.sidebarDoc.store?.shownChanges), launching, failed, SidebarSpaceBar.profiles(machines.local, window: windowState.id, windows: services.windows), SidebarProfileKey(windowState.profileID.rawValue),
                     SidebarRows.visibleLayout(services, window: windowState))
         }) { [weak self] value in
-            let ((sections, decorations, shownAt, projection), launching, failed, profiles, active, shown) = value
+            let ((sections, decorations, shownAt), launching, failed, profiles, active, shown) = value
             guard let self else { return }
-            self.model.sectionCustomization = projection
             self.showProfiles(profiles, active: active, launching: launching)
             self.show(SidebarSection.decorated(feed.fill(sections), decorations), shownAt: shownAt, layout: shown, launching: launching, failed: failed,
                       creating: PendingWorkspaceRows.shared.rows(in: windowState.id))
