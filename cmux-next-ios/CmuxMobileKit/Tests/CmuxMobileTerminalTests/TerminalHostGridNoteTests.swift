@@ -321,5 +321,64 @@ import UIKit
         try await TerminalPredictionInputTests.waitUntil(5) { rig.screen.hostGridOwner == "Rig Mac" && noteShown() }
         #expect(noteShown(), "no \"\(note)\" note for another device's grid at the phone's old claim")
     }
+
+    /// Fleet UI capture of #42422 after feat-cmux-next's R1-1 (2cc0f36b): a
+    /// TUI on another device's 30×12 grid, keyboard up. Once the keyboard
+    /// settled the TUI got the rows above the composer and the grid showed
+    /// whole at the top with room below it, but no note. The note was placed
+    /// from the TUI host's frame in the page's layout pass, before the host
+    /// itself was laid out for its new height: the stale host (still the
+    /// keyboard-down rows, its bottom on the raised composer) put the grid's
+    /// bottom above the terminal area, so the note was hidden, and nothing
+    /// placed it again.
+    @Test func aTUIGridKeepsItsNoteOnceTheKeyboardSettles() async throws {
+        await TerminalScreenTestLock.acquire()
+        defer { TerminalScreenTestLock.release() }
+        let rig = try await Self.makeScreen()
+        defer { rig.close() }
+        rig.session.emit(.hostGrid(columns: 30, rows: 12))
+        rig.session.emit(.hostGridOwner("Rig Mac"))
+        rig.session.isAlternateScreen = true
+        rig.session.emit(.alternateScreen(true))
+        rig.session.write("\u{1B}[?1049h\u{1B}[H\u{1B}[2J\u{1B}[6;8HMac grid 30x12")
+        let note = "30×12 · set by Rig Mac"
+        try await TerminalPredictionInputTests.waitUntil(5) { rig.screen.model.isTUI && rig.visibleLabel(note) != nil }
+        try #require(rig.visibleLabel(note) != nil, "no note with the keyboard down")
+        let rowsDown = rig.screen.hostLayout.visibleRows
+
+        // The soft keyboard shows and settles (UIKit's notifications, in this
+        // app's screen coordinates): the TUI gets the rows above the composer.
+        let screen = rig.window.screen.bounds
+        let shown = CGRect(x: screen.minX, y: screen.maxY - 336, width: screen.width, height: 336)
+        let hidden = CGRect(x: screen.minX, y: screen.maxY, width: screen.width, height: 336)
+        let center = NotificationCenter.default
+        func post(_ name: Notification.Name, _ frame: CGRect) {
+            center.post(name: name, object: nil, userInfo: [UIResponder.keyboardFrameEndUserInfoKey: frame,
+                                                            UIResponder.keyboardAnimationDurationUserInfoKey: 0.0])
+        }
+        defer {
+            post(UIResponder.keyboardWillChangeFrameNotification, hidden)
+            post(UIResponder.keyboardWillHideNotification, hidden)
+        }
+        post(UIResponder.keyboardWillChangeFrameNotification, shown)
+        post(UIResponder.keyboardWillShowNotification, shown)
+        post(UIResponder.keyboardDidChangeFrameNotification, shown)
+        post(UIResponder.keyboardDidShowNotification, shown)
+        try await TerminalPredictionInputTests.waitUntil(2) { rig.screen.hostLayout.visibleRows < rowsDown }
+        let rowsUp = rig.screen.hostLayout.visibleRows
+        try #require(rowsUp < rowsDown, "the TUI kept its \(rowsDown) keyboard-down rows (the keyboard never settled)")
+        try #require(rowsUp > 13, "only \(rowsUp) rows above the composer: no room for the note")
+
+        try await TerminalPredictionInputTests.waitUntil(2) { rig.visibleLabel(note) != nil }
+        let view = rig.screen.view!
+        let cell = rig.screen.surface.cellSize.height
+        let gridTop = rig.screen.surface.convert(CGPoint.zero, to: view).y
+        let label = try #require(rig.visibleLabel(note),
+                                 "no visible note with the keyboard up (\(rowsUp) rows, the grid's 12 rows from \(gridTop) to \(gridTop + 12 * cell))")
+        // Below the grid's 12 rows, above the keyboard.
+        #expect(label.frame.minY >= gridTop + 12 * cell - 0.5, "the note overlaps the grid (\(label.frame), rows end at \(gridTop + 12 * cell))")
+        #expect(label.frame.minY <= gridTop + 12 * cell + 8.5, "the note is not under the grid (\(label.frame), rows end at \(gridTop + 12 * cell))")
+        #expect(label.frame.maxY <= view.convert(shown, from: nil).minY, "the note is under the keyboard (\(label.frame))")
+    }
 }
 #endif
