@@ -492,6 +492,13 @@
   mask-image: none;
 }
 
+/* A context menu never runs past the window: where neither side of the pointer has room for every
+   row (a short pane, a low window), it keeps the side Base UI picked and its rows scroll inside, as
+   a select's do. Here, not in ui.css, for the agent pane's menus too. */
+.ui-popup.ui-context-menu {
+  max-height: var(--available-height, calc(100vh - 8px));
+}
+
 /* A select's options never run past the room on its side: a long list scrolls inside. Here, not in
    ui.css, so the agent pane (which loads this sheet and not ui.css) scrolls its selects too: the
    Share dialog's pickers. */

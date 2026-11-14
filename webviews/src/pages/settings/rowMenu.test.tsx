@@ -66,7 +66,10 @@ describe("a setting row's context menu", () => {
     const menu = await openMenu(page, "history.terminalCommands");
     expect(menu.closest(".section")).toBeNull();
     expect(page.container.contains(menu)).toBe(false);
-    expect([menu.style.left, menu.style.top]).toEqual(["40px", "60px"]);
+    // The menu is a Base UI Menu: its positioner places it at the pointer once Floating UI has measured
+    // (a promise, so a turn later).
+    await act(async () => await new Promise((done) => setTimeout(done, 0)));
+    expect(menu.closest<HTMLElement>(".ui-positioner")!.style.transform).toBe("translate(40px, 60px)");
   });
 
   test("a managed setting cannot be reset from the menu", async () => {

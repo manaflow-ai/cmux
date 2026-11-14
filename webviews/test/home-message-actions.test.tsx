@@ -28,6 +28,9 @@ function installDom(): HTMLElement {
     "MouseEvent",
     "KeyboardEvent",
     "IS_REACT_ACT_ENVIRONMENT",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "getComputedStyle",
   ])
     saved.set(key, scope[key]);
   Object.assign(scope, {
@@ -40,6 +43,10 @@ function installDom(): HTMLElement {
     MouseEvent: dom.window.MouseEvent,
     KeyboardEvent: dom.window.KeyboardEvent,
     IS_REACT_ACT_ENVIRONMENT: true,
+    // The page's right-click menu is a Base UI Menu, which schedules its focus on frames.
+    requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
+    cancelAnimationFrame: (id: number) => clearTimeout(id),
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   });
   return dom.window.document.getElementById("root")!;
 }

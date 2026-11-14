@@ -38,6 +38,8 @@ const replacements: Record<string, unknown> = {
   },
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+  // The rail's right-click menu is a Base UI Menu, which reads computed styles as it places itself.
+  getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
   // Reduce Motion: a step's scroll lands at once, with no glide.
   matchMedia: (query: string) => ({ matches: query.includes("reduce"), media: query }),
