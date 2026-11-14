@@ -1966,6 +1966,12 @@ fn wait_timeout(request: &Request, machine_id: &str, session: &str, answer: Valu
     )
 }
 
+/// How long a start waits for the app's first machine list (red-proof commit: not yet read).
+const LIST_LOAD_WAIT: Duration = Duration::from_secs(60);
+
+/// The pause between reads of a machine list the app has not loaded yet.
+const LIST_LOAD_PAUSE: Duration = Duration::from_secs(2);
+
 /// The pause between reads of the app's machine list while a new machine is being made.
 const CREATE_POLL_PAUSE: Duration = Duration::from_secs(3);
 

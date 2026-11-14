@@ -843,6 +843,62 @@ fn an_environment_for_a_machine_that_exists_or_is_still_being_made_says_so() {
     assert_eq!(fake.ran.len(), 2);
 }
 
+/// Enough answers of `listed` for every read of [`loaded_list`]'s wait (a step takes 5 s in [`Fake`]).
+fn unloaded_lists(listed: Value) -> Vec<Ran> {
+    (0..LIST_LOAD_WAIT.as_secs()).map(|_| ok(listed.clone())).collect()
+}
+
+/// Whether every step the run took was a read of the machine list: nothing was started or made.
+fn only_lists(fake: &Fake) -> bool {
+    fake.ran.iter().all(|step| step.get(1).map(String::as_str) == Some("list-machines"))
+}
+
+/// An app just launched answers its machine list `loaded: false` until its first read lands (the
+/// production chat probe on 2026-11-14 got `cloud.list_unread` right after sign-in). start-chat reads it
+/// again, [`LIST_LOAD_PAUSE`] apart, and starts once it is loaded; a list still unread after
+/// [`LIST_LOAD_WAIT`] (or `--timeout`) is `cloud.list_unread` with nothing started; a signed-out list is
+/// not waited for.
+#[test]
+fn a_machine_list_the_app_loads_late_is_waited_for_within_its_bound() {
+    let unloaded = json!({"account": {"signed_in": true}, "loaded": false, "machines": []});
+    let mut fake =
+        Fake::new(vec![ok(unloaded.clone()), ok(unloaded.clone()), signed_in(), started()]);
+    let outcome = run(&mut fake, &request(&[]));
+    assert!(!matches!(outcome, Outcome::Failed { .. }), "{outcome:?}: {:?}", fake.ran);
+    let verbs: Vec<&str> = fake.ran.iter().map(|step| step[1].as_str()).collect();
+    assert_eq!(verbs, ["list-machines", "list-machines", "list-machines", "start-session"]);
+    assert_eq!(fake.paused, LIST_LOAD_PAUSE * 2);
+
+    // Never loaded: refused once the wait is over, and it never waits much past it.
+    let mut fake = Fake::new(unloaded_lists(unloaded.clone()));
+    let began = fake.clock;
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&[])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!((error["code"].as_str(), exit), (Some("cloud.list_unread"), 75));
+    assert!(only_lists(&fake), "{:?}", fake.ran);
+    assert!(fake.ran.len() > 2, "read again: {:?}", fake.ran);
+    assert!(
+        fake.clock - began <= LIST_LOAD_WAIT + Duration::from_secs(5),
+        "{:?}",
+        fake.clock - began
+    );
+
+    // `--timeout` shorter than the wait bounds it.
+    let mut fake = Fake::new(unloaded_lists(unloaded.clone()));
+    let began = fake.clock;
+    let asked = request(&["--prompt", "x", "--wait", "--timeout", "12"]);
+    let Outcome::Failed { .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert!(only_lists(&fake), "{:?}", fake.ran);
+    assert!(fake.clock - began <= Duration::from_secs(12 + 5), "{:?}", fake.clock - began);
+
+    // Signed out: no wait, the sign-in refusal at once.
+    let mut fake = Fake::new(vec![ok(json!({"account": {"signed_in": false}, "loaded": false}))]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&[])) else { panic!() };
+    assert_eq!(error["code"], "cloud.signed_out");
+    assert_eq!(fake.ran.len(), 1);
+}
+
 /// `--environment` with `--name` makes a machine of that name only when the app's list says none exists
 /// and none is on its way: a list the app has not loaded yet says nothing, and a create of that name still
 /// in flight (a first run that answered pending, or another start) is joined as pending or refused, never
@@ -850,14 +906,14 @@ fn an_environment_for_a_machine_that_exists_or_is_still_being_made_says_so() {
 #[test]
 fn an_environment_never_makes_a_second_machine_of_its_name() {
     let asked = request(&["--name", "py-1", "--environment", "env_1", "--prompt", "x"]);
-    // The list is not loaded: no create.
-    let mut fake = Fake::new(vec![ok(
+    // The list is still not loaded past its wait: no create.
+    let mut fake = Fake::new(unloaded_lists(
         json!({"account": {"signed_in": true}, "loaded": false, "machines": [], "creating": []}),
-    )]);
+    ));
     let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
     assert_eq!((error["code"].as_str(), exit), (Some("cloud.list_unread"), 75));
     assert_eq!(error["details"]["machine_name"], "py-1");
-    assert_eq!(fake.ran.len(), 1, "no new-machine on a list that says nothing");
+    assert!(only_lists(&fake), "no new-machine on a list that says nothing: {:?}", fake.ran);
     // A create of that name is on its way: pending, and no second create.
     let mut fake = Fake::new(vec![ok(json!({"account": {"signed_in": true}, "loaded": true,
         "machines": [{"title": "dev"}], "creating": [{"name": "py-1", "status": "creating"}]}))]);
@@ -2367,17 +2423,12 @@ fn a_fresh_name_that_is_taken_or_unread_never_reaches_a_start_or_a_create() {
     for (list, mut listed, code) in lists {
         listed["account"] = json!({"signed_in": true});
         for (path, words) in paths {
-            let mut fake = Fake::new(vec![ok(listed.clone())]);
+            let mut fake = Fake::new(unloaded_lists(listed.clone()));
             let Outcome::Failed { error, exit } = run(&mut fake, &request(words)) else {
                 panic!("{list}, {path}: {:?}", fake.ran)
             };
             assert_eq!((error["code"].as_str(), exit), (Some(code), 75), "{list}, {path}: {error}");
-            assert_eq!(
-                fake.ran.len(),
-                1,
-                "{list}, {path}: nothing started or made: {:?}",
-                fake.ran
-            );
+            assert!(only_lists(&fake), "{list}, {path}: nothing started or made: {:?}", fake.ran);
         }
     }
 }
