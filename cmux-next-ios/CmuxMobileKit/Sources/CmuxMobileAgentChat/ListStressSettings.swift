@@ -13,6 +13,11 @@ import Foundation
 /// - `CMUX_MOBILE_LIST_STREAM=1`: every prompt streams one long answer with no waits.
 /// - `CMUX_MOBILE_LIST_SEND=1` (chat): type and send a prompt through the composer after the chat
 ///   opens (the mock's own turn, or the long answer with `LIST_STREAM=1`), as a person does.
+/// - `CMUX_MOBILE_LIST_HOLD_TURN=1` (chat, with `LIST_SEND=1`): the sent prompt's turn stays running
+///   with no output until stopped, so its working row and elapsed time stay live (a running chat).
+///   Each redraw of a working row's elapsed time then logs `FRAMELOG list-stress label-tick`.
+/// - `CMUX_MOBILE_LIST_LEAVE_NEWEST=0` (chat): stay at the newest turn after the send (by default the
+///   rig scrolls to the top, as a reader who left it).
 /// - `CMUX_MOBILE_LIST_PASSES=N`: top to bottom and back N times at `CMUX_MOBILE_LIST_SPEED` pt/s
 ///   (default 2400), one frame-interval window per direction (needs `CMUX_MOBILE_FRAMELOG=1`).
 /// - `CMUX_MOBILE_LIST_PAN=1`: pan sideways instead (the diff's unwrapped code), one window per
@@ -35,6 +40,10 @@ public struct ListStressSettings: Equatable, Sendable {
     public var liveHz: Double?
     public var streams: Bool
     public var sends: Bool
+    /// `CMUX_MOBILE_LIST_HOLD_TURN=1`: a sent prompt's turn runs until stopped, with no output.
+    public var holdsTurn: Bool
+    /// `CMUX_MOBILE_LIST_LEAVE_NEWEST=0`: the chat stays at its newest turn after the send.
+    public var leavesNewest: Bool
     /// `CMUX_MOBILE_LIST_OPEN_DELAY=S`: seconds before a transcript opens (default 1), so `SAMPLE` catches the open.
     public var openDelay: Double
     public var passes: Int
@@ -67,6 +76,8 @@ public struct ListStressSettings: Equatable, Sendable {
         liveHz = environment["CMUX_MOBILE_LIST_LIVE_HZ"].flatMap(Double.init)
         streams = environment["CMUX_MOBILE_LIST_STREAM"] == "1"
         sends = environment["CMUX_MOBILE_LIST_SEND"] == "1"
+        holdsTurn = environment["CMUX_MOBILE_LIST_HOLD_TURN"] == "1"
+        leavesNewest = environment["CMUX_MOBILE_LIST_LEAVE_NEWEST"] != "0"
         openDelay = environment["CMUX_MOBILE_LIST_OPEN_DELAY"].flatMap(Double.init) ?? 1
         passes = environment["CMUX_MOBILE_LIST_PASSES"].flatMap(Int.init) ?? 2
         speed = environment["CMUX_MOBILE_LIST_SPEED"].flatMap(Double.init) ?? 2400
@@ -84,6 +95,9 @@ public struct ListStressSettings: Equatable, Sendable {
         refreshSeconds = environment["CMUX_MOBILE_LIST_REFRESH_SECONDS"].flatMap(Double.init)
         pullTrace = environment["CMUX_MOBILE_LIST_PULL_TRACE"] == "1"
     }
+
+    /// Whether a working row logs each redraw of its elapsed time (the rig's running chat).
+    public var logsLabelTicks: Bool { screen != nil && holdsTurn }
 
     /// Turns the mock agent replays as history: the chat and diff screens' load.
     public var historyTurns: Int {
