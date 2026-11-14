@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
@@ -56,6 +57,90 @@ struct TerminalTabIconRegressionTests {
         #expect(workspace.updatePanelTitle(panelId: panel.id, title: "codex --yolo"))
 
         try expectNoAgentMark(workspace: workspace, panel: panel, tabId: tabId)
+    }
+
+    @MainActor
+    @Test(arguments: ["claude_code", "codex", "grok", "agy"])
+    func lifecycleOnlyAgentShowsAndClearsItsBrandMark(statusKey: String) throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
+        let expectedAssets = [
+            "claude_code": "AgentIcons/Claude",
+            "codex": "AgentIcons/Codex",
+            "grok": "AgentIcons/Grok",
+            "agy": "AgentIcons/Antigravity",
+        ]
+
+        workspace.setAgentLifecycle(key: statusKey, panelId: panel.id, lifecycle: .running)
+        let runningTab = try #require(workspace.bonsplitController.tab(tabId))
+        #expect(runningTab.iconAsset == expectedAssets[statusKey])
+
+        #expect(workspace.clearAgentLifecycle(key: statusKey, panelId: panel.id))
+        try expectNoAgentMark(workspace: workspace, panel: panel, tabId: tabId)
+    }
+
+    @MainActor
+    @Test(arguments: ["claude_code", "codex"])
+    func remoteLifecycleAgentShowsAndClearsItsBrandMark(statusKey: String) throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
+        let remoteKey = RemoteAgentSidebarStatus.statusKeyPrefix + statusKey
+        let expectedAssets = [
+            "claude_code": "AgentIcons/Claude",
+            "codex": "AgentIcons/Codex",
+        ]
+
+        workspace.setAgentLifecycle(key: remoteKey, panelId: panel.id, lifecycle: .running)
+        let runningTab = try #require(workspace.bonsplitController.tab(tabId))
+        #expect(runningTab.iconAsset == expectedAssets[statusKey])
+
+        #expect(workspace.clearAgentLifecycle(key: remoteKey, panelId: panel.id))
+        try expectNoAgentMark(workspace: workspace, panel: panel, tabId: tabId)
+    }
+
+    @MainActor
+    @Test(arguments: ["claude", "codex"])
+    func feedAttentionAgentShowsAndClearsItsBrandMark(source: String) throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
+        let attentionKey = FeedCoordinator.attentionStatusKey(forSource: source)
+        let expectedAssets = [
+            "claude": "AgentIcons/Claude",
+            "codex": "AgentIcons/Codex",
+        ]
+
+        workspace.setAgentLifecycle(key: attentionKey, panelId: panel.id, lifecycle: .needsInput)
+        let markedTab = try #require(workspace.bonsplitController.tab(tabId))
+        #expect(markedTab.iconAsset == expectedAssets[source])
+
+        #expect(workspace.clearAgentLifecycle(key: attentionKey, panelId: panel.id))
+        try expectNoAgentMark(workspace: workspace, panel: panel, tabId: tabId)
+    }
+
+    @MainActor
+    @Test func catalogOwnedRemoteIconSurvivesLifecycleSync() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
+        let catalog = SurfaceCatalog.shared
+        let resource = SurfaceResourceID(
+            machine: .ssh("terminal-tab-icon-regression"),
+            kind: .terminal,
+            key: "terminal-tab-icon-regression"
+        )
+        catalog.record(SurfaceProjection(resource: resource, workspaceID: workspace.id, panelID: panel.id))
+        defer { catalog.endProjections(panelID: panel.id, reason: .replaced) }
+
+        workspace.bonsplitController.updateTab(tabId, iconAsset: .some("AgentIcons/Codex"))
+        let remoteKey = RemoteAgentSidebarStatus.statusKeyPrefix + "codex"
+        workspace.setAgentLifecycle(key: remoteKey, panelId: panel.id, lifecycle: .running)
+        #expect(workspace.clearAgentLifecycle(key: remoteKey, panelId: panel.id))
+
+        let tab = try #require(workspace.bonsplitController.tab(tabId))
+        #expect(tab.iconAsset == "AgentIcons/Codex")
     }
 
     @MainActor

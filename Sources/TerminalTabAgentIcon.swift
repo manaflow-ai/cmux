@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Resolves the provider mark for a local terminal tab from the same agent
@@ -19,9 +20,24 @@ extension Workspace {
     /// Returns the current provider mark for one terminal panel, if known.
     func terminalTabAgentIconAsset(forPanelId panelId: UUID) -> String? {
         let resolver = TerminalTabAgentIconResolver()
-        let statusKeys = agentPIDKeysByPanelId[panelId, default: []]
+        let pidStatusKeys = agentPIDKeysByPanelId[panelId, default: []]
             .map(agentStatusKey(forAgentPIDKey:))
-            .sorted()
+        let lifecycleStates = agentLifecycleStatesByPanelId[panelId, default: [:]]
+        // Lifecycle maps may contain custom keys, but only the fixed built-in
+        // IDs and aliases can resolve to a tab asset. Look those keys up
+        // directly instead of scanning the whole map on every lifecycle event.
+        let lifecycleStatusKeys = CmuxTaskManagerCodingAgentDefinition.builtIns
+            .flatMap { definition -> [String] in
+                let knownKeys = [definition.id] + definition.launchKinds + definition.directBasenames
+                return knownKeys.compactMap { key in
+                    if lifecycleStates[key] != nil { return key }
+                    let remoteKey = RemoteAgentSidebarStatus.statusKeyPrefix + key
+                    if lifecycleStates[remoteKey] != nil { return key }
+                    let attentionKey = "cmux.feed.attention:" + key
+                    return lifecycleStates[attentionKey] != nil ? key : nil
+                }
+            }
+        let statusKeys = Set(pidStatusKeys).union(lifecycleStatusKeys).sorted()
         if let asset = statusKeys.compactMap(resolver.assetName(forStatusKey:)).first {
             return asset
         }
@@ -43,7 +59,11 @@ extension Workspace {
 
     /// Reconciles a terminal tab's provider mark after agent lifecycle state changes.
     func syncTerminalTabAgentIconAsset(forPanelId panelId: UUID) {
-        guard panels[panelId] is TerminalPanel,
+        // Remote workspaces receive their authoritative icon from SurfaceCatalog;
+        // local lifecycle updates must not overwrite that projection.
+        guard !isRemoteWorkspace,
+              SurfaceCatalog.shared.machineOwningPanel(panelId)?.isLocal != false,
+              panels[panelId] is TerminalPanel,
               let tabID = surfaceIdFromPanelId(panelId),
               let tab = bonsplitController.tab(tabID) else { return }
         let asset = terminalTabAgentIconAsset(forPanelId: panelId)
