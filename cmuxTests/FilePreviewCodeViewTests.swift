@@ -62,6 +62,20 @@ struct FilePreviewCodeViewTests {
         #expect(HighlightColorRemapper(theme: .dark).hexKey(from: color) == "0091FF")
     }
 
+    @Test("File preview token theme follows Ghostty ANSI colors")
+    func tokenThemeUsesGhosttyPalette() throws {
+        let keyword = NSColor(srgbRed: 0.67, green: 0.02, blue: 0.03, alpha: 1)
+        let string = NSColor(srgbRed: 0.04, green: 0.68, blue: 0.07, alpha: 1)
+        let theme = TokenTheme(
+            appearance: NSAppearance(named: .darkAqua),
+            terminalPalette: [1: keyword, 6: string],
+            terminalForegroundColor: .white
+        )
+
+        #expect(theme.palette.keyword == TokenColor(red: 171, green: 5, blue: 8))
+        #expect(theme.palette.string == TokenColor(red: 10, green: 173, blue: 18))
+    }
+
     @Test("Syntax styling reuses normalized font variants per apply")
     func syntaxStylingReusesFontVariants() throws {
         let source = NSMutableAttributedString(string: "abcd")

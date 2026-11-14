@@ -53,6 +53,9 @@ extension WorkspaceContentView {
             String(format: "%.4f", config.unfocusedSplitOpacity),
             config.unfocusedSplitFill?.hexString(includeAlpha: true) ?? "nil",
             config.splitDividerColor?.hexString(includeAlpha: true) ?? "nil",
+            config.palette.keys.sorted().map { index in
+                "\(index)=\(config.palette[index]?.hexString(includeAlpha: true) ?? "nil")"
+            }.joined(separator: ","),
             String(usesHostLayerBackground),
         ].joined(separator: "|")
     }
