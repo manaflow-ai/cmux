@@ -1393,3 +1393,6 @@ fn require_effect_identity(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod receipt_retention_tests;
