@@ -79,6 +79,15 @@ extension WindowRules {
             self.agents = agents
             self.others = others
         }
+
+        /// Whether the close's question is known before the daemon's read: an agent at work in a closing terminal, or a
+        /// read terminal whose shell reported a running command (OSC 133 C, `commandSinceMs`). Such a close keeps its tabs
+        /// in place through the read and the question, and they leave only on Close (a tab that left, then came back with
+        /// the question, read as closed). A shell at its prompt or without integration is not known: only the read can
+        /// tell, so that close still takes its tabs out in the key's turn (SL-3, #31875).
+        @MainActor public func knownToAsk(_ tabs: [TabModel]) -> Bool {
+            !agents.isEmpty || others.contains { tabs.indices.contains($0) && tabs[$0].commandSinceMs != nil }
+        }
     }
 
     /// What the daemon said one asked terminal runs.

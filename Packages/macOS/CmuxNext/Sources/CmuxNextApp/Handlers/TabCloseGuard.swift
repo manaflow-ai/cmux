@@ -25,7 +25,7 @@ enum TabCloseGuard {
     static func close(_ tabs: [TabModel], on daemon: DaemonService, services: AppServices, window: NSWindow?,
                       leaving parts: [(pane: PaneController, ids: [StripTabID])] = [], keeping: (pane: PaneController, id: StripTabID)? = nil,
                       close: @escaping @MainActor (_ asked: RunningPrograms, _ hidden: HiddenTabClose?) -> Void) {
-        guard CloseUndoToasts.isUserClose, window != nil, asks(tabs, services: services) else { return close([:], nil) }
+        guard CloseUndoToasts.isUserClose, window != nil, let (_, closeReads) = reads(tabs, services: services) else { return close([:], nil) }
         // A second close of tabs this close is already asking about (a double click on a close button) is the same close.
         guard tabs.contains(where: { !asking.contains($0.id) }) else { return }
         let ids = Set(tabs.map(\.id))
@@ -36,7 +36,7 @@ enum TabCloseGuard {
         let decides = services.closedTabs?.undoToasts.pageDecidesClose ?? CloseUndoToasts.livePageDecidesClose
         // An emptied pane hides only if its layout shows it leaving (never the screen's last) and holds no page (asking starts its close).
         let emptied = parts.map { part in empties(part.pane, closing: part.ids) }
-        let hides = !parts.isEmpty && zip(parts, emptied).allSatisfy { part, emptied in part.pane.daemon === daemon
+        let hides = !parts.isEmpty && !closeReads.knownToAsk(tabs) && zip(parts, emptied).allSatisfy { part, emptied in part.pane.daemon === daemon
             && (!emptied || (part.pane.workspace?.layoutModel.canShowPaneClose(part.pane.layoutPaneID) == true && !part.ids.contains { part.pane.tab($0)?.kind == .browser }))
             && !part.ids.contains { decides(part.pane, $0) } }
         // Keys typed during the read are the close's, never the closing terminal's; a question parks them for its answer.
