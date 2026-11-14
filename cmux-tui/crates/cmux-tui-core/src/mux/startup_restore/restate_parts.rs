@@ -22,6 +22,13 @@
 //! Until its part runs, the journal can state an old value of a workspace. The last step
 //! states each terminal that has no view (no workspace owns it).
 //!
+//! In a build that runs the projection cross-check (a Debug build, or a daemon with
+//! `CMUX_TUI_PROJECTION_CROSSCHECK=1`) the worker then compares one full projection with the
+//! journal, one time (`resource_content/projection_crosscheck.rs`): one hold that grows with
+//! the session, a lap `session.restate.check`, and a line on stderr for a difference. The
+//! parts leave the fold not complete, so until a full projection the cross-check of a scoped
+//! commit cannot tell for a value outside its scope that the fold does not hold.
+//!
 //! A part that is not committed (its walk met a resource that crossed its scope, or the
 //! registry refused a value of the live tree as it is) keeps only its own workspace out: its
 //! workspaces go back and each gets a part of its own. The workspace that is refused alone
@@ -89,6 +96,11 @@ pub(crate) struct RestateTally {
     /// Workspaces (and the last step) that no part stated: the registry refused the commit of
     /// the part of one.
     pub(crate) failed: usize,
+    /// The compare of one full projection with the journal after the last step, in a build
+    /// that runs the cross-check (see the module text). `None` in any other build, in this
+    /// crate's unit tests that run the steps with no worker, and after a restatement that
+    /// stopped with an error.
+    pub(crate) check: Option<resource_content::JournalCheck>,
 }
 
 /// One committed part.
@@ -107,7 +119,8 @@ impl RestateTally {
     }
 
     /// The laps for the start line (`startup_timings.rs`, `after_ready`): the wait, each part,
-    /// the pauses in one lap, and `session.restate` = the sum of the parts.
+    /// the pauses in one lap, `session.restate` = the sum of the parts, and the compare with
+    /// the journal when it ran.
     pub(crate) fn laps(&self) -> Value {
         let ms = |took: Duration| (took.as_secs_f64() * 10_000.0).round() / 10.0;
         let mut laps = vec![serde_json::json!({"step":"session.restate.wait","ms":ms(self.wait)})];
@@ -132,6 +145,15 @@ impl RestateTally {
             "skipped":self.skipped,
             "failed":self.failed,
         }));
+        if let Some(check) = self.check.as_ref() {
+            laps.push(serde_json::json!({
+                "step":"session.restate.check",
+                "ms":ms(check.hold),
+                "equal":check.equal,
+                "unknown":check.unknown,
+                "difference":check.difference.is_some(),
+            }));
+        }
         Value::Array(laps)
     }
 }
@@ -212,11 +234,21 @@ impl Mux {
     pub(in crate::mux) fn spawn_session_restate(
         self: &Arc<Self>,
     ) -> Option<std::thread::JoinHandle<()>> {
+        self.spawn_session_restate_with(std::thread::sleep)
+    }
+
+    /// [`Self::spawn_session_restate`] with the worker's sleep given: `sleep` runs for each
+    /// time that the worker stays away (its wait for ready, a stand-back, the pause after a
+    /// part). A test gives a function that looks at the locks in place of the sleep.
+    pub(in crate::mux) fn spawn_session_restate_with(
+        self: &Arc<Self>,
+        sleep: impl Fn(Duration) + Send + 'static,
+    ) -> Option<std::thread::JoinHandle<()>> {
         let ticket = self.startup_adoption_gate.ticket();
         let mux = Arc::downgrade(self);
         std::thread::Builder::new()
             .name("session-restate".into())
-            .spawn(move || run_session_restate(&mux, ticket))
+            .spawn(move || run_session_restate(&mux, ticket, sleep))
             .inspect_err(|error| eprintln!("cmux-tui: session restate: no thread: {error}"))
             .ok()
     }
@@ -407,8 +439,13 @@ impl Mux {
 /// The worker: wait for ready as a start's adoptions do (ready, or the release of the start's
 /// adoptions, or their wait limit with no ready), take the turn after them, then one step at a
 /// time. It holds the mux for a step and for its wait at the adoption gate (as each adoption of
-/// a start does), not while it sleeps, so a mux that its owner dropped ends it.
-fn run_session_restate(mux: &Weak<Mux>, ticket: startup_adoption_gate::Ticket) {
+/// a start does), not while it sleeps, so a mux that its owner dropped ends it. Each sleep goes
+/// through `sleep`, with no lock guard and no mux of the worker alive at the call.
+fn run_session_restate(
+    mux: &Weak<Mux>,
+    ticket: startup_adoption_gate::Ticket,
+    sleep: impl Fn(Duration),
+) {
     let started = Instant::now();
     loop {
         let Some(mux) = mux.upgrade() else { return };
@@ -422,7 +459,7 @@ fn run_session_restate(mux: &Weak<Mux>, ticket: startup_adoption_gate::Ticket) {
             break;
         }
         drop(mux);
-        std::thread::sleep(RESTATE_DEFER);
+        sleep(RESTATE_DEFER);
     }
     let ready = Instant::now();
     let mut parts = {
@@ -449,6 +486,7 @@ fn run_session_restate(mux: &Weak<Mux>, ticket: startup_adoption_gate::Ticket) {
             Ok(PartStep::Deferred) => RESTATE_DEFER,
             Ok(PartStep::Passed) => Duration::ZERO,
             Ok(PartStep::Done) => {
+                parts.tally.check = mux.session_journal_crosscheck();
                 mux.record_session_restate(&parts.tally);
                 return;
             }
@@ -460,7 +498,7 @@ fn run_session_restate(mux: &Weak<Mux>, ticket: startup_adoption_gate::Ticket) {
         };
         drop(mux);
         if !pause.is_zero() {
-            std::thread::sleep(pause);
+            sleep(pause);
             parts.tally.pause = parts.tally.pause.saturating_add(pause);
         }
     }

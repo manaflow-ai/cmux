@@ -2,6 +2,25 @@
 // schemas/settings/source/machines.json. Do not edit; edit the JSON and rerun.
 
 extension MachineSettingsSchema {
+    static var deviceHub: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.deviceHub", "Device Hub")
+        return [
+            SettingDescriptor(
+                DeviceHubSettings.urlPath,
+                section: .development,
+                group: group,
+                title: SettingsText.keyed("settings.deviceHub.url", "Device Hub Address"),
+                help: SettingsText.keyed("settings.deviceHub.url.help", "Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub."),
+                summary: SettingsText.keyed("settings.deviceHub.url.summary", "Device hub address"),
+                kind: .url,
+                default: .string(DeviceHubSettings.urlDefault),
+                keywords: ["device hub", "devices", "mac screen", "backend", "development", "debug"]
+            ),
+        ]
+    }
+}
+
+extension MachineSettingsSchema {
     static var imessage: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.section.accounts", "Accounts")
         return [

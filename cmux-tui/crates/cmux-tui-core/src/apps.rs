@@ -49,6 +49,11 @@ mod mirror;
 #[cfg(unix)]
 mod open_tokens;
 #[cfg(unix)]
+// The `render: web` page bridge (design step 5); the daemon's page-call
+// command and the Mac page host wire it in a follow-up.
+#[cfg_attr(not(test), allow(dead_code))]
+mod page_bridge;
+#[cfg(unix)]
 mod provider;
 #[cfg(unix)]
 mod relay;
