@@ -24,6 +24,7 @@
 
 pub mod agent_key;
 pub mod auth;
+pub mod capture_auth;
 pub mod config;
 pub mod identity;
 pub mod keychain;
