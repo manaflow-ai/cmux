@@ -1135,10 +1135,11 @@ class DescriptionVerdictTests(unittest.TestCase):
         who, blocked, missing, pending = self.state("Review (codex): SHIP at " + "f" * 40)
         self.assertEqual((who, blocked, missing), (None, False, []))
         self.assertIn("no review verdict", pending)
-        # Nor does a short sha, a self-review, or a line inside an HTML comment.
-        for body in (f"Review (codex): SHIP at {HEAD[:12]}", f"Review (self): SHIP at {HEAD}",
-                     f"<!--\nReview (codex): SHIP at {HEAD}\n-->"):
+        # Nor does a short sha or a line inside an HTML comment.
+        for body in (f"Review (codex): SHIP at {HEAD[:12]}", f"<!--\nReview (codex): SHIP at {HEAD}\n-->"):
             self.assertEqual(self.state(body)[:3], (None, False, []), body)
+        # A self-review in the description counts (Leo, 2026-11-14: "this is no longer a requirement").
+        self.assertEqual(self.state(f"Review (self): SHIP at {HEAD}")[0], "review (self) in the description")
 
     def test_a_fix_or_block_at_the_head_holds(self):
         for word in ("FIX", "BLOCK"):
