@@ -1393,9 +1393,16 @@ export function mergeEventRecords(...batches: EventRecord[][]): EventRecord[] {
 /// The most held records a rebuild folds again (`rebuild`): a pane open on a busy chat holds every
 /// record streamed since it opened, and a lag read or a repaired turn refolded all of them.
 export const REBUILD_WINDOW = 5_000;
-/// How many records a chat left open holds before its oldest are let go (`shedOlderHeld`): twice the rebuild's
-/// window, so a cut always keeps a whole `REBUILD_WINDOW` and sheds at most once per that many records.
-export const HELD_RECORDS = 2 * REBUILD_WINDOW;
+/// How many records a chat left open keeps when it lets go of its oldest (`shedOlderHeld`): one older page's
+/// worth (`OLDER_PAGE_RECORDS`), so scrolling up past the cut reads one page to have them back. Kept at the
+/// rebuild's whole window (5,000) and shed at twice that, a chat left open held 5,000 to 10,000 records: in the
+/// god log 3,000 to 6,500 rows, against a 600-turn chat's 2,800 whole, and each streamed thought and tool call
+/// cost 1.5x to 1.8x that chat's (bench/transcript-replay.bench.ts, FIXTURE=god; Leo, 2026-11-12: "even if a
+/// chat is long, there should be no percievable difference").
+export const HELD_KEPT = OLDER_PAGE_RECORDS;
+/// How many records a chat left open holds before its oldest are let go (`shedOlderHeld`): twice what a cut
+/// keeps, so it sheds at most once per `HELD_KEPT` records, one refold of what it keeps each time.
+export const HELD_RECORDS = 2 * HELD_KEPT;
 
 /// The index of the first record in `events` (oldest first) at or after `seq`: a binary search, so
 /// a read of the newest records costs O(log held), not a walk over every one.
@@ -1411,13 +1418,18 @@ export function firstHeldFrom(events: readonly EventRecord[], seq: number): numb
 }
 
 /// Where a rebuild of `events` (held, oldest first) starts folding again: 0 to fold them all, when
-/// they fit `REBUILD_WINDOW`; else the turn start at or before both the newest `REBUILD_WINDOW`
+/// they fit `window` (`REBUILD_WINDOW`); else the turn start at or before both the newest `window`
 /// records and `changedFrom`, the oldest record that changed, and before `openSince` (when a
 /// subagent still running started). A turn is folded whole, so the rows above the cut are the same
 /// as before it, and the turn before it ended first (`endsTurnBefore`). 0 when no turn starts there.
-export function rebuildCut(events: readonly EventRecord[], changedFrom: number, openSince = Infinity): number {
-  if (events.length <= REBUILD_WINDOW) return 0;
-  let at = Math.min(events.length - REBUILD_WINDOW, firstHeldFrom(events, changedFrom));
+export function rebuildCut(
+  events: readonly EventRecord[],
+  changedFrom: number,
+  openSince = Infinity,
+  window = REBUILD_WINDOW,
+): number {
+  if (events.length <= window) return 0;
+  let at = Math.min(events.length - window, firstHeldFrom(events, changedFrom));
   // Back to the turn a subagent still running started in (`openSince`, its start time).
   while (at > 0 && events[at]!.at >= openSince) at -= 1;
   while (at > 0 && !(startsTurn(events[at]!) && endsTurnBefore(events, at))) at -= 1;
@@ -7564,7 +7576,7 @@ export class AcpmuxDirectClient {
   /// replay or held snapshot is under way, and at a turn start (`rebuildCut`, which also keeps a subagent still
   /// running whole), so the rows kept are drawn as a fresh open of the same page draws them. The rows above the
   /// cut leave the transcript; scrolling up reads them again as any older page (`loadOlder`). One full refold of
-  /// at most `HELD_RECORDS` records, once per `REBUILD_WINDOW` records at most: O(1) per record over a stream.
+  /// at most `HELD_RECORDS` records, keeping `HELD_KEPT`, once per `HELD_KEPT` records at most: O(1) per record.
   private shedOlderHeld(): void {
     if (this.events.length <= HELD_RECORDS || !this.following) return;
     if (this.replayThrough !== undefined || this.loadingOlder || this.snapshotHold) return;
@@ -7574,7 +7586,7 @@ export class AcpmuxDirectClient {
     let openSince = Infinity;
     for (const agent of this.subagents.all())
       if (agent.state === "running") openSince = Math.min(openSince, agent.startedAt);
-    const cut = rebuildCut(this.events, Infinity, openSince);
+    const cut = rebuildCut(this.events, Infinity, openSince, HELD_KEPT);
     if (cut <= 0) return;
     this.events = this.events.slice(cut);
     this.historyExhausted = false;

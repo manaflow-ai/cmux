@@ -815,6 +815,22 @@ if (import.meta.main) {
                 ? ` (${burst.dom.elements} elements, ${burst.dom.mounted} rows mounted, ${burst.dom.animations} animations)`
                 : ""),
           );
+        // PROFILE_JSON=FILE writes every profiled burst's self and total times, for comparing two runs.
+        if (process.env.PROFILE_JSON && live)
+          fs.writeFileSync(
+            process.env.PROFILE_JSON,
+            JSON.stringify(
+              live.bursts
+                .filter((burst) => burst.selfMs)
+                .map((burst) => ({
+                  kind: burst.kind,
+                  rows: burst.rows,
+                  msPerRecord: burst.msPerRecord,
+                  self: Object.fromEntries(burst.selfMs!),
+                  total: Object.fromEntries(burst.totalMs ?? []),
+                })),
+            ),
+          );
         for (const kind of BURST_KINDS) {
           const profiled = (live?.bursts ?? []).filter((burst) => burst.kind === kind && burst.selfMs);
           if (profiled.length < 2) continue;
