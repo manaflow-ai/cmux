@@ -263,11 +263,20 @@ fn refuse_copied(state: &LinkState, acpmux_home: Option<&Path>) -> anyhow::Resul
     }
     let kept = state.dir().join(LINK_COPIED);
     if kept.symlink_metadata().is_ok() {
-        let named = std::fs::read(&kept)
+        let record = std::fs::read(&kept)
             .ok()
-            .and_then(|text| serde_json::from_slice::<serde_json::Value>(&text).ok())
+            .and_then(|text| serde_json::from_slice::<serde_json::Value>(&text).ok());
+        let named = record
+            .as_ref()
             .and_then(|record| record.get("acpmux_home")?.as_str().map(PathBuf::from));
-        return Err(copied_identity(state, &named.unwrap_or_else(|| state.dir().to_path_buf())));
+        let refused = record.as_ref().is_some_and(|record| record.get("public_key").is_some());
+        let home = named.unwrap_or_else(|| state.dir().to_path_buf());
+        // A refusal written by a start cut short before its evidence (or by an older build):
+        // the evidence is finished now, every start, before the refusal answers.
+        if !refused && let Err(error) = keep_copied_evidence(state, &home) {
+            eprintln!("cmux link: could not finish the copied-home refusal: {error:#}");
+        }
+        return Err(copied_identity(state, &home));
     }
     let adopted_dir = adopted(state)?.map(|adopted| adopted.key_dir);
     // The link's own stamp: the box it was set up on travels with its state directory.
@@ -336,57 +345,59 @@ pub(super) fn stamp_once(state: &LinkState) -> io::Result<()> {
     state::write_private_synced(&path, record.to_string().as_bytes())
 }
 
-/// The link's name for the node key it adopted, standard base64 (`{"public_key": ...}`), written
-/// before the adoption is committed and at every start that serves it. It travels with the
-/// state directory, so a copy of the link names exactly the key that came with it
-/// ([`keep_copied`]).
-pub(super) const ADOPTED_KEY: &str = "adopted-node-key.json";
-
 fn name_adopted_key(state: &LinkState, public: &[u8; 32]) -> anyhow::Result<()> {
-    if named_adopted_key(state).as_ref() == Some(public) {
+    use acpmux::cli::mesh_node_key as node_key;
+    if node_key::link_adopted_key(state.dir()).as_ref() == Some(public) {
         return Ok(());
     }
     let record = serde_json::json!({ "public_key": STANDARD.encode(public) });
-    state::write_private_synced(&state.dir().join(ADOPTED_KEY), record.to_string().as_bytes())
-        .context("name the adopted node key")
+    state::write_private_synced(
+        &state.dir().join(node_key::LINK_ADOPTED_KEY),
+        record.to_string().as_bytes(),
+    )
+    .context("name the adopted node key")
 }
 
-/// The node key this link's state directory names as the one it adopted ([`ADOPTED_KEY`]);
-/// `None` for one adopted by an older build, or never.
-fn named_adopted_key(state: &LinkState) -> Option<[u8; 32]> {
-    let text = std::fs::read(state.dir().join(ADOPTED_KEY)).ok()?;
-    let record = serde_json::from_slice::<serde_json::Value>(&text).ok()?;
-    let key = STANDARD.decode(record.get("public_key")?.as_str()?).ok()?;
-    key.try_into().ok()
-}
-
-/// Keep the refusal ([`LINK_COPIED`]) and record as copied the node key this link proves was
-/// copied with it, then the refusal itself. Only a key the copy's own evidence names is
-/// marked: the one its state directory adopted ([`ADOPTED_KEY`]). The key now in the home may
-/// be one acpmux settled and joined again here, registered, which is never marked (the next
-/// start would delete it). A link adopted by an older build names none: the key in place is
-/// marked unless it is provably this box's own (`mesh_node_key::node_key_own_here`).
-fn keep_copied(state: &LinkState, home: &Path) -> anyhow::Error {
+/// The node key this link proves was copied with it: the one its state directory adopted
+/// (`mesh_node_key::LINK_ADOPTED_KEY`). The key now in the home may be one acpmux settled and
+/// joined again here, registered, which is never named (the next start would delete it). A
+/// link adopted by an older build names none: the key in place is named unless it is provably
+/// this box's own (`mesh_node_key::node_key_own_here`).
+fn copied_key(state: &LinkState, home: &Path) -> Option<[u8; 32]> {
     use acpmux::cli::mesh_node_key as node_key;
-    let record = serde_json::json!({ "acpmux_home": home });
-    if let Err(error) =
-        state::write_private_synced(&state.dir().join(LINK_COPIED), record.to_string().as_bytes())
-    {
-        eprintln!("cmux link: could not keep the copied-home refusal: {error}");
-    }
-    let recorded = match named_adopted_key(state) {
-        Some(named) => node_key::record_copied_public_key(home, &named),
-        None if home.join(KeyFile::Node.file_name()).exists()
-            && !node_key::node_key_own_here(home) =>
-        {
-            node_key::record_copied_key(home)
-        }
-        None => Ok(()),
-    };
-    if let Err(error) = recorded {
-        eprintln!("cmux link: could not record the copied node key: {error:#}");
+    node_key::link_adopted_key(state.dir())
+        .or_else(|| node_key::public_key_at(home).filter(|_| !node_key::node_key_own_here(home)))
+}
+
+/// Keep the refusal ([`LINK_COPIED`]), its evidence first: the home lists this link
+/// (`mesh_node_key::remember_link_dir`, how acpmux finds the refusal) and records the copied
+/// key ([`copied_key`]), and only then the refusal, which names that key. A start cut short
+/// between the two leaves the key recorded, which keeps acpmux off it; one cut short before
+/// leaves the evidence that found the copy, read again at the next start; and a refusal with
+/// no key named is finished at every start (`refuse_copied`) and read by acpmux as naming the
+/// key in place unless it is provably this box's own.
+fn keep_copied(state: &LinkState, home: &Path) -> anyhow::Error {
+    if let Err(error) = keep_copied_evidence(state, home) {
+        eprintln!("cmux link: could not keep the copied-home refusal: {error:#}");
     }
     copied_identity(state, home)
+}
+
+fn keep_copied_evidence(state: &LinkState, home: &Path) -> anyhow::Result<()> {
+    use acpmux::cli::mesh_node_key as node_key;
+    let key = copied_key(state, home);
+    node_key::remember_link_dir(home, state.dir()).context("list this link in the home")?;
+    if let Some(key) = &key {
+        node_key::record_copied_public_key(home, key).context("record the copied node key")?;
+    }
+    #[cfg(test)]
+    hooks::run(&hooks::BEFORE_REFUSAL);
+    let mut record = serde_json::json!({ "acpmux_home": home });
+    if let Some(key) = &key {
+        record["public_key"] = serde_json::json!(STANDARD.encode(key));
+    }
+    state::write_private_synced(&state.dir().join(LINK_COPIED), record.to_string().as_bytes())
+        .context("keep the copied-home refusal")
 }
 
 fn copied_identity(state: &LinkState, home: &Path) -> anyhow::Error {
@@ -419,6 +430,7 @@ pub(super) mod hooks {
     thread_local! {
         pub(super) static BEFORE_PAIRINGS_LOCK: Hook = const { RefCell::new(None) };
         pub(super) static PAIRINGS_LOCKED: Hook = const { RefCell::new(None) };
+        pub(super) static BEFORE_REFUSAL: Hook = const { RefCell::new(None) };
     }
 
     pub(super) fn run(hook: &'static LocalKey<Hook>) {

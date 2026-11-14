@@ -334,6 +334,8 @@ fn settle_clone_at_start_in(home: &std::path::Path) -> Result<CloneCheck> {
     // is replaced once nothing depends on it, joined or not (a leave may have removed the
     // record that showed the copy). Refused while the link adopted it: the caller keeps it off
     // WireGuard.
+    // A refusal a cmux link wrote and stopped before it recorded the key: finished first.
+    crate::cli::mesh_node_key::finish_link_refusals(home)?;
     crate::cli::mesh_node_key::replace_copied_at(home)?;
     settle_clone_at(home, host_fingerprint::current().as_deref())
 }
@@ -377,6 +379,19 @@ pub(crate) fn node_key_copied_at(home: &std::path::Path) -> bool {
     let record = load_at(home).ok().flatten();
     settle_evidence(home, record.as_ref(), current.as_deref()) == CopyState::Unsettled
         || crate::cli::mesh_node_key::serves_copied_key(home)
+}
+
+/// Whether `home`'s machine record provably belongs to this box: live, made (or settled) on a
+/// box with a fingerprint, that box this one, and no evidence of a copy
+/// (`home_copy_state`). A box that names no machine proves nothing.
+pub(crate) fn record_own_here(home: &std::path::Path) -> bool {
+    let Some(current) = host_fingerprint::current() else { return false };
+    let Some(record) = load_at(home).ok().flatten() else { return false };
+    let stamped =
+        if record.cloned { record.cloned_on.is_some() } else { record.host_fingerprint.is_some() };
+    !record.revoked
+        && stamped
+        && home_copy_state(home, Some(&record), Some(&current)) != CopyState::Unsettled
 }
 
 /// Whether the node key in acpmux home `home` is provably this box's own
@@ -1118,6 +1133,41 @@ mod tests {
         record_copied_key(alone.path()).unwrap();
         super::settle_clone_at_start_in(alone.path()).unwrap();
         assert!(public_key_at(alone.path()).is_some_and(|now| now != copied));
+    }
+
+    /// Review F1 at fb84fe4b: a cmux link refused this copied home and stopped before it
+    /// recorded the copied key (its refusal names the key, or none). acpmux's start reads the
+    /// refusal, finishes the recording and replaces the key: the copied key never serves.
+    #[test]
+    #[cfg(unix)]
+    fn a_link_refusal_with_no_recorded_key_is_finished_and_the_key_replaced_at_start() {
+        use crate::cli::mesh_node_key::{
+            COPIED_KEY, LINK_COPIED, load_or_create_at, public_key_at, serves_copied_key,
+        };
+        use base64::Engine as _;
+        for named in [true, false] {
+            let home = tempfile::tempdir().unwrap();
+            let copied = load_or_create_at(home.path()).unwrap().public_key;
+            let copied_b64 = base64::engine::general_purpose::STANDARD.encode(copied);
+            // The link dir acpmux finds for this home in tests (`link_dirs_for`).
+            let link = home.path().join("link");
+            std::fs::create_dir_all(&link).unwrap();
+            let mut refusal = serde_json::json!({ "acpmux_home": home.path() });
+            if named {
+                refusal["public_key"] = serde_json::json!(copied_b64);
+            }
+            std::fs::write(link.join(LINK_COPIED), refusal.to_string()).unwrap();
+            assert!(!home.path().join(COPIED_KEY).exists());
+            assert!(serves_copied_key(home.path()), "named {named}");
+            assert!(super::copied_from_another_box_at(home.path()));
+            super::settle_clone_at_start_in(home.path()).unwrap();
+            let recorded = std::fs::read_to_string(home.path().join(COPIED_KEY)).unwrap();
+            assert!(recorded.contains(&copied_b64), "the refusal was not finished: {recorded}");
+            assert!(public_key_at(home.path()).is_some_and(|now| now != copied), "named {named}");
+            if named {
+                assert!(!serves_copied_key(home.path()), "the fresh key is this box's");
+            }
+        }
     }
 
     /// Review F1 at 2d63280a, the readers: a caller that read the copy's record before the box

@@ -203,20 +203,51 @@ struct LinkDirRecord {
 /// by the caller in the app's own process: [`LINK_ACPMUX_HOME`] in the link's state directory
 /// and [`HOME_LINK_DIR`] in the home. `None` (the link has no acpmux home: another state
 /// directory, a test) removes the link's record, so a stale home is never trusted.
+///
+/// The home's half first: it is what acpmux reads to find the link (and a refusal the link
+/// keeps there, [`link_refusals`]). A start cut short between the two leaves a link acpmux
+/// knows of and that `serve` does not trust yet, never one that serves a home that cannot see
+/// it.
 pub fn record_link_home(link_dir: &Path, home: Option<&Path>) -> Result<()> {
     let record = link_dir.join(LINK_ACPMUX_HOME);
     let Some(home) = home else {
-        return match std::fs::remove_file(&record) {
+        return match crate::home_fs::remove_file(&record) {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
                 Err(error).context("remove the link's acpmux home record")
             }
             _ => Ok(()),
         };
     };
+    remember_link_dir(home, link_dir)?;
+    #[cfg(test)]
+    hooks::run();
     if recorded_home(link_dir).as_deref() != Some(home) {
         let bytes = serde_json::to_vec(&HomeRecord { acpmux_home: home.to_owned() })?;
         write_record(&record, &bytes)?;
     }
+    Ok(())
+}
+
+/// A test hook in [`record_link_home`], between its two writes (a start cut short there).
+#[cfg(test)]
+pub(crate) mod hooks {
+    use std::cell::RefCell;
+
+    thread_local! {
+        pub(crate) static BETWEEN_WRITES: RefCell<Option<Box<dyn FnOnce()>>> =
+            const { RefCell::new(None) };
+    }
+
+    pub(crate) fn run() {
+        if let Some(hook) = BETWEEN_WRITES.with(|hook| hook.borrow_mut().take()) {
+            hook();
+        }
+    }
+}
+
+/// Adds `link_dir` to the cmux link state directories recorded in acpmux home `home`
+/// ([`HOME_LINK_DIR`]), under a lock of its own: two links set up at once both stay.
+pub fn remember_link_dir(home: &Path, link_dir: &Path) -> Result<()> {
     let mut dirs = recorded_link_dirs(home);
     if !dirs.iter().any(|dir| dir == link_dir) {
         crate::config::private_state_dir(home)?;
@@ -350,17 +381,91 @@ pub fn serves_copied_key(home: &Path) -> bool {
     public_key_at(home).is_some_and(|now| named_copied(home, &now))
 }
 
-/// Whether `key` is one recorded as copied in `home` ([`record_copied_key`]); a record that
-/// cannot be read names every key (fail closed).
+/// Whether `key` is one recorded as copied in `home` ([`record_copied_key`]), or one a cmux
+/// link refusing this home names ([`refused_by_a_link`]); a record that cannot be read names
+/// every key (fail closed).
 fn named_copied(home: &Path, key: &[u8; 32]) -> bool {
     let path = home.join(COPIED_KEY);
-    let text = match std::fs::read(&path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return false,
-        Err(_) => return true,
+    let recorded = match std::fs::read(&path) {
+        Ok(text) => serde_json::from_slice::<CopiedKey>(&text).map_or(true, |record| {
+            record.public_keys.contains(&base64::engine::general_purpose::STANDARD.encode(key))
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(_) => true,
     };
-    let Ok(record) = serde_json::from_slice::<CopiedKey>(&text) else { return true };
-    record.public_keys.contains(&base64::engine::general_purpose::STANDARD.encode(key))
+    recorded || refused_by_a_link(home, key)
+}
+
+/// In a cmux link's state directory: the node key the link adopted (`{"public_key": ...}`,
+/// standard base64), written before its adoption is committed. It travels with the state
+/// directory, so a copy of the link names exactly the key that came with it.
+pub const LINK_ADOPTED_KEY: &str = "adopted-node-key.json";
+
+/// The node key the link in `link_dir` names as the one it adopted ([`LINK_ADOPTED_KEY`]).
+pub fn link_adopted_key(link_dir: &Path) -> Option<[u8; 32]> {
+    key_field(&std::fs::read(link_dir.join(LINK_ADOPTED_KEY)).ok()?)
+}
+
+fn key_field(text: &[u8]) -> Option<[u8; 32]> {
+    let record = serde_json::from_slice::<serde_json::Value>(text).ok()?;
+    let key = base64::engine::general_purpose::STANDARD
+        .decode(record.get("public_key")?.as_str()?)
+        .ok()?;
+    key.try_into().ok()
+}
+
+/// The node keys every cmux link of `home` that refuses it ([`LINK_COPIED`]) names: the key
+/// the refusal records, else the key the link adopted ([`LINK_ADOPTED_KEY`]), else `None` (a
+/// refusal that names no key). A refusal that cannot be read refuses this home (fail closed).
+///
+/// The refusal is evidence of its own, read by acpmux as well as the link: a link that wrote
+/// it and stopped before the copied key was recorded in the home ([`record_copied_key`]) still
+/// keeps acpmux off that key, and acpmux's start finishes the recording
+/// ([`finish_link_refusals`]).
+fn link_refusals(home: &Path) -> Vec<Option<[u8; 32]>> {
+    link_dirs_for(home)
+        .into_iter()
+        .filter_map(|dir| {
+            let text = match std::fs::read(dir.join(LINK_COPIED)) {
+                Ok(text) => text,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
+                Err(_) => return Some(None),
+            };
+            let record = serde_json::from_slice::<serde_json::Value>(&text).ok();
+            let named = record.as_ref().and_then(|record| {
+                record.get("acpmux_home")?.as_str().map(std::path::PathBuf::from)
+            });
+            if named.is_some_and(|named| !same_path(&named, home)) {
+                return None;
+            }
+            Some(key_field(&text).or_else(|| link_adopted_key(&dir)))
+        })
+        .collect()
+}
+
+/// Whether a cmux link refusing `home` names `key` as the copied one ([`link_refusals`]). A
+/// refusal that names no key names the key in place unless it is provably this box's own
+/// (`cloud_join::record_own_here`): when unsure, the key counts as copied.
+fn refused_by_a_link(home: &Path, key: &[u8; 32]) -> bool {
+    link_refusals(home).into_iter().any(|named| match named {
+        Some(named) => named == *key,
+        None => !crate::cli::cloud_join::record_own_here(home),
+    })
+}
+
+/// Records in `home` ([`record_copied_public_key`]) every key a refusing link names
+/// ([`link_refusals`]): what acpmux's start does, under the join lock, before it replaces a
+/// copied key. A refusal written by a link that stopped before it recorded the key is finished
+/// here.
+pub fn finish_link_refusals(home: &Path) -> Result<()> {
+    for named in link_refusals(home) {
+        match named {
+            Some(key) => record_copied_public_key(home, &key)?,
+            None if !crate::cli::cloud_join::record_own_here(home) => record_copied_key(home)?,
+            None => {}
+        }
+    }
+    Ok(())
 }
 
 /// Whether the node key in `home` is provably this box's own: the home's machine record is
@@ -419,9 +524,9 @@ pub fn link_serves_node_key(link_dir: Option<&Path>, home: &Path) -> bool {
 /// `bytes` at `path`, owner-only: a synced temporary file renamed into place.
 fn write_record(path: &Path, bytes: &[u8]) -> Result<()> {
     let temporary = write_temporary(path, bytes)?;
-    let renamed = std::fs::rename(&temporary, path);
+    let renamed = crate::home_fs::rename(&temporary, path);
     if renamed.is_err() {
-        let _ = std::fs::remove_file(&temporary);
+        let _ = crate::home_fs::remove_file(&temporary);
     }
     renamed.with_context(|| format!("write {}", path.display()))?;
     sync_parent(path)
@@ -706,6 +811,35 @@ mod tests {
         let fresh = replace_copied_at(dir.path()).unwrap().unwrap().public_key;
         assert_ne!(fresh, joined);
         assert!(!serves_copied_key(dir.path()));
+    }
+
+    /// Review F1 at fb84fe4b, the link's home record: cut short between its two writes, the
+    /// home already lists the link (written first), so a refusal the link keeps there keeps
+    /// acpmux off the key it names; the link's own half is written at its next start.
+    #[test]
+    fn a_link_home_record_cut_short_between_its_writes_still_lets_acpmux_find_the_refusal() {
+        use base64::Engine as _;
+        let home = tempfile::tempdir().unwrap();
+        let link = tempfile::tempdir().unwrap();
+        let key = load_or_create_at(home.path()).unwrap().public_key;
+        hooks::BETWEEN_WRITES.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(|| panic!("cut short between the writes")));
+        });
+        let cut = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            record_link_home(link.path(), Some(home.path()))
+        }));
+        assert!(cut.is_err(), "the record was not cut short");
+        assert!(recorded_home(link.path()).is_none(), "the link's half came first");
+        assert!(recorded_link_dirs(home.path()).iter().any(|dir| dir == link.path()));
+        let refusal = serde_json::json!({
+            "acpmux_home": home.path(),
+            "public_key": base64::engine::general_purpose::STANDARD.encode(key),
+        });
+        std::fs::write(link.path().join(LINK_COPIED), refusal.to_string()).unwrap();
+        assert!(serves_copied_key(home.path()), "acpmux would serve the refused key");
+        // Its next start writes the link's half.
+        record_link_home(link.path(), Some(home.path())).unwrap();
+        assert_eq!(recorded_home(link.path()).as_deref(), Some(home.path()));
     }
 
     /// A copied home's key is never replaced when the cmux link adopted it or another process

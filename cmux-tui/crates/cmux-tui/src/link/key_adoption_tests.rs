@@ -1076,9 +1076,13 @@ async fn a_rejoin_after_settling_then_a_restart_keeps_the_new_key() {
     for named in [true, false] {
         let copy = adopted_machine().await;
         let adopted_elsewhere = node_public(&copy.home);
-        assert!(copy.link.join(ADOPTED_KEY).is_file(), "the adoption names its key");
+        assert!(
+            copy.link.join(acpmux::cli::mesh_node_key::LINK_ADOPTED_KEY).is_file(),
+            "the adoption names its key"
+        );
         if !named {
-            std::fs::remove_file(copy.link.join(ADOPTED_KEY)).unwrap();
+            std::fs::remove_file(copy.link.join(acpmux::cli::mesh_node_key::LINK_ADOPTED_KEY))
+                .unwrap();
         }
         // The link's state directory came from another box.
         std::fs::write(copy.link.join(STAMP), r#"{"fingerprint":"another-box"}"#).unwrap();
@@ -1103,6 +1107,74 @@ async fn a_rejoin_after_settling_then_a_restart_keeps_the_new_key() {
             assert!(String::from_utf8(text).unwrap().contains(&STANDARD.encode(adopted_elsewhere)));
         }
     }
+}
+
+/// Review F1 at fb84fe4b: a refusal kept with no evidence beside it (a start cut short after
+/// the refusal, the order before this fix, or an older build's): acpmux reads the refusal
+/// itself and keeps off the key before the link starts again, and the link's next start
+/// finishes the evidence (the copied key recorded in the home, named in the refusal).
+#[tokio::test]
+async fn a_refusal_kept_without_its_evidence_keeps_acpmux_off_the_key_and_is_finished() {
+    use acpmux::cli::mesh_node_key as node_key;
+    for named in [true, false] {
+        let copy = adopted_machine().await;
+        let copied = node_public(&copy.home);
+        if !named {
+            std::fs::remove_file(copy.link.join(node_key::LINK_ADOPTED_KEY)).unwrap();
+        }
+        node_key::record_link_home(&copy.link, Some(&copy.home)).unwrap();
+        let refusal = serde_json::json!({ "acpmux_home": copy.home });
+        std::fs::write(copy.link.join(LINK_COPIED), refusal.to_string()).unwrap();
+        assert!(!copy.home.join(node_key::COPIED_KEY).exists());
+        // acpmux, before the link starts again.
+        assert!(node_key::serves_copied_key(&copy.home), "acpmux served it (named {named})");
+        assert!(node_key::home_copied(&copy.home));
+        assert!(!node_key::link_serves_node_key(Some(&copy.link), &copy.home));
+        // The link's next start finishes the evidence, and still refuses.
+        let refused = refused(&copy, Some(&copy.home)).await;
+        assert!(refused.starts_with("key_adoption.cloned_home:"), "{refused}");
+        let recorded = std::fs::read_to_string(copy.home.join(node_key::COPIED_KEY)).unwrap();
+        assert!(recorded.contains(&STANDARD.encode(copied)), "{recorded}");
+        let kept: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(copy.link.join(LINK_COPIED)).unwrap()).unwrap();
+        assert_eq!(kept["public_key"], STANDARD.encode(copied));
+    }
+}
+
+/// Review F1 at fb84fe4b, the new order: a start cut short after the evidence and before the
+/// refusal leaves the copied key recorded, so acpmux keeps off it; the next start keeps the
+/// refusal, naming that key.
+#[test]
+fn a_start_cut_short_between_the_evidence_and_the_refusal_keeps_acpmux_off_the_key() {
+    use acpmux::cli::mesh_node_key as node_key;
+    if !box_named() {
+        return;
+    }
+    let runtime = || tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let copy = runtime().block_on(adopted_machine());
+    let copied = node_public(&copy.home);
+    node_key::record_link_home(&copy.link, Some(&copy.home)).unwrap();
+    // The link's state directory came from another box.
+    std::fs::write(copy.link.join(STAMP), r#"{"fingerprint":"another-box"}"#).unwrap();
+    let (home, link) = (copy.home.clone(), copy.link.clone());
+    let cut = std::thread::spawn(move || {
+        hooks::BEFORE_REFUSAL.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(|| panic!("cut short before the refusal")));
+        });
+        let state = LinkState::open(Some(link)).unwrap();
+        let holder = KeyHolder::acquire(&home).unwrap();
+        let _ = runtime().block_on(serve_key(&state, &holder, Some(&home)));
+    })
+    .join();
+    assert!(cut.is_err(), "the start was not cut short");
+    assert!(!copy.link.join(LINK_COPIED).exists(), "the refusal came before its evidence");
+    assert!(node_key::serves_copied_key(&copy.home), "acpmux would serve the copied key");
+    assert!(!node_key::link_serves_node_key(Some(&copy.link), &copy.home));
+    let refused = runtime().block_on(refused(&copy, Some(&copy.home)));
+    assert!(refused.starts_with("key_adoption.cloned_home:"), "{refused}");
+    let kept: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(copy.link.join(LINK_COPIED)).unwrap()).unwrap();
+    assert_eq!(kept["public_key"], STANDARD.encode(copied));
 }
 
 /// A link of this box's own never adopts a node key recorded as copied; once
