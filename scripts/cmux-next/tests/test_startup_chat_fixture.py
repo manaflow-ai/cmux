@@ -28,7 +28,8 @@ class Restoration(unittest.TestCase):
         self.fixture.expected["test"] = {"sessionId": "session-1", "transcript": self.exchange}
         self.state = {"sessionId": "session-1", "transcript": copy.deepcopy(self.exchange), "isWorking": False,
                       "queued": []}
-        self.marks = {"first_terminal_frame": 1200, "agent_pane.painted": 1500}
+        self.marks = {"first_terminal_frame": 1200, "agent_pane.painted": 1500,
+                      "agent_pane.settled_painted": 1800}
 
     def test_same_session_and_complete_exchange_produce_receipt(self):
         receipt = self.fixture.verify("test", Client(self.state), self.marks)
@@ -37,6 +38,11 @@ class Restoration(unittest.TestCase):
     def test_terminal_only_sample_is_rejected(self):
         with self.assertRaisesRegex(RuntimeError, "paint marks"):
             self.fixture.verify("test", Client(self.state), {"first_terminal_frame": 1200})
+
+    def test_saved_chat_paint_without_settled_live_chat_is_rejected(self):
+        with self.assertRaisesRegex(RuntimeError, "paint marks"):
+            self.fixture.verify("test", Client(self.state),
+                                {"first_terminal_frame": 1200, "agent_pane.painted": 1500})
 
     def test_lost_replaced_duplicate_and_still_running_work_are_rejected(self):
         cases = [dict(sessionId="other"), dict(transcript=[]),
