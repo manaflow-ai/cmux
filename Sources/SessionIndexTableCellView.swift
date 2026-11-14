@@ -53,9 +53,15 @@ final class SessionIndexTableCellView: NSTableCellView {
         environment: SessionIndexTableEnvironmentSnapshot
     ) {
         highlightProjection.sync(from: row)
+        let previousRowID = model.row.id
         guard model.configure(row: row, environment: environment) else {
             return
         }
+        // SwiftUI re-reports an anchor only when its frame changes. An in-place
+        // update of the same row (a live session tick) keeps the Show more
+        // button where it was, so clearing here would strand the section
+        // popover with no anchor until the button moves.
+        guard previousRowID != row.id else { return }
         popoverAnchorRects.removeAll()
     }
 
