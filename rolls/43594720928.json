@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43594720928",
+  "recorded_at": "2026-11-14T12:34:00Z",
+  "reason": "cmux-tui e278a7120066 changes the image's cmux-tui (pinned ec51030c35dc)",
+  "dry_run": false,
+  "cmux_tui": "e278a71200662772456430f84c82a0cd8962dfc1",
+  "fixes": [
+    {
+      "sha": "e278a71200662772456430f84c82a0cd8962dfc1",
+      "mergedAt": "2026-11-14T04:04:18-08:00",
+      "subject": "Apps: render: web panes, Rust half (cmux-app:// pages, root, CSP, bridge limits) (#41546)"
+    },
+    {
+      "sha": "0fbb269767afaee9baa03e754c20dcbab6e8df56",
+      "mergedAt": "2026-11-14T12:01:59Z",
+      "subject": "chore(next): base autofix at 25b212098365"
+    },
+    {
+      "sha": "25b21209836519d008a346fb945edbfa44a26b46",
+      "mergedAt": "2026-11-14T04:00:09-08:00",
+      "subject": "CMUX-383: add the shared sidebar customization action (Step A) (#42944)"
+    },
+    {
+      "sha": "79d595a4f53fe138d3a72f4c45e345baf7627a6c",
+      "mergedAt": "2026-11-14T03:58:50-08:00",
+      "subject": "agent pane: every Cloud error offers a way on in the pane (#42543)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T12:34:00Z",
+    "snapshot_id": "sh-ee0d656481c743ad9170aefbdf93543a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43594720928): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f9893c1fe84b27e75f4d8b6a1298910e36245b87",
+    "image": "cloud-native-auto-e278a712-43594720928-1",
+    "revision": "ci-43594720928-1",
+    "at": "2026-11-14T12:34:00Z"
+  },
+  "rolled_back": false
+}
