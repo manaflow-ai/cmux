@@ -102,6 +102,26 @@ import Testing
 
     private static var baseSectionIDs: [SectionID] { Self.sections().map(\.id) }
 
+    @Test func selectionPreservesPatchedRowsWithoutRebuildingDefaultProjection() {
+        let model = SidebarModel(sections: Self.sections())
+        let updated = Self.workspace("ws-2", "Updated title")
+        #expect(model.patchWorkspaces([updated]))
+        _ = SidebarPerfCounters.report(reset: true)
+        model.activeWorkspaceID = WorkspaceID("ws-1")
+        #expect(model.workspace(WorkspaceID("ws-2"))?.title == "Updated title")
+        #expect(SidebarPerfCounters.report(reset: true)["section_sets", default: 0] == 0)
+    }
+
+    @Test func reloadRestoresTheLatestContentOfVisibleAndHiddenRows() {
+        let model = SidebarModel(sections: Self.sections())
+        model.sectionCustomization = Self.variants[1].settings
+        #expect(model.patchWorkspaces([Self.workspace("ws-2", "Visible update"),
+                                      Self.workspace("ws-3", "Hidden update")]))
+        model.sectionCustomization = .defaults
+        #expect(model.workspace(WorkspaceID("ws-2"))?.title == "Visible update")
+        #expect(model.workspace(WorkspaceID("ws-3"))?.title == "Hidden update")
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
     func renderGallery() throws {
         let root = AANestedGroupsGalleryTests.packageRoot
