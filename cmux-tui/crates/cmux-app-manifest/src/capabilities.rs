@@ -497,6 +497,12 @@ mod tests {
         assert_eq!(row["escalation"]["scope"], "workspace:execute");
         assert!(row["consent"].as_str().is_some_and(|t| !t.is_empty()));
         assert_eq!(table.describe("tab.focus").expect("tab.focus")["gesture"], true);
+        let media = table.describe("media.control").expect("media.control");
+        assert_eq!(
+            (media["scope"].as_str(), media["risk"].as_str(), media["gesture"].as_bool()),
+            (Some("media:control"), Some("sensitive"), Some(true))
+        );
+        assert_eq!(table.describe("media.get").expect("media.get")["gesture"], false);
         let never = table.never().next().expect("a never op");
         assert_eq!(table.describe(never).expect("never row")["never"], true);
         assert_eq!(table.describe("made.up"), None);
