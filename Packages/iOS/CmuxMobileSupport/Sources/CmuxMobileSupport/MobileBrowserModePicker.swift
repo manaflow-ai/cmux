@@ -37,7 +37,8 @@ public struct MobileBrowserModePicker {
             : L10n.string("mobile.browser.mode.onIPhone", defaultValue: "On iPhone")
     }
 
-    static var streamedTitle: String {
+    /// "Streamed".
+    public static var streamedTitle: String {
         L10n.string("mobile.browser.mode.streamed", defaultValue: "Streamed")
     }
 
