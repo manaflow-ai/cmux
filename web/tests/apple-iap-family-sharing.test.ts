@@ -120,7 +120,7 @@ describe("notifications", () => {
     const before = f.subscription();
     const outcome = await receiveAppleNotification(notification({
       type: "REVOKE", status: 5, signedDate: NOW.getTime(),
-      tx: familyTransaction({ revocationDate: NOW.getTime(), revocationReason: null }),
+      tx: familyTransaction({ revocationDate: NOW.getTime() }),
     }), f.deps());
     expect(outcome).toBe("skipped");
     expect(f.subscription()).toEqual(before);

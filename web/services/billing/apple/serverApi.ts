@@ -24,7 +24,7 @@ export type AppleNotificationHistoryPage = {
   readonly paginationToken: string | null;
 };
 
-/** Apple refused a saved pagination token (invalid or expired); restart the window. */
+/** Apple refused a saved pagination token (invalid, expired, or its window's start aged out); restart the window. */
 export class AppleHistoryPaginationError extends Error {
   constructor(message: string) {
     super(message);
@@ -56,8 +56,12 @@ export type AppleServerApi = {
 };
 
 function isPaginationRejection(error: unknown): boolean {
-  return error instanceof APIException &&
-    (error.apiError === APIError.INVALID_PAGINATION_TOKEN || error.apiError === APIError.PAGINATION_TOKEN_EXPIRED);
+  return error instanceof APIException && (
+    error.apiError === APIError.INVALID_PAGINATION_TOKEN ||
+    error.apiError === APIError.PAGINATION_TOKEN_EXPIRED ||
+    // A resumed window whose start fell past Apple's 180 days: start a new one.
+    error.apiError === APIError.START_DATE_TOO_FAR_IN_PAST
+  );
 }
 
 /** The App Store Server API client, or null when this deployment has no key. */

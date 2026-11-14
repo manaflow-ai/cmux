@@ -156,6 +156,20 @@ describe("backfill", () => {
     expect(f.store.historyCursors.get(`Production:${BUNDLE}`)).toMatchObject({ paginationToken: null });
   });
 
+  test("a window that started at the retention limit can still be resumed for a day", async () => {
+    f.serverApi = historyApi([
+      { signedPayloads: [], hasMore: true, paginationToken: "page-1" },
+      { signedPayloads: [], hasMore: false },
+    ]);
+    await backfillAppleNotifications(f.deps(), { pagesPerSource: 1 });
+    expect(productionRequests()[0]!.startDate.getTime()).toBe(NOW.getTime() - APPLE_HISTORY_RETENTION_MS);
+    requests = [];
+    f.clock = new Date(NOW.getTime() + 12 * HOUR);
+    await backfillAppleNotifications(f.deps(), { pagesPerSource: 1 });
+    expect(productionRequests()[0]).toMatchObject({ paginationToken: "page-1" });
+    expect(f.store.historyCursors.get(`Production:${BUNDLE}`)).toMatchObject({ paginationToken: null });
+  });
+
   test("a rejected pagination token restarts the window instead of failing forever", async () => {
     f.store.historyCursors.set(`Production:${BUNDLE}`, {
       bundleId: BUNDLE, environment: "Production", nextStartAt: new Date(NOW.getTime() - DAY),

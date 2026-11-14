@@ -15,8 +15,10 @@ import { AppleVerificationError } from "./verifier";
 const HOUR = 60 * 60 * 1000;
 /** Each window starts this much before the previous one ended. */
 export const APPLE_HISTORY_OVERLAP_MS = HOUR;
-/** Apple keeps 180 days; a day of margin keeps the start date valid. */
+/** Apple keeps 180 days; a new window starts at most 179 days back... */
 export const APPLE_HISTORY_RETENTION_MS = 179 * 24 * HOUR;
+/** ...so a partly read window stays resumable for a day before it falls off Apple's limit. */
+const APPLE_HISTORY_LIMIT_MS = 180 * 24 * HOUR;
 /** Pages (up to 20 notifications each) one cron run reads per history. */
 const PAGES_PER_SOURCE = 5;
 
@@ -60,7 +62,8 @@ async function historyWindow(
   now: Date,
 ): Promise<HistoryWindow> {
   const oldest = new Date(now.getTime() - APPLE_HISTORY_RETENTION_MS);
-  if (cursor?.paginationToken && cursor.windowStartAt && cursor.windowEndAt && cursor.windowStartAt > oldest) {
+  const resumable = new Date(now.getTime() - APPLE_HISTORY_LIMIT_MS);
+  if (cursor?.paginationToken && cursor.windowStartAt && cursor.windowEndAt && cursor.windowStartAt > resumable) {
     return { startDate: cursor.windowStartAt, endDate: cursor.windowEndAt, paginationToken: cursor.paginationToken };
   }
   const base = cursor?.nextStartAt ?? await deps.store.latestNotificationSignedDate(source.environment) ?? oldest;
