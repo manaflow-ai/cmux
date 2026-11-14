@@ -92,7 +92,7 @@ jobs:
           # Static-frame suppression is intentional; animate a small runner-local
           # window so the passive viewer records a meaningful FPS sample.
           $motion = Start-Process -FilePath 'powershell.exe' `
-            -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "$env:GITHUB_WORKSPACE/.github/scripts/cmux-rd-motion.ps1") -PassThru
+            -ArgumentList @('-NoProfile', '-File', "$env:GITHUB_WORKSPACE/.github/scripts/cmux-rd-motion.ps1") -PassThru
           $ip = (tailscale ip -4).Trim()
           Add-Content $env:GITHUB_STEP_SUMMARY "Tailnet address: ${ip}:4103"
           $log = Join-Path $env:RUNNER_TEMP 'cmux-rd-windows-host.log'
