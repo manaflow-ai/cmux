@@ -125,6 +125,12 @@ struct Cost {
     text_ms: f64,
 }
 
+/// MEASURE BRANCH ONLY: the 2 counts that [`check`] compares, for the measure test.
+pub(super) fn first_answer_allocations(workspaces: usize) -> (u64, u64) {
+    let cost = cost_of(workspaces);
+    (cost.answer_allocations, cost.copy_allocations)
+}
+
 fn cost_of(workspaces: usize) -> Cost {
     let start = Instant::now();
     let mux = session_of(workspaces);

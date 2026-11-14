@@ -94,9 +94,17 @@ fn projected_text(
     if projection.is_canonical() {
         return write(tree);
     }
+    let lap = crate::measure_probe::now();
     let mut tree = tree.clone();
+    crate::measure_probe::since("lw.tree_copy", lap);
+    let lap = crate::measure_probe::now();
     projection.project_data(&mut tree);
-    write(&tree)
+    crate::measure_probe::since("tabs.tree_walk", lap);
+    let text = write(&tree);
+    let lap = crate::measure_probe::now();
+    drop(tree);
+    crate::measure_probe::since("lw.drop_tree_copy", lap);
+    text
 }
 
 impl FlightState {
@@ -187,8 +195,14 @@ impl TreeReplyFlight {
                 if !projection.is_canonical() && !guard.awaited() {
                     // No reader shares this tree: the projection changes it
                     // where it is, with no copy.
+                    let lap = crate::measure_probe::now();
                     projection.project_data(&mut value);
-                    return Ok(Arc::new(write(&value)?));
+                    crate::measure_probe::since("tabs.tree_walk", lap);
+                    let text = write(&value);
+                    let lap = crate::measure_probe::now();
+                    drop(value);
+                    crate::measure_probe::since("lw.drop_tree", lap);
+                    return Ok(Arc::new(text?));
                 }
                 // Written before the build ends, so the readers it serves
                 // that have this projection take this text. If the write

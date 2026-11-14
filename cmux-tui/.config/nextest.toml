@@ -227,3 +227,10 @@ success-output = "final"
 [[profile.ci.overrides]]
 filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::disk_usage_read_cost::/)'
 success-output = "final"
+
+# MEASURE BRANCH ONLY: the list request shares test (server/tests/list_request_shares.rs) prints
+# its "LIST-SHARES" lines on stderr, and makes a session of 826 workspaces first.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui-core) & test(/^server::tests::list_request_shares::/)'
+success-output = "final"
+slow-timeout = { period = "60s", terminate-after = 10, grace-period = "5s" }

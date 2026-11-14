@@ -28,11 +28,21 @@ pub(super) fn list_workspaces_tree(mux: &Mux) -> anyhow::Result<Value> {
     // built from the copy with no lock held: a request that needs the state does not wait for
     // the build, which is the long part of this reply in a large session.
     let (state, notifications) = mux.tree_state_and_decorations();
+    let lap = crate::measure_probe::now();
     let mut workspaces = tree_reply_nodes::tree_nodes(&state, &notifications);
+    crate::measure_probe::since("lw.nodes (no lock)", lap);
+    let lap = crate::measure_probe::now();
+    drop(state);
+    crate::measure_probe::since("lw.drop_state_copy (no lock)", lap);
+    let lap = crate::measure_probe::now();
     let (registry_id, generation) = mux.registry_identity();
     workspaces.set("registry_id", json!(registry_id));
     workspaces.set("generation", json!(generation));
     workspaces.set("terminal_revision", json!(mux.terminal_registry_revision()?));
+    crate::measure_probe::since("lw.registry_fields", lap);
+    let lap = crate::measure_probe::now();
+    drop(notifications);
+    crate::measure_probe::since("lw.drop_decorations", lap);
     Ok(workspaces)
 }
 
