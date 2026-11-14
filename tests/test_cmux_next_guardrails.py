@@ -110,6 +110,10 @@ CASES = {
     "raw-observation": ("@MainActor func watch(_ store: Store) {\n    withObservationTracking { _ = store.tabs } onChange: { print(1) }\n}\n",
                         "@MainActor func watch(_ store: Store) -> Task<Void, Never> {\n"
                         "    Task { for await _ in ObservationStream({ ObservationTrigger(store.tab.title) }) { print(1) } }\n}\n"),
+    "main-actor-url-append": ("import Foundation\n\n@MainActor func locate(_ root: URL) -> URL {\n"
+                               "    root.appendingPathComponent(\"acpmux\")\n}\n",
+                               "import Foundation\n\n@MainActor func locate(_ root: URL) -> URL {\n"
+                               "    root.appending(path: \"acpmux\", directoryHint: .notDirectory)\n}\n"),
     "row-store": ("import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n"
                   "    @Environment(SidebarStore.self) private var store\n    var body: some View { Text(title) }\n}\n",
                   "import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n    let onSelect: () -> Void\n"
@@ -171,12 +175,6 @@ class Fixture(unittest.TestCase):
     def refused(self, *args):
         return [(r.id, [f"{h.path.rsplit('/', 1)[-1]}: {h.text.strip()}" for h in hits]) for r, hits in self.check(*args)[0]]
 
-    def rebase_on(self, files, message="more base debt"):
-        for relative, text in files.items():
-            self.write(relative, text)
-        self.commit(message)
-        self.base = self.git("rev-parse", "HEAD").stdout.strip()
-
     def report(self, skip, refusals):
         os.environ[guardrails.SKIP_ENV] = skip
         try:
@@ -186,6 +184,26 @@ class Fixture(unittest.TestCase):
 
 
 class RuleTests(Fixture):
+    def test_phone_width_reads_the_iphone_app_only(self):
+        tile = "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileChief/Tiles.swift"
+        bad = ("import SwiftUI\nstruct Tiles: View {\n    var body: some View {\n"
+               "        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3)) { EmptyView() }\n"
+               "        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())]) { EmptyView() }\n"
+               "        Color.clear.frame(width: 402)\n    }\n}\n")
+        good = ("import SwiftUI\nstruct Tiles: View {\n    var body: some View {\n"
+                "        LazyVGrid(columns: [GridItem(.adaptive(minimum: 120, maximum: 160))]) { EmptyView() }\n"
+                "        // width-allow: a placeholder frame the representable resizes at layout\n"
+                "        Color.clear.frame(width: 402)\n    }\n}\n")
+        for path, text, refused in ((tile, bad, 3), (tile, good, 0),
+                                    ("Packages/iOS/CmuxTabsKit/Sources/CmuxTabsKit/Grid.swift", bad, 3),
+                                    (f"{KIT}/Tiles.swift", bad, 0)):
+            with self.subTest(path=path, refused=refused):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(path, text)
+                self.commit("tiles")
+                hits = [h for r, hs in self.check()[0] if r.id == "phone-width" for h in hs]
+                self.assertEqual(len(hits), refused, [h.text for h in hits])
+
     def test_raw_observation_is_allowed_in_the_tracked_wrappers_only(self):
         wrapper = "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/SingleArmedTracking.swift"
         self.git("reset", "--quiet", "--hard", self.base)
@@ -193,6 +211,51 @@ class RuleTests(Fixture):
         self.commit("a wrapper's own tracking")
         refusals, _ = self.check()
         self.assertNotIn("raw-observation", [r.id for r, _ in refusals])
+
+    def test_main_actor_url_append_allows_nonisolated_and_multiline_hints(self):
+        self.git("reset", "--quiet", "--hard", self.base)
+        self.write(f"{KIT}/Added.swift", "import Foundation\nnonisolated func locate(_ root: URL) -> URL {\n"
+                   "    root.appendingPathComponent(\"acpmux\")\n}\n")
+        self.commit("a nonisolated URL append")
+        self.assertNotIn("main-actor-url-append", [r.id for r, _ in self.check()[0]])
+
+        self.git("reset", "--quiet", "--hard", self.base)
+        self.write(f"{KIT}/Added.swift", "import Foundation\n\n@MainActor func locate(_ root: URL) -> URL {\n"
+                   "    return root.appending(path: \"acpmux\",\n"
+                   "                           directoryHint: .notDirectory)\n}\n")
+        self.commit("a wrapped URL hint")
+        self.assertNotIn("main-actor-url-append", [r.id for r, _ in self.check()[0]])
+
+    def test_url_hint_is_per_call_and_does_not_match_collection_appending(self):
+        cases = (
+            ('root.appending(path: "one")', 1),
+            ('root.appendingPathComponent("one", isDirectory: false)', 0),
+            ('root.appending(path: "one", directoryHint: .checkFileSystem)', 1),
+            ('root.appending(path: "one", directoryHint: .inferFromPath)', 0),
+            ('root.appendingPathComponent("one").appending(path: "two", directoryHint: .isDirectory)', 1),
+            ('root.appending(path: "one", directoryHint: .isDirectory).appendingPathComponent("two")', 1),
+            ('root.appendingPathComponent(nested.appending(path: "one", directoryHint: .notDirectory).path)', 1),
+            ('items.appending(value)', 0),
+            ('root.appending(\n    path: "one")', 1),
+        )
+        for call, count in cases:
+            with self.subTest(call=call):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(f"{KIT}/Added.swift", "@MainActor func locate() {\n    " + call + "\n}\n")
+                self.commit("URL append")
+                refusals, warnings = self.check()
+                self.assertFalse(any("failed" in text for kind, text in warnings if kind == "guardrails"), warnings)
+                hits = [h for r, hs in refusals if r.id == "main-actor-url-append" for h in hs]
+                self.assertEqual(len(hits), count)
+
+    def test_removing_only_a_wrapped_hint_is_new_url_debt(self):
+        path = f"{KIT}/Added.swift"
+        hinted = ('@MainActor func locate() {\n    root.appending(\n        path: "one",\n'
+                  '        directoryHint: .notDirectory)\n}\n')
+        self.rebase_on({path: hinted})
+        self.write(path, hinted.replace('path: "one",\n        directoryHint: .notDirectory', 'path: "one"'))
+        self.commit("drop the hint")
+        self.assertIn("main-actor-url-append", [r.id for r, _ in self.check()[0]])
 
     def test_each_rule_refuses_what_a_push_adds_and_passes_the_right_pattern(self):
         for rule, (bad, good) in CASES.items():
@@ -2495,11 +2558,6 @@ class HookTests(Fixture):
         # Retention is by use, not by age or position: a push holds its copy (the test below); with none running
         # the replaced copy goes, so copies never pile up.
         self.assertFalse(before.exists(), "no push holds the replaced copy")
-
-    def install(self):
-        result = subprocess.run(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo, env=self.env, text=True,
-                                capture_output=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_a_push_running_on_an_old_checks_copy_keeps_it_through_later_installs(self):
         # The gate resolves the checks link once. A push that started on a days-old copy and is still in swiftlint

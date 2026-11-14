@@ -21,8 +21,8 @@ import os
 @MainActor final class CloudAgentCheck {
     /// The probe's whole budget: a probe that has not answered by then lets the start go on.
     nonisolated static let probeTimeout: TimeInterval = 2.5
-    /// The model a probe asks when the start names no full Claude model id: the cheapest, as Claude Code's small calls.
-    nonisolated static let probeModel = "claude-haiku-5-5"
+    /// The model a Claude start with none named runs (acpmux's catalog default), so a used-up Opus window stops it.
+    nonisolated static let defaultModel = "claude-opus-5-5"
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
 
     /// The probe's reply as the rule reads it.
@@ -82,8 +82,8 @@ import os
     }
 
     /// The refusal's words when `token`'s Claude limit for `model` is used up; nil otherwise or when unknown.
-    func limitRefusal(harness: String?, model: String?, userID: String, token: Data) async -> String? {
-        let key = userID + "\n" + (model ?? "")
+    func limitRefusal(harness: String?, model named: String?, userID: String, token: Data) async -> String? {
+        let model = Self.modelID(named), key = userID + "\n" + model
         if let kept = kept[key], kept.freshUntil > now() { return kept.refusal?.message }
         let task = asking[key] ?? Task { [self] in
             guard let probe = await probe(token, model: model) else { return nil }
@@ -98,6 +98,12 @@ import os
         return answer.refusal?.message
     }
 
+    /// The Claude id a start of `model` runs: no `[1m]`, an alias as its family's id, none as the default, another name as is.
+    nonisolated static func modelID(_ model: String?) -> String {
+        let id = (model ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased().split(separator: "[", maxSplits: 1).first.map(String.init) ?? ""
+        return id.hasPrefix("claude-") ? id : ["opus", "sonnet", "haiku"].first { id.hasPrefix($0) }.map { "claude-\($0)-5-5" } ?? (["", "default"].contains(id) ? defaultModel : id)
+    }
+
     /// The rule's answer for `probe` (cmux-cloud-start-core `agent_check::check`); nil when the FFI does not answer.
     nonisolated static func answer(harness: String?, model: String?, probe: Probe?, now: Int64) -> Answer? {
         CloudStartCore().call("cloud_agent_check", Request(harness: harness, model: model, probe: probe, now: now), as: Answer.self)
@@ -106,13 +112,10 @@ import os
     /// One request with `token` for one output token of `model`'s limits; its status and headers, or nil when it did not answer in time.
     private func probe(_ token: Data, model: String?) async -> Probe? {
         guard let bearer = String(data: token, encoding: .utf8), let request = Self.probeRequest(bearer: bearer, model: model) else { return nil }
-        let reply = try? await send(request)
-        guard let response = reply?.1 as? HTTPURLResponse else { return nil }
-        return Self.probe(response)
+        return ((try? await send(request))?.1 as? HTTPURLResponse).map(Self.probe)
     }
 
-    /// The probe: Claude Code's own request shape for a subscription login, the smallest it can be, on the start's own
-    /// model when it names a full Claude model id (its limits are that model's), else the cheapest.
+    /// The probe: Claude Code's request shape for a subscription login, as small as it gets, on ``modelID(_:)`` (its limits).
     nonisolated static func probeRequest(bearer: String, model: String? = nil) -> URLRequest? {
         guard let url = URL(string: "https://api.anthropic.com/v1/messages") else { return nil }
         var request = URLRequest(url: url, timeoutInterval: probeTimeout)
@@ -121,7 +124,7 @@ import os
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: Any] = ["model": model.flatMap { $0.lowercased().hasPrefix("claude-") ? $0 : nil } ?? probeModel, "max_tokens": 1, "system": "You are Claude Code, Anthropic's official CLI for Claude.",
+        let body: [String: Any] = ["model": [modelID(model)].first { $0.hasPrefix("claude-") } ?? "claude-haiku-5-5", "max_tokens": 1, "system": "You are Claude Code, Anthropic's official CLI for Claude.",
                                    "messages": [["role": "user", "content": "ok"]]]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         return request
@@ -130,10 +133,7 @@ import os
     /// A reply's status and its limit headers (only `anthropic-ratelimit-unified-*` leave this function).
     nonisolated static func probe(_ response: HTTPURLResponse) -> Probe {
         var headers: [String: String] = [:]
-        for (key, value) in response.allHeaderFields {
-            guard let key = (key as? String)?.lowercased(), key.hasPrefix("anthropic-ratelimit-unified-") else { continue }
-            headers[key] = value as? String ?? "\(value)"
-        }
+        for case let (key as String, value) in response.allHeaderFields where key.lowercased().hasPrefix("anthropic-ratelimit-unified-") { headers[key.lowercased()] = value as? String ?? "\(value)" }
         return Probe(status: response.statusCode, headers: headers)
     }
 }

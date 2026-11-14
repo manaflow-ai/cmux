@@ -410,7 +410,7 @@ export function HatQuestions({
       <div ref={inner} className="acpmux-hat-questions__room">
         {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape puts the shown question away from any of its buttons. */}
         <fieldset
-          className="acpmux-hat-questions__body"
+          className="ui-glass ui-glass-floats acpmux-stack-material acpmux-hat-questions__body"
           aria-label={t("hat.questions")}
           data-dismiss-host=""
           onKeyDown={escapeKey}

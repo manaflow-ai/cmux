@@ -279,6 +279,8 @@
         "appearance.borders",
         "appearance.sidebarSurface",
         "appearance.chromeStyle",
+        "appearance.titleAreaTone",
+        "appearance.titleAreaContrast",
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
@@ -366,17 +368,6 @@
         "sidebar.nowPlaying.enabled",
         "tabs.newTabNowPlaying",
         "media.pictureInPicture.enabled",
-        "tabs.newTabWidgets.greeting",
-        "tabs.newTabWidgets.projects",
-        "tabs.newTabWidgets.actions",
-        "tabs.newTabWidgets.chats",
-        "tabs.newTabWidgets.styleDots",
-        "tabs.newTabWidgets.order",
-        "tabs.newTabWidgets.machines",
-        "tabs.newTabWidgets.clock",
-        "tabs.newTabWidgets.timer",
-        "tabs.newTabWidgets.warmGreeting",
-        "tabs.newTabWidgets.quote",
         "sidebar.showProjects",
         "sidebar.showSpaces",
         "sidebar.showProfileControl",
@@ -392,7 +383,8 @@
         "browser.siteEngines",
         "browser.newTabPage",
         "browser.showBookmarksBar",
-        "browser.vimKeys"
+        "browser.vimKeys",
+        "browser.showLoadingBar"
       ]
     },
     {
@@ -734,6 +726,7 @@
         "agentPane.display.fullWidth",
         "agentPane.display.vscodeMinimap",
         "agentPane.display.pinnedPlan",
+        "agentPane.display.finishSound",
         "agentPane.display.trayTucked",
         "agentPane.display.trayHandle",
         "agentPane.display.unreadBanner",
@@ -884,6 +877,7 @@
         "appearance.metrics.dividerThickness",
         "appearance.metrics.dividerHitWidth",
         "appearance.metrics.titlebarHeight",
+        "appearance.metrics.sidebarRowHeight",
         "browser.toolbar.back",
         "browser.toolbar.forward",
         "browser.toolbar.reload",
@@ -1074,14 +1068,6 @@
         "feed.github.enabled",
         "feed.github.pollIntervalSeconds",
         "browser.remoteLocalhost"
-      ]
-    },
-    {
-      "agent": "network",
-      "why": "The weather widget asks Open-Meteo (and names a city) only once the person turns it on.",
-      "keys": [
-        "tabs.newTabWidgets.weather",
-        "tabs.newTabWidgets.weatherCity"
       ]
     },
     {
@@ -1358,6 +1344,13 @@
       ]
     },
     {
+      "agent": "privacy",
+      "why": "Whether this computer counts how the person uses cmux: the person's choice only.",
+      "keys": [
+        "diagnostics.usagePatterns"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "What a new chat may do without asking: an agent must not widen its own approvals.",
       "keys": [
@@ -1487,14 +1480,6 @@
       "why": "Which hosts an ssh:// link from another app connects to without asking: only the person trusts a host, so a page or an agent cannot add one and skip the confirmation.",
       "keys": [
         "ssh.linkAllowedHosts"
-      ]
-    },
-    {
-      "agent": "network",
-      "why": "What reaches this Mac from outside and what leaves it: only the person opens phone access.",
-      "keys": [
-        "phone.allowConnections",
-        "phone.startSessions"
       ]
     },
     {

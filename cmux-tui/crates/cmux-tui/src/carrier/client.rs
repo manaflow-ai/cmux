@@ -82,6 +82,11 @@ pub(super) struct Dialed {
     pub vmk: Option<super::contract::Vmk>,
     /// The desktop datagram link's settings, when the platform turned it on.
     pub rd_link: Option<super::answer::RdLink>,
+    /// The session's routes, the very ones its reconnect resumes through:
+    /// the fault drill kills one of them here ([`CarrierRoutes::kill`]).
+    pub routes: Arc<CarrierRoutes>,
+    /// The carrier the session is on now.
+    pub current: Arc<CurrentRoute>,
 }
 
 /// What one dial needs.
@@ -107,6 +112,11 @@ pub(super) struct DialPlan {
     /// The platform's refusal of the ssh carrier for good, once one came:
     /// every later attempt of this dial leaves the route out.
     pub ssh_refusal: SshRefusal,
+    /// A probe's fault drill dial (only after its gate, `carrier::fault`):
+    /// its routes can be killed inside the session
+    /// ([`CarrierRoutes::kill`]). Every other dial is `false`, and its links
+    /// are the routes' own.
+    pub drill: bool,
 }
 
 /// A failure of the connection step: a provider error is the relay's (or,
@@ -278,6 +288,20 @@ impl LinkGroup for Tracked {
     }
 }
 
+/// How long one attempt's link may stay parked before the dial opens a new one. A link opened
+/// while a new machine's host was still binding stayed parked for the whole deadline (4 of 13
+/// first dials on 2026-11-10: `parked_ms` 178 s, then `parked_timeout`), though the host
+/// registered 13 s in and the next dial was allocated in 0.5 s. A machine that registers is
+/// allocated in well under a second, so a longer park is a link the relay will not pair.
+pub(super) const PARK_REDIAL: Duration = Duration::from_secs(10);
+
+/// When an attempt begun at `now` stops waiting for its parked link: [`PARK_REDIAL`] on, or the
+/// dial's `deadline` when that is sooner. Its allocation then times out, which the dial retries
+/// at the park step with a new link ([`classify`]).
+pub(super) fn park_until(deadline: Instant, now: Instant) -> Instant {
+    deadline.min(now + PARK_REDIAL)
+}
+
 fn relay_provider(
     answer: &CarrierAnswer,
     tickets: Arc<TicketCache>,
@@ -296,7 +320,7 @@ fn relay_provider(
         },
         credentials,
     )
-    .map(|provider| provider.with_allocation_deadline(deadline))
+    .map(|provider| provider.with_allocation_deadline(park_until(deadline, Instant::now())))
     .map_err(|e| Failure::fatal(Step::Relay, e.to_string()))
 }
 
@@ -513,7 +537,7 @@ impl RouteAttempt<'_> {
         };
         // The connection and the routes hold the same cached group, so the
         // routes see it retired once the session moves off it.
-        let cached = CachedGroup::new(tracked);
+        let cached = CachedGroup::killable(tracked, plan.drill);
         let tracked: Arc<dyn LinkGroup> = cached.clone();
         let remaining = plan.deadline.saturating_duration_since(Instant::now());
         let config = ClientConnectionConfig {
@@ -530,13 +554,14 @@ impl RouteAttempt<'_> {
                 ..ReconnectPolicy::default()
             },
         };
-        let routes: Arc<dyn ReconnectGroupSource> = Arc::new(CarrierRoutes::new(
+        let carrier_routes = Arc::new(CarrierRoutes::new(
             RouteSet { routes: self.set.routes.clone(), dialers: self.set.dialers.clone() },
             index,
             cached,
             self.session,
             self.current.clone(),
         ));
+        let routes: Arc<dyn ReconnectGroupSource> = carrier_routes.clone();
         let connection =
             match ClientConnection::connect_with_reconnect_groups(tracked, config, Some(routes))
                 .await
@@ -589,6 +614,8 @@ impl RouteAttempt<'_> {
             mux,
             vmk: self.answer.vmk,
             rd_link: self.answer.rd_link.clone(),
+            routes: carrier_routes,
+            current: self.current.clone(),
         })
     }
 }

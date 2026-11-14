@@ -90,6 +90,52 @@ struct AgentPaneSendPickedFolderPromptTests {
         #expect(await prompt(pane, id: 3) == .gestureRequired)
     }
 
+    /// The Cloud too-big card's repository or browsed folder (#40957): the click picks the folder, which spends its
+    /// gesture to make it a root, and the Cloud start sent from the pick's acceptance takes the pick's credit; without it
+    /// the start's first send came back `transport.gesture_required`. Still one start per click.
+    @Test func aCloudStartSentFromAFolderPickTakesThePicksGesture() async throws {
+        let pane = try await pane()
+        defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
+
+        pane.model.transport.gestures.record(click: true)
+        #expect(status(await pane.model.respond(to: .useFolder(pane.folder, confirm: false))) == "ok")
+        #expect(!pane.model.transport.gestures.isAvailable, "the test needs the pick to have spent the click")
+        let intent = try #require(AgentPaneGestureIntent(gestureParams: [
+            "intent": ["method": "cloud.startChat", "params": ["key": "send-1"]] as [String: Any],
+        ]))
+        #expect(pane.model.transport.reserveGesture(intent) != nil, "the pick's click gave the Cloud start no ticket")
+        #expect(pane.model.transport.reserveGesture(intent) == nil, "one click gave two Cloud starts")
+    }
+
+    /// The pick leaves one credit, which a Cloud start with no ticket takes in its hand-off (AgentPaneHandOff.held), once.
+    @Test func aCloudStartWithNoTicketTakesThePicksCreditOnce() async throws {
+        let pane = try await pane()
+        defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
+
+        pane.model.transport.gestures.record(click: true)
+        #expect(status(await pane.model.respond(to: .useFolder(pane.folder, confirm: false))) == "ok")
+        let transport = pane.model.transport
+        #expect(transport.pickCredit.take(connection: transport.current, now: transport.gestures.uptime, lifetime: AgentPaneUserGestures.lifetime) == true)
+        #expect(transport.pickCredit.take(connection: transport.current, now: transport.gestures.uptime, lifetime: AgentPaneUserGestures.lifetime) == nil)
+    }
+
+    /// Pick a folder… in the too-big card: the Open panel stayed open past the gesture's lifetime, so the click that
+    /// opened it is stale; the panel's Open still authorizes the Cloud start sent from the pick, once.
+    @Test func aCloudStartAfterALongOpenPanelTakesThePanelsOpen() async throws {
+        let pane = try await pane()
+        defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
+
+        pane.model.transport.gestures.record(click: true)
+        pane.clock.now += AgentPaneUserGestures.lifetime * 4 // the person browses for a while
+        _ = await pane.model.transport.pick(pane.folder)
+        #expect(status(await pane.model.respond(to: .useFolder(pane.folder, confirm: false))) == "ok")
+        let intent = try #require(AgentPaneGestureIntent(gestureParams: [
+            "intent": ["method": "cloud.startChat", "params": ["key": "send-long"]] as [String: Any],
+        ]))
+        #expect(pane.model.transport.reserveGesture(intent) != nil, "the panel's Open gave the Cloud start no ticket")
+        #expect(pane.model.transport.reserveGesture(intent) == nil, "one Open gave two Cloud starts")
+    }
+
     /// Use Home Folder: the click on the question's answer is the gesture, and the held Send then
     /// starts the chat there; its first prompt goes with that click.
     @Test func theFirstPromptAfterUseHomeFolderGoesOut() async throws {

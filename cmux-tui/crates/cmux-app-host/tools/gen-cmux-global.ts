@@ -38,20 +38,24 @@ const EXECUTE = /(^terminal\.input\.(write|keys|mouse)$|\.run$|^terminal\.(attac
 // team.audit.list and team.members.remove (cx-3bi.4): the audit chain and member removal are a person's session only.
 // agent.message.list/mark/release/send/unsend (#16430): no app access to agent messages until the agent-inbox lane designs a scoped
 // grant. An app that sends to an agent is a prompt-injection path; an app that reads them sees the agent's context.
-// settings.set/reset/reset_all (cx-9ce.10): the settings file is the person's; an app may read settings only.
+// settings.set/reset/reset_all/edit (cx-9ce.10): the settings file is the person's; an app may read settings only.
 // layout.bulk (cx-gzh.5) closes tabs, panes, screens and workspaces, like every .close op.
 // workspace.open_url (cx-ebm.59.3) navigates the person's browser tabs; Home and the person's tools only.
 // conductor_import.plan/record read Conductor's database and worktrees and keep the import ledger: the app's
 // own Import from Conductor only.
 // classic_import.plan/record read classic cmux's session files and keep the migration ledger: the app's own
 // move from classic cmux only.
+// browser_import.read reads another browser's bookmarks, history and tabs by path: the app's own browser
+// import only (the daemon also refuses any origin but the verified app).
 // palette.rank ranks rows for a cmux page's own palette (the Channels page); apps have `cmux.palette`, the
 // app palette, so the op family would collide with it.
-const NEVER = /(^settings\.(set|reset|reset_all)$|^layout\.bulk$|^keybindings\.(set|remove|reset)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^workspace\.open_url$|^conductor_import\.|^classic_import\.|^palette\.rank$|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|release|send|unsend)$)/
+const NEVER = /(^settings\.(set|reset|reset_all|edit)$|^layout\.bulk$|^keybindings\.(set|remove|reset)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^workspace\.open_url$|^conductor_import\.|^browser_import\.|^classic_import\.|^palette\.rank$|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|release|send|unsend)$|^diff\.comments\.send$)/
 
 /** The daemon's Cloud API calls carry the person's own access token in their params; the app's own Cloud code only. */
 const CLOUD_API_CALLS = [
+  "cloud.machine.chat_access",
   "cloud.machine.io",
+  "cloud.machine.share_chat",
   "cloud.owner.acpmux_keyed_start",
   "cloud.owner.acpmux_person_holds",
   "cloud.owner.fork_run",
@@ -175,6 +179,7 @@ function paramsType(op: Op): string {
 }
 
 const SIGNALS = join(here, "../schema/v2/signals.json")
+const EVENTS = join(here, "../schema/v2/events.json")
 const SIGNALS_SCHEMA = join(here, "../schema/v2/signals.schema.json")
 
 interface SignalDef {
@@ -229,6 +234,28 @@ export function loadSignals(scopes: Record<string, { scope: string; class: strin
   }
   const table = Object.fromEntries(names.map((n) => [n, file.signals[n]]))
   return { json: JSON.stringify({ version: 1, signals: table }, null, 2) + "\n", dts: lines.join("\n") }
+}
+
+/**
+ * schema/v2/events.json, each stream's `reads` op checked against the catalog: the daemon delivers
+ * `<family>.changed` only to an app that may call `<family>.list` or `<family>.get`, so that op's
+ * scope is the stream's scope.
+ */
+export function loadEvents(scopes: Record<string, { scope: string; class: string }>): Record<string, { docs: string; reads: string; scope: string }> {
+  const file = JSON.parse(readFileSync(EVENTS, "utf8")) as { version: number; events: Record<string, { docs: string; reads: string }> }
+  if (file.version !== 1) throw new Error(`schema/v2/events.json: version ${file.version}, expected 1`)
+  const out: Record<string, { docs: string; reads: string; scope: string }> = {}
+  for (const name of Object.keys(file.events).sort()) {
+    const { docs, reads } = file.events[name]!
+    const family = name.match(/^([a-z][a-z0-9_]*)\.changed$/)?.[1]
+    if (!family) throw new Error(`events.json: ${name} is not <family>.changed`)
+    if (reads !== `${family}.list` && reads !== `${family}.get`) throw new Error(`events.json: ${name} reads ${reads}; the daemon checks ${family}.list or ${family}.get`)
+    const known = scopes[reads]
+    if (!known) throw new Error(`events.json: ${name} reads ${reads}, which apps cannot call`)
+    if (known.class !== "read") throw new Error(`events.json: ${name} reads ${reads}, which is not a read (${known.class})`)
+    out[name] = { docs, reads, scope: known.scope }
+  }
+  return out
 }
 
 export function generate(): Record<string, string> {
@@ -467,7 +494,11 @@ declare function Reorderable<T>(spec: CmuxListSpec<T>, template: (item: CmuxSign
 `
   const scopesJson = JSON.stringify({ apiVersion: API_VERSION, ops: Object.fromEntries(Object.entries(scopes).sort(([a], [b]) => a.localeCompare(b))), never: never.sort() }, null, 2) + "\n"
   const opsJson = JSON.stringify({ apiVersion: API_VERSION, ops: Object.keys(scopes).sort() }, null, 2) + "\n"
-  return { "cmux-app.d.ts": dts, "scopes.json": scopesJson, "ops.json": opsJson, "signals.json": signals.json }
+  // Checked here, read where it is used: the SDKs read events.json with scopes.json (cmux-extension-sdk).
+  loadEvents(scopes)
+  return {
+    "cmux-app.d.ts": dts, "scopes.json": scopesJson, "ops.json": opsJson, "signals.json": signals.json
+  }
 }
 
 if (import.meta.main) {

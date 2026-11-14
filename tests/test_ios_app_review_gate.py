@@ -201,6 +201,95 @@ class AppReviewGateTests(unittest.TestCase):
         lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False}, "Info.plist")
         self.assertIn("privacy.purpose-string", self.rules(lint))
 
+    def test_a_privacy_api_in_a_linked_package_needs_its_purpose_string(self) -> None:
+        # The microphone lives in a shared package the kit links, not in the
+        # app's own folders; the prompt is still the app's.
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Package.swift",
+              'let p = Package(dependencies: [.package(path: "../../Packages/Shared/Voice")])\n')
+        write(self.root, "Packages/Shared/Voice/Package.swift", "let p = Package()\n")
+        write(self.root, "Packages/Shared/Voice/Sources/Voice/Rec.swift", "let e = AVAudioEngine()\n")
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False}, "Info.plist")
+        self.assertIn("privacy.purpose-string", self.rules(lint))
+        self.assertTrue(any("NSMicrophoneUsageDescription" in f.message for f in lint.findings))
+
+    def test_a_package_the_app_does_not_link_is_not_judged(self) -> None:
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Package.swift", "let p = Package()\n")
+        write(self.root, "Packages/iOS/Classic/Package.swift", "let p = Package()\n")
+        write(self.root, "Packages/iOS/Classic/Sources/Classic/Rec.swift", "let e = AVAudioEngine()\n")
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False}, "Info.plist")
+        self.assertNotIn("privacy.purpose-string", self.rules(lint))
+
+    def test_a_biometry_locked_key_needs_the_face_id_purpose_string(self) -> None:
+        # The classic app's SSH key lock (#40636): Secure Enclave keys with
+        # biometry access control ask for Face ID with no LAContext call.
+        write(self.root, "cmux-next-ios/App/Keys.swift", "var flags: SecAccessControlCreateFlags = [.privateKeyUsage, .biometryCurrentSet]\n")
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False}, "Info.plist")
+        self.assertTrue(any("NSFaceIDUsageDescription" in f.message and f.severity == "blocker" for f in lint.findings))
+
+    def test_a_generic_purpose_string_is_flagged(self) -> None:
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False,
+                               "NSCameraUsageDescription": "This app uses the camera for features."}, "Info.plist")
+        self.assertIn("privacy.purpose-string-vague", {f.rule for f in lint.findings})
+
+    def test_bonjour_services_are_asked_for_only_when_bonjour_is_used(self) -> None:
+        plist = {"ITSAppUsesNonExemptEncryption": False,
+                 "NSLocalNetworkUsageDescription": "Connect directly to your Mac on this network for a faster link."}
+        write(self.root, "cmux-next-ios/App/Dial.swift", "let l = try NWListener(using: .tcp, on: 0)\n")
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist(plist, "Info.plist")
+        self.assertNotIn("privacy.bonjour", {f.rule for f in lint.findings})
+        write(self.root, "cmux-next-ios/App/Browse.swift", 'let b = NWBrowser(for: .bonjour(type: "_cmux._tcp", domain: nil), using: .tcp)\n')
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist(plist, "Info.plist")
+        self.assertIn("privacy.bonjour", self.rules(lint))
+
+    def manifests(self, app: list[str], **extensions: list[str]) -> None:
+        def body(categories: list[str]) -> str:
+            return plistlib.dumps({"NSPrivacyTracking": False, "NSPrivacyAccessedAPITypes": [
+                {"NSPrivacyAccessedAPIType": c, "NSPrivacyAccessedAPITypeReasons": ["X.1"]} for c in categories]}).decode()
+        write(self.root, "cmux-next-ios/App/PrivacyInfo.xcprivacy", body(app))
+        for name in ("NotificationContent", "NotificationService"):
+            if name in extensions:
+                write(self.root, f"cmux-next-ios/{name}/PrivacyInfo.xcprivacy", body(extensions[name]))
+
+    def privacy_rules(self) -> set[str]:
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_privacy_manifests()
+        return self.rules(lint)
+
+    def test_a_required_reason_api_the_manifest_omits_blocks(self) -> None:
+        # ITMS-91053: PreviewStorage read free space with no DiskSpace entry (2026-11-12).
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileArtifacts/PreviewStorage.swift",
+              "let v = try url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])\n")
+        self.manifests([], NotificationContent=[], NotificationService=[])
+        self.assertIn("privacy.required-reason", self.privacy_rules())
+        self.manifests(["NSPrivacyAccessedAPICategoryDiskSpace"], NotificationContent=[], NotificationService=[])
+        self.assertEqual(self.privacy_rules(), set())
+
+    def test_an_extension_without_its_own_manifest_blocks(self) -> None:
+        self.manifests([], NotificationContent=[])
+        self.assertIn("privacy.manifest", self.privacy_rules())
+
+    def test_an_extensions_manifest_covers_its_own_sources(self) -> None:
+        write(self.root, "cmux-next-ios/NotificationService/NotificationService.swift", "let d = UserDefaults.standard\n")
+        self.manifests(["NSPrivacyAccessedAPICategoryUserDefaults"], NotificationContent=[], NotificationService=[])
+        self.assertIn("privacy.required-reason", self.privacy_rules())
+
+    def test_local_network_without_bonjour_browsing_needs_no_bonjour_services(self) -> None:
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False,
+                               "NSLocalNetworkUsageDescription": "Connect directly to your Mac on this network."}, "Info.plist")
+        self.assertNotIn("privacy.bonjour", {f.rule for f in lint.findings})
+        write(self.root, "cmux-next-ios/App/Find.swift", "let b = NWBrowser(for: .bonjour(type: \"_x._tcp\", domain: nil), using: .tcp)\n")
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False,
+                               "NSLocalNetworkUsageDescription": "Connect directly to your Mac on this network."}, "Info.plist")
+        self.assertIn("privacy.bonjour", {f.rule for f in lint.findings})
+
     def test_vpn_entitlement_blocks_only_the_app_store_lane(self) -> None:
         ents = {"com.apple.developer.networking.networkextension": ["packet-tunnel-provider"]}
         store = gate.Lint(self.root, "appstore")
@@ -374,6 +463,18 @@ class RealTreeTests(unittest.TestCase):
         lint = gate.Lint(ROOT, "appstore")
         lint.check_history()
         self.assertEqual([f.message for f in lint.findings], [])
+
+    def test_the_app_declares_a_specific_purpose_string_for_every_privacy_api_it_links(self) -> None:
+        # Fails CI the moment the NEXT app (or a package it links) calls a
+        # privacy API without its Info.plist purpose string, or a purpose
+        # string reads as generic: iOS kills the app at the prompt, and App
+        # Review rejects under 5.1.1 (first-user journey, permission audit).
+        lint = gate.Lint(ROOT, "appstore")
+        plist = lint.project_info()
+        self.assertTrue(plist, "project.yml's CmuxMobileApp Info.plist properties could not be read")
+        lint.check_info_plist(plist, gate.PROJECT_YML)
+        privacy = [f"{f.rule}: {f.message}" for f in lint.findings if f.rule.startswith("privacy.")]
+        self.assertEqual(privacy, [])
 
     def test_the_workflow_runs_every_gate_test_by_its_real_name(self) -> None:
         # -only-testing names resolve only when target, class and method match.

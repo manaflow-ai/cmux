@@ -173,6 +173,15 @@ public struct RootView: View {
         }
         .animation(theme.motion.gentle.animation.unlessReduceMotion, value: destination)
         .environment(\.mobileKeyboardFrameTracker, keyboard)
+        // A fold or unfold resizes the window with no rotation: the app's orientations follow it.
+        .onGeometryChange(for: Bool.self) { proxy in
+            let insets = proxy.safeAreaInsets
+            return ScreenSharingOrientation.isUnfolded(windowSize: CGSize(
+                width: proxy.size.width + insets.leading + insets.trailing,
+                height: proxy.size.height + insets.top + insets.bottom))
+        } action: { _ in
+            ScreenSharingOrientation.shared.foldChanged()
+        }
         .environment(billing)
         // Plans follow the account: a purchase StoreKit still holds is delivered
         // for whoever signs in; sign-out forgets the old account's plan.
@@ -426,12 +435,16 @@ public struct RootView: View {
             Task { await auth.selectTeam(teamID) }
         }
         live = coordinator
+        // The incident watch follows the app in front from UIKit, starting with its state now.
+        coordinator.followApplicationState()
         PushReplies.shared.attach(live: coordinator)
         // Before the session ends: stop pushes to this phone. The Macs keep
         // their approval of it (verify/persistence.md).
-        auth.willSignOut = AccountSignOut().willSignOut {
+        auth.willSignOut = AccountSignOut().willSignOut { [weak coordinator] in
             // Disarm queued replies before the sign-out network work suspends.
             PushReplies.shared.signedOut()
+            // Open connectivity incidents end now, sent while the token still works.
+            await coordinator?.endIncidentsBeforeSignOut()
             // Withhold content before network sign-out can leave this device.
             // The marker lives independently of the pairing keys we retain.
             await PushActiveAccountMirror.shared.clearBeforeSignOut()
@@ -764,6 +777,8 @@ private struct LinkSettingsObserver: ViewModifier {
                 // moment) still shows the page: only the background hides it.
                 // Hidden pages stop painting on the Mac and give up the lane.
                 StreamedBrowserDirectory.shared.setAppActive(phase != .background)
+                // Relative times stop ticking unseen, and read the time at once on return.
+                MinuteClock.shared.setActive(phase != .background)
                 // The notification preview shows these chats' last messages.
                 if phase == .background {
                     shell.live?.background()

@@ -200,6 +200,7 @@ impl Surface {
             },
             terminal: Arc::new(PtyTerminalRuntime {
                 event_surface_id: id,
+                pid: terminal_runtime::terminal_seat(&mux, pid, &terminal_public_id),
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation: Arc::from(format!(
                     "local-{}",
@@ -253,7 +254,6 @@ impl Surface {
                 pending_host_binding: Mutex::new(None),
                 #[cfg(any(unix, windows))]
                 host_exit_record_path: None,
-                pid,
                 command: argv,
                 cwd,
                 exit: Mutex::new(None),
