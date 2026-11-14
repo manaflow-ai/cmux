@@ -131,6 +131,26 @@ mod tests {
     }
 
     #[test]
+    fn traffic_after_idle_gets_a_fresh_observation_window() {
+        let mut m = LossMeter::default();
+        for seq in 0..20 {
+            m.on_sent(seq);
+        }
+        m.on_arrivals(0..20);
+        assert_eq!(m.take_congestion_loss(0), None);
+        assert_eq!(m.take_congestion_loss(500_000), Some(0.0));
+
+        for seq in 20..220 {
+            m.on_sent(seq);
+        }
+        m.on_arrivals((20..40).filter(|s| ![22, 25, 28].contains(s)));
+        assert_eq!(m.take_congestion_loss(1_500_000), None);
+        m.on_arrivals(40..220);
+        assert_eq!(m.take_congestion_loss(1_999_999), None);
+        assert_eq!(m.take_congestion_loss(2_000_000), Some(0.015));
+    }
+
+    #[test]
     fn heavy_loss_is_reported_after_a_bounded_observation_window() {
         let mut m = LossMeter::default();
         for seq in 0..100 {
