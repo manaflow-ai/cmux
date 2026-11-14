@@ -13,7 +13,7 @@ fn mux(seq: u64, kind: &str, msg: &str) -> String {
     format!(r#"{{"seq":{seq},"at":1000,"dir":"mux","kind":"{kind}","msg":{msg}}}"#)
 }
 /// Each line at place `100 * seq`, so a listed record names its line.
-fn run(state: &mut State, lines: &[(u64, String)]) -> Vec<Op> {
+pub(super) fn run(state: &mut State, lines: &[(u64, String)]) -> Vec<Op> {
     let mut ops = Vec::new();
     for (seq, line) in lines {
         ops.extend(translate(state, Harness::V1, seq * 100, 1, line.as_bytes()).unwrap());
@@ -379,7 +379,13 @@ fn past_its_cap_the_oldest_card_of_a_kind_leaves_and_every_card_fits_the_budget(
 /// Every card kind held at its cap, with every list at its longest.
 pub(super) fn full_cards() -> State {
     let mut state = State::default();
-    let mut seq = 0;
+    run(&mut state, &full_card_lines(0));
+    state
+}
+
+/// The lines that hold every card kind at its cap, numbered after `from`.
+pub(super) fn full_card_lines(from: u64) -> Vec<(u64, String)> {
+    let mut seq = from;
     let mut next = || {
         seq += 1;
         seq
@@ -419,6 +425,5 @@ pub(super) fn full_cards() -> State {
         );
         lines.push(line(next(), "plan_build", &started));
     }
-    run(&mut state, &lines);
-    state
+    lines
 }

@@ -557,6 +557,10 @@ fn every_held_state_full_at_once_fits_the_translators_segment() {
         lines.push(mux(next(), "sender_claim", &claim));
     }
     run(&mut state, &lines);
+    // The cards at theirs, after every other line (decisions 253, 254).
+    super::cards_tests::run(&mut state, &super::cards_tests::full_card_lines(1_000_000));
+    assert!(!state.cards.is_empty());
+    assert!(state.card_bytes() <= super::cards::MAX_CARD_BYTES, "{}", state.card_bytes());
     assert_eq!(state.line_failures(), (0, 0), "every line at its caps is read");
     assert!(state.continued.is_some(), "the held notice");
     assert!(state.claimable.is_some(), "the row a claim may patch");
@@ -568,9 +572,16 @@ fn every_held_state_full_at_once_fits_the_translators_segment() {
     let counters = state.counters();
     assert!(counters.forced_asks > 0 && counters.forced_steers > 0 && counters.unplaced_claims > 0);
     let saved = state.checkpoint().expect("every held state at its bound fits");
-    println!("full held state: {} of {MAX_TRANSLATOR_BYTES} bytes", saved.translator.len());
+    println!(
+        "full held state: {} of {MAX_TRANSLATOR_BYTES} bytes ({} cards, {} bytes of them); {} left for the live turn",
+        saved.translator.len(),
+        state.cards.len(),
+        state.card_bytes(),
+        MAX_TRANSLATOR_BYTES - saved.translator.len()
+    );
     // And comes back whole.
     let restored = saved.restore().unwrap();
     assert_eq!(restored.asks.len(), state.asks.len());
     assert!(restored.continued.is_some());
+    assert_eq!(restored.cards, state.cards);
 }
