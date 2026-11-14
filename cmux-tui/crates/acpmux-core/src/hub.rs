@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use thiserror::Error;
 use tokio::sync::Notify;
 
-use crate::wire::{Frame, FrameError, FrameKind, ListFilter, Origin, PageSide, Position, Sub};
+use crate::wire::{Frame, FrameError, FrameKind, Origin, PageSide, Position, Sub};
 mod compaction;
 mod disk;
 #[cfg(test)]
@@ -1052,13 +1052,12 @@ impl Hub {
             _ => (None, ReadSide::After),
         };
         let page = index
-            .read_live_page(
+            .read_local_live_page(
                 key.as_ref(),
                 side,
                 true,
                 requested,
                 crate::wire::MAX_PAGE_BYTES.saturating_sub(8192 + sub.sid.len()),
-                Some(&ListFilter { origin: Some("local".into()), ..Default::default() }),
             )
             .map_err(|error| self.page_error(error))?;
         let window = Window {
@@ -1104,13 +1103,12 @@ impl Hub {
         };
         let index = self.snapshot();
         let page = index
-            .read_live_page(
+            .read_local_live_page(
                 key.as_ref(),
                 side,
                 false,
                 MAX_WINDOW_ROWS,
                 max - 8192 - request.sid.len(),
-                Some(&ListFilter { origin: Some("local".into()), ..Default::default() }),
             )
             .map_err(|error| self.page_error(error))?;
         let reply = crate::wire::PageResult {
