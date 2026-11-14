@@ -704,28 +704,37 @@ class WorkflowTests(unittest.TestCase):
         self.assertLess(run.index("count="), run.index("record after"))
         self.assertIn("|| echo", run.split("tour.py", 1)[1].split("}", 1)[0])
 
-    def test_iphone_clips_go_to_a_fleet_simulator_step_and_join_the_publish(self):
-        job = self.jobs["iphone-clips"]
-        self.assertEqual(job["needs"], "route")
-        self.assertEqual(job["runs-on"], "${{ vars.CI_EVAL_STEP_GATEWAY }}")
-        self.assertIn("github.event_name != 'pull_request'", job["if"])
-        self.assertIn("needs.route.outputs.iphone_clips", job["if"])
-        run = self.step("iphone-clips", "record")["run"]
+    def test_iphone_clips_have_their_own_nightly_workflow_with_no_pull_request_job(self):
+        import yaml
+        # The media workflow plans only Mac clips; a pull request starts no iPhone job (the PR job budget).
+        self.assertIn("plan --app mac", self.step("route", "clips")["run"])
+        self.assertNotIn("iphone-clips", self.jobs)
+        doc = yaml.safe_load((SCRIPT.parents[3] / ".github/workflows/cmux-next-iphone-clips.yml").read_text())
+        on = doc.get("on", doc.get(True))
+        self.assertEqual(on, {"push": {"branches": ["nightly-next"]}})
+        jobs = doc["jobs"]
+        self.assertIn("plan --app iphone", next(s for s in jobs["plan"]["steps"] if s.get("id") == "plan")["run"])
+        self.assertEqual(jobs["record"]["needs"], "plan")
+        self.assertEqual(jobs["record"]["runs-on"], "${{ vars.CI_EVAL_STEP_GATEWAY }}")
+        run = next(s for s in jobs["record"]["steps"] if s.get("id") == "record")["run"]
         self.assertTrue(run.startswith("set +e\n"))
         self.assertIn("--class simulator --script scripts/ci/cmux-next-ios-sim.sh", run)
         self.assertIn("--artifact artifacts/ios-sim/whats-new-clips.zip", run)
         self.assertIn("whats-new-clips.py iphone-runs", run)
         self.assertIn('artifact --failed "$step"', run)
-        self.assertEqual(self.jobs["route"]["outputs"]["iphone_clips"], "${{ steps.clips.outputs.iphone }}")
-        self.assertIn("count --plan", self.step("route", "clips")["run"])
-        # A plan of only iPhone clips takes no Mac.
-        self.assertIn("--app mac", self.step("route", "pick")["run"])
-        publish = self.jobs["whats-new-clips"]
-        self.assertIn("iphone-clips", publish["needs"])
-        self.assertIn("needs.iphone-clips.outputs.clips", publish["if"])
-        names = [s.get("with", {}).get("name") for s in publish["steps"]]
-        self.assertIn("cmux-next-iphone-clips", names)
-        self.assertLess(names.index("cmux-next-iphone-clips"), [s.get("name") for s in publish["steps"]].index("Publish the clips"))
+        self.assertLess(run.index("done < <("), run.index('"$out/plan.json"'))
+        publish = jobs["publish"]
+        self.assertEqual((publish["needs"], publish["environment"]), ("record", "pr-media"))
+        self.assertIn("publish-auto", next(s for s in publish["steps"] if s.get("name") == "Publish the clips")["with"]["command"])
+
+    def test_the_plan_takes_one_app_at_a_time(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, base, head = IPhoneClipTests().repo(tmp)
+            mac = clips.plan(base, head, Path(tmp, "t1"), exists=lambda url: False, root=repo, app="mac")
+            phone = clips.plan(base, head, Path(tmp, "t2"), exists=lambda url: False, root=repo, app="iphone")
+            self.assertEqual([r["id"] for r in mac], ["mac-thing"])
+            self.assertEqual([r["id"] for r in phone], ["phone-better", "phone-new"])
+            self.assertFalse(Path(tmp, "t2").exists())
 
 
 if __name__ == "__main__":

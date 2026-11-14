@@ -67,8 +67,9 @@ An iPhone highlight has no Mac window to tour: its spec says `"app": "iphone"` a
 iPhone app's own DEBUG launch arguments and demo drivers (`launch_args`, e.g. `-cmux-mobile-demo`
 NAME, and `env`, CMUX_MOBILE_* variables), on mock data. Its steps take only `title`, `wait`, `clip`
 and `openurl` (a link the simulator opens), since nothing taps the screen; the demo driver moves it.
-`crop` is a part of the phone's screen. `plan` writes no tour for it: the media workflow's
-iphone-clips job hands each one to a fleet simulator step (cmux-next-ios-sim.sh clips: the app at
+`crop` is a part of the phone's screen. `plan` writes no tour for it, and the media workflow plans
+only Mac specs (`--app mac`): cmux-next-iphone-clips.yml plans the iPhone ones (`--app iphone`) on
+the same nightly push and hands each one to a fleet simulator step (cmux-next-ios-sim.sh clips: the app at
 the tip and, for an improvement, at its before commit, one simulator), which runs `record-iphone`:
 `simctl io recordVideo` while the app runs the scene, and a tour folder like tour.py's (manifest.json
 with each step's time, capture.mp4), so `publish-auto` renders and publishes it the same way.
@@ -510,8 +511,10 @@ def highlight_rows(base: str, head: str, root: Path = ROOT, days: int = CLIP_REA
 
 
 def plan(base: str, head: str, tours: Path, limit: int = PLAN_LIMIT, exists=published,
-         root: Path = ROOT, days: int = CLIP_REANNOUNCE_DAYS, extra_befores: int = PLAN_EXTRA_BEFORES) -> list[dict]:
-    """The highlights the tour records (highlight_rows): New or Improved, a valid spec, no `clip:` line, and
+         root: Path = ROOT, days: int = CLIP_REANNOUNCE_DAYS, extra_befores: int = PLAN_EXTRA_BEFORES,
+         app: str | None = None) -> list[dict]:
+    """With APP, only the specs that record that app (the media workflow plans "mac", the iPhone clips
+    workflow "iphone"; each has its own LIMIT). The highlights the tour records (highlight_rows): New or Improved, a valid spec, no `clip:` line, and
     a role whose clip is not on pr-media yet. Each row's `before` is the commit its before is recorded on;
     at most EXTRA_BEFORES rows have one other than base (each is another app to build), and a row past
     that records its after now and its before on a later tour. Writes each one's tour to TOURS/ID.json."""
@@ -529,6 +532,8 @@ def plan(base: str, head: str, tours: Path, limit: int = PLAN_LIMIT, exists=publ
         try:
             spec = load_spec(clip_id, root / "release-notes/next/clips")
             iphone = is_iphone(spec)
+            if app is not None and spec.get("app", "mac") != app:
+                continue
             roles = [role for role in AUTO_ROLES[:2 if category == "improved" else 1]
                      if not exists(auto_url(clip_id, role))]
             # An iPhone clip's before builds on its own simulator step, never in the Mac tour's base slot.
@@ -813,6 +818,7 @@ def main(argv: list[str] | None = None) -> int:
     n.add_argument("--out", type=Path, required=True)
     n.add_argument("--tours", type=Path, required=True)
     n.add_argument("--limit", type=int, default=PLAN_LIMIT)
+    n.add_argument("--app", choices=APPS, help="only the specs that record this app")
     w = sub.add_parser("write-tours")
     w.add_argument("--plan", type=Path, required=True)
     w.add_argument("--tours", type=Path, required=True)
@@ -852,7 +858,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(record_iphone(a.id, simctl, a.udid, a.bundle_id, a.app, a.out)))
             return 0
         if a.command == "plan":
-            rows = plan(a.base, a.head, a.tours, a.limit)
+            rows = plan(a.base, a.head, a.tours, a.limit, app=a.app)
             a.out.write_text(json.dumps(rows, indent=2) + "\n")
             print(len(rows))
             return 0
