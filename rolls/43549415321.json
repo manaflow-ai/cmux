@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43549415321",
+  "recorded_at": "2026-11-14T03:08:34Z",
+  "reason": "cmux-tui cc23a3b1ed21 changes the image's cmux-tui (pinned 20fdb235cb31)",
+  "dry_run": false,
+  "cmux_tui": "cc23a3b1ed21f961f2847954b9e8e0d31b4f035f",
+  "fixes": [
+    {
+      "sha": "cc23a3b1ed21f961f2847954b9e8e0d31b4f035f",
+      "mergedAt": "2026-11-14T02:39:21Z",
+      "subject": "v2 client: preserve mirror recovery across caller-page errors (#42785)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T03:08:34Z",
+    "snapshot_id": "sh-faf161f36aa345a3aa312a7597563e8d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43549415321): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "060baef358c2596f60e3da8b27bb06e734ddb0ff",
+    "image": "cloud-native-auto-cc23a3b1-43549415321-1",
+    "revision": "ci-43549415321-1",
+    "at": "2026-11-14T03:08:34Z"
+  },
+  "rolled_back": false
+}
