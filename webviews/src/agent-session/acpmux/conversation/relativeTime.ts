@@ -144,7 +144,7 @@ export function messageAgeWidest(locale?: string): string {
   const lines = new Map<string, string>();
   for (let minute = 0; minute < 60; minute += 1) {
     const label = messageAge(0, minute * 60_000 + 30_000, locale);
-    lines.set(label.replace(/\d/g, "0"), label);
+    lines.set(label.replace(/\p{Nd}/gu, "0"), label);
   }
   const widest = [...lines.values()].join("\n");
   agesWidest.set(key, widest);

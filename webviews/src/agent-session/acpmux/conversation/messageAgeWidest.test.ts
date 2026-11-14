@@ -9,7 +9,8 @@ import { readFileSync } from "node:fs";
 import { messageAge, messageAgeWidest } from "./relativeTime";
 
 const MINUTE = 60_000;
-const shape = (label: string) => label.replace(/\d/g, "0");
+// Any script's decimal digits: Arabic writes ٣ and ٥٩, which `\d` misses.
+const shape = (label: string) => label.replace(/\p{Nd}/gu, "0");
 
 for (const locale of ["en-US", "pl", "ru", "ar", "de", "ja"])
   test(`${locale}: the reserved width covers every age of a prompt's first hour`, () => {
