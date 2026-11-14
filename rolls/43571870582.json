@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43571870582",
+  "recorded_at": "2026-11-14T07:49:37Z",
+  "reason": "cmux-tui 178c58d4fec6 changes the image's cmux-tui (pinned 11a73137cde6)",
+  "dry_run": false,
+  "cmux_tui": "178c58d4fec66380ccc445d5f7aa9cce2a657eb1",
+  "fixes": [
+    {
+      "sha": "1801b7d09b7934f32a5b54005696a5c716db0b95",
+      "mergedAt": "2026-11-13T23:16:20-08:00",
+      "subject": "feat(density): Density Overlay Playground: Helium and Chrome captures over cmux's browser chrome, every metric per density"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T07:49:37Z",
+    "snapshot_id": "sh-c0d23f1ebbe14536bbd82ebebe588161",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43571870582): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d8385a11e060a4e3f5e9f24dd393c2e6c01284a2",
+    "image": "cloud-native-auto-178c58d4-43571870582-1",
+    "revision": "ci-43571870582-1",
+    "at": "2026-11-14T07:49:37Z"
+  },
+  "rolled_back": false
+}
