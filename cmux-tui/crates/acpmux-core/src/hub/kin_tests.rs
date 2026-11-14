@@ -160,7 +160,7 @@ fn live_pages_refuse_every_table_filter_even_with_keys() {
         let mut request = page(filter);
         request.view = Some(crate::wire::ListView::Live);
         assert!(matches!(hub.page(&request), Err(HubError::InvalidParams(_))));
-        request.keys = Some(vec![wire_key(SortKey::of(&Summary::new("key")))]);
+        request.keys = Some(vec![wire_key(SortKey::of(&Summary::new("key"))).into()]);
         assert!(matches!(hub.page(&request), Err(HubError::InvalidParams(_))));
     }
 }

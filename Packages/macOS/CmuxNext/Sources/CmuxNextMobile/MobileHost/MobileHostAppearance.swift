@@ -21,11 +21,15 @@ public struct MobileHostAppearance: Sendable, Equatable {
     public var wallpaper: URL?
     /// The tint the windows lay over that picture, 0...1.
     public var wallpaperTintOpacity: Double
+    /// The terminal theme as Ghostty config lines (`GhosttyRuntime.phoneTerminalThemeLines`): the
+    /// phone's terminals load these, apart from the chrome's colors above (which an app theme can
+    /// replace). Empty sends none.
+    public var terminal: [String]
 
     public init(background: String, foreground: String, palette: [String], selectionBackground: String? = nil,
                 selectionForeground: String? = nil, cursor: String? = nil, accent: String = "neutral",
                 accentColor: String? = nil, backgroundOpacity: Double = 1, wallpaper: URL? = nil,
-                wallpaperTintOpacity: Double = 0) {
+                wallpaperTintOpacity: Double = 0, terminal: [String] = []) {
         self.background = background
         self.foreground = foreground
         self.palette = palette
@@ -37,6 +41,7 @@ public struct MobileHostAppearance: Sendable, Equatable {
         self.backgroundOpacity = backgroundOpacity
         self.wallpaper = wallpaper
         self.wallpaperTintOpacity = wallpaperTintOpacity
+        self.terminal = terminal
     }
 }
 
@@ -52,6 +57,7 @@ extension MobileHostLaunch {
         if let value = appearance.cursor { theme["cursor"] = value }
         if let value = appearance.accentColor { theme["accent_color"] = value }
         var object: [String: Any] = ["type": "appearance", "theme": theme]
+        if !appearance.terminal.isEmpty { object["terminal"] = appearance.terminal }
         if let wallpaper = appearance.wallpaper {
             object["wallpaper"] = ["path": wallpaper.path, "tint_opacity": appearance.wallpaperTintOpacity]
         }

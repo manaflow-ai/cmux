@@ -521,12 +521,7 @@ async fn reconcile_remote(v1: &Hub, v2: &V2, state: &TeeState) {
         let Some(name) = peer.get("name").and_then(Value::as_str) else { continue };
         let Some(handle) = v1.peer_by_name(name) else { continue };
         peer_names.insert(name.to_owned());
-        let origin_state = match handle.state() {
-            crate::peer_link::PeerState::Connected | crate::peer_link::PeerState::Degraded => {
-                OriginState::Connected
-            }
-            _ => OriginState::Down,
-        };
+        let origin_state = super::peers::peer_origin_state(&handle);
         state.origin(name, origin_state, crate::store::now_ms());
     }
     let remote_rows = v1.remote_sessions.snapshot();
