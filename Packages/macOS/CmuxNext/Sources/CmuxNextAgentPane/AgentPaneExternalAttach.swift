@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxNextControl
 public import CmuxNextSettings
 public import Foundation
@@ -104,8 +105,8 @@ extension AgentPaneDroppedPaths {
         return await Task.detached(priority: .userInitiated) { () -> URL? in
             let file = folder.appending(path: "Image.\(ext)")
             do {
-                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                try data.write(to: file, options: .atomic)
+                try FileManager.checked.createDirectory(at: folder, withIntermediateDirectories: true)
+                try data.blockingWrite(to: file, options: .atomic)
                 return file
             } catch {
                 return nil

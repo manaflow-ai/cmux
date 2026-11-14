@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextSettings
 import Foundation
 import UniformTypeIdentifiers
@@ -32,10 +33,9 @@ extension AgentPaneModel {
     /// File `url`'s MIME type and bytes as base64, for the page's `{name, type, data}`; nil for a
     /// folder, a file that can't be read or one over ``externalFileLimit``.
     nonisolated static func externalFile(_ url: URL) -> (url: URL, type: String, data: String)? {
-        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), values.isRegularFile == true,
+        guard let values = try? url.blockingResourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), values.isRegularFile == true,
               (values.fileSize ?? 0) <= externalFileLimit,
-              // concurrency-allow: one file another app sent, read off the main actor (Task.detached)
-              let data = try? Data(contentsOf: url) else { return nil }
+              let data = try? Data(blockingContentsOf: url) else { return nil }
         return (url, UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "", data.base64EncodedString())
     }
 
