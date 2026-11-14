@@ -208,6 +208,7 @@ _NON_RUNNING_FILES = frozenset({
     ".github/language-boundaries.toml",
     ".github/nightly-known-bad.json",
     ".github/nightly-step-coverage.json",
+    ".github/post-merge-checks.json",
     ".github/release-thanks.json",
     ".github/review-fabric-policy.json",
     ".github/runners.json",
