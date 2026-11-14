@@ -154,6 +154,9 @@ fn a_click_during_a_synchronized_update_never_meets_content_the_user_did_not_see
     app.handle(AppEvent::Input(Event::Mouse(press))).unwrap();
     // The event loop replays waiting input every turn.
     app.replay_deferred_input().unwrap();
+    // The click met the held pane: no draw ran since, so the hold stands
+    // whatever the wall clock says (only a draw or the loop releases it).
+    assert!(app.synchronized_output.deadline().is_some(), "the hold ended before the click");
     assert!(app.encode_buf.is_empty(), "the click reached the program mid-update");
 
     program_prints(&mut app, &events, &surface, b"DONE\x1b[?2026l", shows("HALFDONE"));

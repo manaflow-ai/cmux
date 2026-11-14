@@ -225,6 +225,24 @@ mod tests {
         assert_eq!(hold.cap_wait(None, late), None, "a released hold never wakes the loop again");
     }
 
+    /// A program that never leaves the mode at a draw but begins a new update
+    /// every few milliseconds is still drawn live: a hold a new update began
+    /// draws live at its end before another new update can hold again.
+    #[test]
+    fn a_program_that_keeps_starting_updates_is_still_drawn() {
+        let mut hold = SynchronizedOutput::default();
+        let start = Instant::now();
+        let ms = |n| start + Duration::from_millis(n);
+        assert_eq!(draw(&mut hold, false, start, "before"), "before");
+        let bound = 2 * SYNCHRONIZED_OUTPUT_HOLD.as_millis() as u64 + 16;
+        let drawn_live = (1..=bound).step_by(8).enumerate().find(|&(starts, at)| {
+            let built = frame_of("live");
+            let shown = hold.frame::<()>(1, Some(starts as u64 + 1), ms(at), || Ok(built));
+            text(&shown.unwrap()) == "live"
+        });
+        assert!(drawn_live.is_some(), "a program always starting a new update was never drawn");
+    }
+
     /// The next update holds again even when its output reaches the pane
     /// past the old hold's end but before the event loop released it.
     #[test]

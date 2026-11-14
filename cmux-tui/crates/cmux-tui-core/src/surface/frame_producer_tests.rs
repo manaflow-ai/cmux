@@ -208,6 +208,30 @@ fn an_update_started_after_an_expired_hold_is_held_again() {
     assert!(waited < SYNCHRONIZED_OUTPUT_HOLD / 2, "the end of the update waited {waited:?}");
 }
 
+/// A program that never leaves the mode when the producer looks but begins a
+/// new update every few milliseconds is still shown: a hold a new update
+/// began ends with a frame before another new update can hold again.
+#[test]
+fn a_program_that_keeps_starting_updates_is_still_shown() {
+    let mux = Mux::new_for_test("frame-sync-output-restarts", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(9_956, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    spawn_frame_producer(&surface).unwrap();
+    let pty = surface.as_pty().unwrap();
+    let _viewer = surface.attach_render_stream().unwrap();
+
+    let first = feed_sync_output(pty, b"\x1b[?2026h\x1b[1;1Hbusy");
+    let started = Instant::now();
+    while built_generation(pty) < first {
+        assert!(
+            started.elapsed() < SYNCHRONIZED_OUTPUT_HOLD * 2 + Duration::from_millis(500),
+            "a program always starting a new update was never shown"
+        );
+        feed_sync_output(pty, b"\x1b[?2026l\x1b[?2026h\x1b[1;1Hbusy");
+        std::thread::sleep(Duration::from_millis(4));
+    }
+}
+
 /// With no render viewer nothing is held: the output event still goes out.
 #[test]
 fn a_synchronized_update_without_a_viewer_holds_nothing() {
