@@ -743,6 +743,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         }
     }
     let secs = (now_ns() - t_begin) as f64 / 1e9;
+    let fps = v.frames.saturating_sub(frames) as f64 / secs.max(f64::EPSILON);
     let report = json!({
         "addr": addr.to_string(),
         "carrier": carrier,
@@ -786,6 +787,7 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
         }
     }
     eprintln!("passive: first frame");
+    let first_frame_ms = (now_ns().saturating_sub(start)) as f64 / 1e6;
     let unix_ms = || {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -817,6 +819,8 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
         "input": "none",
         "welcome": v.welcome,
         "seconds": secs,
+        "first_frame_ms": first_frame_ms,
+        "fps": fps,
         "series": series,
         "decode_errors": v.decode_errors,
         "client_cpu_pct": (cpu_s() - c0) / secs * 100.0,
