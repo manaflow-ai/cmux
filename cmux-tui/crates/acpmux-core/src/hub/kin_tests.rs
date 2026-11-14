@@ -1,6 +1,7 @@
 use super::*;
 use crate::wire::{Page, PageResult, Position};
 use acpmux_book::index::{DiskSnapshot, ListFilter, SortedSnapshot};
+use std::fs;
 
 fn page(filter: ListFilter) -> Page {
     Page {
@@ -126,7 +127,7 @@ fn restart_hydrates_tables_from_hot_rows_without_appending_log_records() {
     let mut log_bytes = None;
     for boot in [1, 2] {
         let (hub, mut writer) = Hub::open(dir.path(), boot, || boot as u32 + 1).unwrap();
-        let before = std::fs::read(dir.path().join("index.log")).unwrap();
+        let before = fs::read(dir.path().join("index.log")).unwrap();
         if let Some(previous) = &log_bytes {
             assert_eq!(previous, &before);
         }
@@ -142,7 +143,7 @@ fn restart_hydrates_tables_from_hot_rows_without_appending_log_records() {
         let reply: PageResult<Summary> =
             hub.page(&page(ListFilter::family(root.key()))).unwrap().decode_json().unwrap();
         assert_eq!(reply.rows.len(), 1);
-        let after = std::fs::read(dir.path().join("index.log")).unwrap();
+        let after = fs::read(dir.path().join("index.log")).unwrap();
         assert_eq!(before, after);
         log_bytes = Some(after);
     }

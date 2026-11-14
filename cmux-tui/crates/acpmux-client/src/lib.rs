@@ -3,7 +3,7 @@
 pub mod ffi;
 pub mod wire;
 
-use acpmux_book::index::Summary;
+use acpmux_list_types::Summary;
 
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -685,7 +685,7 @@ where
     }
 
     fn summary_is_live(value: &Value) -> bool {
-        value.get("state").and_then(Value::as_str).is_none_or(acpmux_book::index::is_live_state)
+        value.get("state").and_then(Value::as_str).is_none_or(acpmux_list_types::is_live_state)
     }
 
     fn row_identity(key: &ListKey) -> (String, String) {
@@ -1116,12 +1116,14 @@ where
         else {
             return false;
         };
-        let retry = !mirror.read_error_since_progress;
-        mirror.read_error_since_progress = true;
         let Some(state) = state else { return false };
         if matches!(state.purpose, PagePurpose::User) {
-            return false;
+            // Freeing the caller's slot may release a waiting walk. The
+            // caller's error neither spends nor restores its retry allowance.
+            return mirror.walking && !mirror.whole && !mirror.reads_stopped;
         }
+        let retry = !mirror.read_error_since_progress;
+        mirror.read_error_since_progress = true;
         if matches!(state.purpose, PagePurpose::Wanted)
             && let Some(keys) = state.request.and_then(|request| request.keys)
         {
@@ -1542,9 +1544,6 @@ where
                     }
                 }
             }
-        }
-        if let Some(cursor) = value.get("cursor").and_then(Value::as_u64) {
-            self.advance(&sid, cursor);
         }
         if !emitted {
             self.charge_frame_now(Some(&sid), frame_bytes);
@@ -2332,6 +2331,77 @@ tail"#;
     }
 
     #[test]
+    fn folder_and_summary_sids_advance_from_their_own_ops_not_delta_cursor() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        client.subscribe(Sub::new("summary", "list")).unwrap();
+        client
+            .subscribe(Sub { view: Some(ListView::Folders), ..Sub::new("folders", "list") })
+            .unwrap();
+        while client.take_send().is_some() {}
+
+        let summary_window = Frame::json(
+            FrameKind::Window,
+            &serde_json::json!({
+                "sid":"summary","cursor":1,"rows":[],"hasBefore":false,
+                "hasAfter":false,"edition":1
+            }),
+        )
+        .unwrap()
+        .encode();
+        let folder_window = Frame::json(
+            FrameKind::Window,
+            &serde_json::json!({
+                "sid":"folders","cursor":2,"rows":[],"hasBefore":false,
+                "hasAfter":false,"edition":1
+            }),
+        )
+        .unwrap()
+        .encode();
+        client.received(&summary_window);
+        assert!(matches!(client.next_change(), Some(Change::Window(_))));
+        client.received(&folder_window);
+        assert!(matches!(client.next_change(), Some(Change::FolderWindow(_))));
+
+        // The envelope cursor is deliberately stale and must not advance either
+        // sid. The folder operation on a summary sid is skipped and counted.
+        let summary_folder = Frame::json(
+            FrameKind::Delta,
+            &serde_json::json!({
+                "sid":"summary","cursor":999,"ops":[{"op":"folder","seq":4,
+                "row":{"origin":"local","folder":"/work","newest":{"origin":"local","chatId":"chat"},"at":4,"count":1}}]
+            }),
+        )
+        .unwrap()
+        .encode();
+        let before = client.skip_counters();
+        client.received(&summary_folder);
+        assert_eq!(client.skip_counters().unknown_op, before.unknown_op + 1);
+        assert_eq!(client.subscriptions.get("summary").unwrap().cursor, Cursor(4));
+        assert_eq!(client.subscriptions.get("folders").unwrap().cursor, Cursor(2));
+
+        let folder_delta = Frame::json(
+            FrameKind::Delta,
+            &serde_json::json!({
+                "sid":"folders","cursor":1000,"ops":[{"op":"folder","seq":7,
+                "row":{"origin":"local","folder":"/work","newest":{"origin":"local","chatId":"chat"},"at":7,"count":1}}]
+            }),
+        )
+        .unwrap()
+        .encode();
+        client.received(&folder_delta);
+        assert_eq!(client.subscriptions.get("summary").unwrap().cursor, Cursor(4));
+        assert_eq!(client.subscriptions.get("folders").unwrap().cursor, Cursor(7));
+        assert!(matches!(client.next_change(), Some(Change::Folder { seq: 7, .. })));
+    }
+
+    #[test]
     fn mirror_api_refuses_folders_before_registering_a_sid() {
         let mut client = Client::<Value>::connected_v2();
         let mut sub = Sub::new("folders", "list");
@@ -2586,6 +2656,93 @@ tail"#;
         // Explicit want permits a read, not a fresh automatic retry allowance.
         mirror_page_error(&mut client);
         assert!(take_pages(&mut client).is_empty());
+    }
+
+    fn request_caller_page(client: &mut Client<Value>) {
+        let mut page = Page::new("m", "list", wire::PageSide::After, 0);
+        page.after = None;
+        client.page(page).unwrap();
+        assert_eq!(take_pages(client).len(), 1);
+    }
+
+    #[test]
+    fn caller_page_error_preserves_mirror_retry_allowance() {
+        let mut client = ready_mirror();
+        mirror_window(&mut client);
+        assert_eq!(take_pages(&mut client).len(), 1);
+        finish_empty_walk(&mut client);
+        request_caller_page(&mut client);
+        mirror_page_error(&mut client);
+        assert!(take_pages(&mut client).is_empty());
+
+        let key = ListKey { last_activity: 1, chat_id: "wanted".into(), origin: "local".into() };
+        client.want("m", [key]).unwrap();
+        assert_eq!(take_pages(&mut client).len(), 1);
+        mirror_page_error(&mut client);
+        let retry = take_pages(&mut client);
+        assert_eq!(retry.len(), 1);
+        assert!(retry.first().unwrap().pointer("/params/keys").is_none());
+        assert!(retry.first().unwrap().pointer("/params/after").is_none());
+        mirror_page_error(&mut client);
+        assert!(take_pages(&mut client).is_empty());
+    }
+
+    #[test]
+    fn caller_page_error_releases_deferred_walk_without_resetting_allowance() {
+        for prior_errors in 0..=2 {
+            let mut client = ready_mirror();
+            mirror_window(&mut client);
+            assert_eq!(take_pages(&mut client).len(), 1);
+            let key =
+                ListKey { last_activity: 1, chat_id: "wanted".into(), origin: "local".into() };
+            client.want("m", [key]).unwrap();
+            assert!(take_pages(&mut client).is_empty());
+            for error in 0..prior_errors {
+                mirror_page_error(&mut client);
+                assert_eq!(take_pages(&mut client).len(), usize::from(error == 0));
+            }
+
+            client.disconnected();
+            let changes = receive_changes(
+                &mut client,
+                FrameKind::Hello,
+                serde_json::to_value(wire::HelloReply {
+                    daemon_id: "d".into(),
+                    limits: Limits::default(),
+                })
+                .unwrap(),
+            );
+            assert!(changes.is_empty());
+            assert!(take_pages(&mut client).is_empty());
+            request_caller_page(&mut client);
+            let changes = receive_changes(
+                &mut client,
+                FrameKind::Delta,
+                serde_json::json!({"sid":"m","replay":"end","ops":[]}),
+            );
+            assert!(matches!(changes.as_slice(), [Change::ResumeEnd { .. }]));
+            assert!(take_pages(&mut client).is_empty());
+
+            mirror_page_error(&mut client);
+            let walk = take_pages(&mut client);
+            assert_eq!(walk.len(), usize::from(prior_errors < 2));
+            if let Some(page) = walk.first() {
+                assert!(page.pointer("/params/keys").is_none());
+                assert!(page.pointer("/params/after").is_none());
+            }
+            for error in prior_errors..2 {
+                mirror_page_error(&mut client);
+                assert_eq!(take_pages(&mut client).len(), usize::from(error == 0));
+            }
+            // Stopping clears the deferred walk but preserves wanted keys.
+            client.want("m", std::iter::empty()).unwrap();
+            let wanted = take_pages(&mut client);
+            assert_eq!(wanted.len(), 1);
+            assert_eq!(
+                wanted.first().unwrap().pointer("/params/keys/0/chatId"),
+                Some(&Value::String("wanted".into()))
+            );
+        }
     }
 
     #[test]

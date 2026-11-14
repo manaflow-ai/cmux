@@ -90239,6 +90239,79 @@
 
       ],
       "category" : "settings",
+      "cliName" : "action debug-toast-playground",
+      "computed" : {
+        "canonical_action_id" : "debug.toastPlayground",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "debug.toastPlayground",
+      "isDebugOnly" : true,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "toast",
+        "toasts",
+        "prompt",
+        "notice",
+        "style",
+        "variants",
+        "gallery",
+        "playground",
+        "pick",
+        "debug"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "devOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "rectangle.stack.badge.play",
+      "targets" : [
+
+      ],
+      "title" : "Toast Playground",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "settings",
       "cliName" : "action debug-tab-bar-playground",
       "computed" : {
         "canonical_action_id" : "debug.tabBarPlayground",

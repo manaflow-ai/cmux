@@ -492,7 +492,6 @@ export const OVERLAY_ALLOWED = new Map<string, string>([
 // Overlays that are solid today and are being made glass, keyed `file selector`, with what fixes it.
 // Each fails as stale once its fill is glass, so the entry goes with the fix.
 export const OVERLAY_PENDING = new Map<string, string>([
-  ["pages/settings/styles.css .menus-move-picker", "Settings' Menus move picker paints the solid popup surface"],
   ["pages/home-channels/ledger.css .lg-sheet", "the ledger's side sheet paints its solid surface"],
   [
     "pages/home-channels/ledger.css .lg-palette.ui-dialog, .lg-palette",

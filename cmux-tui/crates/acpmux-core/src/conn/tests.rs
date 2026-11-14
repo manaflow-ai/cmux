@@ -33,6 +33,72 @@ fn request_shape_is_tagged() {
     assert_eq!(value, json!({"method":"credit","params":{"sid":"s","consumed":4}}));
 }
 
+#[test]
+fn peer_request_allowlist_names_every_refused_shape() {
+    use crate::wire::{Anchor, AnchorSide, ListKey, ListView, Page, PageKey, PageSide, Sub};
+    use acpmux_book::index::{FolderKey, ListFilter, RowKey};
+
+    let mut live_sub = Sub::new("s", "list");
+    live_sub.view = Some(ListView::Live);
+    assert!(validate_peer_request(&Request::Sub(Sub::new("s", "chat:session"))).is_err());
+
+    for view in [ListView::All, ListView::Folders] {
+        let mut refused = live_sub.clone();
+        refused.view = Some(view);
+        assert!(validate_peer_request(&Request::Sub(refused)).is_err());
+    }
+
+    let filters = [
+        ListFilter { workspace: Some("workspace".into()), ..ListFilter::default() },
+        ListFilter { origin: Some("origin".into()), ..ListFilter::default() },
+        ListFilter { state: Some("state".into()), ..ListFilter::default() },
+        ListFilter { family: Some(RowKey::new("local", "root")), ..ListFilter::default() },
+        ListFilter { folder: Some(FolderKey::new("local", "/folder")), ..ListFilter::default() },
+        ListFilter { forks: Some(RowKey::new("local", "root")), ..ListFilter::default() },
+        ListFilter { cold: true, ..ListFilter::default() },
+    ];
+    for filter in &filters {
+        let mut refused = live_sub.clone();
+        refused.filter = Some(filter.clone());
+        assert!(validate_peer_request(&Request::Sub(refused)).is_err());
+    }
+
+    let mut anchored = live_sub;
+    anchored.anchor = Some(Anchor::List {
+        key: ListKey { last_activity: 1, chat_id: "chat".into(), origin: "local".into() },
+        side: AnchorSide::After,
+    });
+    assert!(validate_peer_request(&Request::Sub(anchored)).is_err());
+
+    let mut keyed = Page::new("s", "list", PageSide::After, 0);
+    keyed.view = Some(ListView::Live);
+    keyed.keys = Some(vec![PageKey::Summary(ListKey {
+        last_activity: 1,
+        chat_id: "chat".into(),
+        origin: "local".into(),
+    })]);
+    assert!(validate_peer_request(&Request::Page(keyed.clone())).is_err());
+    assert!(
+        validate_peer_request(&Request::Page(Page {
+            stream: "chat:session".into(),
+            ..keyed.clone()
+        }))
+        .is_err()
+    );
+    for view in [ListView::All, ListView::Folders] {
+        let mut refused = keyed.clone();
+        refused.keys = None;
+        refused.view = Some(view);
+        assert!(validate_peer_request(&Request::Page(refused)).is_err());
+    }
+    for filter in &filters {
+        let mut refused = keyed.clone();
+        refused.keys = None;
+        refused.filter = Some(filter.clone());
+        assert!(validate_peer_request(&Request::Page(refused)).is_err());
+    }
+}
+
 #[tokio::test]
 async fn interrupted_write_preserves_frame_bytes_and_completed_cursor() {
     let (mut writer, mut reader) = tokio::io::duplex(7);
@@ -71,7 +137,7 @@ use crate::hub::Hub;
 use crate::wire::{
     CREDIT_WINDOW_BYTES, Credit, DeltaFrame, DeltaOp, MAX_FRAME_BYTES, ReplayMark, Window,
 };
-use acpmux_book::index::{Summary, SummaryIndex};
+use acpmux_book::index::{SortedSnapshot, Summary, SummaryIndex};
 use std::time::Duration;
 use tokio::io::{AsyncWriteExt, DuplexStream};
 
@@ -105,12 +171,159 @@ fn list_pair() -> ListPair {
     let (client, server) = tokio::io::duplex(4096);
     let (rd, wr) = tokio::io::split(server);
     let serving = source.clone();
-    let task = tokio::spawn(async move { run(rd, wr, serving, "test", &["list".into()]).await });
+    let task =
+        tokio::spawn(
+            async move { run(rd, wr, serving, "test", &["list".into()], Role::Local).await },
+        );
     (client, task, hub, writer, source)
+}
+
+fn row_with_folder(id: &str, folder: &str, at: u64) -> Summary {
+    let mut row = Summary::new(id);
+    row.folder = Some(folder.into());
+    row.last_activity = at;
+    row
 }
 async fn hello(client: &mut DuplexStream) {
     send(client, json!({"method":"hello","params":{"clientKind":"test","protocol":2}})).await;
     assert_eq!(receive(client).await.kind, FrameKind::Hello);
+}
+
+#[tokio::test]
+async fn folder_hydration_does_not_block_other_sids_or_credit() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut initial = SummaryIndex::new();
+    initial = initial.apply(1, row_with_folder("ready", "/hydrated", 1));
+    SortedSnapshot::write(dir.path().join("index.snap"), &initial).unwrap();
+    let (hub, writer) = Hub::open(dir.path(), 1, || 7).unwrap();
+    let hub = Arc::new(hub);
+    let source = Arc::new(HubSource::new(hub.clone()));
+    let (mut client, server) = tokio::io::duplex(4096);
+    let (rd, wr) = tokio::io::split(server);
+    let task_source = source.clone();
+    let task = tokio::spawn(async move {
+        run(rd, wr, task_source, "test", &["list".into()], Role::Local).await
+    });
+
+    hello(&mut client).await;
+    send(
+        &mut client,
+        json!({"method":"sub","params":{"sid":"folders","stream":"list","view":"folders"}}),
+    )
+    .await;
+    send(
+        &mut client,
+        json!({"method":"sub","params":{"sid":"summary","stream":"list","view":"all"}}),
+    )
+    .await;
+
+    let window = receive(&mut client).await;
+    assert_eq!(window.kind, FrameKind::Window);
+    let summary_window: Window<Summary> = window.decode_json().unwrap();
+    assert_eq!(summary_window.sid, "summary");
+
+    send(&mut client, json!({"method":"credit","params":{"sid":"summary","consumed":0}})).await;
+    send(&mut client, json!({"method":"page","params":{"sid":"summary","stream":"list"}})).await;
+    assert_eq!(receive(&mut client).await.kind, FrameKind::Page);
+
+    send(
+        &mut client,
+        json!({"method":"page","params":{
+            "sid":"folders","stream":"list","view":"folders"
+        }}),
+    )
+    .await;
+    let error: serde_json::Value = receive(&mut client).await.decode_json().unwrap();
+    assert_eq!(error["code"], "invalid_params");
+    assert_eq!(error["sid"], "folders");
+
+    let writing = tokio::spawn(writer.run());
+    let frame = receive(&mut client).await;
+    assert_eq!(frame.kind, FrameKind::Window);
+    let window: crate::wire::FolderWindow = frame.decode_json().unwrap();
+    assert_eq!(window.sid, "folders");
+    assert_eq!(window.rows.len(), 1);
+    assert_eq!(window.rows.first().unwrap().folder.as_ref(), "/hydrated");
+    drop(client);
+    task.await.unwrap().unwrap();
+    hub.close();
+    writing.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn folder_and_summary_sids_refuse_cross_view_pages_and_keep_cursors_separate() {
+    let (mut client, task, _hub, mut writer, _source) = list_pair();
+    writer.apply(row_with_folder("chat", "/a", 1)).unwrap();
+    hello(&mut client).await;
+    send(
+        &mut client,
+        json!({"method":"sub","params":{"sid":"summary","stream":"list","view":"all"}}),
+    )
+    .await;
+    send(
+        &mut client,
+        json!({"method":"sub","params":{"sid":"folders","stream":"list","view":"folders"}}),
+    )
+    .await;
+    let first = receive(&mut client).await;
+    let second = receive(&mut client).await;
+    assert!(matches!(first.kind, FrameKind::Window));
+    assert!(matches!(second.kind, FrameKind::Window));
+
+    send(
+        &mut client,
+        json!({"method":"page","params":{"sid":"summary","stream":"list","view":"folders"}}),
+    )
+    .await;
+    let error = receive(&mut client).await;
+    assert_eq!(error.kind, FrameKind::Error);
+    assert_eq!(error.decode_json::<serde_json::Value>().unwrap()["code"], "invalid_params");
+    send(
+        &mut client,
+        json!({"method":"page","params":{"sid":"folders","stream":"list","view":"all"}}),
+    )
+    .await;
+    let error = receive(&mut client).await;
+    assert_eq!(error.kind, FrameKind::Error);
+    assert_eq!(error.decode_json::<serde_json::Value>().unwrap()["code"], "invalid_params");
+    send(
+        &mut client,
+        json!({"method":"sub","params":{"sid":"bad","stream":"list","view":"folders","anchor":{"key":{"lastActivity":1,"chatId":"chat","origin":"local"},"side":"after"}}}),
+    )
+    .await;
+    let error = receive(&mut client).await;
+    assert_eq!(error.kind, FrameKind::Error);
+    assert_eq!(error.decode_json::<serde_json::Value>().unwrap()["code"], "invalid_params");
+
+    for (sid, option) in
+        [("filtered", json!({"filter":{"origin":"local"}})), ("oversized", json!({"window":401}))]
+    {
+        let mut params = json!({"sid":sid,"stream":"list","view":"folders"});
+        params.as_object_mut().unwrap().extend(option.as_object().unwrap().clone());
+        send(&mut client, json!({"method":"sub","params":params})).await;
+        let error = receive(&mut client).await;
+        assert_eq!(error.kind, FrameKind::Error);
+        assert_eq!(error.decode_json::<serde_json::Value>().unwrap()["code"], "invalid_params");
+    }
+
+    writer.apply(row_with_folder("chat", "/b", 2)).unwrap();
+    let delta_one = receive(&mut client).await;
+    let delta_two = receive(&mut client).await;
+    let frames = [delta_one, delta_two];
+    assert!(frames.iter().all(|frame| frame.kind == FrameKind::Delta));
+    let mut seen = std::collections::HashSet::new();
+    for frame in frames {
+        let value: serde_json::Value = frame.decode_json().unwrap();
+        seen.insert(value["sid"].as_str().unwrap().to_owned());
+        assert!(value.get("cursor").is_none(), "delta cursor belongs on each op");
+        assert!(value["ops"].as_array().is_some_and(|ops| {
+            ops.iter().all(|op| op.get("seq").and_then(serde_json::Value::as_u64).is_some())
+        }));
+    }
+    assert_eq!(seen, ["folders".to_owned(), "summary".to_owned()].into_iter().collect());
+
+    drop(client);
+    task.await.unwrap().unwrap();
 }
 async fn subscribe(client: &mut DuplexStream, sid: &str) -> Frame {
     send(client, json!({"method":"sub","params":{"sid":sid,"stream":"list"}})).await;
@@ -551,10 +764,9 @@ impl Source for PageSource {
 async fn sixty_pipelined_page_replies_are_all_written_in_order() {
     let (mut client, server) = tokio::io::duplex(1024);
     let (rd, wr) = tokio::io::split(server);
-    let connection =
-        tokio::spawn(
-            async move { run(rd, wr, Arc::new(PageSource), "test", &["list".into()]).await },
-        );
+    let connection = tokio::spawn(async move {
+        run(rd, wr, Arc::new(PageSource), "test", &["list".into()], Role::Local).await
+    });
     hello(&mut client).await;
     let (mut rd, mut wr) = tokio::io::split(client);
     let requests = async {
@@ -680,6 +892,7 @@ async fn read_and_write_errors_release_every_source_subscriber() {
         source.clone(),
         "test",
         &["list".into()],
+        Role::Local,
     )
     .await;
     assert!(matches!(result, Err(ConnError::Io(_))));
@@ -689,7 +902,9 @@ async fn read_and_write_errors_release_every_source_subscriber() {
     // After these requests the reader stays pending, so only the writer can end it.
     let (mut client, server) = tokio::io::duplex(4096);
     client.write_all(&input).await.unwrap();
-    let result = run(server, WriteThenFail(false), source.clone(), "test", &["list".into()]).await;
+    let result =
+        run(server, WriteThenFail(false), source.clone(), "test", &["list".into()], Role::Local)
+            .await;
     assert!(matches!(result, Err(ConnError::Io(_))));
     assert_eq!(source.task_count(), 0);
     assert_eq!(hub.subscriber_count(), 0);
@@ -759,7 +974,10 @@ async fn the_source_decides_editions_and_may_resume_with_a_window() {
     let (mut client, server) = tokio::io::duplex(4096);
     let (rd, wr) = tokio::io::split(server);
     let driver = source.clone();
-    let task = tokio::spawn(async move { run(rd, wr, driver, "test", &["chat".into()]).await });
+    let task =
+        tokio::spawn(
+            async move { run(rd, wr, driver, "test", &["chat".into()], Role::Local).await },
+        );
     hello(&mut client).await;
     send(
         &mut client,
@@ -848,7 +1066,10 @@ async fn not_ready_then_window_uses_the_same_subscription_until_unsub() {
     let driver = source.clone();
     let (mut client, server) = tokio::io::duplex(4096);
     let (rd, wr) = tokio::io::split(server);
-    let task = tokio::spawn(async move { run(rd, wr, driver, "test", &["chat".into()]).await });
+    let task =
+        tokio::spawn(
+            async move { run(rd, wr, driver, "test", &["chat".into()], Role::Local).await },
+        );
     hello(&mut client).await;
     send(&mut client, json!({"method":"sub","params":{"sid":"s","stream":"chat:x"}})).await;
     let reply = receive(&mut client).await;
@@ -951,7 +1172,10 @@ async fn source_failure_after_first_frame_ends_only_its_generation() {
     let driver = source.clone();
     let (mut client, server) = tokio::io::duplex(4096);
     let (rd, wr) = tokio::io::split(server);
-    let task = tokio::spawn(async move { run(rd, wr, driver, "test", &["chat".into()]).await });
+    let task =
+        tokio::spawn(
+            async move { run(rd, wr, driver, "test", &["chat".into()], Role::Local).await },
+        );
     hello(&mut client).await;
     let request = json!({"method":"sub","params":{"sid":"s","stream":"chat:x"}});
     send(&mut client, request.clone()).await;
@@ -1176,4 +1400,76 @@ fn table_filter_on_sub_has_invalid_params_code() {
     .unwrap();
     let value: serde_json::Value = frame.decode_json().unwrap();
     assert_eq!(value.get("code"), Some(&serde_json::json!("invalid_params")));
+}
+
+#[tokio::test]
+async fn folders_credit_resume_uses_tail_and_expired_tail_uses_window() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    struct Sink {
+        fed: AtomicBool,
+        offered: tokio::sync::mpsc::UnboundedSender<(Option<Frame>, Cursor)>,
+    }
+    impl OfferSink for Sink {
+        fn offer(&self, _: &str, frame: Frame, cursor: Cursor) -> Offer {
+            if self.fed.load(Ordering::Acquire) {
+                self.offered.send((Some(frame), cursor)).unwrap();
+                Offer::Taken
+            } else {
+                self.offered.send((None, cursor)).unwrap();
+                Offer::NotFed
+            }
+        }
+        fn fail(&self, _: &str) {
+            panic!("folder source failed")
+        }
+        fn control(&self, _: &str) -> Option<Arc<SubscriptionControl>> {
+            None
+        }
+        fn metrics(&self) -> Arc<ConnectionMetrics> {
+            Arc::default()
+        }
+    }
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    writer.apply(row_with_folder("chat", "/a", 1)).unwrap();
+    let hub = Arc::new(hub);
+    let source = HubSource::new(hub);
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let sink = Arc::new(Sink { fed: AtomicBool::new(true), offered: tx });
+    let mut sub = Sub::new("folders", "list");
+    sub.view = Some(crate::wire::ListView::Folders);
+    source.subscribe(&sub, None, sink.clone()).unwrap();
+    let (frame, cursor) =
+        tokio::time::timeout(Duration::from_secs(5), rx.recv()).await.unwrap().unwrap();
+    assert_eq!(frame.unwrap().kind, FrameKind::Window);
+    sink.fed.store(false, Ordering::Release);
+    writer.apply(row_with_folder("chat", "/a", 2)).unwrap();
+    let (frame, _) =
+        tokio::time::timeout(Duration::from_secs(5), rx.recv()).await.unwrap().unwrap();
+    assert!(frame.is_none(), "delivery exhausted its credit");
+    for at in 3..102 {
+        writer.apply(row_with_folder("chat", "/a", at)).unwrap();
+    }
+    sink.fed.store(true, Ordering::Release);
+    source.resume("folders", cursor);
+    let (frame, cursor) =
+        tokio::time::timeout(Duration::from_secs(5), rx.recv()).await.unwrap().unwrap();
+    let frame = frame.unwrap();
+    assert_eq!(frame.kind, FrameKind::Delta);
+    let delta: DeltaFrame<Summary> = frame.decode_json().unwrap();
+    assert_eq!(delta.ops.len(), 100);
+    assert!(delta.ops.iter().all(|op| matches!(op, DeltaOp::Folder { .. })));
+
+    // No await while the writer exceeds the retained bytes: this live sid
+    // must receive a new bounded window rather than be dropped.
+    for at in 102..1102 {
+        writer.apply(row_with_folder("chat", "/a", at)).unwrap();
+    }
+    source.resume("folders", cursor);
+    let (frame, _) =
+        tokio::time::timeout(Duration::from_secs(5), rx.recv()).await.unwrap().unwrap();
+    let frame = frame.unwrap();
+    assert_eq!(frame.kind, FrameKind::Window);
+    let window: crate::wire::FolderWindow = frame.decode_json().unwrap();
+    assert_eq!(window.rows.first().unwrap().at, 1101);
+    source.close().await;
 }
