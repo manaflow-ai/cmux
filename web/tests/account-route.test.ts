@@ -1089,6 +1089,7 @@ describe("account deletion route", () => {
       retryable: true,
       destroyedVms: 0,
     });
+    expect(response.headers.get("x-cmux-account-deletion-stage")).toBe("identity_publications_vms");
     expect(routeEvents).toContain("delete-publication-rules");
     expect(routeEvents).not.toContain("list-vms");
     expect(routeEvents).not.toContain("destroy-vm");
@@ -1136,6 +1137,9 @@ describe("account deletion route", () => {
       retryable: true,
       destroyedVms: 0,
     });
+    // The response names the failed stage, so a caller without server logs
+    // can say which step to fix.
+    expect(response.headers.get("x-cmux-account-deletion-stage")).toBe("posthog");
     expectPostHogAccountDeleteRequest();
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(routeEvents).toContain("posthog-delete");
@@ -2817,6 +2821,7 @@ describe("account deletion route", () => {
       retryable: true,
       destroyedVms: 2,
     });
+    expect(response.headers.get("x-cmux-account-deletion-stage")).toBe("stack_delete");
     expect(transaction).toHaveBeenCalledTimes(3);
     expect(deletedTableCount).toBeGreaterThan(10);
     expect(updateStackUser).toHaveBeenCalledWith({
