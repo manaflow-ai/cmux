@@ -2,7 +2,7 @@ public import Foundation
 
 /// The parts of an app manifest the UI renders: name, description, icon,
 /// publisher, categories, scopes with their reasons, the interfaces it
-/// implements, `presentation` and `contributes.toolbarItems`. The app
+/// implements, `presentation`, `contributes.toolbarItems` and `contributes.menus`. The app
 /// supervisor in the daemon validates manifests (the Rust
 /// `cmux-app-manifest` crate) and sends each app's manifest in `apps-list`;
 /// the client only reads the fields it shows and ignores everything else,
@@ -31,6 +31,8 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
     public var presentation: AppPresentation?
     /// Manifest v2 `contributes.toolbarItems` (app-platform.md 17).
     public var toolbarItems: [AppToolbarItem]
+    /// Manifest v2 `contributes.menus`: rows in cmux's own right-click menus.
+    public var menuItems: [AppMenuItem]
     /// The whole document, as the supervisor sent it.
     public var raw: AppJSON
 
@@ -66,6 +68,7 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
         implementations = Self.implementations(o)
         presentation = AppPresentation(json: o["presentation"])
         toolbarItems = AppToolbarItem.list(json)
+        menuItems = AppMenuItem.list(json)
     }
 
     /// Parses UTF-8 JSON; nil when it is not a manifest object.

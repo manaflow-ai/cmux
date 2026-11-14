@@ -65,6 +65,11 @@ enum AppStoreHandlers {
             return AppCommandPalette.rootItems(services)
         })
         services.palette.sources.actionPages["app.command.run"] = { [weak services] in services.map(AppCommandPalette.page) }
+        // `contributes.menus`: app rows in the workspace row, tab and terminal menus, read at each open (apps-changed lists again).
+        registry.contributedMenuItems = { [weak services] context, target in
+            guard let services, !services.registry.disabledFeatures.contains(.apps), let menu = AppMenuItem.Target(menuContext: context.rawValue) else { return [] }
+            return services.apps.client.menuItems(for: menu, kind: target.kind.rawValue, id: target.id)
+        }
         registry.bind("app.command.run", run: { invocation in
             let appID = invocation["app"]?.stringValue ?? ""
             let commandID = invocation["command"]?.stringValue ?? ""

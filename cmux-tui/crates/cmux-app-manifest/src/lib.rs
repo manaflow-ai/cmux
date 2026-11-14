@@ -31,6 +31,7 @@ mod deploy;
 pub mod hidden;
 mod interfaces;
 mod issue;
+mod menus;
 pub mod module_store;
 mod package;
 mod presentation;
@@ -46,6 +47,7 @@ pub use cli::{
 };
 pub use interfaces::{KNOWN_HOST_CAPABILITIES, KNOWN_INTERFACES};
 pub use issue::{Issue, Severity};
+pub use menus::MENU_TARGETS;
 pub use package::{PackageReport, validate_package, validate_package_file};
 pub use scopes::{SCOPE_CLASSES, ScopeClass, ScopeInfo};
 pub use toolbar::{OVERRIDABLE_TOOLBAR_ITEMS, SIDEBAR_TOGGLE_ITEM, TOOLBAR_VISIBLE_APP_ITEMS};
