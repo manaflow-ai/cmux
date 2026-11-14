@@ -132,7 +132,8 @@ impl HubWriter {
                     // A structural snapshot boundary is a rebuild request,
                     // not a permanent hydration failure. Keep the daemon
                     // ready while the writer quarantines the derived files.
-                    self.request_rebuild();
+                    self.rebuild_requested.store(true, Ordering::Release);
+                    self.updates.notify.notify_one();
                     finished = true;
                     break;
                 }

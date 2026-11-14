@@ -549,7 +549,7 @@ impl Hub {
                 .then(|| IndexLog::open_at(directory.join("index.log"), 0).ok())
                 .flatten();
             let index = SummaryIndex::empty_with_edition(edition.edition);
-            let (hub, mut writer) = Self::with_log_state(index, log, Some(directory), 1);
+            let (hub, writer) = Self::with_log_state(index, log, Some(directory), 1);
             if !quarantined || writer.log.is_none() {
                 writer.log_errors.fetch_add(1, Ordering::Relaxed);
             }
@@ -565,7 +565,7 @@ impl Hub {
                     .then(|| IndexLog::open_at(directory.join("index.log"), 0).ok())
                     .flatten();
                 let index = SummaryIndex::empty_with_edition(edition.edition);
-                let (hub, mut writer) = Self::with_log_state(index, log, Some(directory), 1);
+                let (hub, writer) = Self::with_log_state(index, log, Some(directory), 1);
                 if !quarantined || writer.log.is_none() {
                     writer.log_errors.fetch_add(1, Ordering::Relaxed);
                 }
@@ -595,7 +595,7 @@ impl Hub {
                     .then(|| IndexLog::open_at(directory.join("index.log"), 0).ok())
                     .flatten();
                 let index = SummaryIndex::empty_with_edition(edition.edition);
-                let (hub, mut writer) = Self::with_log_state(index, log, Some(directory), 1);
+                let (hub, writer) = Self::with_log_state(index, log, Some(directory), 1);
                 if !quarantined || writer.log.is_none() {
                     writer.log_errors.fetch_add(1, Ordering::Relaxed);
                 }
@@ -727,12 +727,18 @@ impl Hub {
         if source != Source::Local || !complete || rebuild == 0 {
             return;
         }
-        if self
-            .rebuild_fenced
-            .compare_exchange(0, rebuild, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            return;
+        loop {
+            let fenced = self.rebuild_fenced.load(Ordering::Acquire);
+            if fenced == rebuild {
+                return;
+            }
+            if self
+                .rebuild_fenced
+                .compare_exchange(fenced, rebuild, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                break;
+            }
         }
         let Ok(subscribers) = self.subscribers.lock() else { return };
         for subscriber in subscribers.iter() {

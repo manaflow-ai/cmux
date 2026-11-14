@@ -97,6 +97,15 @@ async fn runtime_page_boundary_rebuild_keeps_sid_and_fences_one_window() {
         folder_subscription.receiver.try_next_raw(None, 64 * 1024),
         Some(RawRead::Lagged)
     ));
+    hub.source_walk_finished(Source::Local, hub.rebuild_count(), true);
+    assert!(subscription.receiver.try_next_raw(None, 64 * 1024).is_none());
+    assert!(folder_subscription.receiver.try_next_raw(None, 64 * 1024).is_none());
+    hub.source_walk_finished(Source::Local, hub.rebuild_count() + 1, true);
+    assert!(matches!(subscription.receiver.try_next_raw(None, 64 * 1024), Some(RawRead::Lagged)));
+    assert!(matches!(
+        folder_subscription.receiver.try_next_raw(None, 64 * 1024),
+        Some(RawRead::Lagged)
+    ));
     let mut rebuilt = row("rebuilt", 1);
     rebuilt.folder = Some("/rebuild".into());
     writer.apply(rebuilt).unwrap();
