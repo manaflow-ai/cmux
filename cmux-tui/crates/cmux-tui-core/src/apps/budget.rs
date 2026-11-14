@@ -191,12 +191,14 @@ impl MountBudget {
 /// row rewritten every frame holds one op, not one per batch.
 fn append(pending: &mut Vec<Value>, ops: Vec<Value>) {
     for op in ops {
-        if op["op"] == "update"
+        if op.get("op").and_then(Value::as_str) == Some("update")
             && let Some(last) = pending.last_mut()
-            && last["op"] == "update"
-            && last["id"] == op["id"]
-            && let (Some(into), Some(from)) =
-                (last["props"].as_object_mut(), op["props"].as_object())
+            && last.get("op").and_then(Value::as_str) == Some("update")
+            && last.get("id") == op.get("id")
+            && let (Some(into), Some(from)) = (
+                last.get_mut("props").and_then(Value::as_object_mut),
+                op.get("props").and_then(Value::as_object),
+            )
         {
             for (key, value) in from {
                 into.insert(key.clone(), value.clone());
