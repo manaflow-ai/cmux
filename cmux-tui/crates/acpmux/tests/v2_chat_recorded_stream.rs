@@ -222,6 +222,8 @@ impl Recorder {
     }
 
     fn step(&mut self, name: &'static str, daemon: Vec<u8>) -> &Step {
+        // The step names are the fixture's index.
+        assert!(self.steps.iter().all(|step| step.name != name), "step {name} twice");
         let start = self.bytes.len();
         self.bytes.extend_from_slice(&daemon);
         let mut changes = self.ffi.changes();
@@ -453,7 +455,9 @@ fn the_chat_stream_is_recorded() {
     rec.call(json!({"call": "connected"}));
     let mut bytes = upgrade_reply(&rec.upgrade_id(), &surfaces);
     bytes.extend(hello());
-    let open = vec![OpenRow { row: raw("{}"), body_len: Some(OPEN_BODY.len() as u64) }];
+    // An open row whose body is past the window's budget: the row whole, its body left out.
+    let row = raw(r#"{"id":30,"rev":1,"kind":"assistant","open":true,"body":{}}"#);
+    let open = vec![OpenRow { row, body_len: Some(OPEN_BODY.len() as u64) }];
     bytes.extend(window(30, 2, 21..=29, open));
     let step = rec.step("window-new-edition", bytes);
     assert_eq!(kinds(step), ["chatResumeEnd", "chatWindow"]);
