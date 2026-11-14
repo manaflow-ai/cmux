@@ -2520,7 +2520,8 @@ pre.cv-math-source {
 }
 /* A running turn's line (WorkingFor.tsx): the call in flight gives way first, its time stays. */
 .cv-worked__doing {
-  flex: 0 1 auto;
+  /* Gives way before the counts that may shrink (`.cv-worked__open`), as the live line's words do. */
+  flex: 0 1000 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2663,9 +2664,15 @@ pre.cv-math-source {
 .cv-shimmer__row {
   position: relative;
   display: inline-flex;
-  flex: 0 1 auto;
+  /* The line's words give way first, behind their ellipsis, before a count that opens something
+     (`.cv-worked__open`) shrinks. */
+  flex: 0 1000 auto;
   min-width: 0;
   max-width: 100%;
+  /* It holds the turn's time (Thinking.tsx): squeezed past its words on a narrow pane, it clips that
+     time too, never drawing it over the tokens and hint after it (issue 35021). Sideways only: the
+     words' roll (`.cv-roll-out`, `data-roll`) moves 0.6em up and down past the row's box. */
+  overflow-x: clip;
 }
 .cv-shimmer__base {
   display: block;
