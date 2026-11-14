@@ -536,7 +536,12 @@ impl HubRowSide {
     /// The tee's turn for one changed hub row: the book read marks it (not timed), then the tee
     /// submits it and the index publishes it.
     async fn round(&mut self, round: u64) -> Vec<u128> {
-        let mut samples = Vec::with_capacity(200);
+        self.round_parts(round).await.0
+    }
+
+    /// [`Self::round`], with the tee's drain alone timed beside the whole turn.
+    async fn round_parts(&mut self, round: u64) -> (Vec<u128>, Vec<u128>) {
+        let (mut samples, mut drains) = (Vec::with_capacity(200), Vec::with_capacity(200));
         for n in 0..200_u64 {
             let next = if (round * 200 + n).is_multiple_of(2) { "running" } else { "ready" };
             self.sessions[0] = hub_book_session(0, next);
@@ -545,12 +550,13 @@ impl HubRowSide {
             let before = self.v2.hub.snapshot().seq();
             let started = Instant::now();
             drain_marks(&self.v1, &self.v2, &self.state, &mut self.expiries);
+            drains.push(started.elapsed().as_nanos());
             eventually(|| self.v2.hub.snapshot().seq() > before).await;
             samples.push(started.elapsed().as_nanos());
             assert_eq!(self.state.remote_submits.load(Ordering::Relaxed), 1);
             self.state.remote_submits.store(0, Ordering::Relaxed);
         }
-        samples
+        (samples, drains)
     }
 
     async fn close(self) {
@@ -576,4 +582,33 @@ async fn hub_row_submit_gate() {
     god_side.close().await;
     let measured = emit("v2.pr05h.hub_row_submit", &small, &god, "ns");
     assert_bounds("v2.pr05h.hub_row_submit", measured, Some(200));
+}
+
+/// Where a hub row's turn goes: the tee's drain and the whole turn, at 1 or 2,048 book rows and
+/// 0 or 11,000 closed rows in the index. Prints only; the gate above is the bound.
+#[ignore = "Linux release breakdown of the hub row gate"]
+#[tokio::test]
+async fn hub_row_submit_breakdown() {
+    let mut sides = Vec::new();
+    for (book, closed) in [(1, 0), (2_048, 0), (1, 11_000), (2_048, 11_000)] {
+        sides.push(((book, closed), HubRowSide::new(book, closed).await, Vec::new(), Vec::new()));
+    }
+    for round in 0..5_u64 {
+        for (_, side, turns, drains) in &mut sides {
+            let (turn, drain) = side.round_parts(round).await;
+            turns.push(turn);
+            drains.push(drain);
+        }
+    }
+    for ((book, closed), side, turns, drains) in sides {
+        let line = json!({
+            "breakdown": "hub_row_submit",
+            "book_rows": book,
+            "closed_rows": closed,
+            "turn_p95": measures(&turns).0,
+            "drain_p95": measures(&drains).0,
+        });
+        eprintln!("{line}");
+        side.close().await;
+    }
 }
