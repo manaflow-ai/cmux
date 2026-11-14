@@ -127,11 +127,10 @@ pub struct LinkCarrier {
 
 #[cfg(feature = "link")]
 impl LinkCarrier {
+    /// Both setup and media processing retain only the current route's RTT.
     pub(crate) fn record_path(&mut self, path: cmux_rd_link::EndpointEvent) {
-        if let cmux_rd_link::EndpointEvent::PathChanged { rtt_us, .. } = &path {
-            if rtt_us.is_some() {
-                self.rtt_us = *rtt_us;
-            }
+        if let cmux_rd_link::EndpointEvent::PathChanged { route, rtt_us, .. } = &path {
+            self.rtt_us = route.and(*rtt_us);
             self.paths.push(path);
         }
     }
@@ -160,9 +159,8 @@ impl Carrier for LinkCarrier {
                     return Err("viewer closed the link".into());
                 }
                 NetEvent::Failed(reason) => return Err(format!("link failed: {reason}")),
-                NetEvent::Endpoint(path @ EndpointEvent::PathChanged { route, rtt_us, .. }) => {
-                    self.rtt_us = route.and(rtt_us);
-                    self.paths.push(path);
+                NetEvent::Endpoint(path @ EndpointEvent::PathChanged { .. }) => {
+                    self.record_path(path);
                 }
                 _ => {}
             }
