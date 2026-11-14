@@ -19,26 +19,24 @@ extension AgentPaneModel {
     /// with, and nothing else.
     func takeExternalAttachments() async -> [String: Any] {
         guard let held = droppedPaths.takeExternal() else { return AgentPaneReply.success(["files": [Any]()]) }
-        let read = await Task.detached(priority: .userInitiated) {
-            held.urls.compactMap { url in Self.externalFile(url).map { (url, $0) } }
-        }.value
+        let urls = held.urls
+        let read = await Task.detached(priority: .userInitiated) { urls.compactMap(Self.externalFile) }.value
         guard !read.isEmpty else { return AgentPaneReply.success(["files": [Any]()]) }
-        let urls = read.map(\.0)
-        droppedPaths.stash(urls, kind: .external)
-        droppedPaths.stashSource(urls, items: urls.count, claimed: held.claimed, kind: .external)
+        let taken = read.map(\.url)
+        droppedPaths.stash(taken, kind: .external)
+        droppedPaths.stashSource(taken, items: taken.count, claimed: held.claimed, kind: .external)
         transport.gestures.recordUpload()
-        return AgentPaneReply.success(["files": read.map(\.1)])
+        return AgentPaneReply.success(["files": read.map { ["name": $0.url.lastPathComponent, "type": $0.type, "data": $0.data] }])
     }
 
-    /// File `url` as the page's `{name, type, data}`; nil for a folder, a file that can't be read or
-    /// one over ``externalFileLimit``.
-    nonisolated static func externalFile(_ url: URL) -> [String: Any]? {
+    /// File `url`'s MIME type and bytes as base64, for the page's `{name, type, data}`; nil for a
+    /// folder, a file that can't be read or one over ``externalFileLimit``.
+    nonisolated static func externalFile(_ url: URL) -> (url: URL, type: String, data: String)? {
         guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), values.isRegularFile == true,
               (values.fileSize ?? 0) <= externalFileLimit,
               // concurrency-allow: one file another app sent, read off the main actor (Task.detached)
               let data = try? Data(contentsOf: url) else { return nil }
-        let type = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? ""
-        return ["name": url.lastPathComponent, "type": type, "data": data.base64EncodedString()]
+        return (url, UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "", data.base64EncodedString())
     }
 
     /// `chat.composer.get`'s answer for this chat: `{session, attachments: [{name, mimeType, bytes,

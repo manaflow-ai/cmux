@@ -7623,12 +7623,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     };
     // The host's files for this chat (composer/externalAttach.ts): on its `attachExternal` command, and
     // once now, since a page still loading on the old host never got a command sent before it ran.
-    const takeExternal = () =>
+    // Only a page with a composer takes them; the host keeps them for one that has none (a review).
+    const takeExternal = () => {
+      if (!composerHandle.current) return;
       void takeExternalFiles(callNative).then((files) => {
         if (!files.length) return;
         composerHandle.current?.attachFiles(files, "external");
         composerHandle.current?.focus();
       });
+    };
     takeExternal();
     window.cmuxAcpmuxBridge = {
       toggleInspector,
