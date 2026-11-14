@@ -713,6 +713,12 @@ async fn forward_inner(
                 | method::ACP_SESSION_FORK
         ) {
             if m == method::MUX_ATTACH {
+                if params.get("hold") == Some(&Value::Bool(true)) {
+                    return Err(RpcError::invalid_params(
+                        "attach hold is local-only; peer chats retain the v1 attach",
+                    )
+                    .with_data(json!({"reason": "attach_hold.peer_refused"})));
+                }
                 let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
                 let event_stream =
                     params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);

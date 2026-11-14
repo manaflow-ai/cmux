@@ -1,0 +1,207 @@
+//! `_acpmux/attach {hold:true}` keeps a chat attached without reading its log.
+
+use crate::config::{Config, StoreMode};
+use crate::rpc::{Message, method};
+use serde_json::{Value, json};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::mpsc;
+
+const ID: &str = "hold-attach-chat";
+
+fn hub_with_chat() -> (Arc<crate::hub::Hub>, Arc<crate::hub::Session>) {
+    let mut config = Config::default();
+    config.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": ID, "name": "hold", "harness": "claude",
+        "cwd": "/tmp", "status": "running", "createdAt": 3, "updatedAt": 3,
+    }))
+    .unwrap();
+    store.save(&meta).unwrap();
+    let hub = crate::hub::Hub::new(config, store);
+    let session = hub.make_session(meta);
+    hub.sessions.lock().unwrap().insert(ID.to_owned(), session.clone());
+    (hub, session)
+}
+
+struct Client {
+    input: mpsc::Sender<String>,
+    outgoing: mpsc::Receiver<String>,
+    next: u64,
+}
+
+impl Client {
+    async fn connect(hub: &Arc<crate::hub::Hub>) -> Self {
+        let (input, incoming) = mpsc::channel(32);
+        let (output, outgoing) = mpsc::channel(256);
+        tokio::spawn(super::super::serve_connection_with(
+            hub.clone(),
+            incoming,
+            output,
+            super::super::Origin::Local,
+        ));
+        let mut client = Self { input, outgoing, next: 1 };
+        let hello = json!({
+            "protocolVersion": 1,
+            "clientInfo": {"name": "hold-attach-test", "version": "0"}
+        });
+        let init = client.call(method::INITIALIZE, hello).await;
+        assert!(init.get("error").is_none(), "{init}");
+        client
+    }
+
+    async fn call(&mut self, m: &str, params: Value) -> Value {
+        let id = self.next;
+        self.next += 1;
+        self.input.send(Message::request(id, m, params).to_line()).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                let line = self.outgoing.recv().await.expect("connection remains open");
+                let reply: Value = serde_json::from_str(&line).unwrap();
+                if reply["id"] == json!(id) {
+                    return reply;
+                }
+            }
+        })
+        .await
+        .expect("request answers")
+    }
+
+    async fn notification(&mut self) -> Value {
+        tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                let line = self.outgoing.recv().await.expect("connection remains open");
+                let value: Value = serde_json::from_str(&line).unwrap();
+                if value.get("method").is_some() {
+                    return value;
+                }
+            }
+        })
+        .await
+        .expect("notification arrives")
+    }
+}
+
+fn hold(kinds: Value) -> Value {
+    json!({"sessionId": ID, "hold": true, "eventStream": true, "kinds": kinds})
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn hold_attach_returns_metadata_without_reading_and_exposes_capability() {
+    let (hub, session) = hub_with_chat();
+    for n in 0..200 {
+        hub.append(&session, "mux", "long_record", json!({"n": n}));
+    }
+    hub.mark_log_unread_for_test(&session);
+    let mut client = Client::connect(&hub).await;
+    let reply = client.call(method::MUX_ATTACH, hold(json!(["long_record"]))).await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    let result = &reply["result"];
+    assert_eq!(result["hold"], true);
+    assert_eq!(result["lastSeq"], session.meta().last_seq);
+    assert!(result.get("events").is_none());
+    assert!(result.get("hasMore").is_none());
+    assert!(result.get("pageThrough").is_none());
+    assert!(result.get("turnOpener").is_none());
+    assert!(result.get("settled").is_none());
+    assert!(!hub.session_log_loaded(&session), "hold attach read the log");
+    assert!(crate::capabilities::ids().contains(&crate::capabilities::HOLD_ATTACH));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn hold_attach_rejects_every_log_read_parameter() {
+    let (hub, _) = hub_with_chat();
+    let mut client = Client::connect(&hub).await;
+    let mut refusals = vec![
+        (json!({"sessionId": ID, "hold": true, "kinds": []}), "eventStream"),
+        (json!({"sessionId": ID, "hold": true, "eventStream": true}), "kinds"),
+        (hold(json!(["transcript"])), "kinds"),
+        (hold(json!(vec!["x"; 17])), "kinds"),
+    ];
+    for name in ["limit", "afterSeq", "beforeSeq", "maxBytes", "toolOutputMaxBytes", "settled"] {
+        let mut params = hold(json!(["x"]));
+        params[name] = json!(1);
+        refusals.push((params, name));
+    }
+    for (params, name) in refusals {
+        let reply = client.call(method::MUX_ATTACH, params).await;
+        let error = reply.get("error").expect("a refusal");
+        assert!(error["message"].as_str().unwrap().contains(name), "{name}: {error}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn hold_attach_supports_view_typing_presence_and_exact_live_kinds() {
+    let (hub, session) = hub_with_chat();
+    let mut first = Client::connect(&hub).await;
+    let reply = first.call(method::MUX_ATTACH, hold(json!(["named_kind"]))).await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    let view = first.call(method::MUX_VIEW, json!({"sessionId": ID, "visible": true})).await;
+    assert!(view.get("error").is_none(), "{view}");
+    let typing = first.call(method::MUX_TYPING, json!({"sessionId": ID, "on": true})).await;
+    assert!(typing.get("error").is_none(), "{typing}");
+
+    let mut second = Client::connect(&hub).await;
+    let second_attach = second.call(method::MUX_ATTACH, hold(json!(["named_kind"]))).await;
+    assert!(second_attach.get("error").is_none(), "{second_attach}");
+    let presence = first.notification().await;
+    assert_eq!(presence["method"], method::MUX_PRESENCE);
+
+    hub.append(&session, "mux", "named_kind", json!({"ok": true}));
+    hub.append(&session, "mux", "not_named", json!({"ok": false}));
+    let event = first.notification().await;
+    assert_eq!(event["method"], method::MUX_EVENT);
+    assert_eq!(event["params"]["kind"], "named_kind");
+    assert!(tokio::time::timeout(Duration::from_millis(50), first.outgoing.recv()).await.is_err());
+
+    let detached = second.call(method::MUX_DETACH, json!({"sessionId": ID})).await;
+    assert!(detached.get("error").is_none(), "{detached}");
+}
+
+fn p95(values: &mut [u128]) -> u128 {
+    values.sort_unstable();
+    values[((values.len() * 95).div_ceil(100)).saturating_sub(1)]
+}
+
+fn emit_gate(name: &str, small: u128, god: u128) {
+    let line = json!({"name": name, "small_p95": small, "god_p95": god, "unit": "ns"}).to_string();
+    eprintln!("{line}");
+    if let Some(path) = std::env::var_os("V2_GATE_OUT")
+        && let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path)
+    {
+        use std::io::Write;
+        let _ = writeln!(file, "{line}");
+    }
+}
+
+async fn attach_elapsed(records: usize) -> u128 {
+    let (hub, session) = hub_with_chat();
+    for n in 0..records {
+        hub.append(&session, "mux", "long_record", json!({"n": n}));
+    }
+    hub.mark_log_unread_for_test(&session);
+    let mut client = Client::connect(&hub).await;
+    let started = Instant::now();
+    let reply = client.call(method::MUX_ATTACH, hold(json!(["long_record"]))).await;
+    assert!(reply.get("error").is_none());
+    started.elapsed().as_nanos()
+}
+
+#[ignore = "Linux gate profile: a hold attach on the long chat against the short one"]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn hold_attach_gate() {
+    let mut small = Vec::new();
+    let mut god = Vec::new();
+    for _ in 0..8 {
+        small.push(attach_elapsed(200).await);
+        god.push(attach_elapsed(20_000).await);
+    }
+    let small_p95 = p95(&mut small);
+    let god_p95 = p95(&mut god);
+    emit_gate("v2.pr06.hold_attach", small_p95, god_p95);
+    assert!(
+        god_p95.saturating_mul(100) <= small_p95.saturating_mul(120),
+        "hold attach ratio exceeds 1.2: small={small_p95}, god={god_p95}"
+    );
+}

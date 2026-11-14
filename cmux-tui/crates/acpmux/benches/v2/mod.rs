@@ -283,6 +283,15 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
+        pr: "6e",
+        name: "v2.pr06.hold_attach",
+        done_when: "A hold attach on the god chat costs at most 1.2x the same hold attach on the small chat, without reading the chat log.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
         pr: "5",
         name: "v2.pr05.first_list_window",
         done_when: "First list window from a running hub: best p95 within 1.2x at 11,000 sessions against 20, all-sample p95 within 2x.",

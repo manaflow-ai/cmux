@@ -20,6 +20,9 @@ mod presets;
 mod queued;
 mod session_open;
 pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
+#[cfg(test)]
+#[path = "requests/hold_attach_tests.rs"]
+mod hold_attach_tests;
 mod settled_attach;
 #[cfg(test)]
 #[path = "requests/settled_attach_tests.rs"]
@@ -52,6 +55,33 @@ fn disallowed_tools(meta: Option<&Value>) -> Result<Vec<String>, RpcError> {
             .collect(),
         Some(_) => Err(refused()),
     }
+}
+
+/// Validate the read-free `_acpmux/attach {hold:true}` shape and return its exact-kind filter.
+fn hold_attach_filter(params: &Value) -> Result<crate::hub::EventFilter, RpcError> {
+    if params.get("eventStream") != Some(&Value::Bool(true)) {
+        return Err(RpcError::invalid_params("hold attach requires eventStream: true"));
+    }
+    let kinds = params.get("kinds").and_then(Value::as_array).ok_or_else(|| {
+        RpcError::invalid_params("hold attach requires kinds to be an array of exact kinds")
+    })?;
+    if kinds.len() > 16
+        || kinds.iter().any(|kind| {
+            kind.as_str().is_none_or(|kind| {
+                kind.is_empty() || matches!(kind, "transcript" | "mux" | "wire" | "all")
+            })
+        })
+    {
+        return Err(RpcError::invalid_params(
+            "hold attach kinds must contain at most 16 non-empty exact kinds",
+        ));
+    }
+    for name in ["limit", "afterSeq", "beforeSeq", "maxBytes", "toolOutputMaxBytes", "settled"] {
+        if params.get(name).is_some() {
+            return Err(RpcError::invalid_params(format!("hold attach does not accept {name}")));
+        }
+    }
+    crate::hub::EventFilter::parse(Some(&Value::Array(kinds.clone())))
 }
 
 /// A create's admission ask (`hub/admission.rs`): `_meta.acpmux.forceAdmit`
@@ -3059,6 +3089,37 @@ async fn dispatch_request_with_identity(
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
             let hidden = params.get("visible") == Some(&Value::Bool(false));
+            if params.get("hold") == Some(&Value::Bool(true)) {
+                let filter = hold_attach_filter(&params)?;
+                if !hidden {
+                    hub.wake_for(&s, super::trust_gate::for_web(conn.origin, &params), "click");
+                }
+                view::attach(
+                    hub,
+                    conn,
+                    &s,
+                    SubOpts {
+                        event_stream: true,
+                        filter,
+                        hidden,
+                        idle: !hidden && params.get("attending") == Some(&Value::Bool(false)),
+                        remote: false,
+                        rows: None,
+                    },
+                );
+                let detail = hub.session_detail(&s);
+                let last = s.meta().last_seq;
+                let presence = hub.presence.snapshot(&s.id);
+                let reader = crate::author::author(&params).ok().flatten();
+                let read_through = hub.read_through(&s, crate::hub::reader_of(reader.as_ref()));
+                return Ok(json!({
+                    "session": detail,
+                    "lastSeq": last,
+                    "presence": presence,
+                    "readThrough": read_through,
+                    "hold": true,
+                }));
+            }
             // `settled`: the chat's settled view first, read before any log wait; a restart's
             // queue then comes from it (`settled_attach.rs`, cmuxterm-hq#9655).
             let settled = settled_attach::saved(hub, &s, &params);
