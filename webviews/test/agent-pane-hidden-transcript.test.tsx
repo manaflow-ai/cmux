@@ -102,3 +102,36 @@ test("showing the page draws the transcript within the show, before any frame", 
   setVisibility("visible");
   expect(drawn()).toBe(true);
 });
+
+test("the chat's snapshot keeps the copy written as the page hid, not the page without its transcript", async () => {
+  jest.useFakeTimers();
+  const { SNAPSHOT_WRITE_EVENT, noteChatTheme, watchChatSnapshot } =
+    await import("../src/agent-session/acpmux/chatSnapshot/live");
+  mount();
+  noteChatTheme("dark");
+  const puts: unknown[] = [];
+  const stop = watchChatSnapshot(
+    "chat",
+    async (params) => {
+      puts.push(params);
+      return { kept: true };
+    },
+    dom.window.document,
+  );
+  try {
+    act(() => setVisibility("hidden"));
+    // The page hid with its transcript drawn: that copy is written.
+    expect(puts.length).toBe(1);
+    act(() => jest.advanceTimersByTime(DORMANT_AFTER_MS + 20_000));
+    expect(drawn()).toBe(false);
+    // Neither the transcript leaving (a change the writer sees) nor the host asking writes over it.
+    dom.window.dispatchEvent(new dom.window.Event(SNAPSHOT_WRITE_EVENT));
+    act(() => jest.advanceTimersByTime(20_000));
+    expect(puts.length).toBe(1);
+    setVisibility("visible");
+    dom.window.dispatchEvent(new dom.window.Event(SNAPSHOT_WRITE_EVENT));
+    expect(puts.length).toBe(2);
+  } finally {
+    stop();
+  }
+});

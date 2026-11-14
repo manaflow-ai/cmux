@@ -79,6 +79,11 @@ export function beforeTranscriptDormant(run: () => void): () => void {
   };
 }
 
+/// Whether the transcript is let go now, outside React (the chat's snapshot writer, chatSnapshot/live.ts).
+export function transcriptIsDormant(): boolean {
+  return store.dormant;
+}
+
 /// Whether the page has been hidden long enough that it draws no transcript.
 export function useTranscriptDormant(): boolean {
   return useSyncExternalStore(subscribe, read, readServer);

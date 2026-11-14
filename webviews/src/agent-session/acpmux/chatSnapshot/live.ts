@@ -2,6 +2,7 @@
 // soon as the bundle runs, takes over from the copy in one frame once it drew the chat itself, and
 // writes the copy the next launch draws (capture.ts), from the visible window only.
 import { captureMiss, captureSnapshot } from "./capture";
+import { transcriptIsDormant } from "../hiddenTranscript";
 import {
   SNAPSHOT_GLOBAL,
   SNAPSHOT_HOST_TAG,
@@ -213,8 +214,9 @@ export function watchChatSnapshot(
   let stopped = false;
   const write = () => {
     timer = undefined;
-    // No theme heard yet: nothing to key a copy by, and the one kept stays.
-    if (stopped || !chatTheme) return;
+    // No theme heard yet: nothing to key a copy by, and the one kept stays. A page hidden long enough to draw no
+    // transcript (hiddenTranscript.ts) keeps the copy it wrote as it hid: what it draws now is not the chat.
+    if (stopped || !chatTheme || transcriptIsDormant()) return;
     const snapshot = captureSnapshot(doc, chatTheme);
     wroteAt = performance.now();
     // Too large to keep (or no chat drawn): the host forgets the older one, which no longer shows
