@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43607859607",
+  "recorded_at": "2026-11-14T15:13:14Z",
+  "reason": "cmux-tui 5e31c1f3268c changes the image's cmux-tui (pinned 58f4fc94771e)",
+  "dry_run": false,
+  "cmux_tui": "5e31c1f3268ccb9f7157f0ea99984441d410e7ae",
+  "fixes": [
+    {
+      "sha": "5e31c1f3268ccb9f7157f0ea99984441d410e7ae",
+      "mergedAt": "2026-11-14T06:39:48-08:00",
+      "subject": "acpmux: an agent host watches its own record, not every host's (O(N) wakeups per change at scale) (#43090)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T15:13:14Z",
+    "snapshot_id": "sh-c7a893cfa4bb47f3be15316ed90692d5",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43607859607): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "45a54fec82a12281a7973d9dd4e899739e8ab83f",
+    "image": "cloud-native-auto-5e31c1f3-43607859607-1",
+    "revision": "ci-43607859607-1",
+    "at": "2026-11-14T15:13:14Z"
+  },
+  "rolled_back": false
+}
