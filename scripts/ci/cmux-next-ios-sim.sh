@@ -109,9 +109,10 @@
 #   energy
 #           build, plus the battery and memory bench (cmux-next-ios/verify/energy.md):
 #           each case launches the Demo app in mock mode on a list rig screen
-#           (CMUX_MOBILE_LIST_*), lets it settle, then samples the app process
-#           once a second with macOS `top` (CPU %, idle wakeups, POWER, the
-#           energy impact Activity Monitor shows, and MEM, its footprint).
+#           (CMUX_MOBILE_LIST_*), waits for the rig's ready line in its log,
+#           then reads the app process's kernel counters once a second
+#           (proc_pid_rusage, energy_rusage.py: CPU %, wakeups/s, energy in
+#           mW, memory footprint).
 #           Optional arguments (each one `--arg`):
 #             base=SHA     also build SHA and run every case on both apps, base
 #                          then head, on the one simulator (as listperf's base=)
@@ -1063,16 +1064,67 @@ if [[ "$mode" == energy ]]; then
   mkdir -p "$en"
   sides=(head)
   [[ -z "$base_app" ]] || sides=(base head)
+  rusage=cmux-next-ios/verify/energy_rusage.py
+  # Every way this Mac has to read a process's wakeups and energy, over one window, side by side:
+  # ps, proc_pid_rusage (what the table uses), top, and an xctrace Activity Monitor recording.
+  # The head's first rep of each case runs it after its sampled window; energy/probe-RUN/ keeps it.
+  energy_probe() {
+    local run=$1 pid=$2 d="$en/probe-$1" rp tp schema
+    mkdir -p "$d"
+    {
+      echo "== probe $run (pid $pid)"
+      echo "-- ps"
+      ps -o pid,%cpu,rss,time,command -p "$pid" 2>&1 | cut -c1-160 || true
+      echo "-- proc_pid_rusage (one reading)"
+      python3 -I "$rusage" once "$pid" 2>&1 || true
+    } >"$d/probe.txt"
+    python3 -I "$rusage" sample "$pid" 12 "$d/rusage.jsonl" >/dev/null 2>&1 &
+    rp=$!
+    top -l 13 -s 1 -pid "$pid" -stats pid,cpu,idlew,power,mem >"$d/top.txt" 2>&1 &
+    tp=$!
+    perl -e 'alarm shift; exec @ARGV' 120 xcrun xctrace record --template 'Activity Monitor' --attach "$pid" \
+      --time-limit 10s --output "$d/am.trace" --no-prompt >"$d/xctrace-record.txt" 2>&1 ||
+      echo "-- xctrace record --attach exited $? ($(tail -n 1 "$d/xctrace-record.txt"))" >>"$d/probe.txt"
+    if [[ ! -d "$d/am.trace" ]]; then
+      perl -e 'alarm shift; exec @ARGV' 120 xcrun xctrace record --template 'Activity Monitor' --all-processes \
+        --time-limit 10s --output "$d/am.trace" --no-prompt >>"$d/xctrace-record.txt" 2>&1 ||
+        echo "-- xctrace record --all-processes exited $? ($(tail -n 1 "$d/xctrace-record.txt"))" >>"$d/probe.txt"
+    fi
+    wait "$rp" 2>/dev/null || true
+    wait "$tp" 2>/dev/null || true
+    {
+      echo "-- proc_pid_rusage over the window (energy_summary.py; top beside it)"
+      python3 -I cmux-next-ios/verify/energy_summary.py "$d/rusage.jsonl" "$d/top.txt" "$pid" "probe-$run" probe 2>&1 || true
+      if [[ -d "$d/am.trace" ]]; then
+        perl -e 'alarm shift; exec @ARGV' 120 xcrun xctrace export --input "$d/am.trace" --toc >"$d/toc.xml" 2>&1 || true
+        echo "-- xctrace tables: $(grep -o 'schema="[^"]*"' "$d/toc.xml" | sort -u | tr '\n' ' ')"
+        for schema in $(grep -o 'schema="[^"]*"' "$d/toc.xml" | sed 's/schema="//; s/"$//' | sort -u | grep -i -E 'activity-monitor|process|energy|wake'); do
+          perl -e 'alarm shift; exec @ARGV' 120 xcrun xctrace export --input "$d/am.trace" \
+            --xpath "/trace-toc/run[@number=\"1\"]/data/table[@schema=\"$schema\"]" >"$d/$schema.xml" 2>&1 || continue
+          python3 -I "$rusage" xctrace-rows "$d/$schema.xml" "$pid" 2>&1 | head -n 20 || true
+        done
+        rm -rf "$d/am.trace"
+      fi
+    } >>"$d/probe.txt" 2>&1
+    cut -c1-400 "$d/probe.txt"
+  }
   note ""
   note "## Battery and memory (Demo build, mock mode, ${device_type##*.} on ${runtime##*.}; cmux-next-ios/verify/energy.md)"
   note ""
-  note "| Run | Phase | s | CPU % | Idle wakeups/s | POWER | MEM start MB | MEM end MB | MEM max MB |"
+  note "Kernel counters for the app's process (proc_pid_rusage, no root): CPU time, interrupt wakeups, ri_energy_nj as mW, phys_footprint."
+  note ""
+  note "| Run | Phase | s | CPU % | Wakeups/s | Energy mW | MEM start MB | MEM end MB | MEM max MB |"
   note "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"
   for rep in $(seq 1 "$energy_reps"); do
     for case_name in "${energy_cases[@]}"; do
       line="$(printf '%s\n' "${energy_table[@]}" | awk -v c="$case_name" '$1 == c')"
       read -r _label screen phase case_seconds settings <<< "$line"
       [[ "$case_seconds" != "-" ]] || case_seconds="$energy_seconds"
+      # The rig's frames log says when its screen is ready: `holding SCREEN` once a still
+      # (LIST_PASSES=0: idle, stream, background) has opened and settled, `list-stress SCREEN scroll=`
+      # as the scroll case's passes begin. A loaded host takes longer, so the bench waits for the line.
+      ready="FRAMELOG list-stress holding $screen"
+      [[ "$phase" != scroll ]] || ready="FRAMELOG list-stress $screen scroll="
       for side in "${sides[@]}"; do
         run="$side-$case_name-r$rep"
         side_app="$app"
@@ -1083,29 +1135,53 @@ if [[ "$mode" == energy ]]; then
         simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
         simctl uninstall "$udid" "$bundle_id" >/dev/null 2>&1 || true
         simctl install "$udid" "$side_app"
-        # `simctl launch` prints "BUNDLE: PID"; the simulator's app is a process of this Mac, so top sees it.
+        logf="$en/$run.frames.txt"
+        simctl spawn "$udid" log stream --style compact --level default \
+          --predicate 'subsystem == "dev.cmux.mobile" AND category == "frames"' >"$logf" 2>&1 &
+        log_pid=$!
+        sleep 2  # log stream attaches before the app starts
+        # `simctl launch` prints "BUNDLE: PID"; the simulator's app is a process of this Mac.
+        launched=$SECONDS
         pid="$(env "${envs[@]}" xcrun simctl --set "$sims" launch --terminate-running-process "$udid" "$bundle_id" \
           -cmuxMobile.setupComplete YES -cmux-mobile-no-restore | awk -F': ' '{ print $NF }' | tr -dc '0-9')"
-        if [[ -z "$pid" ]]; then echo "$run: no PID from simctl launch"; energy_status=1; continue; fi
-        # The rig opens its screen (up to ~8 s for tabs and chat), then settles; the scroll case's passes start after.
-        sleep 12
+        if [[ -z "$pid" ]]; then
+          echo "$run: no PID from simctl launch"; energy_status=1
+          kill "$log_pid" 2>/dev/null || true; wait "$log_pid" 2>/dev/null || true
+          continue
+        fi
+        until grep -qF -- "$ready" "$logf"; do
+          (( SECONDS - launched < 180 )) || break
+          sleep 1
+        done
+        if ! grep -qF -- "$ready" "$logf"; then
+          echo "$run: no '$ready' within 180 s of launch; not sampled"; energy_status=1
+          kill "$log_pid" 2>/dev/null || true; wait "$log_pid" 2>/dev/null || true
+          simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+          continue
+        fi
+        echo "$run: ready $(( SECONDS - launched )) s after launch"
         if [[ "$phase" == background ]]; then
           simctl launch "$udid" com.apple.Preferences >/dev/null 2>&1 || { echo "$run: could not put Settings in front"; energy_status=1; }
           sleep 3
         fi
-        # One sample a second for case_seconds, plus top's first sample (dropped: its rates are since launch).
-        top -l "$(( case_seconds + 1 ))" -s 1 -pid "$pid" -stats pid,cpu,idlew,power,mem >"$en/$run.top.txt" 2>&1 || true
+        # One kernel reading a second for case_seconds (energy_rusage.py); top beside it as a cross-check.
+        top -l "$(( case_seconds + 1 ))" -s 1 -pid "$pid" -stats pid,cpu,idlew,power,mem >"$en/$run.top.txt" 2>&1 &
+        top_pid=$!
+        python3 -I "$rusage" sample "$pid" "$case_seconds" "$en/$run.rusage.jsonl" || echo "$run: rusage sampler exited $?"
+        wait "$top_pid" 2>/dev/null || true
+        [[ "$rep" != 1 || "$side" != head ]] || energy_probe "$run" "$pid"
         simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
         simctl terminate "$udid" com.apple.Preferences >/dev/null 2>&1 || true
-        python3 -I cmux-next-ios/verify/energy_summary.py "$en/$run.top.txt" "$pid" "$run" "$phase" >"$en/$run.json" ||
+        kill "$log_pid" 2>/dev/null || true; wait "$log_pid" 2>/dev/null || true
+        python3 -I cmux-next-ios/verify/energy_summary.py "$en/$run.rusage.jsonl" "$en/$run.top.txt" "$pid" "$run" "$phase" >"$en/$run.json" ||
           { echo "$run: no samples"; energy_status=1; continue; }
         python3 -I cmux-next-ios/verify/energy_summary.py --row "$en/$run.json" | tee -a "$summary"
       done
     done
   done
   simctl uninstall "$udid" "$bundle_id" >/dev/null 2>&1 || true
-  note "- energy: $((SECONDS - t0)) s; sides: ${sides[*]}; reps: $energy_reps; samples: energy/"
-  [[ "${energy_status:-0}" -eq 0 ]] || note "- energy: FAILED (a run had no PID or no samples; see energy/)"
+  note "- energy: $((SECONDS - t0)) s; sides: ${sides[*]}; reps: $energy_reps; samples and probes: energy/"
+  [[ "${energy_status:-0}" -eq 0 ]] || note "- energy: FAILED (a run had no PID, no ready line or no samples; see energy/)"
 fi
 
 # --- Pairing by QR code ----------------------------------------------------
