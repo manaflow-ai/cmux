@@ -26,6 +26,10 @@ run_book() {
   run cargo test --release -p acpmux-book --lib "$1" -- --ignored --nocapture --test-threads=1
 }
 
+run_client() {
+  run cargo test --release -p acpmux-client --lib "$1" -- --ignored --nocapture --test-threads=1
+}
+
 run_core() {
   run cargo test --release -p acpmux-core --lib "$1" -- --ignored --nocapture --test-threads=1
 }
@@ -57,7 +61,11 @@ book_gates() {
 }
 run_group acpmux-book book_gates
 
-# acpmux-client has no v2 gate rows on this base; there is no client gate to run.
+# acpmux-client (release)
+client_gates() {
+  run_client v2_pr06_client_chat
+}
+run_group acpmux-client client_gates
 
 # acpmux-core (release)
 core_gates() {
@@ -73,6 +81,7 @@ core_gates() {
   run_core pr05d_removed_origin_batch
   run_core pr05d_submit_time
   run_core v2_pr03c_
+  run_core v2_pr04_chat_stopped_reader
 }
 run_group acpmux-core core_gates
 
@@ -83,6 +92,7 @@ acpmux_lib_gates() {
   run_acpmux_lib walk_rss_gate
   run_acpmux_lib live_view_gate
   run_acpmux_lib keyed_page_gate
+  run_acpmux_lib sidebar_mirror_connect_gate
   run_acpmux_lib hub_row_submit_gate
   run_acpmux_lib v2_pr03b_tee_append_added
   run_acpmux_lib v2_pr03b_append_on_off

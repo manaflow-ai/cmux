@@ -411,6 +411,36 @@ fn simultaneous_registry_lookups_start_only_one_writer() {
     assert!(registry.evict("chat"));
 }
 
+/// cmux#43078: a lookup that joins a finished actor drops its slot, so the map does not grow
+/// with chats whose actors ended.
+#[test]
+fn a_registry_lookup_that_joins_a_finished_actor_drops_its_slot() {
+    let home = tempfile::tempdir().unwrap();
+    let registry = crate::registry::Registry::new();
+    let mut other = fixture(&home.path().join("other"), 1);
+    other.id = "other".into();
+    let other = registry.hydrate(other).unwrap();
+    let before = registry.len();
+    let config = fixture(&home.path().join("chat"), 1);
+    let handle = registry.hydrate(config.clone()).unwrap();
+    assert_eq!(registry.len(), before + 1);
+    wait_health(&handle, crate::life::Health::Running);
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || tx.send(handle.close()));
+    rx.recv_timeout(Duration::from_secs(10)).expect("the close is answered").unwrap();
+    let started = Instant::now();
+    while registry.get("chat").is_some() {
+        assert!(started.elapsed() < Duration::from_secs(10), "the closed actor never ended");
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(registry.len(), before, "the joined actor's slot is gone");
+    assert!(registry.get("other").is_some() && other.wake().is_ok(), "another chat's stays");
+    let (_, started) = registry.start(config).unwrap();
+    assert!(started, "a later lookup starts the chat again");
+    assert_eq!(registry.len(), before + 1);
+    assert!(registry.evict("chat") && registry.evict("other"));
+}
+
 fn gap_places(bytes: &[u8], _: u64) -> std::io::Result<std::ops::Range<u64>> {
     let value: serde_json::Value = serde_json::from_slice(bytes).map_err(std::io::Error::other)?;
     let start = value["seq"].as_u64().unwrap() * 10;
@@ -885,4 +915,29 @@ fn history_permits_are_two_in_turn_and_a_stop_never_waits_for_one() {
     drop((second, other));
     assert_eq!(permits.held(), 0);
     assert!(permits.acquire(&go).is_some());
+}
+
+#[test]
+fn a_page_is_counted_in_the_mailbox_with_every_member_it_carries() {
+    let page: Page = serde_json::from_value(serde_json::json!({"sid": "s", "stream": "chat:c"}))
+        .expect("a page");
+    let mut keyed = page.clone();
+    keyed.keys = Some(
+        (0..1000)
+            .map(|n| {
+                crate::wire::PageKey::Summary(crate::wire::ListKey {
+                    last_activity: n,
+                    chat_id: format!("chat-{n:060}"),
+                    origin: "o".repeat(64),
+                })
+            })
+            .collect(),
+    );
+    let count = |page: Page| {
+        let (reply, _rx) = Reply::channel("page", None, None);
+        Request::Page { page: Box::new(page), person: [0; 16], reply }.bytes()
+    };
+    let (plain, keyed_len) = (count(page), count(keyed.clone()));
+    let encoded = serde_json::to_vec(&keyed).expect("encodes").len();
+    assert!(keyed_len >= plain + encoded - 64, "1,000 keys of {encoded} bytes counted {keyed_len}");
 }

@@ -338,6 +338,8 @@ fn a_small_feedback_batch_does_not_turn_two_percent_loss_into_congestion() {
         false,
         60_000,
     );
-    e.on_datagram(&feedback(&Feedback::default()), false, 550_000);
+    // Settle both receipt batches, then consume a complete congestion window.
+    e.on_datagram(&feedback(&Feedback::default()), false, 160_000);
+    e.on_datagram(&feedback(&Feedback::default()), false, 660_000);
     assert!(e.stats().target_bps >= start, "two percent loss stays below the congestion threshold");
 }
