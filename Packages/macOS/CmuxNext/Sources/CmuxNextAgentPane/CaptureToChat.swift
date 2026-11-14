@@ -83,7 +83,7 @@ public struct CaptureToChat: Sendable {
             case .taken(let file, let bytes):
                 return await ScreenshotToChat.answer(session: capture.session(), file: file, bytes: bytes)
             case .cancelled:
-                return .object(["cancelled": .bool(true)])
+                return ScreenshotToChat.cancelledAnswer
             case .failed(let reason):
                 throw ControlError(code: "capture_failed", message: reason)
             }

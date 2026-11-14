@@ -116,14 +116,14 @@ import Testing
     // MARK: The region argument and the answer
 
     @Test func theRegionParsesToFourWholePointsAndNoneRunsThePick() throws {
-        #expect(try ScreenshotToChat.pick(from: .object([:])) == .picker)
-        #expect(try ScreenshotToChat.pick(from: .object(["region": .null])) == .picker)
-        #expect(try ScreenshotToChat.pick(from: .object(["region": .array([.number(10), .number(20.4), .number(300), .number(199.6)])]))
+        #expect(try ScreenshotToChat.pick(from: [:]) == .picker)
+        #expect(try ScreenshotToChat.pick(from: ["region": .null]) == .picker)
+        #expect(try ScreenshotToChat.pick(from: ["region": .array([.number(10), .number(20.4), .number(300), .number(199.6)])])
             == .region(x: 10, y: 20, width: 300, height: 200))
         for bad: JSONValue in [.array([.number(1), .number(2), .number(3)]), .string("1,2,3,4"),
                                .array([.number(0), .number(0), .number(0), .number(10)]),
                                .array([.number(0), .number(0), .string("w"), .number(10)])] {
-            #expect(throws: ScreenshotToChat.BadRegion.self) { try ScreenshotToChat.pick(from: .object(["region": bad])) }
+            #expect(throws: ScreenshotToChat.BadRegion.self) { try ScreenshotToChat.pick(from: ["region": bad]) }
         }
     }
 

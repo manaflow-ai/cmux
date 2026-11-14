@@ -48,7 +48,7 @@ public nonisolated struct ScreenshotToChat: Sendable {
 
     /// `chat.capture.toChat`'s params: `{"region": [x, y, w, h]}` takes that region with no pick, and
     /// none (or `{}`) runs the system's pick. Numbers are rounded to whole points.
-    public static func pick(from params: JSONValue) throws(BadRegion) -> Pick {
+    public static func pick(from params: [String: JSONValue]) throws(BadRegion) -> Pick {
         guard let region = params["region"], region != .null else { return .picker }
         guard case .array(let values) = region, values.count == 4 else {
             throw BadRegion(message: "region must be [x, y, width, height]")
@@ -97,7 +97,10 @@ public nonisolated struct ScreenshotToChat: Sendable {
     }
 
     /// What the person sees when the capture could not start or failed (no Screen Recording grant).
-    public static var failedMessage: String { AgentPaneModel.captureFailedMessage }
+    @MainActor public static var failedMessage: String { AgentPaneModel.captureFailedMessage }
+
+    /// `chat.capture.toChat`'s answer for an Esc in the pick.
+    public static let cancelledAnswer: JSONValue = .object(["cancelled": .bool(true)])
 
     /// `chat.capture.toChat`'s answer: `{session, path, bytes}`, `session` the chat that took it
     /// (null for a chat that has not started yet, or one still opening).
