@@ -59,6 +59,21 @@ function sheetOf(view: Window, text: string): CSSStyleSheet | undefined {
   }
 }
 
+/// The theme the host gave this document before page code ran (WebTheme's document-start apply: the
+/// `--cmux-*` variables and `color-scheme` on `<html>`, and its `data-*` look attributes), over the
+/// copy's own: the copy draws in the colors the live page draws in, so the swap changes no color, and a
+/// variable this build added is there for this build's sheet. Under the theme the copy was written in
+/// the values are the same.
+function layerHostTheme(stand: HTMLElement, root: HTMLElement): void {
+  for (let index = 0; index < root.style.length; index += 1) {
+    const name = root.style.item(index);
+    if (name.startsWith("--")) stand.style.setProperty(name, root.style.getPropertyValue(name));
+  }
+  if (root.style.colorScheme) stand.style.colorScheme = root.style.colorScheme;
+  for (const attribute of Array.from(root.attributes))
+    if (attribute.name.startsWith("data-")) stand.setAttribute(attribute.name, attribute.value);
+}
+
 function setAttributes(element: Element, attributes: SnapshotAttributes): void {
   for (const [name, value] of Object.entries(attributes)) {
     if (name === "id" || /^on/i.test(name)) continue;
@@ -164,6 +179,7 @@ export function paintSnapshot(
   shadow.adoptedStyleSheets = [...(styles as CSSStyleSheet[]), still];
   const html = doc.createElement(SNAPSHOT_HTML_TAG);
   setAttributes(html, snapshot.root);
+  layerHostTheme(html, doc.documentElement);
   html.classList.add(SNAPSHOT_ROOT_CLASS);
   const body = doc.createElement(SNAPSHOT_BODY_TAG);
   setAttributes(body, snapshot.body);

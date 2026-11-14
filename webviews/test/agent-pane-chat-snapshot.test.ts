@@ -64,8 +64,9 @@ await requireBrowserLane("agent-pane-chat-snapshot.test.ts", async () => {
   const HTML_ATTRIBUTES = `data-look="roomy" style="--cmux-surface: rgb(10, 20, 30);"`;
   // As the app serves the page (build-agent-pane-web.sh): its rules linked as pane.css, and the copy's
   // (the same rules for its shadow tree) as pane-copy.css beside it.
-  const htmlDocument = (body: string) =>
-    `<!doctype html><html ${HTML_ATTRIBUTES}><head><link rel="stylesheet" id="cmux-pane-styles" href="/pane.css" data-copy="pane-copy.css"></head><body>${body}</body></html>`;
+  /// `attributes`: `<html>`'s, as the host's theme left them before page code ran.
+  const htmlDocument = (body: string, attributes = HTML_ATTRIBUTES) =>
+    `<!doctype html><html ${attributes}><head><link rel="stylesheet" id="cmux-pane-styles" href="/pane.css" data-copy="pane-copy.css"></head><body>${body}</body></html>`;
   const COPY_CSS = snapshotCss(CSS);
   /// Serves the page's two sheets; false for any other request.
   const servesSheet = (route: Route): boolean => {
@@ -162,9 +163,9 @@ requestAnimationFrame(() => {
 
   /// The page the chat was written from: the chat scrolled to row 50, a draft in the composer, and
   /// the agent theme's variable set as the page's theme event sets it.
-  async function written(page: Page): Promise<Record<string, unknown>> {
+  async function written(page: Page, attributes = HTML_ATTRIBUTES): Promise<Record<string, unknown>> {
     await page.route("http://chat.test/a.html", (route) =>
-      route.fulfill({ contentType: "text/html", body: htmlDocument(`<main id="root">${MARKUP()}</main>`) }),
+      route.fulfill({ contentType: "text/html", body: htmlDocument(`<main id="root">${MARKUP()}</main>`, attributes) }),
     );
     await page.goto("http://chat.test/a.html");
     await page.addScriptTag({ content: capture });
@@ -203,7 +204,8 @@ requestAnimationFrame(() => {
       holdUntil,
       drawFirst = false,
       holdDraw = false,
-    }: { holdUntil?: "bundle" | "drawn"; drawFirst?: boolean; holdDraw?: boolean } = {},
+      attributes = HTML_ATTRIBUTES,
+    }: { holdUntil?: "bundle" | "drawn"; drawFirst?: boolean; holdDraw?: boolean; attributes?: string } = {},
   ): Promise<void> {
     await page.route("http://chat.test/**", (route) => {
       const url = new URL(route.request().url());
@@ -213,6 +215,7 @@ requestAnimationFrame(() => {
           contentType: "text/html",
           body: htmlDocument(
             `<main id="root"></main><script src="/fixture.js"></script><script async src="/__snapshot/chat.js"></script><script src="/chat-snapshot.js"></script><script type="module" src="/pane.js"></script>`,
+            attributes,
           ),
         });
       if (url.pathname === "/fixture.js")
@@ -472,6 +475,48 @@ requestAnimationFrame(() => {
     const page = await context.newPage();
     await relaunched(page, before.snapshot, "theme-2");
     expect(await page.evaluate(() => (window as any).atBundle.shown)).toBe(false);
+    await context.close();
+  });
+
+  test("a copy written under another theme of the same appearance draws, in this theme's colors", async () => {
+    // Nearly every update changes the theme's key (a token added or tuned): the copy was refused, and a
+    // chat with no saved picture showed its loading state (Leo, 2026-11-14: "the agent chat after a bit").
+    const context = await newContext(800, 600);
+    const before = await written(
+      await context.newPage(),
+      `data-look="roomy" style="--cmux-surface: rgb(10, 20, 30); color-scheme: dark;"`,
+    );
+    const page = await context.newPage();
+    await relaunched(page, before.snapshot, "theme-2", {
+      holdDraw: true,
+      attributes: `data-glass="plain" style="--cmux-surface: rgb(200, 0, 0); color-scheme: dark;"`,
+    });
+    const stand = await page.evaluate(() => {
+      const html = document
+        .querySelector("cmux-chat-snapshot")!
+        .shadowRoot!.querySelector("cmux-snapshot-html") as HTMLElement;
+      return {
+        surface: html.style.getPropertyValue("--cmux-surface").trim(),
+        look: html.getAttribute("data-look"),
+        glass: html.getAttribute("data-glass"),
+      };
+    });
+    expect(stand).toEqual({ surface: "rgb(200, 0, 0)", look: "roomy", glass: "plain" });
+    await context.close();
+  });
+
+  test("a copy written in another appearance draws nothing", async () => {
+    const context = await newContext(800, 600);
+    const before = await written(
+      await context.newPage(),
+      `style="--cmux-surface: rgb(10, 20, 30); color-scheme: dark;"`,
+    );
+    const page = await context.newPage();
+    await relaunched(page, before.snapshot, "theme-2", {
+      attributes: `style="--cmux-surface: rgb(250, 250, 250); color-scheme: light;"`,
+    });
+    expect(await page.evaluate(() => (window as any).atBundle.shown)).toBe(false);
+    expect(await page.evaluate(() => (window as any).__cmuxChatSnapshotMiss)).toBe("theme");
     await context.close();
   });
 

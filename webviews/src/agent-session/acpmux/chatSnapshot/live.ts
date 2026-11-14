@@ -183,7 +183,7 @@ export function reportChatSnapshot(
 }
 
 /// The key of the theme the page draws in now (the host's `theme` event, pageHost.ts): a copy is
-/// drawn again only under the same one (shared.ts `fitsDocument`).
+/// drawn again under the same one, or another of the same appearance (shared.ts `fitsDocument`).
 let chatTheme = "";
 export function noteChatTheme(key: unknown): void {
   if (typeof key === "string") chatTheme = key;
