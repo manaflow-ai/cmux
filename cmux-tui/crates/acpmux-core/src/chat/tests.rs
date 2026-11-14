@@ -927,7 +927,7 @@ fn settle_card(state: &mut ActorState, id: u64, bodies: Vec<(BodyField, BodySour
     let mut ops = bodies
         .into_iter()
         .map(|(field, source)| translate::Op {
-            raw: RawRange::NONE,
+            raw: translate::RawRange { offset: 0, length: 0 },
             change: Change::Body { id, field, append: false, source },
         })
         .collect::<Vec<_>>();
@@ -943,7 +943,8 @@ fn settle_card(state: &mut ActorState, id: u64, bodies: Vec<(BodyField, BodySour
         lines: 0,
         fields: BTreeMap::from([("tool".into(), "\"Read\"".into())]),
     };
-    ops.push(translate::Op { raw: RawRange::NONE, change: Change::Row(row) });
+    let raw = translate::RawRange { offset: 0, length: 0 };
+    ops.push(translate::Op { raw, change: Change::Row(row) });
     apply_changes(state, ops, b"", 0, 0, 0).unwrap();
 }
 
