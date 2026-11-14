@@ -241,7 +241,8 @@ private func settle(until condition: (() -> Bool)? = nil) async {
     /// link ping's and the signaling ping's), not 15 s after the pong.
     @Test func alignedPingsWaitForTheKeepaliveBeat() async {
         let rig = PresenceTestRig()
-        let origin = rig.clock.now
+        // The grid's last beat was 3 s ago: the next is 7 s away.
+        let origin = rig.clock.now - .seconds(3)
         let clock = rig.clock
         rig.beat = KeepaliveBeat { period in
             let into = (clock.now - origin).components.seconds * 1000
@@ -253,10 +254,9 @@ private func settle(until condition: (() -> Bool)? = nil) async {
         await settle { rig.sockets.first?.pingCount == 1 }
         guard let socket = rig.sockets.first else { Issue.record("No socket"); return }
         socket.hello()
-        rig.clock.advance(by: .seconds(3))
         socket.pong()
-        // 3 s into the grid: the beat is 7 s away.
         await settle { rig.clock.pendingDelays == [.seconds(7)] }
+        #expect(rig.clock.pendingDelays == [.seconds(7)], "pending: \(rig.clock.pendingDelays)")
         for expectedPings in 2...4 {
             rig.clock.advance(by: rig.clock.pendingDelays.first ?? .zero)
             await settle { socket.pingCount == expectedPings }

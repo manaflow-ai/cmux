@@ -63,7 +63,7 @@ private final class BeatLink: MacLink, @unchecked Sendable {
 }
 
 private final class BeatDialer: MacLinkDialer, @unchecked Sendable {
-    private let clock: LinkTestClock
+    let clock: LinkTestClock
     private let traffic: Bool
     private let trafficStops: LinkTestClock.Instant?
     private let lock = NSLock()
@@ -124,7 +124,13 @@ private final class BeatDialer: MacLinkDialer, @unchecked Sendable {
     }
 
     private func linkUp(_ controller: LinkController, _ dialer: BeatDialer) async throws {
-        try await eventually { controller.phase.isConnected && dialer.first != nil }
+        // The link-up probe answered (its RTT is in the phase) and the
+        // heartbeat sleeps toward its first beat.
+        try await eventually {
+            controller.phase == .connected(.wireGuard, .direct, rttMillis: 1) && dialer.first != nil
+        }
+        let clock = dialer.clock
+        try await eventually { clock.isSleeping(after: clock.now) }
     }
 
     @Test func anIdleLinkIsProbedOnEveryBeat() async throws {
