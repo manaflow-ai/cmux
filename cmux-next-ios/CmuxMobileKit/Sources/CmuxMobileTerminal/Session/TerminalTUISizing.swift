@@ -42,9 +42,11 @@ public struct TerminalTUISizing: Equatable, Sendable {
         followsKeyboard = false
     }
 
-    /// The rows for the PTY.
+    /// The rows for the PTY. Never more than the keyboard-down layout's: the
+    /// settled top is a page position, and a dock change after it (the
+    /// composer or key row coming in) can move the resting top above it.
     public func rows(restingStackTop: CGFloat, chromeTop: CGFloat, cellHeight: CGFloat) -> Int {
-        let bottom = (followsKeyboard ? settledStackTop : nil) ?? restingStackTop
+        let bottom = min(restingStackTop, (followsKeyboard ? settledStackTop : nil) ?? restingStackTop)
         return max(1, Int(floor((bottom - chromeTop) / max(1, cellHeight))))
     }
 }
