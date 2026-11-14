@@ -179,15 +179,21 @@ import Testing
         let (sources, _) = sourcesWithTheBrainOff()
         sources.showDemoCloudChief(named: "Atlas", brains: true)
         let creating = Task { await sources.createChief(named: " nee ") }
-        await Task.yield()
-        #expect(sources.creatingChief == "nee" || sources.creatingChief == nil)
+        // The row is up from the tap: it is set before the create's first request goes.
+        var turns = 0
+        while !sources.isChanging, turns < 1000 { await Task.yield(); turns += 1 }
+        #expect(sources.creatingChief == "nee")
         await creating.value
         let sent = Service.lock.withLock { Service.seen.map { "\($0.method) \($0.path)" } }
         #expect(sent == ["POST /v1/ops", "PUT /v1/chiefs/\(made)/brain"])
         #expect(sources.turnOnRefusal == ChiefOffCard.Refusal(chief: made, kind: .unavailable))
         #expect(sources.changeError == nil)
+        // No account here, so no read follows: the row goes with the create.
         #expect(sources.creatingChief == nil)
         #expect(!sources.isChanging)
+        // A sign-out never leaves the row behind.
+        sources.stop()
+        #expect(sources.creatingChief == nil)
     }
 
     @Test func aFailedCreateSaysWhyAndDropsThePendingRow() async {

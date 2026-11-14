@@ -401,6 +401,8 @@ public final class ConversationComposeViewController: UIViewController {
     private func updateComposerVisibility() {
         let hidden = existingController != nil || (!session.draft.query.isEmpty && !session.rows.isEmpty)
         guard composerContainer.isHidden != hidden else { return }
+        // A recording under a bar that goes away could never be stopped: it ends with the bar.
+        if hidden, audioComposer.isActive { audioComposer.cancel() }
         composerContainer.isHidden = hidden
         view.setNeedsLayout()
     }
@@ -1087,6 +1089,16 @@ extension ConversationComposeViewController: ConversationAudioHost {
 
     func dismissPhotoDrawer() {}
 
+    /// Someone in To: and no first send on its way; otherwise say what is missing.
+    func canSendRecordedAudio() -> Bool {
+        guard !session.isSending else { return false }
+        guard session.draft.recipients.isEmpty && session.draft.query.isEmpty else { return true }
+        if session.listing != nil {
+            say(String(localized: "conversation.compose.needsRecipient", defaultValue: "Add someone in To: first.", bundle: .module))
+        }
+        return false
+    }
+
     /// The recording is the first message: it goes with the chosen people, as a typed one does.
     func sendRecordedAudio(data: Data, info: ConversationAudioInfo) -> Bool {
         sendFirstMessage(audio: ConversationComposeAudio(data: data, info: info))
@@ -1135,19 +1147,29 @@ extension ConversationComposeViewController: ConversationAudioHost {
 extension ConversationComposeViewController: PHPickerViewControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
     public func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         picker.dismiss(animated: true)
-        for result in results {
-            let provider = result.itemProvider
-            let png = provider.hasItemConformingToTypeIdentifier(UTType.png.identifier)
-            _ = provider.loadDataRepresentation(forTypeIdentifier: (png ? UTType.png : UTType.image).identifier) { [weak self] data, _ in
-                guard let data else { return }
-                Task { @MainActor in
-                    guard let self, let image = UIImage(data: data) else { return }
-                    // HEIC and the rest go as JPEG, the type every recipient reads.
-                    let bytes = png ? data : image.jpegData(compressionQuality: 0.92) ?? data
-                    self.composer.addAttachment(ComposerAttachment(image: image, data: bytes, mimeType: png ? "image/png" : "image/jpeg"))
-                }
+        let providers = results.map(\.itemProvider)
+        // In the order picked, once every photo has loaded (they finish in any order).
+        Task { [weak self] in
+            var picked: [ComposerAttachment] = []
+            for provider in providers {
+                if let attachment = await Self.attachment(from: provider) { picked.append(attachment) }
             }
+            guard let self else { return }
+            for attachment in picked { self.composer.addAttachment(attachment) }
         }
+    }
+
+    /// A picked photo as a composer attachment: PNG stays PNG, HEIC and the rest go as JPEG,
+    /// the type every recipient reads.
+    private static func attachment(from provider: NSItemProvider) async -> ComposerAttachment? {
+        let png = provider.hasItemConformingToTypeIdentifier(UTType.png.identifier)
+        let type = (png ? UTType.png : UTType.image).identifier
+        let data: Data? = await withCheckedContinuation { continuation in
+            _ = provider.loadDataRepresentation(forTypeIdentifier: type) { data, _ in continuation.resume(returning: data) }
+        }
+        guard let data, let image = UIImage(data: data) else { return nil }
+        let bytes = png ? data : image.jpegData(compressionQuality: 0.92) ?? data
+        return ComposerAttachment(image: image, data: bytes, mimeType: png ? "image/png" : "image/jpeg")
     }
 
     public func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {

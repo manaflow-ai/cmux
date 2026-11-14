@@ -209,8 +209,8 @@ public final class ChiefComposer {
         // as a file (agents take no voice messages; `send` drops a message with none of these).
         var files = attachments(message.images)
         if let audio = message.audio {
-            let wav = audio.data.prefix(4) == Data("RIFF".utf8)
-            files.append(AgentAttachment(kind: .file, name: wav ? "Audio.wav" : "Audio.m4a", data: audio.data))
+            // The recorder writes WAV (`ConversationAudioRecorder`).
+            files.append(AgentAttachment(kind: .file, name: "Audio.wav", data: audio.data))
         }
         chat.send(prompt: message.text, attachments: files)
     }
