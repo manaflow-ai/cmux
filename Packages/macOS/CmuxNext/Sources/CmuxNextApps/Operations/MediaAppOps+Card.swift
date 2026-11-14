@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 extension MediaAppOps {
     /// `media.get` and `media.control` over the Now Playing card's sources (the App passes
     /// `NowPlayingSources`): the track the card shows and its transport, whether the card or the
-    /// New Tab player is on or not. Another app's Now Playing (Spotify, Music) takes part only while
+    /// New Tab player is on or not. Another app's Now Playing takes part only while
     /// `sidebar.nowPlaying.otherApps` is on and the card or the New Tab player reads it, as for the card.
     /// - Parameters:
     ///   - nowPlaying: What the card's sources play now, read at each call.

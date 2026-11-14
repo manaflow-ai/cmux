@@ -104,7 +104,7 @@
       "staleAfterSeconds": 60
     },
     "media.now_playing": {
-      "docs": "What plays in cmux now, the track the Now Playing card shows: cmux's own player, else a browser tab playing aloud, else another app (Spotify, Music) while sidebar.nowPlaying.otherApps is on (media.get). The Mac app pushes media.changed when the track, its play state, its position jump or its artwork changes, so the runtime never polls it; between pushes, move the position on from position_ms with rate yourself.",
+      "docs": "What plays in cmux now, the track the Now Playing card shows: cmux's own player, else a browser tab playing aloud, else another music app while sidebar.nowPlaying.otherApps is on (media.get). The Mac app pushes media.changed when the track, its play state, its position jump or its artwork changes, so the runtime never polls it; between pushes, move the position on from position_ms with rate yourself.",
       "scopes": ["media:read"],
       "params": { "type": "object", "additionalProperties": false, "properties": {} },
       "value": {
@@ -129,7 +129,7 @@
                   "position_ms": { "type": "number", "description": "When position was read, in Unix milliseconds." },
                   "can_previous": { "type": "boolean" },
                   "can_next": { "type": "boolean" },
-                  "source": { "type": "string", "description": "The app that plays (Spotify, Music); absent for cmux's own player and tabs." }
+                  "source": { "type": "string", "description": "The name of the other app that plays; absent for cmux's own player and tabs." }
                 }
               }
             ]

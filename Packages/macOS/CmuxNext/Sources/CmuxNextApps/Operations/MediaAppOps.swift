@@ -23,7 +23,7 @@ public nonisolated struct MediaAppOps: AppHostCapabilityHandler {
         public var positionDate: Date
         public var canPrevious: Bool
         public var canNext: Bool
-        /// The app that plays (Spotify, Music); nil for cmux's own player and tabs.
+        /// The name of the other app that plays; nil for cmux's own player and tabs.
         public var source: String?
 
         public init(title: String, artist: String, artwork: String?, isPlaying: Bool, position: TimeInterval?,
