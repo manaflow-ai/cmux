@@ -3,8 +3,8 @@ import Foundation
 
 extension CMUXCLI {
     /// Runs the browser download wait and history commands. Listing is a
-    /// read-only snapshot; waiting keeps the existing timeout and path
-    /// behavior for compatibility.
+    /// read-only snapshot. Waiting with a path saves the finished download
+    /// there.
     func runBrowserDownloadCommand(
         surfaceRaw: String?,
         subArgs: [String],
@@ -47,7 +47,11 @@ extension CMUXCLI {
             let wait = try parseBrowserDownloadWaitArguments(waitArgs)
             var params: [String: Any] = ["surface_id": surfaceID]
             if let path = wait.path {
-                params["path"] = path
+                // The app saves the file, and its working directory isn't the caller's.
+                params["path"] = URL(
+                    fileURLWithPath: path,
+                    relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+                ).standardizedFileURL.path
             }
             if let timeoutMs = wait.timeoutMs {
                 params["timeout_ms"] = timeoutMs

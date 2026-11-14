@@ -313,21 +313,25 @@ def main() -> int:
                 "not_found",
             )
 
-            download_path = tempfile.NamedTemporaryFile(delete=False, prefix="cmux-download-", suffix=".txt").name
-            os.unlink(download_path)
-
-            def _write_download() -> None:
-                time.sleep(0.2)
-                Path(download_path).write_text("downloaded", encoding="utf-8")
-
-            t = threading.Thread(target=_write_download, daemon=True)
-            t.start()
-            dl = c._call("browser.download.wait", {"surface_id": sid, "path": download_path, "timeout_ms": 5000}) or {}
+            # With a path, the wait saves the next finished download there.
+            download_path = tempfile.NamedTemporaryFile(delete=False, prefix="cmux-download-", suffix=".bin").name
+            Path(download_path).write_bytes(b"stale")
+            c._call("browser.navigate", {"surface_id": sid, "url": index_url})
+            _wait_selector(c, sid, "#download-link", timeout_s=7.0)
+            c._call("browser.click", {"surface_id": sid, "selector": "#download-link"})
+            dl = c._call("browser.download.wait", {"surface_id": sid, "path": download_path, "timeout_ms": 10000}) or {}
             _must(bool(dl.get("downloaded")) is True, f"Expected download wait success: {dl}")
-            try:
-                os.unlink(download_path)
-            except Exception:
-                pass
+            _must(
+                Path(download_path).read_bytes() == b"cmux browser download history\n",
+                f"Download was not saved at the path: {dl}",
+            )
+            second_download_path = str((dl.get("download") or {}).get("path") or "")
+            for path in (download_path, second_download_path):
+                try:
+                    if path == download_path or path.startswith(str(Path.home() / "Downloads")):
+                        os.unlink(path)
+                except Exception:
+                    pass
             try:
                 if actual_download_path.startswith(str(Path.home() / "Downloads")):
                     os.unlink(actual_download_path)
