@@ -282,8 +282,8 @@
         },
         {
           "key": "agents.cmuxMcp",
-          "title": "Add cmux Tools to Your Coding Agents",
-          "help": "Lets Claude Code, Codex and other coding agents you run use cmux's tools, Computer Use included. Until you choose, cmux adds nothing to your agents. Off adds nothing and leaves your agents' settings alone.",
+          "title": "cmux Tools for Agents in cmux",
+          "help": "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings.",
           "kind": "choice",
           "default": "ask",
           "group": "cmux Tools in Your Coding Agents",

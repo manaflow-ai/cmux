@@ -103312,7 +103312,7 @@
         {
           "title" : {
             "key" : "settings.agents.cmuxMcp.on",
-            "text" : "Add to My Agents"
+            "text" : "On"
           },
           "value" : "on"
         },
@@ -103335,7 +103335,7 @@
       },
       "help" : {
         "key" : "settings.agents.cmuxMcp.help",
-        "text" : "Lets Claude Code, Codex and other coding agents you run use cmux's tools, Computer Use included. Until you choose, cmux adds nothing to your agents. Off adds nothing and leaves your agents' settings alone."
+        "text" : "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.cmuxMcp",
@@ -103365,7 +103365,7 @@
       "section" : "general",
       "summary" : {
         "key" : "settings.agents.cmuxMcp.summary",
-        "text" : "Whether your coding agents get cmux's tools"
+        "text" : "Whether agents you start in cmux get cmux’s tools"
       },
       "surfaces" : {
         "cli" : {
@@ -103452,7 +103452,7 @@
       },
       "title" : {
         "key" : "settings.agents.cmuxMcp",
-        "text" : "Add cmux Tools to Your Coding Agents"
+        "text" : "cmux Tools for Agents in cmux"
       },
       "validation" : "portable"
     },
