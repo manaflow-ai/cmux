@@ -43,6 +43,7 @@ fn damaged_snapshot_rebuilds_at_open_and_quarantines_one_set() {
 
     let (hub, mut writer) = Hub::open(dir.path(), 11, || 73).unwrap();
     assert_eq!(hub.rebuild_count(), 1);
+    assert_eq!(hub.snapshot().len(), 0);
     assert!(hub.snapshot().disk().is_none());
     assert_ne!(hub.snapshot().edition(), 1);
     assert!(bad_entries(dir.path()).iter().any(|name| name == "index.snap"));
