@@ -200,6 +200,7 @@ export class SettingsStore {
   private readonly unsubscribers: Array<() => void> = [];
   private readonly commandListeners = new Set<(command: PageCommand) => void>();
   private disposed = false;
+  private openingThemeFile = false;
   private themeColorsRequested = false;
   /** The last composed state and what it was composed from (getSnapshot answers it while equal). */
   private composed: { ui: UiState; cache: CacheView; state: SettingsState } | null = null;
@@ -404,8 +405,19 @@ export class SettingsStore {
    * a failure shows on the Theme File row as the export's own reason (the CLI writes it for people;
    * "could not be changed" would be wrong for an open). */
   async openThemeFile(): Promise<void> {
-    const reply = await this.request("cmux.settings.theme.file.open", {});
-    this.setError("appearance.themeFile", reply.ok ? null : { ...rowError(reply.error), message: reply.error.message });
+    // One at a time: a second click before the first answers would race it for the same new name
+    // (`my-look`) and report "exists" for a file the first one made and opened.
+    if (this.openingThemeFile) return;
+    this.openingThemeFile = true;
+    try {
+      const reply = await this.request("cmux.settings.theme.file.open", {});
+      this.setError(
+        "appearance.themeFile",
+        reply.ok ? null : { ...rowError(reply.error), message: reply.error.message },
+      );
+    } finally {
+      this.openingThemeFile = false;
+    }
   }
 
   /** After a theme file lands, the theme names and colors are read again so every picker lists it. */

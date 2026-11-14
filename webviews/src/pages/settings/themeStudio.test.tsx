@@ -382,3 +382,12 @@ test("an Open Theme File the host could not make shows its reason on the Theme F
   await click(button);
   expect(row.querySelector(".row-error")).toBeNull();
 });
+
+test("a second Open Theme File before the first answers sends nothing (both would race for one new name)", async () => {
+  page = await renderPage({ path: "/settings/theme" });
+  const store = page.store;
+  await run(() => Promise.all([store.openThemeFile(), store.openThemeFile()]));
+  expect(ops(page.provider, "cmux.settings.theme.file.open")).toEqual([{}]);
+  await run(() => store.openThemeFile());
+  expect(ops(page.provider, "cmux.settings.theme.file.open")).toEqual([{}, {}]);
+});

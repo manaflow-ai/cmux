@@ -14,7 +14,7 @@ import CmuxNextWakeups
 ///   an editable copy that looks the same, which then wins over the shipped one.
 ///
 /// Then the person's file opens off the main thread (Finder shows it when no app opens it). The host
-/// checks that the person, not an agent driving the page, asked.
+/// runs it only for the Settings page itself (`SettingsPageProvider.writer`), as Open Ghostty Config.
 @MainActor
 public struct SettingsThemeFileOpener {
     /// The app's bundled `cmux`, nil in a build without one.
@@ -74,7 +74,8 @@ public struct SettingsThemeFileOpener {
     }
 
     /// Runs the bundled `cmux` on the app's settings file (off the main thread, with a deadline); a
-    /// failure carries the CLI's last stderr line.
+    /// failure carries all the CLI's stderr lines, in order: a failed `--use` prints its cause first and
+    /// a rerun hint after it, so the last line alone can drop the cause.
     private func export(_ arguments: [String], settingsFile: URL) async throws {
         guard let binary = await cli() else {
             throw PageError(code: "cmux.page.unavailable", message: "this build has no cmux")
@@ -91,9 +92,11 @@ public struct SettingsThemeFileOpener {
             throw PageError.failed(error, code: "cmux.settings.theme.file_failed")
         }
         guard outcome.succeeded else {
-            let line = String(decoding: outcome.errorOutput, as: UTF8.self).split(whereSeparator: \.isNewline).last.map(String.init)
+            let lines = String(decoding: outcome.errorOutput, as: UTF8.self).split(whereSeparator: \.isNewline)
+                .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
             throw PageError(code: "cmux.settings.theme.file_failed",
-                            message: line ?? "cmux \(arguments.joined(separator: " ")) failed (exit \(outcome.status))")
+                            message: lines.isEmpty ? "cmux \(arguments.joined(separator: " ")) failed (exit \(outcome.status))"
+                                : lines.joined(separator: " "))
         }
     }
 }
