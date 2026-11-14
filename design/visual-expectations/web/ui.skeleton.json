@@ -1,0 +1,6 @@
+{
+  "id": "ui.skeleton",
+  "title": "Loading skeleton",
+  "captures": [{ "state": "rows", "entry": "ui.skeleton", "variant": "breathe-rows", "width": 560, "height": 320 }],
+  "keep": []
+}

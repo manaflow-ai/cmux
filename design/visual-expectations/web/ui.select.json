@@ -1,0 +1,7 @@
+{
+  "id": "ui.select",
+  "title": "Select popup",
+  "spec": "design/surface-materials.md",
+  "captures": [{ "state": "open", "entry": "ui.select", "variant": "open", "width": 560, "height": 420 }],
+  "keep": [{ "name": "options", "selector": "[role=option]", "why": "Option rows match menu rows." }]
+}

@@ -1,0 +1,7 @@
+{
+  "id": "ui.native-menu-material",
+  "title": "Native-host menu material (veil)",
+  "spec": "design/surface-materials.md",
+  "captures": [{ "state": "veil", "entry": "ui.native-menu-material", "variant": "veil", "width": 760, "height": 520 }],
+  "keep": []
+}
