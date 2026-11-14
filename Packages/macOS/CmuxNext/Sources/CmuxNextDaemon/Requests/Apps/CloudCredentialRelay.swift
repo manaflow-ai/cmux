@@ -1,5 +1,6 @@
 public import Foundation
 import CmuxNextCompat
+import os
 
 /// The Mac side of the host credential relay (cx-wb5.63, slice B of
 /// cx-wb5.57; cmux-tui-core `apps/relay.rs`): a first-party app server
@@ -84,6 +85,14 @@ public nonisolated struct CloudCredentialRelay: Sendable {
     /// Whether an organization turned Cloud off (`DisabledFeatures`): then no op is relayed and no
     /// carrier socket is handed out, so a Cloud app server cannot start a carrier around the policy.
     public let policy = Policy()
+    /// Whether a user is signed in, without minting (the live ``session`` mints for its team): the
+    /// relay's own checks, so one relay call starts at most one mint.
+    let signedIn: @Sendable () async -> Bool
+    /// How long one ``relayOp`` call may take before it answers `owner.timed_out` naming its step:
+    /// inside the daemon's 30 s provider deadline (cmux-tui-core `apps/relay.rs`), so the server hears
+    /// why rather than "the cmux app did not answer in time".
+    var deadline: Duration = .seconds(25)
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
 
     /// ``policy``: set on the main actor by the app's policy, read by each call.
     public nonisolated final class Policy: Sendable {
@@ -115,12 +124,14 @@ public nonisolated struct CloudCredentialRelay: Sendable {
 
     public init(post: @escaping Post, token: @escaping @Sendable () async throws -> String,
                 invalidate: @escaping @Sendable () async -> Void, session: @escaping @Sendable () async -> Session,
+                signedIn: (@Sendable () async -> Bool)? = nil,
                 allowedOps: @escaping @Sendable () async -> Set<String>,
                 carrierSocket: @escaping CarrierSocket = CloudCredentialRelay.noCarrier) {
         self.post = post
         self.token = token
         self.invalidate = invalidate
         self.session = session
+        self.signedIn = signedIn ?? { await session().signedIn }
         self.allowedOps = allowedOps
         self.carrierSocket = carrierSocket
     }
@@ -149,7 +160,7 @@ public nonisolated struct CloudCredentialRelay: Sendable {
         guard let machine = params["machine"]?.stringValue, !machine.isEmpty else {
             return Self.failure("validation.invalid", "credential.carrier_socket needs a machine")
         }
-        guard await session().signedIn else { return Self.notSignedIn }
+        guard await signedIn() else { return Self.notSignedIn }
         switch await carrierSocket(machine) {
         case .success(let socket):
             return Answer(ok: true, body: .object(["value": .object(["socket": .string(socket)])]))
@@ -168,7 +179,7 @@ public nonisolated struct CloudCredentialRelay: Sendable {
         guard Self.mayRelay(op, allowed: await allowedOps()) else {
             return Self.failure("credential.op_refused", "the credential relay never sends \(op)")
         }
-        guard await session().signedIn else { return Self.notSignedIn }
+        guard await signedIn() else { return Self.notSignedIn }
         let key = params["idempotency_key"]?.stringValue
         var envelope: [String: JSONValue] = ["op": .string(op), "params": params["params"] ?? .object([:])]
         let path: String
@@ -182,18 +193,68 @@ public nonisolated struct CloudCredentialRelay: Sendable {
         guard let body = try? JSONEncoder().encode(JSONValue.object(envelope)) else {
             return Self.failure("validation.invalid", "credential.relay params are not JSON")
         }
+        let step = Step()
+        let bound = deadline
+        return await RelayDeadline.race(bound, timeout: {
+            let message = "the credential relay gave up on \(op) after \(bound) while \(step.name)"
+            Self.logger.error("credential relay: \(message, privacy: .public)")
+            return Self.failure("owner.timed_out", message, retryable: true)
+        }) { await send(op, path, body, step) }
+    }
+
+    /// One relayed op: a token (the held one or one mint; a second only after the Worker refused the
+    /// first with 401), then the POST. A failed mint and a failed POST each answer and log what failed;
+    /// neither carries the token.
+    private func send(_ op: String, _ path: String, _ body: Data, _ step: Step) async -> Answer {
         do {
-            var reply = try await post(path, body, try await token())
+            var reply = try await post(path, body, try await mint(op, step))
             if reply.status == 401 {
                 // A stale token: mint once more, then the Worker's answer stands.
                 await invalidate()
-                reply = try await post(path, body, try await token())
+                reply = try await post(path, body, try await mint(op, step))
             }
             return Self.answer(status: reply.status, body: reply.body)
+        } catch let refused as MintRefused {
+            return refused.answer
         } catch {
-            if await !session().signedIn { return Self.notSignedIn }
-            return Self.failure("owner.unreachable", "the cmux API did not answer", retryable: true)
+            if await !signedIn() { return Self.notSignedIn }
+            let why = Self.describe(error)
+            Self.logger.error("credential relay: \(op, privacy: .public): POST /\(path, privacy: .public) failed: \(why, privacy: .public)")
+            return Self.failure("owner.unreachable", "the cmux API did not answer POST /\(path): \(why)", retryable: true)
         }
+    }
+
+    /// The install token, or the answer that names why none could be minted.
+    private func mint(_ op: String, _ step: Step) async throws -> String {
+        step.set("minting the install token")
+        defer { step.set("waiting for the cmux API") }
+        do {
+            return try await token()
+        } catch {
+            if await !signedIn() { throw MintRefused(answer: Self.notSignedIn) }
+            let why = Self.describe(error)
+            Self.logger.error("credential relay: \(op, privacy: .public): install token mint failed: \(why, privacy: .public)")
+            throw MintRefused(answer: Self.failure("credential.mint_failed", "this Mac could not mint its cmux install token: \(why)",
+                                                   retryable: true))
+        }
+    }
+
+    /// A failed mint, as the answer the app server gets.
+    private struct MintRefused: Error { var answer: Answer }
+
+    /// The step one relay call is in, for its timeout answer.
+    private nonisolated final class Step: Sendable {
+        private let state = Mutex("checking the op")
+        var name: String { state.withLock { $0 } }
+        func set(_ name: String) { state.withLock { $0 = name } }
+    }
+
+    /// What failed, for a log line and an answer: a URL error's code, else the error's own description
+    /// (an install-auth error names its request, code or HTTP status). Never a token.
+    static func describe(_ error: any Error) -> String {
+        if let url = error as? URLError { return "URLError \(url.code.rawValue)" }
+        if error is CancellationError { return "cancelled" }
+        return String(describing: error)
     }
 
     /// Folds a Worker answer into the ABI body: `{ok: true, value,
@@ -232,5 +293,57 @@ public nonisolated struct CloudCredentialRelay: Sendable {
 
     static func failure(_ code: String, _ message: String, retryable: Bool = false) -> Answer {
         Answer(ok: false, body: .object(["code": .string(code), "message": .string(message), "retryable": .bool(retryable)]))
+    }
+}
+
+/// ``CloudCredentialRelay``'s bound on one relay call: the caller is answered at `bound` even when the
+/// work ignores cancellation (a mint shared through the install client's in-flight task does), and the
+/// work is then cancelled, never awaited. A task group would wait for its cancelled child.
+nonisolated final class RelayDeadline: Sendable {
+    typealias Answer = CloudCredentialRelay.Answer
+    private struct State {
+        var continuation: CheckedContinuation<Answer, Never>?
+        var job: Task<Void, Never>?
+    }
+    private let state = Mutex(State())
+
+    static func race(_ bound: Duration, timeout: @escaping @Sendable () -> Answer,
+                     _ work: @escaping @Sendable () async -> Answer) async -> Answer {
+        let gate = RelayDeadline()
+        return await withCheckedContinuation { continuation in
+            gate.state.withLock { $0.continuation = continuation }
+            // concurrency-allow: one-shot timer, cancelled when the work answers first.
+            let timer = Task {
+                // wakeup-allow: one-shot deadline of one relay call (stops at the bound or the answer)
+                try? await Task.sleep(for: bound)
+                guard !Task.isCancelled else { return }
+                gate.finish(timeout())
+            }
+            // concurrency-allow: the race answers at the bound without awaiting this task; it is cancelled then.
+            let job = Task {
+                let answer = await work()
+                timer.cancel()
+                gate.finish(answer)
+            }
+            let finished = gate.state.withLock { state -> Bool in
+                guard state.continuation != nil else { return true }
+                state.job = job
+                return false
+            }
+            if finished { job.cancel() }
+        }
+    }
+
+    /// The first answer wins; a later one is dropped, and work still running is cancelled.
+    private func finish(_ answer: Answer) {
+        let taken = state.withLock { state -> (CheckedContinuation<Answer, Never>, Task<Void, Never>?)? in
+            guard let continuation = state.continuation else { return nil }
+            state.continuation = nil
+            defer { state.job = nil }
+            return (continuation, state.job)
+        }
+        guard let (continuation, job) = taken else { return }
+        continuation.resume(returning: answer)
+        job?.cancel()
     }
 }

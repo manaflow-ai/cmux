@@ -362,3 +362,26 @@ func makeClient(_ owner: FakeOwner, _ signer: SoftwareSigner, record: InstallRec
         #expect(InstallAuthClient.displayName(String(repeating: "📱", count: 60)).utf16.count == 80)
     }
 }
+
+/// A transport whose every request throws `error` (no HTTP answer).
+struct ThrowingTransport: InstallAuthTransport {
+    let error: URLError
+    func post(_ path: String, json: Data, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data) {
+        throw error
+    }
+}
+
+@Suite struct InstallAuthTransportFailureTests {
+    /// A request with no HTTP answer names its path and the URL error's code, so the Mac's credential relay
+    /// can say which mint step failed and why (a 15 s idle timeout is URLError -1001); nothing names a token.
+    @Test func aRequestWithNoAnswerNamesItsPathAndURLErrorCode() async {
+        let client = InstallAuthClient(transport: ThrowingTransport(error: URLError(.timedOut)), signer: SoftwareSigner(),
+                                       sessionToken: nil, stackUser: "stack_1", deviceName: "Mac", clientVersion: nil,
+                                       record: InstallRecord(user: "user_1", install: "inst_1"), profile: .mac)
+        await #expect(throws: InstallAuthError.transport(path: "/v1/auth/challenge", urlErrorCode: URLError.Code.timedOut.rawValue)) {
+            try await client.installToken()
+        }
+        #expect(String(describing: InstallAuthError.transport(path: "/v1/auth/challenge", urlErrorCode: -1001))
+            == "POST /v1/auth/challenge got no answer (URLError -1001)")
+    }
+}

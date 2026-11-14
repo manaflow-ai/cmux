@@ -25,6 +25,8 @@ public nonisolated extension CloudCredentialRelay {
                 let token = try? await identity.installToken()
                 return Session(signedIn: true, team: token.flatMap(MacInstallIdentity.team(ofToken:)))
             },
+            // The relay's own checks never mint: a relayed op mints once, in its `token` step.
+            signedIn: signedIn,
             allowedOps: allowedOps,
             carrierSocket: carrierSocket)
     }
