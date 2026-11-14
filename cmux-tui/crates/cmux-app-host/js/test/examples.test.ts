@@ -1,8 +1,8 @@
 // The example extensions (examples/extensions/*) in the fake host, and the moved github-prs
 // sample's budget: timers and upstream reads before (hand-rolled cmux.timer.every) and after
 // (cmux.watch), counted the same way.
-import { describe, expect, test } from "bun:test"
-import { readFileSync } from "node:fs"
+import { beforeAll, describe, expect, test } from "bun:test"
+import { readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { FakeHost } from "./fake-host.ts"
 
@@ -114,5 +114,132 @@ describe("github-prs on cmux.watch: budget", () => {
     for (const m of ["w1-prs", "w1-recent", "w2-prs", "w2-recent"]) host.global.__cmuxAppUnmount(m)
     expect(host.timers.size).toBe(0)
     expect(host.subscriptions.size).toBe(0)
+  })
+})
+
+// examples/extensions/activity is built only against the public SDK (cmux-extension-sdk): a sidebar
+// section and a pane that react to workspace, agent and chat events.
+describe("local/activity (cmux-extension-sdk only)", () => {
+  const dir = "examples/extensions/activity"
+  const chat = (id: string, workspace: string | null, state: string, unread = false) =>
+    ({ id, title: id, state, unread, harness: "claude", project: null, cwd: null, workspace, machine: null, updated_ms: 0 })
+
+  // Rows in drawn order (the tree from its root), not creation order.
+  const drawn = (host: FakeHost, mount: string) => {
+    const tree = host.tree(mount)
+    const out: Array<Record<string, unknown>> = []
+    const walk = (id: string) => {
+      const n = tree.nodes.get(id)
+      if (!n) return
+      if (n.type === "Row") out.push(n.props)
+      n.children.forEach(walk)
+    }
+    walk(tree.root)
+    return out
+  }
+
+  // Built the way `cmux ext dev` builds it (dist/ is build output, never committed).
+  let built: string | undefined
+  beforeAll(async () => {
+    const { pack } = await import("../../tools/pack.ts")
+    built = await pack(join(root, dir))
+  })
+
+  function activity() {
+    const host = new FakeHost(built!, { app: { id: "local/activity", version: "1.0.0" }, settings: {} })
+    const state = {
+      workspaces: [{ id: "ws_1", session_id: "s", name: "api", index: 0, focused: true }, { id: "ws_2", session_id: "s", name: "web", index: 1, focused: false }],
+      agents: [{ id: "a1", state: "working" }, { id: "a2", state: "idle" }],
+      chats: [chat("c1", "ws_2", "input"), chat("c2", "ws_2", "idle", true), chat("c3", "ws_1", "working")]
+    }
+    host.handlers["workspace.list"] = () => ok(state.workspaces)
+    host.handlers["agent.list"] = () => ok(state.agents)
+    host.handlers["agent_chat.list"] = () => ok({ chats: state.chats })
+    host.handlers["workspace.focus"] = () => ok({})
+    return { host, state }
+  }
+
+  test("imports nothing but cmux-extension-sdk, and builds to one script that sets its exports", () => {
+    const src = readFileSync(join(root, dir, "src/main.ts"), "utf8")
+    expect([...src.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1])).toEqual(["cmux-extension-sdk"])
+    expect(src).not.toContain("<reference")
+    expect(built).toContain("__cmuxAppExports")
+  })
+
+  test("the section lists each workspace with the chats waiting in it, and redraws on agent_chat.changed", async () => {
+    const { host, state } = activity()
+    expect(host.mount("s", "renderSection")).toBe("")
+    await host.settle()
+    expect(drawn(host, "s").map((r) => [r.title, r.subtitle ?? null, r.badge ?? null])).toEqual([
+      ["1 agent working", null, null],
+      ["api", null, null],
+      ["web", "2 chats waiting for you", 2]
+    ])
+    // Pushed, not polled: it subscribes to the three streams and arms no timer.
+    expect(new Set([...host.subscriptions.values()].map((s) => s.stream))).toEqual(new Set(["workspace.changed", "agent.changed", "agent_chat.changed"]))
+    expect(host.timers.size).toBe(0)
+    state.chats = [chat("c1", "ws_2", "working")]
+    host.emit("agent_chat.changed")
+    await host.settle()
+    expect(rows(host, "s").find((r) => r.props.title === "web")!.props.subtitle ?? null).toBe(null)
+    state.workspaces = [...state.workspaces, { id: "ws_3", session_id: "s", name: "docs", index: 2, focused: false }]
+    host.emit("workspace.changed")
+    await host.settle()
+    expect(rows(host, "s").map((r) => r.props.title)).toContain("docs")
+  })
+
+  test("a click on a workspace row shows that workspace", async () => {
+    const { host } = activity()
+    host.mount("s", "renderSection")
+    await host.settle()
+    host.dispatch("s", host.findNode("s", (n) => n.type === "Row" && n.props.title === "web")!, "tap")
+    await host.settle()
+    expect(host.calls.filter((c) => c.name === "workspace.focus").map((c) => c.params.workspace)).toEqual(["ws_2"])
+  })
+
+  test("the pane is a live feed of events, newest first, and unsubscribes when closed", async () => {
+    const { host } = activity()
+    expect(host.mount("p", "renderPane")).toBe("")
+    await host.settle()
+    expect(rows(host, "p")).toEqual([])
+    host.emit("workspace.changed")
+    await host.settle()
+    host.emit("agent_chat.changed")
+    await host.settle()
+    expect(drawn(host, "p").map((r) => r.title)).toEqual(["A chat changed", "Workspaces changed"])
+    host.global.__cmuxAppUnmount("p")
+    expect(host.subscriptions.size).toBe(0)
+  })
+})
+
+describe("cmux-extension-sdk", () => {
+  // The package bundled the way `cmux ext dev` bundles an extension, exposed as globalThis.__sdk.
+  async function sdkHost(body: string) {
+    const entry = join(root, "cmux-tui/crates/cmux-extension-sdk/typescript/src/.sdk-test-entry.ts")
+    writeFileSync(entry, `import * as sdk from "./index.ts"\n;(globalThis as any).__sdk = sdk\n`)
+    try {
+      const out = await Bun.build({ entrypoints: [entry], format: "iife", target: "browser" })
+      if (!out.success) throw new Error(out.logs.map(String).join("\n"))
+      return new FakeHost(`${await out.outputs[0]!.text()}\n${body}`)
+    } finally {
+      rmSync(entry, { force: true })
+    }
+  }
+
+  test("on() refuses a stream cmux does not send, naming the ones it does", async () => {
+    const host = await sdkHost(`globalThis.__cmuxAppExports = { render: () => { __sdk.on("workspace.chagned", () => {}); return __sdk.Text("x") } }`)
+    const error = host.mount("m", "render")
+    expect(error).toContain("unknown event stream")
+    expect(error).toContain("workspace.changed")
+  })
+
+  test("versions and the event table are the runtime's own (no copies)", async () => {
+    const host = await sdkHost("")
+    const json = (path: string) => JSON.parse(readFileSync(join(import.meta.dir, "..", "..", path), "utf8"))
+    expect(host.eval("__sdk.API_VERSION")).toBe(json("generated/scopes.json").apiVersion)
+    expect(host.eval("__sdk.RUNTIME_VERSION")).toBe(host.eval("__cmuxAppRuntimeVersion"))
+    expect(host.eval("__sdk.RUNTIME_VERSION")).not.toBe("")
+    expect(host.eval("__sdk.EVENT_STREAMS")).toEqual(Object.keys(json("schema/v2/events.json").events))
+    expect(host.eval(`__sdk.scopeFor("agent_chat.changed")`)).toBe("agent_chat:read")
   })
 })

@@ -455,7 +455,7 @@ class NoOracleIsNoVerdict(unittest.TestCase):
             def hide(name, *args, **kwargs):
                 if name == hidden:
                     return None
-                return which(name, *args, **kwargs) or (f"/present/{{name}}" if name in REAL else None)
+                return which(name, *args, **kwargs) or (f"/present/{name}" if name in REAL else None)
 
             with mock.patch.object(shutil, "which", hide):
                 self.assertIn(hidden, oracle_missing() or "")

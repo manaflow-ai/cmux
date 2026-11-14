@@ -10,6 +10,7 @@ import { manySessions, noChat } from "../src/gallery/fixtures/acpmux";
 import { newTabHost } from "../src/agent-session/acpmux/newTabModel";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import type { ScreenTemplate } from "../src/agent-session/acpmux/newtab/templates";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -54,12 +55,8 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
-});
+// React finishes its queued work before the DOM globals go (test/support/domTeardown.ts).
+afterAll(() => teardownDom(saved, { scope }));
 
 const noop = () => {};
 const MORNING = new Date(2026, 9, 20, 9, 30).getTime();

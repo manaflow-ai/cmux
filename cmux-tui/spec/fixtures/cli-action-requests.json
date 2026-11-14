@@ -800,6 +800,17 @@
     },
     {
       "params": {
+        "action": "tab new-mac-screen",
+        "args": {
+          "device": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab new-mac-screen --device /tmp/contract"
+    },
+    {
+      "params": {
         "action": "tab new-webkit",
         "args": {
           "url": "/tmp/contract"
@@ -3148,6 +3159,28 @@
         "wait": true
       },
       "source": "cmux tab move-to-space --space room:contract-1"
+    },
+    {
+      "params": {
+        "action": "tab move-to-window",
+        "args": {
+          "window": "window:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab move-to-window --window window:contract-1"
+    },
+    {
+      "params": {
+        "action": "tab duplicate-to-new-split",
+        "args": {
+          "direction": "right"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab duplicate-to-new-split --direction right"
     },
     {
       "params": {

@@ -13,13 +13,17 @@ use super::super::codec::{HostLaunch, encode_hex, read_required_frame};
 use super::super::host_state::kitty_graphics_limits_within;
 use super::super::records::validate_terminal_host_record;
 use super::*;
+use crate::diagnostics::HostSeating;
 
+/// `seating`: where the host takes its seat among the session's terminals
+/// before it starts the terminal's child (`diagnostics/terminal_seats.rs`).
 pub fn launch_terminal_host(
     options: &SurfaceOptions,
     root: &Path,
     default_colors: DefaultColors,
     cell_pixels: (u16, u16),
     kitty_graphics_limits: KittyGraphicsLimits,
+    seating: &HostSeating,
 ) -> anyhow::Result<HostAttachment> {
     let terminal_id = TerminalId::random()?;
     launch_terminal_host_with_identity(
@@ -29,6 +33,7 @@ pub fn launch_terminal_host(
         cell_pixels,
         kitty_graphics_limits,
         terminal_id,
+        seating,
     )
 }
 
@@ -42,9 +47,18 @@ pub fn launch_terminal_host_with_identity(
     cell_pixels: (u16, u16),
     kitty_graphics_limits: KittyGraphicsLimits,
     terminal_id: TerminalId,
+    seating: &HostSeating,
 ) -> anyhow::Result<HostAttachment> {
-    let (colors, kitty) = (default_colors, kitty_graphics_limits);
-    launch_terminal_host_from(options, root, colors, cell_pixels, kitty, terminal_id, None, "")
+    let presentation = (default_colors, cell_pixels, kitty_graphics_limits);
+    launch_terminal_host_seeded_in(
+        options,
+        root,
+        presentation,
+        terminal_id,
+        None,
+        (&[], ""),
+        seating,
+    )
 }
 
 /// A one-shot owner connection (for example to terminate a host no
@@ -125,6 +139,7 @@ pub(crate) fn launch_terminal_host_from(
     terminal_id: TerminalId,
     standby: Option<StandbyTerminalHost>,
     workspace_key: &str,
+    seating: &HostSeating,
 ) -> anyhow::Result<HostAttachment> {
     let presentation = (default_colors, cell_pixels, kitty_graphics_limits);
     launch_terminal_host_seeded_in(
@@ -133,8 +148,8 @@ pub(crate) fn launch_terminal_host_from(
         presentation,
         terminal_id,
         standby,
-        &[],
-        workspace_key,
+        (&[], workspace_key),
+        seating,
     )
 }
 
@@ -150,7 +165,8 @@ pub(crate) fn launch_terminal_host_seeded(
     presentation: HostPresentation,
     terminal_id: TerminalId,
     standby: Option<StandbyTerminalHost>,
-    (seed, workspace_key): (&[u8], &str),
+    seeded: (&[u8], &str),
+    seating: &HostSeating,
 ) -> anyhow::Result<HostAttachment> {
     launch_terminal_host_seeded_in(
         options,
@@ -158,21 +174,27 @@ pub(crate) fn launch_terminal_host_seeded(
         presentation,
         terminal_id,
         standby,
-        seed,
-        workspace_key,
+        seeded,
+        seating,
     )
 }
 
 /// [`launch_terminal_host_seeded`] whose host's first record names
 /// `workspace_key` (empty: none yet).
+///
+/// The host takes its seat among the session's terminals (`seating`) before
+/// its Launch frame is written: the host starts the terminal's child when it
+/// reads that frame, and the child can connect to the daemon at once. The
+/// seat ends with the launch that fails, and for a launch that succeeds it
+/// goes with the host's process into the attachment ([`LaunchedHost`]).
 fn launch_terminal_host_seeded_in(
     options: &SurfaceOptions,
     root: &Path,
     (default_colors, cell_pixels, kitty_graphics_limits): HostPresentation,
     terminal_id: TerminalId,
     standby: Option<StandbyTerminalHost>,
-    seed: &[u8],
-    workspace_key: &str,
+    (seed, workspace_key): (&[u8], &str),
+    seating: &HostSeating,
 ) -> anyhow::Result<HostAttachment> {
     let launch_publication_lock = reserve_terminal_host_publication(root)?;
     crate::debug_spans::mark("host.publication_reserved");
@@ -236,6 +258,9 @@ fn launch_terminal_host_seeded_in(
 
     let mut launch_frame = Frame::new(MessageKind::Launch, launch.encode()?);
     launch_frame.request_id = 2;
+    // Declared after `process`: on an error the seat ends first, and the
+    // host is ended and waited for after it.
+    let host_seat = seating.seat(host_pid);
     write_frame(&mut stdin, &launch_frame)?;
     let launched_frame = read_required_frame(&mut stdout, "launch ready")?;
     if launched_frame.request_id != 2 {
@@ -275,7 +300,7 @@ fn launch_terminal_host_seeded_in(
     // row Exited.
     let mut attachment = connect_record(record, record_path, OwnerIntent::Surface)?;
     crate::debug_spans::mark("host.connected");
-    attachment.launch_process = Some(process);
+    attachment.launch_process = Some(LaunchedHost::new(process, host_seat));
     debug_assert_eq!(
         attachment.launch_activation_pending,
         attachment.protocol_version >= LAUNCH_ACTIVATION_PROTOCOL_VERSION

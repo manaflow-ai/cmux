@@ -2,7 +2,7 @@ import Foundation
 @testable import CmuxNextMobileHost
 import Testing
 
-/// Each paired phone's own acpmux credential (its Full-access setting, off by default), as the
+/// Each paired phone's own acpmux credential (its Full-access setting, on by default for a phone), as the
 /// approver sync keeps it: only a phone the account lists gets one, a removed phone's record ends
 /// before it gets a new one, and every revocation holds until a list shows it done.
 struct MobileHostPhoneCredentialsTests {

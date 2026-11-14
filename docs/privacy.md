@@ -96,8 +96,8 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `fonts.gstatic.com` | connects | fonts an agent's rendered page may load |
 | `www.linkedin.com` | connects | the LinkedIn integration, only when an agent uses it in your signed-in browser |
 | `app.notion.com` | connects | the Notion integration, only when an agent uses it in your signed-in browser |
-| `api.open-meteo.com` | connects | weather on the new tab page, when shown |
-| `geocoding-api.open-meteo.com` | connects | weather on the new tab page, when shown |
+| `api.open-meteo.com` | connects | the clock and weather widget's forecast, only when you install it (a customize template) |
+| `geocoding-api.open-meteo.com` | connects | the clock and weather widget's city search, only when you install it (a customize template) |
 | `api.openai.com` | connects | the OpenAI API: voice calls on iPhone, and when you use an OpenAI key |
 | `app.slack.com` | connects | the Slack integration, only when an agent uses it in your signed-in browser |
 | `api.stack-auth.com` | connects | the sign-in service |
@@ -126,9 +126,6 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `cmux-platform-development.debussy.workers.dev` | connects | cmux Cloud platform API in development builds |
 | `cmux-platform-production.debussy.workers.dev` | connects | cmux Cloud services on our hosting provider (production): platform API |
 | `cmux-platform-staging.debussy.workers.dev` | connects | cmux Cloud platform API on staging, only when chosen |
-| `cmux-v2.debussy.workers.dev` | connects | the iPhone app's host API (production) |
-| `cmux-v2-development.debussy.workers.dev` | connects | the iPhone app's host API in development builds |
-| `cmux-v2-staging.debussy.workers.dev` | connects | the iPhone app's host API on staging, only when chosen |
 | `cmux-vnc-signal.debussy.workers.dev` | connects | screen sharing signaling between your devices |
 | `api.artic.edu` | connects | museum art for backgrounds, when you search for art |
 | `www.artic.edu` | connects | museum art for backgrounds, when you search for art |
@@ -243,7 +240,9 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `hf.co` | identifier | a git host name, so it is not shown as one of your computers |
 | `huggingface.co` | identifier | a git host name, so it is not shown as one of your computers |
 | `repl.co` | identifier | a shared hosting domain, so sites under it are told apart |
-| `manaflow.ai` | identifier | an email domain of the cmux team: an account under it gets the team's verbose connectivity diagnostics; nothing is sent to it |
+| `manaflow.ai` | identifier | an email domain of the cmux team: an account under it gets the team's verbose connectivity diagnostics, and the iPhone app reports its major connectivity incidents to the cmux mobile service for the team's Slack; nothing is sent to the domain itself |
+| `manaflow.com` | identifier | an email domain of the cmux team, as `manaflow.ai` |
+| `captive.apple.com` | connects | only for a cmux team account, after a Mac stayed unreachable for 30 s: the iPhone app checks Apple's captive portal page (as iOS does) to tell its own outage from a cmux one |
 | `amazonaws.com` | identifier | a shared hosting domain, so sites under it are told apart |
 | `s3.amazonaws.com` | identifier | a shared hosting domain, so sites under it are told apart |
 | `www.apple.com` | identifier | an XML or SVG namespace, never fetched |
@@ -309,6 +308,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 |---|---|---|
 | `task.ai` | not-a-host | a symbol or icon name |
 | `argument.app` | not-a-host | a localized string key |
+| `toast.detail.io` | not-a-host | a localized string key |
 | `cmux.app` | not-a-host | a file name |
 | `cmux-ios-com.cmux.app` | not-a-host | a URL scheme or bundle id |
 | `debug.crash.app` | not-a-host | a method, area or resource kind name |

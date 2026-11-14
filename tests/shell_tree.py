@@ -2763,6 +2763,9 @@ def below(root: int) -> list[tuple[int, str]]:
     else:
         ps = subprocess.run(["ps", "-Ao", "pid=,ppid=,state="], stdin=subprocess.DEVNULL, capture_output=True,
                             text=True, timeout=10)
+        if ps.returncode != 0:
+            # A failed ps is no answer: an empty or cut-off list would read as "nothing left below ROOT".
+            raise OSError(f"ps exited {ps.returncode}: cannot tell what is below {root}")
         for line in ps.stdout.split("\n"):
             if len(line.split()) == 3:
                 pid, ppid, state = line.split()
@@ -2779,14 +2782,25 @@ def kill_below(root: int, seconds: float = REAPER_GRACE) -> list[int]:
     """SIGKILL every process below ROOT, again as long as one is left (a fork between reads), for at most SECONDS; the
     pids of those still alive then (none, unless one cannot die). A zombie is dead: ROOT reaps it, or init once ROOT
     is gone."""
+    why = signal_refusal(root)
+    if why:
+        raise PermissionError(why)
     end = time.monotonic() + seconds
     while True:
-        live = [pid for pid, state in below(root) if state != "Z"]
+        try:
+            tree = below(root)
+        except OSError:
+            # Cannot tell what is left: try again until the deadline, then say so rather than report none.
+            if time.monotonic() >= end:
+                raise
+            time.sleep(0.01)
+            continue
+        live = [pid for pid, state in tree if state != "Z"]
         if not live or time.monotonic() >= end:
             return live
         for pid in live:
             try:
-                os.kill(pid, signal.SIGKILL)
+                _safe_kill(pid)
             except OSError:
                 pass
         time.sleep(0.01)
@@ -2805,7 +2819,7 @@ def read_pid(pidfile: str) -> tuple[int | None, bool | None]:
             got = PID_LINE.fullmatch(f.read())
     except (OSError, ValueError):
         return None, None
-    if not got:
+    if not got or int(got[1]) <= 1:
         return None, None
     return int(got[1]), got[2] == "1"
 
@@ -2816,11 +2830,13 @@ def stop_run(pidfile: str) -> None:
     pid, _ = read_pid(pidfile)
     if pid is None:
         return
-    kill_below(pid)
     try:
-        os.killpg(pid, signal.SIGKILL)
-    except OSError:
-        pass
+        kill_below(pid)
+    finally:
+        try:
+            _safe_killpg(pid)
+        except OSError:
+            pass
 
 
 class OracleUnavailable(RuntimeError):
@@ -2854,9 +2870,12 @@ class BashTimeout(OracleUnavailable):
 # options, may turn job control on too.
 _SHELL_OPTIONS = (r"(?<![\w.-])(?:ba|da|z|k|mk|a)?sh"
                   r"(?:\s+(?:--[\w-]+|[-+][oO]\s+[^\s;|&-][^\s;|&]*|[-+][A-Za-z]+))*?\s+")
-LEAVES_GROUP = re.compile(r"(?<![\w.-])setsid(?![\w.-])|\bset\b[^\n;|&]*(?:\s[-+][A-Za-z]*m|\bmonitor\b)|"
-                          + _SHELL_OPTIONS + r"(?:[-+][A-Za-z]*[im][A-Za-z]*(?![\w-])|[-+]o\s+monitor\b|"
-                          r"--login\b|--interactive\b)|"
+_DYNAMIC_EXECUTABLE = (r"(?:^|[;&|]\s*)(?:(?:[A-Za-z_]\w*=)[^\s;&|]*\s+)*(?:\$\(|\$\{|\$[A-Za-z_]\w*|`)"
+                       r"|(?<![\w.-])env\b[^\n;|&]*\s(?:-S|--split-string(?:=|\s))\s*"
+                       r"(?:\$\(|\$\{|\$[A-Za-z_]\w*|`)")
+LEAVES_GROUP = re.compile(_DYNAMIC_EXECUTABLE + r"|(?<![\w.-])setsid(?![\w.-])|\bset\b[^\n;|&]*"
+                          r"(?:\s[-+][A-Za-z]*m|\bmonitor\b)|" + _SHELL_OPTIONS
+                          + r"(?:[-+][A-Za-z]*[im][A-Za-z]*(?![\w-])|[-+]o\s+monitor\b|--login\b|--interactive\b)|"
                           r"\b(?:set|eval)\b[^\n;|&]*[$`]|" + _SHELL_OPTIONS + r"[-+]?[$`]")
 
 
@@ -2864,8 +2883,65 @@ def leaves_group(text: str) -> bool:
     """Whether TEXT may start a process outside bash's process group (LEAVES_GROUP), read as bash reads it: a
     continued line joined, and quotes and backslashes taken out, so set '-m', s'e't -m and set -o mon''itor are set -m
     and set -o monitor; an ANSI-C $'...' keeps its $ and is a word only a run can tell. A doubt is True: such a run is
-    then never made where the reaper is no subreaper (upstream #4657 review, F1)."""
-    return bool(LEAVES_GROUP.search(re.sub(r"[\"'\\]", "", text.replace("\\\n", ""))))
+    then never made where the reaper is no subreaper (upstream #4657 review, F1). The parser supplements the text
+    check for a dynamic executable hidden behind command, env, nice or another wrapper, including in a compound
+    command; an unresolved wrapped command is unsafe because it may be a shell with job control."""
+    plain = re.sub(r"[\"'\\]", "", text.replace("\\\n", ""))
+    if LEAVES_GROUP.search(plain):
+        return True
+    try:
+        tree = parse(text)
+        for cmd in commands(tree):
+            run = resolve(text, cmd)
+            if run.words is UNRESOLVED or run.words and "\0" in run.values[0]:
+                return True
+    except Unparsed:
+        return True
+    return False
+
+
+def signal_refusal(target, group: bool = False) -> str:
+    """Refuse wide targets and the user manager, including a manager inside a target group.
+
+    Kept self-contained because this module is vendored without workspace helpers.
+    """
+    if not isinstance(target, int) or isinstance(target, bool) or target <= 1:
+        return f"refusing non-process target {target!r}"
+    members = [target]
+    if group and os.path.isdir('/proc/self'):
+        for name in os.listdir('/proc'):
+            if not name.isdigit():
+                continue
+            try:
+                with open(f'/proc/{name}/stat') as f:
+                    fields = f.read().rsplit(')', 1)[1].split()
+                if int(fields[2]) == target:
+                    members.append(int(name))
+            except (OSError, ValueError, IndexError):
+                continue
+    for pid in members:
+        try:
+            with open(f'/proc/{pid}/cmdline', 'rb') as f:
+                argv = f.read().split(b'\0')
+        except OSError:
+            continue
+        if argv and os.path.basename(argv[0]) == b'systemd' and b'--user' in argv[1:]:
+            return f'refusing the user manager (pid {pid})'
+    return ""
+
+
+def _safe_kill(pid: int) -> None:
+    why = signal_refusal(pid)
+    if why:
+        raise PermissionError(why)
+    os.kill(pid, signal.SIGKILL)
+
+
+def _safe_killpg(pgid: int) -> None:
+    why = signal_refusal(pgid, group=True)
+    if why:
+        raise PermissionError(why)
+    os.killpg(pgid, signal.SIGKILL)
 
 
 # The wrappers that stay as a process of their own around the command they run (timeout and GNU time wait for it;
@@ -3052,8 +3128,10 @@ def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bo
             # The reaper outlived its own deadline. What it holds is killed first: once it is gone, its children (a
             # setsid one included, in a session of its own) would be init's and out of reach (upstream #4441 review,
             # F6).
-            kill_below(run.pid)
-            os.killpg(run.pid, signal.SIGKILL)
+            try:
+                kill_below(run.pid)
+            finally:
+                _safe_killpg(run.pid)
             try:
                 run.wait(timeout=REAPER_GRACE)
             except subprocess.TimeoutExpired:
