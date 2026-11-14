@@ -141,9 +141,9 @@ class ManifestTests(unittest.TestCase):
 class UIProofTests(unittest.TestCase):
     def test_simulator_export_boundary_allowlists_cloud_mode(self):
         script = (Path(__file__).resolve().parents[1] / "scripts/ci/cmux-next-ios-sim.sh").read_text()
-        self.assertIn('if [[ -n "${CMUX_IOS_CLOUD_PROOF_FILE:-}" ]]; then', script)
+        self.assertIn('if [[ -n "${CMUX_IOS_CLOUD_PROOF_FILE:-}" || "${CMUX_IOS_OWNER_ACCESS_PROOF:-0}" == 1 ]]; then', script)
         self.assertIn('cmux_next_cloud_pair_proof.py --export-out "$out" --status', script)
-        self.assertIn('if [[ -z "${CMUX_IOS_CLOUD_PROOF_FILE:-}" ]]; then', script)
+        self.assertIn('if [[ -z "${CMUX_IOS_CLOUD_PROOF_FILE:-}" && "${CMUX_IOS_OWNER_ACCESS_PROOF:-0}" != 1 ]]; then', script)
         self.assertIn('else\n  # The app log goes through the pairing redactor', script)
 
     def test_simulator_script_parses(self):

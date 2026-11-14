@@ -2,6 +2,14 @@
 
 - 2026-11-14 (CMUX-383 Step B): Sidebar-Look: Leo asked for “Sidebar customization (look at BB and Herder)”. The existing sidebar surface and density now read the pinned Rust projection through Swift, applying section hide/order, same-section workspace grouping/order, and atomic cmux-next.json hot reload. Gallery variants cover default, hidden/reordered sections, and workspace grouping; the watcher test covers an editor-style atomic replace.
 
+- 2026-11-14 (ask-0a91bcfdb0, carved from #42277): a machine header has a screen button beside its +. Leo, verbatim:
+  "for screensharing, jf theres no easy path to use it then theres no point even if its the most performant thing in
+  the world". This Mac's header (the sole machine's "Projects" header too) shows Share (`action.share`), a Cloud
+  machine's View screen (`remote.display`); SSH and server machines show none yet. From the trailing edge: +, the
+  screen button, the chevron, each on the shared pitch and visible at rest. View screen runs `cloudOpenDesktop` on
+  the machine; Share runs `macScreen.shareThisMac` where cmux Remote runs, else `macScreen.open`
+  (`SidebarIntentActions`). The one-list sidebar (the default) draws no This Mac header: it shows View screen on
+  Cloud headers but has no Share entry yet. Regression: `SidebarScreenEntryTests`.
 - 2026-11-14 (CMUX-383): Leo asked for “Sidebar customization (look at BB and Herder)”.
   The first customization slices keep the document as placement owner while allowing
   bounded cmux-next.json section/workspace hide, order and same-section grouping.
@@ -9,6 +17,12 @@
   watcher update; gallery variants cover default, hidden/reordered sections and a moved
   workspace. The native view remains in the existing sidebar surface and density tokens.
 
+- 2026-11-14 (a590): a pinned group's pin draws on Home's line. Its header placed the pin on the icon column's middle,
+  1 pt right of the line Home's house and the pinned workspace rows' pins share (the glyph square is 1 to 2 pt under
+  the column). It now uses `SidebarStyle.rowGlyphOptics` from the column's edge, at the rows' ink size. Base reds
+  `PinnedRowsShareHomeColumnTests` (square = column, stale) and `HomePinnedRowAlignmentTests` (half-point tolerance on
+  a 1x screen) were red before fce106a2 too; they now ask the square to fit in the column and allow one device pixel.
+  Regression: `PinnedRowsShareHomeColumnTests.aPinnedGroupsPinCentersUnderHomes`.
 - 2026-11-13 (a590): no line under Home. Lawrence (msg 31467), verbatim: "get rid of line under "home"". Minimal Mode
   draws the Lines look, whose pinned block joined under Home's block took a leading separator; a band drew a line (or,
   under `appearance.borders` none, a tonal step) after Home's section, and the band hairline under a band ending in
