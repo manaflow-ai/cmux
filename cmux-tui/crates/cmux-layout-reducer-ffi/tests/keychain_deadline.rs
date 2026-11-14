@@ -110,6 +110,9 @@ fn a_call_behind_one_still_running_waits_for_it_within_its_own_deadline() {
     assert_eq!(second.join().unwrap(), Some("second"));
 }
 
+/// What `done` saw: `answered` and the refusal, if any.
+type Answers = Receiver<(u8, Option<Value>)>;
+
 /// The app's side of the C entry: what `done` and `release` saw.
 struct Probe {
     held: Mutex<Option<Receiver<()>>>,
@@ -148,7 +151,7 @@ unsafe extern "C" fn probe_release(context: *mut c_void) {
     let _ = probe.released.send(());
 }
 
-fn probe(held: Option<Receiver<()>>) -> (*mut c_void, Receiver<(u8, Option<Value>)>, Receiver<()>) {
+fn probe(held: Option<Receiver<()>>) -> (*mut c_void, Answers, Receiver<()>) {
     let (done, answers) = mpsc::channel();
     let (released, releases) = mpsc::channel();
     let probe =
