@@ -99,7 +99,7 @@ import Testing
         var machine = Self.spawning()
         let error = CloudLinkError.invalidAnswer("served another socket")
         #expect(machine.reduce(.readyLine(child: 1, socket: "/tmp/elsewhere.sock", policy: nil))
-            == [.cancelReadyDeadline, .closeStdin(child: 1), .release(child: 1), .resume([1], .failure(error)), .armStopDeadline(child: 1)])
+            == [.cancelReadyDeadline, .closeStdin(child: 1), .release(child: 1), .armStopDeadline(child: 1), .resume([1], .failure(error))])
         #expect(machine.state == .idle(lastEnd: error, alive: 1))
         // The next connect waits for that child's exit before it claims the socket.
         #expect(machine.reduce(.connect(2, keepRefusal: false)) == [])
@@ -140,8 +140,8 @@ import Testing
     @Test func readyDeadlineClosesTheChild() {
         var machine = Self.spawning()
         #expect(machine.reduce(.readyDeadline(1))
-            == [.cancelReadyDeadline, .closeStdin(child: 1), .release(child: 1), .resume([1], .failure(M.noReadyLine)),
-                .armStopDeadline(child: 1)])
+            == [.cancelReadyDeadline, .closeStdin(child: 1), .release(child: 1), .armStopDeadline(child: 1),
+                .resume([1], .failure(M.noReadyLine))])
     }
 
     @Test func spawnFailureLeavesNoChild() {

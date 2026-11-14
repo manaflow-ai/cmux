@@ -391,8 +391,8 @@ struct ServeMachine: Sendable {
     private mutating func fail(_ child: ChildID, _ error: CloudLinkError) -> [Effect] {
         epoch &+= 1
         state = .idle(lastEnd: error, alive: child)
-        return [.cancelReadyDeadline, .closeStdin(child: child), .release(child: child)] + resumeAll(.failure(error))
-            + [.armStopDeadline(child: child)]
+        return [.cancelReadyDeadline, .closeStdin(child: child), .release(child: child), .armStopDeadline(child: child)]
+            + resumeAll(.failure(error))
     }
 
     /// The ready child exited (`alive` false) or stopped taking stdin (`alive` true). The refusal is its last
