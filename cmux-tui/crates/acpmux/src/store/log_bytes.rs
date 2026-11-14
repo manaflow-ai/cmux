@@ -6,7 +6,9 @@
 //! - **A read that follows the one before costs its chunk.** The reader keeps [`LogMarks`]: where
 //!   its last chunk ended and where the first line of its last read began, each a seq, a segment
 //!   and a byte offset. A read at a mark's seq starts at its offset; a read at a later seq in the
-//!   mark's segment goes on from it, lines skipped unparsed. Any other read (the first after a
+//!   mark's segment goes on from it, lines skipped unparsed. The bytes of a line the last chunk
+//!   had no room for wait with its end mark, so the next read takes them from memory, not the
+//!   file. Any other read (the first after a
 //!   start, a body read back) reads the first bytes of each segment to find the one that holds
 //!   the seq, and scans that one from its start, its lines skipped unparsed: at most one segment,
 //!   8 MiB. So a catch-up reads each byte of the log about once, never a segment per chunk.
@@ -51,23 +53,42 @@ pub struct LogMark {
     stamp: u64,
 }
 
-/// A reader's marks ([module docs](self)): where its last chunk ended, and where the first line
-/// of its last read began.
+/// A reader's marks ([module docs](self)): where its last chunk ended, with the bytes read
+/// there that no whole line held yet, and where the first line of its last read began.
 #[derive(Clone, Debug, Default)]
 pub struct LogMarks {
     pub end: Option<LogMark>,
     pub found: Option<LogMark>,
+    /// Bytes at `end`'s offset, read and not yet a whole line: less than one chunk.
+    carry: Vec<u8>,
 }
 
 impl LogMarks {
     pub fn clear(&mut self) {
         self.end = None;
         self.found = None;
+        self.carry = Vec::new();
+    }
+
+    /// The end mark with its waiting bytes, taken out (a read away from it leaves them for the
+    /// read after); [`Self::put_end`] puts them back.
+    pub fn take_end(&mut self) -> (Option<LogMark>, Vec<u8>) {
+        (self.end.take(), std::mem::take(&mut self.carry))
+    }
+
+    pub fn put_end(&mut self, (end, carry): (Option<LogMark>, Vec<u8>)) {
+        self.end = end;
+        self.carry = carry;
     }
 
     /// The seq the last chunk ended at.
     pub fn end_seq(&self) -> Option<u64> {
         self.end.as_ref().map(|mark| mark.seq)
+    }
+
+    /// How many bytes wait with the end mark.
+    pub fn waiting(&self) -> usize {
+        self.carry.len()
     }
 
     /// How many marks are held, for tests.
@@ -81,6 +102,9 @@ impl LogMarks {
             if mark.as_ref().is_some_and(|m| m.stamp != stamp) {
                 *mark = None;
             }
+        }
+        if self.end.is_none() {
+            self.carry = Vec::new();
         }
     }
 }
@@ -225,13 +249,20 @@ impl LocalStore {
     ) -> Result<LogChunk> {
         out.clear();
         marks.keep_stamp(stamp);
+        let carry = std::mem::take(&mut marks.carry);
         let segments = self.segments(id)?;
         let mut chunk = LogChunk { next: from, at_end: true, read: 0 };
-        let Some((mut segment, mut offset)) =
+        let Some((mut segment, mut offset, at_end_mark)) =
             self.start(id, from, stamp, &segments, marks, &mut chunk)?
         else {
             return Ok(chunk);
         };
+        if at_end_mark {
+            // The bytes the last chunk read at its end wait in the buffer, as if just read.
+            out.reserve_exact(CHUNK_BYTES.max(carry.len()));
+            out.extend_from_slice(&carry);
+        }
+        drop(carry);
         let mut position = segments.iter().position(|(i, _)| *i == segment.index).unwrap_or(0);
         let mut last: Option<u64> = None;
         // The first kept line: its segment, offset and segment file.
@@ -239,6 +270,9 @@ impl LocalStore {
         // Whole kept lines are `out[..kept]`; bytes read after them and not yet split wait in
         // `out[kept..]`, and start at `offset` in the segment.
         let mut kept = 0usize;
+        // The bytes after the last line passed, at `offset`, when the read stops with them in
+        // the buffer: they wait with the end mark.
+        let mut tail = 0..0;
         'read: loop {
             let waiting = out.len() - kept;
             // The chunk's room, or a chunk more while no line is kept (one line may be larger
@@ -249,6 +283,7 @@ impl LocalStore {
             };
             if want == 0 {
                 chunk.at_end = false;
+                tail = kept..out.len();
                 break;
             }
             let start = out.len();
@@ -276,6 +311,7 @@ impl LocalStore {
                 let length = end - at;
                 if keep && kept > 0 && kept + length > CHUNK_BYTES {
                     chunk.at_end = false;
+                    tail = at..start + n;
                     break 'read;
                 }
                 if keep {
@@ -294,6 +330,7 @@ impl LocalStore {
                 if kept > 0 && out.len() > kept {
                     // A line the chunk has no room left for: it starts the next read.
                     chunk.at_end = false;
+                    tail = kept..out.len();
                     break;
                 }
                 continue;
@@ -310,7 +347,12 @@ impl LocalStore {
             segment = Segment::open(*index, path)?;
             offset = 0;
         }
+        marks.carry = out.get(tail).map(<[u8]>::to_vec).unwrap_or_default();
         out.truncate(kept);
+        if !marks.carry.is_empty() {
+            // The chunk and the bytes waiting are one chunk's read between them.
+            out.shrink_to(kept);
+        }
         chunk.read += segment.read;
         if let Some(last) = last {
             chunk.next = last.saturating_add(1);
@@ -331,7 +373,8 @@ impl LocalStore {
     }
 
     /// The segment and offset a read at `from` starts at, from a mark when one serves, else
-    /// found by the segments' first seqs and a scan of the one that holds it. None: no log.
+    /// found by the segments' first seqs and a scan of the one that holds it, and whether that is
+    /// the end mark's offset (where its waiting bytes start). None: no log.
     fn start(
         &self,
         id: &str,
@@ -340,7 +383,7 @@ impl LocalStore {
         segments: &[(u32, PathBuf)],
         marks: &LogMarks,
         chunk: &mut LogChunk,
-    ) -> Result<Option<(Segment, u64)>> {
+    ) -> Result<Option<(Segment, u64, bool)>> {
         if segments.is_empty() {
             return Ok(None);
         }
@@ -368,7 +411,8 @@ impl LocalStore {
                         }
                     };
                 if here {
-                    return Ok(Some((segment, mark.offset)));
+                    let at_end_mark = marks.end.as_ref() == Some(mark);
+                    return Ok(Some((segment, mark.offset, at_end_mark)));
                 }
             }
             chunk.read += segment.read;
@@ -388,7 +432,7 @@ impl LocalStore {
         let Some((index, path)) = segments.get(position) else { return Ok(None) };
         let mut segment = Segment::open(*index, path)?;
         let offset = scan_to(&mut segment, from)?;
-        Ok(Some((segment, offset)))
+        Ok(Some((segment, offset, false)))
     }
 }
 

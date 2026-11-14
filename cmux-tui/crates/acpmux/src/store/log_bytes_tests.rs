@@ -39,7 +39,10 @@ fn read_all(store: &LocalStore, id: &str, marks: &mut LogMarks) -> (Vec<Vec<u8>>
     loop {
         let chunk = store.read_log_bytes(id, from, LogFilter::ALL, stamp, marks, &mut out).unwrap();
         assert!(out.len() <= CHUNK_BYTES || out.split_inclusive(|b| *b == b'\n').count() == 1);
-        assert!(out.capacity() <= CHUNK_BYTES.max(out.len()), "one buffer of one chunk");
+        assert!(
+            out.capacity() + marks.waiting() <= CHUNK_BYTES.max(out.len()),
+            "one chunk held, its waiting bytes with it"
+        );
         lines.extend(out.split_inclusive(|b| *b == b'\n').map(<[u8]>::to_vec));
         read += chunk.read;
         chunks += 1;
@@ -63,9 +66,9 @@ fn a_catch_up_gives_every_line_as_written_and_reads_each_byte_about_once() {
     assert_eq!(log_line_seqs(&lines).last().copied(), Some(last));
     let len = log_len(&store, "c");
     assert!(chunks as u64 >= len / CHUNK_BYTES as u64);
-    // Each chunk after the first goes on from its mark: the bytes read are the log's, and a
-    // segment's first bytes where a read looks at the next one.
-    assert!(read * 5 <= len * 6, "read {read} of a {len} byte log");
+    // Each chunk after the first goes on from its mark with the bytes it left waiting: the
+    // bytes read are the log's, and a segment's first bytes where a read looks at the next one.
+    assert!(read * 50 <= len * 51, "read {read} of a {len} byte log");
 }
 
 fn log_line_seqs(lines: &[Vec<u8>]) -> Vec<u64> {

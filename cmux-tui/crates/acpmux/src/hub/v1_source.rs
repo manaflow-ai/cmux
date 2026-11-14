@@ -147,7 +147,8 @@ where
         let hint = (self.last_seq)();
         // A read away from where the last chunk ended (a body read back) leaves that mark for the
         // next read from the cursor.
-        let cursor = self.marks.end.clone().filter(|_| self.marks.end_seq() != Some(place));
+        let cursor = (self.marks.end.is_some() && self.marks.end_seq() != Some(place))
+            .then(|| self.marks.take_end());
         let mut bytes = Vec::with_capacity(CHUNK_BYTES);
         let mut tries = 0;
         let store = self.store.clone();
@@ -158,7 +159,8 @@ where
                 .read_log(&self.id, place, LogFilter::ALL, before, &mut self.marks, &mut bytes)
                 .map_err(other)?;
             self.counters.read.fetch_add(chunk.read, Ordering::Relaxed);
-            self.counters.held_max.fetch_max(bytes.capacity() as u64, Ordering::Relaxed);
+            let held = bytes.capacity() + self.marks.waiting();
+            self.counters.held_max.fetch_max(held as u64, Ordering::Relaxed);
             let after = store.log_stamp(&self.id).map_err(other)?;
             if before == after || tries == TRIES {
                 break (chunk, after);
@@ -166,8 +168,8 @@ where
             tries += 1;
             self.counters.reread.fetch_add(1, Ordering::Relaxed);
         };
-        if cursor.is_some() {
-            self.marks.end = cursor;
+        if let Some(cursor) = cursor {
+            self.marks.put_end(cursor);
         }
         self.stamp = stamp;
         self.counters.chunks.fetch_add(1, Ordering::Relaxed);
