@@ -369,6 +369,21 @@ export type PreclaimClaimRecord = {
   first_reply_ms: number | null;
 };
 
+export type PreclaimFailureRecord = {
+  claim: number;
+  outcome: "fail";
+  error: string;
+};
+
+/** A failed claim stays visible in the private evidence without exposing credentials publicly. */
+export function preclaimFailureRecord(claim: number, error: unknown, secrets: string[] = []): PreclaimFailureRecord {
+  return { claim, outcome: "fail", error: scrub(String(error instanceof Error ? error.message : error), secrets).slice(0, 600) };
+}
+
+export function preclaimRunComplete(rows: PreclaimClaimRecord[], failures: PreclaimFailureRecord[], expectedClaims: number): boolean {
+  return rows.length === expectedClaims && failures.length === 0;
+}
+
 type WireEvent = { t?: string; event?: string; stream?: string; data?: Record<string, unknown>; spares_needing_login?: unknown };
 
 /** The claim answer's explicit lease evidence. Text is accepted only for the broker's named lease field. */
@@ -549,8 +564,8 @@ async function runPreclaimChat(exec: Exec, session: string, prompt: string, budg
 }
 
 /** A cold claim has no warm receipt, so it uses the same credential transfer after bind. */
-export function preclaimLoginMode(spare: string | null): "preclaim" | "post-bind" {
-  return spare === null ? "post-bind" : "preclaim";
+export function preclaimLoginMode(spare: string | null, machine: string | null = null): "preclaim" | "post-bind" {
+  return spare !== null && machine === spare ? "preclaim" : "post-bind";
 }
 
 async function installPreclaimLogin(api: Api, machine: string, exec: Exec, programs: ReturnType<typeof loginPrograms>, login: string, index: number, ownerScope: string): Promise<void> {
@@ -587,6 +602,8 @@ async function runPreclaimBurst(args: {
   if (!Number.isInteger(args.claims) || args.claims < 1 || args.claims > 20) throw new Error("--claims must be 1..20");
   const stateDir = mkdtempSync(path.join(tmpdir(), "cmux-preclaim-"));
   const rows: PreclaimClaimRecord[] = [];
+  const failures: PreclaimFailureRecord[] = [];
+  let verificationFailed = false;
   const scopeTeam = args.team ?? args.install.team ?? String(args.user?.personal_team ?? args.user?.team ?? "");
   const wireTeam = scopeTeam || args.api.team;
   const scope = { platform: args.backend.api, team: scopeTeam, install: args.install.id, credential: createHash("sha256").update(args.login).digest("hex") };
@@ -597,12 +614,14 @@ async function runPreclaimBurst(args: {
     if (args.outDir) mkdirSync(args.outDir, { recursive: true });
     const values = rows.flatMap((row) => Object.values(row.claim_to_bound).filter((v): v is number => typeof v === "number"));
     const p90 = values.length ? values.sort((a, b) => a - b)[Math.max(0, Math.ceil(values.length * 0.9) - 1)] : null;
-    const summary = { claims: rows.length, lease_hits: rows.filter((r) => r.lease_hit === true).length, lease_misses: rows.filter((r) => r.lease_hit === false).length, post_bind_receipts: rows.filter((r) => r.post_bind_login === "receipt").length, replies: rows.filter((r) => r.first_reply_ms !== null).length, claim_to_bound_p90_ms: p90 };
-    if (args.privateRowsPath) writeFileSync(args.privateRowsPath, `${JSON.stringify({ header: { backend: args.backend.name, summary }, rows }, null, 2)}\n`);
+    const summary = { claims: rows.length, lease_hits: rows.filter((r) => r.lease_hit === true).length, lease_misses: rows.filter((r) => r.lease_hit === false).length, post_bind_receipts: rows.filter((r) => r.post_bind_login === "receipt").length, replies: rows.filter((r) => r.first_reply_ms !== null).length, claim_to_bound_p90_ms: p90, outcome: verificationFailed || !preclaimRunComplete(rows, failures, args.claims) ? "fail" : "pass", complete: preclaimRunComplete(rows, failures, args.claims) };
+    if (args.privateRowsPath) writeFileSync(args.privateRowsPath, `${JSON.stringify({ header: { backend: args.backend.name, summary }, rows, failures }, null, 2)}\n`);
     if (args.outDir) writeFileSync(path.join(args.outDir, "summary.md"), preclaimSummaryMarkdown(rows));
   };
   try {
     for (let index = 0; index < args.claims; index++) {
+      let claimedMachine: string | null = null;
+      try {
       const healthBefore = preclaimHealthSnapshot(await args.api.raw("GET", "/v1/health", undefined, 30_000));
       const request = { platform: args.backend.api, account, scope, currentScope: scope };
       const warm = await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, request);
@@ -623,11 +642,12 @@ async function runPreclaimBurst(args: {
       }
       const answer = await args.api.op("cloud.machine.create", { name: `cloud preclaim ${args.tag} ${index}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${args.tag}-preclaim-${index}`);
       const machine = typeof answer?.machine === "string" ? answer.machine : answer?.machine?.id ?? answer?.machine_id ?? answer?.id ?? null;
+      claimedMachine = typeof machine === "string" ? machine : null;
       const explicitLease = classifyLeaseHit(answer);
       const leaseHit = explicitLease ?? (spare === null ? false : typeof machine === "string" ? machine === spare : null);
       if (typeof machine === "string") {
         await waitMachine(args.api, machine, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
-        if (spare === null) {
+        if (preclaimLoginMode(spare, machine) === "post-bind") {
           await installPreclaimLogin(args.api, machine, directExec(args.api, machine, args.journey), programs, args.login, index, args.team ? "owner or team" : "owner");
         }
       }
@@ -642,18 +662,28 @@ async function runPreclaimBurst(args: {
         firstReplyMs = chat.replyMs;
       }
       const healthAfter = preclaimHealthSnapshot(await args.api.raw("GET", "/v1/health", undefined, 30_000));
-      const record = preclaimClaimRecord({ claim: index, machine, spare, leaseId, answer, leaseHit, healthBefore, healthAfter, firstChatMs, firstReplyMs, postBindLogin: spare === null ? "post-bind" : receipt.installed === true ? "receipt" : "missing" });
+      const loginMode = preclaimLoginMode(spare, typeof machine === "string" ? machine : null);
+      const record = preclaimClaimRecord({ claim: index, machine, spare, leaseId, answer, leaseHit, healthBefore, healthAfter, firstChatMs, firstReplyMs, postBindLogin: loginMode === "post-bind" ? "post-bind" : receipt.installed === true ? "receipt" : "missing" });
       rows.push(record);
       if (typeof machine === "string") {
         await args.api.deleteMachine(machine, `${args.tag}-preclaim-delete-${index}`).catch(() => undefined);
+        claimedMachine = null;
       }
       writeOutput();
+      } catch (error) {
+        if (claimedMachine) await args.api.deleteMachine(claimedMachine, `${args.tag}-preclaim-delete-${index}`).catch(() => undefined);
+        failures.push(preclaimFailureRecord(index, error, args.journey.secrets));
+        writeOutput();
+        throw error;
+      }
     }
   } finally {
     writeOutput();
     rmSync(stateDir, { recursive: true, force: true });
   }
-  return rows.some((r) => r.lease_hit === true && r.post_bind_login !== "receipt") ? 1 : 0;
+  verificationFailed = rows.some((r) => r.lease_hit === true && r.post_bind_login !== "receipt");
+  writeOutput();
+  return verificationFailed || !preclaimRunComplete(rows, failures, args.claims) ? 1 : 0;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -2446,20 +2476,24 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const accountTeam = team ?? String(user?.personal_team ?? user?.team ?? "");
       const account = `${userId}/${accountTeam}`;
       if (!userId) throw new Error("preclaim: user.ensure returned no user id");
-      const status = await runPreclaimBurst({
-        backend,
-        api,
-        cmux: cmux!,
-        install,
-        account,
-        login: claudeLogin,
-        claims: preclaimClaims,
-        tag,
-        journey: J,
-        outDir,
-        privateRowsPath: process.env.PRECLAIM_PRIVATE_ROWS,
-        team,
-        user,
+      const status = await J.step("preclaim burst", async () => {
+        const value = await runPreclaimBurst({
+          backend,
+          api,
+          cmux: cmux!,
+          install,
+          account,
+          login: claudeLogin,
+          claims: preclaimClaims,
+          tag,
+          journey: J,
+          outDir,
+          privateRowsPath: process.env.PRECLAIM_PRIVATE_ROWS,
+          team,
+          user,
+        });
+        if (value !== 0) throw new Error("preclaim verification failed");
+        return { value, detail: `claims ${preclaimClaims}` };
       });
       return status;
     }
