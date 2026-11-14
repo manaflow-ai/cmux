@@ -59,8 +59,7 @@ extension SidebarBridge {
         case let .selectTab(_, tab): revealPinnedTab(tab.rawValue) // shown in this window (cmux#37371)
         // The tab strip's close for that tab, on whichever machine holds it (the palette's Close Tab).
         case let .closeTab(_, tab): PaletteSourcesBridge.TabSource(services: services).closeTab(id: tab.rawValue)
-        // A port row of the hover card: the workspace shows here, and its own daemon opens the port in a browser tab
-        // of it (`workspace.open_url`); a tab in another machine's workspace reaches that machine's localhost.
+        // A hover card port row: the workspace's own daemon opens it in a browser tab there (`workspace.open_url`).
         case let .openPort(id, url, _):
             guard !model.isPlaceholder(id), let (workspace, daemon) = services.machines.workspace(id: id.rawValue),
                   let resource = workspace.resourceID?.rawValue else { return }
