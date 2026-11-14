@@ -268,5 +268,26 @@ class AccountIsolationTests(unittest.TestCase):
             logs.publish([event({"msg": "team selection unreachable", "team": TEAM})], [], account=TEAM)
 
 
+class PrivateOutputTests(unittest.TestCase):
+    def test_everything_matching_still_prints_only_count_and_private_pointer(self):
+        rows = [event({"msg": "team selection unreachable", "team": TEAM, "code": "forbidden"})]
+        response = {"result": {"events": {"events": rows}}}
+        args = ["logs", "--from", "2026-11-11T13:20:00Z", "--account", TEAM, "--needles", "team selection"]
+        output = io.StringIO()
+        pointer = "https://github.com/manaflow-ai/cmuxterm-hq/issues/123"
+        with patch.dict(logs.os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}), \
+                patch.object(logs.sys, "argv", args), patch.object(logs.sys, "stdin", io.StringIO("fixture-token\n")), \
+                patch.object(logs.sys, "stdout", output), patch.object(logs, "query", return_value=response), \
+                patch.object(logs, "private_destination", return_value="fixture-hq-token", create=True), \
+                patch.object(logs, "private_upload", return_value=pointer, create=True) as upload:
+            self.assertEqual(logs.main(), 0)
+        text = output.getvalue()
+        self.assertNotIn("team selection unreachable", text)
+        self.assertNotIn("forbidden", text)
+        self.assertNotIn(logs.tag(TEAM), text)
+        self.assertEqual(json.loads(text), {"row_count": 1, "pointer": pointer})
+        self.assertEqual(len(upload.call_args.args[2]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
