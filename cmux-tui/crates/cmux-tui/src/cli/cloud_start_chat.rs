@@ -7,7 +7,8 @@
 //! It runs the app's own verbs in turn, each as this binary with `--json`, so every step keeps
 //! that verb's checks, keys and deadlines:
 //!
-//! 1. `cloud list-machines`: refuses at once when the app is signed out of cmux.
+//! 1. `cloud list-machines`: refuses at once when the app is signed out of cmux. A list the app has not
+//!    loaded yet (just launched) is read again until it is, for at most [`LIST_LOAD_WAIT`] and `--timeout`.
 //!    With `--environment`, `cloud new-machine --environment E` first makes the chat's machine in it.
 //! 2. `cloud start-session (--name N | --target T) --agent A [--cwd D | --from-folder P] [--login L]`: takes
 //!    the machine (or creates it) and opens the chat's tab in the machine's workspace, a real chat in the app.
@@ -1243,6 +1244,9 @@ fn steps(
         Ok(listed) => listed,
         Err(error) => return app_failure(error),
     };
+    if request.environment.is_some() || !matches!(request.machine, Machine::Target(_)) {
+        listed = loaded_list(runner, listed, deadline);
+    }
     if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
         return failed(
             "cloud.signed_out",
@@ -1966,11 +1970,37 @@ fn wait_timeout(request: &Request, machine_id: &str, session: &str, answer: Valu
     )
 }
 
-/// How long a start waits for the app's first machine list (red-proof commit: not yet read).
+/// How long a start waits for the app's first machine list (an app just launched loads it after
+/// sign-in: the production chat probe, cmuxterm-hq run 43553290380) before it answers `cloud.list_unread`.
 const LIST_LOAD_WAIT: Duration = Duration::from_secs(60);
 
 /// The pause between reads of a machine list the app has not loaded yet.
 const LIST_LOAD_PAUSE: Duration = Duration::from_secs(2);
+
+/// `listed`, or while it says `loaded: false` for a signed-in app, the app's list read again
+/// [`LIST_LOAD_PAUSE`] apart until it is loaded, for at most [`LIST_LOAD_WAIT`] and what is left of
+/// `deadline`. A read that fails keeps the last answer; the caller's checks then refuse on what it says.
+fn loaded_list(runner: &mut dyn Runner, mut listed: Value, deadline: Deadline) -> Value {
+    let unloaded = |list: &Value| {
+        at(list, "loaded").as_bool() == Some(false)
+            && list.pointer("/account/signed_in") != Some(&Value::Bool(false))
+    };
+    let until = runner.now() + LIST_LOAD_WAIT;
+    while unloaded(&listed) {
+        let left = until.saturating_duration_since(runner.now());
+        if left.is_zero() || deadline.passed(runner) {
+            break;
+        }
+        runner.pause(deadline.bound(runner, LIST_LOAD_PAUSE.min(left)));
+        if runner.now() >= until || deadline.passed(runner) {
+            break;
+        }
+        if let Ok(now) = step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"]))) {
+            listed = now;
+        }
+    }
+    listed
+}
 
 /// The pause between reads of the app's machine list while a new machine is being made.
 const CREATE_POLL_PAUSE: Duration = Duration::from_secs(3);
