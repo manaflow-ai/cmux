@@ -81,7 +81,9 @@ impl World {
             fake_ssh: false,
             app: None,
             cli: PathBuf::from(env!("CARGO_BIN_EXE_cmux-tui")),
-            clis: Path::new(env!("CARGO_TARGET_TMPDIR"))
+            // The real folder: the CLI's path is judged with its links followed.
+            clis: std::fs::canonicalize(env!("CARGO_TARGET_TMPDIR"))
+                .unwrap()
                 .join(format!("cxs-cli-{name}-{}-{stamp}-{n}", std::process::id())),
         };
         for path in [&world.home, &world.acpmux, &world.repo, &world.bin] {
@@ -2263,5 +2265,31 @@ fn cmux_setup_mcp_from_a_shipped_build_replaces_a_dev_builds_entry() {
             );
             assert_eq!(back["mcpServers"]["cmux"]["env"]["CMUX_TAG"], "cu-fresh", "{undo}");
         }
+    }
+}
+
+/// An entry that runs a published cmux through a package runner (`npx -y
+/// cmux mcp serve`) or a PyPI install's console script is cmux's own and a
+/// shipped one: setup keeps it, instead of treating it as a server of the
+/// person's named cmux, or as a development build.
+#[test]
+fn cmux_setup_mcp_keeps_package_runner_and_pypi_entries() {
+    let world = World::new("mcprunner").with_fake_mcp_clients().with_shipped_cli();
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}}));
+    World::executable(&world.bin.join("npx"), "#!/bin/sh\nexit 0\n");
+    let pypi = world.home.parent().unwrap().join("pyenv/bin/cmux");
+    World::executable(
+        &pypi,
+        "#!/pyenv/bin/python3\nimport sys\nfrom cmux_tui import main\nsys.exit(main())\n",
+    );
+    let claude_json = world.home.join(".claude.json");
+    for (name, entry) in [
+        ("npx", json!({"command": "npx", "args": ["-y", "cmux", "mcp", "serve"]})),
+        ("pypi", json!({"command": pypi.to_str().unwrap(), "args": ["mcp", "serve"]})),
+    ] {
+        std::fs::write(&claude_json, json!({"mcpServers": {"cmux": entry}}).to_string()).unwrap();
+        let result = world.json(&["setup", "mcp", "claude"]);
+        assert_eq!(result["state"], "ok", "{name}: {result}");
+        assert!(world.take_mcp_calls().is_empty(), "{name}: setup touched the entry");
     }
 }
