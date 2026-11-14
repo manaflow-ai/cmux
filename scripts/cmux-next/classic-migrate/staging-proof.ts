@@ -5,7 +5,8 @@
 //   SETUP     classic staging, through its existing API only: a throwaway smoke user (cmuxVmPlan pro) with one
 //             personal VM; a team (the user plus a second throwaway member, cmuxVmPlan team) with one VM; a marker
 //             file holding a random nonce written on each VM through classic's exec route.
-//   DRY RUN   `plan --user` and `plan --team` against classic staging Postgres (read only, host allowlist): each
+//   DRY RUN   `plan --user` and `plan --team` against classic staging Postgres (read only; a host allowlist, or the
+//             staging witness: one lookup of SETUP's VMs, which only classic staging holds): each
 //             classic VM is `copy`, nothing is `needs-decision`.
 //   MIGRATE   `apply`, `verify`; the nonce read back on each NEXT machine through NEXT's exec route as the smoke
 //             user (password sign-in); `apply` again sends nothing.
@@ -22,6 +23,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { join } from "node:path"
 import { parseArgs } from "node:util"
 import type { Plan } from "./plan.ts"
+import { bunPostgresConnect, type PgConnection, withReadOnlyTransaction } from "./source.ts"
 
 // ------------------------------------------------------------------------------------------------------------
 // The proof's shape: pure, unit-tested with fakes (staging-proof.test.ts).
@@ -126,17 +128,57 @@ export const summaryMarkdown = (ok: boolean, steps: StepRecord[], meta: Record<s
 
 /**
  * DRY RUN's check: every classic VM the setup made (by classic's API id, the provider VM id) is `copy` in its
- * subject's plan, and nothing needs a decision.
+ * subject's plan, and nothing needs a decision. It is also the proof that the database read is classic staging's:
+ * only classic staging holds the VMs SETUP made through classic staging's API moments before.
  */
 export const checkDryRun = (plan: Plan, providerVmIds: string[]): string[] => {
   const problems: string[] = []
   for (const id of providerVmIds) {
     const e = plan.entries.find((x) => x.kind === "cloud_vm" && x.upstream_vm_id === id)
-    if (!e) problems.push(`classic VM ${id} is not in the ${plan.subject.kind} plan`)
+    if (!e) problems.push(`classic VM ${id} is not in the ${plan.subject.kind} plan (a database without the VMs classic staging just made is not classic staging)`)
     else if (e.action !== "copy") problems.push(`classic VM ${id} is ${e.action} (${e.reason ?? ""}), not copy`)
   }
   if (plan.counts["needs-decision"] > 0) problems.push(`${plan.counts["needs-decision"]} object(s) need a decision`)
   return problems
+}
+
+/**
+ * The staging witness, for a run with no host allowlist: one READ ONLY lookup of the provider VM ids SETUP just
+ * made through classic staging's own API. Only classic staging's database holds them, so a missing one refuses the
+ * run before any plan query; on any other database the lookup finds no rows and reads nothing else. Returns the
+ * ids it did not find.
+ */
+export const stagingWitness = (conn: PgConnection, providerVmIds: string[]) =>
+  withReadOnlyTransaction(conn, async (q) => {
+    const rows = await q("select provider_vm_id from cloud_vms where provider_vm_id = any($1::text[])", [providerVmIds])
+    const found = new Set(rows.map((r) => String(r["provider_vm_id"])))
+    return providerVmIds.filter((id) => !found.has(id))
+  })
+
+/**
+ * DRY RUN behind its guards: a database URL, and a host allowlist, either given or earned by the staging witness
+ * (which then allows the database's own host for the CLI's check).
+ */
+export const guardedDryRun = async (
+  cfg: { databaseUrl: string; hostAllow: string },
+  providerVmIds: string[],
+  connect: () => Promise<PgConnection>,
+  dryRun: () => Promise<string>,
+): Promise<string> => {
+  if (!cfg.databaseUrl) throw new Error("missing DATABASE_URL (classic staging Postgres)")
+  let via = ""
+  if (!cfg.hostAllow) {
+    const host = dbHost(cfg.databaseUrl)
+    if (!host) throw new Error("DATABASE_URL has no host")
+    const missing = await stagingWitness(await connect(), providerVmIds)
+    if (missing.length > 0)
+      throw new Error(
+        `refusing the dry run: the database lacks classic VM(s) ${missing.join(", ")} that classic staging just made, so it is not classic staging; give classic_db_host_allow to override`,
+      )
+    cfg.hostAllow = host
+    via = "staging witness: the database holds the VMs SETUP made; "
+  }
+  return via + (await dryRun())
 }
 
 // ------------------------------------------------------------------------------------------------------------
@@ -696,7 +738,7 @@ const config = (out: string, env: NodeJS.ProcessEnv, values: Record<string, stri
   }
 }
 
-const dbHost = (url: string) => {
+function dbHost(url: string) {
   try {
     return new URL(url).hostname
   } catch {
@@ -740,11 +782,8 @@ const main = async (argv: string[], env: NodeJS.ProcessEnv): Promise<number> => 
   const ops = stagingOps(cfg, state, save)
   const guarded: ProofOps = {
     ...ops,
-    dryRun: async () => {
-      if (!cfg.databaseUrl) throw new Error("missing DATABASE_URL (classic staging Postgres)")
-      if (!cfg.hostAllow) throw new Error("missing CLASSIC_DB_HOST_ALLOW (input classic_db_host_allow or variable)")
-      return ops.dryRun()
-    },
+    dryRun: () =>
+      guardedDryRun(cfg, state.vms.map((v) => v.id), bunPostgresConnect(cfg.databaseUrl), ops.dryRun),
   }
   const migrateSkip = cfg.internalToken
     ? null
