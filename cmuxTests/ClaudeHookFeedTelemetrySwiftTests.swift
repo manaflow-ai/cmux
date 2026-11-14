@@ -182,6 +182,106 @@ struct ClaudeHookFeedTelemetrySwiftTests {
         #expect(sentAtMs >= startedAtMs, "event=\(event)")
         #expect(event["agent_id"] as? String == "subagent-7", "event=\(event)")
     }
+
+    /// Claude's Stop carries the session's `background_tasks` (what `/tasks`
+    /// shows). The feed event forwards a bounded copy so custom sidebars can
+    /// list them, with shell commands redacted like Bash tool input.
+    @Test func stopFeedTelemetryForwardsRedactedBackgroundTasks() throws {
+        let context = try FeedTelemetryTestContext(name: "bg-tasks")
+        defer { _ = context }
+
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+        let ttyName = "ttys-claude-bg-tasks"
+        let feedSeen = DispatchSemaphore(value: 0)
+        startServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            workspaceID: workspaceID,
+            focusedSurfaceID: surfaceID,
+            ttyName: ttyName,
+            resolvedSurfaceID: surfaceID,
+            feedSeen: feedSeen
+        )
+
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let secret = "abcdefghijklmnopqrstuvwx0123"
+        let stdin = #"""
+        {"session_id":"claude-bg-tasks-session","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[{"id":"task-001","type":"shell","status":"running","description":"tail logs","command":"curl -H 'Authorization: Bearer \#(secret)' https://example.com"},{"id":"task-002","type":"subagent","status":"running","description":"Audit tests","agent_type":"Explore"}],"session_crons":[]}
+        """#
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "claude", "stop"],
+            environment: context.environment(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                ttyName: ttyName
+            ),
+            standardInput: stdin,
+            timeout: 5
+        )
+
+        #expect(result.timedOut == false, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(feedSeen.wait(timeout: .now() + 5) == .success, "Expected feed.push, saw \(context.state.commandsSnapshot())")
+        let event = try #require(
+            context.state.feedEventsSnapshot().last { $0["hook_event_name"] as? String == "Stop" },
+            "Expected Stop feed telemetry, saw \(context.state.commandsSnapshot())"
+        )
+        let tasks = try #require(event["background_tasks"] as? [[String: Any]], "event=\(event)")
+        #expect(tasks.count == 2, "event=\(event)")
+        #expect(tasks[0]["id"] as? String == "task-001")
+        #expect(tasks[0]["type"] as? String == "shell")
+        #expect(tasks[0]["status"] as? String == "running")
+        #expect(tasks[0]["description"] as? String == "tail logs")
+        let command = try #require(tasks[0]["command"] as? String, "event=\(event)")
+        #expect(command.hasPrefix("curl "), "command=\(command)")
+        #expect(!command.contains(secret), "Shell commands must be redacted: \(command)")
+        #expect(tasks[1]["agent_type"] as? String == "Explore")
+        #expect(tasks[1]["command"] == nil)
+    }
+
+    @Test func directFeedHookForwardsBackgroundTasks() throws {
+        let context = try FeedTelemetryTestContext(name: "direct-bg-tasks")
+        defer { _ = context }
+
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+        let ttyName = "ttys-claude-direct-bg-tasks"
+        let feedSeen = DispatchSemaphore(value: 0)
+        startServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            workspaceID: workspaceID,
+            focusedSurfaceID: surfaceID,
+            ttyName: ttyName,
+            resolvedSurfaceID: surfaceID,
+            feedSeen: feedSeen
+        )
+
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "feed", "--source", "claude", "--event", "Stop"],
+            environment: context.environment(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                ttyName: ttyName
+            ),
+            standardInput: #"{"session_id":"claude-direct-bg-tasks","hook_event_name":"Stop","background_tasks":[{"id":"task-001","type":"shell","status":"running"}]}"#,
+            timeout: 5
+        )
+
+        #expect(result.timedOut == false, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(feedSeen.wait(timeout: .now() + 5) == .success, "Expected feed.push, saw \(context.state.commandsSnapshot())")
+        let event = try #require(
+            context.state.feedEventsSnapshot().last { $0["hook_event_name"] as? String == "Stop" },
+            "Expected direct Feed Stop telemetry, saw \(context.state.commandsSnapshot())"
+        )
+        let tasks = try #require(event["background_tasks"] as? [[String: Any]], "event=\(event)")
+        #expect(tasks.map { $0["id"] as? String } == ["task-001"])
+    }
 }
 
 private final class FeedTelemetryTestContext {
