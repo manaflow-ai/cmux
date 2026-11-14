@@ -490,7 +490,7 @@ mod tests {
             // Online, the Mac's chat shows it: kept when new or another than the kept one.
             (vec![watch.clone()], true, None, None, pairing(Some("a-watch"), true, false)),
             (vec![watch.clone()], true, None, some("a-watch"), pairing(Some("a-watch"), false, false)),
-            (vec![watch.clone()], true, None, some("a-kept"), pairing(Some("a-watch"), true, false)),
+            (vec![watch], true, None, some("a-kept"), pairing(Some("a-watch"), true, false)),
             // The chat this phone had the Mac open comes next.
             (vec![], false, some("w-9"), None, pairing(Some("w-9"), true, false)),
             (vec![], false, some("w-9"), some("w-9"), pairing(Some("w-9"), false, false)),
