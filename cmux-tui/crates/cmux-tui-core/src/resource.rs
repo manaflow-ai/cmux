@@ -194,6 +194,8 @@ pub enum ResourceOperation {
     GitDiff,
     #[serde(rename = "git.files.list")]
     GitFilesList,
+    #[serde(rename = "git.fingerprint")]
+    GitFingerprint,
     #[serde(rename = "git.files.search")]
     GitFilesSearch,
     #[serde(rename = "git.push")]

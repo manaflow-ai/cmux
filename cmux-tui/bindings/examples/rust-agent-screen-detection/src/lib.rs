@@ -12,3 +12,4 @@ pub mod manifest;
 pub mod manifest_update;
 pub mod process;
 pub mod scanner;
+pub mod wake_kinds;
