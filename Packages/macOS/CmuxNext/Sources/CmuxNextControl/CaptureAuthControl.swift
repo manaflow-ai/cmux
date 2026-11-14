@@ -17,7 +17,7 @@ public struct CaptureAuthControl: Sendable {
                 await run(call, phase: .cleanup, auth: auth)
             },
         ])
-        router?.register(["prepare", "cleanup"].map { phase in
+        router?.register(["prepare", "resume", "cleanup"].map { phase in
             .async("debug.remote.capture_" + phase) { call in
                 guard call.params.count == 3,
                       let lease = call.params["lease_id"]?.stringValue,
