@@ -36,9 +36,9 @@ def _value(value, *keys):
     return None
 
 
-def _cli(exe, env, args):
+def _cli(exe, env, args, namespace="agents"):
     try:
-        result = subprocess.run([exe, "--json", "agents", *args], env=env,
+        result = subprocess.run([exe, "--json", namespace, *args], env=env,
                                 capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise ProofFailure(f"owner chat CLI failed: {type(error).__name__}") from None
@@ -50,6 +50,25 @@ def _cli(exe, env, args):
         except ValueError:
             continue
     raise ProofFailure("owner chat CLI returned no JSON receipt")
+
+
+def _start_with_full_access_off(exe, env):
+    """Use the supported off command in the proof's fresh daemon, then read back."""
+    if not env.get("ACPMUX_HOME") or env.get("ACPMUX_SOCKET"):
+        raise ProofFailure("owner proof needs its isolated daemon home")
+    def phone():
+        listed = _cli(exe, env, ["ticket", "ls"], namespace="host")
+        devices = [device for device in listed.get("devices", [])
+                   if device.get("role") == "phone" and device.get("revoked_at") is None]
+        if len(devices) != 1 or not devices[0].get("id"):
+            raise ProofFailure("owner proof needs exactly one paired phone")
+        return devices[0]
+    device = phone()
+    changed = _cli(exe, env, ["ticket", "full-access", device["id"], "off"], namespace="host")
+    observed = phone()
+    if (changed.get("device", {}).get("full_access") is not False
+            or observed["id"] != device["id"] or observed.get("full_access") is not False):
+        raise ProofFailure("owner proof could not read back Full access off")
 
 
 def _button(ui, predicate, what):
@@ -107,7 +126,7 @@ def run_owner_access_proof(*, mac_app, sock, env, simctl, udid, bundle, phone_en
     receipt = {
         "schema": "cmux-owner-access-proof-v1",
         "local_owner_chat": True,
-        "full_access_started_off": True,
+
         "pairing_prompt_captured": (Path(out, "screens", "pairing-dialog.png").is_file()),
         "refusal": REFUSAL,
         "refusal_is_one_sentence": True,
@@ -119,6 +138,11 @@ def run_owner_access_proof(*, mac_app, sock, env, simctl, udid, bundle, phone_en
     session_id = _value(created, "chat", "sessionId")
     if not session_id:
         raise ProofFailure("owner chat CLI receipt had no session id")
+    acpmux = Path(mac_app, "Contents", "Resources", "bin", "acpmux")
+    if not acpmux.is_file():
+        raise ProofFailure("tagged app has no bundled agent CLI")
+    _start_with_full_access_off(str(acpmux), cli_env)
+    receipt["full_access_started_off"] = True
     ui = PhoneUI(simctl, udid, bundle, phone_env)
     _open_chat(ui, CHAT_NAME, session_id)
     ui.tap(ui.control(lambda n: n.get("AXUniqueId") == "chat.composer.field", "owner composer"))

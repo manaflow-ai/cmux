@@ -240,6 +240,11 @@ def main():
                # (step 423a0bae's showed only other Macs) and name no host.
                CMUX_NEXT_MOBILE_DEVICE_NAME=RIG_MAC_NAME,
                CMUX_NEXT_SOCKET_MODE="automation")
+    if owner_proof:
+        # The proof may turn off only its own newly paired phone, never a device
+        # in a runner's existing daemon. The app and CLI share this fresh home.
+        env["ACPMUX_HOME"] = os.path.join(rig, "owner-acpmux")
+        env.pop("ACPMUX_SOCKET", None)
     if a.theme:
         env["CMUX_NEXT_GHOSTTY_CONFIG"] = os.path.realpath(a.theme)
 
