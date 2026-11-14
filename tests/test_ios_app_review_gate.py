@@ -447,16 +447,56 @@ class AppReviewGateTests(unittest.TestCase):
         # report needs them all and fails closed on any family's missing
         # result, and each job's artifact has its own name.
         workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
-        reviewer = workflow.split("\n  reviewer-path:\n", 1)[1].split("\n  asc-validate:\n", 1)[0]
+        reviewer = workflow.split("\n  reviewer-path:\n", 1)[1].split("\n  walk:\n", 1)[0]
+        walk = workflow.split("\n  walk:\n", 1)[1].split("\n  asc-validate:\n", 1)[0]
         report = workflow.split("\n  report:\n", 1)[1]
-        self.assertIn("fail-fast: false", reviewer)
-        self.assertIn("        family: [iphone, ipad, duo]\n", reviewer)
-        self.assertIn("name: review-gate-path-${{ env.LANE }}-${{ matrix.family }}", reviewer)
-        self.assertNotIn("for family in", reviewer)
-        self.assertIn("needs: [plan, lint, reviewer-path, asc-validate]", report)
+        # The iPad leg runs the agent pass; the phones walk in their own job.
+        self.assertIn("        family: [ipad]\n", reviewer)
+        self.assertIn("        family: [iphone, duo]\n", walk)
+        for job in (reviewer, walk):
+            self.assertIn("fail-fast: false", job)
+            self.assertIn("name: Reviewer path (${{ needs.plan.outputs.lane }}, ${{ matrix.family }})", job)
+            self.assertIn("name: review-gate-path-${{ env.LANE }}-${{ matrix.family }}", job)
+            self.assertNotIn("for family in", job)
+        self.assertIn("needs: [plan, lint, reviewer-path, walk, asc-validate]", report)
         self.assertIn("pattern: review-gate-*", report)
         self.assertIn("--expect-device iphone --expect-device ipad --expect-device-or-skipped duo", report)
         self.assertIn("find in -name '*.skipped.json'", report)
+
+    def test_the_phone_walks_hold_no_secret_and_take_an_owned_simulator_mini(self) -> None:
+        # The iPhone and Duo walks need no credential, so they take the
+        # runner job's pick (an owned simulator mini when one is free)
+        # instead of queueing on the ephemeral macOS pool beside the iPad
+        # leg, which keeps that pool for the agent pass's token. In run
+        # 43591424745 the legs waited 34 to 65 minutes there.
+        import yaml
+        jobs = yaml.safe_load((ROOT / ".github/workflows/ios-review-gate.yml").read_text())["jobs"]
+        walk, ipad = jobs["walk"], jobs["reviewer-path"]
+        self.assertNotIn("secrets.", yaml.safe_dump(walk))
+        self.assertNotIn("environment", walk)
+        self.assertEqual(walk["needs"], ["plan", "runner"])
+        self.assertEqual(walk["runs-on"], (
+            "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && "
+            "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
+            "fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}"))
+        self.assertEqual(walk["env"]["FRESH_SIMULATOR"], "1")
+        remove = next(step for step in walk["steps"] if step.get("name") == "Remove the leg's simulator")
+        self.assertIn("always()", remove["if"])
+        self.assertIn('xcrun simctl delete "$UDID"', remove["run"])
+        # The credentialed leg keeps the ephemeral pool and its environment.
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).macos_26", ipad["runs-on"])
+        self.assertEqual(ipad["environment"]["name"], "cmux-next-development")
+        self.assertEqual(ipad["strategy"]["matrix"]["family"], ["ipad"])
+        pick = next(step for step in jobs["runner"]["steps"] if step.get("id") == "pool")
+        self.assertIn("--lane review-gate", pick["run"])
+        self.assertIn('--called "$CALLED"', pick["run"])
+        # The two legs' shared steps are copies (the pinned actionlint
+        # refuses YAML alias steps): they must not drift apart.
+        names = [step.get("name") for step in walk["steps"]]
+        for step in ipad["steps"]:
+            if step.get("name") not in ("Agent reviewer pass", "Upload results"):
+                self.assertIn(step.get("name"), names)
+                self.assertEqual(step, walk["steps"][names.index(step.get("name"))], step.get("name"))
 
     def test_a_device_with_no_tests_is_never_a_pass(self) -> None:
         empty = self.root / "iphone.json"
@@ -785,6 +825,48 @@ class AgentReviewerPassTests(unittest.TestCase):
             env=dict(os.environ, RESULTS=str(results), GITHUB_ENV=str(github_env), PICKER=str(picker)),
             capture_output=True, text=True)
         return proc.returncode, github_env.read_text(), sorted(p.name for p in results.iterdir())
+
+    def test_a_fresh_leg_asks_the_picker_for_its_own_simulator(self) -> None:
+        # An owned mini keeps its simulators between jobs: a leg there walks
+        # a device it created, never one an earlier run signed in on.
+        picker = self.root / "picker.py"
+        picker.write_text("import sys\nprint(' '.join(sys.argv[1:]))\n")
+        for fresh, expect in (("", "UDID=--family duo --print-udid\n"),
+                              ("1", "UDID=--family duo --print-udid --fresh\n")):
+            results = self.root / f"results-fresh-{fresh}"
+            results.mkdir()
+            github_env = self.root / f"env-fresh-{fresh}"
+            github_env.write_text("")
+            subprocess.run(["bash", "-e", str(ROOT / "cmux-next-ios/scripts/app_review_pick_step.sh"), "duo"],
+                           env=dict(os.environ, RESULTS=str(results), GITHUB_ENV=str(github_env),
+                                    PICKER=str(picker), FRESH_SIMULATOR=fresh), check=True)
+            self.assertEqual(github_env.read_text(), expect)
+
+    def test_a_fresh_pick_creates_a_device_even_when_one_exists(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "app_review_pick_simulator", ROOT / "cmux-next-ios/scripts/app_review_pick_simulator.py")
+        picker = importlib.util.module_from_spec(spec)
+        assert spec.loader
+        spec.loader.exec_module(picker)
+        runtime = {"identifier": "iOS-26-1", "version": "26.1", "platform": "iOS", "isAvailable": True}
+        listings = {
+            "runtimes": {"runtimes": [runtime]},
+            "devices": {"devices": {"iOS-26-1": [{"name": "iPhone 17 Pro Max", "udid": "OLD"}]}},
+            "devicetypes": {"devicetypes": [{"name": "iPhone 17 Pro Max", "identifier": "pro-max"}]},
+        }
+        created = []
+        picker.simctl = lambda *args: listings[args[0]]
+        picker.subprocess = type("Subprocess", (), {
+            "check_output": staticmethod(lambda argv, text: created.append(argv) or "NEW\n")})
+        self.assertEqual(picker.pick("iphone"), "OLD")
+        self.assertEqual(created, [])
+        os.environ["GITHUB_RUN_ID"] = "7"
+        try:
+            self.assertEqual(picker.pick("iphone", fresh=True), "NEW")
+        finally:
+            os.environ.pop("GITHUB_RUN_ID")
+        self.assertEqual(created, [["xcrun", "simctl", "create", "cmux review gate 7 iphone",
+                                    "pro-max", "iOS-26-1"]])
 
     def test_only_the_pickers_no_simulator_exit_skips_a_device(self) -> None:
         # Exit 3 is "no simulator for this family on the image": the leg
