@@ -1575,6 +1575,7 @@ jobs:
       linux_jobs: ${{ steps.place.outputs.linux_jobs }}
       mini_runner: ${{ steps.place.outputs.mini_runner }}
       mini_jobs: ${{ steps.place.outputs.mini_jobs }}
+      mini_lease_ids: ${{ steps.place.outputs.mini_lease_ids }}
       # Why: docs/ci/cmux-next-workflow-notes.md#note-128
       placed_attempt: ${{ github.run_attempt }}
     steps:
@@ -1599,6 +1600,7 @@ jobs:
         timeout-minutes: 2
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          CMUX_CI_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
           JOBS: checks path_route
           # Why: docs/ci/cmux-next-workflow-notes.md#note-131
           FLEET_LINUX: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER }}

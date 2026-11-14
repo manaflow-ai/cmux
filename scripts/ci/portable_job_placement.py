@@ -40,6 +40,7 @@ contains(' <key> ') matches whole keys only:
 - `mini_runner`: the side label the idle minis carry (NIGHTLY_ONLY_LABEL, the all-nightly reservation, first
   while it has idle runners), or empty;
 - `mini_jobs`: the jobs that take it.
+- `mini_lease_ids`: controller lease IDs for those mini jobs, or empty when the controller is unavailable.
 For early nightly controls, unread capacity keeps portable jobs on the configured
 owned-mini pool. Other callers write empty values and keep their Blacksmith route.
 
@@ -81,6 +82,7 @@ def _load(name: str):
 
 pool = _load("pr_runner_pool")
 side = _load("side_lane_placement")
+transport = _load("fleet_admission_transport")
 
 # Labels that are not our own Linux fleet: Blacksmith, and GitHub's hosted images (never in the
 # routing order at all).
@@ -100,6 +102,7 @@ class Placement:
     mini_runner: str = ""
     mini_jobs: tuple[str, ...] = ()
     why: str = ""
+    mini_lease_ids: tuple[str, ...] = ()
 
 
 def fleet_linux(label: str) -> str:
@@ -133,6 +136,66 @@ def queued_on(snapshot: Mapping[str, Any] | None, label: str) -> int:
     """Jobs the snapshot shows queued on `label` itself (they take its idle runners first)."""
     entry = ((snapshot or {}).get("pools") or {}).get(label) or {}
     return int(entry.get("queued") or 0)
+
+
+def _lease_endpoint(env: Mapping[str, str]) -> str:
+    authority = (env.get("CMUX_CI_CONTROLLER") or env.get("CMUX_FLEET_CONTROLLER") or "").strip().rstrip("/")
+    if not authority:
+        return ""
+    return authority if authority.endswith("/v1/ci/runner-leases") else authority + "/v1/ci/runner-leases"
+
+
+def _lease_request_id(env: Mapping[str, str], job: str) -> str:
+    repo = env.get("GITHUB_REPOSITORY", "manaflow-ai/cmux")
+    run = env.get("GITHUB_RUN_ID", "local")
+    attempt = env.get("GITHUB_RUN_ATTEMPT", "1")
+    return f"{repo}/{run}/{attempt}/{job}"
+
+
+def reserve_mini_jobs(env: Mapping[str, str], route: str, jobs: Sequence[str],
+                      runners: Sequence[Mapping[str, Any]]) -> tuple[tuple[str, ...], tuple[str, ...], str]:
+    """Take one atomic controller lease per mini job, or fail open to hosted overflow."""
+    endpoint = _lease_endpoint(env)
+    if not endpoint:
+        return tuple(jobs), (), ""
+    candidates = [{"name": str(runner.get("name") or ""),
+                   "status": str(runner.get("status") or ""),
+                   "busy": runner.get("busy") is True,
+                   "labels": list(pool.runner_labels(runner))}
+                  for runner in runners if route in pool.runner_labels(runner)]
+    observed_at = next((str(runner.get("_portable_observed_at") or "") for runner in runners
+                        if runner.get("_portable_observed_at")),
+                       dt.datetime.now(dt.timezone.utc).isoformat())
+    acquired: list[tuple[str, str]] = []
+    for job in jobs:
+        payload = {"action": "acquire", "label": route, "request_id": _lease_request_id(env, job),
+                   "job": job, "ttl_s": 120, "observed_at": observed_at, "candidates": candidates}
+        try:
+            response = transport.exchange(endpoint, payload, allow_http_errors=True)
+        except Exception as error:  # noqa: BLE001 - controller outage keeps the hosted route usable
+            for _, lease_id in acquired:
+                try:
+                    transport.exchange(endpoint, {"action": "release", "lease_id": lease_id}, allow_http_errors=True)
+                except Exception:
+                    pass
+            print(f"::warning title=portable placement::runner lease unavailable ({error}); using hosted overflow")
+            return (), (), "runner lease unavailable; jobs use hosted overflow"
+        if response.get("status") == "no_free_runner" or response.get("_http_status") == 409:
+            break
+        lease = response.get("lease")
+        if not isinstance(lease, Mapping) or not lease.get("id"):
+            for _, lease_id in acquired:
+                try:
+                    transport.exchange(endpoint, {"action": "release", "lease_id": lease_id}, allow_http_errors=True)
+                except Exception:
+                    pass
+            return (), (), "runner lease response was invalid; jobs use hosted overflow"
+        acquired.append((str(lease.get("runner") or ""), str(lease["id"])))
+    placed = tuple(job for job, _ in zip(jobs, acquired))
+    ids = tuple(lease_id for _, lease_id in acquired)
+    if len(placed) < len(jobs):
+        return placed, ids, f"controller reported no free `{route}` runner for {len(jobs) - len(placed)} job(s)"
+    return placed, ids, ""
 
 
 PORTABLE_ATTEMPT3_RESCUE = "PORTABLE_ATTEMPT3_RESCUE"
@@ -210,12 +273,13 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
     if not linux:
         notes.append("vars.LINUX_RUNNER names no fleet Linux runner")
 
-    def done(why: str, mini: str = "", mini_jobs: tuple[str, ...] = ()) -> Placement:
+    def done(why: str, mini: str = "", mini_jobs: tuple[str, ...] = (),
+             mini_lease_ids: tuple[str, ...] = ()) -> Placement:
         left = [job for job in rest if job not in mini_jobs]
         tail = [why] if why else []
         if left:
             tail.append(f"{', '.join(left)} take Blacksmith")
-        return Placement(linux if linux_jobs else "", linux_jobs, mini, mini_jobs, "; ".join(notes + tail))
+        return Placement(linux if linux_jobs else "", linux_jobs, mini, mini_jobs, "; ".join(notes + tail), mini_lease_ids)
 
     if not rest:
         return done("")
@@ -227,7 +291,11 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
     if reserved and env.get("NIGHTLY") == "1" and runners is not None and not attempt_refusal(env):
         placed = rest[:nightly_only_free(reserved, runners, snapshot)]
         if placed:
-            return done(f"{', '.join(placed)} take idle all-nightly runner(s) on `{reserved}`", reserved, placed)
+            leased, lease_ids, lease_note = reserve_mini_jobs(env, reserved, placed, runners)
+            reason = f"{', '.join(leased)} take idle all-nightly runner(s) on `{reserved}`"
+            if lease_note:
+                reason += f"; {lease_note}"
+            return done(reason, reserved if leased else "", leased, lease_ids)
     refusal = eligible(env)
     if refusal:
         return done(refusal)
@@ -259,7 +327,11 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
     placed = rest[:free]
     if not placed:
         return done(f"`{route}` has no idle runner beyond its queue ({idle} idle, {queued_on(snapshot, route)} queued)")
-    return done(f"{', '.join(placed)} take free mini(s) on `{route}`", route, placed)
+    leased, lease_ids, lease_note = reserve_mini_jobs(env, route, placed, runners)
+    reason = f"{', '.join(leased)} take free mini(s) on `{route}`"
+    if lease_note:
+        reason += f"; {lease_note}"
+    return done(reason, route if leased else "", leased, lease_ids)
 
 
 def delimited(jobs: Sequence[str]) -> str:
@@ -293,8 +365,10 @@ def read(env: Mapping[str, str], now: dt.datetime, *, use_state: bool = True
             # Read only the validated publication.  Do not instantiate a
             # client: missing queue data must not fall through to an artifact
             # API request and spend the installation budget.
-            runners = [*state["repository_runners"],
-                       *(runner for group in state["runner_groups"].values() for runner in group)]
+            observed_at = str(state.get("generated_at") or now.isoformat())
+            runners = [dict(runner, _portable_observed_at=observed_at) for runner in
+                       [*state["repository_runners"],
+                        *(runner for group in state["runner_groups"].values() for runner in group)]]
             snapshot = pool.document_queue_snapshot(state, now=now, branch=pool.SNAPSHOT_BRANCH)
             return runners, snapshot
         except Exception as error:  # noqa: BLE001 - fail open to the overflow route
@@ -314,6 +388,8 @@ def read(env: Mapping[str, str], now: dt.datetime, *, use_state: bool = True
                 runners = client.runners(use_state=use_state, include_repository=False)
             else:
                 runners = client.runners(use_state=use_state)
+            observed_at = now.isoformat()
+            runners = [dict(runner, _portable_observed_at=observed_at) for runner in runners]
             break
         except Exception as error:  # noqa: BLE001 - fail open: every job keeps Blacksmith
             print(f"::warning title=portable placement::could not list runners with {name} ({error})")
@@ -331,7 +407,8 @@ def write(placed: Placement, env: Mapping[str, str]) -> None:
     if output:
         with open(output, "a", encoding="utf-8") as handle:
             handle.write(f"linux_runner={placed.linux_runner}\nlinux_jobs={delimited(placed.linux_jobs)}\n"
-                         f"mini_runner={placed.mini_runner}\nmini_jobs={delimited(placed.mini_jobs)}\n")
+                         f"mini_runner={placed.mini_runner}\nmini_jobs={delimited(placed.mini_jobs)}\n"
+                         f"mini_lease_ids={delimited(placed.mini_lease_ids)}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:

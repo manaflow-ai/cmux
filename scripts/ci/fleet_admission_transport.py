@@ -54,13 +54,22 @@ def verify_authority(url: str) -> None:
         raise ValueError("controller is not an online authenticated Tailscale peer")
 
 
-def exchange(url: str, payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
+def exchange(url: str, payload: Mapping[str, Any] | None = None, *, allow_http_errors: bool = False) -> dict[str, Any]:
     verify_authority(url)
     data = json.dumps(payload).encode() if payload is not None else None
     request = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
-    with opener.open(request, timeout=35) as response:
-        value = json.load(response)
+    try:
+        with opener.open(request, timeout=35) as response:
+            value = json.load(response)
+            status = response.status
+    except urllib.error.HTTPError as error:
+        if not allow_http_errors:
+            raise
+        value = json.load(error)
+        status = error.code
     if not isinstance(value, dict):
         raise ValueError("admission response must be an object")
+    if allow_http_errors:
+        value = {**value, "_http_status": status}
     return value

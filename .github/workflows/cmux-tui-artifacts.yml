@@ -731,6 +731,7 @@ jobs:
         timeout-minutes: 2
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          CMUX_CI_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
           JOBS: darwin-aarch64 darwin-x86_64
           MAC_FIRST: darwin-aarch64 darwin-x86_64
           MINI_ALL_OR_NONE: "1"
@@ -751,6 +752,7 @@ jobs:
         timeout-minutes: 3
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          CMUX_CI_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
           JOBS: cmux-next-daemon-tests
           LINUX_ONLY: cmux-next-daemon-tests
           FLEET_LINUX: cmux-fleet-linux-x64

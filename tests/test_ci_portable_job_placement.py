@@ -199,6 +199,38 @@ class NightlyOnly(unittest.TestCase):
 
 
 class Decide(unittest.TestCase):
+    def test_controller_lease_no_free_runner_leaves_job_for_hosted_fallback(self):
+        config = env(CMUX_CI_CONTROLLER="https://controller.example", GITHUB_RUN_ID="42")
+        with mock.patch.object(placement.transport, "exchange", return_value={"_http_status": 409, "status": "no_free_runner"}):
+            result = placement.decide(config, idle(1), snapshot(), NOW)
+        self.assertEqual(result.mini_runner, "")
+        self.assertEqual(result.mini_jobs, ())
+        self.assertIn("no free", result.why)
+
+    def test_controller_failure_fails_open_and_does_not_emit_mini(self):
+        config = env(CMUX_CI_CONTROLLER="https://controller.example", GITHUB_RUN_ID="42")
+        with mock.patch.object(placement.transport, "exchange", side_effect=OSError("offline")):
+            result = placement.decide(config, idle(1), snapshot(), NOW)
+        self.assertEqual((result.mini_runner, result.mini_jobs, result.mini_lease_ids), ("", (), ()))
+
+    def test_controller_leases_each_selected_job_and_writes_ids(self):
+        config = env(CMUX_CI_CONTROLLER="https://controller.example", GITHUB_RUN_ID="42")
+        responses = iter(({"_http_status": 201, "lease": {"id": "lease-1", "runner": "cmux0-glaeda"}},
+                          {"_http_status": 201, "lease": {"id": "lease-2", "runner": "cmux1-glaeda"}},
+                          ))
+        with mock.patch.object(placement.transport, "exchange", side_effect=lambda *args, **kwargs: next(responses)):
+            result = placement.decide(config, idle(2), snapshot(), NOW)
+        self.assertEqual(result.mini_jobs, tuple(JOBS.split())[:2])
+        self.assertEqual(result.mini_lease_ids, ("lease-1", "lease-2"))
+
+        observed = []
+        with mock.patch.object(placement.transport, "exchange", side_effect=lambda _url, payload, **kwargs: observed.append(payload) or {"_http_status": 409, "status": "no_free_runner"}):
+            placement.decide(config, idle(1), snapshot(), NOW)
+        self.assertTrue(observed[0]["observed_at"])
+        with tempfile.NamedTemporaryFile() as output:
+            placement.write(result, {"GITHUB_OUTPUT": output.name})
+            self.assertIn("mini_lease_ids= lease-1 lease-2 ", Path(output.name).read_text())
+
     def test_linux_signer_binary_is_never_built_on_a_mini(self):
         config = env(JOBS="control signer-build", LINUX_ONLY="signer-build", NIGHTLY="1")
         result = placement.decide(config, idle(5), snapshot(), NOW)
@@ -499,7 +531,7 @@ class Decide(unittest.TestCase):
             output = Path(scratch) / "out"
             placement.write(placement.Placement("", (), SIDE, ("checks",), "why"), {"GITHUB_OUTPUT": str(output)})
             self.assertEqual(output.read_text(),
-                             f"linux_runner=\nlinux_jobs=\nmini_runner={SIDE}\nmini_jobs= checks \n")
+                             f"linux_runner=\nlinux_jobs=\nmini_runner={SIDE}\nmini_jobs= checks \nmini_lease_ids=\n")
 
     def test_main_with_no_tokens_writes_empty_routes(self):
         with tempfile.TemporaryDirectory() as scratch:
