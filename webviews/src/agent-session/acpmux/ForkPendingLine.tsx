@@ -1,8 +1,8 @@
 import { DialogButton } from "../../ui/DialogButton";
 import { Spinner } from "./conversation/icons";
-import { waitedText } from "./HostError";
+import { waitedText } from "./hostErrorModel";
 import { useT } from "./i18n";
-import { useNow } from "./subagents/SubagentGroup";
+import { useNow } from "./subagents/subagentGroupModel";
 
 /// How long a fork runs before the line counts its time: a fork that answers sooner shows the
 /// line only, no number that changes once and is gone.

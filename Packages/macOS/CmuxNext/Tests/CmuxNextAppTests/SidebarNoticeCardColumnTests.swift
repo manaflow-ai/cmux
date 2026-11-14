@@ -97,12 +97,14 @@ import Testing
     }
 
     /// Review F1 of #36835: the card keeps its last measure, so every token the rows are measured in is part of its
-    /// key. `Metrics.space6` sizes the download's cancel, whose room the text keeps; changing it must move the text.
+    /// key. `Metrics.space3` is the card's padding, inside which the detail spans; changing it must move the text.
+    /// (It was `Metrics.space6`, the round cancel's side, until a7964659 moved Cancel to the title's row and let the
+    /// detail span the card: Lawrence 2026-11-07, "cancel button is ugly not taking up full width here".)
     @Test func aChangedSpacingTokenMeasuresTheCardAgain() throws {
         _ = NSApplication.shared
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(DesignTunables.all)
-        defer { _ = TunableStore.shared.set(ChromeTunables.space6.key, nil) }
+        defer { _ = TunableStore.shared.set(ChromeTunables.space3.key, nil) }
         let notice = SidebarNoticeCard(id: "update.downloading", title: "Downloading Update", detail: "115.0 MB of 265.3 MB",
                                        progress: .fraction(0.4), trailing: SidebarNoticeCard.Trailing(id: "cancel", symbol: "xmark.circle.fill", label: "Cancel"))
         let card = SidebarNoticeCardView(motionPolicy: { MotionPolicy(speed: .fast, reduceMotion: true) })
@@ -111,9 +113,9 @@ import Testing
         card.layoutSubtreeIfNeeded()
         let detail = try #require(Self.label(notice.detail ?? "", in: card))
         let before = detail.frame.width
-        try #require(TunableStore.shared.set(ChromeTunables.space6.key, .number(24)) == .number(24))
+        try #require(TunableStore.shared.set(ChromeTunables.space3.key, .number(12)) == .number(12))
         card.needsLayout = true
         card.layoutSubtreeIfNeeded()
-        #expect(detail.frame.width < before, "the detail kept \(detail.frame.width) pt after the cancel grew (was \(before))")
+        #expect(detail.frame.width < before, "the detail kept \(detail.frame.width) pt after the padding grew (was \(before))")
     }
 }

@@ -28,6 +28,7 @@ import { joinsReceivedRow } from "./laneNoticeBatches";
 import { isWaitingMessage } from "./pendingMessages";
 import { awaitsPermission, countsFailed, isRunning, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
 import { toolRunPhrases } from "./toolRunSummary";
+import { visibleToolItems } from "./mcpPresentation";
 import type { Folds } from "./viewFolds";
 
 export const messageRunRowId = (firstId: string) => `${MESSAGE_RUN}-${firstId}`;
@@ -53,23 +54,38 @@ type Member = {
 
 function member(row: AcpmuxRow): Member | undefined {
   if (row.kind === "compaction")
-    return { lines: 1, sent: 0, received: 0, work: [], failed: 0, running: row.compaction?.state === "running" };
+    return {
+      lines: 1,
+      sent: 0,
+      received: 0,
+      work: [],
+      failed: 0,
+      running: row.compaction?.state === "running",
+    };
   // A tool's fire stays in sight: it ends a run, never folds into its line.
   if (isReceivedLine(row) && row.incoming?.kind === "message" && row.incoming.message.notice?.severity === "fire")
     return undefined;
   if (isReceivedLine(row)) {
     // An inbox notice counts the messages it brought, not its threads (inboxNotice.ts `inboxCounts`).
     const n = row.incoming?.kind === "inbox" ? Math.max(1, inboxCounts(row.incoming.notice).messages) : 1;
-    return { lines: 1, sent: 0, received: n, work: [], failed: 0, running: false };
+    return {
+      lines: 1,
+      sent: 0,
+      received: n,
+      work: [],
+      failed: 0,
+      running: false,
+    };
   }
   // A folded run (codexRuns, shapeTurn): its lines as ToolRows draws them (`runStretches`).
   if (row.kind !== "activity" || row.foldRun !== true || !row.items?.length) return undefined;
-  const groups = toolGroups(row.items);
+  const items = visibleToolItems(row.items)!;
+  const groups = toolGroups(items);
   // A card that stays in sight for its own sake (a sub-session started or waited on, a dispatch,
   // who else works on these files)
   // keeps the run open around it; only messages fold. So does a run whose edit still waits for its
   // permission: the change it asks about stays in sight (turns.ts codexRuns).
-  if (row.items.some((item) => awaitsPermission(item.tool))) return undefined;
+  if (items.some((item) => awaitsPermission(item.tool))) return undefined;
   if (
     groups.some(
       (group) =>
@@ -93,14 +109,14 @@ function member(row: AcpmuxRow): Member | undefined {
       group.type === "sendGroup" ? group.items : isSend(group) && "item" in group ? [group.item] : [],
     ),
   );
-  const work = row.items.filter((item) => item.tool && !sentItems.has(item));
+  const work = items.filter((item) => item.tool && !sentItems.has(item));
   return {
     lines,
     sent,
     received: 0,
     work,
-    failed: row.items.filter((item) => item.tool && countsFailed(item.tool)).length,
-    running: row.items.some((item) => item.tool && isRunning(item.tool)),
+    failed: items.filter((item) => item.tool && countsFailed(item.tool)).length,
+    running: items.some((item) => item.tool && isRunning(item.tool)),
   };
 }
 
@@ -128,7 +144,22 @@ export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[]
     // run: they draw in that row (laneNoticeBatches.ts `projectInboxRows`). One with a lane report,
     // a task's result or a person's message among them still folds here.
     const onlyReceived = sent === 0 && members.every(joinsReceivedRow);
-    if (lines < 2 || sent + received === 0 || onlyReceived) {
+    // Two runs a compaction alone splits are one stretch of work too, message or not (spec "Compaction
+    // folds with the work"; Leo, 2026-11-12, ask-bc2af01f6e: "how come these aren't folded?").
+    // Two runs a compaction alone splits are one stretch of work too, message or not (spec "Compaction
+    // folds with the work"; Leo, 2026-11-12, ask-bc2af01f6e: "how come these aren't folded?"): only a
+    // compaction between two runs of the same turn, never one at a run's edge or between two turns.
+    const runs = members.filter((row) => row.kind === "activity");
+    const compacted =
+      runs.length > 1 &&
+      runs.every((row) => row.inBackground === runs[0]!.inBackground) &&
+      members.some(
+        (row, at) =>
+          row.kind === "compaction" &&
+          members.slice(0, at).some((m) => m.kind === "activity") &&
+          members.slice(at + 1).some((m) => m.kind === "activity"),
+      );
+    if (lines < 2 || (sent + received === 0 && !compacted) || onlyReceived) {
       out?.push(...members);
       index = end;
       continue;

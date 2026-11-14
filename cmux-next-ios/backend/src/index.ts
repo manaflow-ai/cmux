@@ -1,14 +1,16 @@
 import { authenticate, bearerOf, primaryProject, stackProjects, type Caller } from "./auth.ts"
 import type { Env } from "./env.ts"
 import { iceServers } from "./ice.ts"
-import { createTeam, sendTeamInvite, userTeams } from "./stack.ts"
-import { apnsConfig, apnsTopics, clean, isSealedText, MAX_MAILBOX_SEALED, notifyLimitKey, parseNotify, pushTargets, sendApns, TURN_PUSH_WINDOW_MS, turnPushKey, wantedKinds } from "./push.ts"
+import { createTeam, sendTeamInvite, userEmail, userTeams } from "./stack.ts"
+import { audienceOf, judgedAt, parseReport, ReportError } from "./connectivity-alerts.ts"
+import { apnsConfig, apnsTopics, clean, isSealedText, MAX_MAILBOX_SEALED, notifyFailures, notifyLimitKey, parseNotify, pushTargets, sendApns, TURN_PUSH_WINDOW_MS, turnPushKey, wantedKinds } from "./push.ts"
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { userHubName, type Attachment } from "./team-hub.ts"
 import { Timing, timingFor } from "./timing.ts"
 import { WorkerEntrypoint } from "cloudflare:workers"
 
 export { TeamHub } from "./team-hub.ts"
+export { ConnectivityAlertDesk } from "./connectivity-alerts.ts"
 
 const CLOUD_MACHINE = /^vm_[a-z0-9]{20}$/
 const CLOUD_ID = /^[A-Za-z0-9._:-]{1,128}$/
@@ -367,6 +369,44 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     return json({ devices, macs, myMacs, ice })
   }
 
+  if (path === "/v1/diagnostics/connectivity-incidents" && method === "POST") {
+    // A team member's phone reports a major connectivity incident (PROTOCOL.md "Connectivity incidents").
+    // Who it is comes from Stack, not the body: only a verified team email is heard, and agent accounts and
+    // simulators go to the test route.
+    await limit(env.INCIDENT_LIMIT, me, "connectivity reports")
+    let report
+    try {
+      report = parseReport(await readJson(req))
+    } catch (e) {
+      if (e instanceof ReportError) throw new HttpError(400, "bad_request", e.message)
+      throw e
+    }
+    let who
+    try {
+      who = await t.span("stack_user", userEmail(env, caller))
+    } catch (e) {
+      console.log(JSON.stringify({ msg: "connectivity report: user lookup failed", error: String(e) }))
+      throw new HttpError(502, "user_unavailable", "could not look up the account; retry later")
+    }
+    const audience = audienceOf(who.email, who.verified, { ...report.app, ...(report.simulations ? { simulations: report.simulations } : {}) }, env.CONNECTIVITY_ALERT_EXCLUDED_EMAILS)
+    if (audience.route === "refuse") return fail(403, audience.why === "unverified" ? "email_unverified" : "not_team", "connectivity reports are for the cmux team")
+    // Whether the Mac is awake: its socket lives in the caller's own hub (v1 links only reach the caller's
+    // own Macs), so another user's Mac id finds nothing there.
+    const liveness = await t
+      .span("hub", userHub(env, caller).macLiveness(me, report.mac.id.toLowerCase(), judgedAt(report, Date.now())))
+      .catch((e) => {
+        console.log(JSON.stringify({ msg: "connectivity report: liveness unavailable", error: String(e) }))
+        return null
+      })
+    const desk = env.CONNECTIVITY_ALERT_DESK.get(env.CONNECTIVITY_ALERT_DESK.idFromName("desk"))
+    const r = await t.span(
+      "desk",
+      desk.report(report, { key: me, email: who.email! }, audience.route === "test" ? { route: "test", why: audience.why } : { route: "team" }, { liveness })
+    )
+    if (!r.accepted) return fail(409, "conflict", "this incident id belongs to another account")
+    return json({ accepted: true, route: audience.route, ...(r.note ? { note: r.note } : {}) }, 202)
+  }
+
   if (path === "/v1/me/devices" && method === "GET") {
     const [rows, presence] = await Promise.all([withStore(env, ctx, (s) => s.listOwnerDevices(me)), t.span("hub", userHub(env, caller).macs(me))])
     // Presence for Macs from the caller's own hub.
@@ -493,8 +533,17 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       const drop = results.filter((r) => r.outcome === "drop_target").map((r) => r.token)
       if (drop.length) await withStore(env, ctx, (s) => s.dropPushTokens(drop))
       const failed = results.filter((r) => r.outcome === "failed")
-      if (failed.length) console.log(JSON.stringify({ msg: "apns failed", results: failed.map((r) => ({ status: r.status, reason: r.reason })) }))
-      return json({ configured: true, sent: results.filter((r) => r.outcome === "sent").length, failed: failed.length, dropped: drop.length, wants })
+      if (failed.length) console.log(JSON.stringify({ msg: "apns failed", results: failed.map((r) => ({ environment: r.environment, status: r.status, reason: r.reason })) }))
+      // Why APNs refused, so the Mac (and whoever reads its log) can see it without the Worker's logs.
+      const failures = notifyFailures(results)
+      return json({
+        configured: true,
+        sent: results.filter((r) => r.outcome === "sent").length,
+        failed: failed.length,
+        dropped: drop.length,
+        wants,
+        ...(failures.length ? { failures } : {})
+      })
     }
     return fail(405, "method_not_allowed", "method not allowed")
   }

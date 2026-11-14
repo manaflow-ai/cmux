@@ -1,0 +1,120 @@
+{
+ "title": "Browser shortcuts: Cmd-B in a page that takes Cmd-B, focus mode off",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "New workspace",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Linear-like page"
+   ],
+   "shot": false
+  },
+  {
+   "title": "Show it",
+   "cmux": [
+    "workspace",
+    "name:Linear-like page",
+    "focus"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Open example.com in a browser tab",
+   "cmux": [
+    "tab",
+    "create",
+    "browser",
+    "--url",
+    "https://example.com",
+    "--name",
+    "Linear-like"
+   ],
+   "wait": 5,
+   "shot": false
+  },
+  {
+   "title": "Focus the page tab",
+   "wait": 4,
+   "shot": false,
+   "cmux": [
+    "tab",
+    "Linear-like",
+    "focus"
+   ]
+  },
+  {
+   "title": "Click into the page",
+   "cmux": [
+    "browser",
+    "page",
+    "click",
+    "body"
+   ],
+   "wait": 1,
+   "shot": false,
+   "optional": "focus only"
+  },
+  {
+   "title": "Make the page take Cmd-B (like Linear)",
+   "cmux": [
+    "browser",
+    "page",
+    "eval",
+    "document.body.innerHTML='<div style=\"font:22px -apple-system;margin:40px\"><p>This page calls preventDefault on Cmd-B, like Linear.</p><p>Cmd-B reached the page: <b id=n style=\"font-size:48px\">0</b> times</p><p>Keys seen: <b id=a>0</b></p></div>';window.__n=0;window.__all=0;addEventListener('keydown',e=>{document.getElementById('a').textContent=++window.__all+' '+e.key},true);addEventListener('keydown',e=>{if(e.metaKey&&e.key==='b'){e.preventDefault();document.getElementById('n').textContent=++window.__n}},true);'ok'"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "A Chromium page that takes Cmd-B for itself has the keyboard; the sidebar shows",
+   "wait": 0.5
+  },
+  {
+   "title": "Cmd-B in the page",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "b",
+     "modifiers": [
+      "cmd"
+     ],
+     "target": "page"
+    }
+   },
+   "wait": 1.2,
+   "shot": false
+  },
+  {
+   "title": "Last key interception",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "last": true
+    }
+   },
+   "shot": false
+  },
+  {
+   "title": "Page Cmd-B count, after Cmd-B",
+   "cmux": [
+    "browser",
+    "page",
+    "eval",
+    "String(window.__n)"
+   ],
+   "shot": false
+  },
+  {
+   "title": "After Cmd-B, focus mode off: cmux toggles the sidebar (Before: the page took it, count 1)",
+   "wait": 0.3
+  }
+ ]
+}

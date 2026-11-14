@@ -1,17 +1,18 @@
 import { useEffect, useState } from "react";
-import { useT, type Translate } from "../i18n";
-import { numberedImageLabels } from "../imageLabel";
+import { useT } from "../i18n";
+
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { NativeError } from "../nativeError";
+
 import type { SummarySource } from "../summary/sessionSummary";
 import { extraFolderName } from "../extraFolders";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { openPullRequestDiff, pullRequestDiffUrl } from "./pullRequestDiff";
+import { heightAbove, useFoldMotion } from "./foldMotion";
+import { SOURCES_SHOWN, sourceLabels, scopedPath } from "./sourcesSectionModel";
 import { SessionInfoFold } from "./SessionInfoSection";
 import { WindowedRows } from "./WindowedRows";
 
-export const SOURCES_SHOWN = 4;
 type RowProps = {
   source: SummarySource;
   onOpenBeside?: (url: string) => void;
@@ -21,46 +22,6 @@ type RowProps = {
   onOpenFile?: (path: string) => unknown;
   cwd?: string;
 };
-
-// Native tab refusal preserves the gesture, so the validated editor route can retry.
-export async function openSourceFile(
-  path: string,
-  native: (method: string, params: Record<string, unknown>) => Promise<unknown>,
-) {
-  try {
-    return await native("file.open", { path, where: "tab" });
-  } catch (error) {
-    if (!(error instanceof NativeError) || error.code !== "transport.path_invalid") throw error;
-    return native("file.open", { path, where: "editor" });
-  }
-}
-
-/// Each source's row name, in order: a pasted image with no name of its own (WebKit's "image.png")
-/// is "Screenshot 1", "Screenshot 2", ... in chat order, numbered across the whole list so a row
-/// keeps its number when View all unfolds; every other source is its label.
-export function sourceLabels(t: Translate, sources: readonly SummarySource[]): string[] {
-  const images = sources.filter((source) => source.kind === "image");
-  const named = numberedImageLabels(
-    t,
-    images.map((source) => ({ name: source.label, source: source.image?.source })),
-  );
-  const labels = new Map(images.map((source, index) => [source, named[index]!]));
-  return sources.map((source) => labels.get(source) ?? source.label);
-}
-
-export function scopedPath(path: string, cwd?: string): string | undefined {
-  if (!cwd?.startsWith("/") || path.startsWith("~") || path.includes("\0")) return;
-  const normalize = (value: string) => {
-    const parts: string[] = [];
-    for (const part of value.split("/"))
-      if (part === "..") parts.pop();
-      else if (part && part !== ".") parts.push(part);
-    return `/${parts.join("/")}`;
-  };
-  const root = normalize(cwd),
-    resolved = normalize(path.startsWith("/") ? path : `${root}/${path}`);
-  return resolved.startsWith(root === "/" ? root : `${root}/`) ? resolved : undefined;
-}
 
 export function SourcesSection({
   sources,
@@ -80,11 +41,15 @@ export function SourcesSection({
   const t = useT();
   // A fold that would hold back one row shows it instead (OutputsSection `OUTPUTS_SHOWN`).
   const folds = sources.length - SOURCES_SHOWN >= 2;
-  const shown = folds && !expanded ? sources.slice(0, SOURCES_SHOWN) : sources;
+  // Show more grows the list in place and Show less closes it over the rows that go (foldMotion.ts).
+  const fold = useFoldMotion<HTMLUListElement>(expanded, (list) =>
+    heightAbove(list, list.children[folders.length + SOURCES_SHOWN]),
+  );
+  const shown = folds && !fold.drawn ? sources.slice(0, SOURCES_SHOWN) : sources;
   const labels = sourceLabels(t, sources);
   return (
     <>
-      <ul className="acpmux-session-info-list" data-section="sources">
+      <ul ref={fold.ref} className="acpmux-session-info-list" data-section="sources">
         {folders.map((folder) => (
           // tooltip-allow: the row shows the folder's name; the tooltip is its full path
           <li key={`folder:${folder}`} className="acpmux-session-info-source" data-kind="folder" title={folder}>
@@ -110,7 +75,7 @@ export function SourcesSection({
         <SessionInfoFold
           className="acpmux-session-info-sources-fold"
           open={expanded}
-          onToggle={() => onExpandedChange(!expanded)}
+          onToggle={() => fold.toggle(!expanded, onExpandedChange)}
         >
           {expanded
             ? t("sessionInfo.outputs.showLess")

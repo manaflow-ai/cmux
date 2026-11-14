@@ -53,7 +53,12 @@ pub(super) async fn handle(
             return Err(crate::prompt_provenance::withdraw_origin_refused());
         }
         let s = hub.resolve(session_key(params)?)?;
-        return hub.prompt_withdraw(&s, params).await;
+        // A caller that left waits no more; its notice still settles in the hub's task, and a
+        // withdraw again answers what became of it (`withdraw.rs`).
+        return tokio::select! {
+            result = hub.prompt_withdraw(&s, params) => result,
+            () = conn.closed() => Err(RpcError::internal("the client closed the connection")),
+        };
     }
     // An agent may not resume its own pair, nor take a chat over or hand it back.
     if !local_person(conn) {
@@ -124,7 +129,8 @@ pub(super) async fn person_prompt(
     s: &Arc<Session>,
     agent_message: bool,
 ) {
-    let in_session = conn.caller().is_some() || conn.unproven_caller.get().is_some();
+    // An old acpmux CLI or a shell that declared no terminal is no person's presence either.
+    let in_session = conn.agent_side();
     if counts_as_person_prompt(agent_message, conn.is_trigger(), in_session) {
         hub.person_prompted(crate::store::now_ms());
     }

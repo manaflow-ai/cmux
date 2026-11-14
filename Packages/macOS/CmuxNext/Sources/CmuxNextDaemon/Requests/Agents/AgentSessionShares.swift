@@ -27,9 +27,12 @@ public struct AgentSessionShareCreateRequest: DaemonRequest {
     /// What the link's guests may do (`view` or `talk`); nil leaves the daemon's default and is left
     /// out of the frame, since a daemon older than link roles refuses an unknown field.
     public var role: String?
+    /// What a guest signed in to cmux may do on the link (`view` or `talk`; the daemon's default is
+    /// `talk`); nil is left out of the frame, like `role`.
+    public var signedInRole: String?
 
     public init(surface: UInt64, session: String? = nil, createId: String? = nil, ttlSecs: UInt64? = nil, uses: UInt32? = nil,
-                ownerToken: String? = nil, role: String? = nil) {
+                ownerToken: String? = nil, role: String? = nil, signedInRole: String? = nil) {
         self.surface = surface
         self.session = session
         self.createId = createId
@@ -37,6 +40,7 @@ public struct AgentSessionShareCreateRequest: DaemonRequest {
         self.uses = uses
         self.ownerToken = ownerToken
         self.role = role
+        self.signedInRole = signedInRole
     }
 }
 
@@ -74,6 +78,40 @@ public struct AgentSessionShareRoom: Decodable, Sendable, Equatable {
     public init(room: String?, ownerApi: String?) {
         self.room = room
         self.ownerApi = ownerApi
+    }
+}
+
+/// `agent-session-share-open-link`: a chat share link this app was handed (a click on a share page, or the
+/// guest page's `<scheme>://share?link=...#<secret>`) as the page to open in a browser tab. The daemon checks
+/// the link and, with `token` (the person's cmux access token, spent only on the configured room's own
+/// deployment), gets the room's one-time hand-off so the tab joins as the person's account
+/// (cmux-tui `agent_session_share_link.rs`). The secret stays in the page URL's fragment.
+public struct AgentSessionShareOpenLinkRequest: DaemonRequest {
+    public typealias Response = AgentSessionShareOpenedLink
+    public static let command = "agent-session-share-open-link"
+
+    public var link: String
+    public var token: String?
+
+    public init(link: String, token: String?) {
+        self.link = link
+        self.token = token
+    }
+}
+
+/// `agent-session-share-open-link`'s answer: the page to open, and whether it arrives signed in.
+public struct AgentSessionShareOpenedLink: Decodable, Sendable, Equatable {
+    public var url: String
+    public var signedIn: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case url
+        case signedIn = "signed_in"
+    }
+
+    public init(url: String, signedIn: Bool) {
+        self.url = url
+        self.signedIn = signedIn
     }
 }
 

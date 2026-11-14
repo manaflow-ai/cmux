@@ -16,6 +16,18 @@ import { mainToolRunCategory } from "../src/agent-session/acpmux/conversation/to
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { configureToolRunLook } from "../src/agent-session/acpmux/toolRunLook";
 import { isEditRow } from "../src/agent-session/acpmux/turnChanges/sessionRows";
+import { teardownDom } from "./support/domTeardown";
+
+// This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps its finished
+// runs in sight until it ends. The `line` arm (one live line, as chatgpt.com draws a running
+// turn) is covered by live-turn-one-line.test.ts.
+const liveTurnArmsBefore = globalThis.cmuxExperiments;
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...liveTurnArmsBefore, "live-turn-work": "runs" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = liveTurnArmsBefore;
+});
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -35,12 +47,9 @@ beforeAll(() => {
   host = window.document.querySelector<HTMLElement>("#root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   configureToolRunLook(undefined);
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const call = (id: string, kind: string, extra: Record<string, unknown> = {}): AcpmuxActivity => ({
@@ -121,7 +130,8 @@ test("the line's glyph is the run's main kind of work", () => {
 
 test("opened, the line shows the rows it holds as they draw on their own", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   resetTranscriptDisclosure();
   const work = shaped(mixed).find((entry) => entry.id === "work")!;
   const root: Root = createRoot(host);
@@ -162,7 +172,7 @@ test("a run with an edit waiting for its permission is not collapsed", () => {
     (entry) => entry.id === "work",
   )!;
   expect(work.foldRun).toBe(false);
-  expect(words(work)).toContain("ls");
+  expect(words(work)).toContain("Listed files");
 });
 
 test("a delete or a move waiting for its permission stays in sight, live and in an ended turn", () => {
@@ -241,4 +251,68 @@ test("the gallery's quieter versions dim the line", () => {
   expect(line()).not.toContain("is-strong");
   configureToolRunLook("kind");
   expect(line()).toContain("is-strong");
+});
+
+test("Find highlights an edit step's original full path without changing its normal heading or counts", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { FindReveal, findMatches, paintFindHighlights } =
+    await import("../src/agent-session/acpmux/conversation/chatFind");
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
+  resetTranscriptDisclosure();
+  const work = row("find-edit-path", "activity", { foldRun: true, items: [edit("src/client.ts"), command("pwd")] });
+  const view = (
+    <div data-row-id={work.id}>
+      <ToolRows row={work} sessionId="find-edit-path" />
+    </div>
+  );
+  const highlights = new Map<string, { ranges: Range[] }>();
+  const replacements = {
+    NodeFilter: window.NodeFilter,
+    CSS: {
+      highlights: {
+        set: (name: string, value: { ranges: Range[] }) => highlights.set(name, value),
+        delete: (name: string) => highlights.delete(name),
+      },
+    },
+    Highlight: class {
+      constructor(...ranges: Range[]) {
+        this.ranges = ranges;
+      }
+      ranges: Range[];
+    },
+  };
+  const prior = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
+  Object.assign(scope, replacements);
+  const root: Root = createRoot(host);
+  try {
+    await act(async () => root.render(view));
+    const run = host.querySelector<HTMLButtonElement>(".cv-tools > .cv-tool.is-toggle")!;
+    await act(async () => run.click());
+    const heading = host.querySelector("[data-tool-group] .cv-tool__text")!;
+    expect(heading.textContent?.replace(/\s+/g, "")).toBe("Editedclient.ts+1-1");
+    expect(host.querySelector("pre.cv-mcp-call__body")).toBeNull();
+    for (const needle of ["src/client.ts", "edit src/client.ts"]) {
+      expect(findMatches([work], needle)).toHaveLength(1);
+      await act(async () =>
+        root.render(
+          <FindReveal.Provider value={{ rowId: work.id, card: false, needle, repaint: () => {} }}>
+            {view}
+          </FindReveal.Provider>,
+        ),
+      );
+      const active = paintFindHighlights(host, needle, { rowId: work.id, card: false, occurrence: 0 });
+      expect(active?.toString()).toBe(needle === "src/client.ts" ? "src/client.ts" : "Edit src/client.ts");
+      expect(highlights.get("acpmux-find-active")?.ranges).toHaveLength(1);
+      expect(host.querySelector("[data-tool-group] .cv-tool__text")?.textContent?.replace(/\s+/g, "")).toBe(
+        "Editedclient.ts+1-1",
+      );
+    }
+  } finally {
+    act(() => root.unmount());
+    for (const [key, had, value] of prior) {
+      if (had) scope[key] = value;
+      else delete scope[key];
+    }
+  }
 });

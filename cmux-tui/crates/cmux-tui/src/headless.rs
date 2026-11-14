@@ -72,6 +72,9 @@ where
     // running (dev_orphan_exit.rs).
     #[cfg(unix)]
     let orphan_exit = dev_orphan_exit::start_for_owner(mux);
+    // Other sessions' terminal hosts that no live daemon owns end after a
+    // grace, off the restore (cmux-tui-core mux/unowned_hosts.rs).
+    let unowned_hosts = mux.start_unowned_host_reaper();
     // An app session's or its Chief session's owner stops once its app has
     // left and nothing keeps it (R-LIFECYCLE stage 1, on unless its switch
     // is 0; owner_keepers.rs). Only an owner that clients reach through its
@@ -114,6 +117,9 @@ where
     #[cfg(unix)]
     if let Some(orphan_exit) = orphan_exit {
         orphan_exit.stop();
+    }
+    if let Some(unowned_hosts) = unowned_hosts {
+        unowned_hosts.stop();
     }
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     if let Some(lost_paths) = lost_paths {

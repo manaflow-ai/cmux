@@ -60,7 +60,8 @@ public nonisolated struct TabDragGhostMotion: Sendable, Equatable {
     /// destination): the presented rect stays where it is and springs over.
     /// Without `jump` the ghost follows the target exactly. `velocity`
     /// (points per second) is the pointer's at a release: the ghost leaves
-    /// with it instead of stopping dead.
+    /// with it instead of stopping dead, as far as it points at the target
+    /// and cannot take an edge of the ghost past it (``step(_:)``).
     public mutating func setTarget(_ rect: CGRect, cardness: CGFloat, opacity: CGFloat = 1, scale: CGFloat = 1, jump: Bool,
                                    velocity: CGVector = .zero) {
         if jump {
@@ -83,13 +84,18 @@ public nonisolated struct TabDragGhostMotion: Sendable, Equatable {
     }
 
     /// Advances by `dt` seconds. Returns true while anything still moves.
+    /// No edge of the ghost passes its target: each edge (the offsets `dx` and
+    /// `dx + dw`, `dy` and `dy + dh`) starts the step with no more velocity
+    /// than cannot pass it (`SpringParameters.admitted`).
     public mutating func step(_ dt: Double) -> Bool {
         if reduceMotion {
             snap()
             return false
         }
         var moving = false
-        for keyPath in [\Self.dx, \.dy, \.dw, \.dh] where self[keyPath: keyPath].advance(dt, parameters: rectSpring, epsilon: 0.25) {
+        rectSpring.admitEdges(start: &dx, extent: &dw)
+        rectSpring.admitEdges(start: &dy, extent: &dh)
+        for keyPath in [\Self.dx, \.dy, \.dw, \.dh] where self[keyPath: keyPath].advanceAdmitted(dt, parameters: rectSpring, epsilon: 0.25) {
             moving = true
         }
         if cardness.advance(dt, parameters: morphSpring, epsilon: 0.002) { moving = true }

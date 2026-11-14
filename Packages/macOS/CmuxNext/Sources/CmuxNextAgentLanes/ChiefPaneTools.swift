@@ -15,8 +15,9 @@ import Observation
 public final class ChiefPaneTools: NSView, PaneMoreMenuContributing {
     public let indicator = StatusIndicatorView()
     /// What Chief Actions lists, in this order (each runs on the shown Chief, as from the palette).
+    /// Undock Chief is there too (cmux#37372: "Chief needs an obvious way to undock"); it refuses when not docked.
     public static let actions: [ActionID] = ["home.stopChief", "home.stopAllAgents", "home.toggleChiefSettings",
-                                             "chief.openMemoryInspector", "chief.openUsage", "home.newChief"]
+                                             "chief.openMemoryInspector", "chief.openUsage", "home.undockChief", "home.newChief"]
     private let chief: ChiefSidebar
     private weak var registry: ActionRegistry?
     private var watch: Task<Void, Never>?

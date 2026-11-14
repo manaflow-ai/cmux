@@ -21,6 +21,7 @@ on:
       - "cmux-tui/**"
       - "ghostty-next"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/actions/runner-cargo-home/**"
       - ".github/workflows/cmux-next-daemon-macos-shadow.yml"
   workflow_dispatch:
 

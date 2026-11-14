@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample rules, accounts and agent names), not shipped UI.
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
-import type { ForumRule } from "./RulesNotice";
+import type { ForumRule } from "./rulesNoticeModel";
 
 type Props = { rules: ForumRule[] };
 

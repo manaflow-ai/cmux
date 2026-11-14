@@ -6,6 +6,7 @@
 //   and New Tab's All chats, live chats at the top included.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -49,16 +50,13 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "offsetWidth", { configu
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { AllChatsList } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
-const { HomeLists, age } = await import("../src/agent-session/acpmux/HomeLists");
+const { HomeLists } = await import("../src/agent-session/acpmux/HomeLists");
+const { age } = await import("../src/agent-session/acpmux/homeListsModel");
 const { ageLabel } = await import("../src/agent-session/acpmux/newTabModel");
 const { session } = await import("../src/gallery/fixtures/acpmux");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const document = dom.window.document;

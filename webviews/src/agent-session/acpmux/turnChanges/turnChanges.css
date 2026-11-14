@@ -23,12 +23,25 @@
 .acpmux-edited-dir{display:flex;min-width:0;overflow:hidden}
 .acpmux-edited-dir-head{flex:none}
 .acpmux-edited-dir-tail{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;direction:rtl;text-align:left}
-/* A header that folds (a one-file card's diff, a folded card's rows) is the toggle edge to edge
-   (conversation/headerToggle.ts): the arrow cursor all over it, and its hover covers the header
-   alone, not while the pointer is on one of its own buttons (Undo, View changes), which light
-   themselves. The chevron inside is the same control, so it adds no second highlight. */
-.acpmux-edited-head[data-header-toggle]{cursor:default;user-select:none}
-.acpmux-edited-head[data-header-toggle]:hover:not(:has(button:not(.acpmux-edited-toggle):hover)){background:color-mix(in srgb,var(--agent-text) 4%,transparent)}
-.acpmux-edited-head[data-header-toggle]:hover:not(:has(button:not(.acpmux-edited-toggle):hover)) .acpmux-edited-toggle{color:var(--agent-text)}
-.acpmux-edited-head[data-header-toggle] .acpmux-edited-toggle:hover{background:transparent}
-.acpmux-edited-diff{padding:2px 8px 4px}
+/* Interactive headers open a single file's changes pane or toggle a multi-file list.
+   Child buttons keep their own hover; the list chevron shares the header highlight. */
+.acpmux-edited-head[data-interactive]{cursor:default;user-select:none}
+.acpmux-edited-head[data-interactive]:hover:not(:has(button:not(.acpmux-edited-toggle):hover)){background:color-mix(in srgb,var(--agent-text) 4%,transparent)}
+.acpmux-edited-head[data-interactive]:hover:not(:has(button:not(.acpmux-edited-toggle):hover)) .acpmux-edited-toggle{color:var(--agent-text)}
+.acpmux-edited-head[data-interactive] .acpmux-edited-toggle:hover{background:transparent}
+/* Only the chat's latest card shows its buttons at rest; an earlier card's Undo and View changes, and
+   every card's Second opinion, show on the card's hover or keyboard focus, as an earlier reply's
+   footer does (conversation.css .cv-turn-actions), so a long chat is not a column of buttons (Leo,
+   2026-11-11: "holy fuck it's so shitty to look at the transcript right now"). An Undo under way
+   or its result stays shown. Opacity only: nothing moves, and the buttons keep their place. The
+   hiding rules weigh less than the reveals (:where), so hover, focus or an open menu always wins. */
+.acpmux-edited:where([data-earlier]:not([data-undo])) :is(.acpmux-edited-undo,.acpmux-review-changes),
+.acpmux-edited .acpmux-second-opinion{opacity:0}
+.acpmux-edited:hover :is(.acpmux-edited-undo,.acpmux-review-changes),
+.acpmux-edited:has([data-popup-open]) :is(.acpmux-edited-undo,.acpmux-review-changes),
+:root:not([data-page-inactive]) .acpmux-edited:has(:focus-visible) :is(.acpmux-edited-undo,.acpmux-review-changes){opacity:1}
+@media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
+  .acpmux-edited :is(.acpmux-edited-undo,.acpmux-review-changes){transition:opacity var(--cv-actions-out) var(--cv-actions-out-ease),background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+  .acpmux-edited:hover :is(.acpmux-edited-undo,.acpmux-review-changes),
+  .acpmux-edited:has([data-popup-open]) :is(.acpmux-edited-undo,.acpmux-review-changes){transition:opacity var(--cv-actions-in) var(--cv-actions-in-ease),background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+}

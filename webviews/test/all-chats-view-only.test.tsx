@@ -4,6 +4,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -34,17 +35,15 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 test("a Claude Code or Codex row's menu offers View Only and names the chat", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { AllChatsList, watchable } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
+  const { AllChatsList } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
+  const { watchable } = await import("../src/agent-session/acpmux/newtab/allChatsListModel");
   expect(["claude-code:a", "codex:b"].every(watchable)).toBe(true);
   expect(["opencode:a", "claude-code:", "pi:x"].some(watchable)).toBe(false);
   const load = async () => ({

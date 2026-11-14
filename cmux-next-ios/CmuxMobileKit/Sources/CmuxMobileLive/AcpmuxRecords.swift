@@ -52,6 +52,28 @@ struct AcpmuxRecords {
         }
     }
 
+    /// A tool call record (`tool_call` or `tool_call_update`, the chat's or a subagent's) as the
+    /// update it makes: what a cut output's whole record (``AcpmuxSessionSource/fullToolOutput(_:)``)
+    /// puts in place. Nil for any other record.
+    func toolCallUpdate(in record: JSONValue) -> ACPToolCallUpdate? {
+        for event in map(record) {
+            let update: ACPSessionUpdate
+            switch event {
+            case .update(let u), .subagentUpdate(_, let u): update = u
+            default: continue
+            }
+            switch update {
+            case .toolCallUpdate(let u): return u
+            case .toolCall(let call):
+                return ACPToolCallUpdate(toolCallId: call.id, title: call.title, kind: call.kind, status: call.status,
+                                         content: call.content, locations: call.locations, rawInput: call.rawInput,
+                                         rawOutput: call.rawOutput, outputCut: call.outputCut)
+            default: continue
+            }
+        }
+        return nil
+    }
+
     func mux(_ kind: String, _ msg: JSONValue, at: Date) -> [AgentSessionEvent] {
         switch kind {
         case "user_message":
@@ -64,13 +86,14 @@ struct AcpmuxRecords {
                 guard let id = image["id"]?.stringValue, !id.isEmpty, !AgentVideo.isFrameName(image["name"]?.stringValue) else { return nil }
                 return .recordedImage(id: id, name: image["name"]?.stringValue, index: index)
             }
+            let videos = Self.sentVideos(msg, recorded: recorded)
             var events: [AgentSessionEvent] = []
             if let retry = msg["_meta"]?["provenance"], retry["kind"]?.stringValue == "auto_resume",
                let previous = retry["turnId"]?.stringValue, previous != turnID {
                 events.append(.turnRetried(previousTurnID: previous, turnID: turnID))
             }
             events.append(.userMessage(text: AgentVideo.withoutFrameText(msg["text"]?.stringValue ?? "", imageNames: imageNames), promptId: msg["promptId"]?.stringValue ?? turnID,
-                                 turnId: turnID, attachments: images, at: at))
+                                 turnId: turnID, attachments: images + videos, at: at))
             if let incoming = AgentIncoming.parse(text: msg["text"]?.stringValue ?? "", provenance: msg["_meta"]?["provenance"],
                                                   client: msg["client"]?.stringValue, fromHarness: msg["fromHarness"]?.stringValue) {
                 events.append(.promptFrom(turnId: turnID, incoming: incoming))
@@ -78,6 +101,9 @@ struct AcpmuxRecords {
             return events
         case "queued":
             guard let promptID = msg["promptId"]?.stringValue else { return [] }
+            // acpmux's inbox notice is no queued prompt of the person's (Leo, 2026-11-05: "Why is the
+            // thing still queued? ... don't show these kinds of things"): it goes in by itself.
+            if msg["_meta"]?["provenance"]?["kind"]?.stringValue == "inbox_notice" { return [] }
             return [.queued(text: msg["text"]?.stringValue ?? "", promptId: promptID, position: Int(msg["position"]?.numberValue ?? 0))]
         case "dequeued":
             guard let promptID = msg["promptId"]?.stringValue else { return [] }
@@ -89,7 +115,13 @@ struct AcpmuxRecords {
             guard case .array(let ids)? = msg["order"] else { return [] }
             return [.queueOrder(ids.compactMap(\.stringValue))]
         case "queue_paused":
-            return [.queuePaused(true, reason: msg["reason"]?.stringValue)]
+            // Held prompts that go in again by themselves (`retrying`: other agents' messages and
+            // inbox notices) pause nothing: only the person's wait for Resume.
+            let reason = msg["reason"]?.stringValue
+            let held = Set((msg["held"]?.arrayValue ?? []).compactMap(\.stringValue))
+            let retrying = Set((msg["retrying"]?.arrayValue ?? []).compactMap(\.stringValue))
+            if reason == nil, !held.isEmpty, held.isSubset(of: retrying) { return [] }
+            return [.queuePaused(true, reason: reason)]
         case "queue_resumed":
             return [.queuePaused(false, reason: nil)]
         case "bookmarks":
@@ -117,9 +149,45 @@ struct AcpmuxRecords {
             // A question's answers, as acpmux put them into the tool's input.
             let answers = outcome?["_meta"]?["updatedInput"]?["answers"].flatMap { try? Self.convert($0, to: AgentQuestionJSON.self) }
             return [.permissionDecision(permissionId: permissionID, optionId: optionID, answers: answers)]
+        case "elevation_request":
+            // A card with no nonce comes from an acpmux whose sudo cards a phone cannot approve.
+            guard let id = msg["secretId"]?.stringValue, let nonce = msg["decisionNonce"]?.stringValue,
+                  let instance = msg["personInstance"]?.stringValue else { return [] }
+            let argv = (msg["argv"]?.arrayValue ?? []).compactMap(\.stringValue)
+            let timeout = msg["timeoutSecs"]?.numberValue.map { Int($0) }
+            return [.elevationRequest(AgentElevationAsk(
+                id: id, argv: argv, reason: msg["reason"]?.stringValue ?? "", host: msg["host"]?.stringValue ?? "",
+                timeoutSecs: timeout, nonce: nonce, instance: instance))]
+        case "elevation_decision":
+            guard let id = msg["secretId"]?.stringValue else { return [] }
+            return [.elevationDecision(id: id)]
         default:
             return []
         }
+    }
+
+    /// The videos a `user_message` sent (`AgentVideo.sentVideos`): its text and its recorded
+    /// parts' text give the frames notes, its file parts (`inlineParts`, acpmux
+    /// prompt_images.rs) the links, `recorded` (its kept images) the posters.
+    static func sentVideos(_ msg: JSONValue, recorded: [JSONValue]) -> [AgentAttachment] {
+        let parts = msg["inlineParts"]?.arrayValue ?? []
+        let texts = [msg["text"]?.stringValue ?? ""] + parts.compactMap { part in
+            part["kind"]?.stringValue == "text" ? part["text"]?.stringValue : nil
+        }
+        let lines = texts.flatMap { $0.components(separatedBy: "\n") }
+        guard lines.contains(where: { $0.hasPrefix("Frames from the video ") })
+            || parts.contains(where: { AgentVideo.isVideoName($0["name"]?.stringValue ?? "") }) else { return [] }
+        let links = parts.compactMap { part -> AgentVideo.SentLink? in
+            guard part["kind"]?.stringValue == "file", let name = part["name"]?.stringValue,
+                  let uri = part["uri"]?.stringValue, let url = URL(string: uri), url.isFileURL else { return nil }
+            let path = url.path(percentEncoded: false)
+            return path.hasPrefix("/") ? AgentVideo.SentLink(name: name, path: path) : nil
+        }
+        let images = recorded.compactMap { image -> AgentVideo.SentImage? in
+            guard let id = image["id"]?.stringValue, !id.isEmpty else { return nil }
+            return AgentVideo.SentImage(id: id, name: image["name"]?.stringValue)
+        }
+        return AgentVideo.sentVideos(lines: lines, links: links, images: images)
     }
 
     /// A `permission_request` body as a question (AskUserQuestion and kin) or a tool permission.
@@ -134,8 +202,15 @@ struct AcpmuxRecords {
                                                        plan: ACPPermissionRequest.plan(toolCall: toolCall)))
     }
 
+    /// `value` as `T`, walked straight from the parsed record (`JSONValue.decoded(as:)`), not
+    /// written out as JSON and parsed again. A value it refuses goes through `JSONDecoder` once
+    /// more, so nothing that decoded before stops decoding.
     static func decode<T: Decodable>(_ type: T.Type, _ value: JSONValue) throws -> T {
-        try JSONDecoder().decode(T.self, from: JSONEncoder().encode(value))
+        do {
+            return try value.decoded(as: T.self)
+        } catch {
+            return try JSONDecoder().decode(T.self, from: JSONEncoder().encode(value))
+        }
     }
 
     static func convert<T: Decodable, U: Encodable>(_ value: U, to type: T.Type) throws -> T {
@@ -147,6 +222,8 @@ struct AcpmuxRecords {
 public struct AcpmuxSession: Hashable, Sendable {
     public var id: String
     public var name: String
+    /// `title`: the chat's generated title, else its first prompt.
+    public var title: String?
     public var harness: String
     public var cwd: String
     /// `peer`: the acpmux peer (another machine) the session runs on; nil for this Mac's own.
@@ -170,6 +247,7 @@ public struct AcpmuxSession: Hashable, Sendable {
         guard let id = value["sessionId"]?.stringValue else { return nil }
         self.id = id
         name = value["name"]?.stringValue ?? ""
+        title = value["title"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         harness = value["harness"]?.stringValue ?? "agent"
         cwd = value["cwd"]?.stringValue ?? ""
         peer = value["peer"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }

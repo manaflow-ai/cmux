@@ -1,6 +1,7 @@
 import CmuxNextAgentActivity
 @testable import CmuxNextChiefPetWiring
 import CmuxNextFloating
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -20,10 +21,10 @@ struct ChiefPetShowInMiniStateTests {
         let lanes = AgentLaneStore()
         let summary: [String: Any] = ["sessionId": "abc123", "name": "huge-blue/coord", "peer": "huge-blue", "lane": ["state": "idle"]]
         lanes.set("abc123", try #require(AgentActivityLane.of(summary: summary)))
-        let mini = ChiefPetMini(subject: ChiefPetSubject(defaults: UserDefaults(suiteName: "ChiefPetMiniPeer")!), uploads: ChiefAvatarUploads(folder: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)),
+        let mini = ChiefPetMini(subject: ChiefPetSubject(defaults: UserDefaults(testSuiteName: "ChiefPetMiniPeer")!), uploads: ChiefAvatarUploads(folder: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)),
                                 lanes: lanes, localHost: { "install:mac" }, settings: { nil }, pet: { nil }, acpmux: nil)
         #expect(mini.sendName(ChiefPetSubject.Chat(host: "huge-blue", session: "abc123")) == "huge-blue/abc123")
         #expect(mini.sendName(ChiefPetSubject.Chat(host: "install:mac", session: "local1")) == "local1")
-        #expect(mini.sendName(ChiefPetSubject.Chat(host: "big-red", session: "abc123")) == "big-red/abc123", "the saved host, not the lane's peer")
+        #expect(mini.sendName(ChiefPetSubject.Chat(host: "my-vm", session: "abc123")) == "my-vm/abc123", "the saved host, not the lane's peer")
     }
 }

@@ -59,6 +59,13 @@ public nonisolated struct ChiefPanel: Hashable, Sendable {
     /// Opens the panel the way it was last placed.
     public mutating func open() { isOpen = true }
 
+    /// Opens the panel floating at its floating place, whatever it was before: how a link from the Chief opens it,
+    /// since no link click may dock the Chief (cmux#37372). The person docks it again with Dock.
+    public mutating func openFloating() {
+        placement = .floating
+        isOpen = true
+    }
+
     /// Hides the panel; its placement and places are kept.
     public mutating func hide() { isOpen = false }
 

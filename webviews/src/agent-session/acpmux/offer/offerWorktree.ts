@@ -1,6 +1,6 @@
 import { translate } from "../i18n";
 import type { AcpmuxSessionOffer } from "../model";
-import { newWorktree } from "../startFolder";
+import { newWorktree } from "../startFolderModel";
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 

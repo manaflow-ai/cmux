@@ -5,7 +5,7 @@
 import type { PaneLanguage, Translate } from "../../i18n";
 import type { Subagent } from "../../subagents/subagentFold";
 import { subagentProgress } from "../../subagents/subagentProgress";
-import { contextBreakdown, contextParts } from "../ContextSection";
+import { contextBreakdown, contextParts } from "../contextSectionModel";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
 
 export const CONTEXT_SYMBOL = "gauge.with.dots.needle.33percent";

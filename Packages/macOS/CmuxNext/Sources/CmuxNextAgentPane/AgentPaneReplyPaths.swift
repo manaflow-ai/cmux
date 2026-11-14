@@ -104,7 +104,27 @@ nonisolated struct AgentPaneReplyPaths {
 
     /// The absolute path `text` names, before symlinks: `~/` from home, a relative path from
     /// ``base``, `file://` URLs decoded, `..` and `.` removed. Nil for text that is not a path.
-    func expanded(_ text: String) -> String? {
+    func expanded(_ text: String) -> String? { Self.expand(text, home: home, base: base, onThisMac: true) }
+
+    /// The absolute path a Cloud chat's reply names on its machine (cx-k21v): a relative path from
+    /// the chat's folder there (`cwd`), `file://` URLs decoded, `..` and `.` removed, by spelling
+    /// alone. This Mac's disk is never asked, and `~/` (that machine's home is not known here) is
+    /// not a path. Nil for text that is not one.
+    static func machinePath(_ text: String, cwd: String?) -> String? {
+        expand(text, home: nil, base: cwd, onThisMac: false)
+    }
+
+    /// Whether a path of another machine is on the deny list, by its spelling: a secret's name, or
+    /// a credentials folder (``deniedFolders``) anywhere in it, as that machine's home is not known.
+    static func isDeniedOnMachine(_ path: String) -> Bool {
+        if isDeniedName((path as NSString).lastPathComponent) { return true }
+        let spelled = path + "/"
+        return deniedFolders.contains { spelled.contains("/" + $0 + "/") }
+    }
+
+    /// ``expanded(_:)``'s rule. `home` nil: `~` names no path. `onThisMac` false: the URL is made
+    /// with no look at this Mac's disk (a plain `fileURLWithPath` checks whether a folder is there).
+    private static func expand(_ text: String, home: String?, base: String?, onThisMac: Bool) -> String? {
         guard !text.isEmpty, text.utf8.count <= Self.maximumLength, !text.utf8.contains(0) else { return nil }
         var path = text
         if path.lowercased().hasPrefix("file://") {
@@ -117,12 +137,14 @@ nonisolated struct AgentPaneReplyPaths {
             path = path.split(maxSplits: 1, whereSeparator: { $0 == "?" || $0 == "#" }).first.map(String.init) ?? path
         }
         if path == "~" || path.hasPrefix("~/") {
+            guard let home else { return nil }
             path = home + path.dropFirst()
         } else if !path.hasPrefix("/") {
             guard let base, base.hasPrefix("/") else { return nil }
             path = base + "/" + path
         }
-        return URL(fileURLWithPath: path).standardizedFileURL.path
+        let url = onThisMac ? URL(fileURLWithPath: path) : URL(fileURLWithPath: path, isDirectory: false)
+        return url.standardizedFileURL.path
     }
 
     /// Whether `path` (absolute) is on the deny list, by its spelling.

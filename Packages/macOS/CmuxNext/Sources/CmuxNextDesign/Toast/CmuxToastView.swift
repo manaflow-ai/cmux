@@ -1,9 +1,12 @@
 public import AppKit
 
-/// A toast: the message, the action button and a close button on the shared
-/// neutral Liquid Glass (``FloatingGlassStyle/toast``: gray glass, a top-lit
-/// rim, 9 pt continuous corners; user 2026-10-20, after Rex), opaque under
-/// Reduce Transparency, with the popups' shadow. VoiceOver reads the message; the buttons are reachable with
+/// A toast: the message, the action button and a close button on the toast role's glass
+/// (``SurfaceRole/toast``, ``FloatingGlassStyle/toast``: Liquid Glass with the theme's tint and a
+/// top-lit rim on macOS 26, the frosted blur before it, continuous corners; user 2026-10-20, after
+/// Rex; the tint follows the theme since Leo 2026-11-07: "these toasts are still coloured
+/// unthemed"), opaque under Reduce Transparency, with the popups' shadow. Native again since
+/// Lawrence 2026-11-10 ("move toasts back to swift ... with proper liquid glass"); the web toast
+/// page of #37289 is gone. VoiceOver reads the message; the buttons are reachable with
 /// VoiceOver and by click. The pointer on it holds it (`onHover`). A Details action
 /// (``CmuxToast/Action/revealsDetails``) shows the whole message and its detail under it, in the
 /// toast, and hides them again.
@@ -11,6 +14,10 @@ public import AppKit
 public final class CmuxToastView: NSView {
     public let toast: CmuxToast
     public private(set) var actionButton: CmuxToastButton?
+    /// Don't Show Again (Lawrence 2026-11-12): hides every toast of this kind for good
+    /// (``CmuxToastCenter/personChoseNeverShow(serial:)``). Nil on a toast that does not offer it
+    /// (``CmuxToast/offersNeverShow``: an Undo, one that waits for an answer).
+    public private(set) var neverShowButton: CmuxToastButton?
     public let closeButton = CmuxToastButton(style: .close, title: CmuxToastStrings.dismiss, target: nil, action: nil)
     /// The message; its tooltip is the toast's `detail`.
     public private(set) var messageLabel: ChromeLabel?
@@ -29,11 +36,12 @@ public final class CmuxToastView: NSView {
     private var detailCapConstraint: NSLayoutConstraint?
     /// Whether Details is on: the whole message and ``detailLabel`` show.
     public private(set) var showsDetails = false
+    /// The action button was pressed. A Details button too: the center owns whether the details
+    /// show (``CmuxToastCenter/personRanAction(serial:)``), and the host sets it back here
+    /// (``setShowsDetails(_:)``).
     var onAction: (() -> Void)?
-    /// Details turned on or off: the toast's size changed, so its center sizes it again and
-    /// restacks its window's toasts.
-    var onResize: (() -> Void)?
     var onClose: (() -> Void)?
+    var onNeverShow: (() -> Void)?
     /// The pointer came onto or left the toast, or the toast moved or went
     /// under a still pointer (`PointerHover`, cx-3wu5).
     var onHover: ((Bool) -> Void)?
@@ -42,6 +50,8 @@ public final class CmuxToastView: NSView {
     public var isHovered: Bool { pointerHover?.isHovering ?? false }
 
     private let reduceTransparency: ReduceTransparency
+    /// The look this toast was built with (Debug Settings > Toasts, else the defaults).
+    public let tuning: CmuxToastTuning
 
     /// Cmd-Z runs this Undo (`CmuxToast.Action.isUndo`): its tooltip shows the key. Only the
     /// window's newest undo toast takes the key (`CmuxToastStack.newestUndo`), so the center turns
@@ -50,15 +60,15 @@ public final class CmuxToastView: NSView {
         didSet { if showsUndoKey != oldValue { applyUndoKey() } }
     }
 
-    /// `reduceTransparency` decides glass or the opaque surface (tests pass their own).
-    public init(toast: CmuxToast, reduceTransparency: ReduceTransparency = .shared) {
+    /// `reduceTransparency` decides glass or the opaque surface (tests pass their own); `tuning` is the
+    /// padding, message width and glass (the center's ``CmuxToastCenter/tuning``; the defaults otherwise).
+    public init(toast: CmuxToast, reduceTransparency: ReduceTransparency = .shared, tuning: CmuxToastTuning = CmuxToastTuning()) {
         self.toast = toast
         self.reduceTransparency = reduceTransparency
+        self.tuning = tuning
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         build()
-        showsUndoKey = toast.action?.isUndo == true
-        applyUndoKey() // an initializer's own assignment runs no didSet
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel(toast.message)
@@ -67,6 +77,7 @@ public final class CmuxToastView: NSView {
         // Stable names for agents and UI tests (AccessibilityAudit wants one on every button).
         actionButton?.setAccessibilityIdentifier("cmux.toast.\(toast.id).action")
         closeButton.setAccessibilityIdentifier("cmux.toast.\(toast.id).close")
+        neverShowButton?.setAccessibilityIdentifier("cmux.toast.\(toast.id).neverShow")
         pointerHover = PointerHover(self) { [weak self] hovering in self?.onHover?(hovering) }
     }
 
@@ -77,7 +88,7 @@ public final class CmuxToastView: NSView {
         let label = ThemedLabel(wrappingLabelWithString: toast.message)
         label.font = Typography.body
         label.maximumNumberOfLines = 3
-        label.preferredMaxLayoutWidth = 360
+        label.preferredMaxLayoutWidth = tuning.messageWidth
         // A wrapping label resists compression at only `.defaultLow`, the same as the stack's
         // hugging, so the toast's fitting size squeezed the message to 4 pt and drew only the
         // buttons. The message keeps its width (up to 360 pt, then it wraps).
@@ -98,11 +109,12 @@ public final class CmuxToastView: NSView {
         // Room past the row's own width goes to the message (no gravity gap after close). A
         // toast with Details off is exactly its row's width, so this changes nothing there.
         row.distribution = .fill
-        row.spacing = Metrics.space2
+        row.spacing = Metrics.scale(tuning.buttonSpacing)
         // Room around the message; the buttons' hover fills stop one step short of the edge,
         // so the toast reads as one surface with text in it.
-        row.edgeInsets = NSEdgeInsets(top: Metrics.space4, left: Metrics.space5,
-                                      bottom: Metrics.space4, right: Metrics.space4)
+        // The tuned points follow the interface scale, as the grid steps they replace did.
+        row.edgeInsets = NSEdgeInsets(top: Metrics.scale(tuning.verticalPadding), left: Metrics.scale(tuning.horizontalPadding),
+                                      bottom: Metrics.scale(tuning.verticalPadding), right: Metrics.scale(tuning.trailingPadding))
         row.translatesAutoresizingMaskIntoConstraints = false
         if let action = toast.action {
             let button = CmuxToastButton(style: .action, title: action.title, target: self, action: #selector(runAction))
@@ -111,6 +123,12 @@ public final class CmuxToastView: NSView {
             row.addArrangedSubview(button)
             row.setCustomSpacing(Metrics.space5, after: label)
         }
+        if toast.offersNeverShow {
+            let button = CmuxToastButton(style: .quiet, title: CmuxToastStrings.dontShowAgain, target: self, action: #selector(neverShow))
+            neverShowButton = button
+            row.addArrangedSubview(button)
+            if toast.action == nil { row.setCustomSpacing(Metrics.space5, after: label) }
+        }
         closeButton.target = self
         closeButton.action = #selector(close)
         row.addArrangedSubview(closeButton)
@@ -118,10 +136,15 @@ public final class CmuxToastView: NSView {
         let content = NSView()
         content.addSubview(row)
         if toast.action?.revealsDetails == true, let detail = toast.detail { addDetailLabel(detail, in: content, below: row) }
-        // The shared neutral glass; the material follows this Mac (opaque under Reduce Transparency).
+        // The toast role's glass; the material follows this Mac (opaque under Reduce Transparency).
         let surface = OverlaySurfaceView(interactive: true, cornerRadius: Self.cornerRadius,
-                                         reduceTransparency: reduceTransparency, tone: SurfaceRole.toast.tone)
+                                         reduceTransparency: reduceTransparency, tone: SurfaceRole.toast.tone,
+                                         glassVariant: tuning.glass.variant)
+        // The overlay panel is a clear window of its own: before macOS 26 the blur samples what is
+        // behind it (the window's content). Liquid Glass and the opaque surface ignore this.
+        surface.samplesBehindWindow = true
         surface.translatesAutoresizingMaskIntoConstraints = false
+        self.surface = surface
         content.translatesAutoresizingMaskIntoConstraints = true
         content.autoresizingMask = [.width, .height]
         content.frame = surface.contentView.bounds
@@ -146,6 +169,9 @@ public final class CmuxToastView: NSView {
         collapsed = [row.bottomAnchor.constraint(equalTo: content.bottomAnchor), heightAnchor.constraint(equalTo: row.heightAnchor)]
         NSLayoutConstraint.activate(collapsed)
     }
+
+    /// The glass the toast draws on: this Mac's material in the toast role's tone.
+    public private(set) var surface: OverlaySurfaceView?
 
     /// The toast's height while Details is off: the row's, down to the content's bottom.
     private var collapsed: [NSLayoutConstraint] = []
@@ -277,7 +303,6 @@ public final class CmuxToastView: NSView {
         actionButton?.isOn = shows
         actionButton?.setAccessibilityExpanded(shows)
         setAccessibilityHelp(shows ? nil : toast.detail)
-        onResize?()
     }
 
     /// The cap for the toast's window as it is now.
@@ -286,14 +311,11 @@ public final class CmuxToastView: NSView {
     }
 
     /// A window that grows or shrinks (a resize, full screen) after Details showed caps the detail
-    /// again, and the center sizes and restacks the toast, so a shorter window never pushes the row
-    /// with Details and close off screen. The window's overlay host calls it from its one observer
-    /// of the window (``OverlayHandle/onWindowGeometryChange``, set by ``CmuxToastOverlayHost``).
+    /// again, so a shorter window never pushes the row with Details and close off screen. The
+    /// toast host calls it from the overlay's one observer of the window
+    /// (``OverlayHandle/onWindowGeometryChange``), then sizes and restacks the window's toasts.
     func windowGeometryDidChange() {
-        let before = detailCapConstraint?.constant
         applyDetailCap()
-        guard showsDetails, detailCapConstraint?.constant != before else { return }
-        onResize?()
     }
 
     public override func viewDidMoveToWindow() {
@@ -335,12 +357,9 @@ public final class CmuxToastView: NSView {
         button.setAccessibilityHelp(showsUndoKey ? CmuxToastStrings.undoShortcut : nil)
     }
 
-    @objc private func runAction() {
-        // Details shows the toast in full here; it never ends the toast.
-        guard toast.action?.revealsDetails != true else { return setShowsDetails(!showsDetails) }
-        onAction?()
-    }
+    @objc private func runAction() { onAction?() }
     @objc private func close() { onClose?() }
+    @objc private func neverShow() { onNeverShow?() }
 }
 
 /// The detail's document view: its text from the top.

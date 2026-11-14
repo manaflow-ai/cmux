@@ -142,7 +142,9 @@ async fn a_top_level_session_id_cannot_forward_mesh_enqueue_to_a_peer() {
     let server = tokio::spawn(async move {
         let (tcp, _) = listener.accept().await.unwrap();
         let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
-        while let Some(Ok(Ws::Text(text))) = ws.next().await {
+        // Non-text frames (the client's pings, #38015) are not requests: skip them.
+        while let Some(Ok(frame)) = ws.next().await {
+            let Ws::Text(text) = frame else { continue };
             let Ok(Message::Request { id, method: name, .. }) = Message::parse(&text) else {
                 continue;
             };

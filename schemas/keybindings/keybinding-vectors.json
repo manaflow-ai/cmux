@@ -108,7 +108,7 @@
       "context": {"surfaceKind": "agent", "agentPaneFocused": true},
       "bindings": [
         {"key": "ctrl+k a", "command": "toggleSidebar"},
-        {"key": "ctrl+k a b", "command": "toggleRightSidebar"}
+        {"key": "ctrl+k a b", "command": "toggleSplitZoom"}
       ],
       "keys": ["ctrl+k", "a"],
       "expect": {"armed": true}

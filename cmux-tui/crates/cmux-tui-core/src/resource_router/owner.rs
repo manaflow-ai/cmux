@@ -26,10 +26,14 @@ pub(super) enum OperationOwner {
     OpenUrl,
     /// `stash.*` (state/stash_router.rs).
     Stash,
+    /// `classic_import.*` (state/classic_import_router.rs).
+    ClassicImport,
     /// `conductor_import.*` (state/conductor_import_router.rs).
     ConductorImport,
     /// `palette.rank` (resource_router/palette_rank.rs): stateless.
     PaletteRank,
+    /// `browser_import.read` (resource_router/browser_import.rs): stateless.
+    BrowserImport,
 }
 
 pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
@@ -83,6 +87,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::PaneFocusDirection
         | ResourceOperation::PaneNeighborGet
         | ResourceOperation::PaneSwap
+        | ResourceOperation::PaneMove
         | ResourceOperation::PaneZoom
         | ResourceOperation::PaneSplitRatioSet
         | ResourceOperation::PaneViewportWidthSet
@@ -148,10 +153,12 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::GitWorktreeCreate
         | ResourceOperation::GitWorktreeApply
         | ResourceOperation::GitWorktreeRemove
+        | ResourceOperation::GitWorktreeSetup
         | ResourceOperation::GitStatus
         | ResourceOperation::DiffCommentsList
         | ResourceOperation::DiffCommentsSave
-        | ResourceOperation::DiffCommentsDelete => OperationOwner::Git,
+        | ResourceOperation::DiffCommentsDelete
+        | ResourceOperation::DiffCommentsSend => OperationOwner::Git,
         ResourceOperation::HistoryEntriesList
         | ResourceOperation::HistoryEntriesRemove
         | ResourceOperation::HistorySiteRemove
@@ -174,10 +181,14 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::StashRestore
         | ResourceOperation::StashDelete
         | ResourceOperation::StashImport => OperationOwner::Stash,
+        ResourceOperation::ClassicImportPlan | ResourceOperation::ClassicImportRecord => {
+            OperationOwner::ClassicImport
+        }
         ResourceOperation::ConductorImportPlan | ResourceOperation::ConductorImportRecord => {
             OperationOwner::ConductorImport
         }
         ResourceOperation::PaletteRank => OperationOwner::PaletteRank,
+        ResourceOperation::BrowserImportRead => OperationOwner::BrowserImport,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet
         | ResourceOperation::WorkspaceAgentStartGet
@@ -341,12 +352,6 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ConversationTyping
         | ResourceOperation::ConversationDraft
         | ResourceOperation::ConversationEvents
-        | ResourceOperation::CloudVmResize
-        | ResourceOperation::CloudVmSnapshot
-        | ResourceOperation::CloudVmSnapshots
-        | ResourceOperation::CloudVmDeleteSnapshot
-        | ResourceOperation::CloudVmRestore
-        | ResourceOperation::CloudVmFork
         | ResourceOperation::CloudVmScpEndpoint
         | ResourceOperation::CloudVmTunnelEnroll
         | ResourceOperation::CloudVmTunnelRevoke
@@ -377,10 +382,15 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::CloudOwnerHandoffBeginTurn
         | ResourceOperation::CloudOwnerHarnessLoginCopy
         | ResourceOperation::CloudOwnerGithubApp
+        | ResourceOperation::CloudOwnerTurnCheckpoint
+        | ResourceOperation::CloudOwnerTurnRewind
+        | ResourceOperation::CloudOwnerTurns
         | ResourceOperation::CloudPreviewsRefresh
         | ResourceOperation::CloudPreviewsCreateLink
         | ResourceOperation::CloudPreviewsRevokeLink
         | ResourceOperation::CloudMachineIo
+        | ResourceOperation::CloudMachineChatAccess
+        | ResourceOperation::CloudMachineShareChat
         | ResourceOperation::OriginConfirmationIssue => OperationOwner::Connection,
         ResourceOperation::SettingsSchema
         | ResourceOperation::SettingsList
@@ -389,6 +399,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::SettingsSet
         | ResourceOperation::SettingsReset
         | ResourceOperation::SettingsResetAll
+        | ResourceOperation::SettingsEdit
         | ResourceOperation::KeybindingsGet
         | ResourceOperation::KeybindingsSet
         | ResourceOperation::KeybindingsRemove

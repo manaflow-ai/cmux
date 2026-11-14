@@ -2,7 +2,6 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { assistant, chat, user } from "../../../gallery/fixtures/acpmux";
-import { gridLength } from "../transcriptGrid";
 
 const TEXT = "Use the cache directory for the next run";
 const snapshot = (steer: "waiting" | "landed" = "waiting") => {
@@ -79,9 +78,13 @@ const preview = (gap?: string) => async (ctx: PlayContext) => {
   if (pending && bubble) {
     const bubbleBox = bubble.getBoundingClientRect();
     const footerBox = actions!.getBoundingClientRect();
-    // The row overhangs the bubble's right edge by its control's inset, so the last glyph's ink sits
-    // on that edge (conversation.css `--cv-action-overhang`: (control - icon box) / 2; #27580, #31683).
-    const overhang = (gridLength("transcript-action-control") - gridLength("transcript-icon-box")) / 2;
+    // The row overhangs the bubble's right edge by its icon buttons' inset, so the last control's ink
+    // sits on the edge (conversation.css `--cv-footer-overhang`, the shared `--cv-action-inset`;
+    // #27580, #31683). Measured off the drawn Copy button and its glyph, so a button size change
+    // cannot strand the check.
+    const copy = actions!.querySelector<HTMLElement>('[aria-label="Copy"]');
+    const glyph = copy?.querySelector("svg");
+    const overhang = copy && glyph ? (copy.getBoundingClientRect().width - glyph.getBoundingClientRect().width) / 2 : 0;
     if (footerBox.top < bubbleBox.bottom || Math.abs(footerBox.right - overhang - bubbleBox.right) > 1)
       throw new Error("waiting steer footer is not under the bubble's right edge");
   }

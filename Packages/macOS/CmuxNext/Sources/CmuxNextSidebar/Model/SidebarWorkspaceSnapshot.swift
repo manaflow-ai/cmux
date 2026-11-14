@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextIcons
 package import Foundation
 
 /// The saved identity and appearance of a workspace row, and what sets its height and its Done fold: the
@@ -111,7 +112,9 @@ package nonisolated struct SidebarWorkspaceSnapshot: Codable, Hashable, Sendable
             icon = "emoji:" + text
             tint = chip?.rawValue
         // Off a page row, a favicon is the workspace's own image or SVG icon: its loading symbol keeps the column.
-        case .favicon? where ws.kind != .browser: icon = "symbol:photo"
+        // A row whose focused tab is a page (beside a chat or terminal) shows that page's favicon.
+        case .favicon? where ws.kind != .browser && !Self.focusesPage(ws): icon = "symbol:photo"
+        case let .page(name)?: icon = Self.pageIcon + name.rawValue
         case .favicon?, .pagePlaceholder?: icon = Self.pageIcon
         case nil: break
         }
@@ -162,6 +165,12 @@ package nonisolated struct SidebarWorkspaceSnapshot: Codable, Hashable, Sendable
     /// The saved icon of a row that showed a page's favicon or its placeholder globe.
     static let pageIcon = "page:"
 
+    /// Whether `row`'s focused tab is a page, whose favicon is then the row's icon (`SidebarMapping.faceRow`).
+    static func focusesPage(_ row: SidebarWorkspace) -> Bool {
+        guard let focused = row.focusedTab else { return false }
+        return row.tabs.first { $0.id == focused }?.kind == .browser
+    }
+
     private static func icon(_ value: String, tint: String?) -> WorkspaceIcon? {
         if value == pageIcon { return .pagePlaceholder }
         guard let colon = value.firstIndex(of: ":") else { return nil }
@@ -171,6 +180,8 @@ package nonisolated struct SidebarWorkspaceSnapshot: Codable, Hashable, Sendable
         case "symbol": return .symbol(rest, tint: tint.flatMap(GroupColor.init(rawValue:)))
         case "swatch": return GroupColor(rawValue: rest).map(WorkspaceIcon.swatch)
         case "emoji": return .emoji(rest, chip: tint.flatMap(GroupColor.init(rawValue:)))
+        // A cmux page's own icon (`WorkspaceIcon.page`): a Cloud desktop restores with its cloud, not the globe.
+        case "page": return .page(IconName(rest))
         default: return nil
         }
     }

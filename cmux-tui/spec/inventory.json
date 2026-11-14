@@ -34,6 +34,7 @@
     "browser.tab.set_profile",
     "browser.viewer.release",
     "browser.viewer.resize",
+    "browser_import.read",
     "chief.continue",
     "chief.engine.get",
     "chief.engine.set",
@@ -49,6 +50,8 @@
     "chief.profile.update",
     "chief.retry",
     "chief.stop",
+    "classic_import.plan",
+    "classic_import.record",
     "client.cell_pixels.set",
     "client.detach",
     "client.get",
@@ -59,7 +62,9 @@
     "closed.delete",
     "closed.list",
     "closed.reopen",
+    "cloud.machine.chat_access",
     "cloud.machine.io",
+    "cloud.machine.share_chat",
     "cloud.owner.acpmux_keyed_start",
     "cloud.owner.acpmux_person_holds",
     "cloud.owner.fork_run",
@@ -69,6 +74,9 @@
     "cloud.owner.handoff_wait",
     "cloud.owner.handoffs",
     "cloud.owner.harness_login_copy",
+    "cloud.owner.turn_checkpoint",
+    "cloud.owner.turn_rewind",
+    "cloud.owner.turns",
     "cloud.previews.create_link",
     "cloud.previews.refresh",
     "cloud.previews.revoke_link",
@@ -77,23 +85,17 @@
     "cloud.runs.sandbox",
     "cloud.runs.start",
     "cloud.runs.wait",
-    "cloud.vm.delete_snapshot",
     "cloud.vm.domains",
     "cloud.vm.firewall_create",
     "cloud.vm.firewall_delete",
     "cloud.vm.firewall_get",
     "cloud.vm.firewall_list",
-    "cloud.vm.fork",
     "cloud.vm.networks",
     "cloud.vm.provision_api",
     "cloud.vm.publication_api_keys",
     "cloud.vm.publications",
-    "cloud.vm.resize",
-    "cloud.vm.restore",
     "cloud.vm.revoke_publication_api_key",
     "cloud.vm.scp_endpoint",
-    "cloud.vm.snapshot",
-    "cloud.vm.snapshots",
     "cloud.vm.tunnel_attach",
     "cloud.vm.tunnel_detach",
     "cloud.vm.tunnel_enroll",
@@ -116,6 +118,7 @@
     "diff.comments.delete",
     "diff.comments.list",
     "diff.comments.save",
+    "diff.comments.send",
     "frontend_projection.get",
     "frontend_projection.put",
     "git.branches",
@@ -134,6 +137,7 @@
     "git.worktree.apply",
     "git.worktree.create",
     "git.worktree.remove",
+    "git.worktree.setup",
     "history.backups.purge",
     "history.clear",
     "history.entries.list",
@@ -172,6 +176,7 @@
     "pane.focus_direction",
     "pane.get",
     "pane.list",
+    "pane.move",
     "pane.neighbor.get",
     "pane.rename",
     "pane.run",
@@ -242,6 +247,7 @@
     "session.terminal_defaults.update",
     "session.window.title.clear",
     "session.window.title.set",
+    "settings.edit",
     "settings.get",
     "settings.list",
     "settings.reset",
@@ -375,6 +381,7 @@
       "add-tabs-to-tab-group",
       "apply-layout",
       "bind-conversation-tab-session",
+      "cancel-creating-input",
       "clear-history",
       "clear-window-title",
       "client-focus",
@@ -507,6 +514,7 @@
       "set-client-sizing",
       "set-column-dock",
       "set-default-colors",
+      "set-divider-visible",
       "set-frontend-browser-history",
       "set-host-size-policy",
       "set-layout-sizes",
@@ -524,17 +532,21 @@
       "set-tab-pinned",
       "set-terminal-idle-policy",
       "set-terminal-keep",
+      "set-terminal-tail-pin",
       "set-viewport-pane-width",
       "set-window-title",
       "set-workspace-metadata",
+      "shell-read",
+      "shell-run",
+      "shell-stop",
       "split",
       "swap-pane",
       "terminal-events",
       "terminal-history",
+      "terminal-last-command",
       "terminal-ports",
       "terminal-read-range",
       "terminal-resources",
-      "terminal-last-command",
       "terminal-resume-command",
       "undo-layout",
       "ungroup-screen-group",
@@ -706,6 +718,12 @@
     },
     {
       "name": "history-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "stash-changed",
       "streams": [
         "subscribe"
       ]
@@ -1180,6 +1198,18 @@
       ]
     },
     {
+      "name": "feed-view-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "feed-reports-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "cloud-inbox-reset",
       "streams": [
         "subscribe"
@@ -1504,6 +1534,42 @@
       "route": "frontend viewport adapter; scroll-surface for shared local viewport"
     },
     {
+      "variant": "ScrollPageUp",
+      "key": "scroll-page-up",
+      "classification": "presentation-only",
+      "route": "frontend viewport adapter"
+    },
+    {
+      "variant": "ScrollPageDown",
+      "key": "scroll-page-down",
+      "classification": "presentation-only",
+      "route": "frontend viewport adapter"
+    },
+    {
+      "variant": "ScrollHalfPageUp",
+      "key": "scroll-half-page-up",
+      "classification": "presentation-only",
+      "route": "frontend viewport adapter"
+    },
+    {
+      "variant": "ScrollHalfPageDown",
+      "key": "scroll-half-page-down",
+      "classification": "presentation-only",
+      "route": "frontend viewport adapter"
+    },
+    {
+      "variant": "CopyMode",
+      "key": "copy-mode",
+      "classification": "presentation-only",
+      "route": "frontend copy mode over the terminal mirror"
+    },
+    {
+      "variant": "SearchScrollback",
+      "key": "search-scrollback",
+      "classification": "presentation-only",
+      "route": "frontend copy mode over the terminal mirror"
+    },
+    {
       "variant": "ClearHistory",
       "key": "clear-history",
       "classification": "direct",
@@ -1538,6 +1604,18 @@
       "key": "show-shortcuts",
       "classification": "presentation-only",
       "route": "frontend shortcut overlay"
+    },
+    {
+      "variant": "NextAttention",
+      "key": "next-attention",
+      "classification": "presentation-only",
+      "route": "frontend attention queue + client focus"
+    },
+    {
+      "variant": "AttentionList",
+      "key": "attention-list",
+      "classification": "presentation-only",
+      "route": "frontend attention list overlay"
     },
     {
       "variant": "Detach",
@@ -1818,6 +1896,11 @@
       "variant": "ShowShortcuts",
       "classification": "presentation-only",
       "route": "frontend shortcut overlay"
+    },
+    {
+      "variant": "FocusAttention",
+      "classification": "presentation-only",
+      "route": "frontend attention list + client focus"
     },
     {
       "variant": "SetClientSizing",

@@ -9,6 +9,9 @@ import table from "./generated/strings.json";
 import { MachinesSection } from "./MachinesSection";
 import { MockMachinesProvider } from "./mockProvider";
 import { MachinesStore } from "./store";
+// The shared popup and dialog surface (ui.css imports it; this page loads no ui.css): the sheet role
+// rule `.ui-dialog.ui-glass` draws this page's dialogs.
+import "../../ui/popupSurface.css";
 import "../shared/pageBase.css";
 import "./styles.css";
 

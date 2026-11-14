@@ -14,6 +14,8 @@ public final class ServerStatsWritePath implements WireValue {
     private final UInt64 effectIntentBatches;
     private final UInt64 effectIntentFailures;
     private final UInt64 effectIntents;
+    private final Field<UInt64> registryWalFileBytes;
+    private final Field<UInt64> registryWalFileHighWaterBytes;
     private final Field<UInt64> registryWalFrameBytes;
     private final UInt64 requestEffectCommits;
     private final Field<UInt64> walCommits;
@@ -27,6 +29,8 @@ public final class ServerStatsWritePath implements WireValue {
         this.effectIntentFailures = Wire.nonNull(builder.effectIntentFailures, "effect_intent_failures");
         if (!builder.effectIntentsSet) throw new IllegalArgumentException("effect_intents is required");
         this.effectIntents = Wire.nonNull(builder.effectIntents, "effect_intents");
+        this.registryWalFileBytes = builder.registryWalFileBytes;
+        this.registryWalFileHighWaterBytes = builder.registryWalFileHighWaterBytes;
         this.registryWalFrameBytes = builder.registryWalFrameBytes;
         if (!builder.requestEffectCommitsSet) throw new IllegalArgumentException("request_effect_commits is required");
         this.requestEffectCommits = Wire.nonNull(builder.requestEffectCommits, "request_effect_commits");
@@ -41,6 +45,8 @@ public final class ServerStatsWritePath implements WireValue {
     public UInt64 effectIntentBatches() { return effectIntentBatches; }
     public UInt64 effectIntentFailures() { return effectIntentFailures; }
     public UInt64 effectIntents() { return effectIntents; }
+    public Field<UInt64> registryWalFileBytes() { return registryWalFileBytes; }
+    public Field<UInt64> registryWalFileHighWaterBytes() { return registryWalFileHighWaterBytes; }
     public Field<UInt64> registryWalFrameBytes() { return registryWalFrameBytes; }
     public UInt64 requestEffectCommits() { return requestEffectCommits; }
     public Field<UInt64> walCommits() { return walCommits; }
@@ -56,6 +62,14 @@ public final class ServerStatsWritePath implements WireValue {
         builder.effectIntentFailures(Wire.uint64(rawEffectIntentFailures, "ServerStatsWritePath.effect_intent_failures"));
         Object rawEffectIntents = Wire.required(object, "effect_intents");
         builder.effectIntents(Wire.uint64(rawEffectIntents, "ServerStatsWritePath.effect_intents"));
+        Object rawRegistryWalFileBytes = Wire.optional(object, "registry_wal_file_bytes");
+        if (!Wire.isMissing(rawRegistryWalFileBytes)) {
+            builder.registryWalFileBytes(Wire.uint64(rawRegistryWalFileBytes, "ServerStatsWritePath.registry_wal_file_bytes"));
+        }
+        Object rawRegistryWalFileHighWaterBytes = Wire.optional(object, "registry_wal_file_high_water_bytes");
+        if (!Wire.isMissing(rawRegistryWalFileHighWaterBytes)) {
+            builder.registryWalFileHighWaterBytes(Wire.uint64(rawRegistryWalFileHighWaterBytes, "ServerStatsWritePath.registry_wal_file_high_water_bytes"));
+        }
         Object rawRegistryWalFrameBytes = Wire.optional(object, "registry_wal_frame_bytes");
         if (!Wire.isMissing(rawRegistryWalFrameBytes)) {
             builder.registryWalFrameBytes(Wire.uint64(rawRegistryWalFrameBytes, "ServerStatsWritePath.registry_wal_frame_bytes"));
@@ -81,6 +95,8 @@ public final class ServerStatsWritePath implements WireValue {
         Wire.put(object, "effect_intent_batches", effectIntentBatches);
         Wire.put(object, "effect_intent_failures", effectIntentFailures);
         Wire.put(object, "effect_intents", effectIntents);
+        Wire.put(object, "registry_wal_file_bytes", registryWalFileBytes);
+        Wire.put(object, "registry_wal_file_high_water_bytes", registryWalFileHighWaterBytes);
         Wire.put(object, "registry_wal_frame_bytes", registryWalFrameBytes);
         Wire.put(object, "request_effect_commits", requestEffectCommits);
         Wire.put(object, "wal_commits", walCommits);
@@ -92,11 +108,11 @@ public final class ServerStatsWritePath implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ServerStatsWritePath that)) return false;
-        return Objects.equals(effectIntentBatches, that.effectIntentBatches) && Objects.equals(effectIntentFailures, that.effectIntentFailures) && Objects.equals(effectIntents, that.effectIntents) && Objects.equals(registryWalFrameBytes, that.registryWalFrameBytes) && Objects.equals(requestEffectCommits, that.requestEffectCommits) && Objects.equals(walCommits, that.walCommits) && Objects.equals(walSyncedCommits, that.walSyncedCommits) && Objects.equals(writerRegistryLocks, that.writerRegistryLocks);
+        return Objects.equals(effectIntentBatches, that.effectIntentBatches) && Objects.equals(effectIntentFailures, that.effectIntentFailures) && Objects.equals(effectIntents, that.effectIntents) && Objects.equals(registryWalFileBytes, that.registryWalFileBytes) && Objects.equals(registryWalFileHighWaterBytes, that.registryWalFileHighWaterBytes) && Objects.equals(registryWalFrameBytes, that.registryWalFrameBytes) && Objects.equals(requestEffectCommits, that.requestEffectCommits) && Objects.equals(walCommits, that.walCommits) && Objects.equals(walSyncedCommits, that.walSyncedCommits) && Objects.equals(writerRegistryLocks, that.writerRegistryLocks);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(effectIntentBatches, effectIntentFailures, effectIntents, registryWalFrameBytes, requestEffectCommits, walCommits, walSyncedCommits, writerRegistryLocks); }
+    public int hashCode() { return Objects.hash(effectIntentBatches, effectIntentFailures, effectIntents, registryWalFileBytes, registryWalFileHighWaterBytes, registryWalFrameBytes, requestEffectCommits, walCommits, walSyncedCommits, writerRegistryLocks); }
 
     @Override
     public String toString() { return "ServerStatsWritePath" + toWire(); }
@@ -108,6 +124,8 @@ public final class ServerStatsWritePath implements WireValue {
         private boolean effectIntentFailuresSet;
         private UInt64 effectIntents;
         private boolean effectIntentsSet;
+        private Field<UInt64> registryWalFileBytes = Field.omitted();
+        private Field<UInt64> registryWalFileHighWaterBytes = Field.omitted();
         private Field<UInt64> registryWalFrameBytes = Field.omitted();
         private UInt64 requestEffectCommits;
         private boolean requestEffectCommitsSet;
@@ -129,6 +147,14 @@ public final class ServerStatsWritePath implements WireValue {
         public Builder effectIntents(UInt64 value) {
             this.effectIntents = value;
             this.effectIntentsSet = true;
+            return this;
+        }
+        public Builder registryWalFileBytes(UInt64 value) {
+            this.registryWalFileBytes = Field.of(value);
+            return this;
+        }
+        public Builder registryWalFileHighWaterBytes(UInt64 value) {
+            this.registryWalFileHighWaterBytes = Field.of(value);
             return this;
         }
         public Builder registryWalFrameBytes(UInt64 value) {

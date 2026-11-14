@@ -1,89 +1,118 @@
 import { useEffect, useRef, useState } from "react";
 import { postNative } from "../native";
-import type { AcpmuxActivity } from "../model";
-import { useT } from "../i18n";
-
-type Choice = { fullName: string; private?: boolean; source?: string };
-export type RepoRecovery = {
-  code: string;
-  org?: string;
-  installUrl?: string;
-  choices?: Choice[];
-  retry?: { action: string; args: Record<string, unknown>; wait_action?: string };
-};
-
-function payload(text: string | undefined): Record<string, unknown> | undefined {
-  if (!text) return undefined;
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start < 0 || end <= start) return undefined;
-  try {
-    const parsed = JSON.parse(text.slice(start, end + 1));
-    if (parsed && typeof parsed === "object") return parsed as Record<string, unknown>;
-  } catch {
-    // Tool output may have a prose prefix; try the next JSON object below.
-  }
-  return undefined;
-}
-
-function githubInstallUrl(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" && url.hostname === "github.com" ? url.toString() : undefined;
-  } catch {
-    return undefined;
-  }
-}
+import { NativeError } from "../nativeError";
+import { Icon } from "../icons/Icon";
+import { useT, type Translate } from "../i18n";
+import {
+  GITHUB_WAIT_MS,
+  githubInstallUrl,
+  repoRecoveryView,
+  waitLeft,
+  type RepoRecovery,
+  type RepoRecoveryAction,
+  type RepoRecoveryPhase,
+  type RepoRecoveryText,
+  type RepoRecoveryView,
+} from "./repoRecoveryCardModel";
 
 function typedFailure(value: unknown): never | void {
   if (value && typeof value === "object" && typeof (value as { code?: unknown }).code === "string")
-    throw new Error((value as { code: string }).code);
+    throw new NativeError({ code: (value as { code: string }).code });
 }
 
-export function repoRecoveryFor(tool: NonNullable<AcpmuxActivity["tool"]>): RepoRecovery | undefined {
-  if (
-    tool.title !== "list_repos" &&
-    tool.title !== "add_repo" &&
-    !tool.title.endsWith(".list_repos") &&
-    !tool.title.endsWith(".add_repo")
-  )
-    return undefined;
-  const data = payload(tool.output);
-  const code = data?.code;
-  if (code !== "repo.needs_github" && code !== "repo.no_access" && code !== "repo.ambiguous") return undefined;
-  const retry = data?.retry;
-  const rawArgs = retry && typeof retry === "object" ? (retry as { args?: unknown }).args : undefined;
-  const args = rawArgs && typeof rawArgs === "object" ? (rawArgs as Record<string, unknown>) : undefined;
-  const safeArgs =
-    typeof args?.repo === "string"
-      ? { repo: args.repo, ...(typeof args.ref === "string" ? { ref: args.ref } : {}) }
-      : undefined;
-  return {
-    code,
-    org: typeof data?.org === "string" ? data.org : undefined,
-    installUrl: githubInstallUrl(data?.install_url),
-    choices: Array.isArray(data?.choices)
-      ? data.choices.filter((choice): choice is Choice => Boolean(choice) && typeof choice.fullName === "string")
-      : undefined,
-    retry:
-      (retry as { action?: unknown } | undefined)?.action === "cloud.repo.add" && safeArgs
-        ? {
-            action: "cloud.repo.add",
-            args: safeArgs,
-            wait_action:
-              (retry as { wait_action?: unknown }).wait_action === "cloud.repo.wait_github"
-                ? "cloud.repo.wait_github"
-                : undefined,
-          }
-        : undefined,
-  };
+function failureCode(error: unknown): string | undefined {
+  const code = (error as { code?: unknown } | null | undefined)?.code;
+  return typeof code === "string" ? code : undefined;
 }
 
-export function RepoRecoveryCard({ recovery }: { recovery: RepoRecovery }) {
+function say(t: Translate, text: RepoRecoveryText): string {
+  if ("literal" in text) return text.literal;
+  const values = text.values
+    ? Object.fromEntries(
+        Object.entries(text.values).map(([name, value]) => [name, typeof value === "string" ? value : say(t, value)]),
+      )
+    : undefined;
+  return t(text.key, values);
+}
+
+/** A ticking "m:ss" until `until`, so the wait shows its ETA. */
+function useWaitLeft(until: number | undefined): string | undefined {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (until === undefined) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [until]);
+  return until === undefined ? undefined : waitLeft(until, now);
+}
+
+/** The card as drawn for one view: the message, its ETA when it waits, and its one-click steps. */
+export function RepoRecoveryCardView({
+  view,
+  pressed,
+  onAction,
+}: {
+  view: RepoRecoveryView;
+  pressed?: string;
+  onAction?: (action: RepoRecoveryAction) => void;
+}) {
   const t = useT();
-  const [state, setState] = useState<"idle" | "waiting" | "retrying" | "done" | "failed">("idle");
+  const left = useWaitLeft(view.until);
+  const message = say(t, view.message);
+  if (view.tone === "done")
+    return (
+      <div className="cv-repo-recovery" aria-live="polite">
+        <span className="cv-repo-recovery__chip">
+          <Icon name="status.check" size={12} />
+          {message}
+        </span>
+      </div>
+    );
+  const Tag = view.group ? "fieldset" : "div";
+  return (
+    <Tag
+      className={`cv-repo-recovery${view.tone === "plain" ? "" : ` cv-repo-recovery--${view.tone}`}`}
+      aria-label={view.group ? message : undefined}
+      role={view.tone === "error" ? "alert" : undefined}
+      aria-live={view.tone === "quiet" ? "polite" : undefined}
+    >
+      <span>{message}</span>
+      {left !== undefined && (
+        <span className="cv-repo-recovery__eta" aria-hidden="true">
+          {t("cloudRepository.waitLeft", { time: left })}
+        </span>
+      )}
+      {view.actions.map((action) => (
+        <button
+          key={`${action.id}:${action.repo ?? ""}`}
+          type="button"
+          aria-pressed={action.id === "choose" ? pressed === action.repo : undefined}
+          onClick={() => onAction?.(action)}
+        >
+          {say(t, action.label)}
+        </button>
+      ))}
+    </Tag>
+  );
+}
+
+export function RepoRecoveryCard({
+  recovery,
+  initialPhase = { kind: "idle" },
+  request = postNative,
+}: {
+  recovery: RepoRecovery;
+  /** The gallery draws later phases; the transcript always starts idle. */
+  initialPhase?: RepoRecoveryPhase;
+  request?: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>;
+}) {
+  const [phase, setPhase] = useState<RepoRecoveryPhase>(initialPhase);
   const [choice, setChoice] = useState<string>();
+  /// A connect link fetched from the app when the tool's error carried none.
+  const [fetchedUrl, setFetchedUrl] = useState<string>();
+  /// Whether this card has seen GitHub connect, so the success chip can say so.
+  const connected = useRef(false);
   const mounted = useRef(true);
   useEffect(
     () => () => {
@@ -91,107 +120,83 @@ export function RepoRecoveryCard({ recovery }: { recovery: RepoRecovery }) {
     },
     [],
   );
-  const connect = () => {
-    if (!recovery.installUrl) return;
-    window.open(recovery.installUrl, "_blank", "noopener,noreferrer");
-    if (!recovery.retry) return;
-    setState("waiting");
-    void postNative<{ connected?: boolean }>(recovery.retry.wait_action ?? "cloud.repo.wait_github")
-      .then((reply) => {
-        if (!mounted.current) return;
-        if (!reply?.connected) {
-          setState("idle");
-          return;
-        }
-        setState("retrying");
-        return postNative(recovery.retry!.action, recovery.retry!.args).then((value) => typedFailure(value));
-      })
-      .then(
-        () => mounted.current && setState("done"),
-        () => mounted.current && setState("failed"),
-      );
-  };
-  const select = (repo: string) => {
-    setChoice(repo);
-    if (!recovery.retry) return;
-    setState("retrying");
-    void postNative(recovery.retry.action, { ...recovery.retry.args, repo })
+  const installUrl = recovery.installUrl ?? fetchedUrl;
+  const set = (next: RepoRecoveryPhase) => mounted.current && setPhase(next);
+
+  const attach = (repo?: string) => {
+    const retry = recovery.retry;
+    if (!retry) return;
+    set({ kind: "retrying" });
+    void request(retry.action, repo ? { ...retry.args, repo } : retry.args)
       .then((value) => typedFailure(value))
       .then(
-        () => setState("done"),
-        () => setState("failed"),
+        () => set({ kind: "done", connected: connected.current }),
+        (error: unknown) =>
+          set(failureCode(error) === "repo.needs_github" ? { kind: "notConnected" } : { kind: "failed" }),
       );
   };
+  /// Waits up to a minute for GitHub to report the install, then retries the held repository action.
+  const waitForGithub = () => {
+    const retry = recovery.retry;
+    if (!retry) return;
+    set({ kind: "waiting", until: Date.now() + GITHUB_WAIT_MS });
+    void request<{ connected?: boolean }>(retry.wait_action ?? "cloud.repo.wait_github", {
+      timeout_ms: GITHUB_WAIT_MS,
+    }).then(
+      (reply) => {
+        if (!reply?.connected) return set({ kind: "notConnected" });
+        connected.current = true;
+        attach(choice);
+      },
+      () => set({ kind: "notConnected" }),
+    );
+  };
+  const open = (url: string) => window.open(url, "_blank", "noopener,noreferrer");
+  const connect = (url: string | undefined) => {
+    if (!url) return;
+    open(url);
+    waitForGithub();
+  };
+  const getLink = () => {
+    set({ kind: "linking" });
+    void request<{ connect?: { install_url?: unknown } }>("cloud.repo.local", {}).then(
+      (reply) => {
+        const url = githubInstallUrl(reply?.connect?.install_url);
+        if (!url) return set({ kind: "noLink" });
+        if (mounted.current) setFetchedUrl(url);
+        // The page may refuse a window opened after an await; the wait offers "Open GitHub again".
+        if (recovery.retry) connect(url);
+        else {
+          open(url);
+          set({ kind: "idle" });
+        }
+      },
+      () => set({ kind: "noLink" }),
+    );
+  };
 
-  if (state === "done")
-    return <div className="cv-repo-recovery cv-repo-recovery--done">{t("cloudRepository.attached")}</div>;
-  if (state === "waiting" || state === "retrying")
-    return (
-      <div className="cv-repo-recovery cv-repo-recovery--quiet">
-        {state === "waiting" ? t("cloudRepository.connecting") : t("cloudRepository.pending")}
-      </div>
-    );
-  if (state === "failed")
-    return (
-      <div className="cv-repo-recovery cv-repo-recovery--error" role="alert">
-        {t("cloudRepository.recoverFailed")}
-      </div>
-    );
-  if (recovery.code === "repo.needs_github")
-    return (
-      <div className="cv-repo-recovery cv-repo-recovery--quiet">
-        <span>{t("cloudRepository.connecting")}</span>
-        {recovery.installUrl && (
-          <button type="button" onClick={connect}>
-            {t("cloudRepository.connect")}
-          </button>
-        )}
-      </div>
-    );
-  if (recovery.code === "repo.no_access")
-    return (
-      <div className="cv-repo-recovery">
-        <span>
-          {t("cloudRepository.noAccess", {
-            target: recovery.org
-              ? t("cloudRepository.repositories", { org: recovery.org })
-              : t("cloudRepository.thisRepository"),
-          })}
-        </span>
-        {recovery.installUrl && (
-          <button type="button" onClick={connect}>
-            {t("cloudRepository.installOn", { target: recovery.org ?? t("cloudRepository.github") })}
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() =>
-            window.open(
-              `https://github.com/orgs/${encodeURIComponent(recovery.org ?? "")}`,
-              "_blank",
-              "noopener,noreferrer",
-            )
-          }
-        >
-          {t("cloudRepository.requestAccess")}
-        </button>
-      </div>
-    );
-  if (recovery.code === "repo.ambiguous" && recovery.choices?.length)
-    return (
-      <fieldset className="cv-repo-recovery" aria-label={t("cloudRepository.choose")}>
-        <span>{t("cloudRepository.which")}</span>
-        {recovery.choices.map((item) => (
-          <button
-            key={item.fullName}
-            type="button"
-            aria-pressed={choice === item.fullName}
-            onClick={() => select(item.fullName)}
-          >
-            {item.fullName}
-          </button>
-        ))}
-      </fieldset>
-    );
-  return null;
+  const onAction = (action: RepoRecoveryAction) => {
+    switch (action.id) {
+      case "connect":
+        if (!recovery.retry) return void (installUrl && open(installUrl));
+        return connect(installUrl);
+      case "getLink":
+        return getLink();
+      case "reopen":
+        return void (installUrl && open(installUrl));
+      case "checkAgain":
+        return waitForGithub();
+      case "retry":
+        return attach(choice);
+      case "requestAccess":
+        return void open(`https://github.com/orgs/${encodeURIComponent(recovery.org ?? "")}`);
+      case "choose":
+        setChoice(action.repo);
+        return attach(action.repo);
+    }
+  };
+
+  const view = repoRecoveryView({ ...recovery, installUrl }, phase, choice);
+  if (!view) return null;
+  return <RepoRecoveryCardView view={view} pressed={choice} onAction={onAction} />;
 }
