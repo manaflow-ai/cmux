@@ -29,12 +29,13 @@ echo "REMOTE-AGENT-PATH exec_lines_ms $((e - s)) lines=$lines"
 # A keystroke's echo: one live `cat`, n single bytes written, each timed until it comes back.
 fifo="$work/echo.fifo"; mkfifo "$fifo"
 coproc ECHO { run -- cat < "$fifo"; }
+echo_pid=$ECHO_PID # bash unsets ECHO_PID once the coprocess exits
 exec 7> "$fifo"
 : > "$work/rtt"
 for _ in $(seq 1 "$n"); do
   s=$(now_ms); printf 'k' >&7; IFS= read -r -n1 -u "${ECHO[0]}" _; e=$(now_ms); echo $((e - s)) >> "$work/rtt"
 done
-exec 7>&-; rm -f "$fifo"; wait "$ECHO_PID" 2>/dev/null || true
+exec 7>&-; rm -f "$fifo"; wait "$echo_pid" 2>/dev/null || true
 echo "REMOTE-AGENT-PATH rtt_echo_ms p50=$(pct 0.5 < "$work/rtt") p95=$(pct 0.95 < "$work/rtt") n=$n"
 
 local_file="$work/up.bin"; back="$work/back.bin"

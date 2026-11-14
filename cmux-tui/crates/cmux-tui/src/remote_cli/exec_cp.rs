@@ -48,23 +48,41 @@ const EXIT_INTERRUPTED: i32 = 130;
 const EXIT_BROKEN_PIPE: i32 = 141;
 const DEFAULT_TERMINAL: (u16, u16) = (80, 24);
 
-/// Joins the parts of a large upload into PATH: `$1` PATH, `$2` the part
-/// count, `$3` the octal mode to give it. The parts and the
-/// temporary file are removed whatever happens.
-const ASSEMBLE_SCRIPT: &str = r#"set -e
-f=$1; n=$2; m=$3
-part() { printf '%s.cmux-part.%06d' "$f" "$1"; }
-cleanup() { rm -f "$f.cmux-tmp"; i=0; while [ "$i" -lt "$n" ]; do rm -f "$(part "$i")"; i=$((i+1)); done; }
-trap cleanup EXIT
-: > "$f.cmux-tmp"
-i=0
-while [ "$i" -lt "$n" ]; do cat "$(part "$i")" >> "$f.cmux-tmp"; i=$((i+1)); done
-chmod "$m" "$f.cmux-tmp"
-mv -f "$f.cmux-tmp" "$f"
+/// Makes a private staging directory for a large upload beside its
+/// destination `$1` and prints its path. `mktemp -d` creates it exclusively
+/// with mode 0700, so nobody else can plant or read a part in it.
+const STAGING_SCRIPT: &str = r#"set -eu
+d=$(dirname -- "$1")
+mkdir -p -- "$d"
+umask 077
+case $d in */) ;; *) d=$d/ ;; esac
+mktemp -d "${d}.cmux-cp.XXXXXXXX"
 "#;
 
-/// Removes the parts of a failed large upload.
-const CLEANUP_PARTS_SCRIPT: &str = r#"rm -f "$1".cmux-part.[0-9][0-9][0-9][0-9][0-9][0-9]"#;
+/// Name prefix of the staging directory `STAGING_SCRIPT` makes.
+const STAGING_PREFIX: &str = ".cmux-cp.";
+
+/// Joins the parts in the private staging directory `$1` into `$2`: `$3` is
+/// the part count, `$4` the octal mode. The joined file is created
+/// exclusively (`set -C`) under umask 077, gets its mode only once complete,
+/// and is renamed into place. Only the staging directory's own files are
+/// removed, whatever happens.
+const ASSEMBLE_SCRIPT: &str = r#"set -eu
+d=$1; f=$2; n=$3; m=$4
+umask 077
+cleanup() { rm -f -- "$d"/part.* "$d/assembled"; rmdir -- "$d" 2>/dev/null || true; }
+trap cleanup EXIT
+set -C
+: > "$d/assembled"
+set +C
+i=0
+while [ "$i" -lt "$n" ]; do cat "$(printf '%s/part.%06d' "$d" "$i")" >> "$d/assembled"; i=$((i+1)); done
+chmod "$m" "$d/assembled"
+mv -f -- "$d/assembled" "$f"
+"#;
+
+/// Removes the staging directory `$1` of a failed large upload.
+const CLEANUP_STAGING_SCRIPT: &str = r#"rm -f -- "$1"/part.*; rmdir -- "$1""#;
 
 /// An exit status `run` returns as is, printing `error` first when present.
 #[derive(Debug)]
@@ -463,7 +481,6 @@ async fn stream_process(
                         Ok(())
                     }
                     ProcessEvent::ReplayGap { .. } => {
-                        eprintln!("{}", catalog().remote_client.exec_output_lost);
                         return final_status(wait_exit(client, process).await?, true);
                     }
                     ProcessEvent::Exit { code, signal, .. } => {
@@ -507,7 +524,11 @@ async fn stream_process(
 /// The status `exec` exits with once the command ended. `lost` says some of
 /// its output never arrived (truncated by the daemon, or a replay gap).
 pub(super) fn final_status(status: i32, lost: bool) -> anyhow::Result<i32> {
-    let _ = lost;
+    if lost {
+        // The caller saw an incomplete stream: never let it pass for the
+        // command's own result, even a success.
+        return Err(anyhow!(catalog().remote_client.exec_output_lost));
+    }
     Ok(status)
 }
 
@@ -524,7 +545,7 @@ async fn run_remote(
     client: &WorkspaceClient,
     workspace: &WorkspaceId,
     argv: Vec<String>,
-    mut stdout: Option<&mut std::fs::File>,
+    mut stdout: Option<&mut dyn Write>,
 ) -> anyhow::Result<(i32, String)> {
     let process = client.allocate_process_handle();
     let request = WorkspaceRequest::SpawnProcess {
@@ -550,8 +571,8 @@ async fn run_remote(
         };
         match event {
             ProcessEvent::Stdout { data, .. } => {
-                if let Some(file) = stdout.as_deref_mut() {
-                    file.write_all(&data.decode().map_err(|_| unexpected("process output"))?)?;
+                if let Some(output) = stdout.as_deref_mut() {
+                    output.write_all(&data.decode().map_err(|_| unexpected("process output"))?)?;
                 }
             }
             ProcessEvent::Stderr { data, .. } => {
@@ -621,11 +642,16 @@ pub(super) fn transfer_report(bytes: u64, elapsed: Duration) -> serde_json::Valu
     })
 }
 
-/// The local mode of a downloaded file. `existing` is the mode of the file
-/// it replaces, when there is one.
+/// The local mode of a downloaded file. A new file is 0600 (0700 when the
+/// remote file is executable) less the umask; a replaced file (`existing`)
+/// keeps its own mode, narrowed to that. A download never widens access.
 pub(super) fn download_mode(executable: bool, umask: u32, existing: Option<u32>) -> u32 {
-    let _ = (umask, existing);
-    if executable { 0o755 } else { 0o644 }
+    let source = if executable { 0o700 } else { 0o600 };
+    let allowed = source & !umask & 0o777;
+    match existing {
+        Some(mode) => mode & 0o777 & allowed,
+        None => allowed,
+    }
 }
 
 /// This process's file-creation mask.
@@ -670,7 +696,8 @@ async fn download(
         let argv = vec!["cat".into(), "--".into(), remote.to_owned()];
         check_step(
             "cat",
-            run_remote(client, workspace, argv, Some(temporary.as_file_mut())).await?,
+            run_remote(client, workspace, argv, Some(temporary.as_file_mut() as &mut dyn Write))
+                .await?,
         )?;
         temporary.as_file().metadata()?.len()
     } else {
@@ -776,16 +803,16 @@ async fn upload(
         check_step("chmod", run_remote(client, workspace, argv, None).await?)?;
         return Ok(bytes.len() as u64);
     }
-    let staging = String::new();
+    let staging = make_staging(client, workspace, &remote).await?;
     let parts = match upload_parts(client, workspace, local, &staging, &remote).await {
         Ok(parts) => parts,
         Err(error) => {
             let argv = vec![
                 "/bin/sh".into(),
                 "-c".into(),
-                CLEANUP_PARTS_SCRIPT.into(),
+                CLEANUP_STAGING_SCRIPT.into(),
                 "sh".into(),
-                remote.clone(),
+                staging.clone(),
             ];
             let _ = run_remote(client, workspace, argv, None).await;
             return Err(error);
@@ -796,29 +823,51 @@ async fn upload(
     Ok(size)
 }
 
-/// Where part `index` of a large upload to `remote` goes, in `staging`.
+/// Creates the private staging directory for a large upload to `remote`.
+async fn make_staging(
+    client: &WorkspaceClient,
+    workspace: &WorkspaceId,
+    remote: &str,
+) -> anyhow::Result<String> {
+    let argv =
+        vec!["/bin/sh".into(), "-c".into(), STAGING_SCRIPT.into(), "sh".into(), remote.to_owned()];
+    let mut output = Vec::new();
+    check_step(
+        "mktemp",
+        run_remote(client, workspace, argv, Some(&mut output as &mut dyn Write)).await?,
+    )?;
+    let staging = String::from_utf8_lossy(&output).trim_end_matches('\n').to_owned();
+    let name = staging.rsplit('/').next().unwrap_or_default();
+    if !staging.starts_with('/') || !name.starts_with(STAGING_PREFIX) || staging.contains('\n') {
+        return Err(unexpected("mktemp"));
+    }
+    Ok(staging)
+}
+
+/// Where part `index` of a large upload goes, in its staging directory.
 pub(super) fn upload_part_path(staging: &str, remote: &str, index: u64) -> String {
-    let _ = staging;
-    format!("{remote}.cmux-part.{index:06}")
+    let _ = remote;
+    format!("{staging}/part.{index:06}")
 }
 
 /// The remote command that joins `parts` parts in `staging` into `remote`
 /// with mode `mode` (octal).
 pub(super) fn assemble_argv(staging: &str, remote: &str, parts: u64, mode: &str) -> Vec<String> {
-    let _ = staging;
     vec![
         "/bin/sh".into(),
         "-c".into(),
         ASSEMBLE_SCRIPT.into(),
         "sh".into(),
+        staging.to_owned(),
         remote.to_owned(),
         parts.to_string(),
         mode.to_owned(),
     ]
 }
 
-/// Writes the file as 8 MiB parts beside `remote`, `UPLOAD_WINDOW` writes in
-/// flight, each checked against its own SHA-256. Returns the part count.
+/// Writes the file as 8 MiB parts into `staging`, each a new file
+/// (`Missing`: never an existing one), `UPLOAD_WINDOW` writes in flight,
+/// each checked against its own SHA-256. Returns the part count.
 async fn upload_parts(
     client: &WorkspaceClient,
     workspace: &WorkspaceId,
@@ -844,8 +893,8 @@ async fn upload_parts(
                 workspace: workspace.clone(),
                 path: workspace_relative(&path),
                 data: ByteString::from_bytes(&buffer),
-                precondition: FilePrecondition::Any,
-                create_parents: true,
+                precondition: FilePrecondition::Missing,
+                create_parents: false,
             };
             pending.push_back((path, sha256_hex(&buffer), client.begin_request(request).await?));
             index += 1;

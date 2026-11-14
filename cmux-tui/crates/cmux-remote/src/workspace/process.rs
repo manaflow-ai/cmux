@@ -280,15 +280,19 @@ struct EventHistory {
     /// viewer does not, and keeps the lossy, bounded retention.
     holds: BTreeMap<u64, u64>,
     next_hold: u64,
+    /// Output events readers have room for but not yet published: each
+    /// reader reserves one before it reads, so stdout and stderr cannot both
+    /// take the last room and publish past the limit.
+    reserved: usize,
 }
 
 impl EventHistory {
-    /// Whether one more output event fits without evicting an event a held
-    /// subscriber has not taken.
+    /// Whether one more output event fits, beside those already reserved,
+    /// without evicting an event a held subscriber has not taken.
     fn has_room(&self, retained_bytes_limit: usize) -> bool {
         let Some(oldest) = self.holds.values().min().copied() else { return true };
-        let mut pending = 0_usize;
-        let mut pending_bytes = 0_usize;
+        let mut pending = self.reserved;
+        let mut pending_bytes = self.reserved.saturating_mul(MAX_OUTPUT_EVENT_BYTES);
         for event in self.events.iter().rev() {
             if event.sequence <= oldest {
                 break;
@@ -299,6 +303,19 @@ impl EventHistory {
         pending == 0
             || (pending < HELD_EVENT_WINDOW
                 && pending_bytes.saturating_add(MAX_OUTPUT_EVENT_BYTES) <= retained_bytes_limit)
+    }
+}
+
+/// Room for one output event, held from before a read until its output is
+/// published (or the read ends).
+struct RoomReservation<'a>(&'a ProcessEventLogInner);
+
+impl Drop for RoomReservation<'_> {
+    fn drop(&mut self) {
+        let mut history = self.0.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        history.reserved = history.reserved.saturating_sub(1);
+        drop(history);
+        self.0.room.notify_waiters();
     }
 }
 
@@ -341,23 +358,24 @@ impl ProcessEventLog {
     }
 
     /// Waits until a held subscriber can take one more output event without
-    /// losing one. Output readers call it before each read, so a slow held
-    /// reader slows the child (its pipe fills) instead of dropping output.
-    async fn wait_for_room(&self) {
+    /// losing one, and reserves that room (checked and taken under one lock).
+    /// Output readers call it before each read and keep the reservation until
+    /// they publish, so a slow held reader slows the child (its pipe fills)
+    /// instead of dropping output.
+    async fn wait_for_room(&self) -> RoomReservation<'_> {
         let mut stall = None;
         loop {
             let notified = self.inner.room.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
             let limit = self.inner.retained_bytes_limit.load(Ordering::Acquire);
-            if self
-                .inner
-                .history
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .has_room(limit)
             {
-                return;
+                let mut history =
+                    self.inner.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if history.has_room(limit) {
+                    history.reserved += 1;
+                    return RoomReservation(&self.inner);
+                }
             }
             stall.get_or_insert_with(|| StallGuard::new(&self.inner.stalled));
             notified.await;
@@ -2220,7 +2238,7 @@ async fn read_pipe(
     let stream = if stderr { ProcessOutputStream::Stderr } else { ProcessOutputStream::Stdout };
     let mut buffer = vec![0u8; PROCESS_READ_CHUNK];
     loop {
-        events.wait_for_room().await;
+        let _room = events.wait_for_room().await;
         match reader.read(&mut buffer).await {
             Ok(0) => return Ok(()),
             Ok(read) => {
@@ -2246,7 +2264,7 @@ async fn read_pty(
 ) -> Result<(), ProcessOutputTruncationReason> {
     let mut buffer = vec![0u8; PROCESS_READ_CHUNK];
     loop {
-        events.wait_for_room().await;
+        let _room = events.wait_for_room().await;
         match pty.read(&mut buffer).await {
             Ok(0) => return Ok(()),
             Ok(read) => {
