@@ -1105,15 +1105,17 @@ mod tests {
         assert_eq!(super::joined_device_at(home.path()), None, "not joined");
         let current = super::host_fingerprint::current();
         joined_on(home.path(), current.as_deref());
-        // `joined_on` names no `machine_` id: the tunnel attaches only one.
-        assert_eq!(super::joined_device_at(home.path()), None);
         let mut record = super::load_at(home.path()).unwrap().unwrap();
-        record.machine_id = "machine_1".into();
+        // The tunnel attaches only a `machine_` id.
+        record.machine_id = "vm_1".into();
+        super::save_at(home.path(), &record).unwrap();
+        assert_eq!(super::joined_device_at(home.path()), None);
+        record.machine_id = "machine_original".into();
         super::save_at(home.path(), &record).unwrap();
         assert_eq!(
             super::joined_device_at(home.path()),
             Some(super::JoinedDevice {
-                machine_id: "machine_1".into(),
+                machine_id: "machine_original".into(),
                 team_id: "team".into(),
                 name: "original".into(),
                 hub_origin: "https://example.com".into(),
