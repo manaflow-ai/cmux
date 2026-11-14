@@ -21,6 +21,8 @@ use crate::terminal_host_protocol::{TerminalExit, TerminalExitOutcome};
 const CASES: u64 = 48;
 /// Steps per case.
 const STEPS: usize = 12;
+/// The longest that [`wait_for_a_later_millisecond`] waits for the wall clock.
+const LATER_MILLISECOND_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
 struct Rng(u64);
 
@@ -179,9 +181,18 @@ fn terminal_hex(prefix: &str, index: usize) -> String {
 /// cannot tell which came first there, and it keeps the tab: a status exit
 /// from the recorded shutdown start on is a host loss (`session-shutdown`).
 /// A restart step that starts its shutdown one millisecond later keeps that
-/// case out of the run. No test covers it.
+/// case out of the run. No test asserts on it.
+///
+/// The wait is less than a millisecond while the wall clock goes forward. A
+/// wall clock that was set back fails the test after [`LATER_MILLISECOND_WAIT`]
+/// (measured on the monotonic clock); it does not hang it.
 fn wait_for_a_later_millisecond(process_end_ms: u64) {
+    let started = std::time::Instant::now();
     while crate::session_shutdown::unix_now_ms() <= process_end_ms {
+        assert!(
+            started.elapsed() < LATER_MILLISECOND_WAIT,
+            "the wall clock did not pass {process_end_ms} ms in {LATER_MILLISECOND_WAIT:?}"
+        );
         std::thread::yield_now();
     }
 }
@@ -220,7 +231,7 @@ fn run_case(seed: u64) -> usize {
     }
 
     let mut executed = 0;
-    let mut last_process_end_ms = 0;
+    let mut latest_process_end_ms = 0_u64;
     for step_index in 0..STEPS {
         let step = match rng.below(10) {
             0..=3 => Step::HostDeath(rng.below(terminals.len())),
@@ -238,7 +249,7 @@ fn run_case(seed: u64) -> usize {
                 if let Step::ProcessEnd(_) = step {
                     let code = i32::try_from(rng.below(3)).unwrap();
                     let exit = TerminalExit::now(TerminalExitOutcome::Exit { code });
-                    last_process_end_ms = exit.exited_at_ms;
+                    latest_process_end_ms = latest_process_end_ms.max(exit.exited_at_ms);
                     mux.surface(surface).unwrap().record_process_end_for_test(exit);
                 }
                 mux.surface_exited(surface);
@@ -258,7 +269,7 @@ fn run_case(seed: u64) -> usize {
                 terminal.life = Life::Closed;
             }
             Step::Restart => {
-                wait_for_a_later_millisecond(last_process_end_ms);
+                wait_for_a_later_millisecond(latest_process_end_ms);
                 mux.shutdown();
                 drop(mux);
                 mux = Mux::open_persistent(session, options.clone(), &root).unwrap();
