@@ -787,6 +787,17 @@
         }
       }
     },
+    "iphone.pair.allowFullAccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow and turn on Full access"
+          }
+        }
+      }
+    },
     "iphone.pair.body": {
       "extractionState": "manual",
       "localizations": {
@@ -914,6 +925,17 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "它以 %@ 的身分登入。允許後，它可以開啟你的終端機和代理聊天，並透過 Face ID 核准代理動作。"
+          }
+        }
+      }
+    },
+    "iphone.pair.fullAccessBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full access lets this iPhone run agent chats here without asking before changes. You can change it later in Settings > Devices."
           }
         }
       }

@@ -181,6 +181,9 @@ public final class IPhoneHostService {
     /// Observers that show a waiting prompt once a cmux window is on screen.
     @ObservationIgnored var pairWindowWatch: [any NSObjectProtocol] = []
     @ObservationIgnored var approverSync: MobileHostApproverSync?
+    /// Phone ids that the person chose to enable at the pairing prompt, waiting for acpmux to issue
+    /// the phone's own pairing record before the person-only `pair_set` can apply it.
+    @ObservationIgnored var pendingFullAccessPhones: Set<String> = []
     /// The folders acpmux gets (``followWorkspaceFolders()``).
     @ObservationIgnored private let folders = MobileHostWorkspaceFolders()
     @ObservationIgnored private var followingPicks: Task<Void, Never>?

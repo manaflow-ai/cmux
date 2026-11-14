@@ -81,6 +81,23 @@ import Testing
         }
     }
 
+    @Test func pairingPromptMakesFullAccessAnExplicitOptionalChoice() {
+        let phone = MobileHostPairRequest(phoneDeviceID: "phone-1", name: "Leo's iPhone",
+                                           identityKey: "identity", approvalKey: "approval")
+        let spec = IPhoneHostService.pairDialogSpec(phone, account: "leo@example.invalid")
+        #expect(spec.defaultButton?.id == IPhoneHostService.allowButton)
+        #expect(spec.buttons.map(\.id) == [IPhoneHostService.denyButton, IPhoneHostService.allowButton,
+                                             IPhoneHostService.allowFullAccessButton])
+        #expect(spec.buttons.last?.title == IPhoneHostStrings.pairAllowFullAccess)
+        #expect(spec.lines.contains(IPhoneHostStrings.pairFullAccessBody))
+
+        var machine = phone
+        machine.kind = "mac"
+        let machineSpec = IPhoneHostService.pairDialogSpec(machine, account: "leo@example.invalid")
+        #expect(!machineSpec.buttons.contains { $0.id == IPhoneHostService.allowFullAccessButton })
+        #expect(!machineSpec.lines.contains(IPhoneHostStrings.pairFullAccessBody))
+    }
+
     @Test func theRegistrationDateReadsTodayYesterdayOrADate() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try #require(TimeZone(identifier: "UTC"))

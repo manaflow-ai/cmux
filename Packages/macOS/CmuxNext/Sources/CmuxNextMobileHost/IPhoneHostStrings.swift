@@ -78,6 +78,11 @@ enum IPhoneHostStrings {
                               defaultValue: "It is signed in as %@. Once allowed, it can open your terminals and agent chats, and approve agent actions with Face ID.",
                               table: "IPhone", bundle: .module), account)
     }
+    static var pairFullAccessBody: String {
+        String(localized: "iphone.pair.fullAccessBody",
+               defaultValue: "Full access lets this iPhone run agent chats here without asking before changes. You can change it later in Settings > Devices.",
+               table: "IPhone", bundle: .module)
+    }
     /// The body for another of the person's computers asking (docs/multi-machine-sessions.md): it
     /// starts with `view` only, so the prompt says that and where to widen it.
     static func machinePairBody(_ account: String) -> String {
@@ -97,6 +102,9 @@ enum IPhoneHostStrings {
                table: "IPhone", bundle: .module)
     }
     static var pairAllow: String { String(localized: "iphone.pair.allow", defaultValue: "Allow", table: "IPhone", bundle: .module) }
+    static var pairAllowFullAccess: String {
+        String(localized: "iphone.pair.allowFullAccess", defaultValue: "Allow and turn on Full access", table: "IPhone", bundle: .module)
+    }
     static var pairDeny: String { String(localized: "iphone.pair.deny", defaultValue: "Don't Allow", table: "IPhone", bundle: .module) }
     static var unnamedPhone: String { String(localized: "iphone.pair.unnamed", defaultValue: "iPhone", table: "IPhone", bundle: .module) }
     static func signedInAs(_ account: String) -> String {
