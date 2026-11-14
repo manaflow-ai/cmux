@@ -89,6 +89,10 @@ core_gates() {
   run_core pr08_mirror_apply
   run_core v2_pr03c_
   run_core v2_pr04_chat_stopped_reader
+  run_core actor_line_and_checkpoint_open_gate
+  run_core v2_pr03a_source_read_bounds
+  run_core folders_serving_release_gates
+  run_core folders_tail_release_gates
 }
 run_group acpmux-core core_gates
 
@@ -106,6 +110,7 @@ acpmux_lib_gates() {
   run_acpmux_lib v2_pr03b_tee_append_added
   run_acpmux_lib v2_pr03b_append_on_off
   run_acpmux_lib v2_pr03b_catchup_ack
+  run_acpmux_lib v2_pr03b_catchup_peak_rss
   run_acpmux_lib hold_attach_gate
   # Row 7b: rows by key, and the CLI and MCP list callers.
   run_acpmux_lib v2_pr07b_info_rows
