@@ -27,7 +27,9 @@ pub const CURSOR_HOSTS: &[&str] = &["cursor.com"];
 pub fn hosts(agent: Agent) -> &'static [&'static str] {
     match agent {
         Agent::Cursor => CURSOR_HOSTS,
-        Agent::Claude | Agent::Codex | Agent::Gemini | Agent::Grok => ALLOWED_HOSTS,
+        Agent::Claude | Agent::Codex | Agent::Gemini | Agent::Grok | Agent::OpenCode => {
+            ALLOWED_HOSTS
+        }
     }
 }
 
@@ -221,7 +223,7 @@ pub fn offer(agent: Agent, output: &str) -> Option<Offer> {
         Agent::Claude | Agent::Cursor => Some(Offer { url, user_code: None }),
         Agent::Codex => Some(Offer { url, user_code: Some(device_code(&plain)?) }),
         Agent::Grok => Some(Offer { url, user_code: Some(grok_code(&plain)?) }),
-        Agent::Gemini => None,
+        Agent::Gemini | Agent::OpenCode => None,
     }
 }
 

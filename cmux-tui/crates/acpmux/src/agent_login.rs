@@ -50,6 +50,14 @@
 //!   `NO_OPEN_BROWSER=1` keeps it from opening one. It takes no code and no
 //!   key here: a Cursor API key reaches the agent as the Cloud secret
 //!   `CURSOR_API_KEY` instead.
+//! - OpenCode (Leo 2026-11-10: "an OpenCode subscription and they're using
+//!   one of OpenCode's models"): OpenCode Zen and OpenCode Go sign in with
+//!   the API key from `https://opencode.ai/auth` only (`opencode auth login`
+//!   asks for nothing else), so `start` is `unsupported` and `api_key`
+//!   saves the key as that command does: `{"type": "api", "key"}` under both
+//!   `opencode` and `opencode-go` in
+//!   `<XDG_DATA_HOME or ~/.local/share>/opencode/auth.json`, other providers
+//!   kept, 0600, written whole ([`merge_opencode_api_key`]). No CLI runs.
 //!
 //! The CLI is the one this daemon starts the agent with (the `claude` or
 //! `codex` harness profile, else `claude`/`codex` on the login PATH), with
@@ -223,11 +231,13 @@ pub enum Agent {
     Grok,
     /// `cursor-agent`: its browser sign-in only.
     Cursor,
+    /// OpenCode (Zen and Go): the key from opencode.ai/auth only.
+    OpenCode,
 }
 
 impl Agent {
-    pub const ALL: [Agent; 5] =
-        [Agent::Claude, Agent::Codex, Agent::Gemini, Agent::Grok, Agent::Cursor];
+    pub const ALL: [Agent; 6] =
+        [Agent::Claude, Agent::Codex, Agent::Gemini, Agent::Grok, Agent::Cursor, Agent::OpenCode];
 
     pub fn parse(name: &str) -> Option<Agent> {
         Agent::ALL.into_iter().find(|a| a.name() == name)
@@ -240,12 +250,13 @@ impl Agent {
             Agent::Gemini => "gemini",
             Agent::Grok => "grok",
             Agent::Cursor => "cursor",
+            Agent::OpenCode => "opencode",
         }
     }
 
     /// `start` runs the CLI's own browser or device sign-in.
     pub fn signs_in_by_link(self) -> bool {
-        self != Agent::Gemini
+        !matches!(self, Agent::Gemini | Agent::OpenCode)
     }
 
     /// `api_key` saves a key for it.
@@ -254,7 +265,7 @@ impl Agent {
     }
 
     /// Its store under a home with no override: `.claude`, `.codex`, `.gemini`, `.grok`,
-    /// `.config/cursor`.
+    /// `.config/cursor`, `.local/share/opencode`.
     pub fn home_dir_name(self) -> &'static str {
         match self {
             Agent::Claude => ".claude",
@@ -262,6 +273,7 @@ impl Agent {
             Agent::Gemini => ".gemini",
             Agent::Grok => ".grok",
             Agent::Cursor => ".config/cursor",
+            Agent::OpenCode => ".local/share/opencode",
         }
     }
 
@@ -329,6 +341,12 @@ impl Cli {
                 own("XDG_CONFIG_HOME")
                     .unwrap_or_else(|| self.home().join(".config"))
                     .join("cursor"),
+            ),
+            // `opencode auth login` writes `auth.json` here (`Global.Path.data`).
+            Agent::OpenCode => Some(
+                own("XDG_DATA_HOME")
+                    .unwrap_or_else(|| self.home().join(".local/share"))
+                    .join("opencode"),
             ),
         }
         .unwrap_or_else(|| self.home().join(agent.home_dir_name()))
@@ -652,6 +670,34 @@ pub fn merge_gemini_api_key(store: &Path, key: &str) -> Result<(), String> {
         .map_err(|e| format!("write {}: {e}", env_path.display()))
 }
 
+/// The `auth.json` providers an OpenCode key signs in: Zen's and Go's (one console key serves both).
+pub const OPENCODE_PROVIDERS: &[&str] = &["opencode", "opencode-go"];
+
+/// Sets `{"type": "api", "key"}` for each of [`OPENCODE_PROVIDERS`] in `<store>/auth.json`, as
+/// `opencode auth login` writes it, keeping every other provider. A file that is not a JSON
+/// object is left alone (an error).
+pub fn merge_opencode_api_key(store: &Path, key: &str) -> Result<(), String> {
+    let path = store.join("auth.json");
+    let mut doc = match std::fs::read(&path) {
+        Ok(bytes) if bytes.iter().all(u8::is_ascii_whitespace) => Value::Object(Default::default()),
+        Ok(bytes) => serde_json::from_slice::<Value>(&bytes)
+            .map_err(|_| format!("{} is not valid JSON; fix it or remove it", path.display()))?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Value::Object(Default::default()),
+        Err(e) => return Err(format!("read {}: {e}", path.display())),
+    };
+    let Some(obj) = doc.as_object_mut() else {
+        return Err(format!("{} is not a JSON object", path.display()));
+    };
+    for provider in OPENCODE_PROVIDERS {
+        obj.insert((*provider).into(), serde_json::json!({"type": "api", "key": key}));
+    }
+    let bytes = Zeroizing::new(
+        serde_json::to_vec_pretty(&doc).map_err(|e| format!("encode auth.json: {e}"))?,
+    );
+    private_dir(store).map_err(|e| format!("make {}: {e}", store.display()))?;
+    write_private(&path, &bytes).map_err(|e| format!("write {}: {e}", path.display()))
+}
+
 /// Whether `agent`'s own sign-in is in `store`, read as `agent-auth.sh`
 /// reads it (`cmux_agent_has_own_login`), never the values: Claude's
 /// `.credentials.json` with `claudeAiOauth`; Codex's `auth.json` with tokens
@@ -684,6 +730,10 @@ pub fn signed_in_at(agent: Agent, store: &Path) -> bool {
             v.as_object()
                 .is_some_and(|o| o.values().any(|f| f.as_str().is_some_and(|s| !s.is_empty())))
         }),
+        // OpenCode's `auth.json`: a non-empty object, as `agent-auth.sh` reads it.
+        Agent::OpenCode => {
+            read("auth.json").is_some_and(|v| v.as_object().is_some_and(|o| !o.is_empty()))
+        }
     }
 }
 
@@ -919,7 +969,7 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
         Agent::Codex | Agent::Grok => &["login", "--device-auth"],
         Agent::Cursor => &["login"],
         // Refused above (`signs_in_by_link`).
-        Agent::Gemini => &[],
+        Agent::Gemini | Agent::OpenCode => &[],
     };
     let mut cmd = cli.command(args, &folder.0);
     if agent == Agent::Claude {
@@ -986,7 +1036,7 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
         }
-        Agent::Codex | Agent::Gemini | Agent::Grok | Agent::Cursor => None,
+        Agent::Codex | Agent::Gemini | Agent::Grok | Agent::Cursor | Agent::OpenCode => None,
     };
     let id = uuid::Uuid::now_v7().to_string();
     let expires_at_ms = now_ms() + EXPIRY.as_millis() as u64;
@@ -1071,7 +1121,7 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
             }
         },
         // Device flows finish by themselves.
-        Agent::Codex | Agent::Gemini | Agent::Grok | Agent::Cursor => None,
+        Agent::Codex | Agent::Gemini | Agent::Grok | Agent::Cursor | Agent::OpenCode => None,
     };
     if let Some(line) = &code {
         let Ok(mut slot) = stdin.try_lock() else {
@@ -1209,6 +1259,8 @@ pub async fn save_api_key(
             format!("{} takes no saved key here", agent.name()),
         )),
         Agent::Claude => merge_claude_api_key(&cli.store(agent), key)
+            .map_err(|e| LoginError::new(reason::FAILED, e)),
+        Agent::OpenCode => merge_opencode_api_key(&cli.store(agent), key)
             .map_err(|e| LoginError::new(reason::FAILED, e)),
         Agent::Codex => {
             let store = cli.store(agent);

@@ -4326,6 +4326,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         machineID: cloudMachineID,
         sessionId: snapshot.sessionId,
         harness: snapshot.summary?.harness,
+        model: snapshot.summary?.model,
         supported: directClient.current?.supportsAgentLogin === true,
         gesture: (intent) =>
           postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
