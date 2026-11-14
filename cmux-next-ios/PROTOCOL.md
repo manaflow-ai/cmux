@@ -782,7 +782,16 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   "accent_color"?, "background_opacity"}, "wallpaper": {"id", "bytes", "tint_opacity"} |
   null}`. `id` is the SHA-256 of the picture (hex), the phone's cache key. The phone
   derives every chrome color itself (`ThemeTokens.derive`, the Mac's own code) and keeps
-  the last frame, so it paints the same palette at launch and offline.
+  the last frame, so it paints the same palette at launch and offline. Since 2026-11-13 a
+  frame may also carry `"terminal": ["key = value", ...]`: the Mac's terminal theme, its
+  applied Ghostty config's value for each terminal theme key
+  (`appearance.rs` `TERMINAL_KEYS`: background, foreground, every palette entry, cursor,
+  selection, bold, contrast, faint and cursor opacity, palette generation, blending,
+  colorspace, search colors). hostd drops any other key and any value that is not a plain
+  color, number, flag, enum or palette entry. The phone's terminals of that Mac reset each
+  of those keys and load these lines, live, whatever Mac the phone focuses and whatever its
+  Match Mac theme switch says (that switch is the chrome's); a frame without `terminal` (an
+  older Mac) stands in with `theme`'s colors.
 - `appearance-wallpaper` (`appearance-v1`): `{"id"}` streams that picture's bytes (a JPEG
   or PNG, at most 8 MB), then `eof`; `stale` when the Mac shows another one now,
   `not_found` when it shows none. Machines need the View grant for both.

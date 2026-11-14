@@ -2,7 +2,7 @@
   "version": 1,
   "counts": {
     "entries": 1402,
-    "shortcuts": 190
+    "shortcuts": 191
   },
   "sections": [
     {
@@ -6894,7 +6894,7 @@
         {
           "id": "palette.toggleTerminalChat",
           "title": "Toggle Terminal and Chat",
-          "shortcut": null,
+          "shortcut": "⌥⌘`",
           "command": null
         },
         {

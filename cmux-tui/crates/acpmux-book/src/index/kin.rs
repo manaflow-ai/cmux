@@ -279,6 +279,27 @@ impl KinTables {
     pub fn folder_rows(&self, folder: &FolderKey) -> Option<&OrdMap<SortKey, Arc<Summary>>> {
         self.folders.get(folder)
     }
+
+    /// Returns the folder table's current head and count without walking any
+    /// other folder. The caller supplies the hot row map to confirm that the
+    /// table's head belongs to the same published hot index.
+    pub fn folder_entry(
+        &self,
+        folder: &FolderKey,
+        rows: &OrdMap<RowKey, Arc<Summary>>,
+    ) -> Option<super::folders::FolderEntry> {
+        let table = self.folders.get(folder)?;
+        let (sort, row) = table.iter().next()?;
+        let key = row.key();
+        let _row = rows.get(&key)?;
+        Some(super::folders::FolderEntry::new(
+            folder.origin.clone(),
+            folder.folder.clone(),
+            Some(key),
+            sort.last_activity,
+            table.len() as u32,
+        ))
+    }
 }
 
 #[cfg(test)]
