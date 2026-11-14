@@ -622,7 +622,8 @@ class WriterInventoryTests(unittest.TestCase):
     # Writes only through scripts/pr-media.py, which checks.
     THROUGH_PR_MEDIA_PY = {"scripts/cmux-next/media/publish.py", "scripts/cmux-next/media/reel.py",
                            "scripts/cmux-next/media/whats-new-clips.py", "scripts/cmux-next/media/whats-new-gallery.py",
-                           ".github/workflows/cmux-next-media.yml", ".github/workflows/nightly.yml",
+                           ".github/workflows/cmux-next-media.yml", ".github/workflows/cmux-next-iphone-clips.yml",
+                           ".github/workflows/nightly.yml",
                            ".github/workflows/whats-new-gallery.yml",
                            ".github/actions/pr-media-publish/action.yml"}
     # Remove files or rewrite the retention index; they add no capture.
