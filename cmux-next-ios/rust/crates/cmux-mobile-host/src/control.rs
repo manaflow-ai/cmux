@@ -29,8 +29,10 @@
 //!   the open requests of the app's own Feed (held PRs, sign-ins, consent cards), the whole set
 //!   each time it changes. hostd serves them to phones and pushes each once (`needs_you.rs`).
 //! - `{"type":"appearance","theme":{"background","foreground","palette",...},
-//!   "wallpaper":{"path","tint_opacity"}}`: the colors the app's chrome derives from and the
-//!   picture its windows show, the whole state each time it changes (`appearance.rs`).
+//!   "wallpaper":{"path","tint_opacity"},"terminal":[...],"look":{...}}`: the colors the app's
+//!   chrome derives from, the picture its windows show, its terminal theme and the rest of its
+//!   look (window style, glass, fonts, chat colors), the whole state each time it changes
+//!   (`appearance.rs`).
 //!
 //! End of stdin means the app is gone: the process exits.
 //!
