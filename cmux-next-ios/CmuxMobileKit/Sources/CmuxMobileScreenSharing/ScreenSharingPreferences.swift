@@ -17,15 +17,34 @@ public final class ScreenSharingPreferences {
         didSet { store.set(defaultScope.rawValue, forKey: Self.scopeKey) }
     }
 
+    /// The Macs the list last read, so the next showing draws them in its first frame instead of
+    /// "Finding your Macs…" (conn-quiet). Signing out forgets them.
+    public private(set) var lastMacs: [HubDevice]
+
     @ObservationIgnored private let store: UserDefaults
 
     static let defaultsKey = "cmux.screenSharing.defaults"
     static let scopeKey = "cmux.screenSharing.scope"
+    static let lastMacsKey = "cmux.screenSharing.lastMacs"
 
     public init(store: UserDefaults = .standard) {
         self.store = store
         defaults = Self.read(store, key: Self.defaultsKey) ?? ScreenPreferences()
         defaultScope = store.string(forKey: Self.scopeKey).flatMap(SessionScope.init(rawValue:)) ?? .full
+        lastMacs = store.data(forKey: Self.lastMacsKey).flatMap { try? JSONDecoder().decode([HubDevice].self, from: $0) } ?? []
+    }
+
+    /// Keeps the Macs a read list holds for the next showing (written only when they changed).
+    func rememberMacs(_ macs: [HubDevice]) {
+        guard macs != lastMacs, let data = try? JSONEncoder().encode(macs) else { return }
+        lastMacs = macs
+        store.set(data, forKey: Self.lastMacsKey)
+    }
+
+    /// Signed out: the account's Macs are no longer this phone's to show.
+    func forgetMacs() {
+        lastMacs = []
+        store.removeObject(forKey: Self.lastMacsKey)
     }
 
     /// The choices a session with `hostID` starts with.
