@@ -47,9 +47,10 @@ struct CloudKeychainDeadlineTests {
 
     /// The relay sends the refusal as is, not "the cmux API did not answer".
     @Test func theRelaySendsTheKeychainRefusalAsIs() async throws {
+        let refusal = Self.refusal
         let relay = CloudCredentialRelay(
             post: { _, _, _ in (200, Data("{}".utf8)) },
-            token: { throw KeychainTimedOut(refusal: Self.refusal) },
+            token: { throw KeychainTimedOut(refusal: refusal) },
             invalidate: {},
             session: { CloudCredentialRelay.Session(signedIn: true, team: nil) },
             allowedOps: { ["cloud.machine.list"] })
