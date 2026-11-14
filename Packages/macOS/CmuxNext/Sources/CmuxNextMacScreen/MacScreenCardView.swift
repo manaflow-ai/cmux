@@ -17,6 +17,15 @@ final class MacScreenCardView: MacScreenThemedView {
         var failedDetail: String
         /// The type scale the card was built at (`MacScreenType.sizes`).
         var typeSizes = MacScreenType.sizes
+        /// The offline card's Start cmux on NAME and its run (``MacScreenDeviceSetupRow/none`` on every other card).
+        var setup = MacScreenDeviceSetupRow.none
+    }
+
+    /// What the offline card offers of Start cmux: only a device hub tab whose Mac is offline. A Mac Screen
+    /// host is always a Mac.
+    static func setup(_ model: MacScreenPaneModel) -> MacScreenDeviceSetupRow {
+        guard case .hubRefused(.hostOffline, _)? = model.card, let id = model.hub?.deviceID, let setup = model.deviceSetup else { return .none }
+        return setup.row(id: id, isMac: true, online: false)
     }
 
     static let width: CGFloat = 340
@@ -73,7 +82,7 @@ final class MacScreenCardView: MacScreenThemedView {
 
     private func render() {
         let next = withObservationTracking {
-            Shown(card: model.card, name: model.name, failedDetail: model.card == .failed ? model.failedDetail : "")
+            Shown(card: model.card, name: model.name, failedDetail: model.card == .failed ? model.failedDetail : "", setup: Self.setup(model))
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.render() }
         }
@@ -246,6 +255,12 @@ final class MacScreenCardView: MacScreenThemedView {
             glyph(refusal == .hostOffline ? "wifi.slash" : "exclamationmark.triangle", ink: \.attention)
             title(refusedTitle(refusal))
             detail(refusedBody(refusal))
+            // Offline: Start cmux on NAME, the card's default button, on its own line (the card is too
+            // narrow for three buttons), then the run's steps. Try Again steps down to a plain button.
+            let setup = shown?.setup ?? .none
+            if refusal == .hostOffline, setup.showsStart {
+                startCmux(setup)
+            }
             var row: [NSView] = [closeTab()]
             if refusal == .notSignedIn {
                 // Not signed in: Sign In, the shared button every "sign in" place shows (msg 3790); Try Again
@@ -254,10 +269,30 @@ final class MacScreenCardView: MacScreenThemedView {
                     self?.actions.requestScope(requested)
                 })
                 row.append(signInButton())
+            } else if refusal.canRetry, refusal == .hostOffline, setup.showsStart {
+                row.append(MacScreenButton(L.t("macScreen.card.retry", "Try Again"), id: "macScreen.card.retry") { [weak self] in
+                    self?.actions.requestScope(requested)
+                })
             } else if refusal.canRetry {
                 row.append(primary(L.t("macScreen.card.retry", "Try Again"), id: "macScreen.card.retry") { $0.requestScope(requested) })
             }
             buttons(row)
+        }
+    }
+
+    /// Start cmux on NAME (the daemon's `device-setup` start) and, once pressed, its steps.
+    private func startCmux(_ setup: MacScreenDeviceSetupRow) {
+        guard let id = model.hub?.deviceID else { return }
+        let name = self.name, deviceSetup = model.deviceSetup
+        let start = MacScreenButton(MacScreenSetupChecklist.startTitle(name), role: .primary, id: "macScreen.card.start") {
+            deviceSetup?.run(.start, id: id, name: name)
+        }
+        start.isEnabled = setup.canRun(.start)
+        stack.addArrangedSubview(start)
+        if let run = setup.run {
+            let list = MacScreenSetupChecklist.make(run, name: name, id: "macScreen.card.setupSteps") { deviceSetup?.dismiss(id: id) }
+            stack.addArrangedSubview(list)
+            list.widthAnchor.constraint(equalToConstant: Self.textWidth).isActive = true
         }
     }
 

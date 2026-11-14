@@ -249,6 +249,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | View another Mac's screen (Mac Screen tab, streamed on cmux.rd/1) | the Screen Sharing viewer (CmuxMobileScreenSharing) | partial | The phone views over WebRTC. A Mac host takes its protocol from the viewer's offer: a cmux.rd/1 document runs `cmux rd serve`, any other offer runs ScreenStreamHost, so Macs and phones both reach it. The phone has no cmux.rd/1 link yet: iOS cannot start the Mac's helper process, so the link has to come in as a library. code-checked; live pending |
 | Mac Screen as a tab in a workspace | + › Screen Sharing, then Open as Tab: a phone-side Screen Sharing tab after the Mac's tabs (`WorkspaceScreenSharingTab.swift`) | done | The tab is the phone's own: the Mac lists no such tab, and Close Tab removes it on the phone only. It stays open for the app's run. sim-checked (ScreenSharingSheetUITests) |
 | Share This Mac (serve a session) | | not from a phone | A phone views Macs; it is not a screen host. |
+| Set Up cmux and Start cmux on NAME on a Mac's row and the offline card (daemon `device-setup {device, verb}` with `device-setup-step` events; 2026-11-15) | | missing | The run is the Mac's own daemon reaching the other Mac over ssh; a phone has no cmux-tui or ssh key. The phone path would ask a Mac it is paired with to run the verb (a new relay command, which needs a policy decision in #13742 first). |
 
 ## Workspace list order (parity2 decision)
 

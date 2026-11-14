@@ -9,10 +9,13 @@ import Foundation
 public struct MacScreenHomeDevices {
     let box: MacScreenHubBox
     let hubHost: MacScreenHubHost
+    /// Set up cmux and Start cmux on a Mac of the list.
+    let setup: MacScreenDeviceSetup
 
     init(pages: MacScreenPages) {
         box = pages.hubBox
         hubHost = pages.hubHost
+        setup = pages.deviceSetup
     }
 }
 
@@ -28,6 +31,8 @@ struct MacScreenHomeSnapshot: Equatable {
         var online: Bool
         /// This Mac's access to it.
         var access: MacScreenAccess
+        /// Set up cmux, Start cmux and the run's steps (a Mac only, when the daemon knows `device-setup`).
+        var setup = MacScreenDeviceSetupRow.none
     }
 
     /// Your Devices: a note (signed out, loading, none shared) or the list.
@@ -68,6 +73,8 @@ struct MacScreenHomeSnapshot: Equatable {
     var typeSizes = MacScreenType.sizes
     /// The look of Allow Mac Screen on This Mac (Debug Settings `macScreen.sharingLook`).
     var sharingLook = MacScreenTunables.sharingLook.value
+    /// Where a Mac's row puts Set up cmux and Start cmux (the gallery draws each; the page draws the default).
+    var setupPlacement = MacScreenSetupPlacement.standard
 
     /// The hosts listed, whose permission lists the page reads.
     var deviceIDs: [String] {
@@ -96,7 +103,8 @@ struct MacScreenHomeSnapshot: Equatable {
                 } else {
                     devices = .list(shared.map { device in
                         Device(id: device.id, name: device.name, isPhone: device.platform == .ios, online: device.online,
-                               access: MacScreenAccess(hub.scope(host: device.id, viewer: hub.identity.id)))
+                               access: MacScreenAccess(hub.scope(host: device.id, viewer: hub.identity.id)),
+                               setup: source.setup.row(id: device.id, isMac: device.platform != .ios, online: device.online))
                     })
                 }
                 if hub.thisDevice != nil {
@@ -133,7 +141,7 @@ struct MacScreenHomeSnapshot: Equatable {
 extension MacScreenHomeView {
     // MARK: Your Devices
 
-    func yourDevices(_ devices: MacScreenHomeSnapshot.Devices) -> NSView {
+    func yourDevices(_ devices: MacScreenHomeSnapshot.Devices, placement: MacScreenSetupPlacement = .standard) -> NSView {
         let content: NSView
         switch devices {
         case let .note(text):
@@ -145,7 +153,7 @@ extension MacScreenHomeView {
         case let .list(list):
             let rows = MacScreenStack.make(.vertical, spacing: 0, alignment: .leading)
             for device in list {
-                MacScreenStack.addFullWidth(deviceRow(device), to: rows)
+                MacScreenStack.addFullWidth(deviceRow(device, placement: placement), to: rows)
                 if device.id != list.last?.id, colors.borders {
                     let line = MacScreenFill(\.separator)
                     line.heightAnchor.constraint(equalToConstant: 1).isActive = true
@@ -166,7 +174,7 @@ extension MacScreenHomeView {
         return MacScreenHomeParts.section(L.t("macScreen.home.yourDevices", "Your Devices"), content: content)
     }
 
-    private func deviceRow(_ device: MacScreenHomeSnapshot.Device) -> NSView {
+    private func deviceRow(_ device: MacScreenHomeSnapshot.Device, placement: MacScreenSetupPlacement) -> NSView {
         let glyph = MacScreenGlyph(device.isPhone ? "iphone" : "desktopcomputer", font: MacScreenType.glyph, width: 26)
         let status = MacScreenStack.make(.horizontal, spacing: 6, alignment: .centerY, [
             MacScreenFill.dot(device.online ? \.success : \.tertiary, side: 7),
@@ -180,7 +188,20 @@ extension MacScreenHomeView {
         name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let labels = MacScreenStack.make(.vertical, spacing: 2, alignment: .leading, [name, status])
         labels.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let setup = device.setup
+        // Start cmux is the one button that can work while the Mac is offline: it is the row's default
+        // button then, and Full Control steps down to a plain one (one primary per row).
+        let startShows = setup.showsStart && placement != .below
+        if placement == .below, setup.showsStart || setup.showsSetup {
+            var line: [NSView] = []
+            if setup.showsStart { line.append(startButton(device, compact: true)) }
+            if setup.showsSetup { line.append(setupButton(device, compact: true)) }
+            labels.setCustomSpacing(8, after: status)
+            labels.addArrangedSubview(MacScreenStack.make(.horizontal, spacing: 8, alignment: .centerY, line))
+        }
         var views: [NSView] = [glyph, labels, MacScreenSpacer()]
+        if placement == .buttons, setup.showsSetup { views.append(setupButton(device, compact: false)) }
+        if startShows, !device.access.allowsRequests { views.append(startButton(device, compact: false)) }
         if !device.access.allowsRequests {
             // None: the host blocked this Mac, and the hub refuses a request without a prompt.
             let blocked = MacScreenText(String(format: L.t("macScreen.home.blocked", "%1$@ doesn’t allow this Mac. Change it on %2$@ in Settings › Devices."),
@@ -194,23 +215,36 @@ extension MacScreenHomeView {
             views.append(MacScreenButton(L.t("macScreen.hub.view", "View Only"), id: "macScreen.home.view.\(device.name)") { [weak self] in
                 self?.actions.openDevice(id, .view)
             })
-            views.append(MacScreenButton(L.t("macScreen.hub.control", "Full Control"), role: .primary, id: "macScreen.home.control.\(device.name)") { [weak self] in
+            views.append(MacScreenButton(L.t("macScreen.hub.control", "Full Control"), role: startShows ? .plain : .primary,
+                                         id: "macScreen.home.control.\(device.name)") { [weak self] in
                 self?.actions.openDevice(id, .full)
             })
+            if startShows { views.append(startButton(device, compact: false)) }
             let more = MacScreenMenuButton(symbol: "ellipsis.circle", accessibilityTitle: nil, id: "macScreen.home.more.\(device.name)")
-            more.makeMenu = { [weak self] in self?.moreMenu(id) ?? NSMenu() }
+            let menuSetup = placement == .standard && setup.showsSetup
+            more.makeMenu = { [weak self] in self?.moreMenu(id, setup: menuSetup ? device : nil) ?? NSMenu() }
             views.append(more)
         }
         let stack = MacScreenStack.make(.horizontal, spacing: 12, alignment: .centerY, views,
                                         insets: NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14))
+        // The run's checklist goes under the row, from the name's edge (the separators' inset).
+        let body = MacScreenStack.make(.vertical, spacing: 0, alignment: .leading)
+        MacScreenStack.addFullWidth(stack, to: body)
+        if let run = setup.run {
+            let list = setupChecklist(run, device: device)
+            let inset = MacScreenStack.make(.vertical, spacing: 0, alignment: .leading, [list],
+                                            insets: NSEdgeInsets(top: 0, left: 50, bottom: 12, right: 14))
+            list.widthAnchor.constraint(equalTo: inset.widthAnchor, constant: -64).isActive = true
+            MacScreenStack.addFullWidth(inset, to: body)
+        }
         let row = MacScreenRowView()
         row.translatesAutoresizingMaskIntoConstraints = false
-        row.addSubview(stack)
+        row.addSubview(body)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: row.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: row.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: row.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: row.bottomAnchor),
+            body.leadingAnchor.constraint(equalTo: row.leadingAnchor),
+            body.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+            body.topAnchor.constraint(equalTo: row.topAnchor),
+            body.bottomAnchor.constraint(equalTo: row.bottomAnchor),
             // The name and status lines keep the row's 10-point padding above and below them, as the
             // SwiftUI row's did: a centered stack alone sizes the row to its buttons and lets the
             // two lines run into the padding (a row 4 points shorter than before the port).
@@ -225,9 +259,17 @@ extension MacScreenHomeView {
     }
 
     /// The row's More menu: open in a new tab, or ask the host for access.
-    private func moreMenu(_ id: String) -> NSMenu {
+    private func moreMenu(_ id: String, setup device: MacScreenHomeSnapshot.Device? = nil) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
+        if let device {
+            let item = NSMenuItem.macScreen(L.t("macScreen.setup.setUp", "Set Up cmux")) { [weak self] in
+                self?.devices?.setup.run(.setup, id: device.id, name: device.name)
+            }
+            item.isEnabled = device.setup.canRun(.setup)
+            menu.addItem(item)
+            menu.addItem(.separator())
+        }
         menu.addItem(NSMenuItem.macScreen(L.t("macScreen.home.openViewNewTab", "View Only in New Tab")) { [weak self] in
             self?.actions.openDeviceInNewTab(id, .view)
         })
@@ -246,4 +288,44 @@ extension MacScreenHomeView {
         menu.addItem(request)
         return menu
     }
+
+    // MARK: Set up cmux, Start cmux
+
+    /// Start cmux on NAME: the row's default button while the Mac is offline (and while it starts).
+    private func startButton(_ device: MacScreenHomeSnapshot.Device, compact: Bool) -> MacScreenButton {
+        let button = MacScreenButton(MacScreenSetupChecklist.startTitle(device.name), role: .primary, compact: compact,
+                                     id: "macScreen.home.start.\(device.name)") { [weak self] in
+            self?.devices?.setup.run(.start, id: device.id, name: device.name)
+        }
+        button.isEnabled = device.setup.canRun(.start)
+        return button
+    }
+
+    /// Set Up cmux as a button (the placements that do not keep it in the More menu).
+    private func setupButton(_ device: MacScreenHomeSnapshot.Device, compact: Bool) -> MacScreenButton {
+        let button = MacScreenButton(L.t("macScreen.setup.setUp", "Set Up cmux"), compact: compact,
+                                     id: "macScreen.home.setUp.\(device.name)") { [weak self] in
+            self?.devices?.setup.run(.setup, id: device.id, name: device.name)
+        }
+        button.isEnabled = device.setup.canRun(.setup)
+        return button
+    }
+
+    private func setupChecklist(_ run: MacScreenDeviceRun, device: MacScreenHomeSnapshot.Device) -> NSView {
+        MacScreenSetupChecklist.make(run, name: device.name, id: "macScreen.home.setupSteps.\(device.name)") { [weak self] in
+            self?.devices?.setup.dismiss(id: device.id)
+        }
+    }
+}
+
+/// Where a Mac's row puts Set Up cmux and Start cmux on NAME. The page draws ``standard``; the
+/// Screen Sharing gallery draws every one (`AAMacScreenSharingGalleryTests`).
+enum MacScreenSetupPlacement: String, CaseIterable {
+    /// Start in the row's buttons, as its default button while the Mac is offline; Set Up cmux in
+    /// the More menu.
+    case standard
+    /// Both as small buttons on a line under the name and status, the row's buttons as they were.
+    case below
+    /// Both in the row's buttons: Set Up cmux plain, Start the default button while offline.
+    case buttons
 }
