@@ -228,3 +228,87 @@ fn own_tree_the_stop_marker_is_not_written_through_a_link() {
     assert!(!made_elsewhere(&top), "the write followed the link");
     fs::remove_dir_all(top).unwrap();
 }
+
+/// The text of the file that [`folder_with_a_second_name_in_its_git_folder_at`] makes.
+#[cfg(unix)]
+const KEPT: &str = "a file that is not a file of the setup\n";
+
+/// A new folder with a folder `git-folder` in it. The file `elsewhere/file` of the new folder,
+/// with the text [`KEPT`], has a second name: `name` in `git-folder`.
+#[cfg(unix)]
+fn folder_with_a_second_name_in_its_git_folder_at(name: &str) -> PathBuf {
+    let mut bytes = [0_u8; 6];
+    getrandom::fill(&mut bytes).unwrap();
+    let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+    let top = std::env::temp_dir().join(format!("cmux-setup-name-{hex}"));
+    fs::create_dir_all(top.join("git-folder")).unwrap();
+    fs::create_dir_all(top.join("elsewhere")).unwrap();
+    fs::create_dir_all(top.join("root")).unwrap();
+    fs::write(top.join("elsewhere/file"), KEPT).unwrap();
+    fs::hard_link(top.join("elsewhere/file"), top.join("git-folder").join(name)).unwrap();
+    top
+}
+
+/// The text of the file elsewhere of [`folder_with_a_second_name_in_its_git_folder_at`].
+#[cfg(unix)]
+fn text_elsewhere(top: &Path) -> String {
+    fs::read_to_string(top.join("elsewhere/file")).unwrap()
+}
+
+/// The marker's text is not used, so the marker's open writes nothing: a file that has the
+/// marker's name as a second name keeps its text, and the marker is there.
+#[cfg(unix)]
+#[test]
+fn own_tree_the_stop_marker_changes_no_file_with_a_second_name() {
+    let top = folder_with_a_second_name_in_its_git_folder_at(CANCEL_FILE);
+    // The status of a setup that this session host did not start.
+    let status = r#"{"state":"running","started_ms":1}"#;
+    fs::write(top.join("git-folder").join(STATUS_FILE), status).unwrap();
+
+    stop(&place_in(&top));
+
+    let marker = top.join("git-folder").join(CANCEL_FILE).exists();
+    assert_eq!((text_elsewhere(&top).as_str(), marker), (KEPT, true));
+    fs::remove_dir_all(top).unwrap();
+}
+
+/// A log that has a second name is made new: the setup's lines go into the new log, and the
+/// file at the other name keeps its text.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_setup_log_with_a_second_name_is_made_new() {
+    let top = folder_with_a_second_name_in_its_git_folder_at(LOG_FILE);
+    // A recipe with a file list and no command: the run writes its lines and starts no shell.
+    let recipe = Recipe { include: vec!["notes.txt".into()], ..Recipe::default() };
+    let mut status = Status::default();
+
+    run(&place_in(&top), &recipe, &mut status, &Run::default(), None);
+
+    let log = fs::read_to_string(top.join("git-folder").join(LOG_FILE)).unwrap_or_default();
+    assert_eq!(
+        (text_elsewhere(&top).as_str(), log.contains(KEPT), log.contains("Copied 0 files")),
+        (KEPT, false, true),
+        "the log: {log}"
+    );
+    assert_eq!(status.state, "succeeded");
+    fs::remove_dir_all(top).unwrap();
+}
+
+/// A teardown's log is opened as a setup's log is.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_teardown_log_with_a_second_name_is_made_new() {
+    let top = folder_with_a_second_name_in_its_git_folder_at(LOG_FILE);
+
+    let reply = teardown(&place_in(&top), Some("touch ran")).unwrap_or_default();
+
+    let log = fs::read_to_string(top.join("git-folder").join(LOG_FILE)).unwrap_or_default();
+    assert_eq!(
+        (text_elsewhere(&top).as_str(), log.contains(KEPT), log.contains("$ touch ran")),
+        (KEPT, false, true),
+        "the log: {log}"
+    );
+    assert_eq!(reply["state"], "succeeded", "{reply}");
+    assert!(top.join("root/ran").exists(), "the teardown did not run");
+    fs::remove_dir_all(top).unwrap();
+}
