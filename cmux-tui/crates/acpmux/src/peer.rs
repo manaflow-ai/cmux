@@ -55,8 +55,7 @@ mod runtime;
 #[path = "peer_runtime_io.rs"]
 mod runtime_io;
 pub(crate) use runtime_io::{
-    ATTACH_RETRY_AFTER, REATTACHES_AT_ONCE, gone_ids, lends_over, list_position, page_max_seq,
-    refuses_attach, replayable, watch_sessions,
+    ATTACH_RETRY_AFTER, lends_over, page_max_seq, refuses_attach, replayable,
 };
 
 #[cfg(test)]
