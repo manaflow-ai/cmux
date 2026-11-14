@@ -1,3 +1,4 @@
+use crate::blobs::{Blobs, Body};
 use crate::log::{Anchor, Log, MAX_BLOB_READ, MAX_FRAME_BYTES, Options, RawRange};
 use crate::testkit::open;
 use std::io::Write;
@@ -66,14 +67,27 @@ fn v2_pr03c_fold_window() {
 fn blob_sample(bytes: usize) -> u64 {
     let root = tempfile::tempdir().unwrap();
     let mut log = open(root.path()).0;
-    let body = vec![b'x'; bytes];
-    log.write_blob(1, &body).unwrap();
-    let mut out = Vec::new();
+    log.write_blob(1, &vec![b'x'; bytes]).unwrap();
     let start = Instant::now();
+    let mut out = Vec::new();
     let range = log
         .read_blob_range(1, bytes.saturating_sub(MAX_BLOB_READ) as u64, MAX_BLOB_READ, &mut out)
         .unwrap();
     assert_eq!(range.end.saturating_sub(range.start), out.len() as u64);
+    let mut blobs = Blobs::open(root.path()).unwrap();
+    let mut body = Body::new(2).unwrap();
+    let value = format!("\"{}\"", "x".repeat(bytes));
+    blobs.set(&mut body, "text", &value, false).unwrap();
+    let mut open_out = Vec::new();
+    blobs
+        .read_open_range(
+            &body,
+            "text",
+            bytes.saturating_sub(MAX_BLOB_READ) as u64,
+            MAX_BLOB_READ,
+            &mut open_out,
+        )
+        .unwrap();
     start.elapsed().as_nanos() as u64
 }
 
