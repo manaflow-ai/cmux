@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { resetChatDisplayForTests } from "../src/agent-session/acpmux/chatDisplay";
 import { setComposerLook, useComposerLook } from "../src/agent-session/acpmux/composerLook";
 
 const storageDescriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
@@ -11,7 +12,10 @@ function Look() {
 
 const currentLook = () => renderToStaticMarkup(<Look />);
 
+// These read this launch's copy, before the host's `display` value comes (composer-look-restart.test.tsx
+// covers the host's value): each test starts as a new page.
 beforeEach(() => {
+  resetChatDisplayForTests();
   values = new Map();
   Object.defineProperty(globalThis, "localStorage", {
     configurable: true,
@@ -24,6 +28,7 @@ beforeEach(() => {
 
 afterEach(() => {
   setComposerLook("codex");
+  resetChatDisplayForTests();
   if (storageDescriptor) Object.defineProperty(globalThis, "localStorage", storageDescriptor);
   else Reflect.deleteProperty(globalThis, "localStorage");
 });
