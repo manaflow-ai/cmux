@@ -219,44 +219,6 @@ pub fn stamp_agent_hook_observed_now(ingress: &mut JournalIngress) {
     }
 }
 
-pub(crate) fn stamp_agent_hook_observed_at(ingress: &mut JournalIngress, observed_at_ms: u64) {
-    if let Some(normalized) = ingress.payload.get_mut("normalized").and_then(Value::as_object_mut) {
-        normalized.insert("observed_at_ms".into(), Value::String(observed_at_ms.to_string()));
-    }
-}
-
-/// Build the core-owned lifecycle event for an unexpectedly exited userland
-/// plugin. The reducer uses the plugin subject to retire all entries owned by
-/// that producer in one deterministic fold.
-pub(crate) fn journal_plugin_exit_journal_ingress(
-    plugin_id: &str,
-    generation: u64,
-) -> anyhow::Result<JournalIngress> {
-    validate_agent_source(plugin_id)?;
-    Ok(JournalIngress {
-        producer_id: AGENT_HOOK_PRODUCER_ID.into(),
-        manifest_version: AGENT_HOOK_MANIFEST_VERSION,
-        kind: "agent.plugin.exited".into(),
-        schema_version: 1,
-        occurred_at_ms: None,
-        subjects: vec![JournalSubject { kind: "plugin".into(), id: plugin_id.into() }],
-        sensitivity: Some(JournalSensitivity::Sensitive),
-        payload: json!({
-            "format": AGENT_HOOK_FORMAT,
-            "adapter": {"id": "cmux", "version": 1},
-            "native_event": JOURNAL_PLUGIN_EXIT_NATIVE_EVENT,
-            "normalized": {
-                "plugin_id": plugin_id,
-                "plugin_generation": generation.to_string(),
-                "observed_at_ms": crate::workspace_registry::unix_epoch_ms()?.to_string(),
-            },
-            "native": {},
-        }),
-        causation_id: None,
-        correlation_id: None,
-    })
-}
-
 const MAX_TOOL_TARGET_PATH_BYTES: usize = 1024;
 
 /// The file a tool call targets, copied from the tool input before it is
@@ -327,6 +289,94 @@ fn apply_patch_first_path(patch: &str) -> Option<&str> {
             .find_map(|header| line.strip_prefix(header))
             .map(str::trim)
     })
+}
+
+/// Build the core-owned lifecycle event for an unexpectedly exited userland
+/// plugin. The reducer uses the plugin subject to retire all entries owned by
+/// that producer in one deterministic fold.
+pub(crate) fn journal_plugin_exit_journal_ingress(
+    plugin_id: &str,
+    generation: u64,
+) -> anyhow::Result<JournalIngress> {
+    validate_agent_source(plugin_id)?;
+    Ok(JournalIngress {
+        producer_id: AGENT_HOOK_PRODUCER_ID.into(),
+        manifest_version: AGENT_HOOK_MANIFEST_VERSION,
+        kind: "agent.plugin.exited".into(),
+        schema_version: 1,
+        occurred_at_ms: None,
+        subjects: vec![JournalSubject { kind: "plugin".into(), id: plugin_id.into() }],
+        sensitivity: Some(JournalSensitivity::Sensitive),
+        payload: json!({
+            "format": AGENT_HOOK_FORMAT,
+            "adapter": {"id": "cmux", "version": 1},
+            "native_event": JOURNAL_PLUGIN_EXIT_NATIVE_EVENT,
+            "normalized": {
+                "plugin_id": plugin_id,
+                "plugin_generation": generation.to_string(),
+                "observed_at_ms": crate::workspace_registry::unix_epoch_ms()?.to_string(),
+            },
+            "native": {},
+        }),
+        causation_id: None,
+        correlation_id: None,
+    })
+}
+
+/// How far apart two hook starts of one session may be for the later-sent
+/// one to be journaled first. One agent's hooks run one after another, and a
+/// hook hands its event over within its own run, so a reorder is at most a
+/// few seconds; an event that started even earlier comes from a clock that
+/// stepped back and is newer, not reordered.
+pub(crate) const HOOK_REORDER_WINDOW_MS: u64 = 5_000;
+
+/// When the hook that sent the event with `payload` started
+/// (`normalized.observed_at_ms`), if it said.
+pub(crate) fn hook_observed_at_ms(payload: &Value) -> Option<u64> {
+    payload
+        .get("normalized")
+        .and_then(|normalized| normalized.get("observed_at_ms"))
+        .and_then(Value::as_str)
+        .and_then(|text| text.parse().ok())
+}
+
+/// Whether a hook event of kind `kind` whose hook started at `observed_at_ms`
+/// came after a later-started event of the same session (`last_observed_at_ms`)
+/// that was already applied, so it must not set the agent's state. The
+/// journal keeps it either way. The agent projection and the roster both ask
+/// this, so they agree.
+///
+/// Never skipped: the session's start and end, and an event that shows a
+/// dialog or an error (parallel subagents of one session can each raise one;
+/// the next later event clears it).
+pub(crate) fn hook_event_is_reordered(
+    kind: &str,
+    observed_at_ms: Option<u64>,
+    last_observed_at_ms: Option<u64>,
+) -> bool {
+    if matches!(
+        kind,
+        "agent.session.started"
+            | "agent.session.ended"
+            | "agent.approval.requested"
+            | "agent.question.requested"
+            | "agent.plan_review.requested"
+            | "agent.error.reported"
+    ) {
+        return false;
+    }
+    let (Some(seen), Some(last)) = (observed_at_ms, last_observed_at_ms) else { return false };
+    seen < last && last - seen <= HOOK_REORDER_WINDOW_MS
+}
+
+/// Records in `ingress` when the hook that saw the event started
+/// (`normalized.observed_at_ms`, ms since the epoch). One agent's hooks run
+/// one after another but reach the journal on separate connections; the
+/// daemon orders the agent's state by this time, not by journal sequence.
+pub fn stamp_agent_hook_observed_at(ingress: &mut JournalIngress, observed_at_ms: u64) {
+    if let Some(normalized) = ingress.payload.get_mut("normalized").and_then(Value::as_object_mut) {
+        normalized.insert("observed_at_ms".into(), Value::String(observed_at_ms.to_string()));
+    }
 }
 
 fn redact_agent_native(native_event: &str, mut native: Value) -> Value {

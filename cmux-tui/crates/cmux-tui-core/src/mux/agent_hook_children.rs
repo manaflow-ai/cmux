@@ -98,7 +98,7 @@ impl Mux {
                 text("agent_session_id"),
                 false,
                 sequence,
-                crate::journal_reducers::hook_observed_at_ms(&ingress.payload),
+                crate::agent_hooks::hook_observed_at_ms(&ingress.payload),
             ),
             JournalHookTransition::Apply(_)
         ) {
