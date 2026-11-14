@@ -71,6 +71,9 @@ impl HeadlessServer {
             .arg(&state)
             .env("CMUX_TUI_CONFIG", &config)
             .env("CMUX_TUI_LOG_FILE", daemon_log_path(&dir))
+            // A daemon thread panic then shows where it happened in the
+            // stderr printed on a leaked terminal host.
+            .env("RUST_BACKTRACE", "1")
             .envs(env.iter().copied())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
@@ -140,6 +143,8 @@ impl HeadlessServer {
         // close every terminal resource, including zero-view terminals that
         // cannot appear in the legacy workspace tree below.
         let mut close_failures = Vec::new();
+        // Every close response, reported if a host outlives its close.
+        let mut close_responses = Vec::new();
         if let Ok(output) = cmux_command()
             .args(["--json", "--socket"])
             .arg(&self.socket)
@@ -152,12 +157,23 @@ impl HeadlessServer {
         {
             for terminal in terminals {
                 let Some(terminal_id) = terminal["id"].as_str() else { continue };
+                let close_started = Instant::now();
                 let output = cmux_command()
                     .args(["--quiet", "--socket"])
                     .arg(&self.socket)
                     .args(["terminal", terminal_id, "close"])
                     .env_remove("CMUX_TUI_SOCKET")
                     .output();
+                close_responses.push(match &output {
+                    Ok(output) => format!(
+                        "{terminal_id}: status={:?} stdout={:?} stderr={:?} after {:?}",
+                        output.status.code(),
+                        String::from_utf8_lossy(&output.stdout),
+                        String::from_utf8_lossy(&output.stderr),
+                        close_started.elapsed()
+                    ),
+                    Err(error) => format!("{terminal_id}: {error}"),
+                });
                 match output {
                     Ok(output) if output.status.success() => {}
                     Ok(output) => close_failures.push(format!(
@@ -218,10 +234,92 @@ impl HeadlessServer {
             .copied()
             .filter(|pid| process_exists(*pid) || process_group_exists(*pid))
             .collect::<Vec<_>>();
+        // Record contents carry host capability tokens; the paths are enough.
+        let mut leaked_state = String::new();
+        for pid in live_hosts.iter().chain(&live_terminals) {
+            leaked_state.push_str(&live_process_state(*pid));
+        }
         Err(format!(
-            "close failures: {close_failures:?}; records: {record_paths:?}; live hosts: {live_hosts:?}; live terminals or groups: {live_terminals:?}"
+            "close failures: {close_failures:?}; records: {record_paths:?}; live hosts: {live_hosts:?}; live terminals or groups: {live_terminals:?}\nclose responses:\n{}\nleaked state:{leaked_state}",
+            close_responses.join("\n")
         ))
     }
+}
+
+/// The state of a process that outlived its terminal close: its status, its
+/// threads (name and wait channel) and its open descriptors. Linux exposes
+/// these in /proc; other systems report only the pid.
+fn live_process_state(pid: u32) -> String {
+    let mut out = format!("\n--- pid {pid} ---");
+    let proc_dir = PathBuf::from(format!("/proc/{pid}"));
+    if !proc_dir.exists() {
+        return out;
+    }
+    for name in ["status", "cmdline", "wchan"] {
+        let text = fs::read(proc_dir.join(name))
+            .map(|bytes| String::from_utf8_lossy(&bytes).replace('\0', " "))
+            .unwrap_or_else(|error| format!("<{error}>"));
+        let text = if name == "status" {
+            text.lines()
+                .filter(|line| {
+                    ["Name", "State", "PPid", "Threads", "SigBlk", "SigIgn", "SigCgt"]
+                        .iter()
+                        .any(|key| line.starts_with(key))
+                })
+                .collect::<Vec<_>>()
+                .join("; ")
+        } else {
+            text
+        };
+        out.push_str(&format!("\n{name}: {text}"));
+    }
+    for task in
+        fs::read_dir(proc_dir.join("task")).ok().into_iter().flatten().filter_map(Result::ok)
+    {
+        let read = |name: &str| {
+            fs::read_to_string(task.path().join(name)).unwrap_or_default().trim().to_owned()
+        };
+        out.push_str(&format!(
+            "\n  task {:?} comm={} wchan={} syscall={}",
+            task.file_name(),
+            read("comm"),
+            read("wchan"),
+            read("syscall")
+        ));
+    }
+    for fd in fs::read_dir(proc_dir.join("fd")).ok().into_iter().flatten().filter_map(Result::ok) {
+        let target =
+            fs::read_link(fd.path()).map(|target| target.display().to_string()).unwrap_or_default();
+        out.push_str(&format!("\n  fd {:?} -> {target}", fd.file_name()));
+    }
+    out
+}
+
+/// Reads what the exited daemon wrote to its piped stderr. Nonblocking: a
+/// leaked process that still holds the pipe cannot stall the fixture.
+#[cfg(unix)]
+fn read_exited_daemon_stderr(child: &mut Child) -> String {
+    let Some(mut pipe) = child.stderr.take() else { return String::new() };
+    let fd = pipe.as_raw_fd();
+    // SAFETY: fcntl on the fixture's own pipe descriptor, still open.
+    unsafe {
+        let flags = libc::fcntl(fd, libc::F_GETFL);
+        libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+    }
+    let mut bytes = Vec::new();
+    let mut buffer = [0_u8; 16 * 1024];
+    while let Ok(read) = pipe.read(&mut buffer) {
+        if read == 0 {
+            break;
+        }
+        bytes.extend_from_slice(&buffer[..read]);
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+#[cfg(not(unix))]
+fn read_exited_daemon_stderr(_child: &mut Child) -> String {
+    String::new()
 }
 
 #[cfg(unix)]
@@ -294,10 +392,19 @@ impl Drop for HeadlessServer {
         let hosts_stopped = self.close_all_resources();
         let _ = self.child.kill();
         let _ = self.child.wait();
+        let leaked = hosts_stopped.is_err() && !std::thread::panicking();
+        if leaked {
+            // The daemon logs a failed close only here and to its stderr.
+            print_daemon_log(&self.dir);
+            eprintln!(
+                "--- headless daemon stderr ---\n{}\n--- end of daemon stderr ---",
+                read_exited_daemon_stderr(&mut self.child)
+            );
+        }
         let _ = fs::remove_file(&self.socket);
         let _ = fs::remove_dir_all(&self.dir);
         if let Err(error) = hosts_stopped
-            && !std::thread::panicking()
+            && leaked
         {
             panic!("headless CLI fixture left a durable terminal-host process behind: {error}");
         }
