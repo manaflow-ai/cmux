@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43592957418",
+  "recorded_at": "2026-11-14T12:11:28Z",
+  "reason": "cmux-tui b702724bfdcf changes the image's cmux-tui (pinned e40249b71eda)",
+  "dry_run": false,
+  "cmux_tui": "b702724bfdcf925a72c04d4cb05b49bda9bc57db",
+  "fixes": [
+    {
+      "sha": "b702724bfdcf925a72c04d4cb05b49bda9bc57db",
+      "mergedAt": "2026-11-14T03:43:45-08:00",
+      "subject": "Cloud start: the app's start waits for its first machine list too, one wait in cmux-cloud-start-core (#42903)"
+    },
+    {
+      "sha": "22c65c9f8bb7e042d70cf53a72383daed43e062e",
+      "mergedAt": "2026-11-14T03:43:20-08:00",
+      "subject": "cmux-tui: the class from the seat of a kept host ends with the seat"
+    },
+    {
+      "sha": "cce4bd0964642c72daf611daa940c9ae1f75f169",
+      "mergedAt": "2026-11-14T11:42:49Z",
+      "subject": "chore(next): base autofix at e7aa9fbfb686"
+    },
+    {
+      "sha": "e7aa9fbfb6864866aa2228847aa86ba792e30b23",
+      "mergedAt": "2026-11-14T03:40:25-08:00",
+      "subject": "acpmux: rows by key from _acpmux/info, and status's closed count (v2 7b part A) (#42976)"
+    },
+    {
+      "sha": "a111fba351794b5f80a4d35d75549a54d57dbae1",
+      "mergedAt": "2026-11-14T03:38:17-08:00",
+      "subject": "CMUX-572: avoid false delay cuts from split frame feedback (#43024)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T12:11:28Z",
+    "snapshot_id": "sh-384a4fdc6b4644159d467ede8d673963",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43592957418): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6210902b1fb4da9db59cd64ffe88be1d06c87e83",
+    "image": "cloud-native-auto-b702724b-43592957418-1",
+    "revision": "ci-43592957418-1",
+    "at": "2026-11-14T12:11:28Z"
+  },
+  "rolled_back": false
+}
