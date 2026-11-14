@@ -178,3 +178,24 @@ async fn a_mark_that_moved_under_the_dialer_starts_it_again_from_the_mark() {
     assert_eq!(local.mirror_counts().out_of_order, 0, "no unit named the old mark");
     link.end();
 }
+
+/// A walk larger than a unit arrives in units of at most `MAX_UNIT_CHANGES`,
+/// each following the last: every row is mirrored, and none is refused.
+#[tokio::test]
+async fn a_walk_larger_than_a_unit_arrives_in_bounded_units() {
+    let (peer, local) = (hub(), hub());
+    let rows = MAX_UNIT_CHANGES * 2 + 100;
+    for n in 0..rows {
+        peer.submit(row(&format!("r{n:05}"), "t", n as u64 + 1)).unwrap();
+    }
+    until("the peer holds its rows", || peer.snapshot().len() == rows).await;
+    let link = dial(&peer, &local);
+    until("the walk ended whole", || local.mirror_mark(ORIGIN).is_some_and(|mark| mark.whole))
+        .await;
+    assert_eq!(titles(&local).len(), rows);
+    assert!(link.counters.units.load(Ordering::Relaxed) >= 3);
+    let counts = local.mirror_counts();
+    assert_eq!(counts.out_of_order + counts.join_refused + counts.held + counts.full, 0);
+    assert_eq!(counts.rows_over_bound, 0);
+    link.end();
+}

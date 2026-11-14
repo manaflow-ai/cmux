@@ -26,11 +26,17 @@ use std::collections::HashSet;
 /// and its comma.
 pub const MIN_OP_BYTES: usize = 50;
 
+/// The most operations in one frame a peer sends: the serving side cuts every
+/// list frame (a delta, a page) at `MAX_REPLAY_FRAME_BYTES` and a window at its
+/// row count, 5,242 of the smallest op.
+pub const MAX_FRAME_CHANGES: usize = crate::wire::MAX_REPLAY_FRAME_BYTES / MIN_OP_BYTES;
+
 /// At most this many changes in one unit, the bound on rows held per origin.
-/// A unit is one frame, and the serving side cuts every list frame (a delta,
-/// a page) at `MAX_REPLAY_FRAME_BYTES` and a window at its row count, so no
-/// frame a peer sends holds more operations than this.
-pub const MAX_UNIT_CHANGES: usize = crate::wire::MAX_REPLAY_FRAME_BYTES / MIN_OP_BYTES;
+/// A unit applies in one writer turn at about 3.7 µs a row, so a local row in
+/// the same turn waited about 20 ms behind a unit of [`MAX_FRAME_CHANGES`]
+/// against 75 µs alone; at this size it waits about 2 ms. The dialer cuts a
+/// frame into units of this size, each with the mark after its last change.
+pub const MAX_UNIT_CHANGES: usize = 512;
 
 pub enum UnitChange {
     Summary(Box<Summary>),

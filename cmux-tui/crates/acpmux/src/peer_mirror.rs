@@ -196,9 +196,12 @@ impl<'a> Dial<'a> {
             .collect()
     }
 
-    /// One frame's changes: at most one unit.
+    /// One frame's changes, in units of at most [`MAX_UNIT_CHANGES`], each
+    /// with the mark after its last change.
     async fn frame(&mut self, batch: Vec<Change<Summary>>) -> Option<DialEnd> {
         let mut changes = Vec::new();
+        // The mark after each change, for a unit that ends there.
+        let mut marks = Vec::new();
         for change in batch {
             match change {
                 Change::Window(window) if window.sid == self.sid => {
@@ -253,21 +256,43 @@ impl<'a> Dial<'a> {
                 }
                 _ => {}
             }
+            marks.resize(changes.len(), self.mark());
         }
-        let mark = MirrorMark { cursor: self.cursor, edition: self.edition, whole: self.whole };
+        let mark = self.mark();
         if changes.is_empty() && self.last_sent == Some(mark) {
             return None;
         }
-        if changes.len() > MAX_UNIT_CHANGES {
-            return Some(DialEnd::Closed(format!(
-                "a frame of {} changes is over the unit bound",
-                changes.len()
-            )));
+        if changes.is_empty() {
+            return self.unit(Vec::new(), mark).await.err();
         }
+        let mut changes = changes.into_iter();
+        for (n, chunk) in marks.chunks(MAX_UNIT_CHANGES).enumerate() {
+            let last = n + 1 == marks.len().div_ceil(MAX_UNIT_CHANGES);
+            // A frame's last unit carries the frame's mark: a `whole` or a
+            // resume's end after the last row moves it too.
+            let unit_mark = if last { mark } else { chunk.last().copied().unwrap_or(mark) };
+            let unit = changes.by_ref().take(chunk.len()).collect();
+            match self.unit(unit, unit_mark).await {
+                Ok(true) => {}
+                // Started again: the rest of the frame is not read.
+                Ok(false) => return None,
+                Err(end) => return Some(end),
+            }
+        }
+        None
+    }
+
+    fn mark(&self) -> MirrorMark {
+        MirrorMark { cursor: self.cursor, edition: self.edition, whole: self.whole }
+    }
+
+    /// Submits one unit once the origin is settled: `Ok(true)` when it was
+    /// queued, `Ok(false)` when the dialer started again from the mark.
+    async fn unit(&mut self, changes: Vec<UnitChange>, mark: MirrorMark) -> Result<bool, DialEnd> {
         self.hub.wait_mirror_settled(self.origin).await;
         if self.hub.mirror_mark(self.origin) != self.last_sent {
             self.restart().await;
-            return None;
+            return Ok(false);
         }
         let unit =
             MirrorUnit { origin: self.origin.to_owned(), after: self.last_sent, changes, mark };
@@ -276,15 +301,15 @@ impl<'a> Dial<'a> {
                 self.last_sent = Some(mark);
                 self.restarts = 0;
                 self.counters.units.fetch_add(1, Ordering::Relaxed);
-                None
+                Ok(true)
             }
             // Settled, the slot was free; a full slot means another dialer
             // feeds the origin. Start again from the mark.
             Err(HubError::UnitQueueFull) => {
                 self.restart().await;
-                None
+                Ok(false)
             }
-            Err(error) => Some(DialEnd::Refused(error)),
+            Err(error) => Err(DialEnd::Refused(error)),
         }
     }
 
