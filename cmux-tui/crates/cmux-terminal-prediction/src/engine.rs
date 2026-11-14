@@ -15,9 +15,10 @@
 //! typed ahead of the prompt gets at most one echo before the prompt turns echo
 //! off, and a masked prompt's `*` never counts.
 //!
-//! One thing re-arms a run without echoes: the prompt. When a run arms, the
-//! text the row held before its echoes is a prompt the remote's line editor
-//! echoes after, and the engine remembers it. When the remote answers the
+//! One thing re-arms a run without echoes: the prompt. The row as it stood
+//! when the first key of a line was typed is a prompt candidate; once a run
+//! arms on that row with the candidate still at its start, the remote's line
+//! editor echoes after it, and the engine remembers it. When the remote answers the
 //! newest key sent (Return, Ctrl-C) and leaves the cursor row reading exactly
 //! like a remembered prompt, with nothing typed since, the shell is back at
 //! its line editor with every earlier key answered, so the run arms at once
@@ -257,11 +258,12 @@ pub struct TerminalPredictionEngine {
     cancellable_key_at: Option<Duration>,
     /// What the cursor row holds left of the cursor, from plain output.
     row: RowText,
-    /// Rows the remote's line editor was seen echoing after (the text before
-    /// the echoes when a run armed), newest last: the shell's prompts.
+    /// Rows the remote's line editor was seen echoing after, newest last:
+    /// the shell's prompts.
     known_prompts: Vec<Vec<u8>>,
-    /// Whether this run's prompt was learned or matched already.
-    has_prompt_for_run: bool,
+    /// The row as it stood when the first key of this line was typed, while
+    /// it is not yet known to be a prompt.
+    prompt_candidate: Option<Vec<u8>>,
     /// Whether the newest key sent had an effect the engine does not model
     /// (Return, Ctrl-C, Backspace over echoed text), with nothing typed after
     /// it: the remote's next prompt answers every key sent.
@@ -302,7 +304,7 @@ impl TerminalPredictionEngine {
             cancellable_key_at: None,
             row: RowText::new(),
             known_prompts: Vec::new(),
-            has_prompt_for_run: false,
+            prompt_candidate: None,
             newest_key_is_unmodelled: false,
         }
     }
@@ -460,6 +462,7 @@ impl TerminalPredictionEngine {
         // Return behind a barrier too: the remote reads keys in order, so a
         // prompt printed for the newest key answers every key before it.
         self.newest_key_is_unmodelled = byte.is_none_or(|byte| !(0x20..=0x7E).contains(&byte));
+        self.note_prompt_candidate(byte);
         // Behind a barrier the remote's state is unknown, so nothing typed now
         // can be placed. Its echo arrives after the barrier resolves, which
         // starts the untracked window that covers it.
@@ -666,6 +669,7 @@ impl TerminalPredictionEngine {
         // may still conceal: concealment lasts until output ends it.
         self.scanner = self.scanner.restarted();
         self.row.forget();
+        self.prompt_candidate = None;
         let changed = self.withdraw_all(false, now, false);
         self.mark_opaque_echo(now);
         self.extend_untracked_deadline(now);
@@ -682,6 +686,7 @@ impl TerminalPredictionEngine {
         }
         // A new width can rewrap the row.
         self.row.forget();
+        self.prompt_candidate = None;
         let changed = self.withdraw_all(false, now, false);
         self.mark_opaque_echo(now);
         self.extend_untracked_deadline(now);
@@ -1059,31 +1064,50 @@ impl TerminalPredictionEngine {
     /// Output nobody predicted: whatever the row holds now is unknown.
     fn end_run(&mut self) {
         self.echo_streak = 0;
-        self.has_prompt_for_run = false;
         self.line.clear();
         self.rewound.clear();
     }
 
-    /// A run armed by its echoes: the row before them is a prompt the remote's
-    /// line editor echoes after. Read once the chunk that armed it is in, so
-    /// the row holds the echoes too.
+    /// The first printable key typed on a line, with nothing in flight and
+    /// the row known: the row is what the remote printed before it, a prompt
+    /// if its echo comes back after it. Any other key starts the line over.
+    fn note_prompt_candidate(&mut self, byte: Option<u8>) {
+        if !byte.is_some_and(|byte| (0x20..=0x7E).contains(&byte)) {
+            self.prompt_candidate = None;
+            return;
+        }
+        if self.prompt_candidate.is_some() || !self.entries.is_empty() || self.is_alternate_screen {
+            return;
+        }
+        self.prompt_candidate = self.row.text().map(<[u8]>::to_vec);
+    }
+
+    /// A run is armed by echoes on a row that still starts with the line's
+    /// prompt candidate and holds more after it: the remote's line editor
+    /// echoes after that text, so it is a prompt. Read once the chunk is in.
     fn learn_prompt(&mut self) {
-        if self.has_prompt_for_run || !self.is_echo_run_active() || !self.rewound.is_empty() {
+        if !self.is_echo_run_active() || self.is_alternate_screen {
             return;
         }
-        let Some(row) = self.row.text() else { return };
-        let Some(prompt) = row.strip_suffix(self.line.as_slice()) else { return };
-        if self.line.is_empty() || !prompt.iter().any(|&byte| byte != b' ') {
+        let (Some(candidate), Some(row)) = (self.prompt_candidate.as_deref(), self.row.text())
+        else {
+            return;
+        };
+        if row.len() <= candidate.len()
+            || !row.starts_with(candidate)
+            || !candidate.iter().any(|&byte| byte != b' ')
+        {
             return;
         }
-        self.has_prompt_for_run = true;
-        if self.known_prompts.iter().any(|known| known.as_slice() == prompt) {
+        let prompt = candidate.to_vec();
+        self.prompt_candidate = None;
+        if self.known_prompts.contains(&prompt) {
             return;
         }
         if self.known_prompts.len() >= MAXIMUM_KNOWN_PROMPTS {
             self.known_prompts.remove(0);
         }
-        self.known_prompts.push(prompt.to_vec());
+        self.known_prompts.push(prompt);
     }
 
     /// The remote answered the newest key sent with a row that reads exactly
@@ -1104,7 +1128,7 @@ impl TerminalPredictionEngine {
             return;
         }
         self.echo_streak = 2;
-        self.has_prompt_for_run = true;
+        self.prompt_candidate = None;
         self.line.clear();
         self.close_untracked_window();
         self.cancellable_key_at = None;

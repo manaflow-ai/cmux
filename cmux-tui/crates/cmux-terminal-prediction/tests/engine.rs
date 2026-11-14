@@ -1755,3 +1755,31 @@ fn return_typed_behind_a_barrier_still_arms_at_the_prompt_it_brings_back() {
     session.type_key("g");
     assert_eq!(session.drawn(), "g");
 }
+
+#[test]
+fn a_run_that_arms_late_in_the_line_still_learns_the_prompt() {
+    // The first keys' echoes come back ambiguous (an untracked key was in
+    // flight), so the run arms only near the end of the command; the prompt
+    // the line started at is still the one learned.
+    let mut session = Session::new();
+    session.remote("$ ");
+    session.advance(ms(500));
+    session.type_key("\x1b[I");
+    for character in ["e", "c", "h", "o"] {
+        session.type_key_after(character, ms(140));
+    }
+    for character in ["e", "c", "h", "o"] {
+        session.remote_after(character, ms(140));
+    }
+    session.advance(ms(1_000));
+    for character in [" ", "h", "i"] {
+        session.type_key(character);
+        session.remote(character);
+    }
+    session.engine.presented_frame(session.clock);
+    session.type_key("\r");
+    session.remote("\r\nhi\r\n$ ");
+    session.advance(ms(400));
+    session.type_key("g");
+    assert_eq!(session.drawn(), "g");
+}
