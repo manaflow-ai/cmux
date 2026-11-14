@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43564277647",
+  "recorded_at": "2026-11-14T06:12:27Z",
+  "reason": "cmux-tui 0eaa7b71a22b changes the image's cmux-tui (pinned 87fd1d6c1e82)",
+  "dry_run": false,
+  "cmux_tui": "0eaa7b71a22ba86bcf02e3f1f5bf008c51af9d2e",
+  "fixes": [
+    {
+      "sha": "0eaa7b71a22ba86bcf02e3f1f5bf008c51af9d2e",
+      "mergedAt": "2026-11-13T21:38:27-08:00",
+      "subject": "cmux chat --on a joined machine: fix forward the #38355 review (#42881)"
+    },
+    {
+      "sha": "c7ee2752697d6ad7d8ca7e81ce512affde82c917",
+      "mergedAt": "2026-11-13T23:36:52-06:00",
+      "subject": "perf(cmux-tui): a terminal host on macOS starts with one malloc magazine and no nano zone"
+    },
+    {
+      "sha": "3dc5471faa304f8436ee13ffd3e9178a88ab4440",
+      "mergedAt": "2026-11-13T23:36:52-06:00",
+      "subject": "test(cmux-tui): a terminal host starts with a small malloc config that its shell does not see (red)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T06:12:27Z",
+    "snapshot_id": "sh-40cb835cfe7542e6bcd7588d64a0c9b5",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43564277647): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3c1a5fb1be12c3adf84f032af45cfc24edff1005",
+    "image": "cloud-native-auto-0eaa7b71-43564277647-1",
+    "revision": "ci-43564277647-1",
+    "at": "2026-11-14T06:12:27Z"
+  },
+  "rolled_back": false
+}
