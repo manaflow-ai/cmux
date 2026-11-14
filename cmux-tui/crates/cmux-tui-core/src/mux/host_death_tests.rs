@@ -170,6 +170,22 @@ fn terminal_hex(prefix: &str, index: usize) -> String {
     format!("{prefix}000000000040008000{index:012x}")
 }
 
+/// Return once the wall clock reads a later millisecond than `process_end_ms`.
+///
+/// The model has no clock: each of its process ends is before the restart
+/// that follows. The owner reads both times from the wall clock, in
+/// milliseconds, and the steps run with no wait between them, so a process
+/// end and the next shutdown start can be the same millisecond. The owner
+/// cannot tell which came first there, and it keeps the tab: a status exit
+/// from the recorded shutdown start on is a host loss (`session-shutdown`).
+/// A restart step that starts its shutdown one millisecond later keeps that
+/// case out of the run. No test covers it.
+fn wait_for_a_later_millisecond(process_end_ms: u64) {
+    while crate::session_shutdown::unix_now_ms() <= process_end_ms {
+        std::thread::yield_now();
+    }
+}
+
 fn run_case(seed: u64) -> usize {
     let mut rng = Rng::new(seed);
     let root = std::env::temp_dir()
@@ -204,6 +220,7 @@ fn run_case(seed: u64) -> usize {
     }
 
     let mut executed = 0;
+    let mut last_process_end_ms = 0;
     for step_index in 0..STEPS {
         let step = match rng.below(10) {
             0..=3 => Step::HostDeath(rng.below(terminals.len())),
@@ -220,9 +237,9 @@ fn run_case(seed: u64) -> usize {
                 let Some(surface) = runtime_surface(&mux, terminal) else { continue };
                 if let Step::ProcessEnd(_) = step {
                     let code = i32::try_from(rng.below(3)).unwrap();
-                    mux.surface(surface).unwrap().record_process_end_for_test(TerminalExit::now(
-                        TerminalExitOutcome::Exit { code },
-                    ));
+                    let exit = TerminalExit::now(TerminalExitOutcome::Exit { code });
+                    last_process_end_ms = exit.exited_at_ms;
+                    mux.surface(surface).unwrap().record_process_end_for_test(exit);
                 }
                 mux.surface_exited(surface);
                 if terminal.life == Life::Running {
@@ -241,6 +258,7 @@ fn run_case(seed: u64) -> usize {
                 terminal.life = Life::Closed;
             }
             Step::Restart => {
+                wait_for_a_later_millisecond(last_process_end_ms);
                 mux.shutdown();
                 drop(mux);
                 mux = Mux::open_persistent(session, options.clone(), &root).unwrap();
