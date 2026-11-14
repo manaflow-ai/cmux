@@ -127,7 +127,7 @@ Terminal rendering (cursor style, scrollback) belongs in Ghostty config; font fa
 | [references/windows-workspaces.md](references/windows-workspaces.md) | Window and workspace lifecycle, order, and context-menu actions |
 | [references/panes-surfaces.md](references/panes-surfaces.md) | Splits, tabs, moves, focus |
 | [references/trigger-flash-and-health.md](references/trigger-flash-and-health.md) | Flash cue; surface health was removed |
-| [references/automations.md](references/automations.md) | Automations: timers, `--if` conditions, `--watch` triggers, `test` before you say it works |
+| [references/automations.md](references/automations.md) | Automations: `--when pr-opened\|agent-idle` events, timers, `--if` conditions, `--watch` triggers, `test` before you say it works |
 | [../cmux-workspace/SKILL.md](../cmux-workspace/SKILL.md) | Current caller workspace rules and non-disruptive automation |
 | [../cmux-settings/SKILL.md](../cmux-settings/SKILL.md) | Safe settings edits |
 | [../cmux-browser/SKILL.md](../cmux-browser/SKILL.md) | Browser tabs |

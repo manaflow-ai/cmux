@@ -38,6 +38,11 @@ and optionally:
     optional  why the step may fail (a feature not ported yet); its failure is
               reported as unavailable and makes the tour degraded, rather than
               letting an incomplete tour look fully verified
+    readback  what `cmux-ci capture` reads back from the step's rpc answer:
+              {"at": "windows.*.toasts",
+              "contains": [...], "absent": [...], "empty": true, "count": 1,
+              "within": 15}; a mismatch fails the capture's step. A tour run only
+              checks its shape
     expect    app debug RPC postcondition: {"method": "debug.layers",
               "fields": {"field": expected_value}}; mismatches fail required
               steps and make optional steps unavailable
@@ -95,6 +100,15 @@ import tempfile
 import threading
 import time
 from typing import Any
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 MAX_SECONDS = 300
 
@@ -102,7 +116,14 @@ STEP_KEYS = {"title", "relaunch", "cmux", "rpc", "daemon", "wait", "shot", "disp
              "collect",
              # Read by `cmux-ci capture` only (whats-new-clips.py CAPTURE_ONLY_STEP_KEYS): where a clip's
              # steps are and where its video starts. A tour run takes them and does nothing with them.
-             "clip", "record"}
+             "clip", "record",
+             # Read by `cmux-ci capture` only (cmuxterm-hq build-fleet/pr_capture/driver.py): the text the step's
+             # answer must show. A tour run checks its shape (READBACK_KEYS) and nothing more.
+             "readback"}
+# A step's `readback` (what `cmux-ci capture` reads back from the step's answer): `at` a dotted path into the
+# answer (`*` every item), `contains` and `absent` lists of text, `empty` true, `count` a number of items, and
+# `within` seconds to ask a read-only rpc again until it matches.
+READBACK_KEYS = {"at", "contains", "absent", "empty", "count", "within"}
 # A `collect` image's file name; it is kept as shots/NN-collect-<name>.png, a shot name publish.py takes.
 COLLECT_NAME = re.compile(r"([a-z0-9][a-z0-9-]{0,31})\.png")
 # Other windows a step shoots beside the main one (floating panels, popovers,
@@ -269,6 +290,25 @@ def load_tour(path: Path) -> dict[str, Any]:
                 raise TourError(f"{where}: `{key}` must be true or false")
         if "optional" in step and (not isinstance(step["optional"], str) or not step["optional"].strip()):
             raise TourError(f"{where}: `optional` is the reason the step may fail")
+        readback = step.get("readback")
+        if readback is not None:
+            if not isinstance(readback, dict) or not readback or set(readback) - READBACK_KEYS:
+                raise TourError(f"{where}: `readback` is an object of {sorted(READBACK_KEYS)}")
+            if "at" in readback and (not isinstance(readback["at"], str) or not readback["at"].strip()):
+                raise TourError(f"{where}: `readback.at` is a dotted path into the step's answer")
+            for key in ("contains", "absent"):
+                words = readback.get(key, [])
+                if not isinstance(words, list) or not all(isinstance(w, str) and w.strip() for w in words):
+                    raise TourError(f"{where}: `readback.{key}` is a list of non-empty strings")
+            if "empty" in readback and readback["empty"] is not True:
+                raise TourError(f"{where}: `readback.empty` is true or left out")
+            if "count" in readback and (type(readback["count"]) is not int or readback["count"] < 0):
+                raise TourError(f"{where}: `readback.count` is a whole number of items")
+            within = readback.get("within", 0)
+            if isinstance(within, bool) or not isinstance(within, (int, float)) or not 0 <= within <= 30:
+                raise TourError(f"{where}: `readback.within` is 0 to 30 seconds")
+            if rpc is None:
+                raise TourError(f"{where}: `readback` needs an `rpc` whose answer it reads")
         expect = step.get("expect")
         if expect is not None:
             if not isinstance(expect, dict) or set(expect) - {"method", "fields"}:
@@ -1310,14 +1350,14 @@ def stop_apps(bundles: list[Path], session: Session) -> bool:
     clean = True
     for bundle in bundles:
         if not (bundle / "Contents/Info.plist").is_file():
-            print(f"{bundle}: no app here; nothing to stop", flush=True)
+            safe_print(f"{bundle}: no app here; nothing to stop", flush=True)
             continue
         workdir = Path(tempfile.mkdtemp(prefix="cmux-tour-stop.", dir="/tmp"))
         try:
             App(bundle, session, workdir).stop_daemon()
         except (OSError, ValueError, KeyError) as error:
             # A half-built bundle (no CLI, a bad Info.plist) still gets its processes ended.
-            print(f"{bundle.name}: could not stop its daemon ({error})", flush=True)
+            safe_print(f"{bundle.name}: could not stop its daemon ({error})", flush=True)
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
         pattern = "^" + re.escape(f"{bundle}/Contents/")
@@ -1331,7 +1371,7 @@ def stop_apps(bundles: list[Path], session: Session) -> bool:
             session.run(["pkill", "-9", "-f", pattern])
             time.sleep(1)
             left = running_from(session, bundle)
-        print(f"{bundle.name}: " + (f"still running {left}" if left else "nothing left running"), flush=True)
+        safe_print(f"{bundle.name}: " + (f"still running {left}" if left else "nothing left running"), flush=True)
         clean = clean and not left
     return clean
 
