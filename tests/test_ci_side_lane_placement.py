@@ -70,7 +70,13 @@ def overflow(name: str, placed: bool = True) -> str:
     return FALLBACK
 
 sys.path.insert(0, str(ROOT / "tests"))
-from test_seed_derived_data import evaluate, github_context  # noqa: E402
+from test_seed_derived_data import evaluate, github_context as seed_github_context  # noqa: E402
+
+
+def github_context(event_name, ref="refs/heads/main", **variables):
+    """test_seed_derived_data.github_context with Blacksmith macOS on (vars.CMUX_BLACKSMITH_MACOS): these tests
+    model the Blacksmith routes; BlacksmithMacosOffSwitch reads the switch off."""
+    return seed_github_context(event_name, ref, **{"CMUX_BLACKSMITH_MACOS": "on", **variables})
 import workflow_jobs  # noqa: E402
 
 
