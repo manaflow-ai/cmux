@@ -31,6 +31,15 @@ fn chunk(seq: u64, text: &str, message: &str) -> String {
     .to_string()
 }
 
+/// An `agent_thought_chunk` of `text`: a thinking row of its own.
+fn thought(seq: u64, text: &str, message: &str) -> String {
+    json!({"seq": seq, "at": seq * 1000, "dir": "in", "kind": "agent_thought_chunk",
+        "msg": {"method": "session/update", "params": {"update": {
+            "sessionUpdate": "agent_thought_chunk", "messageId": message,
+            "content": {"type": "text", "text": text}}}}})
+    .to_string()
+}
+
 /// Turn `n`'s opening lines: its prompt and its start. Its seqs are `n * 10 + 1..`.
 fn open_turn(n: u64) -> Vec<String> {
     let seq = n * 10;
@@ -294,12 +303,15 @@ fn runtime() -> tokio::runtime::Runtime {
 }
 
 /// Live text held past a frame's worth goes out in frames of at most 256 KB, none lost. The
-/// text holds escapes and four-byte characters, so a cut inside either would show.
+/// text holds escapes and four-byte characters, so a cut inside either would show. A thought
+/// opened after the reply makes the reply an older row, which the translator never cuts: all of
+/// its text is one row's, held in one coalesce.
 #[test]
 fn three_mebibytes_of_live_text_in_one_coalesce_reach_a_subscriber_whole_in_small_frames() {
     runtime().block_on(async {
         let mut lines = open_turn(1);
         lines.push(chunk(13, "start ", "m1"));
+        lines.push(thought(14, "thinking", "m1"));
         let chat = Chat::new(&lines);
         let mut client = chat.connect(1, &["chat"]);
         client.hello(None).await;
@@ -312,28 +324,16 @@ fn three_mebibytes_of_live_text_in_one_coalesce_reach_a_subscriber_whole_in_smal
         let mut full = text.clone();
         let mut appended = Vec::new();
         for n in 0..pieces as u64 {
-            appended.push(chunk(14 + n, &piece, "m1"));
+            appended.push(chunk(15 + n, &piece, "m1"));
             full.push_str(&piece);
         }
         // One write: the actor reads it in a few chunks, well inside one 16 ms coalesce.
         chat.append(&appended);
-        eprintln!("DEBUG appended {} lines, full {}", appended.len(), full.len());
         let mut consumed = window_bytes(&window);
         let mut largest = 0;
         while text.len() < full.len() {
             let frame = client.recv().await;
             consumed += frame.encoded_len() as u64;
-            eprintln!(
-                "DEBUG frame {:?} {} text {} consumed {}",
-                frame.kind,
-                frame.encoded_len(),
-                text.len(),
-                consumed
-            );
-            if frame.encoded_len() < 2000 || largest == 0 {
-                let payload = String::from_utf8_lossy(frame.payload());
-                eprintln!("DEBUG payload {}", payload.chars().take(700).collect::<String>());
-            }
             assert_ne!(frame.kind, FrameKind::Dropped, "a live subscriber was dropped");
             if frame.kind == FrameKind::Delta {
                 largest = largest.max(frame.encoded_len());
