@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-14 (ask-0a91bcfdb0, carved from #42277): a machine header has a screen button beside its +. Leo, verbatim:
+  "for screensharing, jf theres no easy path to use it then theres no point even if its the most performant thing in
+  the world". This Mac's header (the sole machine's "Projects" header too) shows Share (`action.share`), a Cloud
+  machine's View screen (`remote.display`); SSH and server machines show none yet. From the trailing edge: +, the
+  screen button, the chevron, each on the shared pitch and visible at rest. View screen runs `cloudOpenDesktop` on
+  the machine; Share runs `macScreen.shareThisMac` where cmux Remote runs, else `macScreen.open`
+  (`SidebarIntentActions`). The one-list sidebar (the default) draws no This Mac header: it shows View screen on
+  Cloud headers but has no Share entry yet. Regression: `SidebarScreenEntryTests`.
 - 2026-11-14 (New Tab rounder, #42717): a sidebar row's fill reads its corner on every layout, not once when the row
   is made, so it is the tab's corner at the density now. Lucas, verbatim: "the left sidebar tab becoems too circular.
   however the tabs at the top are fine. so match the sidebar item roundness to the tab roundness". A row made at a
