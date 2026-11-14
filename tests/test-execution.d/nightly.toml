@@ -224,6 +224,11 @@ path = "tests/test_nightly_next_source_archive.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_push_slot_at_build.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that with the one job on a nightly-next loop run holds the push slot only in nightly-next-one (nightly-next-one-push, never cancelling), that the next run's notes start from the live feed's published source, and that nightly-next-one's end wakes main's tick; run python3 tests/test_nightly_next_push_slot_at_build.py yourself after changing nightly.yml's concurrency, nightly-next-one, wake-nightly-next-tick or the notes step (about 1 s, no Mac)."
+
+[[test]]
 path = "tests/test_nightly_next_supersede.py"
 lane = "linux-guard"
 
