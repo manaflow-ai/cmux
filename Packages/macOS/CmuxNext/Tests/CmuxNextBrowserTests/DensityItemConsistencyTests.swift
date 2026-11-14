@@ -49,10 +49,16 @@ import Testing
         let height = try #require(Self.expectedHeight[preset])
         let chrome = Self.chromeRadius(height)
         inDensity(preset) {
-            let omnibar = OmnibarStyle.cardCornerRadius
+            // The resting bar rounds as a tab; its open dropdown takes Helium's roundness on the row's height, 17 on 39
+            // (Lucas 2026-11-14), and its highlighted row the tab's ratio on its own height.
+            let omnibar = OmnibarGlassLook.current.resolvedCornerRadius(barHeight: OmnibarStyle.barHeight)
             let tab = Metrics.tabCornerRadius
             let row = tab  // rows draw the tab radius (SidebarDensityTokens.rowCornerRadius)
             #expect(omnibar == chrome, "\(preset): omnibar radius \(omnibar), Chrome's \(chrome)")
+            let card = OmnibarStyle.cardCornerRadius
+            #expect(card == min((OmnibarStyle.rowHeight * 17 / 39).rounded(), OmnibarStyle.barHeight / 2),
+                    "\(preset): the dropdown's corner \(card) is Helium's share of its row")
+            #expect(OmnibarStyle.rowCornerRadius == Metrics.chromeRowCornerRadius(height: OmnibarStyle.rowHeight))
             #expect(tab == chrome, "\(preset): tab radius \(tab), Chrome's \(chrome)")
             #expect(row == chrome, "\(preset): row radius \(row), Chrome's \(chrome)")
         }
