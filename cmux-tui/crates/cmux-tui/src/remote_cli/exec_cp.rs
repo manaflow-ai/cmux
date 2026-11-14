@@ -441,6 +441,7 @@ async fn stream_process(
     let mut interrupt = signal(SignalKind::interrupt())?;
     let mut resize = signal(SignalKind::window_change())?;
     let mut interrupts = 0;
+    let mut lost = false;
     let stdout = io::stdout();
     let stderr = io::stderr();
     loop {
@@ -448,12 +449,13 @@ async fn stream_process(
             event = spawned.events.receive() => {
                 let event = match event? {
                     Some(RpcEvent { event, .. }) => event,
-                    None => return wait_exit(client, process).await,
+                    None => return final_status(wait_exit(client, process).await?, lost),
                 };
                 let written = match &event {
                     ProcessEvent::Stdout { data, .. } => write_output(&mut stdout.lock(), data),
                     ProcessEvent::Stderr { data, .. } => write_output(&mut stderr.lock(), data),
                     ProcessEvent::OutputTruncated { reason, .. } => {
+                        lost = true;
                         eprintln!(
                             "{}",
                             catalog().remote_client.exec_output_truncated(&format!("{reason:?}"))
@@ -462,10 +464,10 @@ async fn stream_process(
                     }
                     ProcessEvent::ReplayGap { .. } => {
                         eprintln!("{}", catalog().remote_client.exec_output_lost);
-                        return wait_exit(client, process).await;
+                        return final_status(wait_exit(client, process).await?, true);
                     }
                     ProcessEvent::Exit { code, signal, .. } => {
-                        return Ok(exit_status_code(*code, *signal));
+                        return final_status(exit_status_code(*code, *signal), lost);
                     }
                 };
                 if let Err(error) = written {
@@ -500,6 +502,13 @@ async fn stream_process(
             }
         }
     }
+}
+
+/// The status `exec` exits with once the command ended. `lost` says some of
+/// its output never arrived (truncated by the daemon, or a replay gap).
+pub(super) fn final_status(status: i32, lost: bool) -> anyhow::Result<i32> {
+    let _ = lost;
+    Ok(status)
 }
 
 async fn wait_exit(client: &WorkspaceClient, process: ProcessId) -> anyhow::Result<i32> {
@@ -612,6 +621,23 @@ pub(super) fn transfer_report(bytes: u64, elapsed: Duration) -> serde_json::Valu
     })
 }
 
+/// The local mode of a downloaded file. `existing` is the mode of the file
+/// it replaces, when there is one.
+pub(super) fn download_mode(executable: bool, umask: u32, existing: Option<u32>) -> u32 {
+    let _ = (umask, existing);
+    if executable { 0o755 } else { 0o644 }
+}
+
+/// This process's file-creation mask.
+fn current_umask() -> u32 {
+    // SAFETY: umask only swaps the process mask; it is put back at once, and
+    // `cp` runs no other thread that creates files meanwhile.
+    let mask = unsafe { libc::umask(0o077) };
+    // SAFETY: as above, restoring the mask read on the previous line.
+    unsafe { libc::umask(mask) };
+    u32::from(mask) & 0o777
+}
+
 fn file_name_of(path: &str) -> &str {
     path.trim_end_matches('/').rsplit('/').next().unwrap_or(path)
 }
@@ -650,7 +676,8 @@ async fn download(
     } else {
         read_file_chunks(client, workspace, remote, stat.size, temporary.as_file_mut()).await?
     };
-    let mode = if stat.executable { 0o755 } else { 0o644 };
+    let existing = std::fs::metadata(&target).ok().map(|metadata| metadata.permissions().mode());
+    let mode = download_mode(stat.executable, current_umask(), existing);
     temporary.as_file().set_permissions(std::fs::Permissions::from_mode(mode))?;
     temporary.as_file().sync_all()?;
     temporary.persist(&target).with_context(|| format!("could not write {}", target.display()))?;
@@ -749,7 +776,8 @@ async fn upload(
         check_step("chmod", run_remote(client, workspace, argv, None).await?)?;
         return Ok(bytes.len() as u64);
     }
-    let parts = match upload_parts(client, workspace, local, &remote).await {
+    let staging = String::new();
+    let parts = match upload_parts(client, workspace, local, &staging, &remote).await {
         Ok(parts) => parts,
         Err(error) => {
             let argv = vec![
@@ -763,21 +791,30 @@ async fn upload(
             return Err(error);
         }
     };
-    let argv = vec![
-        "/bin/sh".into(),
-        "-c".into(),
-        ASSEMBLE_SCRIPT.into(),
-        "sh".into(),
-        remote.clone(),
-        parts.to_string(),
-        mode,
-    ];
+    let argv = assemble_argv(&staging, &remote, parts, &mode);
     check_step("/bin/sh", run_remote(client, workspace, argv, None).await?)?;
     Ok(size)
 }
 
-pub(super) fn part_path(remote: &str, index: u64) -> String {
+/// Where part `index` of a large upload to `remote` goes, in `staging`.
+pub(super) fn upload_part_path(staging: &str, remote: &str, index: u64) -> String {
+    let _ = staging;
     format!("{remote}.cmux-part.{index:06}")
+}
+
+/// The remote command that joins `parts` parts in `staging` into `remote`
+/// with mode `mode` (octal).
+pub(super) fn assemble_argv(staging: &str, remote: &str, parts: u64, mode: &str) -> Vec<String> {
+    let _ = staging;
+    vec![
+        "/bin/sh".into(),
+        "-c".into(),
+        ASSEMBLE_SCRIPT.into(),
+        "sh".into(),
+        remote.to_owned(),
+        parts.to_string(),
+        mode.to_owned(),
+    ]
 }
 
 /// Writes the file as 8 MiB parts beside `remote`, `UPLOAD_WINDOW` writes in
@@ -786,6 +823,7 @@ async fn upload_parts(
     client: &WorkspaceClient,
     workspace: &WorkspaceId,
     local: &Path,
+    staging: &str,
     remote: &str,
 ) -> anyhow::Result<u64> {
     let mut file = tokio::fs::File::open(local).await?;
@@ -801,7 +839,7 @@ async fn upload_parts(
                 break;
             }
             done = buffer.len() < WRITE_FILE_BYTES;
-            let path = part_path(remote, index);
+            let path = upload_part_path(staging, remote, index);
             let request = WorkspaceRequest::WriteFile {
                 workspace: workspace.clone(),
                 path: workspace_relative(&path),

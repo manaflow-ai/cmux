@@ -2690,9 +2690,102 @@ fn exec_exit_status_reaches_run_without_a_message() {
 fn cp_paths_and_report() {
     assert_eq!(exec_cp::workspace_relative("/srv/app/a"), "srv/app/a");
     assert_eq!(exec_cp::workspace_relative("/"), "");
-    assert_eq!(exec_cp::part_path("/srv/a", 7), "/srv/a.cmux-part.000007");
     let report = exec_cp::transfer_report(20 * 1024 * 1024, Duration::from_secs(2));
     assert_eq!(report["bytes"], 20 * 1024 * 1024);
     assert_eq!(report["seconds"], 2.0);
     assert_eq!(report["mib_per_s"], 10.0);
+}
+
+#[test]
+fn exec_fails_when_output_was_lost() {
+    // P1 review of #43048: a truncated stream or a replay gap must not look
+    // like success to an agent.
+    assert_eq!(exec_cp::final_status(3, false).unwrap(), 3);
+    assert_eq!(exec_cp::final_status(0, false).unwrap(), 0);
+    assert!(exec_cp::final_status(0, true).is_err());
+    assert!(exec_cp::final_status(7, true).is_err());
+    // run() maps that error to 255 (see `exec_exit_status_reaches_run_without_a_message`).
+}
+
+#[test]
+fn download_never_widens_permissions() {
+    // P2-F2: the protocol says only whether the remote file is executable,
+    // so a new file starts from 0600 (0700) and the local umask applies.
+    assert_eq!(exec_cp::download_mode(false, 0o022, None), 0o600);
+    assert_eq!(exec_cp::download_mode(true, 0o022, None), 0o700);
+    assert_eq!(exec_cp::download_mode(true, 0o077, None), 0o700);
+    assert_eq!(exec_cp::download_mode(true, 0o177, None), 0o600);
+    // Replacing a file keeps its mode, narrowed to what a new file may have.
+    assert_eq!(exec_cp::download_mode(false, 0o022, Some(0o100600)), 0o600);
+    assert_eq!(exec_cp::download_mode(false, 0o022, Some(0o100400)), 0o400);
+    assert_eq!(exec_cp::download_mode(false, 0o022, Some(0o100644)), 0o600);
+    assert_eq!(exec_cp::download_mode(true, 0o022, Some(0o100750)), 0o700);
+}
+
+/// P2-F1 and P2-F3: the remote join of a large upload runs here on its real
+/// /bin/sh. A predictable staging name beside the destination (an attacker's
+/// symlink) must never be written through, and the joined file must stay
+/// 0600 until it is complete.
+#[cfg(target_os = "linux")]
+#[test]
+fn upload_assembly_writes_only_its_private_staging_and_stays_private() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tempfile::tempdir().unwrap();
+    let dest = root.path().join("out.bin");
+    let dest_text = dest.to_str().unwrap().to_owned();
+    let victim = root.path().join("victim");
+    fs::write(&victim, "keep").unwrap();
+    for name in ["out.bin.cmux-tmp", "out.bin.cmux-part.000000", "out.bin.cmux-part.000001"] {
+        std::os::unix::fs::symlink(&victim, root.path().join(name)).unwrap();
+    }
+    // A `cat` that records the mode of the file it appends to.
+    let bin = root.path().join("bin");
+    fs::create_dir(&bin).unwrap();
+    let log = root.path().join("cat.log");
+    fs::write(
+        bin.join("cat"),
+        "#!/bin/sh\nstat -L -c %a /proc/self/fd/1 >> \"$CAT_LOG\"\nexec /bin/cat \"$@\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(bin.join("cat"), fs::Permissions::from_mode(0o755)).unwrap();
+
+    let staging = tempfile::Builder::new().prefix(".cmux-cp.").tempdir_in(root.path()).unwrap();
+    let staging = staging.keep();
+    let staging_text = staging.to_str().unwrap().to_owned();
+    // Parts the way the daemon writes them (it refuses an existing path).
+    for (index, part) in ["first part, ", "second part"].iter().enumerate() {
+        let path = exec_cp::upload_part_path(&staging_text, &dest_text, index as u64);
+        let mut file = OpenOptions::new().write(true).create_new(true).open(&path);
+        if let Ok(file) = file.as_mut() {
+            file.write_all(part.as_bytes()).unwrap();
+        } else {
+            // The old layout's part names are the symlinks above: writing
+            // them is the overwrite this test is about.
+            fs::write(&path, part).unwrap();
+        }
+    }
+    let argv = exec_cp::assemble_argv(&staging_text, &dest_text, 2, "640");
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+    let status = Command::new("/bin/sh")
+        .arg("-c")
+        .arg("umask 022; exec \"$@\"")
+        .arg("sh")
+        .args(&argv)
+        .env("PATH", path)
+        .env("CAT_LOG", &log)
+        .status()
+        .unwrap();
+
+    assert!(status.success(), "assembly failed: {status}");
+    assert_eq!(fs::read_to_string(&victim).unwrap(), "keep", "wrote through a symlink");
+    assert!(!fs::symlink_metadata(&dest).unwrap().file_type().is_symlink());
+    assert_eq!(fs::read_to_string(&dest).unwrap(), "first part, second part");
+    assert_eq!(fs::metadata(&dest).unwrap().permissions().mode() & 0o777, 0o640);
+    let modes = fs::read_to_string(&log).unwrap();
+    assert!(
+        !modes.is_empty() && modes.lines().all(|mode| mode == "600"),
+        "joined file modes while it grew: {modes:?}"
+    );
+    assert!(!staging.exists(), "staging dir left behind");
 }
