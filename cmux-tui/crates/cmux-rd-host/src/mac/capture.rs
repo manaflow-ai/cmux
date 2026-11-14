@@ -1,5 +1,7 @@
-//! Display capture with ScreenCaptureKit, bound at run time (`super::sys`). The stream delivers
-//! a frame only when the display changed (an idle frame carries no pixels and is ignored);
+//! Display capture with ScreenCaptureKit, bound at run time (`super::sys`), of a whole display or
+//! of one window (`--display window:ID`, a CGWindowID: the window's own content, wherever it is and
+//! whatever covers it, scaled into the stream; the computer-use preview's thumbnail, hq#9837).
+//! The stream delivers a frame only when the display changed (an idle frame carries no pixels and is ignored);
 //! each complete frame replaces the newest pixel buffer, adds its dirty rectangles, and writes
 //! one byte to a pipe whose read end wakes the session's poll(2) loop. Nothing is copied: the
 //! encoder reads the pixel buffer's IOSurface.
@@ -30,6 +32,10 @@ pub const FALLBACK_FPS: u32 = 60;
 const MAX_REFRESH_FPS: u32 = 240;
 /// kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange.
 const PIXEL_420V: u32 = u32::from_be_bytes(*b"420v");
+/// kCGWindowListOptionIncludingWindow: the window list call describes only the named window.
+const WINDOW_LIST_INCLUDING_WINDOW: u32 = 1 << 3;
+/// `--display window:ID` names one window instead of a display.
+const WINDOW_PREFIX: &str = "window:";
 /// SCStreamOutputTypeScreen and SCFrameStatusComplete.
 const OUTPUT_SCREEN: c_long = 0;
 const FRAME_COMPLETE: i64 = 0;
@@ -238,6 +244,8 @@ fn hz_to_fps(hz: f64) -> Option<u32> {
 /// The refresh rate of the display `which` names (`main` or an index, as [`Capture::start`] picks
 /// it), else [`FALLBACK_FPS`] when it reads 0 or the display list is not available.
 pub fn refresh_fps(which: &str) -> u32 {
+    // A window: the main display's rate (its own display is not known before the capture starts).
+    let which = if which.starts_with(WINDOW_PREFIX) { "main" } else { which };
     let Ok((content, displays)) = shareable_displays() else { return FALLBACK_FPS };
     let rate = pick(&displays, which).ok().and_then(|(_, id)| refresh_rate(id));
     release_all(content, &displays);
@@ -266,9 +274,9 @@ extern "C" fn shareable_content_done(
     }
 }
 
-/// The displays ScreenCaptureKit offers, as (SCDisplay retained, display id), left to right.
-/// Empty, or an error, when Screen Recording is not allowed.
-fn shareable_displays() -> Res<(Id, Vec<(Id, u32)>)> {
+/// What ScreenCaptureKit offers (an SCShareableContent, retained). An error when Screen Recording
+/// is not allowed.
+fn shareable_content() -> Res<Id> {
     sys::load()?;
     let _pool = AutoreleasePool::new();
     let (tx, rx) = sync_channel::<ContentAnswer>(1);
@@ -286,15 +294,37 @@ fn shareable_displays() -> Res<(Id, Vec<(Id, u32)>)> {
         .recv_timeout(ANSWER_TIMEOUT)
         .map_err(|_| "screen capture did not answer (is Screen Recording allowed?)")?
         .map_err(|e| format!("screen capture is not allowed or failed: {e}"))?;
+    Ok(content)
+}
+
+/// The objects of an NSArray, borrowed from it.
+fn objects(list: Id) -> Vec<Id> {
+    if list.is_null() {
+        return Vec::new();
+    }
+    // SAFETY: -[NSArray count] and -objectAtIndex: on an array, with an index below count.
+    unsafe {
+        let count = msg::<unsafe extern "C" fn(Id, Sel) -> usize>()(list, sel(c"count"));
+        (0..count)
+            .map(|index| {
+                msg::<unsafe extern "C" fn(Id, Sel, usize) -> Id>()(
+                    list,
+                    sel(c"objectAtIndex:"),
+                    index,
+                )
+            })
+            .collect()
+    }
+}
+
+/// The displays ScreenCaptureKit offers, as (SCDisplay retained, display id), left to right.
+/// Empty, or an error, when Screen Recording is not allowed.
+fn shareable_displays() -> Res<(Id, Vec<(Id, u32)>)> {
+    let content = shareable_content()?;
+    let _pool = AutoreleasePool::new();
     let list = sys::send_id(content, c"displays");
-    // SAFETY: -[NSArray count] and -objectAtIndex: on the displays array.
-    let count = unsafe { msg::<unsafe extern "C" fn(Id, Sel) -> usize>()(list, sel(c"count")) };
-    let mut displays = Vec::with_capacity(count);
-    for index in 0..count {
-        // SAFETY: an index below count.
-        let display = unsafe {
-            msg::<unsafe extern "C" fn(Id, Sel, usize) -> Id>()(list, sel(c"objectAtIndex:"), index)
-        };
+    let mut displays = Vec::new();
+    for display in objects(list) {
         // SAFETY: -[SCDisplay displayID] returns a CGDirectDisplayID.
         let id =
             unsafe { msg::<unsafe extern "C" fn(Id, Sel) -> u32>()(display, sel(c"displayID")) };
@@ -312,6 +342,67 @@ fn release_all(content: Id, displays: &[(Id, u32)]) {
         sys::release(*display);
     }
     sys::release(content);
+}
+
+/// The window `id` names (an SCWindow, retained) and the content holding it (retained).
+fn shareable_window(id: u32) -> Res<(Id, Id)> {
+    let content = shareable_content()?;
+    let _pool = AutoreleasePool::new();
+    let list = sys::send_id(content, c"windows");
+    let found = objects(list).into_iter().find(|&window| {
+        // SAFETY: -[SCWindow windowID] returns a CGWindowID.
+        unsafe { msg::<unsafe extern "C" fn(Id, Sel) -> u32>()(window, sel(c"windowID")) == id }
+    });
+    match found {
+        Some(window) => Ok((content, sys::send_id(window, c"retain"))),
+        None => {
+            sys::release(content);
+            Err(format!("no window {id} to capture (closed, or Screen Recording not allowed)")
+                .into())
+        }
+    }
+}
+
+/// A window's frame in global points (CGEvent coordinates), from the window server's list.
+fn window_bounds(id: u32) -> Option<Bounds> {
+    // SAFETY: the copied list is released here; its first entry and that entry's bounds
+    // dictionary are borrowed from it until then.
+    unsafe {
+        let list = cg::CGWindowListCopyWindowInfo(WINDOW_LIST_INCLUDING_WINDOW, id);
+        if list.is_null() {
+            return None;
+        }
+        let mut rect = CGRect::default();
+        let found = cf::CFArrayGetCount(list) > 0 && {
+            let info = cf::CFArrayGetValueAtIndex(list, 0);
+            let bounds = cf::CFDictionaryGetValue(info, cg::kCGWindowBounds());
+            !bounds.is_null()
+                && cg::CGRectMakeWithDictionaryRepresentation(bounds, &raw mut rect) != 0
+        };
+        cf::CFRelease(list);
+        (found && rect.size.width >= 1.0 && rect.size.height >= 1.0).then_some(Bounds {
+            x: rect.origin.x,
+            y: rect.origin.y,
+            width: rect.size.width,
+            height: rect.size.height,
+        })
+    }
+}
+
+/// Pixels per point of the main display (2 on a Retina panel): a window's pixel size before the
+/// stream scales it.
+fn main_backing_scale() -> f64 {
+    // SAFETY: CGMainDisplayID and CGDisplayBounds have no preconditions.
+    let (main, points) = unsafe {
+        let main = cg::CGMainDisplayID();
+        (main, cg::CGDisplayBounds(main).size.width)
+    };
+    let pixels = f64::from(native_size(main).0);
+    if points >= 1.0 {
+        (pixels / points).max(1.0)
+    } else {
+        1.0
+    }
 }
 
 /// Every display's streamed size (native pixels fitted to the decoder, as a session
@@ -491,15 +582,22 @@ extern "C" fn capture_stopped(block: *mut Block<SyncSender<()>>, _error: Id) {
 }
 
 impl Capture {
+    /// `which`: `main`, a display index counted left to right, or `window:ID` (one window).
     pub fn start(which: &str, fps: u32, max_width: Option<u32>) -> Res<Self> {
+        if let Some(id) = which.strip_prefix(WINDOW_PREFIX) {
+            let id: u32 = id
+                .parse()
+                .map_err(|_| format!("--display {which}: window:ID takes a window number"))?;
+            return Self::window(id, fps, max_width);
+        }
         let (content, displays) = shareable_displays()?;
         let picked = pick(&displays, which);
-        let result = picked.and_then(|(display, id)| Self::stream(display, id, fps, max_width));
+        let result = picked.and_then(|(display, id)| Self::display(display, id, fps, max_width));
         release_all(content, &displays);
         result
     }
 
-    fn stream(display: Id, id: u32, fps: u32, max_width: Option<u32>) -> Res<Self> {
+    fn display(display: Id, id: u32, fps: u32, max_width: Option<u32>) -> Res<Self> {
         let _pool = AutoreleasePool::new();
         // SAFETY: a display id from ScreenCaptureKit.
         let frame = unsafe { cg::CGDisplayBounds(id) };
@@ -511,24 +609,76 @@ impl Capture {
         };
         let native = native_size(id);
         let size = fit(native.0, native.1, max_width);
+        let empty = sys::send_id(sys::class(c"NSArray"), c"array");
+        // SAFETY: -[SCContentFilter initWithDisplay:excludingWindows:] on a fresh alloc.
+        let filter = unsafe {
+            msg::<unsafe extern "C" fn(Id, Sel, Id, Id) -> Id>()(
+                sys::send_id(sys::class(c"SCContentFilter"), c"alloc"),
+                sel(c"initWithDisplay:excludingWindows:"),
+                display,
+                empty,
+            )
+        };
+        Self::stream(filter, format!("display {id}"), bounds, size, fps, false)
+    }
+
+    /// One window's own content (`initWithDesktopIndependentWindow:`), scaled to fit the stream.
+    fn window(id: u32, fps: u32, max_width: Option<u32>) -> Res<Self> {
+        let (content, window) = shareable_window(id)?;
+        let _pool = AutoreleasePool::new();
+        let result = (|| {
+            let bounds = window_bounds(id).ok_or_else(|| format!("window {id} has no bounds"))?;
+            let scale = main_backing_scale();
+            let pixels = |points: f64| ((points * scale).round() as u32).max(2);
+            let size = fit(pixels(bounds.width), pixels(bounds.height), max_width);
+            // SAFETY: -[SCContentFilter initWithDesktopIndependentWindow:] on a fresh alloc.
+            let filter = unsafe {
+                msg::<unsafe extern "C" fn(Id, Sel, Id) -> Id>()(
+                    sys::send_id(sys::class(c"SCContentFilter"), c"alloc"),
+                    sel(c"initWithDesktopIndependentWindow:"),
+                    window,
+                )
+            };
+            Self::stream(filter, format!("window {id}"), bounds, size, fps, true)
+        })();
+        sys::release(window);
+        sys::release(content);
+        result
+    }
+
+    /// Streams what `filter` (+1, released here on every path) shows at `size` pixels.
+    fn stream(
+        filter: Id,
+        label: String,
+        bounds: Bounds,
+        size: (u32, u32),
+        fps: u32,
+        scale_to_fit: bool,
+    ) -> Res<Self> {
+        let _pool = AutoreleasePool::new();
         let scale = f64::from(size.0) / bounds.width.max(1.0);
         // SAFETY: each message below is sent with its documented C signature to the object
         // just created (alloc/init pairs return +1 references this capture releases).
         unsafe {
             // The pipe, the output and its queue first: every later error path releases them.
-            let (wake_read, wake_write) = wake_pipe()?;
-            let class = output_class()?;
+            let (wake_read, wake_write) = match wake_pipe() {
+                Ok(pipe) => pipe,
+                Err(e) => {
+                    sys::release(filter);
+                    return Err(e);
+                }
+            };
+            let class = match output_class() {
+                Ok(class) => class,
+                Err(e) => {
+                    sys::release(filter);
+                    return Err(e);
+                }
+            };
             let output = sys::send_id(sys::send_id(class, c"alloc"), c"init");
             let queue = sys::system::dispatch_queue_create(
                 c"com.cmuxterm.rd.capture".as_ptr(),
                 std::ptr::null(),
-            );
-            let empty = sys::send_id(sys::class(c"NSArray"), c"array");
-            let filter = msg::<unsafe extern "C" fn(Id, Sel, Id, Id) -> Id>()(
-                sys::send_id(sys::class(c"SCContentFilter"), c"alloc"),
-                sel(c"initWithDisplay:excludingWindows:"),
-                display,
-                empty,
             );
             let config = sys::send_id(sys::class(c"SCStreamConfiguration"), c"new");
             if filter.is_null() || config.is_null() {
@@ -559,6 +709,18 @@ impl Capture {
                 QUEUE_DEPTH,
             );
             msg::<unsafe extern "C" fn(Id, Sel, bool)>()(config, sel(c"setShowsCursor:"), true);
+            // A window is scaled into the stream's size, not cropped to it (macOS 14 and later;
+            // an older system draws it at its own size into the top left).
+            let fits = sel(c"setScalesToFit:");
+            if scale_to_fit
+                && msg::<unsafe extern "C" fn(Id, Sel, Sel) -> bool>()(
+                    config,
+                    sel(c"respondsToSelector:"),
+                    fits,
+                )
+            {
+                msg::<unsafe extern "C" fn(Id, Sel, bool)>()(config, fits, true);
+            }
             msg::<unsafe extern "C" fn(Id, Sel, *const c_void)>()(
                 config,
                 sel(c"setColorSpaceName:"),
@@ -607,7 +769,7 @@ impl Capture {
                 .map_err(|_| "capture did not start (no answer from ScreenCaptureKit)")?
                 .map_err(|e| format!("capture did not start: {e}"))?;
             eprintln!(
-                "cmux-rd host: capturing display {id} ({}x{} px, {}x{} pt at {},{}), {fps} fps",
+                "cmux-rd host: capturing {label} ({}x{} px, {}x{} pt at {},{}), {fps} fps",
                 size.0, size.1, bounds.width, bounds.height, bounds.x, bounds.y
             );
             Ok(capture)
@@ -712,6 +874,13 @@ mod tests {
         assert_eq!(fit(3456, 2234, None), (3342, 2160));
         assert_eq!(fit(1920, 1080, Some(1280)), (1280, 720));
         assert_eq!(fit(1366, 768, None), (1366, 768));
+    }
+
+    #[test]
+    fn a_window_thumbnail_keeps_its_aspect_at_the_long_side() {
+        // The computer-use preview's rung: 360 px on the long side of a Retina window.
+        assert_eq!(fit(2880, 1800, Some(360)), (360, 224));
+        assert_eq!(fit(3840, 2160, Some(360)), (360, 202));
     }
 
     #[test]
