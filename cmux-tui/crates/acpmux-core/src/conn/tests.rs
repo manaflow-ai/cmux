@@ -33,6 +33,72 @@ fn request_shape_is_tagged() {
     assert_eq!(value, json!({"method":"credit","params":{"sid":"s","consumed":4}}));
 }
 
+#[test]
+fn peer_request_allowlist_names_every_refused_shape() {
+    use crate::wire::{Anchor, AnchorSide, ListKey, ListView, Page, PageKey, PageSide, Sub};
+    use acpmux_book::index::{FolderKey, ListFilter, RowKey};
+
+    let mut live_sub = Sub::new("s", "list");
+    live_sub.view = Some(ListView::Live);
+    assert!(validate_peer_request(&Request::Sub(Sub::new("s", "chat:session"))).is_err());
+
+    for view in [ListView::All, ListView::Folders] {
+        let mut refused = live_sub.clone();
+        refused.view = Some(view);
+        assert!(validate_peer_request(&Request::Sub(refused)).is_err());
+    }
+
+    let filters = [
+        ListFilter { workspace: Some("workspace".into()), ..ListFilter::default() },
+        ListFilter { origin: Some("origin".into()), ..ListFilter::default() },
+        ListFilter { state: Some("state".into()), ..ListFilter::default() },
+        ListFilter { family: Some(RowKey::new("local", "root")), ..ListFilter::default() },
+        ListFilter { folder: Some(FolderKey::new("local", "/folder")), ..ListFilter::default() },
+        ListFilter { forks: Some(RowKey::new("local", "root")), ..ListFilter::default() },
+        ListFilter { cold: true, ..ListFilter::default() },
+    ];
+    for filter in &filters {
+        let mut refused = live_sub.clone();
+        refused.filter = Some(filter.clone());
+        assert!(validate_peer_request(&Request::Sub(refused)).is_err());
+    }
+
+    let mut anchored = live_sub;
+    anchored.anchor = Some(Anchor::List {
+        key: ListKey { last_activity: 1, chat_id: "chat".into(), origin: "local".into() },
+        side: AnchorSide::After,
+    });
+    assert!(validate_peer_request(&Request::Sub(anchored)).is_err());
+
+    let mut keyed = Page::new("s", "list", PageSide::After, 0);
+    keyed.view = Some(ListView::Live);
+    keyed.keys = Some(vec![PageKey::Summary(ListKey {
+        last_activity: 1,
+        chat_id: "chat".into(),
+        origin: "local".into(),
+    })]);
+    assert!(validate_peer_request(&Request::Page(keyed.clone())).is_err());
+    assert!(
+        validate_peer_request(&Request::Page(Page {
+            stream: "chat:session".into(),
+            ..keyed.clone()
+        }))
+        .is_err()
+    );
+    for view in [ListView::All, ListView::Folders] {
+        let mut refused = keyed.clone();
+        refused.keys = None;
+        refused.view = Some(view);
+        assert!(validate_peer_request(&Request::Page(refused)).is_err());
+    }
+    for filter in &filters {
+        let mut refused = keyed.clone();
+        refused.keys = None;
+        refused.filter = Some(filter.clone());
+        assert!(validate_peer_request(&Request::Page(refused)).is_err());
+    }
+}
+
 #[tokio::test]
 async fn interrupted_write_preserves_frame_bytes_and_completed_cursor() {
     let (mut writer, mut reader) = tokio::io::duplex(7);
