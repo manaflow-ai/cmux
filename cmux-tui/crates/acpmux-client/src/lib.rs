@@ -160,6 +160,10 @@ struct MirrorState {
 
 #[derive(Clone, Debug, Default)]
 struct ParentFacts {
+    /// The daemon has answered this key, including with `missing`/`gone`.
+    /// `answered` says whether that answer carried a row the mirror can use
+    /// as a parent for v1 rendering.
+    known: bool,
     answered: bool,
     archived: bool,
     parent: Option<(String, String)>,
@@ -616,7 +620,9 @@ where
             if !mirror.internal_wanted.contains(&id) {
                 mirror.wanted.remove(&id);
             }
-            mirror.pending_wanted_ids.remove(&id);
+            if !mirror.internal_wanted.contains(&id) {
+                mirror.pending_wanted_ids.remove(&id);
+            }
         }
         Ok(())
     }
@@ -724,7 +730,7 @@ where
             .get(sid)
             .and_then(|sub| sub.mirror.as_ref())
             .and_then(|mirror| mirror.parent_facts.get(id))?;
-        if !facts.answered {
+        if !facts.known || !facts.answered {
             return None;
         }
         let mut parent = Summary::new(id.1.clone());
@@ -744,7 +750,12 @@ where
         let parent = Self::parent_identity(summary);
         let previous = mirror.parent_facts.insert(
             id.clone(),
-            ParentFacts { answered: true, archived: summary.archived, parent: parent.clone() },
+            ParentFacts {
+                known: true,
+                answered: true,
+                archived: summary.archived,
+                parent: parent.clone(),
+            },
         );
         if let Some(old_parent) = previous.as_ref().and_then(|facts| facts.parent.clone())
             && Some(old_parent) != parent
@@ -754,10 +765,9 @@ where
         if let Some(parent) = parent.clone() {
             mirror.child_parent.insert(id.clone(), parent.clone());
             mirror.parent_children.entry(parent.clone()).or_default().insert(id.clone());
-            let parent_missing =
-                !mirror.parent_facts.get(&parent).is_some_and(|facts| facts.answered)
-                    && !mirror.held.contains_key(&parent)
-                    && !mirror.wanted.contains_key(&parent);
+            let parent_missing = !mirror.parent_facts.get(&parent).is_some_and(|facts| facts.known)
+                && !mirror.held.contains_key(&parent)
+                && !mirror.wanted.contains_key(&parent);
             if parent_missing && mirror.wanted.len() < 4096 {
                 let key = ListKey {
                     last_activity: 0,
@@ -772,7 +782,7 @@ where
             mirror.child_parent.remove(&id);
         }
         let parent_changed = previous.as_ref().is_none_or(|old| {
-            !old.answered || old.archived != summary.archived || old.parent != parent
+            !old.known || !old.answered || old.archived != summary.archived || old.parent != parent
         });
         if parent_changed && let Some(children) = mirror.parent_children.get(&id).cloned() {
             for child in children {
@@ -818,22 +828,14 @@ where
         if state == OriginState::Removed {
             let affected: Vec<_> = mirror
                 .parent_facts
-                .iter_mut()
+                .iter()
                 .filter_map(|((row_origin, row_id), facts)| {
-                    (row_origin == &origin && facts.answered).then(|| {
-                        facts.answered = false;
-                        (row_origin.clone(), row_id.clone())
-                    })
+                    (row_origin == &origin && facts.known)
+                        .then(|| (row_origin.clone(), row_id.clone()))
                 })
                 .collect();
             for id in affected {
-                if let Some(children) = mirror.parent_children.get(&id).cloned() {
-                    for child in children {
-                        if let Some(key) = mirror.held.get(&child).cloned() {
-                            Self::queue_pending_wanted(mirror, key);
-                        }
-                    }
-                }
+                Self::invalidate_parent(mirror, &id);
             }
         }
     }
@@ -845,7 +847,6 @@ where
             return;
         }
         Self::detach_child(mirror, child);
-        Self::prune_parent_tracking(mirror);
     }
 
     fn render_row(&self, sid: &str, row: T) -> T {
@@ -922,6 +923,9 @@ where
     fn remove_held(mirror: &mut MirrorState, id: &(String, String)) {
         mirror.held.remove(id);
         Self::detach_child(mirror, id);
+        if !mirror.parent_children.contains_key(id) {
+            mirror.parent_facts.remove(id);
+        }
     }
 
     fn prune_parent_tracking(mirror: &mut MirrorState) {
@@ -947,14 +951,30 @@ where
                 mirror.pending_wanted_ids.remove(&parent);
             }
         }
+        mirror.parent_facts.retain(|id, _| {
+            mirror.held.contains_key(id) || mirror.parent_children.contains_key(id)
+        });
     }
 
     fn evict_internal_wanted(mirror: &mut MirrorState) -> bool {
-        let Some(parent) = mirror.internal_wanted.iter().next().cloned() else { return false };
+        let candidates: Vec<_> = mirror.internal_wanted.iter().cloned().collect();
+        let mut parent = None;
+        for id in candidates {
+            if mirror.caller_wanted.contains(&id) {
+                // A caller's key cannot be evicted. It remains wanted, but
+                // no longer needs an internal reason to retain it.
+                mirror.internal_wanted.remove(&id);
+            } else {
+                parent = Some(id);
+                break;
+            }
+        }
+        let Some(parent) = parent else { return false };
         mirror.internal_wanted.remove(&parent);
         mirror.wanted.remove(&parent);
         mirror.pending_wanted_ids.remove(&parent);
         if let Some(facts) = mirror.parent_facts.get_mut(&parent) {
+            facts.known = false;
             facts.answered = false;
         }
         if let Some(children) = mirror.parent_children.get(&parent).cloned() {
@@ -969,6 +989,12 @@ where
 
     fn invalidate_parent(mirror: &mut MirrorState, id: &(String, String)) {
         let Some(facts) = mirror.parent_facts.get_mut(id) else { return };
+        if !facts.known {
+            facts.known = true;
+        }
+        if !facts.answered {
+            return;
+        }
         facts.answered = false;
         if let Some(children) = mirror.parent_children.get(id).cloned() {
             for child in children {
@@ -1634,11 +1660,6 @@ where
                 mirror.pending_wanted_ids.remove(&Self::row_identity(key));
             }
         }
-        if let Some(sub) = self.subscriptions.get_mut(&sid)
-            && let Some(mirror) = sub.mirror.as_mut()
-        {
-            Self::prune_parent_tracking(mirror);
-        }
         if !page.rest.is_empty() {
             if answered == 0 {
                 self.protocol_error("wanted page rest made no progress");
@@ -1787,11 +1808,6 @@ where
                     if !live && let Some(key) = value.as_ref().and_then(Self::row_key) {
                         self.release_parent_if_unused(&sid, &Self::row_identity(&key));
                     }
-                    if let Some(sub) = self.subscriptions.get_mut(&sid)
-                        && let Some(mirror) = sub.mirror.as_mut()
-                    {
-                        Self::prune_parent_tracking(mirror);
-                    }
                     if left {
                         let charge = !charged;
                         charged = true;
@@ -1847,11 +1863,6 @@ where
                         mirror.pending_wanted_ids.remove(&id);
                     }
                     self.release_parent_if_unused(&sid, &(origin.clone(), chat_id.clone()));
-                    if let Some(sub) = self.subscriptions.get_mut(&sid)
-                        && let Some(mirror) = sub.mirror.as_mut()
-                    {
-                        Self::prune_parent_tracking(mirror);
-                    }
                     let why = raw.get("why").and_then(Value::as_str).map(str::to_owned);
                     self.push_change(
                         Change::Gone { sid: sid.clone(), seq, origin, chat_id, why, replay },
@@ -3245,6 +3256,68 @@ tail"#;
                 .held
                 .contains_key(&("local".into(), "d".into()))
         );
+    }
+
+    #[test]
+    fn mirror_deleted_parent_is_not_requeued_forever() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        while client.take_send().is_some() {}
+        let mut sub = Sub::new("m", "list");
+        sub.rows = Some("v1".into());
+        client.subscribe_mirror(sub, std::iter::empty(), false).unwrap();
+        let _ = client.take_send();
+        let mut parent = Summary::new("parent");
+        parent.state = "idle".into();
+        let mut child = Summary::new("child");
+        child.state = "waiting".into();
+        child.parent = Some(parent.key());
+        let window = Frame::json(
+            FrameKind::Window,
+            &serde_json::json!({
+                "sid":"m","cursor":1,
+                "rows":[serde_json::to_value(&parent).unwrap(),serde_json::to_value(&child).unwrap()],
+                "hasBefore":false,"hasAfter":false,"edition":1
+            }),
+        )
+        .unwrap()
+        .encode();
+        client.received(&window);
+        assert!(matches!(client.next_change(), Some(Change::Window(_))));
+        let _ = client.take_send().expect("first walk page");
+        finish_empty_walk(&mut client);
+
+        let gone = receive_changes(
+            &mut client,
+            FrameKind::Delta,
+            serde_json::json!({
+                "sid":"m","ops":[{"op":"gone","seq":2,"origin":"local","chatId":"parent"}]
+            }),
+        );
+        assert!(matches!(gone.as_slice(), [Change::Gone { chat_id, .. }] if chat_id == "parent"));
+        let reads = take_pages(&mut client);
+        assert_eq!(reads.len(), 1);
+        assert_eq!(reads[0].pointer("/params/keys/0/chatId"), Some(&Value::String("child".into())));
+
+        let child_page = Frame::json(
+            FrameKind::Page,
+            &serde_json::json!({
+                "sid":"m","rows":[serde_json::to_value(&child).unwrap()],
+                "hasBefore":false,"hasAfter":false
+            }),
+        )
+        .unwrap()
+        .encode();
+        assert_eq!(client.received(&child_page), child_page.len());
+        let changes: Vec<_> = std::iter::from_fn(|| client.next_change()).collect();
+        assert!(matches!(changes.as_slice(), [Change::Summary { .. }]));
+        assert!(take_pages(&mut client).is_empty());
     }
 
     #[test]
