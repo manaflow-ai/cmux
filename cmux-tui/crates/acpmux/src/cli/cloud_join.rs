@@ -18,6 +18,7 @@ pub(crate) use enroll::{
     finish_leave_at_start, leave_if_auto, leave_pending, record_leave_intent, relay_may_start,
 };
 pub(crate) use self_capabilities::{
+    state_after_leave as state_capabilities_after_leave,
     state_at_start as state_capabilities_at_start,
     state_on_reconnect as state_capabilities_on_reconnect,
 };

@@ -247,7 +247,7 @@ where
 }
 
 fn remove_mark(home: &Path, file: &str) {
-    match std::fs::remove_file(home.join(file)) {
+    match crate::home_fs::remove_file(home.join(file)) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => tracing::warn!(file, "sign-in enroll: a mark stayed: {e}"),

@@ -141,7 +141,7 @@ pub(super) fn remove_local(home: &std::path::Path, copy: bool) -> Result<Vec<&'s
             .into_iter()
             .flatten()
     {
-        match std::fs::remove_file(home.join(file)) {
+        match crate::home_fs::remove_file(home.join(file)) {
             Ok(()) if !label.is_empty() => removed.push(label),
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}

@@ -73,7 +73,15 @@ async fn enroll_transition<D: Future<Output = Option<MeshRelayConfig>>>(
     tracing::info!(?outcome, "sign-in enroll");
     let relay = match outcome {
         EnrollOutcome::Joined | EnrollOutcome::AlreadyJoined => {
-            Some(reconcile_relay(hub, on_disk().await).await)
+            // A new join (this enroll may have finished another account's leave first, with no
+            // stop of the relay between) never keeps the relay the last join's config started.
+            let replaced = outcome == EnrollOutcome::Joined;
+            let relay = reconcile_relay(hub, on_disk().await, replaced).await;
+            // So does the carrier: one the last join started runs again on this join's config.
+            if replaced && stop_carrier(hub) {
+                start_carrier(hub, carrier_websocket(hub)).await;
+            }
+            Some(relay)
         }
         _ => None,
     };
@@ -90,14 +98,27 @@ async fn relay_on_disk(hub: &Arc<Hub>) -> Option<MeshRelayConfig> {
 
 /// Makes the running relay what config.json says (`on_disk`), with the join transition held:
 /// started when it names one and none runs, stopped (with its hub client) when it names none.
-async fn reconcile_relay(hub: &Arc<Hub>, on_disk: Option<MeshRelayConfig>) -> &'static str {
+/// A running relay is kept only when it runs on that same config and the join is the same
+/// (`replaced` false): otherwise it is stopped and started again, so the control grants, hub and
+/// credential it holds are never the last join's.
+async fn reconcile_relay(
+    hub: &Arc<Hub>,
+    on_disk: Option<MeshRelayConfig>,
+    replaced: bool,
+) -> &'static str {
     let Some(relay) = on_disk else {
         stop_joined(hub).await;
         return "off";
     };
     let mut slot = hub.mesh_relay.lock().await;
-    if slot.as_ref().is_some_and(|relay| !relay.is_finished()) {
-        return "running";
+    if slot.as_ref().is_some_and(|running| !running.is_finished()) {
+        let same = hub.config.read().await.mesh_relay.as_ref() == Some(&relay);
+        if same && !replaced {
+            return "running";
+        }
+        if let Some(old) = slot.take() {
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(6), old.stop()).await;
+        }
     }
     start_relay_with(hub, &mut slot, relay).await
 }
@@ -186,10 +207,25 @@ pub(crate) fn stop_carrier(_hub: &Hub) -> bool {
     false
 }
 
+/// The loopback address the start gave the carrier, if it gave one.
+#[cfg(feature = "hub-carrier")]
+fn carrier_websocket(hub: &Hub) -> Option<std::net::SocketAddr> {
+    hub.hub_carrier_websocket.get().copied()
+}
+
+#[cfg(not(feature = "hub-carrier"))]
+fn carrier_websocket(_hub: &Hub) -> Option<std::net::SocketAddr> {
+    None
+}
+
 /// Starts the hub carrier on the relay config.json names, with `carrier` (the daemon's loopback
 /// WebSocket address; None for a copied home), unless one runs. The caller holds the join
 /// transition.
 async fn start_carrier(hub: &Arc<Hub>, carrier: Option<std::net::SocketAddr>) {
+    #[cfg(feature = "hub-carrier")]
+    if let Some(websocket) = carrier {
+        let _ = hub.hub_carrier_websocket.set(websocket);
+    }
     #[cfg(feature = "hub-carrier")]
     if carrier.is_some() && hub.hub_carrier_serve.lock_or_recover().is_none() {
         crate::hub_carrier::start_kept(hub, carrier).await;
@@ -235,16 +271,18 @@ async fn at_start<D: Future<Output = Option<MeshRelayConfig>> + Send + 'static>(
     carrier: impl FnOnce(Arc<Hub>) -> BoxFuture<'static, ()> + Send + 'static,
 ) -> Option<tokio::task::JoinHandle<()>> {
     if !pending {
-        reconcile_relay(hub, on_disk().await).await;
+        reconcile_relay(hub, on_disk().await, false).await;
         carrier(Arc::clone(hub)).await;
         drop(join);
         return None;
     }
+    let owner = Arc::clone(hub);
     let hub = Arc::clone(hub);
-    // task-owner: one leave and maybe the relay and carrier start, holding the join transition;
-    // kept on `Hub::join_start`, and ended by shutdown. The leave waits at most for the join
-    // lock and the hub's bounded answer.
-    Some(tokio::spawn(async move {
+    // task-owner: one leave and maybe the relay and carrier start, holding the join transition.
+    // Owned by the hub's scope; its handle is also kept on `Hub::join_start`, which shutdown
+    // aborts and joins first. The leave waits at most for the join lock and the hub's bounded
+    // answer.
+    Some(owner.scope.spawn_named("join-at-start", async move {
         let _join = join;
         match finish.await {
             Some(outcome) if !crate::cli::cloud_join::relay_may_start(&outcome) => {
@@ -259,9 +297,11 @@ async fn at_start<D: Future<Output = Option<MeshRelayConfig>> + Send + 'static>(
                 if let Some(outcome) = outcome {
                     tracing::info!(left = outcome.left, kept = ?outcome.kept, "sign-out leave at start");
                 }
-                reconcile_relay(&hub, on_disk().await).await;
+                reconcile_relay(&hub, on_disk().await, false).await;
                 if joined {
                     carrier(hub).await;
+                    // The start's capability statement waited for this leave: it goes now.
+                    crate::cli::cloud_join::state_capabilities_after_leave();
                 }
             }
         }
@@ -506,6 +546,51 @@ mod tests {
         assert_eq!(sign_in.await.unwrap(), (EnrollOutcome::Joined, Some("started")));
         assert!(relay_runs(&hub).await, "the new join's relay runs");
         assert!(hub.mesh.get().is_some());
+        super::stop_joined(&hub).await;
+    }
+
+    /// An enroll that replaced the join (another account's leave finished inside it) restarts a
+    /// running relay on the new config: a daemon the last join's `controlFrom` allowed, which the
+    /// new config no longer names, holds no grant in the relay that runs after. One on the same
+    /// config and join keeps running.
+    #[tokio::test]
+    async fn a_replaced_join_restarts_the_relay_without_the_last_joins_grants() {
+        let hub = memory_hub();
+        let (fresh, _seen) = recording_hub().await;
+        let mut old = fresh.clone();
+        old.control_from = vec![crate::mesh_http::MeshControlFrom {
+            daemon_id: "daemon_allowed_before".into(),
+            ..Default::default()
+        }];
+        let mut slot = hub.mesh_relay.lock().await;
+        assert_eq!(super::start_relay_with(&hub, &mut slot, old.clone()).await, "started");
+        drop(slot);
+        // The same join, its config unchanged: kept.
+        let disk: Disk = Arc::new(Mutex::new(Some(old.clone())));
+        let kept =
+            super::enroll_transition(&hub, async { EnrollOutcome::AlreadyJoined }, read(&disk))
+                .await;
+        assert_eq!(kept, (EnrollOutcome::AlreadyJoined, Some("running")));
+        // A new join whose config no longer names that daemon: started again on it.
+        *disk.lock().unwrap() = Some(fresh.clone());
+        let joined =
+            super::enroll_transition(&hub, async { EnrollOutcome::Joined }, read(&disk)).await;
+        assert_eq!(joined, (EnrollOutcome::Joined, Some("started")));
+        assert!(relay_runs(&hub).await);
+        let running = hub.config.read().await.mesh_relay.clone().unwrap();
+        assert!(running.control_from.is_empty(), "no grant of the last join's: {running:?}");
+        // A new join on the very same config still restarts (the join under it changed).
+        let again =
+            super::enroll_transition(&hub, async { EnrollOutcome::Joined }, read(&disk)).await;
+        assert_eq!(again, (EnrollOutcome::Joined, Some("started")));
+        // The same join with a changed config (a grant removed on disk) restarts too.
+        *disk.lock().unwrap() = Some(old);
+        super::enroll_transition(&hub, async { EnrollOutcome::AlreadyJoined }, read(&disk)).await;
+        *disk.lock().unwrap() = Some(fresh);
+        let changed =
+            super::enroll_transition(&hub, async { EnrollOutcome::AlreadyJoined }, read(&disk))
+                .await;
+        assert_eq!(changed, (EnrollOutcome::AlreadyJoined, Some("started")));
         super::stop_joined(&hub).await;
     }
 

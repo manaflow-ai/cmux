@@ -15,6 +15,8 @@ struct CloudSignInEnrollLeaveRetryTests {
         var leaveAccounts: [String?] = []
         /// Whether recording a sign-out's account works (the CLI ran).
         var records = true
+        /// What an enroll answers; `unavailable` makes the enroll wait to retry.
+        var enrollOutcome = "alreadyJoined"
         func record(_ userId: String) -> Bool {
             calls.append("record:\(userId)")
             return records
@@ -27,7 +29,7 @@ struct CloudSignInEnrollLeaveRetryTests {
                 return nil
             }
             guard up else { return nil }
-            return method == "_acpmux/machine_leave_if_auto" ? ["left": true] : ["outcome": "alreadyJoined"]
+            return method == "_acpmux/machine_leave_if_auto" ? ["left": true] : ["outcome": enrollOutcome]
         }
         var leaves: Int { calls.filter { $0 == "_acpmux/machine_leave_if_auto" }.count }
         var enrolls: Int { calls.filter { $0 == "_acpmux/machine_enroll" }.count }
@@ -149,6 +151,39 @@ struct CloudSignInEnrollLeaveRetryTests {
         await next.settled()
         #expect(relaunched.calls == ["_acpmux/machine_leave_if_auto"])
         #expect(relaunched.leaveAccounts == [nil])
+    }
+
+    @Test func aSignOutDuringAnEnrollsRetryWaitRecordsTheAccountAtOnce() async {
+        let acpmux = FakeAcpmux()
+        acpmux.enrollOutcome = "unavailable"
+        let enroll = enroll(over: acpmux)
+        enroll.changed(to: .signedIn("user_a"))
+        // The enroll got no join (acpmux was restarting): it now waits 30 seconds to retry.
+        while acpmux.enrolls == 0 { await Task.yield() }
+        // Signed out meanwhile, then the app quits: the account is recorded before the wait ends,
+        // and before any leave request goes.
+        enroll.changed(to: .signedOut)
+        #expect(await enroll.recordedLeave() == true)
+        #expect(acpmux.calls == ["_acpmux/machine_enroll", "record:user_a"])
+        #expect(acpmux.leaves == 0, "only the leave request waits for the enroll before it")
+        // The next launch, signed out, knows no account: its leave names none, and acpmux leaves as
+        // the recorded one (`enroll.rs`).
+        let relaunched = FakeAcpmux()
+        let next = self.enroll(over: relaunched)
+        next.changed(to: .signedOut)
+        await next.settled()
+        #expect(relaunched.leaveAccounts == [nil])
+    }
+
+    @Test func anAccountSwitchRecordsTheLastAccountAtOnce() async {
+        let acpmux = FakeAcpmux()
+        acpmux.enrollOutcome = "unavailable"
+        let enroll = enroll(over: acpmux)
+        enroll.changed(to: .signedIn("user_a"))
+        while acpmux.enrolls == 0 { await Task.yield() }
+        enroll.changed(to: .signedIn("user_b"))
+        #expect(await enroll.recordedLeave() == true)
+        #expect(acpmux.calls.last == "record:user_a")
     }
 
     @Test func aReturnWithNoLeavePendingSendsNothing() async {

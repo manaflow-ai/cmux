@@ -320,6 +320,17 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "agentBoard.show",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agentBoard.show", "Show Agent Board"),
+        keywords: &["agent board", "board", "work tracking", "ledger", "evidence", "decisions", "permutations", "agents"],
+        category: "agents",
+        symbol: "square.grid.3x3.topleft.filled",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action agent-board-show",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "palette.toggleDictation",
         group: GROUP,
         title: t("ActionCatalog", "action.palette.toggleDictation", "Toggle Dictation"),
@@ -604,6 +615,18 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         requires: &["terminalFocused"],
         cli_name: "agent open-terminal-as-chat",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "palette.toggleTerminalChat",
+        group: GROUP,
+        title: t("ActionCatalog", "action.palette.toggleTerminalChat", "Toggle Terminal and Chat"),
+        keywords: &["agent", "chat", "terminal", "gui", "swap", "switch"],
+        default_shortcut: Some(Shortcut { key: "`", modifiers: OPT | CMD }),
+        category: "agents",
+        symbol: "arrow.left.arrow.right",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "agent toggle-terminal-chat",
         ..Action::DEFAULT
     },
     Action {

@@ -36,6 +36,10 @@ type Frame = {
 };
 
 await requireBrowserLane("composer-smooth-grow.test.ts", async () => {
+  /// Pins the composer dock to its push arm (composer/dockMotion.experiment.ts): these cases measure the
+  /// rows riding the composer's growth, which the overlay arm (the default) leaves still under the card
+  /// by design (test/agent-pane-composer-dock-motion.test.ts measures both arms).
+  const pushDock = () => localStorage.setItem("cmux.experiments", JSON.stringify({ "composer-dock-motion": "push" }));
   setDefaultTimeout(280_000);
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
@@ -127,8 +131,9 @@ await requireBrowserLane("composer-smooth-grow.test.ts", async () => {
     };
   };
 
-  const open = async (reducedMotion: "reduce" | "no-preference") => {
+  const open = async (reducedMotion: "reduce" | "no-preference", look?: "push") => {
     const page = await browser!.newPage({ viewport: { width: 1100, height: 820 } });
+    if (look === "push") await page.addInitScript(pushDock);
     await page.emulateMedia({ reducedMotion });
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/?mock`);
@@ -203,8 +208,13 @@ await requireBrowserLane("composer-smooth-grow.test.ts", async () => {
     return sorted[Math.floor(sorted.length / 2)]!;
   };
 
+  // Past two lines of the prompt at 1100 px in either look: Codex's (the default since #42247) holds
+  // two lines' room at rest (composerLook.css --acpmux-codex-editor-min), so a wrap to a second line
+  // no longer grows it; the third line does.
   const WRAP =
-    "the client waits a little longer before each retry and adds random jitter so a crowd of clients does not retry in step with the others";
+    "the client waits a little longer before each retry and adds random jitter so a crowd of clients does not retry in step with the others; " +
+    "it gives up after five tries, keeps the last error for the log, and tells the person what failed and when it will try again, " +
+    "so a flaky network never looks like a hang";
 
   // Skipped until https://github.com/manaflow-ai/cmux/issues/40187: under the pinned Inter face the
   // composer's growth moves the transcript's top row, and the roving tab stop that follows it redraws
@@ -269,7 +279,7 @@ await requireBrowserLane("composer-smooth-grow.test.ts", async () => {
   });
 
   test("a 40-line paste grows the composer once, to its cap, with the caret in view", async () => {
-    const page = await open("no-preference");
+    const page = await open("no-preference", "push");
     const line = await lineHeight(page);
     const text = Array.from({ length: 40 }, (_, index) => `Line ${index + 1} of the pasted notes`).join("\n");
     // The pasteboard holds the text, as after a copy in another app, and the platform's paste key pastes it.
@@ -315,7 +325,7 @@ await requireBrowserLane("composer-smooth-grow.test.ts", async () => {
   });
 
   test("with Reduce Motion a wrap lands in one frame, the rows with it", async () => {
-    const page = await open("reduce");
+    const page = await open("reduce", "push");
     const line = await lineHeight(page);
     const frames = await record(page, () => page.keyboard.type(WRAP, { delay: 30 }));
     const grown = runs(frames);

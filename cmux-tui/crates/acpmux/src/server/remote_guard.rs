@@ -663,7 +663,7 @@ async fn mode_asks(
     if cloud_mobile {
         return hub.cloud_mobile_mode_asks(m);
     }
-    hub.any_mode_for_web(m) || hub.web_modes().session_asks(m)
+    hub.any_mode_for_web(m) || hub.web_session_asks(m)
 }
 
 /// After a request ran: every reply to a non-unix connection is redacted
@@ -736,7 +736,8 @@ pub(super) async fn settle_web_session_mode(
     if mode_asks(hub, &s.meta(), cloud_mobile).await {
         return Ok(());
     }
-    let Some(default) = asking_modes(hub, &family_of(&s.meta())).await.into_iter().next() else {
+    let modes_of = hub.trusted_mode_family(&s.meta());
+    let Some(default) = asking_modes(hub, &modes_of).await.into_iter().next() else {
         let _ = hub.kill(s, true).await;
         return Err(no_reviewed_asking_mode());
     };
@@ -859,7 +860,7 @@ fn asking_policy(p: crate::config::PermissionPolicy) -> bool {
 ///   source session's effective policy skips asking or its mode is a known
 ///   permissive one: a downgrade could not reach a mode held inside the
 ///   harness, which a fork copies.
-async fn web_starts_asking(
+pub(super) async fn web_starts_asking(
     hub: &std::sync::Arc<crate::hub::Hub>,
     control: crate::hub::Control,
     vm_boundary: bool,
@@ -887,10 +888,47 @@ async fn web_starts_asking(
                 .or_else(|| params.get(key).and_then(Value::as_str).map(str::to_owned))
         };
         let cwd = params.get("cwd").and_then(Value::as_str).map(Path::new).map(Path::to_path_buf);
-        let (family, any_mode) =
+        // The one remote start rule (`web_modes::remote_start`): the Codex bridge starts, a
+        // refused family never does, and another starts only in a reviewed asking mode.
+        let start =
             hub.preflight_remote_new(pick("harness"), pick("preset"), pick("model"), cwd).await?;
-        if !any_mode && asking_modes(hub, &family).await.is_empty() {
+        if start.is_err() {
             return Err(no_reviewed_asking_mode());
+        }
+    }
+    // A fork onto another harness (`hub/fork.rs` `Retarget`) starts that harness as a new
+    // chat would: the same remote start rule, so a family with no reviewed asking mode is refused.
+    // Of a chat this machine runs; a peer's chat is the peer's to judge (forwarded `via: web`).
+    let peer_chat = super::session_key(params)
+        .is_ok_and(|key| hub.resolve(key).is_err() && hub.resolve_remote(key).is_some());
+    if m == method::SESSION_FORK
+        && web
+        && !peer_chat
+        && let Some(harness) = params.pointer("/_meta/acpmux/harness").and_then(Value::as_str)
+    {
+        let model = params.pointer("/_meta/acpmux/model").and_then(Value::as_str);
+        let start = hub
+            .preflight_remote_new(Some(harness.to_owned()), None, model.map(str::to_owned), None)
+            .await?;
+        if start.is_err() {
+            return Err(no_reviewed_asking_mode());
+        }
+        // D13 (`hub/web_control.rs` `local_claude_refusal`) on the chat the fork would be: a fork of a
+        // chat the Mac started keeps its origin (`hub/fork.rs` `retarget_to`), so onto Claude it would
+        // run with the Mac's Claude permissions, which a remote device never starts. A remote chain's
+        // fork runs in the sandbox like its parent; an unknown chat is the peer's to judge.
+        if let Ok(s) = super::session_key(params).and_then(|key| hub.resolve(key)) {
+            let mut would_be = s.meta();
+            // The profile and family the fork would carry (`hub/fork.rs` `Target`), a family name
+            // resolved to its profile as the fork resolves it: a Claude adapter that is not Claude
+            // Code itself (family `claude`) is Claude here too. No such profile: the name, and
+            // `local_claude_refusal` refuses a profile it cannot read.
+            let (agent, family) = super::trust_gate::resolve_harness(hub, harness).await;
+            would_be.harness = agent;
+            would_be.family = Some(family);
+            if let Some(e) = hub.local_claude_refusal(&would_be) {
+                return Err(e);
+            }
         }
     }
     if m == method::SESSION_NEW
@@ -1008,6 +1046,13 @@ async fn web_starts_asking(
             Err(e) => Err(e),
         };
     }
+    // A fork of a configured peer's chat (a live fork, a model switch onto another harness:
+    // `fork_through.rs`) is that peer's `session/fork`: forwarded with `via: web`
+    // (`mark_forwarded`), so the peer applies the Web's rules, D13 among them, on its own state,
+    // as a control above is. A local not-found or ambiguous key is still refused below.
+    if m == method::SESSION_FORK && peer_chat {
+        return Ok(());
+    }
     // The handler's own resolution; a source it cannot resolve (unknown, or
     // an ambiguous prefix) is refused for the Web, never passed unchecked.
     let s = super::session_key(params).and_then(|key| hub.resolve(key)).map_err(|e| {
@@ -1038,8 +1083,13 @@ async fn web_starts_asking(
             let id = params.get("configId").and_then(Value::as_str);
             (Some(id.unwrap_or_default()), params.get("value").and_then(Value::as_str))
         };
+        // By the modes the configured harness offers (`Hub::trusted_mode_family`); a refused
+        // family is refused
+        // whatever its modes.
+        let refused = hub.web_modes().refused().contains(&family_of(&meta));
         return if hub.any_mode_for_web(&meta)
-            || hub.web_modes().config_value_asks(&family_of(&meta), id, value)
+            || (!refused
+                && hub.web_modes().config_value_asks(&hub.trusted_mode_family(&meta), id, value))
         {
             Ok(())
         } else {
@@ -1109,7 +1159,8 @@ async fn peer_scratch(params: &Value, cloud_peer: bool) -> Result<String, RpcErr
             builder.recursive(true);
             #[cfg(unix)]
             std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-            builder.create(&dir)
+            builder.create(&dir)?;
+            mark_made_by_acpmux(&dir)
         })
         .await;
         made.map_err(|e| failed(e.to_string()))?.map_err(|e| failed(e.to_string()))?;
@@ -1167,18 +1218,8 @@ fn cloud_chat_folder_under(home: &std::path::Path, name: &str) -> Result<PathBuf
 fn peer_scratch_root() -> Result<PathBuf, RpcError> {
     static ROOT: OnceLock<Result<PathBuf, String>> = OnceLock::new();
     ROOT.get_or_init(|| {
-        let uid = {
-            #[cfg(unix)]
-            {
-                unsafe { libc::getuid() }.to_string()
-            }
-            #[cfg(not(unix))]
-            {
-                "user".to_owned()
-            }
-        };
-        let root = std::env::temp_dir()
-            .join(format!("acpmux-peer-scratch-{uid}-{}", uuid::Uuid::now_v7().simple()));
+        // The trust rule reads the same path (`trust::Paths::peer_scratch`).
+        let root = crate::trust::peer_scratch_root();
         let mut builder = std::fs::DirBuilder::new();
         #[cfg(unix)]
         std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
@@ -1190,6 +1231,22 @@ fn peer_scratch_root() -> Result<PathBuf, RpcError> {
     .map_err(|e| {
         RpcError::invalid_params(format!("the peer's scratch root could not be made: {e}"))
     })
+}
+
+/// Marks `dir`, a scratch folder this daemon just made, as made by acpmux (`trust.rs`
+/// `made_by_cmux`): the folder of a chat the person gave no folder is trusted as the app's
+/// agent-home is. A marker already there is kept; anything else in its place (a link, a folder)
+/// is no marker, so the folder is asked about as any other.
+fn mark_made_by_acpmux(dir: &std::path::Path) -> std::io::Result<()> {
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(dir.join(crate::trust::AGENT_HOME_MARKER))
+    {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        Err(e) => Err(e),
+    }
 }
 
 /// A session name as one folder name: letters, digits, `.`, `-` and `_`; anything

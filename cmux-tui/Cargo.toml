@@ -17,8 +17,12 @@ workspace = true
 resolver = "2"
 members = [
     "crates/acpmux",
+    "crates/acpmux-core",
+    "crates/acpmux-client",
     "crates/cmux-tailnet",
     "crates/acpmux-build-id",
+    "crates/acpmux-standalone",
+    "crates/acpmux-book",
     "crates/cmux-coderouter",
     "crates/cmux-history",
     "crates/cmux-imessage",
@@ -68,6 +72,8 @@ members = [
     "crates/cmux-flow-trace",
     "crates/cmux-holder-v3",
     "crates/cmux-process",
+    "crates/cmux-scope",
+    "crates/cmux-file-lock",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-remote",
@@ -92,6 +98,7 @@ members = [
     "crates/cmux-host",
     "crates/cmux-motion",
     "crates/cmux-config",
+    "crates/cmux-customize",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
     "crates/cmux-terminal-iface",
@@ -109,6 +116,7 @@ members = [
     "crates/cmux-daemon-launch-core",
     "crates/cmux-health-core",
     "crates/cmux-cookie-sync",
+    "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
@@ -121,15 +129,21 @@ members = [
     "crates/cmux-palette-eval",
     "crates/cmux-action-catalog",
     "crates/cmux-host-budget",
+    "crates/cmux-usage-patterns",
     "crates/cmux-vault-egress",
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
     "crates/acpmux-hot",
     "crates/cmux-command-class",
+    "crates/cmux-source-scan",
 ]
 default-members = [
     "crates/acpmux",
+    "crates/acpmux-core",
+    "crates/acpmux-client",
     "crates/acpmux-build-id",
+    "crates/acpmux-standalone",
+    "crates/acpmux-book",
     "crates/cmux-coderouter",
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
@@ -168,6 +182,8 @@ default-members = [
     "crates/cmux-cloud-api",
     "crates/cmux-pty",
     "crates/cmux-process",
+    "crates/cmux-scope",
+    "crates/cmux-file-lock",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-remote",
@@ -191,6 +207,7 @@ default-members = [
     "crates/cmux-host",
     "crates/cmux-motion",
     "crates/cmux-config",
+    "crates/cmux-customize",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
     "crates/cmux-terminal-iface",
@@ -206,6 +223,7 @@ default-members = [
     "crates/cmux-daemon-launch-core",
     "crates/cmux-health-core",
     "crates/cmux-cookie-sync",
+    "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
@@ -270,8 +288,10 @@ ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
+cmux-file-lock = { path = "crates/cmux-file-lock" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
+cmux-browser-import = { path = "crates/cmux-browser-import" }
 cmux-classic-import = { path = "crates/cmux-classic-import" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
@@ -297,12 +317,15 @@ cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
 cmux-action-catalog = { path = "crates/cmux-action-catalog" }
 cmux-host-budget = { path = "crates/cmux-host-budget" }
+cmux-usage-patterns = { path = "crates/cmux-usage-patterns" }
+cmux-command-class = { path = "crates/cmux-command-class" }
 cmux-vault-egress = { path = "crates/cmux-vault-egress" }
 cmux-url-input = { path = "crates/cmux-url-input" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-holder = { path = "crates/cmux-holder" }
 cmux-process = { path = "crates/cmux-process" }
+cmux-scope = { path = "crates/cmux-scope" }
 cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
@@ -313,6 +336,7 @@ cmux-imessage = { path = "crates/cmux-imessage" }
 cmux-local-auth = { path = "crates/cmux-local-auth" }
 cmux-mcp-connect = { path = "crates/cmux-mcp-connect" }
 cmux-config = { path = "crates/cmux-config" }
+cmux-customize = { path = "crates/cmux-customize" }
 cmux-tui-cloud-conversations = { path = "crates/cmux-tui-cloud-conversations" }
 cmux-tui-platform = { path = "crates/cmux-tui-platform" }
 cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
@@ -421,10 +445,13 @@ subtle = "2.6.1"
 parking_lot = "0.12"
 # One-load published snapshots (cmux-tui-core `published.rs`, R-DAEMON-STATE); already in the tree through iroh-dns.
 arc-swap = "1.9"
+# Persistent maps: the peers' rows (acpmux `hub/remote_rows.rs`) clone in O(1), so a writer
+# changes a structurally shared copy while readers hold a published snapshot (`remote_table.rs`).
+imbl = "7"
 wait-timeout = "0.2"
 # rusqlite 0.40's libsqlite3-sys build script requires Rust 1.95 without
 # declaring that MSRV. Keep the workspace's advertised Rust 1.91 support.
-rusqlite = { version = "=0.39.0", default-features = false, features = ["bundled", "hooks", "limits"] }
+rusqlite = { version = "=0.39.0", default-features = false, features = ["bundled", "cache", "hooks", "limits"] }
 # Unicode normalization for history search folding (cmux-history). Already in
 # the graph through url -> idna -> idna_adapter at this version; compiled
 # data only, no new transitive code.
@@ -463,26 +490,41 @@ terminput-crossterm = { path = "vendor/terminput-crossterm" }
 # RFC 6928's 10 segments (vendor/smoltcp/CMUX_PATCH.md).
 smoltcp = { path = "vendor/smoltcp" }
 
-# Thin LTO. Every tree build compiles this profile, and NEXT nightly waits on the
-# tree. Fat LTO in one codegen unit (#19666) spent about 6 single-threaded
-# minutes linking the cmux-tui binary and 2.5 more on acpmux; thin LTO runs that
-# work in parallel. On a 32 vCPU Linux box, the cmux-tui group went from 606 to
-# 168 s and acpmux from 368 to 135 s. Stripped cmux-tui is 24% larger (105.9 ->
-# 131.7 MB, x86_64 Linux). Terminal throughput and daemon request latency stayed
-# within noise. Dependencies keep one codegen unit each: on cmux-tui that is
-# 4 MB smaller than 16, for the same build time. The three crates on the
-# critical path get 16, so thin LTO has more modules to work on in parallel.
+# Fat LTO. The shipped cmux binary is size-sensitive: thin LTO made the stripped
+# x86_64 binary 24% larger (105.9 -> 131.7 MB) in #27830. Fat LTO with one
+# codegen unit is the previous measured size baseline and lets LLVM remove
+# duplicate cold paths across the daemon and its ACP multiplexer. The old
+# profile paid about 6 single-threaded minutes for cmux-tui and 2.5 more for
+# acpmux; that build cost is intentional for release artifacts and must be
+# checked against the startup benchmark before landing.
 [profile.release]
-lto = "thin"
+lto = "fat"
 codegen-units = 1
 
 [profile.release.package.cmux-tui]
-codegen-units = 16
+codegen-units = 1
 
 [profile.release.package.cmux-tui-core]
-codegen-units = 16
+codegen-units = 1
 
 [profile.release.package.acpmux]
+codegen-units = 1
+
+# The agent service v2 gates (god against small, 1.2x) in `acpmux`'s own tests
+# build here: `cargo test --profile gate -p acpmux --lib NAME -- --ignored`. It is release's
+# code generation without its link-time cost. A release test build of `acpmux`
+# does not end on an 8-vCPU CI runner: with one codegen unit rustc for the test
+# library was killed (signal 9) after 16 minutes under fat LTO, and with LTO off
+# by environment it still ran past 40 minutes, because the package override
+# above keeps `acpmux` at one unit. A gate is a ratio of two sides measured in
+# one build, so it does not need the shipped binary's size settings. Nothing
+# ships from this profile.
+[profile.gate]
+inherits = "release"
+lto = "off"
+codegen-units = 16
+
+[profile.gate.package.acpmux]
 codegen-units = 16
 
 # Debug builds are what mux-dev dogfood runs; opt-level 0 makes the
@@ -493,7 +535,7 @@ opt-level = 1
 # opt-level 1 with many codegen units turns on rustc's crate-local ThinLTO,
 # which reruns over every codegen unit of the edited crate: 5.3 s of a 9.8 s
 # cmux-tui rebuild after a one-line edit (-Z time-passes, crate-split lane 3).
-# Off: about 11 s -> 5.5 s per edit; release builds keep lto = "thin".
+# Off: about 11 s -> 5.5 s per edit; release builds use fat LTO for size.
 lto = "off"
 # Line tables keep file:line in panics, backtraces and profiles; full DWARF made
 # each worktree's target about twice the size (Huge Blue, 10-19: 11 GB -> 5.4 GB

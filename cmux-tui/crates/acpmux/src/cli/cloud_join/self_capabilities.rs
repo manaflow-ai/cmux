@@ -35,9 +35,12 @@ pub(crate) const BACKOFF: [Duration; 4] = [
 /// What a start's statement did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Stated {
-    /// No call: not joined, a copy of another box's join, revoked, a list already recorded, or a
-    /// sign-out's leave pending.
+    /// No call: not joined, a copy of another box's join, revoked, or a list already recorded.
     NotNeeded,
+    /// No call yet: a sign-out's leave is pending. Not settled: once the leave keeps the join
+    /// (a pair-code or join-line machine), the start asks again ([`state_after_leave`]), and a
+    /// reconnect or sign-in may.
+    Deferred,
     /// The hub recorded this list, and the record keeps it.
     Recorded(Vec<String>),
     /// 409: the hub keeps the narrower list a person set; recorded as an empty list.
@@ -72,6 +75,11 @@ pub(crate) struct Trigger {
 /// This daemon's [`Trigger`].
 static TRIGGER: Trigger = Trigger::new();
 
+/// The owner of this daemon's statements: a child of the hub's scope, set at the start
+/// ([`state_at_start`]), so the daemon's shutdown ends them. A process with none (the CLI)
+/// starts none: the daemon's next start asks.
+static SCOPE: std::sync::OnceLock<cmux_scope::Scope> = std::sync::OnceLock::new();
+
 /// Clears the in-flight mark when its statement ends, however it ends.
 struct InFlight<'a>(&'a AtomicBool);
 
@@ -90,6 +98,8 @@ impl Trigger {
     /// one settled. None when it started none.
     pub(crate) fn fire(
         &'static self,
+        scope: &cmux_scope::Scope,
+        why: &'static str,
         home: PathBuf,
         current: Option<String>,
         backoff: &'static [Duration],
@@ -102,11 +112,15 @@ impl Trigger {
         {
             return None;
         }
-        // task-owner: at most `backoff.len() + 1` hub requests (each with the join client's 10 s
-        // deadline) and `backoff`'s waits, about an hour in all; ends with them or the daemon.
-        Some(tokio::spawn(async move {
+        // At most `backoff.len() + 1` hub requests (each with the join client's 10 s deadline) and
+        // `backoff`'s waits, about an hour in all; ends with them, or with the daemon's scope.
+        Some(scope.spawn_named("machine-capabilities", async move {
             let _in_flight = InFlight(&self.in_flight);
             let stated = state_at(&home, current.as_deref(), backoff).await;
+            match &stated {
+                Stated::NotNeeded | Stated::Deferred => {}
+                stated => tracing::info!(?stated, why, "machine capabilities"),
+            }
             // Saved, or nothing to state: no start or reconnect of this daemon asks again. Unsaved
             // or unanswered: the next reconnect may.
             if matches!(
@@ -124,25 +138,23 @@ impl Trigger {
     }
 }
 
-/// Fires this daemon's [`Trigger`] for its own state, logging what it did.
+/// Fires this daemon's [`Trigger`] for its own state, on its scope; none before the start set it.
 fn fire(why: &'static str) {
-    let Some(task) = TRIGGER.fire(state_dir(), host_fingerprint::current(), &BACKOFF) else {
-        return;
-    };
-    // task-owner: waits only for the statement above, to log it.
-    tokio::spawn(async move {
-        match task.await {
-            Ok(Stated::NotNeeded) => {}
-            Ok(stated) => tracing::info!(?stated, why, "machine capabilities"),
-            Err(e) => tracing::warn!(why, "machine capabilities: the statement ended: {e}"),
-        }
-    });
+    let Some(scope) = SCOPE.get() else { return };
+    let _ = TRIGGER.fire(scope, why, state_dir(), host_fingerprint::current(), &BACKOFF);
 }
 
 /// At daemon start, after its relay: states this machine's capabilities in the background when
-/// its record has none.
-pub(crate) fn state_at_start() {
+/// its record has none, as a task of `scope` (the hub's).
+pub(crate) fn state_at_start(scope: &cmux_scope::Scope) {
+    SCOPE.get_or_init(|| scope.child("machine capabilities"));
     fire("start");
+}
+
+/// The start's pending leave kept the join (`server/machine_enroll.rs`): the statement it put
+/// off ([`Stated::Deferred`]) goes now.
+pub(crate) fn state_after_leave() {
+    fire("leave kept the join");
 }
 
 /// A sign-in found this machine joined with no list (`enroll.rs`): states it, as a start does.
@@ -158,9 +170,6 @@ pub(crate) fn state_on_reconnect() {
 
 /// The record in `home` that has no list yet and may ask with its own credential.
 fn legacy_record(home: &Path, current: Option<&str>) -> Option<MachineCredential> {
-    if std::fs::symlink_metadata(home.join(enroll::LEAVE_FILE)).is_ok() {
-        return None;
-    }
     load_at(home).ok().flatten().filter(|record| {
         record.capabilities.is_none()
             && !record.revoked
@@ -175,6 +184,10 @@ pub(crate) async fn state_at(home: &Path, current: Option<&str>, backoff: &[Dura
     let sent = machine_capabilities();
     let mut waits = backoff.iter();
     loop {
+        // A sign-out's leave pending: put off, not done (the leave may keep the join).
+        if std::fs::symlink_metadata(home.join(enroll::LEAVE_FILE)).is_ok() {
+            return Stated::Deferred;
+        }
         // Read again before each try: a sign-in may have rotated it meanwhile.
         let Some(record) = legacy_record(home, current) else { return Stated::NotNeeded };
         match ask(&record, &sent).await {
@@ -439,6 +452,30 @@ mod tests {
         Box::leak(Box::new(Trigger::new()))
     }
 
+    /// The tests' owner: the runtime ends what is left of it with the test.
+    fn test_scope() -> &'static cmux_scope::Scope {
+        Box::leak(Box::new(cmux_scope::Scope::new("machine capabilities test")))
+    }
+
+    #[tokio::test]
+    async fn a_pending_leave_puts_the_statement_off_without_settling_it() {
+        let home = tempfile::tempdir().unwrap();
+        let (hub, seen, server) = fake_hub(vec![set(json!(["vault.proxy.v1"]))]);
+        joined(home.path(), &hub, |_| {});
+        recovery::write_durable(&home.path().join(enroll::LEAVE_FILE), b"{}", true).unwrap();
+        let trigger = trigger();
+        let fire = || trigger.fire(test_scope(), "test", home.path().to_owned(), None, &NO_WAIT);
+        // The start's statement runs while its leave is still pending: put off, no call.
+        assert_eq!(fire().unwrap().await.unwrap(), Stated::Deferred);
+        assert!(seen.lock().unwrap().is_empty());
+        // The leave keeps the join (a join line's machine): the next trigger states the list.
+        std::fs::remove_file(home.path().join(enroll::LEAVE_FILE)).unwrap();
+        let stated = fire().expect("not settled by the put-off statement").await.unwrap();
+        assert_eq!(stated, Stated::Recorded(vec!["vault.proxy.v1".to_owned()]));
+        server.join().unwrap();
+        assert!(fire().is_none(), "settled once saved");
+    }
+
     #[tokio::test]
     async fn a_reconnect_states_once_never_two_at_a_time_and_never_after_saving() {
         let home = tempfile::tempdir().unwrap();
@@ -448,7 +485,7 @@ mod tests {
             fake_hub_gated(vec![set(json!(["vault.proxy.v1"]))], Some((arrived_tx, release_rx)));
         joined(home.path(), &hub, |_| {});
         let trigger = trigger();
-        let fire = || trigger.fire(home.path().to_owned(), None, &NO_WAIT);
+        let fire = || trigger.fire(test_scope(), "test", home.path().to_owned(), None, &NO_WAIT);
         // A reconnect with no list recorded states it.
         let first = fire().expect("a reconnect with no list starts a statement");
         let arrived = tokio::task::spawn_blocking(move || arrived.recv()).await.unwrap();
@@ -462,11 +499,15 @@ mod tests {
         assert!(fire().is_none(), "settled once saved");
         assert_eq!(seen.lock().unwrap().len(), 1);
         // Nor does the next daemon's (a fresh trigger): the record has its list.
-        let next = trigger.fire(home.path().to_owned(), None, &NO_WAIT);
+        let next = trigger.fire(test_scope(), "test", home.path().to_owned(), None, &NO_WAIT);
         assert!(next.is_none());
         let next = super::Trigger::new();
         let next: &'static Trigger = Box::leak(Box::new(next));
-        let stated = next.fire(home.path().to_owned(), None, &NO_WAIT).unwrap().await.unwrap();
+        let stated = next
+            .fire(test_scope(), "test", home.path().to_owned(), None, &NO_WAIT)
+            .unwrap()
+            .await
+            .unwrap();
         assert_eq!(stated, Stated::NotNeeded);
     }
 
@@ -477,12 +518,15 @@ mod tests {
         let (hub, seen, server) = fake_hub(vec![down; NO_WAIT.len() + 1]);
         joined(home.path(), &hub, |_| {});
         let trigger = trigger();
-        let task = trigger.fire(home.path().to_owned(), None, &NO_WAIT).unwrap();
+        let task =
+            trigger.fire(test_scope(), "test", home.path().to_owned(), None, &NO_WAIT).unwrap();
         assert_eq!(task.await.unwrap(), Stated::GaveUp);
         server.join().unwrap();
         assert_eq!(seen.lock().unwrap().len(), NO_WAIT.len() + 1, "the same bounded budget");
         // Not settled: the next reconnect may try (nothing listens now: one more budget).
-        assert!(trigger.fire(home.path().to_owned(), None, &NO_WAIT).is_some());
+        assert!(
+            trigger.fire(test_scope(), "test", home.path().to_owned(), None, &NO_WAIT).is_some()
+        );
     }
 
     #[tokio::test]

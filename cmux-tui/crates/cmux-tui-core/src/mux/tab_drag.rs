@@ -616,7 +616,8 @@ impl Mux {
                     projection.result,
                     projection.changes,
                     projected,
-                );
+                )
+                .projected(projection.restates_all);
                 // The reducer models no pins, so it has no op for a pane's only tab
                 // becoming a lone pinned column (`pinned-dock-alone-v1`); the I1-I3
                 // checks of the live result still run.
@@ -695,7 +696,7 @@ impl Mux {
         surface: SurfaceId,
         transaction: Option<Arc<str>>,
     ) {
-        let mut decorations = self.tree_decorations();
+        let mut decorations = self.tab_tree_decorations(&[surface]);
         #[cfg(test)]
         if let Some(hook) =
             self.tab_changed_after_decorations.lock().unwrap_or_else(|e| e.into_inner()).clone()

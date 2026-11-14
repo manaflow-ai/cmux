@@ -15,6 +15,11 @@
 //! chat's agent restarts now when it is between turns (`restarted`), so its
 //! next prompt uses the new sign-in; in a turn it restarts when the turn ends
 //! (`restarted: false`), never cutting the turn.
+//!
+//! `start {agent: "claude@gateway"}` (`agent_login::GATEWAY_SUFFIX`) is the card's third way in:
+//! no sign-in runs; the chat's agent uses cmux's gateway (the team's CodeRouter account), as
+//! `cr use team claude` records it, when the image says the team has one
+//! (`Machine::gateway_access`), and answers `{gateway: true, restarted}`; else `no_gateway`.
 
 use super::{Conn, Origin};
 use crate::agent_login::{self as login, Agent, Cli, LoginError, Machine, reason};
@@ -186,6 +191,39 @@ async fn signed_in(
     Ok(done.now > 0)
 }
 
+/// The chat's agent uses cmux's gateway here (module docs): the image's own check first, then
+/// the `cr use team` choice, then the named chat's agent restarts on it. Whether it restarted now.
+pub(crate) async fn use_gateway(
+    hub: &Arc<Hub>,
+    agent: Agent,
+    session_id: Option<&str>,
+) -> Result<bool, RpcError> {
+    let machine = machine(hub);
+    if machine.gateway_access(agent).await != Some(true) {
+        return Err(error(LoginError::new(
+            reason::NO_GATEWAY,
+            format!("cmux's gateway does not serve {} for this machine's team", agent.name()),
+        )));
+    }
+    match machine.choose_team(agent) {
+        Ok(true) => {}
+        Ok(false) => {
+            return Err(error(LoginError::new(reason::NO_GATEWAY, "not a cmux Cloud machine")));
+        }
+        Err(e) => {
+            return Err(error(LoginError::new(
+                reason::FAILED,
+                format!("record the gateway choice: {e}"),
+            )));
+        }
+    }
+    let Some(key) = session_id else { return Ok(false) };
+    let session = hub.resolve(key)?;
+    let ids = std::collections::BTreeSet::from([session.id.clone()]);
+    let done = hub.restart_harnesses(None, Some(&ids)).await;
+    Ok(done.now > 0)
+}
+
 pub(super) async fn handle(
     hub: &Arc<Hub>,
     conn: &Conn,
@@ -211,6 +249,12 @@ pub(super) async fn handle(
             reason::UNKNOWN_SESSION,
             format!("no chat {key:?} here: open the chat again"),
         )));
+    }
+    if m == method::MUX_AGENT_LOGIN_START
+        && let Some(agent) = text(params, "agent").and_then(login::gateway_agent)
+    {
+        let restarted = use_gateway(hub, agent, text(params, "sessionId")).await?;
+        return Ok(json!({"gateway": true, "restarted": restarted}));
     }
     match m {
         method::MUX_AGENT_LOGIN_START => {
