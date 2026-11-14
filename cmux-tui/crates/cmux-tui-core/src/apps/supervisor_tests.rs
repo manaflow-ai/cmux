@@ -121,9 +121,16 @@ fn scripted_app_host() {
                     ops: json!([{ "op": "update", "id": format!("r{cb}"), "props": { "result": { "ok": ok, "body": body } } }]),
                 });
             }
-            ToHost::Run { cb, export, gesture, .. } => {
+            ToHost::Run { cb, export, gesture, args } => {
                 if export == "crash" {
                     std::process::exit(70);
+                }
+                if export == "openLink" {
+                    // An opener (`cmux.opener/1`): the link it was asked to open.
+                    send(FromHost::Log {
+                        level: "info".into(),
+                        message: format!("open {}", args["url"]),
+                    });
                 }
                 if let Some(gesture) = &gesture {
                     send(FromHost::Log {
@@ -1015,6 +1022,8 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
 mod inventory_demand;
 #[path = "supervisor_local_reload_tests.rs"]
 mod local_reload;
+#[path = "supervisor_opener_tests.rs"]
+mod openers;
 #[path = "supervisor_provider_changed_tests.rs"]
 mod provider_changed;
 #[path = "supervisor_provider_tests.rs"]
