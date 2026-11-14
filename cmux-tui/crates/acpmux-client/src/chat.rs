@@ -65,7 +65,8 @@ pub struct ChatSubRequest {
     pub window: Option<u16>,
 }
 
-/// `chat_page`'s request: before or after a rowId, and a fold to read as open.
+/// `chat_page`'s request: before or after a rowId, and a fold to read as open, or `turns`: the
+/// settled turns' group rows alone.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatPageRequest {
@@ -76,6 +77,8 @@ pub struct ChatPageRequest {
     pub after: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fold: Option<u64>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub turns: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_bytes: Option<u32>,
 }
@@ -293,6 +296,9 @@ where
         if chat.page.is_some() {
             return Err(FrameError::RequestInFlight);
         }
+        if request.turns && request.fold.is_some() {
+            return Err(FrameError::Refused("a page of turns names no fold"));
+        }
         let (side, row_id) = match (request.before, request.after) {
             (Some(row_id), None) => (PageSide::Before, row_id),
             (None, Some(row_id)) => (PageSide::After, row_id),
@@ -301,6 +307,7 @@ where
         let mut page = Page::new(request.sid, chat.request.stream.clone(), side, row_id);
         page.edition = Some(edition);
         page.fold = request.fold;
+        page.turns = request.turns;
         if let Some(max_bytes) = request.max_bytes {
             page.max_bytes = max_bytes.min(wire::MAX_PAGE_BYTES as u32);
         }
