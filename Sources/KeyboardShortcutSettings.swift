@@ -1597,6 +1597,8 @@ struct ShortcutStroke: Equatable, Hashable {
             return .upArrow
         case "↓":
             return .downArrow
+        case "escape":
+            return .escape
         case "\r":
             return KeyEquivalent(Character("\r"))
         default:
@@ -1644,6 +1646,8 @@ struct ShortcutStroke: Equatable, Hashable {
         case "↓":
             guard let scalar = UnicodeScalar(NSDownArrowFunctionKey) else { return nil }
             return String(Character(scalar))
+        case "escape":
+            return "\u{1b}"
         case "\r":
             return "\r"
         default:
@@ -1656,13 +1660,14 @@ struct ShortcutStroke: Equatable, Hashable {
     static func isEscapeCancelEvent(_ event: NSEvent) -> Bool {
         guard event.type == .keyDown || event.type == .keyUp else { return false }
 
-        if event.keyCode == 53 {
+        let normalizedFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            .subtracting([.capsLock, .function, .numericPad])
+
+        if event.keyCode == 53, normalizedFlags.isEmpty {
             return true
         }
 
         let escapeScalar = UnicodeScalar(0x1B)!
-        let normalizedFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            .subtracting([.capsLock, .function, .numericPad])
         let shouldTreatEscapeCharacterAsCancel = normalizedFlags.isEmpty || event.keyCode == 36 || event.keyCode == 76
 
         if shouldTreatEscapeCharacterAsCancel,
@@ -2062,6 +2067,7 @@ struct ShortcutStroke: Equatable, Hashable {
         case "media.playPause": return 16
         case "media.next": return 17
         case "media.previous": return 18
+        case "escape": return UInt16(kVK_Escape)
         case "space": return 49
         case "a": return 0
         case "s": return 1
@@ -2130,7 +2136,7 @@ struct ShortcutStroke: Equatable, Hashable {
     /// physical key codes without changing the bare-key recording policy.
     private static func usesPhysicalKeyCodeMatching(_ key: String) -> Bool {
         switch key {
-        case "←", "→", "↓", "↑":
+        case "←", "→", "↓", "↑", "escape":
             return true
         default:
             return usesDirectKeyCodeMatching(key)
@@ -2206,7 +2212,7 @@ struct ShortcutStroke: Equatable, Hashable {
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17,
         18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
         33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49,
-        50, 123, 124, 125, 126,
+        50, UInt16(kVK_Escape), 123, 124, 125, 126,
     ]
 }
 
@@ -2516,6 +2522,8 @@ extension ShortcutStroke {
             return "\t"
         case "return", "enter", "↩":
             return "\r"
+        case "escape", "esc":
+            return "escape"
         case "space", "spacebar", "<space>":
             return "space"
         case "comma":

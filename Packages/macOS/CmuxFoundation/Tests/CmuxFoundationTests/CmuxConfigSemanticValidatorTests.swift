@@ -41,6 +41,19 @@ struct CmuxConfigSemanticValidatorTests {
         #expect(result.isEmpty)
     }
 
+    @Test("accepts modified Escape shortcut bindings")
+    func acceptsModifiedEscapeShortcutBindings() throws {
+        let result = try issues([
+            "shortcuts": [
+                "bindings": [
+                    "showHideAllWindows": "cmd+escape",
+                ],
+            ],
+        ])
+
+        #expect(result.isEmpty)
+    }
+
     @Test("accepts removed settings keys left in existing configs")
     func acceptsRemovedSettingsKeys() throws {
         let result = try issues([
