@@ -13,9 +13,10 @@ import GhosttyNextKit
 ///   Ghostty's last cell, so the first cell the pointer reached shows and opens
 ///   its link. While the pointer is over this terminal, a modifier watcher
 ///   (``TerminalModifierMonitor``) reaches it focused or not.
-/// - A link Ghostty found across rows the terminal wrapped: Ghostty underlines
-///   only the pointer's row; this underlines the rest (the press stays Ghostty's).
-/// - A URL the program broke onto several rows (``TerminalWrappedLink``): every
+/// - A link Ghostty does not find (``TerminalWrappedLink``): a URL a program broke onto
+///   rows, or a bare file name that exists (`index.js:57:1`). It gets the hand and an
+///   underline on the cells Ghostty does not underline itself (Ghostty underlines a link
+///   it found, every row of it, so a second line here would stack on its own), and every
 ///   piece is underlined, the pointer is the hand and either row opens the whole
 ///   URL; Ghostty never sees that press.
 
@@ -130,13 +131,10 @@ import GhosttyNextKit
         let point = view.convert(event.locationInWindow, from: nil)
         refresh(event.modifierFlags, at: point)
         let hovered = view.session?.model.hoveredLink
-        // Ghostty opens a link it found whole itself; this owns only one it saw a piece of.
-        // The hover's own hint, so the click opens what the underline shows.
-        if let wrapped = wrappedLink(at: point, hint: hovered), wrapped.text != hovered, hovered.map({ wrapped.text.contains($0) }) ?? true {
-            wrappedPress = wrapped
-            return true
-        }
-        return false
+        // Ghostty opens a link it found whole itself; this owns only one Ghostty saw a piece of or none.
+        guard let link = cmuxLink(at: point, hovered: hovered) else { return false }
+        wrappedPress = link
+        return true
     }
 
     /// A left release. True: this owned the press.
@@ -189,10 +187,12 @@ import GhosttyNextKit
         guard Self.isLinkChord(flags), let cell = cell(at: point) else { return clearWrapped() }
         if !force, let last = wrappedCell, last == cell { return }
         wrappedCell = cell
-        guard let link = wrappedLink(at: point, hint: view?.session?.model.hoveredLink) else { return clearWrapped(keepCell: true) }
-        guard link != wrapped, let view else { return }
+        let hovered = view?.session?.model.hoveredLink
+        guard let link = cmuxLink(at: point, hovered: hovered) else { return clearWrapped(keepCell: true) }
+        let beside = hovered.map { (link: $0, row: cell.row) }
+        guard link != wrapped || beside?.link != underlinedBeside?.link || beside?.row != underlinedBeside?.row, let view else { return }
         wrapped = link
-        showUnderlines(link)
+        showUnderlines(link, beside: beside)
         if cursorBeforeWrapped == nil { cursorBeforeWrapped = view.cursor }
         view.setCursor(.pointingHand)
     }
@@ -201,6 +201,8 @@ import GhosttyNextKit
         if !keepCell { wrappedCell = nil }
         guard wrapped != nil else { return }
         wrapped = nil
+        underlinedBeside = nil
+        underlinedRows = []
         for underline in underlines { underline.removeFromSuperview() }
         underlines.removeAll()
         if let view, let cursor = cursorBeforeWrapped, view.cursor == .pointingHand, view.session?.model.hoveredLink == nil {
@@ -209,13 +211,29 @@ import GhosttyNextKit
         cursorBeforeWrapped = nil
     }
 
-    private func showUnderlines(_ link: TerminalWrappedLink) {
+    /// The link Ghostty reported, and the pointer's row, when the underlines were drawn; the rows
+    /// they are on.
+    private var underlinedBeside: (link: String, row: Int)?
+    private(set) var underlinedRows: [Int] = []
+
+    /// Underlines `link` on its rows, except the piece Ghostty found and underlines itself
+    /// (`ghostty`: its link under the pointer, on the pointer's row): one line under each cell,
+    /// never two. Ghostty's piece of a URL a program broke is on the pointer's row only; it may
+    /// end before sentence punctuation the piece keeps, so the texts are compared by overlap.
+    private func showUnderlines(_ link: TerminalWrappedLink, beside ghostty: (link: String, row: Int)?) {
         for underline in underlines { underline.removeFromSuperview() }
         underlines.removeAll()
+        underlinedBeside = ghostty
+        underlinedRows = []
         guard let view, let frame = cellFrame() else { return }
         let thickness = max(1, (frame.cellHeight / 16).rounded())
         let color = GhosttyRuntime.shared.copyCursorColor.cgColor
-        for segment in link.segments {
+        let ghosttys = { (segment: TerminalWrappedLink.Segment) in
+            guard let ghostty, segment.row == ghostty.row else { return false }
+            return ghostty.link.contains(segment.text) || segment.text.contains(ghostty.link)
+        }
+        for segment in link.segments where !ghosttys(segment) {
+            underlinedRows.append(segment.row)
             let cells = frame.rect(column: segment.start, row: segment.row, widthCells: segment.end - segment.start + 1)
             let line = NSView(frame: CGRect(x: cells.minX, y: cells.minY + thickness, width: cells.width, height: thickness))
             line.wantsLayer = true
@@ -225,16 +243,30 @@ import GhosttyNextKit
         }
     }
 
-    /// The wrapped link at `point`, read from the viewport rows around it.
-    func wrappedLink(at point: NSPoint, hint: String? = nil) -> TerminalWrappedLink? {
-        guard let surface = view?.surface, let cell = cell(at: point) else { return nil }
+    /// The link at `point` that this underlines and opens because Ghostty does not find it
+    /// whole (`hovered`: Ghostty's link there): a URL a program broke onto rows, of which
+    /// Ghostty has at most a piece, else, where Ghostty has nothing, a bare file name the
+    /// terminal's link check says exists. The check runs off the main thread; its answer
+    /// sends the pointer again (``TerminalLinkFilter``), which shows the link.
+    func cmuxLink(at point: NSPoint, hovered: String?) -> TerminalWrappedLink? {
+        guard let view, let surface = view.surface, let cell = cell(at: point) else { return nil }
         var metrics = ghostty_surface_grid_metrics_s()
         guard ghostty_surface_grid_metrics(surface, &metrics) else { return nil }
+        let columns = Int(metrics.columns)
         let first = max(0, cell.row - TerminalWrappedLink.reach)
         let last = min(Int(metrics.rows) - 1, cell.row + TerminalWrappedLink.reach)
         guard first <= last else { return nil }
-        let rows = (first...last).map { rowText(surface, row: $0, columns: Int(metrics.columns)) }
-        return TerminalWrappedLink.find(rows: rows, firstRow: first, columns: Int(metrics.columns), column: cell.column, row: cell.row, hint: hint)
+        let rows = (first...last).map { rowText(surface, row: $0, columns: columns) }
+        if let wrapped = TerminalWrappedLink.find(rows: rows, firstRow: first, columns: columns, column: cell.column, row: cell.row),
+           wrapped.text != hovered, hovered.map({ wrapped.text.contains($0) }) ?? true {
+            return wrapped
+        }
+        // Without a link check (no app delegate) a dotted word is no file link; nor without a folder
+        // the shell reported (a remote shell that reports none would match this Mac's files).
+        guard hovered == nil, view.session?.linkCheck != nil, view.session?.model.workingDirectory != nil,
+              let word = TerminalWrappedLink.pathWord(in: rows[cell.row - first], columns: columns, column: cell.column, row: cell.row),
+              view.bridge.takeUnretainedValue().linkFilter.isLink(word.text) else { return nil }
+        return word
     }
 
     /// The viewport cell under `point` (view coordinates), or nil off the grid.
