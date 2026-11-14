@@ -8,7 +8,7 @@ function defaultDatabaseURL(): string {
   const user = process.env.CMUX_DB_USER ?? "cmux";
   const password = process.env.CMUX_DB_PASSWORD ?? "cmux";
   const database = process.env.CMUX_DB_NAME ?? "cmux";
-  return `postgres://${user}:${password}@localhost:${dbPort}/${database}`;
+  return `postgres://${user}:${password}@127.0.0.1:${dbPort}/${database}`;
 }
 
 export default defineConfig({

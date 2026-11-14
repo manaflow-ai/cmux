@@ -149,7 +149,7 @@ if [[ "${CMUX_DEV_START_DB:-1}" != "0" ]]; then
   start_db_watchdog
 fi
 
-redacted_database_url="postgres://${CMUX_DB_USER}:<redacted>@localhost:${CMUX_DB_PORT}/${CMUX_DB_NAME}"
+redacted_database_url="postgres://${CMUX_DB_USER}:<redacted>@127.0.0.1:${CMUX_DB_PORT}/${CMUX_DB_NAME}"
 cat <<EOF
 cmux web dev
   CMUX_PORT=$CMUX_PORT
