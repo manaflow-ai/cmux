@@ -37,7 +37,7 @@ import Testing
         #expect(LinkPairing.refusalText(LinkError(code: "busy", message: "")) == "the Mac is already pairing this iPhone")
     }
 
-    @Test func rpcErrorsSayTheReasonOrTheMacsSentence() {
+    @MainActor @Test func rpcErrorsSayTheReasonOrTheMacsSentence() {
         typealias RPC = AcpmuxConnection.RPCError
         #expect(RPC(code: -32000, message: "x", reason: "trust.pending").errorDescription == "Trust this folder on your Mac first.")
         #expect(RPC(code: -32004, message: "no pending permission p1", reason: nil).errorDescription == "Already answered on your Mac.")
