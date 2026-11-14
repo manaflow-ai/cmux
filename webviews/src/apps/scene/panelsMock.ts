@@ -8,7 +8,48 @@ export const MOCK_APP_PANELS: readonly AppPanel[] = [
   { app: "samples/session", section: "details", title: "Session notes", symbol: "doc.text" },
 ];
 
+/** The example widget the mock routes GitHub pull request calls to (examples/extensions/pr-card). */
+export const MOCK_CHAT_WIDGET: AppPanel = {
+  app: "local/pr-card",
+  section: "cmux.chat.widget/1",
+  title: "Pull request",
+  symbol: "arrow.triangle.pull",
+};
+
+/** A pull request card's scene, as examples/extensions/pr-card draws it once loaded. */
+export function mockChatWidgetScene(context?: Record<string, unknown>): SceneOp[] {
+  const tool = (context?.tool ?? {}) as { input?: { owner?: string; repo?: string; pullNumber?: number } };
+  const repo = tool.input?.owner && tool.input?.repo ? `${tool.input.owner}/${tool.input.repo}` : "acme/atlas";
+  const number = tool.input?.pullNumber ?? 184;
+  const rows = [
+    {
+      title: `${repo} #${number}`,
+      subtitle: "Open · octo",
+      symbol: "arrow.triangle.pull",
+      tint: "success",
+      onTap: true,
+    },
+    { title: "test (macos)", subtitle: "Failed", symbol: "xmark.circle", tint: "danger", onTap: true },
+    { title: "lint", subtitle: "Passed", symbol: "checkmark.circle", tint: "success", onTap: true },
+    { title: "test (linux)", subtitle: "Passed", symbol: "checkmark.circle", tint: "success", onTap: true },
+  ];
+  return [
+    { op: "create", id: "root", type: "VStack", props: { spacing: 4 } },
+    { op: "create", id: "title", type: "Text", props: { text: "Keep chat drafts on reconnect", font: "headline" } },
+    ...rows.map((props, index): SceneOp => ({ op: "create", id: `row-${index}`, type: "Row", props })),
+    { op: "create", id: "badge", type: "Badge", props: { text: "1 failed · 2 passed", tone: "danger" } },
+    {
+      op: "children",
+      id: "root",
+      children: ["title", "row-0", "badge", ...rows.slice(1).map((_, index) => `row-${index + 1}`)],
+    },
+    { op: "root", id: "root" },
+  ];
+}
+
 export function mockPanelScene(panel: AppPanel, context?: MountContext): SceneOp[] {
+  if (panel.section === MOCK_CHAT_WIDGET.section)
+    return mockChatWidgetScene(context as Record<string, unknown> | undefined);
   const rows =
     panel.app === "samples/github-prs"
       ? [
@@ -49,6 +90,8 @@ export function mockPanelScene(panel: AppPanel, context?: MountContext): SceneOp
 export class MockAppPanelsClient implements PageClient {
   panels: readonly AppPanel[] = MOCK_APP_PANELS;
   readonly dispatches: unknown[] = [];
+  /** Every chat widget route the page asked for. */
+  readonly routes: unknown[] = [];
   readonly reloads: string[] = [];
   readonly layouts: { mount_id: string; height: number }[] = [];
   private nextMount = 0;
@@ -64,7 +107,32 @@ export class MockAppPanelsClient implements PageClient {
       case "cmux.apps.panels.list":
         result = { panels: this.panels };
         break;
+      case "cmux.apps.panels.route": {
+        // As the daemon routes it: the example widget answers GitHub pull request calls only.
+        const tool = params.tool as { name?: string } | undefined;
+        const routed = typeof tool?.name === "string" && /^mcp__github__.*pull_request/.test(tool.name);
+        result = {
+          widget: routed
+            ? {
+                app: MOCK_CHAT_WIDGET.app,
+                interface: MOCK_CHAT_WIDGET.section,
+                title: MOCK_CHAT_WIDGET.title,
+                symbol: MOCK_CHAT_WIDGET.symbol,
+                context: { surface: "chatWidget", widget: { key: params.key }, tool: params.tool },
+              }
+            : null,
+        };
+        this.routes.push(params);
+        break;
+      }
       case "cmux.apps.panels.mount": {
+        if (params.surface === "chatWidget") {
+          if (params.app !== MOCK_CHAT_WIDGET.app) throw pageError("cmux.apps.not_found", "Unknown chat widget");
+          const mountId = `mock-panel-${++this.nextMount}`;
+          this.mounts.set(mountId, { panel: MOCK_CHAT_WIDGET, context: params.context as MountContext });
+          result = { mount_id: mountId };
+          break;
+        }
         const panel = this.panels.find((entry) => entry.app === params.app && entry.section === params.section);
         if (!panel) throw pageError("cmux.apps.not_found", "Unknown app section");
         const mountId = `mock-panel-${++this.nextMount}`;

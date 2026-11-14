@@ -48,4 +48,12 @@ public protocol AppsTransport: AnyObject {
     /// connection the daemon verified as the cmux app.
     func run(app: String, op: String, args: AppJSON, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppJSON
     func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine]
+    /// `apps.chat_widgets.route`: the daemon's choice of chat widget for a tool call or a widget part,
+    /// `{widget: null}` or `{widget: {app, interface, title, symbol?, context}}`.
+    func chatWidgetRoute(_ args: AppJSON) async throws(AppsTransportError) -> AppJSON
+}
+
+public extension AppsTransport {
+    /// A transport without chat widget routing answers that no widget shows.
+    func chatWidgetRoute(_ args: AppJSON) async throws(AppsTransportError) -> AppJSON { ["widget": .null] }
 }

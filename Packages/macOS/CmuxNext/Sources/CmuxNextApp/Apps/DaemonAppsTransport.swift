@@ -117,9 +117,9 @@ final class DaemonAppsTransport: AppsTransport {
         }
     }
 
-    func list() async throws(AppsTransportError) -> AppsListReply {
-        AppsWireDecoding().list(try await send(AppsListRequest()))
-    }
+    func list() async throws(AppsTransportError) -> AppsListReply { AppsWireDecoding().list(try await send(AppsListRequest())) }
+
+    func chatWidgetRoute(_ args: AppJSON) async throws(AppsTransportError) -> AppJSON { AppJSON(try await send(AppsStoreRequest(op: "apps.chat_widgets.route", args: args.daemonValue))) }
 
     func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel] { try await AppSessionInfoPanel.list(AppJSON(send(AppsStoreRequest.panelsList))) }
 
