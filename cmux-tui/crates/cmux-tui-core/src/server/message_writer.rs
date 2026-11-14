@@ -236,10 +236,21 @@ impl MessageWriter {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        let result = self
-            .render_service
-            .serialize(value)
-            .and_then(|text| self.sink.send_stream(text, stream));
+        let result = match self.render_service.serialize(value) {
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                // Serialization is charged against the normal outbound budget before the
+                // sink sees the item.  Report that overflow through the preallocated control
+                // budget so the client can replay from its last held sequence.
+                let overflow = stream.overflow_text.lock().recover_poison().clone();
+                if let Err(terminal_error) = self.sink.send_terminal(overflow, stream) {
+                    self.close();
+                    return Err(terminal_error);
+                }
+                Err(error)
+            }
+            Ok(text) => self.sink.send_stream(text, stream),
+            Err(error) => Err(error),
+        };
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
         }
