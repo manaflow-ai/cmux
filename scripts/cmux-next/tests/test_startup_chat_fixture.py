@@ -1,13 +1,21 @@
 """The startup comparator must reject a missing, changed or duplicated chat."""
 import copy
+import importlib.util
 import json
 from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from startup_chat_fixture import ChatFixture
+
+spec = importlib.util.spec_from_file_location("bench_startup", Path(__file__).resolve().parents[1] / "bench-startup.py")
+bench = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(bench)
+from test_bench_startup_agent_mark import FakeDaemon
 
 
 class Client:
@@ -54,6 +62,63 @@ class Restoration(unittest.TestCase):
     def test_old_receipt_directory_cannot_supply_a_new_run(self):
         with self.assertRaises(FileExistsError):
             ChatFixture(self.fixture.output)
+
+    def test_seed_waits_for_the_selected_agent_page_before_creating_a_session(self):
+        """An accepted open action can precede the native agent view's first frame."""
+        page = {"opened": False, "selected": False, "painted": False}
+        state = {}
+
+        class App:
+            sock = mock.Mock()
+
+            def call(self, method, params):
+                if method == "action.run":
+                    if params["action"] == "palette.newAgentChat":
+                        page["opened"] = True
+                    elif params["action"] == "palette.goToTab" and params.get("target", {}).get("id") == "chat":
+                        page["selected"] = page["opened"]
+                    return {"ok": True}
+                if not page["painted"]:
+                    return {"error": "no pane shows an agent tab", "agent_panes": []}
+                if params["action"] == "new_chat":
+                    state["sessionId"] = "session-1"
+                elif params["action"] == "send_prompt":
+                    text = params["text"]
+                    state.update(transcript=[{"kind": "user", "text": text},
+                                             {"kind": "assistant", "text": "echo: " + text}],
+                                 lastAssistant={"text": "echo: " + text}, isWorking=False)
+                return {"ok": True, "result": state}
+
+            def close(self):
+                pass
+
+        class Launch:
+            def __init__(self, *args):
+                self.marks = {}
+
+            def wait_for(self, mark, *args, **kwargs):
+                if mark == bench.AGENT_MARK:
+                    page["painted"] = page["selected"]
+                    return page["painted"]
+                return True
+
+            def quit(self):
+                pass
+
+        app = App()
+        marker = Path(self.temp.name) / "seeded"
+        with mock.patch("bench_cli_storm.Client", FakeDaemon), \
+                mock.patch.multiple(bench, Launch=Launch, CHAT_FIXTURE=self.fixture, REALISTIC_WORKSPACES=1,
+                                    HIDDEN_SCREENS=0, SEED_FOCUS="agent"), \
+                mock.patch.object(bench, "reset_state"), \
+                mock.patch.object(bench, "daemon_socket", return_value="unused"), \
+                mock.patch.object(bench, "app_client", return_value=app), \
+                mock.patch.object(bench, "app_tab_id", side_effect=lambda *args: "chat" if len(args) > 3 else "terminal"), \
+                mock.patch.object(bench, "seeded_marker", return_value=marker):
+            bench.seed_realistic("test", self.temp.name, 1)
+        self.assertTrue(page["painted"])
+        self.assertEqual(self.fixture.expected["test"]["transcript"], state["transcript"])
+        self.assertEqual(len(state["transcript"]), 2)
 
 
 if __name__ == "__main__":
