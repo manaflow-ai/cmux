@@ -511,7 +511,13 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       await ended(page, marker);
       await rest(page);
       const frames = await stop(page);
-      expect({ drops: drops(frames), atEnd: (await fromEnd(page)) <= 4 }).toEqual({ drops: [], atEnd: true });
+      // While the turn runs. At its end the tool call between the reply's two paragraphs folds into
+      // "Worked for" and the paragraph over it comes down by the tool's line, in the turn end's one
+      // motion (turnEndFold.ts; Codex parity #42247 keeps the commentary outside the fold): the
+      // settle test below holds that motion to one way and one rest.
+      const end = frames.findIndex((frame) => frame.settled);
+      const running = end < 0 ? frames : frames.slice(0, end);
+      expect({ drops: drops(running), atEnd: (await fromEnd(page)) <= 4 }).toEqual({ drops: [], atEnd: true });
       await page.close();
     },
   );

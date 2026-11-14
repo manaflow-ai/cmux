@@ -112,6 +112,9 @@ for s in data.get("samples", []):
         print(f"PERF-IDLE-RELEASED {s['label']} cmux_pages={json.dumps(s['cef_pages'])}")
 if "restore" in data:
     print(f"PERF-IDLE-RESTORE {json.dumps({k: v for k, v in data['restore'].items() if k != 'opens'})}")
+    # Each restored chat's trace (marks, surface changes, note): why a restore has no first-content time.
+    for o in data["restore"].get("opens", []):
+        print(f"PERF-IDLE-RESTORE-OPEN {json.dumps(o)}")
 PY
 fi
 exit "$status"
