@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43531598811",
+  "recorded_at": "2026-11-14T00:11:36Z",
+  "reason": "cmux-tui c31121f46af7 changes the image's cmux-tui (pinned bb91fea3c013)",
+  "dry_run": false,
+  "cmux_tui": "c31121f46af779014abe80d2a94a232bf64edea9",
+  "fixes": [
+    {
+      "sha": "83d0eaa494248a9ef8318363089a6213e8d447d8",
+      "mergedAt": "2026-11-14T12:28:36+13:00",
+      "subject": "fix(picker): resizing and live model releases (#42701)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T00:11:36Z",
+    "snapshot_id": "sh-cbed4cdd3fb84da9b806cf764b9754ad",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43531598811): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "850e61ce0f6868b61be06af307b2a48d3944feee",
+    "image": "cloud-native-auto-c31121f4-43531598811-1",
+    "revision": "ci-43531598811-1",
+    "at": "2026-11-14T00:11:36Z"
+  },
+  "rolled_back": false
+}
