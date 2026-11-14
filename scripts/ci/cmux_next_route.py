@@ -117,6 +117,9 @@ DAEMON_PATHS = (
     PACKAGE + "Tests/CmuxNextAppTests/FirstLaunchTests.swift",
     PACKAGE + "Tests/CmuxNextAppTests/MarkdownPageFindTests.swift",
     PACKAGE + "Tests/CmuxNextAppTests/FileSourceSwitchTests.swift",
+    # The Undo of a close that empties a group, against the live daemon (#41251: the
+    # suite was red by a daemon race and no merge check ran it).
+    PACKAGE + "Tests/CmuxNextAppTests/GroupCloseCleanupUndoTests.swift",
     # The classic import and migration suites start the live daemon too.
     PACKAGE + "Tests/CmuxNextAppTests/ClassicImportTests.swift",
     PACKAGE + "Tests/CmuxNextAppTests/ClassicMigrationTests.swift",
