@@ -307,6 +307,13 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                          { Self.check(C.any(app, "taskComposer.agents").frame.maxX <= C.any(app, "taskComposer.launch").frame.minX,
                                       "the agents pill runs under Open in") }])
             },
+            // Several agents with long names: the count stays whole beside the first's name.
+            Scene(group: g, id: "row-fits-three-agents", args: Self.list + ["-cmux-mobile-task-catalog", "many"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") }, { Self.openAgents(app) },
+                         { C.tap(C.any(app, "taskComposer.agent.claude-review"), "review") },
+                         { C.tap(C.any(app, "taskComposer.agent.claude-docs"), "docs") }, { Self.closeMenu(app) },
+                         { Self.check(app.staticTexts["+2"].exists, "the +2 is cut off") }])
+            },
             // Open in: a chat, or the agent's CLI in a terminal (A13).
             Scene(group: g, id: "launch-menu", args: Self.list) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },

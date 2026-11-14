@@ -308,16 +308,26 @@ struct TaskComposerScreen: View {
                         AgentBrandMark(agent: first.family, size: 16, style: .brand)
                             .frame(width: 18, height: 18)
                             .accessibilityHidden(true)
-                        // "Claude Code · Opus", or "Claude Code +1" with several (each has its model
-                        // in the menu); the agent's name gives way first.
-                        HStack(spacing: 4) {
-                            Text(shown.count > 1 ? "\(first.name) +\(shown.count - 1)" : first.name)
-                                .truncationMode(.tail)
-                            if shown.count == 1, let model = modelName(first, catalog) {
-                                Text("·").foregroundStyle(theme.colors.label2.color)
-                                Text(model)
-                                    .foregroundStyle(theme.colors.label2.color)
-                                    .layoutPriority(1)
+                        // One agent: "Claude Code · Opus" when both fit, else the agent's name (its
+                        // model is in the menu). Several: the first's name, then "+N", which never
+                        // shortens (live run 17: the name shrank to a sliver beside the model).
+                        if shown.count > 1 {
+                            HStack(spacing: 4) {
+                                Text(first.name).truncationMode(.tail)
+                                Text("+\(shown.count - 1)").fixedSize().layoutPriority(1)
+                            }
+                        } else {
+                            ViewThatFits(in: .horizontal) {
+                                if let model = modelName(first, catalog) {
+                                    HStack(spacing: 4) {
+                                        Text(first.name)
+                                        Text("·").foregroundStyle(theme.colors.label2.color)
+                                        Text(model).foregroundStyle(theme.colors.label2.color)
+                                    }
+                                    .fixedSize()
+                                }
+                                Text(first.name).fixedSize()
+                                Text(first.name).truncationMode(.tail)
                             }
                         }
                     } else {
