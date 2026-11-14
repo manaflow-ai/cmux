@@ -16,6 +16,11 @@ run_holds_group (scripts/ci/nightly_next_feed_watch.py), for the rolling rule (n
 - a run with no jobs yet that is pending (on a concurrency group): holds, however long. A queued one with no jobs
   keeps the 10-minute cut-off for a run that never starts.
 
+- a run in nightly-next-one's own leave step ("Leave the push slot to a newer nightly-next push") holds nothing
+  (leaving_slot): it waits there for this promotion and leaves by skipping its build.
+- a read that fails never promotes while a nightly-next push run created within RUN_LOOKBACK may wait at the
+  slot (or the listing itself fails): GitHub would cancel that pending job. It waits, and says which read failed.
+
 Manual lane (Lawrence 2026-10-23: no new CI tests): python3 tests/test_nightly_next_push_slot_holder.py.
 """
 from __future__ import annotations
@@ -114,6 +119,82 @@ go, reason = rolling.decide(NOW, head=WAITING, head_runs=[pending],
                             oldest_waiting=("c" * 40, NOW - dt.timedelta(minutes=30)), starts=[holder, pending])
 if go:
     failures.append(f"a loop run pending at the slot holds the tick, so no promotion replaces it: {reason}")
+
+# Latest wins at nightly-next-one's slot: a run admitted after a long wait there runs feat-cmux-next's leave step
+# again as nightly-next-one's first step ("Leave the push slot to a newer nightly-next push") and waits for a
+# promotion. In that step it builds nothing: the tick promotes, the newer push's nightly-next-one queues behind it,
+# and it leaves by skipping its build (nothing is cancelled).
+LEAVE_ONE = getattr(rolling, "LEAVE_ONE_STEP", "Leave the push slot to a newer nightly-next push")
+if LEAVE_ONE != "Leave the push slot to a newer nightly-next push":
+    failures.append(f"LEAVE_ONE_STEP must be nightly-next-one's step name on feat-cmux-next, got {LEAVE_ONE!r}")
+
+
+def one_in(step_status: str, later: str = "") -> list[dict]:
+    one = job("nightly-next-one", "in_progress", 1, "cmux15")
+    one["steps"] = [{"name": "Hold the whole Mac before any credential", "status": "completed", "conclusion": "success"},
+                    {"name": "Claim the whole Mac for signing", "status": "completed", "conclusion": "success"},
+                    {"name": LEAVE_ONE, "status": step_status, "conclusion": None}]
+    if later:
+        one["steps"].append({"name": "Point the signing steps at the build products", "status": later})
+    return [*PRE, one]
+
+
+stale = run(43608103300, 35, head_sha=HEAD)
+for name, jobs, want_go in (("in nightly-next-one's leave step", one_in("in_progress"), True),
+                            ("past nightly-next-one's leave step, building", one_in("completed", "in_progress"), False)):
+    if rolling.leaving_slot(jobs) != want_go:
+        failures.append(f"leaving_slot for a run {name} must be {want_go}")
+    go, reason = rolling.decide(NOW, head=HEAD, head_runs=[stale], jobs_of=lambda r, j=jobs: j, promotions=[],
+                                oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=20)), starts=[stale])
+    if go != want_go:
+        failures.append(f"a run {name}: the tick must {'promote' if want_go else 'wait'}: {reason}")
+
+
+# A read that fails never promotes past a run that may be waiting at the slot: GitHub would replace (cancel) that
+# pending job. Under an exhausted REST budget the jobs read fails while a run waits there.
+class Api:
+    def __init__(self, routes: dict):
+        self.routes = routes
+
+    def __call__(self, path: str):
+        for prefix, value in self.routes.items():
+            if prefix in path:
+                if isinstance(value, Exception):
+                    raise value
+                return value
+        raise AssertionError(f"unexpected read {path}")
+
+
+def api(runs=None, **broken) -> Api:
+    routes = {"/git/ref/heads/nightly-next": {"object": {"sha": HEAD}},
+              "/compare/": {"status": "ahead", "commits": [{"sha": WAITING, "commit": {"committer": {"date": at(30)}}}]},
+              "branch=nightly-next": runs if isinstance(runs, Exception) else {"workflow_runs": runs or []},
+              "event=workflow_dispatch": {"workflow_runs": []},
+              "/jobs?": {"jobs": [*PRE, job("nightly-next-one", "pending", 25, "")]}}
+    for key, error in broken.items():
+        routes[{"jobs": "/jobs?", "runs": "branch=nightly-next", "promotions": "event=workflow_dispatch"}[key]] = error
+    return Api(routes)
+
+
+QUOTA = OSError("HTTP 403: API rate limit exceeded")
+cases = [
+    ("the run listing fails (a waiting run can't be ruled out)", api(runs=QUOTA), False),
+    ("the jobs read fails with a run 30 min old not completed", api([run(1, 30, head_sha=HEAD)], jobs=QUOTA), False),
+    ("the jobs read fails with a run whose creation is unreadable",
+     api([run(2, 30, head_sha=HEAD, created_at="not a time")], jobs=QUOTA), False),
+    ("the promotion read fails with a run 2 h old still in progress",
+     api([run(3, 120, head_sha="c" * 40)], promotions=QUOTA), False),
+    ("the promotion read fails and every recent run is completed",
+     api([run(4, 30, "completed", head_sha=HEAD)], promotions=QUOTA), True),
+    ("the promotion read fails and the only open run is older than RUN_LOOKBACK",
+     api([run(5, 200, head_sha=HEAD)], promotions=QUOTA), True),
+]
+for name, reader, want_go in cases:
+    go, reason = rolling.evaluate(NOW, "o/r", "f" * 40, api=reader)
+    if go != want_go:
+        failures.append(f"{name}: the tick must {'promote' if want_go else 'wait'}, got {go}: {reason}")
+    elif not go and "could not read" not in reason:
+        failures.append(f"{name}: the wait must say which read failed and why it waits: {reason}")
 
 if failures:
     print("FAIL: the push slot ends at nightly-next-one\n  " + "\n  ".join(failures))
