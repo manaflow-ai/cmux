@@ -518,7 +518,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     let collectionView: ChatTranscriptCollectionView
     let layout: ChatTranscriptLayout
     private(set) var store: AgentChatStore
-    private let surface: AgentChatSurface
+    let surface: AgentChatSurface
     var context: ChatRowContext { lookup.context }
     private(set) var builder: ChatTranscriptBuilder
     private let dataSource: UICollectionViewDiffableDataSource<Int, String>
@@ -569,6 +569,10 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private(set) var rowsWeighed = 0
     /// Rows offered to the warm-up (tests: once each, not every row on every reload).
     private(set) var warmUpOffers = 0
+    /// Snapshot applies by `reload` (tests: a token whose rows keep their ids applies none).
+    private(set) var snapshotApplies = 0
+    /// Native layouts made on the main thread (tests: none for a streaming row off screen).
+    var layoutsMadeNow: Int { lookup.layouts.madeNow }
 
     init(store: AgentChatStore, surface: AgentChatSurface) {
         self.store = store
@@ -1025,11 +1029,13 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             snapshot.reconfigureItems(reconfigure.filter { both.contains($0) })
             snapshot.reloadItems(reloadIDs.filter { both.contains($0) })
             shownIDs = ids
+            snapshotApplies += 1
             dataSource.apply(snapshot, animatingDifferences: false)
         } else if !changed.isEmpty {
             var snapshot = dataSource.snapshot()
             snapshot.reconfigureItems(reconfigure)
             snapshot.reloadItems(reloadIDs)
+            snapshotApplies += 1
             dataSource.apply(snapshot, animatingDifferences: false)
         } else {
             layout.invalidateLayout()
