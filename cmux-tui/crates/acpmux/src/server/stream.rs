@@ -108,7 +108,15 @@ impl<R: AsyncRead + Unpin> Upgrade<R> {
         );
         writer.write_all(reply.to_line().as_bytes()).await?;
         let source = Arc::new(acpmux_core::conn::HubSource::new(v2.hub()));
-        acpmux_core::conn::run(self.reader, writer, source, daemon_id, &self.surfaces).await
+        acpmux_core::conn::run(
+            self.reader,
+            writer,
+            source,
+            daemon_id,
+            &self.surfaces,
+            acpmux_core::conn::Role::Local,
+        )
+        .await
     }
 }
 

@@ -33,14 +33,17 @@ mod long_connections;
 mod terminal_lane;
 mod terminal_seats;
 pub use connection_leases::{ConnectionLease, PeerClosed};
-#[cfg(test)]
-pub(crate) use disk_usage::journal_bytes_by_kind;
 pub use disk_usage::{
     DEFAULT_JOURNAL_KIND_BUDGET, DiskUsageCache, DiskUsageSnapshot, JOURNAL_KIND_BUDGETS,
     REGISTRY_BYTES_PER_SESSION_PER_DAY, bytes_per_day, journal_kind_budget, read_disk_usage,
 };
+#[cfg(test)]
+pub(crate) use disk_usage::{journal_bytes_by_kind, read_segments_for_test};
 pub use long_connections::LongConnectionsFull;
-pub use terminal_seats::{HostSeat, HostSeating, SeatedTerminal, TerminalSeat};
+pub use terminal_seats::{
+    HostSeat, HostSeating, KeptHost, KeptHostSeat, KeptSeatClass, KeptSeatClassNow, SeatedTerminal,
+    TerminalSeat,
+};
 mod hook_queue;
 pub(crate) mod request_log;
 mod write_path;

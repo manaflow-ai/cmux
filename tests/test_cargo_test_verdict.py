@@ -2,6 +2,7 @@
 flake (it passed run again alone) or fails on the merge base too; a crash, a cut-short binary, a compile error or a
 test the base passes is the change's own red."""
 import importlib.util
+import posixpath
 import re
 import subprocess
 import sys
@@ -238,6 +239,34 @@ class Scope(unittest.TestCase):
                 with self.subTest(event=event, path=path):
                     self.assertTrue(any(glob_matches(glob, path) for glob in globs),
                                     f"cmux-tui-spec.yml's {event} paths miss {path}, an input of acpmux's tests")
+
+    def test_the_job_runs_the_tests_of_every_acpmux_crate_acpmux_is_built_from(self):
+        # The job ran `-p acpmux` alone and no hosted job ran the other acpmux-* crates' tests: cmux#42834 changed
+        # what acpmux-book answers and left acpmux-core's test of the old answer red on the base, and cmux#42906
+        # left two more (repaired by cmux#42943). A new acpmux-* path dependency, direct or through another crate,
+        # or a new tests/*.rs of one, joins the job's `suites`. acpmux's own tests/ are not asked for: most of them
+        # run in other jobs.
+        dirs, _ = verdict.crate_inputs(ROOT, self.CRATE)
+        crates = [d for d in dirs if posixpath.basename(d).startswith("acpmux")]
+        self.assertIn("cmux-tui/crates/acpmux-core", crates)
+        workflow = (ROOT / ".github/workflows/cmux-tui-spec.yml").read_text()
+        suites = re.search(r"^ +suites=\(([^)]*)\)$", workflow, re.M).group(1).split()
+        named = {flag: {suites[n + 1] for n, word in enumerate(suites[:-1]) if word == flag}
+                 for flag in ("-p", "--test")}
+        self.assertIn("--lib", suites)
+        with verdict.git_tree.GitTree(ROOT) as tree:
+            for crate in crates:
+                name = posixpath.basename(crate)
+                with self.subTest(crate=name):
+                    self.assertIn(name, named["-p"], f"cmux-tui-spec.yml's acpmux tests job runs no test of {name}: "
+                                                     f"add `-p {name}` to its suites")
+                    if crate == self.CRATE:
+                        continue
+                    targets = {posixpath.basename(path)[:-3] for path in tree.files(f"{crate}/tests", ".rs")
+                               if posixpath.dirname(path) == f"{crate}/tests"}
+                    self.assertEqual(targets - named["--test"], set(),
+                                     f"cmux-tui-spec.yml's acpmux tests job misses {name}'s tests/ files: add "
+                                     "`--test NAME` to its suites for each")
 
 
 class Cli(unittest.TestCase):

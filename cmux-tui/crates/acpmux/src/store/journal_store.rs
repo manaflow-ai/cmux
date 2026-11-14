@@ -737,6 +737,33 @@ impl Store for JournalStore {
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         self.inner.fenced(|| Store::events(&self.inner.local, id, after, limit))
     }
+    fn read_log(
+        &self,
+        id: &str,
+        from: u64,
+        filter: LogFilter<'_>,
+        stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogChunk> {
+        self.inner
+            .fenced(|| Store::read_log(&self.inner.local, id, from, filter, stamp, marks, out))
+    }
+    fn log_stamp(&self, id: &str) -> Result<u64> {
+        Store::log_stamp(&self.inner.local, id)
+    }
+    fn bump_log_stamp(&self, id: &str, by: u64) -> Result<()> {
+        Store::bump_log_stamp(&self.inner.local, id, by)
+    }
+    /// A line is durable once its journal record is: a power loss's replay writes it into the
+    /// log again. So a sync through a seq waits for the journal, never syncs the log itself.
+    fn sync_log_through(&self, _id: &str, _seq: u64) -> Result<()> {
+        if self.wait_durable(Duration::from_secs(30))? {
+            Ok(())
+        } else {
+            anyhow::bail!("the event journal did not sync within 30 s")
+        }
+    }
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
         self.inner.fenced(|| Store::scan(&self.inner.local, id, after, visit))
     }

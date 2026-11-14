@@ -1131,8 +1131,270 @@
         }
       }
     },
+    "action.sidebar.customize": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تخصيص الشريط الجانبي…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prilagodi bočnu traku…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilpas sidepanel…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seitenleiste anpassen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Customize sidebar…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizar barra lateral…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personnaliser la barre latérale…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizza barra laterale…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーをカスタマイズ…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្ដូររបារចំហៀងតាមបំណង…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 사용자화…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilpass sidepanel…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostosuj pasek boczny…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizar barra lateral…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настроить боковую панель…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปรับแต่งแถบด้านข้าง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kenar çubuğunu özelleştir…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налаштувати бічну панель…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tùy chỉnh thanh bên…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义侧边栏…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自訂側邊欄…"
+          }
+        }
+      }
+    },
     "action.sidebar.revealWorkspace": {"comment": "Command palette and the workspace row menu: shows the current workspace in the sidebar", "extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Reveal Workspace in Sidebar"}}, "ar": {"stringUnit": {"state": "translated", "value": "إظهار مساحة العمل في الشريط الجانبي"}}, "bs": {"stringUnit": {"state": "translated", "value": "Prikaži radni prostor u bočnoj traci"}}, "da": {"stringUnit": {"state": "translated", "value": "Vis arbejdsområde i sidepanelet"}}, "de": {"stringUnit": {"state": "translated", "value": "Arbeitsbereich in der Seitenleiste zeigen"}}, "es": {"stringUnit": {"state": "translated", "value": "Mostrar espacio de trabajo en la barra lateral"}}, "fr": {"stringUnit": {"state": "translated", "value": "Afficher l’espace de travail dans la barre latérale"}}, "it": {"stringUnit": {"state": "translated", "value": "Mostra spazio di lavoro nella barra laterale"}}, "ja": {"stringUnit": {"state": "translated", "value": "サイドバーでワークスペースを表示"}}, "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញកន្លែងធ្វើការនៅក្នុងរបារចំហៀង"}}, "ko": {"stringUnit": {"state": "translated", "value": "사이드바에서 작업 공간 표시"}}, "nb": {"stringUnit": {"state": "translated", "value": "Vis arbeidsområde i sidefeltet"}}, "pl": {"stringUnit": {"state": "translated", "value": "Pokaż obszar roboczy na pasku bocznym"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostrar espaço de trabalho na barra lateral"}}, "ru": {"stringUnit": {"state": "translated", "value": "Показать рабочее пространство в боковой панели"}}, "th": {"stringUnit": {"state": "translated", "value": "แสดงพื้นที่ทำงานในแถบด้านข้าง"}}, "tr": {"stringUnit": {"state": "translated", "value": "Çalışma alanını kenar çubuğunda göster"}}, "uk": {"stringUnit": {"state": "translated", "value": "Показати робочий простір на бічній панелі"}}, "vi": {"stringUnit": {"state": "translated", "value": "Hiện không gian làm việc trong thanh bên"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "在边栏中显示工作区"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "在側邊欄中顯示工作區"}}}},
     "action.sidebar.revealAndFocusWorkspace": {"comment": "Command palette and the workspace row menu: shows the current workspace in the sidebar", "extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Reveal and Focus Workspace in Sidebar"}}, "ar": {"stringUnit": {"state": "translated", "value": "إظهار مساحة العمل في الشريط الجانبي والتركيز عليها"}}, "bs": {"stringUnit": {"state": "translated", "value": "Prikaži i fokusiraj radni prostor u bočnoj traci"}}, "da": {"stringUnit": {"state": "translated", "value": "Vis og fokuser arbejdsområde i sidepanelet"}}, "de": {"stringUnit": {"state": "translated", "value": "Arbeitsbereich in der Seitenleiste zeigen und fokussieren"}}, "es": {"stringUnit": {"state": "translated", "value": "Mostrar y enfocar espacio de trabajo en la barra lateral"}}, "fr": {"stringUnit": {"state": "translated", "value": "Afficher et activer l’espace de travail dans la barre latérale"}}, "it": {"stringUnit": {"state": "translated", "value": "Mostra e attiva spazio di lavoro nella barra laterale"}}, "ja": {"stringUnit": {"state": "translated", "value": "サイドバーでワークスペースを表示してフォーカス"}}, "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញ និងផ្ដោតលើកន្លែងធ្វើការនៅក្នុងរបារចំហៀង"}}, "ko": {"stringUnit": {"state": "translated", "value": "사이드바에서 작업 공간 표시 및 포커스"}}, "nb": {"stringUnit": {"state": "translated", "value": "Vis og fokuser arbeidsområde i sidefeltet"}}, "pl": {"stringUnit": {"state": "translated", "value": "Pokaż i aktywuj obszar roboczy na pasku bocznym"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostrar e focar espaço de trabalho na barra lateral"}}, "ru": {"stringUnit": {"state": "translated", "value": "Показать рабочее пространство в боковой панели и перейти к нему"}}, "th": {"stringUnit": {"state": "translated", "value": "แสดงและโฟกัสพื้นที่ทำงานในแถบด้านข้าง"}}, "tr": {"stringUnit": {"state": "translated", "value": "Çalışma alanını kenar çubuğunda göster ve odaklan"}}, "uk": {"stringUnit": {"state": "translated", "value": "Показати робочий простір на бічній панелі й перейти до нього"}}, "vi": {"stringUnit": {"state": "translated", "value": "Hiện và chuyển tới không gian làm việc trong thanh bên"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "在边栏中显示并聚焦工作区"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "在側邊欄中顯示並聚焦工作區"}}}},
+    "action.debug.densityOverlayPlayground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Density Overlay Playground"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "密度オーバーレイ プレイグラウンド"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ساحة تجربة تراكب الكثافة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Igralište za preklapanje gustoće"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legeplads til tæthedsoverlejring"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dichte-Overlay-Spielwiese"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Área de pruebas de superposición de densidad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terrain de jeu de superposition de densité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Area di prova sovrapposizione densità"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងសាកល្បងការត្រួតដង់ស៊ីតេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "밀도 오버레이 플레이그라운드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lekeplass for tetthetsoverlegg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plac zabaw nakładki gęstości"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Playground de sobreposição de densidade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Площадка наложения плотности"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สนามทดลองการซ้อนทับความหนาแน่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yoğunluk katmanı deneme alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Майданчик накладання щільності"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sân thử lớp phủ mật độ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "密度叠加试验场"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "密度疊加試驗場"
+          }
+        }
+      }
+    },
     "action.debug.sidebarRowTuner": {
       "extractionState": "manual",
       "localizations": {
@@ -5062,6 +5324,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "重新顯示已隱藏的提示"
+          }
+        }
+      }
+    },
+    "action.debug.toastPlayground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toast Playground"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トーストのプレイグラウンド"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ساحة تجربة الإشعارات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Igralište obavještenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legeplads for meddelelser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hinweis-Spielwiese"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zona de pruebas de avisos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bac à sable des notifications"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Area di prova degli avvisi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែង​សាកល្បង​សារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "알림 플레이그라운드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lekeplass for meldinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plac zabaw powiadomień"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Área de testes de avisos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Песочница уведомлений"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สนามทดลองการแจ้งเตือน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bildirim oyun alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пісочниця сповіщень"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sân thử thông báo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提示试验场"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提示試驗場"
           }
         }
       }
