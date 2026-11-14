@@ -144,3 +144,32 @@ test("an app whose render fails hands the page back to cmux's own", async () => 
   expect(container.querySelector(".nt-app-page")).toBeNull();
   await act(async () => root.unmount());
 });
+
+test("keys typed after Cmd-T wait for the app's first scene: focus while it loads reports nothing", async () => {
+  const host = new Host();
+  const { root, ready } = await render(host);
+  await act(async () => {
+    window.dispatchEvent(new window.Event("focus"));
+  });
+  // The scene has not committed, so an autofocus field the app draws does not exist yet: the Mac
+  // must keep holding the keys.
+  expect(ready).toEqual([]);
+  await act(async () => {
+    host.scene?.(
+      {
+        mount_id: "m1",
+        ops: [
+          { op: "create", id: "f", type: "TextField", props: { autofocus: true } },
+          { op: "root", id: "f" },
+        ],
+      },
+      1,
+    );
+  });
+  // Drawn: it waits for focus as before (newtab/inputReady.ts), then reports once.
+  await act(async () => {
+    window.dispatchEvent(new window.Event("focus"));
+  });
+  expect(ready).toEqual(["t1"]);
+  await act(async () => root.unmount());
+});
