@@ -204,10 +204,13 @@ builtin eval "{ printf %s \"\$_git_fixture_mark\" >&$_git_fixture_fd; builtin tr
 _git_fixture_exit_trap='_git_fixture_exit_prep "$?" "$( { _git_fixture_traps_sig=DEBUG; builtin eval "$_git_fixture_read_traps"; } 2>/dev/null )"; _git_fixture_resume "$_git_fixture_status" && _git_fixture_resumed'
 
 # Arms EXIT in this shell, with the caller's action after the dispatcher, and records which shell that is.
+# The newline between them is a literal one: check-test-determinism.py's exit-trap-reraise-order cannot read a $'\n'
+# word and fails it closed.
 _git_fixture_arm_exit() {
   _git_fixture_armed_pid=$(_git_fixture_pid)
   if [[ -n "${_git_fixture_caller_exit-}" ]]; then
-    builtin trap -- "$_git_fixture_exit_trap"$'\n'"$_git_fixture_caller_exit" EXIT
+    builtin trap -- "$_git_fixture_exit_trap
+$_git_fixture_caller_exit" EXIT
   else
     builtin trap -- "$_git_fixture_exit_trap" EXIT
   fi

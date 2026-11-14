@@ -18,7 +18,7 @@ import Testing
     /// Default Chrome's `kVerticalTabHeight` (30, also the Codex sidebar row), Compact today's 24 pt
     /// tab and row, Ultra-compact a 20 pt row with 11 pt omnibar text.
     nonisolated static let expectedHeight: [DensityPreset: CGFloat] = [
-        .ultraCompact: 20, .compact: 24, .cozy: 30, .comfortable: 34, .spacious: 42,
+        .ultraCompact: 20, .compact: 20, .cozy: 30, .comfortable: 34, .spacious: 42,  // Compact 20 (Lawrence 2026-11-13)
     ]
 
     /// Chromium's ratio (8 on 30), rounded to whole points.
