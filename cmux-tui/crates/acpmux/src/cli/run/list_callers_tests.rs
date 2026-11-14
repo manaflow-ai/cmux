@@ -104,7 +104,7 @@ async fn serve(serves: Serves, seed: impl FnOnce(&Hub) -> usize) -> Daemon {
 
 /// The differential fixture: live and closed chats, a child whose parent is closed, a child whose
 /// parent is archived, tags, and a peer whose link is down (its rows stale), with one live and
-/// one closed row. No closed chat holds a message (decision 209). Its row count.
+/// one closed row. No closed chat holds a message (decision 209). The rows the v2 index holds.
 fn fixture(hub: &Hub) -> usize {
     let now = crate::store::now_ms();
     let at = |n: u64| now - 600_000 + n * 1_000;
@@ -131,7 +131,8 @@ fn fixture(hub: &Hub) -> usize {
                "status": "closed", "updatedAt": at(5)}),
     ];
     hub.seed_down_peer("far", peer_rows);
-    rows + 2
+    // The v2 index keeps a peer's live rows only (`SummaryIndex::apply_summary`).
+    rows + 1
 }
 
 #[derive(clap::Parser)]

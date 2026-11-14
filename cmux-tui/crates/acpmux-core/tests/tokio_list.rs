@@ -344,20 +344,21 @@ async fn rows_as_v1_gave_them_read_a_parent_that_is_not_among_them() {
     }
 }
 
-/// A peer whose link is down and who lists only a closed chat: read by key, the chat's row says
-/// stale, as v1's list says it. The read's origins come from its one-row window of `live`, which
-/// holds none of that peer's rows.
+/// A peer whose link is down and who lists only a closed chat: the index keeps no closed row of
+/// a peer (`SummaryIndex::apply_summary`), so read by key the chat has no row, where v1's list
+/// gives it with `stale: true`. A caller that must print it reads v1.
 #[tokio::test]
-async fn a_closed_row_of_a_down_peer_read_by_key_is_stale() {
+async fn a_closed_row_of_a_down_peer_has_no_row_by_key() {
     let (hub, writer) = Hub::new(SummaryIndex::new());
     let hub = Arc::new(hub);
     tokio::spawn(writer.run());
-    hub.submit(row("here", "idle", base() + 20)).unwrap();
     hub.origin("peer-b", OriginState::Stale, base()).unwrap();
     let mut old = row("old", "closed", base() + 3);
     old.origin = "peer-b".into();
     hub.submit(old).unwrap();
-    settle(&hub, |index| index.iter().count() == 2).await;
+    hub.submit(row("here", "idle", base() + 20)).unwrap();
+    settle(&hub, |index| index.iter().any(|row| row.chat_id == "here")).await;
+    assert_eq!(hub.snapshot().iter().count(), 1, "the index keeps no closed row of a peer");
 
     let mut connection = open(&hub).await;
     let key = ListKey { last_activity: 0, chat_id: "old".into(), origin: "peer-b".into() };
@@ -366,12 +367,7 @@ async fn a_closed_row_of_a_down_peer_read_by_key_is_stale() {
     while let Some(page) = tokio::time::timeout(WAIT, reading.next()).await.unwrap().unwrap() {
         rows.extend(page.rows);
     }
-    drop(reading);
-    assert_eq!(rows.len(), 1);
-    assert_eq!(connection.origin_state("peer-b"), OriginState::Stale);
-    let v1 = connection.v1_rows(&rows).await.unwrap();
-    assert_eq!(v1[0]["peer"], "peer-b");
-    assert_eq!(v1[0]["stale"], true, "{}", v1[0]);
+    assert!(rows.is_empty(), "{rows:?}");
 }
 
 /// Applies a mirror's changes to the rows it holds.
