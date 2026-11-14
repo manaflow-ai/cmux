@@ -77,6 +77,18 @@ type Phase =
 const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 10_000;
 
+/** What a failed connect does next. Only a refused credential is dropped (`forget`, URL pages); a
+ *  daemon that is restarting or slow keeps it and is asked again: unreachable (no upgrade in time),
+ *  unresponsive (open, but no answer to its first command in time) or disconnected (closed while
+ *  it was asked). Anything else shows the form with its reason. */
+export function afterConnectFailure(code: string | undefined, source: "url" | "host"): "forget" | "retry" | "form" {
+  if (code === "auth_rejected" && source === "url") return "forget";
+  if (source === "host") return "retry";
+  return code === "auth_rejected" || code === "unreachable" || code === "unresponsive" || code === "disconnected"
+    ? "retry"
+    : "form";
+}
+
 export function DaemonGate({
   source,
   strings,
@@ -98,6 +110,7 @@ export function DaemonGate({
       auth_rejected: t("connect.authRejected"),
       unreachable: t("connect.connecting"),
       disconnected: t("connect.connecting"),
+      unresponsive: t("connect.connecting"),
       timeout: t("connect.connecting"),
       [PAGE_LISTENER_REFUSED]: t("connect.listenerRefused"),
       [HOST_UNAVAILABLE]: OWNER_SENTENCE,
@@ -122,17 +135,14 @@ export function DaemonGate({
   /** A socket that serves the conversations to a page: authenticated and new enough. `closed`
    *  says whether it closed before the page took it (a close listener added later never fires). */
   const open = (endpoint: string, auth: DaemonAuth) =>
-    DaemonSocket.connect(endpoint, auth).then(async (daemon) => {
+    DaemonSocket.connect(endpoint, auth).then((daemon) => {
       let closed = false;
       daemon.onClose(() => (closed = true));
-      try {
-        const identity = await daemon.request<{ capabilities?: string[] }>("identify");
-        // An older daemon refuses the conversations on a WebSocket: say so instead of failing later.
-        if (!identity.capabilities?.includes("ws-conversations-v1"))
-          throw Object.assign(new Error(t("connect.tooOld")), { code: TOO_OLD });
-      } catch (error) {
+      // An older daemon refuses the conversations on a WebSocket: say so instead of failing later.
+      // `connect` read its identity, the probe that it answers at all.
+      if (!daemon.identity.capabilities?.includes("ws-conversations-v1")) {
         daemon.close();
-        throw error;
+        throw Object.assign(new Error(t("connect.tooOld")), { code: TOO_OLD });
       }
       return { daemon, closed: () => closed };
     });
@@ -191,12 +201,11 @@ export function DaemonGate({
       })
       .catch((error: Error & { code?: string }) => {
         if (!live.current.mounted) return;
-        // Only a refused credential is dropped; an unreachable daemon (a restart) keeps it.
-        if (error.code === "auth_rejected" && source.kind === "url") {
+        const next = afterConnectFailure(error.code, source.kind);
+        if (next === "forget") {
           sessionStorage.removeItem(storageKey(url));
           setPhase({ kind: "form", error: say(error) });
-        } else if (error.code === "auth_rejected" || error.code === "unreachable" || source.kind === "host")
-          retry(say(error));
+        } else if (next === "retry") retry(say(error));
         else setPhase({ kind: "form", error: say(error) });
       });
   };
