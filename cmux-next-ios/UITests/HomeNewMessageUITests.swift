@@ -297,6 +297,8 @@ final class HomeNewMessageUITests: XCTestCase {
             _ = openSheet(app, look)
             let newChief = app.cells["conversation.compose.action.newChief"]
             XCTAssertTrue(newChief.waitForExistence(timeout: 10), "New Chief row\n\(app.debugDescription)")
+            // The list runs under the message bar (native edge effect): bring the row above it.
+            Self.scrollAbove(app, newChief)
             newChief.tap()
             XCTAssertTrue(app.alerts["New Chief"].waitForExistence(timeout: 8), "New Chief's prompt on Home\n\(app.debugDescription)")
             attach(app, look, "18-new-chief-prompt")
@@ -310,8 +312,8 @@ final class HomeNewMessageUITests: XCTestCase {
             XCTAssertTrue((macChief.value as? String ?? "").contains("Main"), "tagged Main: \(macChief.value ?? "")")
             let invite = app.cells["conversation.compose.action.invite"]
             XCTAssertTrue(invite.waitForExistence(timeout: 5), "Invite for a team of one\n\(app.debugDescription)")
-            // N2: the Invite row on screen (the list scrolls above the message bar).
-            if !invite.isHittable { app.tables["conversation.compose.suggestions"].swipeUp() }
+            // N2: the Invite row on screen, above the message bar the list runs under.
+            Self.scrollAbove(app, invite)
             Self.pause(0.6)
             XCTAssertTrue(invite.isHittable, "the Invite row is on screen")
             attach(app, look, "19-mac-only-invite")
@@ -373,6 +375,17 @@ final class HomeNewMessageUITests: XCTestCase {
         let text = field.value as? String ?? ""
         guard !text.isEmpty, text != "To:" else { return }
         field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: text.count))
+    }
+
+    /// The list runs under the message bar: swipe until `row` sits wholly above the bar.
+    @MainActor
+    static func scrollAbove(_ app: XCUIApplication, _ row: XCUIElement) {
+        let bar = app.buttons["conversation.composer.plus"]
+        for _ in 0..<4 {
+            guard bar.exists, row.exists, row.frame.maxY > bar.frame.minY - 4 else { return }
+            app.tables["conversation.compose.suggestions"].swipeUp()
+            pause(0.6)
+        }
     }
 
     static func pause(_ seconds: Double) {
