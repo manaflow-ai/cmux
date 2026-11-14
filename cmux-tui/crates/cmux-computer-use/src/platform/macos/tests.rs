@@ -179,7 +179,7 @@ impl activation::ScopeOs for FakeOs {
         true
     }
     fn window_exists(&self, window: u32, pid: i32) -> bool {
-        self.windows.borrow().iter().any(|w| *w == (window, pid))
+        self.windows.borrow().contains(&(window, pid))
     }
     fn any_window(&self, pid: i32) -> Option<u32> {
         self.windows.borrow().iter().find(|w| w.1 == pid).map(|w| w.0)

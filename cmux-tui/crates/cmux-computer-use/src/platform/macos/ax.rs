@@ -154,23 +154,6 @@ impl Ax {
         frame_of(&pos, &size)
     }
 
-    /// The text selection (`AXSelectedTextRange`): location and length.
-    pub fn selected_range(&self) -> Option<(i64, i64)> {
-        let v = self.attr("AXSelectedTextRange").ok().flatten()?;
-        let mut r = [0isize; 2];
-        // SAFETY: checked to be an AXValue holding a CFRange (two CFIndex)
-        // before it is read into one.
-        unsafe {
-            if v.type_id() != AXValueGetTypeID() || AXValueGetType(v.ptr()) != AX_VALUE_CFRANGE {
-                return None;
-            }
-            if AXValueGetValue(v.ptr(), AX_VALUE_CFRANGE, r.as_mut_ptr().cast()) == 0 {
-                return None;
-            }
-        }
-        Some((r[0] as i64, r[1] as i64))
-    }
-
     pub fn actions(&self) -> Vec<String> {
         let mut out: CFTypeRef = std::ptr::null();
         // SAFETY: out receives a +1 CFArray.

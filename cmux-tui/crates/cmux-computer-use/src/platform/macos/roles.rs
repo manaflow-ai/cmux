@@ -304,7 +304,9 @@ pub fn primed_press(
     item_is_service: bool,
 ) -> Result<(), &'static str> {
     if !live {
-        return Err("the target app came to the front, the call was stopped or the app did not answer in time while its menu item was being made available, so nothing was pressed");
+        return Err(
+            "the target app came to the front, the call was stopped or the app did not answer in time while its menu item was being made available, so nothing was pressed",
+        );
     }
     if !focus_on_target {
         return Err("the target window stopped being its app's key window before the menu item was pressed (another window of the app took it), so nothing was pressed");

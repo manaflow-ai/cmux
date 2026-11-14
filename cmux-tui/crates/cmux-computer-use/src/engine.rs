@@ -1445,6 +1445,7 @@ impl Engine {
     /// The window must still be `app`'s and `app` still allowed before every
     /// capture and the tree; a window that closed, changed app or became
     /// denied leaves the action's result as it is, with the reason.
+    #[allow(clippy::too_many_arguments)] // each argument is one fact of the call
     fn attach_state(
         &self,
         ctx: &CallContext,

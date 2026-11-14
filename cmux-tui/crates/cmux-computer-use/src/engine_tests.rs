@@ -272,9 +272,9 @@ fn a_new_window_of_the_app_is_a_visible_change() {
     let mut sheet = d.windows[0].clone();
     sheet.id = "77".into();
     sheet.on_screen = true;
-    *d.opens_on_input.lock().unwrap() = Some(sheet);
     let (e, _) = settling_engine(d.clone());
     assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+    *d.opens_on_input.lock().unwrap() = Some(sheet);
     let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 10}));
     assert_eq!(out.body["state"]["unchanged"], true, "{}", out.body);
     assert_eq!(out.body["evidence"], "delivered", "{}", out.body);
