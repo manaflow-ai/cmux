@@ -76,7 +76,12 @@ extension LiveCoordinator {
                 cloudRefusals[id] = nil
                 continue
             }
-            if refusal.lifted(by: machine, now: .now) { cloudRefusals[id] = nil }
+            if refusal.lifted(by: machine, now: .now) {
+                cloudRefusals[id] = nil
+                // Lifted on a list that is not a fresh read (a republish, an action's change): it
+                // still waits for one begun after now before it dials (review round 20).
+                if !fromRead { holdCloudDial(id) }
+            }
         }
         publishCloudMachines()
         let ids = Set(machines.map(\.id))
