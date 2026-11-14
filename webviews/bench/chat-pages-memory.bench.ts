@@ -178,6 +178,53 @@ try {
   const root = server.process().pid!;
   const browser = await chromium.connect(server.wsEndpoint());
   const context = await browser.newContext({ viewport: { width: 1200, height: 800 } });
+  // MEMDUMP=1: Chromium's own accounting of the renderer by allocator (memory-infra), the owner split PSS hides:
+  // v8, blink_gc, partition_alloc (and its partitions), malloc, cc (raster tiles), skia, font caches.
+  const memoryDump = async (): Promise<Map<string, number>> => {
+    const cdp = await browser.newBrowserCDPSession();
+    const events: {
+      ph?: string;
+      pid?: number;
+      args?: { dumps?: { allocators?: Record<string, { attrs?: Record<string, { value?: string }> }> } };
+    }[] = [];
+    cdp.on("Tracing.dataCollected", (data: { value: typeof events }) => events.push(...data.value));
+    const done = new Promise<void>((resolve) => cdp.once("Tracing.tracingComplete", () => resolve()));
+    await cdp.send("Tracing.start", {
+      transferMode: "ReportEvents",
+      traceConfig: { includedCategories: ["disabled-by-default-memory-infra"], memoryDumpConfig: { triggers: [] } },
+    } as never);
+    await cdp.send("Tracing.requestMemoryDump", { deterministic: true, levelOfDetail: "detailed" } as never);
+    await cdp.send("Tracing.end");
+    await done;
+    await cdp.detach();
+    const pids = new Set(renderers(root));
+    const sizes = new Map<string, number>();
+    for (const event of events) {
+      if (event.ph !== "v" || !pids.has(event.pid ?? -1)) continue;
+      for (const [name, dump] of Object.entries(event.args?.dumps?.allocators ?? {})) {
+        const depth = name.split("/").length;
+        const keep =
+          depth === 1 ||
+          (name.startsWith("partition_alloc/partitions/") && depth === 3) ||
+          (name.startsWith("v8/main/heap/") && depth === 4);
+        const size = dump.attrs?.size?.value;
+        if (!keep || size === undefined) continue;
+        sizes.set(name, (sizes.get(name) ?? 0) + parseInt(size, 16) / 1048576);
+      }
+    }
+    return sizes;
+  };
+  let lastDump: { count: number; sizes: Map<string, number> } | undefined;
+  const printDump = async (count: number) => {
+    if (process.env.MEMDUMP !== "1") return;
+    const sizes = await memoryDump();
+    const per = lastDump ? count - lastDump.count : 0;
+    const rows = [...sizes].filter(([, mb]) => mb >= 0.05).sort((a, b) => b[1] - a[1]);
+    console.log(
+      `  memdump at ${count}: ${rows.map(([n, mb]) => `${n} ${mb.toFixed(1)}${per ? ` (+${((mb - (lastDump!.sizes.get(n) ?? 0)) / per).toFixed(2)}/chat)` : ""}`).join(", ")}`,
+    );
+    lastDump = { count, sizes };
+  };
   await addStabilityProbe(context, { boxes: false });
 
   const sample = async (pages: { page: Page; cdp: CDPSession }[]) => {
@@ -280,6 +327,7 @@ try {
     const wakeups = idle.reduce((sum, row) => sum + row.wakeups, 0) / (IDLE_WINDOW_MS / 1000);
     const sources = idle.flatMap((row) => row.sources).slice(0, 4);
     const now = await sample(pages);
+    await printDump(count);
     if (process.env.KINDS === "1") {
       const sizes = bySize(await takeSnapshot(pages[0]!.cdp));
       if (kindsAt) {
