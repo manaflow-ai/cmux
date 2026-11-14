@@ -45,7 +45,7 @@ FIRST_LAUNCH_ENV = {"CMUX_MOBILE_CLEAR_AUTH": "1"}
 # in place of the one a reviewer reads from the demo account's inbox.
 MOCK_EMAIL_CODE = "424242"
 
-PROMPT ="""You are an Apple App Review reviewer testing the cmux iOS app on an iPad
+PROMPT = """You are an Apple App Review reviewer testing the cmux iOS app on an iPad
 or iPhone simulator. You have no Mac and you have never seen cmux before.
 It is an iPhone app; on an iPad it runs in compatibility mode, and App Review
 judges it there too.
@@ -68,7 +68,8 @@ credentials and never leaves the app: "Continue with email" takes any
 address (use reviewer@example.com) and then the code {code}, which stands in
 for the code a reviewer reads from the demo account's inbox; Continue with
 Apple, Google and GitHub each sign the sample account straight in. Sign in
-by email, as the instructions do; a relaunch keeps you signed in. Walk
+by email, as the instructions do. A relaunch starts the sample account
+signed in, even after a sign-out; that is this build, not a bug. Walk
 sign-in, the first-run setup it leads to, Home, Chief
 (open it and send a message; a reply should come), Workspaces, Feed and
 Settings (every row and page). Open Settings > Account and tap Delete
