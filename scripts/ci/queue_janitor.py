@@ -86,7 +86,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_runner_pool import MAX_PLACED_JOBS, MAX_RUN_JOBS  # noqa: E402
 from pr_runner_pool import persistent as owned_pool  # noqa: E402
 from pr_runner_pool import CAPABILITY_LABELS, pool_label, root_label, side_label  # noqa: E402
-from pr_runner_pool import SIM_FIRST_CAPABILITY, sim_first  # noqa: E402
 from pr_runner_pool import GitHub as PoolClient  # noqa: E402
 import owned_warm_state  # noqa: E402
 import starved_labels  # noqa: E402
@@ -279,19 +278,13 @@ def owned_label(job: Mapping[str, Any]) -> str | None:
     return next((str(label) for label in job.get("labels") or () if owned_pool(str(label))), None)
 
 
-def sim_first_label(job: Mapping[str, Any]) -> str | None:
-    """glaeda's sim-first label (pr_runner_pool.SIM_FIRST_LABEL) a simulator job asked for alone, if any."""
-    return next((str(label) for label in job.get("labels") or () if sim_first(str(label))), None)
-
-
 def is_macos_job(job: Mapping[str, Any]) -> bool:
-    return (bool(owned_label(job)) or bool(sim_first_label(job))
-            or any("macos" in str(label).lower() for label in job.get("labels") or ()))
+    return bool(owned_label(job)) or any("macos" in str(label).lower() for label in job.get("labels") or ())
 
 
 def runner_pool(job: Mapping[str, Any]) -> str:
-    """The pool a macOS job waits on: its owned pool label or sim-first label, else the macOS labels it asked for."""
-    owned = owned_label(job) or sim_first_label(job)
+    """The pool a macOS job waits on: its owned pool label, else the macOS labels it asked for."""
+    owned = owned_label(job)
     if owned:
         return owned
     labels = sorted({str(label).lower() for label in job.get("labels") or () if "macos" in str(label).lower()})
@@ -299,13 +292,7 @@ def runner_pool(job: Mapping[str, Any]) -> str:
 
 
 def capabilities(job: Mapping[str, Any]) -> tuple[str, ...]:
-    """The capability labels (pr_runner_pool.CAPABILITY_LABELS) an owned job asked for beside its pool.
-
-    A job on the sim-first label holds its mini's simulator as a glaeda-ios-sim simulator job does, so
-    it counts toward that label (SIM_FIRST_CAPABILITY) and ios_runner_pool.py's snapshot path sees it.
-    """
-    if sim_first_label(job):
-        return (SIM_FIRST_CAPABILITY,)
+    """The capability labels (pr_runner_pool.CAPABILITY_LABELS) an owned job asked for beside its pool."""
     if not owned_label(job):
         return ()
     return tuple(label for label in CAPABILITY_LABELS if label in {str(item) for item in job.get("labels") or ()})
@@ -557,7 +544,7 @@ def pool_load_snapshot(
         reserved = bool(RESERVED_POOL_WORKFLOW.search(str(run.get("path") or "")))
         seen: dict[str, int] = {}
         for job in jobs_by_run.get(run.get("id"), ()):
-            if is_macos_job(job) and (owned_label(job) or sim_first_label(job)) and job.get("status") in (
+            if is_macos_job(job) and owned_label(job) and job.get("status") in (
                     POOL_QUEUED_JOB_STATUSES | RUNNING_JOB_STATUSES):
                 for label in (*counted_pools(runner_pool(job)), *capabilities(job)):
                     seen[label] = seen.get(label, 0) + 1
@@ -577,9 +564,7 @@ def pool_load_snapshot(
         capability = (capability_markers or {}).get(run.get("id"))
         if capability and run.get("status") != "completed":
             label, peak = capability
-            # Owned pool jobs with the label, and simulator jobs on the sim-first label.
-            carrying = [job for job in jobs_by_run.get(run.get("id"), ())
-                        if is_macos_job(job) and label in capabilities(job)]
+            carrying = [job for job in owned_jobs if label in capabilities(job)]
             finished = sum(1 for job in carrying if job.get("status") == "completed")
             # Released once as many of its capability jobs finished as it declared.
             if not (carrying and finished == len(carrying) and finished >= peak):

@@ -62,11 +62,10 @@ env:
   CARGO_TERM_COLOR: never
 
 jobs:
-  # Pick an idle owned Mac with an iOS simulator with the phone-cells lane of
-  # scripts/ci/ios_runner_pool.py (one simulator job on one Mac; when the
-  # pool's simulator runners are full, a mini's sim-first runner with a free
-  # simulator), then fall back to Blacksmith on retries. The markers let the
-  # pool charge this run's simulator while it holds one.
+  # Pick an idle owned Mac with an iOS simulator with the kit's lane of
+  # scripts/ci/ios_runner_pool.py (one simulator job on one Mac), then fall
+  # back to Blacksmith on retries. The markers let the pool charge this run's
+  # simulator while it holds one.
   runner:
     environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
@@ -134,7 +133,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/ci/ios_runner_pool.py \
-            --lane phone-cells --fork "$FORK_PULL_REQUEST" --requested auto \
+            --lane kit --fork "$FORK_PULL_REQUEST" --requested auto \
             --variable "$RUNNER_VARIABLE" --ios-owned "$IOS_OWNED" --owned "$POOL_OWNED" \
             --owned-slots "$OWNED_SLOTS" --pr-xcode-app "$PR_XCODE_APP" --order "$POOL_ORDER" \
             --max-queued "$POOL_MAX_QUEUED" --queue-rounds 0 \

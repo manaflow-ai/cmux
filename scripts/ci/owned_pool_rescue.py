@@ -115,11 +115,7 @@ which may put the iOS jobs on an owned pool with the glaeda-ios-sim capability
 label, and uploads the same marker; from attempt 2 on every macOS job takes
 its retry_runs_on, the Blacksmith pool. A job asking for a capability label no
 idle mini carries waits like any other queued owned job, so it is moved after
-the same budget. A simulator job the picker put on glaeda's sim-first label
-(pr_runner_pool.SIM_FIRST_LABEL, `glaeda-sim-xcode-<version>`, requested
-alone) is an owned job here too (job_pool()): queued past the budget, held in
-its runner's setup for CPU units past SETUP_WAIT_SECONDS, or refused, it is
-moved to retry_runs_on like a job on the pool label.
+the same budget.
 
 Dispatches of iroh-release-gate.yml are watched the same way. Its `runner`
 job runs e2e_runner_pool.py for the Tailscale version-skew job alone, and
@@ -555,9 +551,9 @@ def parse_time(value: object) -> dt.datetime | None:
 
 
 def job_pool(job: Mapping[str, Any]) -> str | None:
-    """The owned pool a job asked for, if any: a pull request pool, the trusted one or the sim-first label."""
+    """The owned pool a job asked for, if any: a pull request pool or the trusted one."""
     for label in job.get("labels") or []:
-        if (persistent(str(label)) or nightly_owned_label(label) or pr_runner_pool.sim_first(str(label))):
+        if (persistent(str(label)) or nightly_owned_label(label)):
             return str(label)
     return None
 
