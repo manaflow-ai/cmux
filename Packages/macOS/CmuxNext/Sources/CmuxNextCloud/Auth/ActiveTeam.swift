@@ -138,9 +138,55 @@ public final class ActiveTeam {
     /// The newest choice not saved yet, while a switch runs.
     @ObservationIgnored private var next: String?
 
-    /// Re-reads the account's teams (one left or joined elsewhere).
+    /// Re-reads the account's teams (one left, joined or deleted elsewhere), joining a read in flight. A selection
+    /// the account no longer has falls back to its first team, and ``id`` changes with it (observable).
     public func refresh() async {
         guard source.isAuthenticated else { return }
-        await source.refreshTeams()
+        if let reading { return await reading.value }
+        lastRead = now()
+        let read = Task { await source.refreshTeams() }
+        reading = read
+        await read.value
+        if reading == read { reading = nil }
+    }
+
+    /// How often cmux coming to the front, or a refusal for the same team, re-reads the teams.
+    public static let rereadInterval: Duration = .seconds(60)
+
+    /// cmux came to the front: re-reads the teams unless a read started in the last ``rereadInterval``.
+    /// A team deleted on the web stopped being the selection only at the next sign-in (Leo, 2026-11-10).
+    public func refreshIfStale() async {
+        if reading == nil, let lastRead, lastRead.duration(to: now()) < Self.rereadInterval { return }
+        await refresh()
+    }
+
+    /// A Cloud call in `team` (a Stack team id) was refused as not a member (`auth.forbidden`): re-reads the
+    /// teams at once, so a team that is gone stops being the selection; one still listed stays, and the
+    /// refusal shows as before. Only the active team counts, and the same team re-reads at most once per
+    /// ``rereadInterval``, so a caller that keeps retrying never loops reads.
+    public func teamRefused(_ team: String) async {
+        guard team == id else { return }
+        let at = now()
+        if let lastRefusal, lastRefusal.team == team, lastRefusal.at.duration(to: at) < Self.rereadInterval { return }
+        lastRefusal = (team, at)
+        await refresh()
+    }
+
+    /// The read in flight, which a second ask joins.
+    @ObservationIgnored private var reading: Task<Void, Never>?
+    /// When the last read started.
+    @ObservationIgnored private var lastRead: ContinuousClock.Instant?
+    /// The last refused team that re-read, and when.
+    @ObservationIgnored private var lastRefusal: (team: String, at: ContinuousClock.Instant)?
+    /// The clock the throttles read (tests move it).
+    @ObservationIgnored var now: @MainActor () -> ContinuousClock.Instant = { .now }
+}
+
+extension CloudAuth {
+    /// A team mint for the backend `team` was refused with `auth.forbidden` (``MacInstallIdentity``): when that
+    /// is the active team, re-read the account's teams (``ActiveTeam/teamRefused(_:)``).
+    public func backendTeamRefused(_ team: String) async {
+        guard let active = activeTeam.id, (try? accessTokenTeam(requested: nil)) == team else { return }
+        await activeTeam.teamRefused(active)
     }
 }

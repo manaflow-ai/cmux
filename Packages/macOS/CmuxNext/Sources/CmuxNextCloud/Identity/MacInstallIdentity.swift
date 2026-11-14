@@ -33,12 +33,17 @@ public actor MacInstallIdentity {
     /// (``unbind()``): a late sign-in callback registers nothing.
     private var signingOut = false
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.install")
+    /// Told the backend team a team mint was refused for with `auth.forbidden` (not a member,
+    /// or the team is gone), so the app can re-read the account's teams.
+    private let teamRefused: (@Sendable (String) -> Void)?
 
-    public init(store: MacInstallStore, transport: any InstallAuthTransport, deviceName: String, clientVersion: String?) {
+    public init(store: MacInstallStore, transport: any InstallAuthTransport, deviceName: String, clientVersion: String?,
+                teamRefused: (@Sendable (String) -> Void)? = nil) {
         self.store = store
         self.transport = transport
         self.deviceName = deviceName
         self.clientVersion = clientVersion
+        self.teamRefused = teamRefused
     }
 
     /// The user signed in: binds them and registers (or reuses) the install
@@ -80,7 +85,13 @@ public actor MacInstallIdentity {
             deviceName: deviceName, clientVersion: clientVersion, record: record,
             profile: .mac, team: team, expectedEnvironment: environment)
         // In this task, so a caller that is cancelled (a superseded lend) stops the mint too.
-        let token = try await scoped.installTokenInCallerTask()
+        let token: String
+        do {
+            token = try await scoped.installTokenInCallerTask()
+        } catch InstallAuthError.refused("auth.forbidden") {
+            if bound == generation, user == stackUser { teamRefused?(team) }
+            throw InstallAuthError.refused("auth.forbidden")
+        }
         guard bound == generation, user == stackUser, await client.currentRecord == record else { throw Failure.signedOut }
         return token
     }
