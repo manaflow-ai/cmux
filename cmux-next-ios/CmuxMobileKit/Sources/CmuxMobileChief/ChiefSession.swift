@@ -851,6 +851,8 @@ public struct ChiefOutbox: Sendable {
         /// Nil in files written before messages named their Chief.
         var target: String?
         var clientID: String?
+        /// A recording from New Message (nil in older files).
+        var audio: ConversationComposeAudio?
 
         struct Image: Codable, Equatable {
             var data: Data
@@ -883,7 +885,7 @@ public struct ChiefOutbox: Sendable {
         return items.map { item in
             Waiting(message: ConversationComposeMessage(text: item.text, images: item.images.map {
                 ConversationComposeImage(data: $0.data, width: $0.width, height: $0.height, mimeType: $0.mimeType)
-            }), target: item.target, clientID: item.clientID)
+            }, audio: item.audio), target: item.target, clientID: item.clientID)
         }
     }
 
@@ -896,7 +898,7 @@ public struct ChiefOutbox: Sendable {
         let items = messages.map { waiting in
             Item(text: waiting.message.text, images: waiting.message.images.map {
                 Item.Image(data: $0.data, width: $0.width, height: $0.height, mimeType: $0.mimeType)
-            }, target: waiting.target, clientID: waiting.clientID)
+            }, target: waiting.target, clientID: waiting.clientID, audio: waiting.message.audio)
         }
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         // Readable after first unlock, so a message written on a locked phone is kept.

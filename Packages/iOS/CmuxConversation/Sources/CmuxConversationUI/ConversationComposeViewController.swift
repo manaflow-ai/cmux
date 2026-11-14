@@ -2,7 +2,9 @@
 import CmuxConversationCore
 import CmuxConversationGeometry
 import CmuxMobileSupport
+import PhotosUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// Messages' New Message sheet: "New Message" with a glass X, the To: field
 /// (tokens, autocomplete, + Add Contact), the service line under it, and the
@@ -41,13 +43,14 @@ public final class ConversationComposeViewController: UIViewController {
     private var existingKey: [String] = []
     private let composerContainer = ComposerHostView()
     private var composerHeight: NSLayoutConstraint?
-    /// The list under To: ends at the composer while it shows, at the keyboard while it hides.
-    private var listAboveComposer: NSLayoutConstraint?
-    private var listAboveKeyboard: NSLayoutConstraint?
-    private var listUnderField: NSLayoutConstraint?
-    private var listUnderNotice: NSLayoutConstraint?
+    /// The list's own native scroll edge effects: To: (and the refusal line) over its top,
+    /// the composer over its bottom (``updateListEdges()``).
+    private var listEdgeInteractions: [UIInteraction] = []
     /// The docked keyboard's top edge: the composer sits on it.
     private var keyboardDock: MobileKeyboardDock?
+    /// The composer's record button: tap for the hold hint, hold to record, the recording sent as
+    /// the first message (``sendRecordedAudio(data:info:)``).
+    lazy var audioComposer = ConversationAudioComposer(controller: self)
     private let keyboardTracker = MobileKeyboardFrameTracker()
     /// The sheet's keyboard tracker: a conversation shown under To:
     /// (``existingConversation``) takes it, since the keyboard rose before that
@@ -167,6 +170,9 @@ public final class ConversationComposeViewController: UIViewController {
         suggestionsTable.separatorInset = UIEdgeInsets(top: 0, left: ComposeSuggestionCell.textLeading, bottom: 0,
                                                        right: ComposeMetrics.iOS27 ? 20 : 0)
         suggestionsTable.keyboardDismissMode = .none
+        // The list runs under To: and the composer (``updateListInsets()``), behind the
+        // system's scroll edge effect, as Messages' New Message list does.
+        suggestionsTable.contentInsetAdjustmentBehavior = .never
         suggestionsTable.backgroundColor = ConversationTheme.background
         suggestionsTable.isHidden = true
         suggestionsTable.accessibilityIdentifier = "conversation.compose.suggestions"
@@ -191,13 +197,14 @@ public final class ConversationComposeViewController: UIViewController {
         view.addSubview(composerContainer)
         composer.translatesAutoresizingMaskIntoConstraints = false
         composer.delegate = self
-        // Messages' compose composer: no placeholder, apps disabled until a conversation exists.
+        // Messages' compose composer: no placeholder. The + (Camera, Photos) and the record
+        // button work before a conversation exists: what they add goes with the first message.
         composer.placeholderText = ""
-        composer.plusButton.isEnabled = false
         // The keyboard is up for the whole of New Message: the bar keeps
         // its keyboard side inset (16 pt), as Messages' does.
         composer.keyboardProgress = 1
         composerContainer.addSubview(composer)
+        audioComposer.installRecordButton()
         let composerHeight = composer.heightAnchor.constraint(equalToConstant: composer.preferredHeight)
         self.composerHeight = composerHeight
 
@@ -220,8 +227,10 @@ public final class ConversationComposeViewController: UIViewController {
             serviceSubtitle.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             serviceSubtitle.trailingAnchor.constraint(equalTo: view.trailingAnchor),
 
+            suggestionsTable.topAnchor.constraint(equalTo: view.topAnchor),
             suggestionsTable.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             suggestionsTable.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            suggestionsTable.bottomAnchor.constraint(equalTo: keyboard.guide.topAnchor),
 
             // From the sheet's top: the transcript scrolls under To: and the title, behind the
             // system's scroll edge effect (the conversation starts below the field).
@@ -241,14 +250,9 @@ public final class ConversationComposeViewController: UIViewController {
             composerHeight,
         ])
 
-        // The list starts under To:, or under the refusal line while it shows (the Mac's
-        // `HomeNewMessageView` lays its list under the notice, so the Chiefs never hide it).
-        listUnderField = suggestionsTable.topAnchor.constraint(equalTo: recipientField.bottomAnchor, constant: 8)
-        listUnderNotice = suggestionsTable.topAnchor.constraint(equalTo: notice.bottomAnchor, constant: 8)
-        listUnderField?.isActive = true
-        listAboveComposer = suggestionsTable.bottomAnchor.constraint(equalTo: composerContainer.topAnchor)
-        listAboveKeyboard = suggestionsTable.bottomAnchor.constraint(equalTo: keyboard.guide.topAnchor)
-        listAboveComposer?.isActive = true
+        // The labels over the list's top stay in front of it.
+        for label in [serviceTitle, serviceSubtitle, notice] { view.bringSubviewToFront(label) }
+        updateListEdges()
         session.onChange = { [weak self] change in self?.sessionDidChange(change) }
         sessionDidChange(.recipients)
         // The listing's rows were made before this handler was set: show them now.
@@ -275,6 +279,47 @@ public final class ConversationComposeViewController: UIViewController {
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         keyboardDock?.refresh()
+        updateListInsets()
+    }
+
+    /// The list's rows start under To:, or under the refusal line while it shows (the Mac's
+    /// `HomeNewMessageView` lays its list under the notice, so the Chiefs never hide it), and
+    /// end above the composer while it shows; the list itself runs under both.
+    private func updateListInsets() {
+        let table = suggestionsTable
+        guard table.bounds.height > 0 else { return }
+        let header = notice.isHidden ? recipientField.frame.maxY : notice.frame.maxY
+        let top = max(0, header + 8 - table.frame.minY)
+        let bottom = composerContainer.isHidden ? 0 : max(0, table.frame.maxY - composerContainer.frame.minY)
+        let insets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
+        guard table.contentInset != insets else { return }
+        // A list resting at its top stays at its top as the inset moves.
+        let atTop = table.contentOffset.y <= -table.contentInset.top + 0.5
+        table.contentInset = insets
+        table.verticalScrollIndicatorInsets = insets
+        if atTop { table.contentOffset.y = -top }
+    }
+
+    /// The native scroll edge effects on the list's own edges (never a drawn blur): the top
+    /// under To: (and the refusal line), the bottom under the composer. A conversation shown
+    /// under To: takes the top edge instead (``attachEdgeEffect(to:)``).
+    private func updateListEdges() {
+        for interaction in listEdgeInteractions { interaction.view?.removeInteraction(interaction) }
+        listEdgeInteractions = []
+        guard existingController == nil else { return }
+        setContentScrollView(suggestionsTable, for: .top)
+        guard #available(iOS 26.0, *) else { return }
+        suggestionsTable.topEdgeEffect.style = .soft
+        suggestionsTable.bottomEdgeEffect.style = .soft
+        var bars: [(UIView, UIRectEdge)] = [(recipientField, .top), (composerContainer, .bottom)]
+        if !notice.isHidden { bars.append((notice, .top)) }
+        for (bar, edge) in bars {
+            let interaction = UIScrollEdgeElementContainerInteraction()
+            interaction.scrollView = suggestionsTable
+            interaction.edge = edge
+            bar.addInteraction(interaction)
+            listEdgeInteractions.append(interaction)
+        }
     }
 
     private func sessionDidChange(_ change: ConversationComposeSession.Change) {
@@ -343,6 +388,7 @@ public final class ConversationComposeViewController: UIViewController {
         } else {
             existingContainer.embedded = nil
             detachEdgeEffect()
+            updateListEdges()
             if !returning.isEmpty, composer.text.isEmpty { composer.text = returning }
         }
         existingContainer.isHidden = next == nil
@@ -354,10 +400,9 @@ public final class ConversationComposeViewController: UIViewController {
     /// keyboard) and while a conversation under To: has its own; otherwise the list ends above it.
     private func updateComposerVisibility() {
         let hidden = existingController != nil || (!session.draft.query.isEmpty && !session.rows.isEmpty)
-        guard composerContainer.isHidden != hidden || listAboveKeyboard?.isActive != hidden else { return }
+        guard composerContainer.isHidden != hidden else { return }
         composerContainer.isHidden = hidden
-        listAboveComposer?.isActive = !hidden
-        listAboveKeyboard?.isActive = hidden
+        view.setNeedsLayout()
     }
 
     private var edgeInteraction: UIInteraction?
@@ -370,6 +415,8 @@ public final class ConversationComposeViewController: UIViewController {
         view.layoutIfNeeded()
         let scroll = embeddable.composeEmbed(topInset: recipientField.frame.maxY + ComposeMetrics.existingGap)
         detachEdgeEffect()
+        for interaction in listEdgeInteractions { interaction.view?.removeInteraction(interaction) }
+        listEdgeInteractions = []
         guard let scroll else { return }
         setContentScrollView(scroll, for: .top)
         if #available(iOS 26.0, *) {
@@ -410,15 +457,17 @@ public final class ConversationComposeViewController: UIViewController {
 
     // MARK: Sending
 
-    private func sendFirstMessage() {
-        let message = currentMessage()
-        guard !message.isEmpty, !session.isSending else { return }
+    @discardableResult
+    private func sendFirstMessage(audio: ConversationComposeAudio? = nil) -> Bool {
+        var message = currentMessage()
+        message.audio = audio
+        guard !message.isEmpty, !session.isSending else { return false }
         if session.draft.recipients.isEmpty && session.draft.query.isEmpty {
             if session.listing != nil {
                 say(String(localized: "conversation.compose.needsRecipient", defaultValue: "Add someone in To: first.", bundle: .module))
             }
             recipientField.textField.becomeFirstResponder()
-            return
+            return false
         }
         Task { [weak self] in
             guard let self else { return }
@@ -430,6 +479,7 @@ public final class ConversationComposeViewController: UIViewController {
                 self.showSendError(error)
             }
         }
+        return true
     }
 
     /// The refusal line under To:, or nil to hide it.
@@ -437,9 +487,8 @@ public final class ConversationComposeViewController: UIViewController {
         guard notice.text != text || notice.isHidden != (text == nil) else { return }
         notice.text = text
         notice.isHidden = text == nil
-        listUnderField?.isActive = text == nil
-        listUnderNotice?.isActive = text != nil
         if text != nil { updateServiceLine() }
+        updateListEdges()
         view.setNeedsLayout()
     }
 
@@ -582,7 +631,14 @@ extension ConversationComposeViewController: ConversationComposerViewDelegate {
         sendFirstMessage()
     }
 
-    func composerDidTapPlus(_ composer: ConversationComposerView) {}
+    func composerDidTapPlus(_ composer: ConversationComposerView) {
+        // While recording, "+" is the cancel button.
+        if audioComposer.isActive {
+            audioComposer.cancel()
+            return
+        }
+        presentAppsMenu()
+    }
 
     /// The New Message sheet has no Send with Effect (it sends the first message plain).
     func composerDidLongPressSend(_ composer: ConversationComposerView) {}
@@ -1021,6 +1077,83 @@ extension ConversationComposeViewController {
         }
         navigation.present(compose.makeSheet(), animated: true)
         return compose
+    }
+}
+// MARK: Apps and audio
+
+extension ConversationComposeViewController: ConversationAudioHost {
+    /// New Message has sent nothing yet: the record glyph follows the OS (Messages).
+    var hasSentAudio: Bool? { false }
+
+    func dismissPhotoDrawer() {}
+
+    /// The recording is the first message: it goes with the chosen people, as a typed one does.
+    func sendRecordedAudio(data: Data, info: ConversationAudioInfo) -> Bool {
+        sendFirstMessage(audio: ConversationComposeAudio(data: data, info: info))
+    }
+
+    /// The conversation's apps menu (Camera when there is one, then Photos), in its style.
+    /// Files is left out: New Message's first message carries text, photos and audio.
+    func presentAppsMenu() {
+        var items: [AppsMenuOverlay.Item] = []
+        if UIImagePickerController.isSourceTypeAvailable(.camera) {
+            items.append(.init(title: String(localized: "conversation.apps.camera", defaultValue: "Camera", bundle: .module), symbol: "camera.fill", color: .clear, artwork: SendMenuIcons.image(.camera)) { [weak self] in
+                self?.presentCamera()
+            })
+        }
+        items.append(.init(title: String(localized: "conversation.apps.photos", defaultValue: "Photos", bundle: .module), symbol: "photo.on.rectangle", color: .clear, artwork: SendMenuIcons.image(.photos)) { [weak self] in
+            self?.presentPhotoPicker()
+        })
+        view.layoutIfNeeded()
+        let overlay = AppsMenuOverlay(frame: view.bounds, anchor: composer.plusGlassFrame(in: view),
+                                      plusImage: composer.plusButton.image(for: .normal), items: items)
+        if let keyboardDock { overlay.keyboardTop = keyboardDock.guide.layoutFrame.minY }
+        overlay.onDismissed = { [weak self] in self?.composer.isPlusGlassHidden = false }
+        view.addSubview(overlay)
+        composer.isPlusGlassHidden = true
+        overlay.present()
+    }
+
+    private func presentCamera() {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = self
+        present(picker, animated: true)
+    }
+
+    private func presentPhotoPicker() {
+        var configuration = PHPickerConfiguration()
+        configuration.filter = .images
+        configuration.selectionLimit = PhotoDrawerGeometry.selectionLimit(iOS27: ConversationComposerView.isIOS27)
+        configuration.selection = .ordered
+        let picker = PHPickerViewController(configuration: configuration)
+        picker.delegate = self
+        present(picker, animated: true)
+    }
+}
+
+extension ConversationComposeViewController: PHPickerViewControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+    public func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        picker.dismiss(animated: true)
+        for result in results {
+            let provider = result.itemProvider
+            let png = provider.hasItemConformingToTypeIdentifier(UTType.png.identifier)
+            _ = provider.loadDataRepresentation(forTypeIdentifier: (png ? UTType.png : UTType.image).identifier) { [weak self] data, _ in
+                guard let data else { return }
+                Task { @MainActor in
+                    guard let self, let image = UIImage(data: data) else { return }
+                    // HEIC and the rest go as JPEG, the type every recipient reads.
+                    let bytes = png ? data : image.jpegData(compressionQuality: 0.92) ?? data
+                    self.composer.addAttachment(ComposerAttachment(image: image, data: bytes, mimeType: png ? "image/png" : "image/jpeg"))
+                }
+            }
+        }
+    }
+
+    public func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+        picker.dismiss(animated: true)
+        guard let image = info[.originalImage] as? UIImage, let data = image.jpegData(compressionQuality: 0.92) else { return }
+        composer.addAttachment(ComposerAttachment(image: image, data: data, mimeType: "image/jpeg"))
     }
 }
 #endif

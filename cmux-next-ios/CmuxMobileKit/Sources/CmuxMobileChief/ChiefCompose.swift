@@ -205,9 +205,14 @@ public final class ChiefComposer {
         let mac = store.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? "Mac"
         let chat = AgentSessionDirectory.shared.store(workspace: workspace, tab: tab, macName: mac)
         open(.agent(destination))
-        // The whole message is the prompt: its text and every image, in order
-        // (`send` drops a message with neither).
-        chat.send(prompt: message.text, attachments: attachments(message.images))
+        // The whole message is the prompt: its text and every image, in order, then a recording
+        // as a file (agents take no voice messages; `send` drops a message with none of these).
+        var files = attachments(message.images)
+        if let audio = message.audio {
+            let wav = audio.data.prefix(4) == Data("RIFF".utf8)
+            files.append(AgentAttachment(kind: .file, name: wav ? "Audio.wav" : "Audio.m4a", data: audio.data))
+        }
+        chat.send(prompt: message.text, attachments: files)
     }
 
     /// New Message's images as agent prompt attachments, normalized to formats agents accept.

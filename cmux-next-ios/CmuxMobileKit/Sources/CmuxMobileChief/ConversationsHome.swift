@@ -18,8 +18,8 @@ private let theme = CmuxMobileTheme.standard
 /// Chief, which the Mac lists as its Main Chief tagged "Main · Cloud") is a row
 /// placed by its newest message; its pin is the Cloud inbox's, which the phone
 /// does not read, so it never takes a tile.
-/// The header has what the Mac's has: search, the Unread toggle (the Mac's only
-/// filter) and compose. Agent chats live in their workspaces, as on the Mac.
+/// The header has search (the pull-down drawer) and compose; the Mac's Unread
+/// toggle is left out (user direction 2026-11-13: redundant with the unread dots). Agent chats live in their workspaces, as on the Mac.
 /// The list shows one Mac's Home, the focused Mac's; the Mac menu picks it.
 public struct ConversationsHome<Leading: ToolbarContent>: View {
     let store: AppStore
@@ -36,10 +36,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// New Message's "Invite … to <team>": invites the email to the active team.
     let inviteToTeam: ((String) -> Void)?
     @State private var macText = MacFilterMemo()
-    /// The filtered list, built once per change of the rows, search or toggle.
+    /// The filtered list, built once per change of the rows or the search.
     @State private var listMemo = MacHomeList.Memo()
     @State private var query = ""
-    @State private var unreadOnly = false
     @State private var homeRetries = 0
     /// The running Try Again dials the Mac first (it was offline), else it only reads again.
     @State private var retryReconnects = true
@@ -114,11 +113,11 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         labels.chiefDetail(place: .mac, macID: homeMacID, macName: sources.mac.macName)
     }
 
-    /// The Mac's list as its sidebar lays it out, under the search and the Unread toggle.
+    /// The Mac's list as its sidebar lays it out, under the search.
     /// Keyed on the rows' revisions, so a pass compares no rows and one row's change patches one
     /// row (the change's indices are the feed's rows: only while no row is hidden).
     private var list: MacHomeList {
-        listMemo.list(hiddenRows.visible(feed.rows ?? []), query: query, unreadOnly: unreadOnly,
+        listMemo.list(hiddenRows.visible(feed.rows ?? []), query: query, unreadOnly: false,
                       version: .init(rows: feed.rowsRevision, hidden: hiddenRows.revision),
                       change: hiddenRows.hidden.isEmpty ? feed.lastChange : nil)
     }
@@ -135,7 +134,6 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// newest message), while it answers and passes the filters.
     private var showsCloudChief: Bool {
         guard sources.isCloudReady else { return false }
-        if unreadOnly, sources.cloud.unreadCount == 0 { return false }
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         return needle.isEmpty || primaryName.localizedStandardContains(needle) || sources.cloud.preview.localizedStandardContains(needle)
     }
@@ -146,7 +144,6 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         let mac = sources.mac
         let holds = !mac.outbox.isEmpty || mac.unreadCount > 0 || mac.openQuestion != nil
         guard mac.macName != nil || holds || !sources.isCloudReady else { return nil }
-        if unreadOnly, mac.unreadCount == 0 { return nil }
         return mac
     }
 
@@ -226,9 +223,25 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .listRowSeparator(.hidden)
                 .listRowBackground(CmuxMobileBackdrop.listRow)
             }
-            // The Cloud Chief's brain is off: say so and offer Turn On (a Chief that
-            // never answers would otherwise sit silent on a phone with no Mac).
-            if !unreadOnly, !searching, let card = sources.offCard {
+            // New Chief's Create was tapped: the new Chief shows at once, as a row with a spinner,
+            // until the read after its create and turn-on lands (``ChiefSources/creatingChief``).
+            if !searching, let creating = sources.creatingChief {
+                HStack(spacing: 0) {
+                    MessagesRow(title: creating, subtitle: chiefTag(main: false, place: String(localized: "Cloud")),
+                                preview: String(localized: "Creating…"), stamp: "", isUnread: false, isMuted: false,
+                                needsYou: false, isTyping: false) { size in
+                        ChiefAvatar(text: homeInitials(creating), size: size)
+                    }
+                    CmuxSpinner().controlSize(.small)
+                }
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
+                .listRowBackground(CmuxMobileBackdrop.listRow)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("home.chief.creating")
+                .transition(.opacity)
+            } else if !searching, let card = sources.offCard {
+                // The Cloud Chief's brain is off: say so and offer Turn On (a Chief that
+                // never answers would otherwise sit silent on a phone with no Mac).
                 VStack(spacing: 8) {
                     ChiefOffCardView(card, name: primaryName) {
                         guard case let .turnOn(chief)? = sources.cloudAction else { return }
@@ -249,7 +262,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .listRowSeparator(.hidden)
                 .listRowBackground(CmuxMobileBackdrop.listRow)
                 .animation(theme.motion.smooth.animation.unlessReduceMotion, value: card)
-            } else if !unreadOnly, !searching, let status = sources.cloudStatus {
+            } else if !searching, let status = sources.cloudStatus {
                 // The Cloud Chief could not take the pin: say why.
                 VStack(spacing: 6) {
                     Text(status)
@@ -264,7 +277,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
                 .listRowBackground(CmuxMobileBackdrop.listRow)
-            } else if !unreadOnly, !searching, let error = sources.changeError {
+            } else if !searching, let error = sources.changeError {
                 // A refused switch or create while the Cloud Chief is open.
                 Text(error)
                     .font(.footnote)
@@ -333,10 +346,10 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .listRowBackground(CmuxMobileBackdrop.listRow)
                 .accessibilityIdentifier("home.showHidden")
             }
-            // A search or Unread over the top of the list waits for the rest before it says "none".
-            if tiles.isEmpty, entries.isEmpty, feed.rows != nil || searching || unreadOnly,
-               feed.isComplete || feed.rows == nil || !(searching || unreadOnly) {
-                Text(unreadOnly ? "No Unread Conversations" : searching ? "No Results" : "No Conversations")
+            // A search over the top of the list waits for the rest before it says "none".
+            if tiles.isEmpty, entries.isEmpty, feed.rows != nil || searching,
+               feed.isComplete || feed.rows == nil || !searching {
+                Text(searching ? "No Results" : "No Conversations")
                     .font(.callout)
                     .foregroundStyle(theme.colors.label2.color)
                     .multilineTextAlignment(.center)
@@ -397,15 +410,6 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             leading
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if macs.count > 1 { macMenu }
-                // The Mac's Unread toggle: all or unread only, the filled glyph while on.
-                Button {
-                    theme.haptics.selection()
-                    withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { unreadOnly.toggle() }
-                } label: {
-                    Label("Unread", systemImage: unreadOnly ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-                }
-                .accessibilityIdentifier("home.unread")
-                .accessibilityValue(unreadOnly ? "On" : "Off")
                 // Compose is the Mac's New Message (user direction 2026-11-11), as
                 // Messages' New Message sheet: To: with the Chiefs and the team.
                 Button("New Message", systemImage: "square.and.pencil") {
