@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextHibernation
 import CmuxNextPages
 import CmuxNextSettings
 import AppKit
@@ -90,7 +91,7 @@ struct AgentPageHibernationTests {
         rig.turns.setState(.working, session: "s-busy")
 
         // A hidden idle chat waits its idle release (sooner than moderate's half hour). At half of it both pages stay.
-        rig.advance(minutes: AgentPageHibernation.idleRelease / 120)
+        rig.advance(minutes: HiddenChatPages<AgentPageHibernation>.idleRelease / 120)
         await rig.settle { false }
         #expect(rig.tabs.existingView("tab_quiet") === page)
 
@@ -198,7 +199,7 @@ struct AgentPageHibernationTests {
         await rig.settle { false }
         #expect(rig.tabs.existingView("tab_default") === page, "released before the composer's last keystrokes reached acpmux")
 
-        rig.advance(minutes: AgentPageHibernation.idleRelease / 60)
+        rig.advance(minutes: HiddenChatPages<AgentPageHibernation>.idleRelease / 60)
         await rig.settle { rig.tabs.existingView("tab_default") == nil }
         #expect(rig.tabs.existingView("tab_default") == nil, "a hidden idle chat kept its page by default")
         #expect(rig.displaced == ["tab_default"])
@@ -261,7 +262,7 @@ struct AgentPageHibernationTests {
         }
         rig.hibernation.update(setting: .fallback, pressure: .normal)
         let page = try rig.hiddenChat("tab_draft", session: "s-draft")
-        rig.advance(minutes: AgentPageHibernation.idleRelease / 60 + 0.1)
+        rig.advance(minutes: HiddenChatPages<AgentPageHibernation>.idleRelease / 60 + 0.1)
         await rig.settle { unsaved.count > 0 }
         await rig.settle { rig.hibernation.hasDeadline }
         #expect(rig.tabs.existingView("tab_draft") === page, "a page holding an unsaved send was let go")
