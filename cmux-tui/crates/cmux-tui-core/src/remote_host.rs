@@ -47,6 +47,15 @@ mod imp {
         pub(crate) fn status(&self) -> Value {
             json!({"state": "off", "reason": "cmux Remote runs on macOS only"})
         }
+        pub(crate) fn capture(
+            &self,
+            _method: &str,
+            _params: Value,
+            _app: Value,
+            _peer: Option<cmux_link::app_caller::PeerToken>,
+        ) -> Result<Value, String> {
+            Err("cmux Remote capture runs on macOS only".into())
+        }
         pub(crate) fn call(&self, _method: &str, _params: Value) -> Result<Value, String> {
             Err("cmux Remote runs on macOS only".into())
         }

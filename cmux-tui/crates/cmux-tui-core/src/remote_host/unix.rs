@@ -10,6 +10,17 @@ use serde_json::{Value, json};
 
 use crate::backoff::Backoff;
 
+#[path = "capture.rs"]
+mod capture;
+#[path = "capture_lease.rs"]
+mod capture_lease;
+#[cfg(target_os = "macos")]
+#[path = "capture_macos.rs"]
+mod capture_platform;
+#[cfg(test)]
+#[path = "capture_tests.rs"]
+mod capture_tests;
+
 #[cfg(target_os = "macos")]
 #[path = "macos.rs"]
 mod platform;
@@ -129,6 +140,7 @@ struct Inner {
     state: Mutex<State>,
     /// Held while a host starts or is adopted, so two callers never start two.
     starting: Mutex<()>,
+    capture: Mutex<capture_lease::Admission>,
     backoff: Mutex<Option<Backoff>>,
     /// Why there is no host, for status.
     unavailable: Mutex<Option<String>>,
@@ -163,6 +175,7 @@ impl RemoteHostSupervisor {
     /// adopts or starts the host when one is wanted.
     pub(crate) fn configure(&self, paths: Paths) {
         let config = read_config(&paths.config());
+        *lock(&self.inner.capture) = capture_lease::Admission::load(&paths.state);
         *lock(&self.inner.paths) = Some(paths);
         *lock(&self.inner.config) = config.clone();
         if config.wanted() {
@@ -179,6 +192,8 @@ impl RemoteHostSupervisor {
     /// The person's choices changed (the app's settings): saved, sent to the
     /// host, and the host started or stopped to match.
     pub(crate) fn set_config(&self, update: &Value) -> Result<Value, String> {
+        let _starting = lock(&self.inner.starting);
+        capture::require_open(&self.inner)?;
         let mut config = lock(&self.inner.config).clone();
         if let Some(value) = update.get("computer_use").and_then(Value::as_bool) {
             config.computer_use = value;
@@ -197,7 +212,7 @@ impl RemoteHostSupervisor {
             Inner::stop(&self.inner);
             return Ok(self.status());
         }
-        let connection = Inner::ensure(&self.inner)?;
+        let connection = Inner::ensure_locked(&self.inner, None)?;
         connection.call(
             "config",
             json!({
@@ -211,12 +226,14 @@ impl RemoteHostSupervisor {
 
     /// One request to the host, starting it first when it is wanted and none runs.
     pub(crate) fn call(&self, method: &str, params: Value) -> Result<Value, String> {
+        let _starting = lock(&self.inner.starting);
+        capture::require_open(&self.inner)?;
         // Nothing turned on (Computer Use off or Legacy, and signed out of Screen Sharing):
         // no host starts for a request, so an off switch never runs cmux Remote.
         if !lock(&self.inner.config).wanted() {
             return Err("cmux Remote is off: turn on Computer Use (Upstream driver) or sign in for Screen Sharing".into());
         }
-        let connection = Inner::ensure(&self.inner)?;
+        let connection = Inner::ensure_locked(&self.inner, None)?;
         connection.call(method, params)
     }
 
@@ -258,15 +275,24 @@ impl RemoteHostSupervisor {
 impl Inner {
     /// The running host's connection: adopted from the record, else started.
     fn ensure(this: &Arc<Self>) -> Result<Arc<Connection>, String> {
-        if let State::Running(connection) = &*lock(&this.state) {
-            return Ok(Arc::clone(connection));
-        }
         let _starting = lock(&this.starting);
+        capture::require_open(this)?;
+        if !lock(&this.config).wanted() {
+            return Err("cmux Remote is off".into());
+        }
+        Self::ensure_locked(this, None)
+    }
+
+    // Caller owns starting, including capture transactions and config changes.
+    fn ensure_locked(
+        this: &Arc<Self>,
+        config: Option<&RemoteConfig>,
+    ) -> Result<Arc<Connection>, String> {
         if let State::Running(connection) = &*lock(&this.state) {
             return Ok(Arc::clone(connection));
         }
         let paths = lock(&this.paths).clone().ok_or("this daemon has no cmux Remote")?;
-        let result = Self::adopt_or_start(this, &paths);
+        let result = Self::adopt_or_start(this, &paths, config);
         match &result {
             Ok(connection) => {
                 *lock(&this.unavailable) = None;
@@ -277,17 +303,33 @@ impl Inner {
         result
     }
 
-    fn adopt_or_start(this: &Arc<Self>, paths: &Paths) -> Result<Arc<Connection>, String> {
+    fn adopt_or_start(
+        this: &Arc<Self>,
+        paths: &Paths,
+        override_config: Option<&RemoteConfig>,
+    ) -> Result<Arc<Connection>, String> {
         #[cfg(not(target_os = "macos"))]
         {
-            let _ = (this, paths);
+            let _ = (this, paths, override_config);
             Err("cmux Remote runs on macOS only".into())
         }
         #[cfg(target_os = "macos")]
         {
             let staged = platform::stage(&paths.state)?;
+            if !matches!(*lock(&this.capture), capture_lease::Admission::Open)
+                && let Some(record) = read_record(&paths.record())
+                && capture_platform::record_exited(&record)
+            {
+                capture_platform::group_absent(record.pid)?;
+            }
             if let Some(record) = read_record(&paths.record()) {
                 match Self::adopt(this, &record) {
+                    // Capture operates on this recorded host, never an upgrade replacement.
+                    Ok(connection)
+                        if !matches!(*lock(&this.capture), capture_lease::Admission::Open) =>
+                    {
+                        return Ok(connection);
+                    }
                     Ok(connection) if record.bundle_digest == staged.digest => {
                         return Ok(connection);
                     }
@@ -306,6 +348,13 @@ impl Inner {
                         }
                         let _ = std::fs::remove_file(paths.record());
                     }
+                    Err(_)
+                        if !matches!(*lock(&this.capture), capture_lease::Admission::Open)
+                            && (!capture_platform::record_exited(&record)
+                                || capture_platform::group_absent(record.pid).is_err()) =>
+                    {
+                        return Err("remote_host_identity_unverified".into());
+                    }
                     // A live recorded host that did not answer is never replaced by a second one
                     // (both would hold the same sockets and device); the next call tries again.
                     Err(reason)
@@ -323,7 +372,7 @@ impl Inner {
                     ),
                 }
             }
-            let config = lock(&this.config).clone();
+            let config = override_config.cloned().unwrap_or_else(|| lock(&this.config).clone());
             let secret = mint_secret()?;
             let pid = platform::spawn_host(
                 &staged,
@@ -438,7 +487,11 @@ impl Inner {
                 let status = message.get("status").cloned().unwrap_or(Value::Null);
                 let idle = !status.get("busy").and_then(Value::as_bool).unwrap_or(false);
                 *lock(&connection.status) = status;
-                if idle && this.upgrade().is_some_and(|inner| *lock(&inner.upgrade_pending)) {
+                if idle
+                    && this.upgrade().is_some_and(|inner| {
+                        *lock(&inner.upgrade_pending) && capture::require_open(&inner).is_ok()
+                    })
+                {
                     // Never a call here: only this thread reads the answer.
                     connection.notify("drain");
                 }
@@ -465,10 +518,11 @@ impl Inner {
         let upgraded = std::mem::take(&mut *lock(&this.upgrade_pending));
         if let Some(paths) = lock(&this.paths).clone()
             && read_record(&paths.record()).is_some_and(|record| record == connection.record)
+            && capture::may_remove_record(this, &connection.record)
         {
             let _ = std::fs::remove_file(paths.record());
         }
-        if !lock(&this.config).wanted() {
+        if !lock(&this.config).wanted() || capture::require_open(this).is_err() {
             return;
         }
         let ran = connection.started.elapsed();
@@ -538,6 +592,15 @@ impl Connection {
     }
 
     fn call(&self, method: &str, params: Value) -> Result<Value, String> {
+        self.call_with_timeout(method, params, CALL_TIMEOUT)
+    }
+
+    fn call_with_timeout(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Result<Value, String> {
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let (sender, receiver): (SyncSender<Value>, Receiver<Value>) =
             std::sync::mpsc::sync_channel(1);
@@ -547,7 +610,7 @@ impl Connection {
             lock(&self.pending).remove(&id);
             return Err("cmux Remote stopped".into());
         }
-        let answer = receiver.recv_timeout(CALL_TIMEOUT).map_err(|_| {
+        let answer = receiver.recv_timeout(timeout).map_err(|_| {
             lock(&self.pending).remove(&id);
             format!("cmux Remote did not answer {method}")
         })?;

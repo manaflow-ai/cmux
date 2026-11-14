@@ -72,7 +72,7 @@ fn digest_of(app: &Path) -> Result<String, String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-fn bundle_id(app: &Path) -> Option<String> {
+pub(super) fn bundle_id(app: &Path) -> Option<String> {
     let output = Command::new("/usr/bin/plutil")
         .args(["-extract", "CFBundleIdentifier", "raw", "-o", "-"])
         .arg(app.join("Contents/Info.plist"))
@@ -163,7 +163,9 @@ pub(super) fn stage(state: &Path) -> Result<Staged, String> {
 
 /// Keeps `current` and the newest other copy; removes the rest.
 fn prune(root: &Path, current: &Path) {
-    let Ok(entries) = std::fs::read_dir(root) else { return };
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
     let mut others: Vec<(std::time::SystemTime, PathBuf)> = entries
         .filter_map(Result::ok)
         .map(|entry| entry.path())

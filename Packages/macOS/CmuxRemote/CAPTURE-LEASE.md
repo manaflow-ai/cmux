@@ -41,3 +41,31 @@ reaped. Detectors: `RemoteCaptureLeaseTests`, `RemoteChildLifetimeTests`, and
 `DeviceCaptureNamespaceTests` exercise wrong leases, nonempty/unreadable stores,
 writer timeouts, durable restart fencing, generation-safe reaping, and honest
 exit/absence results without credentials or global Keychain writes.
+
+The daemon exposes the same three binding fields through verified-main-app
+`remote-host-call` methods `capture.prepare`, `capture.resume`, and
+`capture.cleanup`. It grants the app internally; callers do not chain grant,
+config, or drain commands. Prepare can start a quiet host while both saved
+features are off. Capture never rewrites those saved settings. Its durable
+supervisor record and lifecycle lock fence ordinary calls, config changes,
+ensure, upgrade replacement, and automatic restart through prepare/cleanup.
+Unreadable or malformed records keep admission closed after daemon restart.
+
+Prepare drains its original host and requires a kernel process-exit event plus
+ESRCH from a signal-zero query of its recorded owned process group before
+returning full proof. Permission errors and lingering zombies fail closed; no
+process table is scanned. The app bundle binding is checked against the
+executable of the socket peer’s retained audit token. The
+public facade additionally verifies its own namespaces. A fresh credential-free
+app process resumes only the same Prepared binding; resume does not start a
+host, accepts no credentials, and persists Active before reopening admission.
+Its result is exactly `ok: true`, `code: remote_capture_resumed`, and
+`lease_bound: true`. A later credentialed launch can use normal settings.
+Cleanup leaves a terminal Cleaning fence even after success and cannot resume.
+
+The capture RPC has a 60-second answer deadline. Timeout or any missing proof
+fails closed, retains ownership, and never authorizes releasing fleet admission.
+Daemon causal tests live in `remote_host/capture_tests.rs`; dispatcher tests in
+`server/remote_host_capture_tests.rs` reject unproved, page, agent, and remote
+callers. They detect the class where a valid native cleanup RPC is unreachable
+when signed out or a separate lifecycle owner restarts writers during cleanup.

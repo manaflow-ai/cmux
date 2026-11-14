@@ -66,7 +66,7 @@ import os
             try children.spawn(executable: "/bin/cat", arguments: [], environment: [:], logPath: "/dev/null")
         }
         #expect(await children.waitUntilEmpty(timeout: .seconds(1)))
-        let marker = try #require(CaptureLeaseMarker.read(stateDirectory: fixture.state))
+        let marker = try #require(try CaptureLeaseMarker.read(stateDirectory: fixture.state))
         #expect(!marker.cleaning && !marker.workerStarted)
 
         // A process restart creates a new admission boundary, while retaining the active lease.
@@ -79,7 +79,7 @@ import os
         close(child.stdin)
         #expect(await freshChildren.waitUntilEmpty(timeout: .seconds(5)))
         try CaptureLeaseMarker.authorizeIdentity(stateDirectory: fixture.state, keychainScope: fixture.scope, home: fixture.root)
-        let resumed = try #require(CaptureLeaseMarker.read(stateDirectory: fixture.state))
+        let resumed = try #require(try CaptureLeaseMarker.read(stateDirectory: fixture.state))
         #expect(resumed.workerStarted && !resumed.cleaning)
     }
 
