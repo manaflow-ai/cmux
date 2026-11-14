@@ -79,9 +79,34 @@ await requireBrowserLane("group-hover-card-glass-scroll-browser.test.ts", async 
         );
         await page.waitForFunction(() => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""));
         expect(await page.evaluate(() => document.documentElement.dataset.galleryReady)).toBe("1");
-        // The play hovered the row; hover it again so the pointer is really on it.
-        await page.locator(HEAD).first().hover();
+        // The play hovered the row; put the real pointer on its words too (the card, open, may lie
+        // beside them: no actionability wait).
+        await page.locator(`${HEAD} .cv-tool__text`).first().hover({ force: true });
         await open(page);
+        // The card sits beside the row's words, never over them.
+        const placed = await page.evaluate(
+          ({ popup, head }) => {
+            const card = document.querySelector<HTMLElement>(popup)!;
+            const words = document.querySelector<HTMLElement>(`${head} .cv-tool__text`)!.getBoundingClientRect();
+            const rect = card.getBoundingClientRect();
+            return {
+              card: rect.toJSON(),
+              words: words.toJSON(),
+              available: getComputedStyle(card).getPropertyValue("--available-height"),
+              maxHeight: getComputedStyle(card).maxHeight,
+              side: card.parentElement?.getAttribute("data-side"),
+              overlap:
+                rect.top < words.bottom - 1 &&
+                rect.bottom > words.top + 1 &&
+                rect.left < words.right - 1 &&
+                rect.right > words.left + 1,
+            };
+          },
+          { popup: POPUP, head: HEAD },
+        );
+        expect(placed.overlap, JSON.stringify(placed)).toBe(false);
+        // Above or below its row, as every hover card opens, never flipped beside it.
+        expect(["top", "bottom"], JSON.stringify(placed)).toContain(placed.side ?? "");
         // The in-place blur attaches once the card is placed.
         await page
           .waitForFunction((selector) => document.querySelector(selector)?.hasAttribute("data-glass-over"), POPUP, {

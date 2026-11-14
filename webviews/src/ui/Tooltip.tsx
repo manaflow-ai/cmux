@@ -39,6 +39,9 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/** A hover card flips between above and below only, then shifts along its row. */
+const CARD_COLLISION = { side: "flip", align: "shift", fallbackAxisSide: "none" } as const;
+
 export interface TooltipProps {
   label: ReactNode;
   /** Optional supporting text on a dimmer second line. */
@@ -131,6 +134,9 @@ export function Tooltip({
             side={side}
             sideOffset={tooltipGap}
             collisionPadding={padding}
+            // A card taller than the room above and below stays on that axis and scrolls in what
+            // the roomier side has (desktop.css --available-height), never flipped beside its row.
+            {...(wraps && { collisionAvoidance: CARD_COLLISION })}
             {...(anchor && { anchor: () => placed() })}
           >
             <BaseTooltip.Popup
