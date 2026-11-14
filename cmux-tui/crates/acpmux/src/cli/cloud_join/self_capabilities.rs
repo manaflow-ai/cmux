@@ -14,7 +14,8 @@
 //!   start and its relay never wait for it.
 //! - Any other refusal: nothing is recorded; the next start asks once more.
 //! - The daemon start and a relay reconnect share one [`Trigger`]: one statement runs at a time,
-//!   and none starts again once one settled (saved, or nothing to state).
+//!   and none starts again once one settled (saved, or nothing to state). A start that finds no
+//!   join settles nothing: a later join or sign-in asks.
 //!
 //! The recorded list is informational. Nothing reads it to decide whether this acpmux runs the
 //! vault's egress proxy, or what a redeem or a rotate sends: those come from the build
@@ -35,8 +36,11 @@ pub(crate) const BACKOFF: [Duration; 4] = [
 /// What a start's statement did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Stated {
-    /// No call: not joined, a copy of another box's join, revoked, or a list already recorded.
+    /// No call: a copy of another box's join, revoked, or a list already recorded.
     NotNeeded,
+    /// No call: not joined. Not settled: a later join or sign-in may find a record with no list
+    /// (one an older build wrote), and asks then.
+    NotJoined,
     /// No call yet: a sign-out's leave is pending. Not settled: once the leave keeps the join
     /// (a pair-code or join-line machine), the start asks again ([`state_after_leave`]), and a
     /// reconnect or sign-in may.
@@ -118,7 +122,7 @@ impl Trigger {
             let _in_flight = InFlight(&self.in_flight);
             let stated = state_at(&home, current.as_deref(), backoff).await;
             match &stated {
-                Stated::NotNeeded | Stated::Deferred => {}
+                Stated::NotNeeded | Stated::NotJoined | Stated::Deferred => {}
                 stated => tracing::info!(?stated, why, "machine capabilities"),
             }
             // Saved, or nothing to state: no start or reconnect of this daemon asks again. Unsaved
@@ -189,6 +193,9 @@ pub(crate) async fn state_at(home: &Path, current: Option<&str>, backoff: &[Dura
             return Stated::Deferred;
         }
         // Read again before each try: a sign-in may have rotated it meanwhile.
+        if load_at(home).ok().flatten().is_none() {
+            return Stated::NotJoined;
+        }
         let Some(record) = legacy_record(home, current) else { return Stated::NotNeeded };
         match ask(&record, &sent).await {
             Answer::Set(list) => {

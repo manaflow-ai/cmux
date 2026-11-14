@@ -76,9 +76,12 @@ async fn enroll_transition<D: Future<Output = Option<MeshRelayConfig>>>(
             // A new join (this enroll may have finished another account's leave first, with no
             // stop of the relay between) never keeps the relay the last join's config started.
             let replaced = outcome == EnrollOutcome::Joined;
+            // So does the carrier: one the last join started stops first, with the relay's hub
+            // client, so no ticket goes out on the last join's config meanwhile, then runs
+            // again on this join's.
+            let carrier_ran = replaced && stop_carrier(hub);
             let relay = reconcile_relay(hub, on_disk().await, replaced).await;
-            // So does the carrier: one the last join started runs again on this join's config.
-            if replaced && stop_carrier(hub) {
+            if carrier_ran {
                 start_carrier(hub, carrier_websocket(hub)).await;
             }
             Some(relay)
@@ -117,6 +120,9 @@ async fn reconcile_relay(
             return "running";
         }
         if let Some(old) = slot.take() {
+            // Its hub client goes first: no send goes out with the last join's credential while
+            // the old relay stops, or after, when the new one does not start.
+            hub.mesh.clear();
             // timeout: a relay that will not stop is dropped; the new one starts regardless.
             let _ = tokio::time::timeout(std::time::Duration::from_secs(6), old.stop()).await;
         }
@@ -125,7 +131,8 @@ async fn reconcile_relay(
 }
 
 /// Starts the mesh relay on `relay`, the join's config, into `slot` (`Hub::mesh_relay`); its
-/// client becomes the one sends go through (`Hub::mesh`), replacing a leave's cleared one.
+/// client becomes the one sends go through (`Hub::mesh`), replacing a leave's cleared one. One
+/// that does not start leaves no client: sends are refused, never sent through an earlier one.
 async fn start_relay_with(
     hub: &Arc<Hub>,
     slot: &mut Option<crate::server::mesh_relay::MeshRelay>,
@@ -137,7 +144,10 @@ async fn start_relay_with(
             *slot = Some(relay);
             "started"
         }
-        None => "off",
+        None => {
+            hub.mesh.clear();
+            "off"
+        }
     }
 }
 
@@ -188,13 +198,15 @@ async fn after_leave(hub: &Arc<Hub>, outcome: &LeaveOutcome) {
 async fn stop_joined(hub: &Arc<Hub>) {
     hub.config.write().await.mesh_relay = None;
     let relay = hub.mesh_relay.lock().await.take();
-    if let Some(relay) = relay {
-        // timeout: a relay that will not stop is dropped; the leave goes on regardless.
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
-    }
+    // Before the stop: no send or carrier ticket goes out with the left join's credential while
+    // it stops.
     hub.mesh.clear();
     if stop_carrier(hub) {
         tracing::info!("hub carrier: stopped by the sign-out's leave");
+    }
+    if let Some(relay) = relay {
+        // timeout: a relay that will not stop is dropped; the leave goes on regardless.
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
     }
 }
 
@@ -327,6 +339,8 @@ pub(crate) async fn stop_at_shutdown(hub: &Arc<Hub>) {
     )
     .await;
     let relay = hub.mesh_relay.lock().await.take();
+    hub.mesh.clear();
+    stop_carrier(hub);
     if let Some(relay) = relay {
         // timeout: shutdown does not wait on a relay that will not stop.
         let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
@@ -653,6 +667,40 @@ mod tests {
         assert!(hub.config.read().await.mesh_relay.is_none());
     }
 
+    /// #38319 review F2: one account's leave finishes inside another account's enroll, and the
+    /// new join's relay does not start. The old relay's hub client, which holds the left join's
+    /// credential, is gone with it: outbox and team requests (`Hub::mesh`) are refused, and the
+    /// old hub sees no send.
+    #[tokio::test]
+    async fn a_replaced_join_whose_relay_fails_to_start_sends_nothing_with_the_old_credential() {
+        let hub = memory_hub();
+        let (old, old_seen) = recording_hub().await;
+        let mut slot = hub.mesh_relay.lock().await;
+        assert_eq!(super::start_relay_with(&hub, &mut slot, old.clone()).await, "started");
+        drop(slot);
+        send_one(&hub).await;
+        assert_eq!(sends(&old_seen), 1);
+        // The new join's config names a hub no client can be made for: its relay does not start.
+        let broken = MeshRelayConfig { url: "not a hub origin".into(), ..old };
+        let disk: Disk = Arc::new(Mutex::new(Some(broken)));
+        let joined =
+            super::enroll_transition(&hub, async { EnrollOutcome::Joined }, read(&disk)).await;
+        assert_eq!(joined, (EnrollOutcome::Joined, Some("off")));
+        assert!(!relay_runs(&hub).await);
+        assert!(hub.mesh.get().is_none(), "sends are refused, not sent through the left join's");
+        if let Some(mesh) = hub.mesh.get() {
+            let message: crate::mesh::OutMessage = serde_json::from_value(json!({
+                "to": {"teamAddress": "@user_receiver/coordinator", "sessionId": "receiver"},
+                "from": {"teamAddress": "@user_sender/coordinator"},
+                "kind": "prompt", "body": "late", "mode": "turn-end", "idempotencyKey": "k2",
+            }))
+            .unwrap();
+            let _ = mesh.send(&message).await;
+        }
+        settle().await;
+        assert_eq!(sends(&old_seen), 1, "no send went out with the old credential");
+    }
+
     /// A leave clears the hub client sends go through, and a later enroll on another hub's origin
     /// sets that hub's: sends go to the new hub, never the left one.
     #[tokio::test]
@@ -770,6 +818,62 @@ mod tests {
         assert!(relay_runs(&hub).await, "the person's relay starts");
         assert!(!carrier.load(Ordering::SeqCst), "the carrier does not");
         super::stop_joined(&hub).await;
+    }
+
+    /// #38319 review F2, swept to the carrier: a carrier the last join started holds tickets from
+    /// that join's hub and credential. A leave, and a join that replaced it (another account's
+    /// leave inside this enroll) whose relay does not start, take it from the daemon's slot, so
+    /// no peer's dial asks the old hub for a ticket; with the old relay gone, no client is left.
+    #[cfg(feature = "hub-carrier")]
+    #[tokio::test]
+    async fn a_stopped_or_replaced_join_leaves_no_carrier_to_dial_with_the_old_credential() {
+        struct Counting(Arc<std::sync::atomic::AtomicUsize>);
+        #[async_trait::async_trait]
+        impl crate::hub_carrier::Tickets for Counting {
+            async fn register(&self) -> Result<crate::hub_carrier::CarrierAnswer, String> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Err("test".into())
+            }
+            async fn connect(&self, _: &str) -> Result<crate::hub_carrier::CarrierAnswer, String> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Err("test".into())
+            }
+        }
+        let asked = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let carrier = || {
+            crate::hub_carrier::HubCarrier::new(
+                Arc::new(Counting(Arc::clone(&asked))),
+                [7; 32],
+                crate::hub_carrier::Timings::default(),
+            )
+        };
+        let dial = |hub: &crate::hub::Hub| hub.hub_carrier.get();
+        // A leave.
+        let hub = memory_hub();
+        hub.hub_carrier.set(carrier());
+        let left = LeaveOutcome { left: true, kept: None, hub: None, relay_removed: true };
+        super::after_leave(&hub, &left).await;
+        assert!(dial(&hub).is_none(), "a peer finds no carrier after the leave");
+        // A replaced join whose relay does not start.
+        let hub = memory_hub();
+        let (old, _seen) = recording_hub().await;
+        let mut slot = hub.mesh_relay.lock().await;
+        assert_eq!(super::start_relay_with(&hub, &mut slot, old.clone()).await, "started");
+        drop(slot);
+        hub.hub_carrier.set(carrier());
+        let broken = MeshRelayConfig { url: "not a hub origin".into(), ..old };
+        let disk: Disk = Arc::new(Mutex::new(Some(broken)));
+        let joined =
+            super::enroll_transition(&hub, async { EnrollOutcome::Joined }, read(&disk)).await;
+        assert_eq!(joined, (EnrollOutcome::Joined, Some("off")));
+        assert!(dial(&hub).is_none(), "no carrier of the last join's");
+        assert!(hub.mesh.get().is_none(), "no hub client of the last join's");
+        // And at shutdown.
+        let hub = memory_hub();
+        hub.hub_carrier.set(carrier());
+        super::stop_at_shutdown(&hub).await;
+        assert!(dial(&hub).is_none());
+        assert_eq!(asked.load(Ordering::SeqCst), 0, "no ticket was asked of the old hub");
     }
 
     /// A leave's cleanup (sign-out, or a leave finished at start) stops the hub carrier the

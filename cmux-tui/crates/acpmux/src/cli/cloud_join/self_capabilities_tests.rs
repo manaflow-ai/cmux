@@ -133,7 +133,27 @@ async fn a_record_that_has_a_list_never_asks() {
     joined(home.path(), "http://127.0.0.1:9", |r| r.cloned = true);
     assert_eq!(state_at(home.path(), None, &NO_WAIT).await, Stated::NotNeeded);
     let home = tempfile::tempdir().unwrap();
-    assert_eq!(state_at(home.path(), None, &NO_WAIT).await, Stated::NotNeeded);
+    assert_eq!(state_at(home.path(), None, &NO_WAIT).await, Stated::NotJoined);
+}
+
+/// Codex ledger, #38440 at 0403cc67: a start that finds no join settles nothing, so a later
+/// sign-in (or a join) that finds a record with no list still states it.
+#[tokio::test]
+async fn a_start_with_no_join_leaves_a_later_sign_in_to_state_the_list() {
+    let home = tempfile::tempdir().unwrap();
+    let trigger = trigger();
+    let fire = || trigger.fire(test_scope(), "test", home.path().to_owned(), None, &NO_WAIT);
+    // The start: nothing joined, no call.
+    assert_eq!(fire().expect("the start asks").await.unwrap(), Stated::NotJoined);
+    // A record with no list appears later (an older build's join); the sign-in that finds it
+    // states the list.
+    let (hub, seen, server) = fake_hub(vec![set(json!(["vault.proxy.v1"]))]);
+    joined(home.path(), &hub, |_| {});
+    let stated = fire().expect("not settled by the start that found no join").await.unwrap();
+    assert_eq!(stated, Stated::Recorded(vec!["vault.proxy.v1".to_owned()]));
+    server.join().unwrap();
+    assert_eq!(seen.lock().unwrap().len(), 1);
+    assert!(fire().is_none(), "settled once saved");
 }
 
 #[tokio::test]

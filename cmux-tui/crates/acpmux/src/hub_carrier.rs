@@ -45,7 +45,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -499,7 +499,7 @@ impl Drop for HubServe {
 /// Where a peer finds its hub carrier: the daemon's one carrier, set once it starts (peers
 /// start before it, `hub/mod.rs` `build`), and whether one is expected at all.
 #[derive(Clone, Default)]
-pub struct HubCarrierSlot(Arc<OnceLock<Arc<HubCarrier>>>, bool);
+pub struct HubCarrierSlot(Arc<std::sync::RwLock<Option<Arc<HubCarrier>>>>, bool);
 
 impl HubCarrierSlot {
     /// A slot for a daemon whose startup may run the carrier: one with the joined machine
@@ -519,15 +519,26 @@ impl HubCarrierSlot {
 
     /// Whether the carrier runs or this daemon's startup may start it.
     pub fn expected(&self) -> bool {
-        self.1 || self.0.get().is_some()
+        self.1 || self.get().is_some()
     }
 
-    pub fn set(&self, carrier: Arc<HubCarrier>) -> bool {
-        self.0.set(carrier).is_ok()
+    /// Makes `carrier` the daemon's, in place of one a stop left or a join replaced.
+    pub fn set(&self, carrier: Arc<HubCarrier>) {
+        use crate::no_panic::RwLockExt;
+        *self.0.write_or_recover() = Some(carrier);
     }
 
-    pub fn get(&self) -> Option<&Arc<HubCarrier>> {
-        self.0.get()
+    /// The carrier that runs, if one does.
+    pub fn get(&self) -> Option<Arc<HubCarrier>> {
+        use crate::no_panic::RwLockExt;
+        self.0.read_or_recover().clone()
+    }
+
+    /// No carrier: it stopped ([`stop_kept`]). A peer's dial finds none rather than the stopped
+    /// one, whose tickets come from the left join's hub and credential.
+    pub fn clear(&self) -> Option<Arc<HubCarrier>> {
+        use crate::no_panic::RwLockExt;
+        self.0.write_or_recover().take()
     }
 }
 
@@ -778,7 +789,6 @@ pub async fn start_kept(hub: &Arc<crate::hub::Hub>, websocket: Option<SocketAddr
         return;
     };
     if let (Some(transport), Some(carrier)) = (hub.wireguard.as_ref(), hub.hub_carrier.get()) {
-        let carrier = carrier.clone();
         transport.add_key_user(Arc::new(move |private, write| carrier.rekey(*private, write)));
     }
     *hub.hub_carrier_serve.lock_or_recover() = Some(serving);
@@ -788,8 +798,9 @@ pub async fn start_kept(hub: &Arc<crate::hub::Hub>, websocket: Option<SocketAddr
 /// this machine's slot on the relay. True when one was running.
 pub fn stop_kept(hub: &crate::hub::Hub) -> bool {
     use crate::no_panic::LockExt;
+    let carrier = hub.hub_carrier.clear();
     let serving = hub.hub_carrier_serve.lock_or_recover().take();
-    serving.is_some()
+    carrier.is_some() || serving.is_some()
 }
 
 #[cfg(test)]
