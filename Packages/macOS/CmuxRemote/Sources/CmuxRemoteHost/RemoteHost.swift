@@ -393,11 +393,8 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
         }
         let result: CaptureLeaseResult
         if method == "capture.prepare" {
-            guard host.children.claimIdle() else {
-                return RemoteWire.answer(id: id, result: CaptureLeaseResult(code: "remote_not_pristine").fields)
-            }
-            result = await host.captureLease.prepare(binding, workerAbsent: host.screen.pid == nil && host.computerUse.running.isEmpty)
-            host.children.reopenAfterPrepare()
+            result = await host.captureLease.prepare(binding, children: host.children,
+                                                    workerAbsent: host.screen.pid == nil && host.computerUse.running.isEmpty)
         } else {
             guard await host.captureLease.beginCleanup(binding) else {
                 return RemoteWire.answer(id: id, result: CaptureLeaseResult(code: "remote_lease_mismatch").fields)

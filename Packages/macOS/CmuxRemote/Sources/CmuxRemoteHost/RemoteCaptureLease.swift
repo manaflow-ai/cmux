@@ -17,22 +17,31 @@ actor RemoteCaptureLease {
         self.empty = empty; self.remove = remove
     }
 
-    func prepare(_ binding: CaptureLeaseBinding, workerAbsent: Bool) -> CaptureLeaseResult {
+    func prepare(_ binding: CaptureLeaseBinding, children: RemoteChildLifetime, workerAbsent: Bool) -> CaptureLeaseResult {
         guard binding.owns(stateDirectory: stateDirectory, home: home), workerAbsent else {
             return CaptureLeaseResult(code: "remote_not_pristine")
         }
+        var claimed = false
         do {
             try CaptureLeaseMarker.transaction(stateDirectory: stateDirectory) { stored in
                 if let existing = stored {
                     guard existing.binding == binding, existing.keychainScope == keychainScope,
                           !existing.workerStarted, !existing.cleaning else { throw CocoaError(.fileWriteNoPermission) }
                 }
+                guard children.claimIdle() else { throw CocoaError(.fileWriteNoPermission) }
+                claimed = true
                 guard try empty() else { throw CocoaError(.fileWriteFileExists) }
                 // Claim only an already-empty namespace. Prepare never calls remove().
                 stored = CaptureLeaseMarker(binding: binding, keychainScope: keychainScope)
             }
+            // The app must observe this pristine host exit before relaunching with credentials.
+            // Only a fresh host may spawn against the still-active durable marker.
+            children.freeze()
             return CaptureLeaseResult(code: "no_remote_started", leaseBound: true, verifiedAbsent: true, quiescent: true)
-        } catch { return CaptureLeaseResult(code: "remote_prepare_unverified") }
+        } catch {
+            if claimed { children.reopenAfterPrepare() }
+            return CaptureLeaseResult(code: "remote_prepare_unverified")
+        }
     }
 
     /// Persist the restart barrier before the caller freezes or signals workers.

@@ -12,6 +12,11 @@ and its own state directory must lie beneath that private, owner-only HOME.
 This binds a namespace; it does not grant or replace whole-host fleet admission.
 
 Prepare claims only an empty worker Keychain namespace and never deletes.
+Successful prepare permanently closes child admission in that host, so no late
+writer can race the app's external host-exit observation. The app drains this
+credential-free host before relaunch; a fresh host can start writers from the
+active marker. Prepare does not set the terminal `cleaning` phase. Rejected
+bindings never freeze admission or signal children.
 The host and worker serialize marker changes with a nonblocking file lock.
 Before any identity write the worker records that it started. Cleanup persists
 `cleaning` before closing spawn admission, signaling owned children, or waiting

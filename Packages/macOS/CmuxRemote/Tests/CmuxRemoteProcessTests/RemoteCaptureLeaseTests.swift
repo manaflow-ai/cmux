@@ -36,8 +36,10 @@ import os
         let lease = fixture.producer(empty: { false }, remove: {
             calls.withLock { $0 += 1 }; return .init(identities: 3, relays: 1)
         })
-        let result = await lease.prepare(try fixture.binding, workerAbsent: true)
+        let children = RemoteChildLifetime()
+        let result = await lease.prepare(try fixture.binding, children: children, workerAbsent: true)
         #expect(!result.leaseBound)
+        #expect(children.accepting)
         #expect(calls.withLock { $0 } == 0)
         #expect(try CaptureLeaseMarker.read(stateDirectory: fixture.state) == nil)
     }
@@ -45,16 +47,60 @@ import os
     @Test func unreadableNamespaceCannotBePrepared() async throws {
         let fixture = try Fixture(); defer { fixture.remove() }
         let lease = fixture.producer(empty: { throw CocoaError(.fileReadNoPermission) })
-        let result = await lease.prepare(try fixture.binding, workerAbsent: true)
+        let children = RemoteChildLifetime()
+        let result = await lease.prepare(try fixture.binding, children: children, workerAbsent: true)
         #expect(!result.verifiedAbsent && !result.leaseBound)
+        #expect(children.accepting)
         #expect(try CaptureLeaseMarker.read(stateDirectory: fixture.state) == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func preparedHostCannotSpawnButFreshHostCanResumeActiveLease() async throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let children = RemoteChildLifetime()
+        let prepared = await fixture.producer().prepare(try fixture.binding, children: children, workerAbsent: true)
+        #expect(prepared.leaseBound && prepared.quiescent)
+        #expect(!children.accepting)
+        children.reopenAfterPrepare()
+        #expect(!children.accepting)
+        #expect(throws: (any Error).self) {
+            try children.spawn(executable: "/bin/cat", arguments: [], environment: [:], logPath: "/dev/null")
+        }
+        #expect(await children.waitUntilEmpty(timeout: .seconds(1)))
+        let marker = try #require(CaptureLeaseMarker.read(stateDirectory: fixture.state))
+        #expect(!marker.cleaning && !marker.workerStarted)
+
+        // A process restart creates a new admission boundary, while retaining the active lease.
+        let freshChildren = RemoteChildLifetime()
+        let child = try freshChildren.spawn(executable: "/bin/cat", arguments: [], environment: [:], logPath: "/dev/null")
+        defer { close(child.stdout) }
+        ChildProcess.watch(child.pid, name: "capture-prepared-host-restart") { status in
+            if status >= 0 { freshChildren.reaped(child) }
+        }
+        close(child.stdin)
+        #expect(await freshChildren.waitUntilEmpty(timeout: .seconds(5)))
+        try CaptureLeaseMarker.authorizeIdentity(stateDirectory: fixture.state, keychainScope: fixture.scope, home: fixture.root)
+        let resumed = try #require(CaptureLeaseMarker.read(stateDirectory: fixture.state))
+        #expect(resumed.workerStarted && !resumed.cleaning)
+    }
+
+    @Test func wrongPrepareLeaseDoesNotFreezeAdmissionOrChangeMarker() async throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let lease = fixture.producer()
+        _ = await lease.prepare(try fixture.binding, children: RemoteChildLifetime(), workerAbsent: true)
+        let original = try CaptureLeaseMarker.read(stateDirectory: fixture.state)
+        let wrong = try #require(CaptureLeaseBinding(fields: ["lease_id": "aaaaaaaaaaaaaaaaaaaaaaaa",
+            "bundle_id": "com.cmuxterm.app.debug.capturetest", "private_root": fixture.root]))
+        let children = RemoteChildLifetime()
+        let rejected = await lease.prepare(wrong, children: children, workerAbsent: true)
+        #expect(!rejected.leaseBound && children.accepting)
+        #expect(try CaptureLeaseMarker.read(stateDirectory: fixture.state) == original)
     }
 
     @Test func wrongLeaseCannotBeginDrainOrDelete() async throws {
         let fixture = try Fixture(); defer { fixture.remove() }
         let calls = OSAllocatedUnfairLock(initialState: 0)
         let lease = fixture.producer(remove: { calls.withLock { $0 += 1 }; return .init(identities: 0, relays: 0) })
-        _ = await lease.prepare(try fixture.binding, workerAbsent: true)
+        _ = await lease.prepare(try fixture.binding, children: RemoteChildLifetime(), workerAbsent: true)
         let wrong = try #require(CaptureLeaseBinding(fields: ["lease_id": "aaaaaaaaaaaaaaaaaaaaaaaa",
             "bundle_id": "com.cmuxterm.app.debug.capturetest", "private_root": fixture.root]))
         #expect(await lease.beginCleanup(wrong) == false)
@@ -69,7 +115,7 @@ import os
         let calls = OSAllocatedUnfairLock(initialState: 0)
         let lease = fixture.producer(remove: { calls.withLock { $0 += 1 }; return .init(identities: 3, relays: 0) })
         let binding = try fixture.binding
-        _ = await lease.prepare(binding, workerAbsent: true)
+        _ = await lease.prepare(binding, children: RemoteChildLifetime(), workerAbsent: true)
         try CaptureLeaseMarker.authorizeIdentity(stateDirectory: fixture.state, keychainScope: fixture.scope, home: fixture.root)
         #expect(await lease.beginCleanup(binding))
         let result = await lease.cleanup(binding, writersExited: false)
@@ -80,7 +126,7 @@ import os
             try CaptureLeaseMarker.authorizeIdentity(stateDirectory: fixture.state, keychainScope: fixture.scope, home: fixture.root)
         }
         // A new producer after a host crash cannot reuse the lease for another writer.
-        let afterRestart = await fixture.producer().prepare(binding, workerAbsent: true)
+        let afterRestart = await fixture.producer().prepare(binding, children: RemoteChildLifetime(), workerAbsent: true)
         #expect(!afterRestart.leaseBound)
     }
 
@@ -88,7 +134,7 @@ import os
         let fixture = try Fixture(); defer { fixture.remove() }
         let lease = fixture.producer(remove: { .init(identities: 3, relays: 2) })
         let binding = try fixture.binding
-        let prepared = await lease.prepare(binding, workerAbsent: true)
+        let prepared = await lease.prepare(binding, children: RemoteChildLifetime(), workerAbsent: true)
         #expect(prepared.code == "no_remote_started" && prepared.identities == 0 && prepared.relays == 0)
         let beforeDrain = await lease.cleanup(binding, writersExited: true)
         #expect(beforeDrain.code == "remote_lease_mismatch")
@@ -107,7 +153,7 @@ import os
         let fixture = try Fixture(); defer { fixture.remove() }
         let lease = fixture.producer(remove: { throw CocoaError(.fileWriteNoPermission) })
         let binding = try fixture.binding
-        _ = await lease.prepare(binding, workerAbsent: true)
+        _ = await lease.prepare(binding, children: RemoteChildLifetime(), workerAbsent: true)
         #expect(await lease.beginCleanup(binding))
         let result = await lease.cleanup(binding, writersExited: true)
         #expect(!result.verifiedAbsent && result.code == "remote_cleanup_unverified")
