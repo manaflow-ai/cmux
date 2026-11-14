@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "build": "4355248139501",
+  "notes": "notes/4355248139501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 42789,
+      "title": "Screen Sharing: open from pane and tab menus with an optional device, Stop Viewing Shared Screen (catalog, step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42813,
+      "title": "measure: edit-to-repaint for cmux-next.json and customize extension saves",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42775,
+      "title": "agent service v2: bounded folders tail and connection isolation (5f part three)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42743,
+      "title": "v2 5g: list index built again from its sources",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42756,
+      "title": "feat(ui): unify transient surface tokens",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42803,
+      "title": "bench: what one more agent chat costs in the shared renderer, and why a restore has no time (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38416,
+      "title": "Chats windows: a palette query answered at once no longer keeps its follower (main-thread hang)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42235,
+      "title": "agent pane: reconnect quietly and send held prompts by itself through a host reboot",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42383,
+      "title": "cmux-tui: an Antigravity resume with no launcher runs agy (#42355 F1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42735,
+      "title": "cmux-rd-link: preserve first handshake until route exists",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42699,
+      "title": "ci: rescue stalled hosted light jobs after 120 seconds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42793,
+      "title": "fix(browser): omnibar suggestions take chrome's padding and helium's corners, arrows cycle, hover stays on one row",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42792,
+      "title": "measure: daemon-registry-start takes a workspace count and timed creates after ready",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42788,
+      "title": "docs: one page on what you can customize in cmux NEXT and what the SDK still lacks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42781,
+      "title": "test(browser): the hosted switch guard orders the page's window in one pass after the attach, after its commit",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42785,
+      "title": "v2 client: preserve mirror recovery across caller-page errors",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42753,
+      "title": "perf(cmux-next): drop regenerated GPU shader cache",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42466,
+      "title": "fix(webviews): a gerund-subject finding stays out of the Worked fold",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42774,
+      "title": "cmux-next iOS: Workspaces pull to refresh stays under the search field",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    }
+  ]
+}
