@@ -25,9 +25,19 @@ if grep -Eq \
   exit 1
 fi
 
+# An XCTest summary line belongs to the "Test Suite '<name>' passed|failed"
+# line right before it. When the selected bundle (<target>.xctest) printed its
+# own summary, judge that bundle's latest count rather than the largest count
+# anywhere in the log, which may come from another bundle or an earlier run.
+# Swift Testing prints no bundle line, so its run count still counts.
 summary_count="$(
-  awk '
+  SELECTED_BUNDLE="${test_filter%%/*}.xctest" awk '
     {
+      if (match($0, /Test Suite '\''[^'\'']*'\'' (passed|failed) at/)) {
+        suite = substr($0, RSTART + 12, RLENGTH - 12)
+        sub(/'\'' (passed|failed) at$/, "", suite)
+        next
+      }
       if (match($0, /Executed [0-9]+ tests?/)) {
         summary = substr($0, RSTART, RLENGTH)
         sub(/^Executed /, "", summary)
@@ -35,6 +45,10 @@ summary_count="$(
         count = summary + 0
         if (!seen || count > max) max = count
         seen = 1
+        if (suite == ENVIRON["SELECTED_BUNDLE"]) {
+          bundle_count = count
+          bundle_seen = 1
+        }
       }
       if (match($0, /Test run with [0-9]+ tests?/)) {
         summary = substr($0, RSTART, RLENGTH)
@@ -43,10 +57,18 @@ summary_count="$(
         count = summary + 0
         if (!seen || count > max) max = count
         seen = 1
+        if (!swift_seen || count > swift_max) swift_max = count
+        swift_seen = 1
       }
+      suite = ""
     }
     END {
-      if (seen) print max
+      if (bundle_seen) {
+        if (swift_seen && swift_max > bundle_count) bundle_count = swift_max
+        print bundle_count
+      } else if (seen) {
+        print max
+      }
     }
   ' "$log_path"
 )"
