@@ -392,6 +392,84 @@ test("a session host that gets the fingerprint read while a draft is open says t
   }
 });
 
+test("after the draft is closed, the next return loads the diff of a session host that got the fingerprint read", async () => {
+  await act(async () => root.render(null));
+  let older = true;
+  let refreshed = 0;
+  const read = async (): Promise<string> => {
+    if (older) throw Object.assign(new Error("native.unsupported"), { code: "native.unsupported" });
+    return "a";
+  };
+  const render = (canRefresh: boolean) =>
+    act(async () =>
+      root.render(
+        <Viewer
+          key="replaced-host-draft-closed"
+          read={read}
+          canRefresh={canRefresh}
+          refresh={() => (refreshed += 1)}
+        />,
+      ),
+    );
+  try {
+    await render(false);
+    await settle();
+    older = false;
+    dom.window.dispatchEvent(new dom.window.Event("focus"));
+    await settle();
+    expect([shown(), refreshed]).toEqual(["stale", 0]);
+    // The draft is closed and no file changed after that answer: the shown diff is still the one
+    // from before the session host was replaced, so the return loads it.
+    await render(true);
+    dom.window.dispatchEvent(new dom.window.Event("focus"));
+    await settle();
+    expect(refreshed).toBe(1);
+  } finally {
+    await act(async () => root.render(null));
+  }
+});
+
+test("while the reader stays in the page, a machine without the fingerprint read that is connected again loses its offline reason", async () => {
+  await act(async () => root.render(null));
+  const offline = "Build VM is offline. Reconnect to see its diff.";
+  const older = Object.assign(new Error("native.unsupported"), { code: "native.unsupported" });
+  let failure = older;
+  let refreshed = 0;
+  const read = async (): Promise<string> => {
+    throw failure;
+  };
+  let ids = 0;
+  const timers = new Map<number, () => void>();
+  const intervals = spyOn(globalThis, "setInterval").mockImplementation(((tick: () => void) => {
+    timers.set(++ids, tick);
+    return ids;
+  }) as unknown as typeof setInterval);
+  const cleared = spyOn(globalThis, "clearInterval").mockImplementation((id) => {
+    timers.delete(id as unknown as number);
+  });
+  try {
+    await act(async () =>
+      root.render(<Viewer key="older-machine-away" read={read} canRefresh={false} refresh={() => (refreshed += 1)} />),
+    );
+    await settle();
+    // The machine is not connected at a return: the page says so.
+    failure = Object.assign(new Error(offline), { code: "cmux.diff.machine_offline" });
+    dom.window.dispatchEvent(new dom.window.Event("focus"));
+    await settle();
+    expect(reason()).toBe(offline);
+    // The machine is connected again. The reader did not leave the page: no return asks again.
+    failure = older;
+    for (const tick of Array.from(timers.values())) await act(async () => tick());
+    await settle();
+    // The reason is gone, and no timer stays for a session host without the read.
+    expect([reason(), timers.size, refreshed]).toEqual(["", 0, 0]);
+  } finally {
+    await act(async () => root.render(null));
+    intervals.mockRestore();
+    cleared.mockRestore();
+  }
+});
+
 test("a replaced source ignores a late offline failure from the old machine", async () => {
   let refuse: ((error: Error) => void) | undefined;
   const oldRead = () =>
