@@ -336,7 +336,15 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         planLoadTask?.cancel()
         if let cached = dataCache?.currentData, cached.hasPlan {
             Self.apply(cached, to: model, includingPlan: true)
-            if dataCache?.readyData != nil { return }
+            if dataCache?.readyData != nil {
+                // Fresh data gets no later load, so the paywall decision is made here.
+                if Self.shouldPresentUpgrade(for: model.plan) {
+                    finishSelection(selectionID, request: nil)
+                    model.cancel()
+                    ProUpgradePresenter.present(source: .newMachineAtLimit)
+                }
+                return
+            }
         }
         if model.plan == nil { model.setPlanLoading() }
         planLoadTask = Task { @MainActor [weak self, weak model] in
