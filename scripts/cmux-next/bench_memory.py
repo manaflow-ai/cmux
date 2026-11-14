@@ -475,7 +475,6 @@ def restore_chats(app: App, workspaces: list[str], count: int) -> dict:
             "frames": frames[:12],
             "note": trace.get("note"),
         })
-        print(f"== restore open: {json.dumps(opens[-1])}", flush=True)
     content = [o["first_content_ms"] for o in opens if isinstance(o.get("first_content_ms"), (int, float))]
     empty = [o["longest_empty_ms"] for o in opens if isinstance(o.get("longest_empty_ms"), (int, float))]
     errors = sum(1 for o in opens if o.get("error"))
