@@ -190,7 +190,7 @@ fn mux(
                 state.queue_set_all_held(false, out);
             }
         }
-        "dequeued" | "queue_removed" => state.queue_remove(&msg.prompt_id, out),
+        "dequeued" | "queue_removed" | "queue_declined" => state.queue_remove(&msg.prompt_id, out),
         "steer_read" => state.steer_read(&msg.prompt_id, out)?,
         "user_message" => {
             let notice = matches!(

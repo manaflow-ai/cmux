@@ -1331,6 +1331,21 @@ fn queue_entries_are_removed_when_read_before_or_after_queue_record() {
 }
 
 #[test]
+fn a_declined_prompt_leaves_the_queue_as_v1s_restore_drops_it() {
+    let mut state = State::default();
+    t(&mut state, Harness::V1, mux(1, "user_message", r#"{"text":"first"}"#).as_bytes()).unwrap();
+    for (n, id) in ["asks", "stays"].into_iter().enumerate() {
+        let line = mux(n as u64 + 2, "queued", &format!(r#"{{"text":"{id}","promptId":"{id}"}}"#));
+        translate(&mut state, Harness::V1, n as u64 + 2, 1, line.as_bytes()).unwrap();
+    }
+    let declined = mux(4, "queue_declined", r#"{"promptId":"asks","turnId":"u1","revision":0}"#);
+    let ops = translate(&mut state, Harness::V1, 4, 1, declined.as_bytes()).unwrap();
+    assert!(ops.iter().any(|op| matches!(op.change, Change::Queue(QueueChange::Remove(_)))));
+    let left: Vec<u64> = state.queue().map(|entry| entry.id_hash).collect();
+    assert_eq!(left, [prompt_hash("stays")]);
+}
+
+#[test]
 fn queue_cap_counts_the_1025th_entry_without_holding_it() {
     let mut state = State::default();
     t(&mut state, Harness::V1, mux(1, "user_message", r#"{"text":"first"}"#).as_bytes()).unwrap();
