@@ -1021,7 +1021,7 @@ fn a_card_field_string_is_cut_on_a_character_as_the_translator_cuts_it() {
     let text = format!("{}é tail", "a".repeat(9));
     let line = serde_json::json!({
         "seq": 1, "at": 1000, "dir": "mux", "kind": "user_message",
-        "msg": {"promptId": "p1", "turnId": "t1", "text": text.clone(), "n": [1, {"b": 2}]},
+        "msg": {"promptId": "p1", "turnId": "t1", "text": text, "n": [1, {"b": 2}]},
     });
     fs::write(home.path().join("source.ndjson"), format!("{line}\n")).unwrap();
     let mut state = open_state(config_at(home.path())).unwrap();
