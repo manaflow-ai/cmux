@@ -400,9 +400,12 @@ export class SettingsStore {
     void this.request("cmux.settings.theme.overrides.open", {});
   }
 
-  /** Open Theme File: the host opens the active theme file, making one from the current look first. */
-  openThemeFile(): void {
-    void this.request("cmux.settings.theme.file.open", {});
+  /** Open Theme File: the host opens the active theme file, making one from the current look first;
+   * a failure shows on the Theme File row as the export's own reason (the CLI writes it for people;
+   * "could not be changed" would be wrong for an open). */
+  async openThemeFile(): Promise<void> {
+    const reply = await this.request("cmux.settings.theme.file.open", {});
+    this.setError("appearance.themeFile", reply.ok ? null : { ...rowError(reply.error), message: reply.error.message });
   }
 
   /** After a theme file lands, the theme names and colors are read again so every picker lists it. */

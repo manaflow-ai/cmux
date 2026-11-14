@@ -462,7 +462,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
                 className="link-button"
                 disabled={!state.connected}
                 data-theme-file-action="open"
-                onClick={() => store.openThemeFile()}
+                onClick={() => void store.openThemeFile()}
               >
                 {t("settingsPage.theme.file.open")}
               </Button>
