@@ -14,6 +14,15 @@ const variant = (focus: string, note: string, menus = base): SettingsPageVariant
   note,
 });
 
+const movePicker = (key: string, note: string, menus = base): SettingsPageVariant => ({
+  ...variant("workspaceRow", note, menus),
+  steps: [
+    shown,
+    { selector: `.menu-row[data-key="${key}"] [data-action="move-to"]`, action: "click" },
+    { selector: "[data-picker]", action: "wait" },
+  ],
+});
+
 // Copy Path out of More, Rename inside Move ▸, Move ▸ inside More, a submenu of the person's
 // holding Mark as Unread, and Duplicate hidden in place.
 const customized = setMockMenuLayout(base, "workspaceRow", {
@@ -49,7 +58,11 @@ export default settingsPageEntry({
   title: "Settings Menus",
   area: "Settings",
   height: 760,
-  covers: ["pages/settings/components/ContextMenusCard.tsx", "pages/settings/menuLayouts.ts"],
+  covers: [
+    "pages/settings/components/ContextMenusCard.tsx",
+    "pages/settings/menuLayouts.ts",
+    "pages/settings/styles.css",
+  ],
   anchors: [{ selector: '[data-card="context-menus"]' }],
   variants: {
     generated: variant("workspaceRow", "The Workspace menu as the app makes it: More open beneath its row, Reset off."),
@@ -59,5 +72,15 @@ export default settingsPageEntry({
       customized,
     ),
     terminal: variant("terminalSelection", "Customize Menu… from a terminal opens the Terminal menu."),
+    "move-top-level": movePicker(
+      "renameWorkspace",
+      "Top-level row: current destination disabled, nested destinations visible.",
+    ),
+    "move-submenu": movePicker("folder:more", "Submenu: its own descendants are excluded from the destination menu."),
+    "move-customized": movePicker(
+      "workspace.copyPath",
+      "Customized menu: user-named and nested destinations share one glass grid.",
+      customized,
+    ),
   },
 });
