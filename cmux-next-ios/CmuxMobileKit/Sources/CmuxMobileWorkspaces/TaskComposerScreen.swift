@@ -381,11 +381,24 @@ struct TaskComposerScreen: View {
                     agentItem(harness, catalog: catalog)
                 }
             }
-            let picked = shownAgents(catalog).filter { !$0.models.isEmpty }
-            if !picked.isEmpty {
-                Section(picked.count > 1 ? "Each agent's model" : "Model") {
+            // Each picked agent's own settings, as the Mac lists them: its model, effort, mode and
+            // other options, each a picker on the person's last pick (one agent: rows here;
+            // several: a submenu each).
+            let picked = shownAgents(catalog)
+            if picked.count == 1, let harness = picked.first {
+                Section(harness.name) {
+                    TaskComposerSettingsMenus(creator: creator, harness: harness, catalog: catalog)
+                }
+            } else if !picked.isEmpty {
+                Section("Each agent's settings") {
                     ForEach(picked) { harness in
-                        TaskComposerModelMenu(creator: creator, harness: harness, catalog: catalog, style: .submenu)
+                        Menu {
+                            TaskComposerSettingsMenus(creator: creator, harness: harness, catalog: catalog)
+                        } label: {
+                            Text(harness.name)
+                            Text(TaskComposerSettingsMenus.summary(creator: creator, harness: harness, catalog: catalog))
+                        }
+                        .accessibilityIdentifier("taskComposer.settings.\(harness.id)")
                     }
                 }
             }
@@ -445,7 +458,8 @@ struct TaskComposerScreen: View {
     /// The model `harness` runs: the one picked, else its default (the Mac's last pick for it).
     private func modelName(_ harness: AgentHarnessChoice, _ catalog: AgentCatalog) -> String? {
         guard !harness.models.isEmpty else { return nil }
-        let id = draft.picks.first { $0.harness == harness.id }?.model ?? TaskComposerPhase.defaultModel(harness, catalog)
+        let picked = draft.picks.first { $0.harness == harness.id } ?? TaskAgentPick(harness: harness.id)
+        let id = creator.settled(picked, harness: harness, catalog: catalog).model
         return id.map { id in harness.models.first { $0.id == id }?.name ?? id }
     }
 
@@ -535,14 +549,13 @@ struct TaskComposerScreen: View {
         if task.picks.isEmpty, let harness = TaskComposerPhase.defaultHarness(catalog) {
             task.picks = [TaskAgentPick(harness: harness.id, name: harness.name, family: harness.family)]
         }
-        // Each agent's model by name: the one its menu shows, so the Mac runs what the phone said.
+        // Each agent's model, effort, mode and options by name: what its pickers show, so the Mac
+        // runs what the phone said.
         task.picks = task.picks.map { pick in
-            var pick = pick
-            if let harness = catalog.harness(pick.harness) {
-                if pick.model == nil { pick.model = TaskComposerPhase.defaultModel(harness, catalog) }
-                // Its CLI for a terminal launch (a pick saved before families were kept has none).
-                if pick.family == nil { pick.family = harness.family }
-            }
+            guard let harness = catalog.harness(pick.harness) else { return pick }
+            var pick = creator.settled(pick, harness: harness, catalog: catalog)
+            // Its CLI for a terminal launch (a pick saved before families were kept has none).
+            if pick.family == nil { pick.family = harness.family }
             return pick
         }
         sent = draft
@@ -639,10 +652,6 @@ enum TaskComposerPhase: Equatable {
         catalog.resolve(.macDefault)?.harness ?? catalog.defaultChoice
     }
 
-    /// The model `harness` runs with no model chosen: the Mac's last pick for it, else its default.
-    static func defaultModel(_ harness: AgentHarnessChoice, _ catalog: AgentCatalog) -> String? {
-        catalog.resolve(AgentChatStart(harness: harness.id))?.model ?? harness.offeredDefaultModel
-    }
 }
 
 /// Classic's dock pill: caption semibold on a 38 pt capsule of the label color at a low
@@ -752,48 +761,96 @@ struct TaskComposerBanner: View {
     }
 }
 
-/// An agent's model: a pill above the keyboard (one agent) or a submenu of the agents menu
-/// (several, one per agent).
-struct TaskComposerModelMenu: View {
-    enum Style { case submenu }
-
+/// One agent's settings for New Task, each its own picker on what the Mac lists for it: Model,
+/// Effort (the model's levels), Mode (the modes a phone may start a chat in) and each of the
+/// agent's other options (Fast mode, its own settings). A picker starts on the person's last pick
+/// for the agent (`WorkspaceCreator.settled`); one the Mac lists nothing for is left out.
+struct TaskComposerSettingsMenus: View {
     @Bindable var creator: WorkspaceCreator
     let harness: AgentHarnessChoice
     let catalog: AgentCatalog
-    let style: Style
+
+    private var pick: TaskAgentPick {
+        let picked = creator.taskDraft.picks.first { $0.harness == harness.id }
+            ?? TaskAgentPick(harness: harness.id, name: harness.name, family: harness.family)
+        return creator.settled(picked, harness: harness, catalog: catalog)
+    }
+
+    /// "Opus · High · Plan": the agent's settings in one line (a several-agents submenu's subtitle).
+    static func summary(creator: WorkspaceCreator, harness: AgentHarnessChoice, catalog: AgentCatalog) -> String {
+        let menus = TaskComposerSettingsMenus(creator: creator, harness: harness, catalog: catalog)
+        let pick = menus.pick
+        return [pick.model.flatMap { id in harness.models.first { $0.id == id }?.name },
+                pick.effort.flatMap { id in harness.efforts(model: pick.model).first { $0.id == id }?.name },
+                pick.mode.flatMap { id in harness.modes.first { $0.id == id }?.name }]
+            .compactMap { $0 }.joined(separator: " · ")
+    }
 
     var body: some View {
-        let current = creator.taskDraft.picks.first { $0.harness == harness.id }?.model
-        let defaultName = TaskComposerPhase.defaultModel(harness, catalog).map { id in harness.models.first { $0.id == id }?.name ?? id }
-        let label = current.map { id in harness.models.first { $0.id == id }?.name ?? id } ?? defaultName ?? "Default"
-        Menu {
-            Picker("Model", selection: Binding(get: { current ?? "" }, set: { setModel($0.isEmpty ? nil : $0) })) {
-                Text(defaultName.map { "Default (\($0))" } ?? "Default").tag("")
-                ForEach(harness.models.filter { $0.id != "default" }) { model in
-                    if let reason = model.unavailableReason {
-                        Text("\(model.name) — \(reason)").tag(model.id).selectionDisabled()
+        let pick = pick
+        if !harness.models.isEmpty {
+            picker("Model", id: "model", current: pick.model,
+                   choices: harness.models.filter { $0.id != "default" }.map { AgentSettingChoice(id: $0.id, name: $0.name, detail: $0.unavailableReason) },
+                   disabled: Set(harness.models.filter { $0.unavailableReason != nil }.map(\.id))) { value in
+                update { $0.model = value; $0.effort = nil }
+            }
+        }
+        let efforts = harness.efforts(model: pick.model)
+        if !efforts.isEmpty {
+            picker("Effort", id: "effort", current: pick.effort, choices: efforts) { value in update { $0.effort = value } }
+        }
+        if harness.modes.count > 1 {
+            picker("Mode", id: "mode", current: pick.mode, choices: harness.modes) { value in update { $0.mode = value } }
+        }
+        ForEach(harness.configOptions) { option in
+            picker(option.name, id: "option.\(option.id)", current: pick.options?[option.id], choices: option.choices) { value in
+                update { pick in
+                    var options = pick.options ?? [:]
+                    options[option.id] = value
+                    pick.options = options
+                }
+            }
+        }
+    }
+
+    /// A submenu row naming the setting and its pick; inside, the choices with a checkmark.
+    private func picker(_ title: String, id: String, current: String?, choices: [AgentSettingChoice],
+                        disabled: Set<String> = [], set: @escaping (String) -> Void) -> some View {
+        let currentName = current.flatMap { value in choices.first { $0.id == value }?.name } ?? "Default"
+        return Menu {
+            Picker(title, selection: Binding(get: { current ?? "" }, set: { if !$0.isEmpty { set($0) } })) {
+                if current == nil { Text("Default").tag("") }
+                ForEach(choices) { choice in
+                    if disabled.contains(choice.id) {
+                        Text("\(choice.name) — \(choice.detail ?? "Unavailable")").tag(choice.id).selectionDisabled()
+                    } else if let detail = choice.detail {
+                        // A menu row's title and subtitle: the mode, then what it does.
+                        VStack {
+                            Text(choice.name)
+                            Text(detail)
+                        }
+                        .tag(choice.id)
                     } else {
-                        Text(model.name).tag(model.id)
+                        Text(choice.name).tag(choice.id)
                     }
                 }
             }
         } label: {
-            switch style {
-            case .submenu:
-                // A menu row: the agent, its model as the subtitle.
-                Text(harness.name)
-                Text(label)
-            }
+            Text(title)
+            Text(currentName)
         }
-        .accessibilityLabel("\(harness.name) model, \(label)")
-        .accessibilityIdentifier("taskComposer.model.\(harness.id)")
+        .accessibilityLabel("\(harness.name) \(title.lowercased()), \(currentName)")
+        .accessibilityIdentifier("taskComposer.\(id).\(harness.id)")
     }
 
-    private func setModel(_ model: String?) {
+    /// Changes this agent's pick (picking it first when the Mac's default agent was shown).
+    private func update(_ change: (inout TaskAgentPick) -> Void) {
         var picks = creator.taskDraft.picks
         if picks.isEmpty { picks = [TaskAgentPick(harness: harness.id, name: harness.name, family: harness.family)] }
         guard let index = picks.firstIndex(where: { $0.harness == harness.id }) else { return }
-        picks[index].model = model
+        var pick = creator.settled(picks[index], harness: harness, catalog: catalog)
+        change(&pick)
+        picks[index] = pick
         creator.taskDraft.picks = picks
     }
 }

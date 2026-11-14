@@ -1006,13 +1006,23 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
                 AgentHarnessChoice(id: "codex", name: "Codex", family: "codex", unavailableReason: AgentCatalog.refusedReason),
             ])
         }
+        // As a Mac's acpmux lists them: each model's efforts, the modes a phone may start, and
+        // what the agent's chats reported (mode names, Fast mode).
+        let claudeEfforts = ["low", "medium", "high", "xhigh", "max"]
+        let modes = [AgentSettingChoice(id: "default", name: "Manual", detail: "Always ask before making changes"),
+                     AgentSettingChoice(id: "plan", name: "Plan", detail: "Create a plan before making changes")]
+        let fast = AgentConfigChoice(id: "fast-mode", name: "Fast mode", choices: [AgentSettingChoice(id: "off", name: "Off"),
+                                                                                  AgentSettingChoice(id: "on", name: "On")])
         return AgentCatalog(harnesses: [
             AgentHarnessChoice(id: "claude", name: "Claude Code", family: "claude", isDefault: true,
-                               models: [AgentModelChoice(id: "opus", name: "Opus"), AgentModelChoice(id: "sonnet", name: "Sonnet")],
-                               defaultModel: "opus"),
+                               models: [AgentModelChoice(id: "opus", name: "Opus", efforts: claudeEfforts, defaultEffort: "high"),
+                                        AgentModelChoice(id: "sonnet", name: "Sonnet", efforts: claudeEfforts, defaultEffort: "high"),
+                                        AgentModelChoice(id: "haiku", name: "Haiku")],
+                               defaultModel: "opus", askingModes: ["default", "plan"], reportedModes: modes, configOptions: [fast]),
             AgentHarnessChoice(id: "claude-cr", name: "Claude Code Router", family: "claude",
-                               models: [AgentModelChoice(id: "gpt-5.5", name: "GPT-5.5"), AgentModelChoice(id: "kimi-k2", name: "Kimi K2")],
-                               defaultModel: "gpt-5.5"),
+                               models: [AgentModelChoice(id: "gpt-5.5", name: "GPT-5.5", efforts: ["low", "medium", "high"], defaultEffort: "medium"),
+                                        AgentModelChoice(id: "kimi-k2", name: "Kimi K2")],
+                               defaultModel: "gpt-5.5", askingModes: ["default", "plan"], reportedModes: modes),
             AgentHarnessChoice(id: "codex", name: "Codex", family: "codex", unavailableReason: AgentCatalog.refusedReason),
         ])
     }

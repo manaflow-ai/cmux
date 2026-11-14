@@ -7,10 +7,20 @@ public struct AgentChatStart: Hashable, Sendable {
     public var harness: String?
     /// The model id, or nil for the harness's default model.
     public var model: String?
+    /// The effort level (`low`, `high`), or nil for the model's own default.
+    public var effort: String?
+    /// The mode the chat starts in (one the Mac lets a phone start), or nil for the first.
+    public var mode: String?
+    /// The agent's other options (`fast-mode: on`), by option id; set before the first prompt.
+    public var options: [String: String]
 
-    public init(harness: String? = nil, model: String? = nil) {
+    public init(harness: String? = nil, model: String? = nil, effort: String? = nil, mode: String? = nil,
+                options: [String: String] = [:]) {
         self.harness = harness
         self.model = model
+        self.effort = effort
+        self.mode = mode
+        self.options = options
     }
 
     /// The Mac's default agent and model.
@@ -23,12 +33,63 @@ public struct AgentModelChoice: Identifiable, Hashable, Sendable {
     public var name: String
     /// Why it can't be used now (the Mac's "unavailable: <reason>"), or nil.
     public var unavailableReason: String?
+    /// The effort levels it takes, as the agent's CLI or the Mac's catalog lists them; empty
+    /// when the Mac didn't say.
+    public var efforts: [String]
+    /// The level a chat on it starts at, when the Mac said.
+    public var defaultEffort: String?
 
-    public init(id: String, name: String, unavailableReason: String? = nil) {
+    public init(id: String, name: String, unavailableReason: String? = nil, efforts: [String] = [], defaultEffort: String? = nil) {
         self.id = id
         self.name = name
         self.unavailableReason = unavailableReason
+        self.efforts = efforts
+        self.defaultEffort = defaultEffort
     }
+}
+
+/// One choice of an agent's setting: an effort level, a mode, or one value of an option.
+public struct AgentSettingChoice: Identifiable, Hashable, Sendable {
+    public var id: String
+    public var name: String
+    /// What it does, when the agent says ("Asks before each change").
+    public var detail: String?
+
+    public init(id: String, name: String, detail: String? = nil) {
+        self.id = id
+        self.name = name
+        self.detail = detail
+    }
+
+    /// A level or mode the Mac names only by id: `xhigh` → "Extra high", `read-only` → "Read only".
+    public static func name(for id: String) -> String {
+        switch id.lowercased() {
+        case "xhigh": return "Extra high"
+        case "max": return "Max"
+        default:
+            let words = id.replacingOccurrences(of: "-", with: " ").replacingOccurrences(of: "_", with: " ")
+            return words.prefix(1).uppercased() + words.dropFirst()
+        }
+    }
+}
+
+/// One of an agent's own options a new chat can be started with (Fast mode, an agent's own
+/// setting), as its chats report it to the Mac (ACP `configOptions`): its id, name and choices.
+public struct AgentConfigChoice: Identifiable, Hashable, Sendable {
+    public var id: String
+    public var name: String
+    public var category: String?
+    public var choices: [AgentSettingChoice]
+
+    public init(id: String, name: String, category: String? = nil, choices: [AgentSettingChoice]) {
+        self.id = id
+        self.name = name
+        self.category = category
+        self.choices = choices
+    }
+
+    /// The agent's effort option, whatever it calls it (as acpmux and the Mac's composer read it).
+    public var isEffort: Bool { category == "thought_level" || id == "effort" || id == "reasoning_effort" }
 }
 
 /// One agent (acpmux harness) of a Mac, as a phone may start it.
@@ -46,9 +107,21 @@ public struct AgentHarnessChoice: Identifiable, Hashable, Sendable {
     /// The modes a chat this phone starts may run in, the start mode first (acpmux's
     /// `remote.modes`: modes that ask before each change); empty when the Mac didn't say.
     public var askingModes: [String]
+    /// The effort a new chat starts at (acpmux `start.effort`), if the Mac said.
+    public var startEffort: String?
+    /// The modes its chats report, named (acpmux `reported.modes`): names for ``askingModes``.
+    public var reportedModes: [AgentSettingChoice]
+    /// Its effort option as its chats report it (`reported.configOptions`), for the levels'
+    /// names and for an agent whose models list none.
+    public var effortOption: AgentConfigChoice?
+    /// Its other options a new chat can start with (`reported.configOptions` less the model,
+    /// effort and mode, which have their own pickers).
+    public var configOptions: [AgentConfigChoice]
 
     public init(id: String, name: String, family: String, isDefault: Bool = false, unavailableReason: String? = nil,
-                models: [AgentModelChoice] = [], defaultModel: String? = nil, askingModes: [String] = []) {
+                models: [AgentModelChoice] = [], defaultModel: String? = nil, askingModes: [String] = [],
+                startEffort: String? = nil, reportedModes: [AgentSettingChoice] = [], effortOption: AgentConfigChoice? = nil,
+                configOptions: [AgentConfigChoice] = []) {
         self.id = id
         self.name = name
         self.family = family
@@ -57,6 +130,36 @@ public struct AgentHarnessChoice: Identifiable, Hashable, Sendable {
         self.models = models
         self.defaultModel = defaultModel
         self.askingModes = askingModes
+        self.startEffort = startEffort
+        self.reportedModes = reportedModes
+        self.effortOption = effortOption
+        self.configOptions = configOptions
+    }
+
+    /// The modes a phone may start a chat in, the start mode first, by the names its chats use.
+    public var modes: [AgentSettingChoice] {
+        askingModes.map { id in
+            reportedModes.first { $0.id == id } ?? AgentSettingChoice(id: id, name: AgentSettingChoice.name(for: id))
+        }
+    }
+
+    /// The effort levels `model` (nil: the agent's default model) takes: the model's own list,
+    /// else its effort option's; named as its chats name them.
+    public func efforts(model: String?) -> [AgentSettingChoice] {
+        let id = model ?? offeredDefaultModel
+        let listed = models.first { $0.id == id }?.efforts ?? []
+        guard !listed.isEmpty else { return effortOption?.choices ?? [] }
+        return listed.map { level in
+            effortOption?.choices.first { $0.id == level } ?? AgentSettingChoice(id: level, name: AgentSettingChoice.name(for: level))
+        }
+    }
+
+    /// The level a chat on `model` starts at: the model's default, else the agent's start effort.
+    public func defaultEffort(model: String?) -> String? {
+        let id = model ?? offeredDefaultModel
+        let level = models.first { $0.id == id }?.defaultEffort ?? startEffort
+        let offered = efforts(model: model)
+        return offered.contains { $0.id == level } ? level : nil
     }
 
     public var canStart: Bool { unavailableReason == nil }

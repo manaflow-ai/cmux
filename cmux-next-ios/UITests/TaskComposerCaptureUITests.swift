@@ -194,7 +194,35 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             },
             Scene(group: g, id: "agent-row-model-menu", args: Self.list) { app in
                 C.steps([{ Self.composeTwoAgents(app) }, { Self.openAgents(app) },
+                         { C.tap(C.any(app, "taskComposer.settings.claude-cr"), "Router's settings") },
                          { C.tap(C.any(app, "taskComposer.model.claude-cr"), "Router's model menu") }])
+            },
+            // Each setting the Mac lists, its own picker: effort (the model's levels), mode (the
+            // modes a phone may start) and the agent's other options (Fast mode).
+            Scene(group: g, id: "agent-settings-two", args: Self.list) { app in
+                C.steps([{ Self.composeTwoAgents(app) }, { Self.openAgents(app) },
+                         { C.tap(C.any(app, "taskComposer.settings.claude"), "Claude Code's settings") },
+                         { Self.check(C.any(app, "taskComposer.effort.claude").exists, "no effort picker") }])
+            },
+            Scene(group: g, id: "effort-menu", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openAgents(app) },
+                         { C.tap(C.any(app, "taskComposer.effort.claude"), "Claude Code's effort") },
+                         { Self.check(app.buttons["Extra high"].firstMatch.exists, "the model's levels are not listed") }])
+            },
+            Scene(group: g, id: "mode-menu", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openAgents(app) },
+                         { C.tap(C.any(app, "taskComposer.mode.claude"), "Claude Code's mode") },
+                         { Self.check(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Plan'")).firstMatch.exists, "no Plan mode") }])
+            },
+            Scene(group: g, id: "fast-mode-menu", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openAgents(app) },
+                         { C.tap(C.any(app, "taskComposer.option.fast-mode.claude"), "Fast mode") }])
+            },
+            Scene(group: g, id: "effort-picked", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openAgents(app) },
+                         { C.tap(C.any(app, "taskComposer.effort.claude"), "Claude Code's effort") },
+                         { C.tap(app.buttons["Max"].firstMatch, "Max") }, { C.pause(0.8); return nil }, { Self.openAgents(app) },
+                         { Self.check((C.any(app, "taskComposer.effort.claude").label).contains("Max"), "Max did not stick") }])
             },
             Scene(group: g, id: "agents-at-limit", args: Self.list + ["-cmux-mobile-task-catalog", "many"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") }, { Self.openAgents(app) },

@@ -286,3 +286,77 @@ import Testing
         if case .uncertain = LiveWorkspaceCreationBackend.deliveryFailure(CancellationError()) {} else { Issue.record("cancel") }
     }
 }
+
+/// New Task's Effort, Mode and option pickers list only what the Mac sends: each model's efforts
+/// (`_acpmux/models`), the modes a phone may start (`remote.modes`) by the names its chats use,
+/// and the agent's own options as its chats report them (`reported`).
+@Suite struct AgentSettingsFromTheMacTests {
+    func json(_ text: String) throws -> JSONValue {
+        try JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))
+    }
+
+    var harnesses: String {
+        """
+        {"defaultHarness": "claude",
+         "harnesses": {
+           "claude": {"family": "claude", "start": {"model": "opus", "effort": "high"},
+             "remote": {"startable": true, "modes": ["default", "plan"]},
+             "reported": {
+               "modes": [{"id": "auto", "name": "Auto"}, {"id": "default", "name": "Manual", "description": "Always ask before making changes"},
+                         {"id": "plan", "name": "Plan", "description": "Create a plan before making changes"}],
+               "configOptions": [
+                 {"id": "effort", "name": "Effort", "category": "thought_level", "type": "select",
+                  "options": [{"value": "low", "name": "Low"}, {"value": "high", "name": "High"}, {"value": "xhigh", "name": "Extra High"}]},
+                 {"id": "model", "name": "Model", "category": "model", "type": "select", "options": [{"value": "opus", "name": "Opus"}, {"value": "sonnet", "name": "Sonnet"}]},
+                 {"id": "fast-mode", "name": "Fast mode", "type": "select", "options": [{"value": "off", "name": "Off"}, {"value": "on", "name": "On"}]},
+                 {"id": "style", "name": "Style", "type": "select",
+                  "options": [{"group": "g", "name": "Concise", "options": [{"value": "terse", "name": "Terse"}, {"value": "brief", "name": "Brief"}]}]},
+                 {"id": "session-recap", "name": "Session recap", "type": "select", "options": [{"value": "off"}, {"value": "on"}]},
+                 {"id": "one", "name": "One choice", "type": "select", "options": [{"value": "only"}]},
+                 {"id": "flag", "name": "A toggle", "type": "boolean"}]}},
+           "fresh": {"family": "fresh", "remote": {"startable": true, "modes": ["ask"]}}
+         }}
+        """
+    }
+
+    var models: String {
+        """
+        {"harnesses": [{"harness": "claude", "models": [
+          {"id": "opus", "name": "Opus", "efforts": ["low", "high", "xhigh"], "defaultEffort": "high"},
+          {"id": "haiku", "name": "Haiku"}]}]}
+        """
+    }
+
+    @Test func effortsComeFromEachModelAndAreNamedAsTheAgentNamesThem() throws {
+        let claude = try #require(AgentCatalog(harnesses: json(harnesses), models: json(models)).harness("claude"))
+        #expect(claude.efforts(model: "opus").map(\.id) == ["low", "high", "xhigh"])
+        #expect(claude.efforts(model: "opus").map(\.name) == ["Low", "High", "Extra High"])
+        #expect(claude.defaultEffort(model: "opus") == "high")
+        // A model that lists none: the agent's effort option.
+        #expect(claude.efforts(model: "haiku").map(\.id) == ["low", "high", "xhigh"])
+        #expect(claude.startEffort == "high")
+    }
+
+    @Test func modesAreOnlyTheOnesAPhoneMayStartNamedByTheAgent() throws {
+        let catalog = try AgentCatalog(harnesses: json(harnesses), models: json(models))
+        let claude = try #require(catalog.harness("claude"))
+        #expect(claude.modes.map(\.id) == ["default", "plan"])
+        #expect(claude.modes.map(\.name) == ["Manual", "Plan"])
+        #expect(claude.modes.first?.detail == "Always ask before making changes")
+        // No chat reported names yet: the id, readable.
+        #expect(try #require(catalog.harness("fresh")).modes.map(\.name) == ["Ask"])
+    }
+
+    @Test func otherOptionsAreTheAgentsOwnWithChoices() throws {
+        let claude = try #require(AgentCatalog(harnesses: json(harnesses), models: json(models)).harness("claude"))
+        // Not the model or effort (their own pickers), a per-chat switch, one choice or a non-select.
+        #expect(claude.configOptions.map(\.id) == ["fast-mode", "style"])
+        #expect(claude.configOptions[1].choices.map(\.id) == ["terse", "brief"])
+        #expect(claude.effortOption?.id == "effort")
+    }
+
+    @Test func aMacThatSendsNoneOffersNone() throws {
+        let fresh = try #require(AgentCatalog(harnesses: json(harnesses)).harness("fresh"))
+        #expect(fresh.efforts(model: nil).isEmpty && fresh.configOptions.isEmpty && fresh.effortOption == nil)
+    }
+}
