@@ -350,7 +350,10 @@ async fn pump(
                     receiver = delivery.receiver;
                     mode = delivery.mode;
                 }
-                Offer::NotFed => mode = Mode::Paused,
+                Offer::NotFed => {
+                    receiver.clear_replay_snapshot();
+                    mode = Mode::Paused;
+                }
                 _ => return,
             }
             continue;
@@ -451,7 +454,12 @@ async fn pump(
                 }
                 mode = next;
             }
-            Offer::NotFed => mode = Mode::Paused,
+            Offer::NotFed => {
+                // Credit resumes by opening a fresh receiver at its cursor.
+                // Nothing in this paused generation needs the replay bytes.
+                receiver.clear_replay_snapshot();
+                mode = Mode::Paused;
+            }
             _ => return,
         }
     }
