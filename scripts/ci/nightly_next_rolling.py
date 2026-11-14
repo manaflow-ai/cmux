@@ -40,7 +40,8 @@ starts at once. Its head is no longer nightly-next's then, so it holds again.
 
 A run waiting in its leave-slot step holds nothing either (leaving_slot): a stale run (a loop retry, or a push
 that waited in the group behind another build) waits there for this promotion before any build job starts, and
-leaves once nightly-next moves.
+leaves once nightly-next moves. The same holds for nightly-next-one's first step (LEAVE_ONE_STEP), where a run
+admitted after a long wait at nightly-next-one-push checks again and leaves by skipping its build.
 
 A dispatch for one commit (a person, or the feed watch's starvation guard) never
 reaches this rule: the tick runs it only when its `sha` input is empty.
@@ -54,7 +55,10 @@ compare API only when the head is not in it; a tip already on nightly-next
 reads nothing more and waits (there is nothing to promote). Every other read goes through the
 API with the job's token. A head neither can read waits, with a
 warning: the feed watch's dispatch for one commit skips this rule, so that costs
-at most the backstop's delay. Any other failed read, and a gap to the tip that cannot be
+at most the backstop's delay. So does a failed run listing, and any other failed read while a
+nightly-next push run created within RUN_LOOKBACK is not completed (or its creation is unreadable): that run
+may wait at the push slot, and a promotion would get GitHub to cancel its pending job, a cancelled nightly
+(may_wait_at_slot). Any other failed read, and a gap to the tip that cannot be
 read, promotes, with a warning: the promotion ignores a request that does not
 move nightly-next forward.
 
@@ -98,18 +102,39 @@ PROMOTION_RACE_MINUTES = 2.0
 # (resolve-leave-build-slot.sh). A run in it builds nothing yet and leaves once nightly-next moves.
 RESOLVE_JOB = "resolve-nightly-cmux-tui-client"
 LEAVE_SLOT_STEP = "Leave the build slot to a newer nightly-next push"
+# The same check again as nightly-next-one's first step, once its group (nightly-next-one-push) admits it: a run that
+# waited there while newer commits landed waits in this step for a promotion and leaves by skipping its build.
+ONE_JOB = "nightly-next-one"
+LEAVE_ONE_STEP = "Leave the push slot to a newer nightly-next push"
+LEAVE_STEPS = {RESOLVE_JOB: LEAVE_SLOT_STEP, ONE_JOB: LEAVE_ONE_STEP}
 
 
 def leaving_slot(jobs: list[dict]) -> bool:
-    """Whether a run waits in its leave-slot step with no other job of it running: it yields to a promotion.
-    Run 43558081148 of a22a4eb1 waited 23 min in the group, then built the old head beside 20 newer commits."""
-    in_step = any(job.get("name") == RESOLVE_JOB and job.get("status") == "in_progress"
-                  and any(step.get("name") == LEAVE_SLOT_STEP and step.get("status") == "in_progress"
-                          for step in job.get("steps") or [])
-                  for job in jobs)
-    others = [job for job in jobs if job.get("name") != RESOLVE_JOB and (job.get("status") in ("in_progress", "waiting")
+    """Whether a run waits in a leave-slot step (resolve's, or nightly-next-one's first step) with no other job of it
+    running: it yields to a promotion. Run 43558081148 of a22a4eb1 waited 23 min in the group, then built the old
+    head beside 20 newer commits."""
+    leaving = {job.get("name") for job in jobs if job.get("name") in LEAVE_STEPS and job.get("status") == "in_progress"
+               and any(step.get("name") == LEAVE_STEPS[job.get("name")] and step.get("status") == "in_progress"
+                       for step in job.get("steps") or [])}
+    others = [job for job in jobs if job.get("name") not in leaving and (job.get("status") in ("in_progress", "waiting")
               or job.get("status") in ("queued", "pending", "requested") and job.get("runner_name"))]
-    return in_step and not others
+    return bool(leaving) and not others
+
+
+def may_wait_at_slot(now: dt.datetime, runs: list[dict]) -> str:
+    """A push-group run that may still have a job waiting at the push slot: not completed and created within
+    RUN_LOOKBACK, or with a creation that can't be read. A promotion while one waits gets GitHub to replace (cancel)
+    its pending job, so a failed read never promotes past it. "" when every run is ruled out."""
+    for run in runs:
+        if run.get("status") == "completed":
+            continue
+        try:
+            if now - watch.parse_time(run["created_at"]) > RUN_LOOKBACK:
+                continue
+        except (KeyError, TypeError, ValueError, AttributeError):
+            pass
+        return f"nightly-next run {run.get('html_url', run.get('id'))} may be waiting at the push slot"
+    return ""
 
 
 def youngest_start(now: dt.datetime, starts: list[dict], promotions: list[dict],
@@ -310,8 +335,11 @@ def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
 
     nightly-next's head unreadable: wait, with a warning. The rule's purpose is to coalesce, and
     the feed watch (every 10 minutes) dispatches a build for one commit, which skips this rule, so
-    a failed read here costs at most that backstop's delay and never a burst of builds. Any other
-    failed read promotes, with a warning: the promotion ignores a request that moves nothing."""
+    a failed read here costs at most that backstop's delay and never a burst of builds. The run
+    listing unreadable, or another read failing while a nightly-next push run created within
+    RUN_LOOKBACK is not completed (or its creation is unreadable): wait, with a warning. That run
+    may wait at the push slot, and a promotion would get GitHub to cancel its pending job. Any
+    other failed read promotes, with a warning: the promotion ignores a request that moves nothing."""
     head = None
     if ls_remote is not None:
         try:
@@ -344,8 +372,11 @@ def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
         recent = [run for run in api(base + urllib.parse.urlencode(
             {"branch": "nightly-next", "per_page": 50}))["workflow_runs"] if watch.holds_push_group(run)]
     except Exception as error:  # noqa: BLE001
-        print(f"::warning title=nightly-next rolling rule::could not read the running builds ({error!r}); promoting")
-        return True, f"could not read the running builds ({error!r}); promoting"
+        why = (f"could not read the running builds ({error!r}); a nightly-next push run created in the last "
+               f"{RUN_LOOKBACK.total_seconds() / 3600:g} h can't be ruled out, and a promotion while one waits at the push "
+               "slot gets it cancelled, so waiting for the next tick or the feed watch's backstop")
+        print(f"::warning title=nightly-next rolling rule::{why}")
+        return False, why
     # A start inside the window holds the next one whatever else can be read: a failed read
     # after this point never adds a build beside a start this young.
     since_start = youngest_start(now, recent, [])
@@ -369,6 +400,12 @@ def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
                   f"a build started {since_start:.0f} min ago, so waiting")
             return False, (f"could not read the running builds ({error!r}); the newest build started "
                            f"{since_start:.0f} of {window_minutes:g} min ago, so waiting")
+        live = may_wait_at_slot(now, recent)
+        if live:
+            why = (f"could not read the running builds ({error!r}); {live}, and a promotion now would get it "
+                   "cancelled, so waiting")
+            print(f"::warning title=nightly-next rolling rule::{why}")
+            return False, why
         print(f"::warning title=nightly-next rolling rule::could not read the running builds ({error!r}); promoting")
         return True, f"could not read the running builds ({error!r}); promoting"
 
