@@ -370,6 +370,24 @@ fn git_fingerprint_moves_when_the_base_or_the_head_moves() {
 }
 
 #[test]
+fn git_fingerprint_moves_with_a_diff_setting_and_stays_with_a_setting_of_no_diff() {
+    let repo = fresh_clone();
+    let mut client = Client::of_a_new_daemon();
+    std::fs::write(repo.join("a.txt"), "one\nthree\n").unwrap();
+    let first = client.fingerprint(&repo, "uncommitted");
+
+    // No diff shows the name of the author.
+    git(&repo, &["config", "user.name", "another"]);
+    let same = client.fingerprint(&repo, "uncommitted");
+    assert_eq!(first, same, "a setting that changes no diff moved the fingerprint");
+
+    // The same files can give another patch with another diff setting.
+    git(&repo, &["config", "diff.algorithm", "patience"]);
+    let moved = client.fingerprint(&repo, "uncommitted");
+    assert_ne!(first, moved, "a new diff setting kept the fingerprint");
+}
+
+#[test]
 fn git_fingerprint_of_a_file_above_the_patch_bound_moves_as_the_reply_of_git_diff_moves() {
     let repo = fresh_clone();
     let mut client = Client::of_a_new_daemon();

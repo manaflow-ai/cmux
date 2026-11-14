@@ -346,3 +346,21 @@ fn path_from_bytes(bytes: &[u8]) -> PathBuf {
         PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The digits are of one process: its random bytes are in them, so they
+    /// are not the hash of the parts alone.
+    #[test]
+    fn git_fingerprint_digits_hold_the_random_bytes_of_the_process() {
+        let mut digest = Digest::new();
+        digest.put(b"part");
+        let mut parts = Sha256::new();
+        parts.update(4_u64.to_le_bytes());
+        parts.update(b"part");
+        let parts: String = parts.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
+        assert_ne!(digest.hex(), parts, "the digits are the hash of the parts alone");
+    }
+}
