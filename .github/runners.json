@@ -255,6 +255,7 @@
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
     },
     "app-ffi-release.yml#build": "apple-app-build",
+    "billing.yml#ios-billing": "apple-ios",
     "auth-refresh-tests.yml#auth-refresh-tests": {
       "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"

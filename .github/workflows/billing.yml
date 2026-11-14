@@ -1,0 +1,455 @@
+name: Billing
+
+# Billing moves money: every pull request into feat-cmux-next that touches it
+# runs every billing test, in a few minutes.
+#
+# scripts/ci/billing_lane.py owns what "touches billing" means and which test
+# files are billing tests (by name, and by importing a billing module). The
+# pull_request paths below must equal its pattern lists, in order;
+# tests/test_ci_billing_lane.py fails when they drift.
+#
+# Two jobs, because feat-cmux-next counts every job a pull request can start
+# against ci/steps.toml's [budget] (tests/test_ci_step_table.py):
+# - billing (Linux): routes from the diff, then runs every billing web test,
+#   the CMUX_DB_TEST-gated billing tests against Postgres 16 with every
+#   migration applied twice (as ci-web.yml's web-db-migrations does), and the
+#   web typecheck. Its steps skip when no web billing path changed.
+# - ios-billing (macOS): `swift test` for every Packages/iOS/*Billing* package
+#   when one changed, and the StoreKit Testing SLOT for the rewritten iOS
+#   billing client (SKTestSession + a .storekit file) on an iOS simulator. The
+#   slot runs on any iOS billing change once a target named
+#   BillingStoreKitTests exists under cmux-next-ios (a SwiftPM test directory,
+#   or an xcodegen target in cmux-next-ios/project.yml); until then
+#   billing_lane.py finds none and its steps skip.
+#
+# Both names are stable, so they can be made required later. Before that, drop
+# the pull_request path filter (tests/test_ci_required_checks_have_no_path_filters.py):
+# `billing` already skips the work on unrelated pull requests, and dropping it
+# also closes GitHub's limit that a path filter reads only the first 300
+# changed files.
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - ".github/workflows/billing.yml"
+      - "scripts/ci/billing_lane.py"
+      - "tests/test_ci_billing_lane.py"
+      - "web/scripts/run-db-behavior-tests.sh"
+      - "docs/billing/**"
+      - "web/services/billing/**"
+      - "web/services/vms/entitlements.ts"
+      - "web/services/vms/planUsage.ts"
+      - "web/app/api/billing/**"
+      - "web/app/api/stripe/**"
+      - "web/app/api/admin/subscriptions/**"
+      - "web/app/api/cron/apple-notifications/**"
+      - "web/app/api/cron/billing-*/**"
+      - "web/app/api/cron/team-seats/**"
+      - "web/app/app-pricing/**"
+      - "web/app/components/pro-plan-card.tsx"
+      - "web/dashboard-app/screens/billing/**"
+      - "web/orpc/server/dashboard/schemas/billing*"
+      - "web/db/schema*.ts"
+      - "web/db/migrations/**"
+      - "web/scripts/stripe/**"
+      - "web/tests/apple-iap-*"
+      - "web/tests/billing-*"
+      - "web/tests/stripe-*"
+      - "web/tests/dashboard-billing-*"
+      - "web/tests/app-pricing-*"
+      - "web/tests/admin-*billing*"
+      - "web/tests/admin-*subscription*"
+      - "web/tests/*entitlement*"
+      - "web/tests/helpers/apple-*"
+      - "web/tests/helpers/*billing*"
+      - "web/**/*billing*"
+      - "web/**/*billing*/**"
+      - "web/**/*Billing*"
+      - "web/**/*Billing*/**"
+      - "web/**/*stripe*"
+      - "web/**/*stripe*/**"
+      - "web/**/*Stripe*"
+      - "web/**/*entitlement*"
+      - "web/**/*Entitlement*"
+      - "web/**/*subscription*"
+      - "web/**/*subscription*/**"
+      - "web/**/*Subscription*"
+      - "web/**/*pricing*"
+      - "web/**/*pricing*/**"
+      - "web/**/*Pricing*"
+      - "web/**/*checkout*"
+      - "web/**/*checkout*/**"
+      - "web/**/*Checkout*"
+      - "web/**/*seats*"
+      - "web/**/*Seats*"
+      - "web/**/*apple-iap*"
+      - "Packages/iOS/CmuxMobileBilling/**"
+      - "Packages/iOS/*Billing*/**"
+      - "Packages/Shared/CMUXMobileCore/**"
+      - "Packages/iOS/CmuxMobileSupport/**"
+      - "Packages/iOS/**/*Billing*"
+      - "ios/**/*Billing*"
+      - "ios/**/*.storekit"
+      - "cmux-next-ios/CmuxMobileKit/Sources/**/Billing*"
+      - "cmux-next-ios/**/*Billing*/**"
+      - "cmux-next-ios/**/*.storekit"
+      - "cmux-next-ios/project.yml"
+      - "cmux-next-ios/*/Package.swift"
+  # A direct push to feat-cmux-next is checked too, routed from its `before`.
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - ".github/workflows/billing.yml"
+      - "scripts/ci/billing_lane.py"
+      - "tests/test_ci_billing_lane.py"
+      - "web/scripts/run-db-behavior-tests.sh"
+      - "docs/billing/**"
+      - "web/services/billing/**"
+      - "web/services/vms/entitlements.ts"
+      - "web/services/vms/planUsage.ts"
+      - "web/app/api/billing/**"
+      - "web/app/api/stripe/**"
+      - "web/app/api/admin/subscriptions/**"
+      - "web/app/api/cron/apple-notifications/**"
+      - "web/app/api/cron/billing-*/**"
+      - "web/app/api/cron/team-seats/**"
+      - "web/app/app-pricing/**"
+      - "web/app/components/pro-plan-card.tsx"
+      - "web/dashboard-app/screens/billing/**"
+      - "web/orpc/server/dashboard/schemas/billing*"
+      - "web/db/schema*.ts"
+      - "web/db/migrations/**"
+      - "web/scripts/stripe/**"
+      - "web/tests/apple-iap-*"
+      - "web/tests/billing-*"
+      - "web/tests/stripe-*"
+      - "web/tests/dashboard-billing-*"
+      - "web/tests/app-pricing-*"
+      - "web/tests/admin-*billing*"
+      - "web/tests/admin-*subscription*"
+      - "web/tests/*entitlement*"
+      - "web/tests/helpers/apple-*"
+      - "web/tests/helpers/*billing*"
+      - "web/**/*billing*"
+      - "web/**/*billing*/**"
+      - "web/**/*Billing*"
+      - "web/**/*Billing*/**"
+      - "web/**/*stripe*"
+      - "web/**/*stripe*/**"
+      - "web/**/*Stripe*"
+      - "web/**/*entitlement*"
+      - "web/**/*Entitlement*"
+      - "web/**/*subscription*"
+      - "web/**/*subscription*/**"
+      - "web/**/*Subscription*"
+      - "web/**/*pricing*"
+      - "web/**/*pricing*/**"
+      - "web/**/*Pricing*"
+      - "web/**/*checkout*"
+      - "web/**/*checkout*/**"
+      - "web/**/*Checkout*"
+      - "web/**/*seats*"
+      - "web/**/*Seats*"
+      - "web/**/*apple-iap*"
+      - "Packages/iOS/CmuxMobileBilling/**"
+      - "Packages/iOS/*Billing*/**"
+      - "Packages/Shared/CMUXMobileCore/**"
+      - "Packages/iOS/CmuxMobileSupport/**"
+      - "Packages/iOS/**/*Billing*"
+      - "ios/**/*Billing*"
+      - "ios/**/*.storekit"
+      - "cmux-next-ios/CmuxMobileKit/Sources/**/Billing*"
+      - "cmux-next-ios/**/*Billing*/**"
+      - "cmux-next-ios/**/*.storekit"
+      - "cmux-next-ios/project.yml"
+      - "cmux-next-ios/*/Package.swift"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: billing-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  billing:
+    name: billing
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # The macOS pool pick reads the queue janitor's pool snapshot (an artifact).
+      actions: read
+    outputs:
+      web: ${{ steps.route.outputs.web }}
+      ios: ${{ steps.route.outputs.ios }}
+      storekit: ${{ steps.route.outputs.storekit }}
+      storekit_kind: ${{ steps.route.outputs.storekit_kind }}
+      storekit_path: ${{ steps.route.outputs.storekit_path }}
+      mac_label: ${{ steps.pool.outputs.label }}
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        env:
+          POSTGRES_DB: cmux_test
+          POSTGRES_PASSWORD: cmux
+          POSTGRES_USER: cmux
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cmux -d cmux_test"
+          --health-interval 1s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # HEAD^1 is the base the pull request merges onto.
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Test the lane's routing and selection
+        run: python3 tests/test_ci_billing_lane.py
+
+      # A push's `before` is not in a depth-2 clone; a missing or all-zero one
+      # leaves PUSH_BASE unresolvable and routes every job.
+      - name: Fetch the push base
+        if: ${{ github.event_name == 'push' }}
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: git fetch --no-tags --depth=1 origin "$BEFORE" || echo "push base $BEFORE unavailable; every billing job runs"
+
+      - name: Route billing jobs
+        id: route
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_BASE: ${{ github.event_name == 'push' && github.event.before || '' }}
+        run: python3 scripts/ci/billing_lane.py route
+
+      # The macOS job's runner: the least-loaded Blacksmith macOS 26 size now
+      # (e2e_runner_pool.py, as cloud-chat-proof.yml picks), else the declared
+      # macos_26 pool. Picked here so the lane stays two jobs.
+      - name: Pick the macOS pool
+        id: pool
+        if: ${{ github.run_attempt == 1 && (steps.route.outputs.ios == 'true' || steps.route.outputs.storekit_kind != '') }}
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+        run: |
+          set -uo pipefail
+          label="$(python3 scripts/ci/e2e_runner_pool.py --requested auto \
+            --order "$POOL_ORDER" --max-queued "$POOL_MAX_QUEUED" --owned 0)" || label=""
+          case "$label" in
+            blacksmith-*-macos-26) ;;
+            *) echo "The picker said '${label:-nothing}'; the declared macos_26 pool takes ios-billing."; label="" ;;
+          esac
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Bun
+        if: ${{ steps.route.outputs.web == 'true' }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Cache Bun package cache
+        if: ${{ steps.route.outputs.web == 'true' }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+
+      - name: Install dependencies
+        if: ${{ steps.route.outputs.web == 'true' }}
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      # The selector's exit status is checked through the file, and an empty
+      # list stops here: `bun test` with no paths would run the whole suite.
+      - name: Billing tests
+        if: ${{ steps.route.outputs.web == 'true' }}
+        working-directory: web
+        run: |
+          python3 ../scripts/ci/billing_lane.py web-tests > "$RUNNER_TEMP/billing-tests.txt"
+          mapfile -t files < "$RUNNER_TEMP/billing-tests.txt"
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::the billing test selector returned no files"
+            exit 1
+          fi
+          echo "Running ${#files[@]} billing test file(s):"
+          printf '  %s\n' "${files[@]}"
+          bun test --isolate "${files[@]}"
+
+      # The second pass proves every migration is idempotent, as in ci-web.yml.
+      # The database URL is set only on the database steps: with it, the unit
+      # tests above would query an empty database instead of their fakes.
+      - name: Apply migrations
+        if: ${{ !cancelled() && steps.route.outputs.web == 'true' }}
+        working-directory: web
+        env:
+          DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+          DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+        run: |
+          bun scripts/db-migrate.mjs
+          bun scripts/db-migrate.mjs
+
+      - name: Billing database tests
+        if: ${{ !cancelled() && steps.route.outputs.web == 'true' }}
+        working-directory: web
+        env:
+          CMUX_DB_TEST: "1"
+          DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+          DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+        run: |
+          python3 ../scripts/ci/billing_lane.py web-tests --db > "$RUNNER_TEMP/billing-db-tests.txt"
+          mapfile -t files < "$RUNNER_TEMP/billing-db-tests.txt"
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::the billing DB test selector returned no files"
+            exit 1
+          fi
+          bash scripts/run-db-behavior-tests.sh "${files[@]}"
+
+      # tsgo checks the whole web project, billing included, in seconds.
+      - name: Typecheck
+        if: ${{ !cancelled() && steps.route.outputs.web == 'true' }}
+        working-directory: web
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/web-typecheck.log"
+          set +e
+          bun run typecheck 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+          # Same one retry as ci-web.yml for the native compiler's transient abort.
+          if [ "$status" -ne 0 ] && grep -Fq 'Aborted (core dumped)' "$log"; then
+            echo "::warning::native tsgo aborted during typecheck; retrying once"
+            bun run typecheck
+            exit $?
+          fi
+          exit "$status"
+
+  ios-billing:
+    name: ios-billing
+    needs: billing
+    # Runs even when a web billing step failed, from the routing billing wrote.
+    if: ${{ !cancelled() && (needs.billing.outputs.ios == 'true' || needs.billing.outputs.storekit_kind != '') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.run_attempt == 1 && needs.billing.outputs.mac_label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 30
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      IOS: ${{ needs.billing.outputs.ios }}
+      STOREKIT_KIND: ${{ needs.billing.outputs.storekit_kind }}
+      STOREKIT_PATH: ${{ needs.billing.outputs.storekit_path }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      # The same watchdog and executed-test check as test-ios.yml's package
+      # steps: a hang names the stuck test, and zero executed tests fails.
+      - name: Billing package tests
+        if: ${{ env.IOS == 'true' }}
+        run: |
+          set -euo pipefail
+          found=0
+          for manifest in Packages/iOS/*Billing*/Package.swift; do
+            [[ -f "$manifest" ]] || continue
+            found=1
+            package="$(dirname "$manifest")"
+            name="$(basename "$package")"
+            log_path="$RUNNER_TEMP/$name-tests.log"
+            echo "::group::swift test $package"
+            python3 scripts/ci/hung_test_watchdog.py --silence-seconds 180 \
+              --label "$name" --log "$log_path" -- swift test --package-path "$package"
+            ./scripts/ci/require_selected_test_execution.sh "$log_path" "$name"
+            echo "::endgroup::"
+          done
+          if [[ "$found" -eq 0 ]]; then
+            echo "::error::no Packages/iOS/*Billing* package found"
+            exit 1
+          fi
+
+      # -----------------------------------------------------------------------
+      # SLOT: StoreKit Testing for the rewritten iOS billing client.
+      # Contract for the rewrite: add a test target named BillingStoreKitTests
+      # that drives SKTestSession against a checked-in .storekit file, either as
+      # cmux-next-ios/<Package>/Tests/BillingStoreKitTests (run through the
+      # package's `<name>-Package` scheme) or as a BillingStoreKitTests target
+      # and scheme in cmux-next-ios/project.yml. Nothing else changes here.
+      # In a SwiftPM test bundle (no app host) load the .storekit file with
+      # SKTestSession(contentsOf: Bundle.module.url(...)), not
+      # SKTestSession(configurationFileNamed:), which searches the main bundle.
+      # -----------------------------------------------------------------------
+      # CmuxMobileKit, and the app project that depends on it, cannot load
+      # without its gitignored FFI xcframework (cmux-next-ios-kit.yml builds it
+      # the same way, with the same cargo cache).
+      - name: Set up pinned Rust
+        if: ${{ !cancelled() && env.STOREKIT_KIND != '' }}
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo
+        if: ${{ !cancelled() && env.STOREKIT_KIND != '' }}
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-next-ios/rust
+          key: cmux-next-ios-kit
+
+      - name: Build CmuxMobileLinkFFI.xcframework
+        if: ${{ !cancelled() && env.STOREKIT_KIND != '' }}
+        env:
+          JOBS: "8"
+        run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
+
+      - name: StoreKit Testing (iOS simulator)
+        if: ${{ !cancelled() && env.STOREKIT_KIND != '' }}
+        run: |
+          set -euo pipefail
+          udid="$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          found = sorted(
+              (runtime, device["udid"])
+              for runtime, items in devices.items()
+              if ".SimRuntime.iOS-26" in runtime
+              for device in items
+              if device["name"].startswith("iPhone")
+          )
+          print(found[-1][1] if found else "")
+          ')"
+          if [[ -z "$udid" ]]; then
+            echo "::error::no available iOS 26 iPhone simulator on this runner"
+            exit 1
+          fi
+          log_path="$RUNNER_TEMP/storekit-tests.log"
+          common=(-destination "id=$udid,arch=arm64" -enableCodeCoverage NO
+                  -derivedDataPath "$RUNNER_TEMP/dd-storekit" CODE_SIGNING_ALLOWED=NO
+                  -resultBundlePath "$RUNNER_TEMP/storekit.xcresult")
+          cd "$STOREKIT_PATH"
+          case "$STOREKIT_KIND" in
+            package)
+              package="$(swift package dump-package | python3 -c 'import json, sys; print(json.load(sys.stdin)["name"])')"
+              xcodebuild test -scheme "$package-Package" -only-testing:BillingStoreKitTests "${common[@]}" 2>&1 | tee "$log_path"
+              ;;
+            project)
+              command -v xcodegen >/dev/null || brew install xcodegen
+              xcodegen generate -q
+              xcodebuild test -project CmuxMobileApp.xcodeproj -scheme BillingStoreKitTests "${common[@]}" 2>&1 | tee "$log_path"
+              ;;
+            *)
+              echo "::error::unknown StoreKit target kind: $STOREKIT_KIND"
+              exit 1
+              ;;
+          esac
+          cd "$GITHUB_WORKSPACE"
+          ./scripts/ci/require_selected_test_execution.sh "$log_path" BillingStoreKitTests
