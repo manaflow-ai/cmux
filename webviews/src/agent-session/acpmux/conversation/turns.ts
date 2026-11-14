@@ -3228,10 +3228,37 @@ function isWorkNarration(text: string): boolean {
       if (!action) return false;
       // An action prefix alone does not make a progress note: "Running two tasks is faster"
       // and "Let me check; the cache is stale" contain answers. Ambiguous clauses stay visible.
-      return !/[,;:|]|\b(?:am|is|are|was|were|has|have|had|can|could|should|would|will|because|but|however|therefore|means?|shows?|reveals?)\b/i.test(
-        note.slice(action[0].length),
+      const rest = note.slice(action[0].length);
+      return (
+        !/[,;:|]|\b(?:am|is|are|was|were|has|have|had|can|could|should|would|will|because|but|however|therefore|means?|shows?|reveals?|than)\b/i.test(
+          rest,
+        ) && !hasFiniteVerb(rest)
       );
     })
+  );
+}
+
+/// Words before which an "-ed" word is an adjective ("the failed jobs"), not a verb.
+const ED_ADJECTIVE_AFTER =
+  /^(?:the|a|an|its|this|that|these|those|each|every|all|any|my|your|our|their|some|both|for|of|in|on|from|with|to|at|by|and|or|newly|recently)$/i;
+/// Verbs a gerund subject takes: "Checking the cache found no errors." and "Running both takes 2 s."
+/// report a result, so the sentence is a finding, not narration (#42279 follow-up F1).
+const FINDING_VERBS =
+  /^(?:found|took|made|gave|got|came|went|ran|saw|left|broke|said|told|kept|held|brought|knew|lost|won|beat|fell|grew|stood|meant|cost|finds|takes|makes|gives|gets|works|fails|passes|helps|saves|costs|beats|wins|needs|breaks|returns|stays|matches|fixes|causes|leads|keeps|hides|drops|skips|hangs|crashes|seems|looks|turns|proves|confirms)$/i;
+/// Whether the words after a narration's action hold a finite verb: the action was a gerund
+/// subject and the sentence says what it found. The first word is the action's object, never a verb.
+function hasFiniteVerb(rest: string): boolean {
+  const words = rest
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.replace(/[^\p{L}'’-]/gu, ""));
+  return words.some(
+    (word, at) =>
+      at > 0 &&
+      (FINDING_VERBS.test(word) ||
+        (/^[\p{L}]{2,}ed$/u.test(word) &&
+          !/(?:eed|need)$/i.test(word) &&
+          !ED_ADJECTIVE_AFTER.test(words[at - 1] ?? ""))),
   );
 }
 /// A personal steer closes the reply before it for the reader, even though the harness continues the

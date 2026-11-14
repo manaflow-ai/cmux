@@ -3,8 +3,10 @@
 //! with that credential (`POST /v1/machines/credentials/self/revoke`; the hub drops the machine's
 //! mesh address-book rows with it), then removes the join here: the record is marked revoked,
 //! `meshRelay` leaves config.json, and the credential file is deleted, with `node.wg.key` when
-//! the join made it ([`NODE_KEY_MADE`]): a key that was there before the join, or one the link
-//! adopted as its own (`key-adopted.json`), stays.
+//! the join made it ([`NODE_KEY_MADE`]) or the home is a copy, and then only under the WireGuard
+//! key lock and never one the cmux link adopted as its own (`key-adopted.json`, or
+//! `key-adopted.<install>.json` archived at a sign-out): its paired peers know the link by that
+//! key alone (`mesh_node_key::adoption_depends`). A key that was there before the join stays.
 //!
 //! A running daemon's relay reads the credential from its file at every hub call
 //! (`mesh_http.rs` `token`): with the record revoked and then gone, its next heartbeat or inbox
@@ -95,23 +97,29 @@ pub(super) fn node_key_for_join_at(home: &Path) -> Result<crate::cli::mesh_node_
     Ok(key)
 }
 
-/// Whether the cmux link in `link_dir` adopted the node key as its only key (`key-adopted.json`,
-/// the link's `key_adoption.rs`): a leave never deletes it then.
-fn link_adopted(link_dir: Option<&Path>) -> bool {
-    link_dir.is_some_and(|dir| std::fs::symlink_metadata(dir.join("key-adopted.json")).is_ok())
-}
-
-/// This machine's link state directory; a test's is beside its home.
-fn link_dir_for(home: &Path) -> Option<std::path::PathBuf> {
-    if cfg!(test) { Some(home.join("link")) } else { crate::wireguard::link_state_dir() }
+/// The WireGuard key lock in `home` when the node key there may be deleted: the key is there,
+/// no process holds the lock (the cmux link and the WireGuard transport hold it while they use
+/// the key), and, checked under it, the link did not adopt the key
+/// (`mesh_node_key::lock_to_remove`).
+fn node_key_removable(home: &Path) -> Result<Option<cmux_link::key_holder::KeyHolder>> {
+    use crate::cli::mesh_node_key::{RemoveLock, lock_to_remove};
+    if std::fs::symlink_metadata(cmux_link::key_holder::KeyFile::Node.path_in(home)).is_err() {
+        return Ok(None);
+    }
+    Ok(match lock_to_remove(home)? {
+        RemoveLock::Free(holder) => Some(holder),
+        RemoveLock::Adopted | RemoveLock::Held => None,
+    })
 }
 
 /// Removes the join from `home`: the record marked revoked first (so nothing reads it as
 /// live if this stops part way), then `meshRelay` (only the one this join wrote: the join's
 /// credential for the record's hub, [`join_relay_for`]; with no record, none), then the credential and
 /// the node key: one the join made, or a copied home's (`copy`, or a record marked `cloned`:
-/// the original box's key, or the one put in its place), never one the link adopted. Returns
-/// what it removed. The caller holds the join lock.
+/// the original box's key, or the one put in its place), and only when the link did not adopt it
+/// and no running process holds it ([`node_key_removable`]). [`NODE_KEY_MADE`] goes with the key,
+/// so a key kept now (held, adopted) is still the join's for a later leave. Returns what it
+/// removed. The caller holds the join lock.
 pub(super) fn remove_local(home: &std::path::Path, copy: bool) -> Result<Vec<&'static str>> {
     let mut removed = Vec::new();
     let record = load_at(home)?;
@@ -134,12 +142,15 @@ pub(super) fn remove_local(home: &std::path::Path, copy: bool) -> Result<Vec<&'s
         removed.push("meshRelay");
     }
     let made = copy || std::fs::symlink_metadata(home.join(NODE_KEY_MADE)).is_ok();
-    let node_key = (made && !link_adopted(link_dir_for(home).as_deref()))
-        .then_some((cmux_link::key_holder::KeyFile::Node.file_name(), "nodeKey"));
+    // Held until the removal is synced.
+    let key_lock = if made { node_key_removable(home)? } else { None };
+    let node_key =
+        key_lock.as_ref().map(|_| (cmux_link::key_holder::KeyFile::Node.file_name(), "nodeKey"));
+    let key_gone =
+        node_key.is_some() || std::fs::symlink_metadata(cmux_link::key_holder::KeyFile::Node.path_in(home)).is_err();
+    let marker = key_gone.then_some((NODE_KEY_MADE, ""));
     for (file, label) in
-        [Some((CREDENTIAL_FILE, "credential")), node_key, Some((NODE_KEY_MADE, ""))]
-            .into_iter()
-            .flatten()
+        [Some((CREDENTIAL_FILE, "credential")), node_key, marker].into_iter().flatten()
     {
         match crate::home_fs::remove_file(home.join(file)) {
             Ok(()) if !label.is_empty() => removed.push(label),
@@ -149,6 +160,7 @@ pub(super) fn remove_local(home: &std::path::Path, copy: bool) -> Result<Vec<&'s
         }
     }
     recovery::sync_ancestors(home)?;
+    drop(key_lock);
     Ok(removed)
 }
 
@@ -255,10 +267,22 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
         "removed": removed,
         "daemonRunning": running,
     });
+    let node_key_kept = !removed.contains(&"nodeKey")
+        && std::fs::symlink_metadata(cmux_link::key_holder::KeyFile::Node.path_in(&home)).is_ok();
     if running {
         out["relay"] = json!("stops at its next hub call: its credential is gone");
+    }
+    if running && !node_key_kept {
         out["nodeKeyNote"] =
             json!("the running daemon makes a new, unjoined node key at its next use");
+    }
+    if let (true, Some(fields)) = (node_key_kept, out.as_object_mut()) {
+        fields.insert(
+            "nodeKeyKept".into(),
+            json!(
+                "this node key was here before the join, the cmux link serves it, or a running process holds it"
+            ),
+        );
     }
     if copy {
         out["hint"] = json!(
@@ -288,6 +312,9 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
         );
         if running {
             println!("the daemon's mesh relay stops at its next hub call");
+        }
+        if node_key_kept {
+            println!("kept the node key: the cmux link serves it, or a running process holds it");
         }
     }
     Ok(())
@@ -401,8 +428,9 @@ mod tests {
         record(home.path());
         assert_eq!(remove_local(home.path(), false).unwrap(), vec!["credential"]);
         assert_eq!(key(home.path()), before);
-        // Made by the join, then adopted by the link as its only key: kept, and never deleted
-        // by a later leave either.
+        // Made by the join, then adopted by the link as its only key: kept, and still the
+        // join's ([`NODE_KEY_MADE`] stays with it), so a leave once no adoption depends on it
+        // takes it.
         let home = tempfile::tempdir().unwrap();
         node_key_for_join_at(home.path()).unwrap();
         assert!(home.path().join(NODE_KEY_MADE).exists());
@@ -412,11 +440,12 @@ mod tests {
         record(home.path());
         assert_eq!(remove_local(home.path(), false).unwrap(), vec!["credential"]);
         assert_eq!(key(home.path()), made);
-        assert!(!home.path().join(NODE_KEY_MADE).exists());
+        assert!(home.path().join(NODE_KEY_MADE).exists());
         std::fs::remove_file(home.path().join("link/key-adopted.json")).unwrap();
         record(home.path());
-        assert_eq!(remove_local(home.path(), false).unwrap(), vec!["credential"]);
-        assert_eq!(key(home.path()), made);
+        assert_eq!(remove_local(home.path(), false).unwrap(), vec!["credential", "nodeKey"]);
+        assert_eq!(std::fs::read(home.path().join("node.wg.key")).ok(), None);
+        assert!(!home.path().join(NODE_KEY_MADE).exists());
         // A copied home's key is the original box's (or the one put in its place): it goes,
         // whether the record is marked cloned or the caller found the copy.
         for marked in [true, false] {
@@ -431,5 +460,71 @@ mod tests {
             assert_eq!(remove_local(home.path(), !marked).unwrap(), vec!["credential", "nodeKey"]);
             assert_eq!(std::fs::read(home.path().join("node.wg.key")).ok(), None);
         }
+    }
+
+    /// The node key a join made stays while a cmux link adopted it, and while a running process
+    /// holds it under the key lock; once neither is so, a leave takes it.
+    #[test]
+    fn a_leave_never_deletes_an_adopted_or_held_node_key() {
+        use cmux_link::key_holder::KeyHolder;
+        let record = |home: &Path| {
+            let record = MachineCredential {
+                credential: "cmm_x".into(),
+                machine_id: "machine_1".into(),
+                hub_origin: "https://example.com".into(),
+                ..Default::default()
+            };
+            recovery::write_durable(
+                &home.join(CREDENTIAL_FILE),
+                &serde_json::to_vec(&record).unwrap(),
+                true,
+            )
+            .unwrap();
+        };
+        let key = |home: &Path| std::fs::read(home.join("node.wg.key")).ok();
+        let home = tempfile::tempdir().unwrap();
+        node_key_for_join_at(home.path()).unwrap();
+        let made = key(home.path());
+        assert!(made.is_some());
+        // Adopted by the link: kept.
+        std::fs::create_dir_all(home.path().join("link")).unwrap();
+        std::fs::write(home.path().join("link/key-adopted.json"), b"{}").unwrap();
+        record(home.path());
+        assert_eq!(remove_local(home.path(), false).unwrap(), vec!["credential"]);
+        assert_eq!(key(home.path()), made);
+        std::fs::remove_file(home.path().join("link/key-adopted.json")).unwrap();
+        // Held under the key lock (a running link or transport): kept.
+        let held = KeyHolder::acquire(home.path()).unwrap();
+        record(home.path());
+        assert_eq!(remove_local(home.path(), false).unwrap(), vec!["credential"]);
+        assert_eq!(key(home.path()), made);
+        drop(held);
+        // Neither: it goes.
+        record(home.path());
+        assert_eq!(remove_local(home.path(), false).unwrap(), vec!["credential", "nodeKey"]);
+        assert_eq!(key(home.path()), None);
+    }
+
+    /// Review F1 at c1898fca: a sign-out archives the adoption record with its install
+    /// (`key-adopted.<install>.json`); with the link stopped, a leave still keeps the key that
+    /// record names, so the install serves it when it signs in again.
+    #[test]
+    fn a_leave_keeps_a_node_key_an_archived_adoption_names() {
+        let key = |home: &Path| std::fs::read(home.join("node.wg.key")).ok();
+        let home = tempfile::tempdir().unwrap();
+        node_key_for_join_at(home.path()).unwrap();
+        let made = key(home.path());
+        std::fs::create_dir_all(home.path().join("link")).unwrap();
+        let archived = home.path().join("link/key-adopted.inst_a.json");
+        std::fs::write(&archived, serde_json::json!({ "key_dir": home.path() }).to_string())
+            .unwrap();
+        assert!(remove_local(home.path(), false).unwrap().is_empty());
+        assert_eq!(key(home.path()), made);
+        // Archived for another home: this home's key goes.
+        let other = tempfile::tempdir().unwrap();
+        std::fs::write(&archived, serde_json::json!({ "key_dir": other.path() }).to_string())
+            .unwrap();
+        assert_eq!(remove_local(home.path(), false).unwrap(), vec!["nodeKey"]);
+        assert_eq!(key(home.path()), None);
     }
 }

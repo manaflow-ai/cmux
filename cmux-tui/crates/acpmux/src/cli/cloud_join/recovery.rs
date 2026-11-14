@@ -53,8 +53,13 @@ const COPIED: &str = "machine-join.pending.copied.json";
 /// holds the join lock.
 fn set_aside_copied_pending(current: Option<&str>) -> Result<bool> {
     let Some(p) = read()? else { return Ok(false) };
-    let copied = matches!((p.host_fingerprint.as_deref(), current), (Some(made), Some(here)) if made != here);
+    // The shared comparison (`other_box`, what `home_copy_state` asks of a pending join).
+    let copied = other_box(&state_dir(), p.host_fingerprint.as_deref(), current);
     if copied {
+        // The node key beside it is the original box's too: recorded before anything here
+        // could join with it or replace the record that would show the copy (the key in place
+        // now: the caller holds the join lock, under which alone it is replaced).
+        crate::cli::mesh_node_key::record_copied_key(&state_dir()).map_err(|_| store_error())?;
         crate::home_fs::rename(state_dir().join(FILE), state_dir().join(COPIED))
             .map_err(|_| store_error())?;
         sync_ancestors(&state_dir()).map_err(|_| store_error())?;
@@ -106,6 +111,16 @@ pub(super) fn retire_sign_in_pending_at(
     }
     crate::home_fs::remove_file(&path)?;
     sync_ancestors(home)
+}
+
+/// The box a join pending in `home` was proposed on: `None` when there is none (or it cannot be
+/// read: [`read`] refuses it before it is used), `Some(None)` for one an older build wrote with
+/// no fingerprint. Read for its fingerprint only, by any process that decides whether `home`
+/// was copied (`home_copy_state`).
+pub(super) fn pending_made_on(home: &Path) -> Option<Option<String>> {
+    let file = crate::config::private_state_file(&home.join(FILE)).ok()?;
+    let pending: serde_json::Value = serde_json::from_reader(file).ok()?;
+    Some(pending.get("host_fingerprint").and_then(|made| made.as_str()).map(str::to_owned))
 }
 
 pub(super) fn pending_origin() -> Result<Option<String>> {
@@ -302,6 +317,7 @@ async fn probe(p: &Pending) -> Result<Probe> {
         // `complete` sets what joined it and what it said it can do.
         joined_by: None,
         capabilities: None,
+        cloned_on: None,
     })))
 }
 
@@ -331,6 +347,11 @@ fn completed_record(p: &Pending, probed: &MachineCredential) -> Result<MachineCr
 
 fn complete(p: &Pending, record: &MachineCredential, report: Report) -> Result<()> {
     let record = &completed_record(p, record)?;
+    // The record replaced here may be the only evidence that this home is a copy whose node
+    // key is the original's: a copy it shows is recorded (`copied_here`) before it goes.
+    if let Some(old) = load().map_err(|_| store_error())? {
+        let _ = copied_here(&state_dir(), &old, host_fingerprint::current().as_deref());
+    }
     authority().and_then(|a| a.enroll()).map_err(|_| store_error())?;
     let bytes = Zeroizing::new(serde_json::to_vec(record).map_err(|_| store_error())?);
     write_durable(&credential_path(), &bytes, true).map_err(|_| store_error())?;
@@ -403,6 +424,10 @@ fn new_pending(
 ) -> Result<Pending> {
     let mut random = Zeroizing::new([0u8; 32]);
     getrandom::fill(&mut *random).map_err(|_| store_error())?;
+    // A node key recorded as copied from another machine is never proposed: it is replaced
+    // first, as the daemon's start does, under the same join lock the caller holds (a pending
+    // join set aside, or a leave, may have left it with no record to settle).
+    crate::cli::mesh_node_key::replace_copied_at(&state_dir()).map_err(|_| store_error())?;
     let p = Pending {
         version: 1,
         credential: format!(
