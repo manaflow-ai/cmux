@@ -47,6 +47,44 @@ struct FilePreviewTextEditorTextKitTests {
         #expect(textView.layoutManager?.allowsNonContiguousLayout == true)
     }
 
+    /// Editing `.claude/settings.json` in the file editor turned typed `"` into
+    /// `“`/`”` (macOS "Use smart quotes and dashes", on by default), so the saved
+    /// file was invalid JSON and Claude Code crashed on load.
+    @Test("file editor saves typed quotes and dashes verbatim")
+    func editorDisablesAutomaticTextSubstitutions() {
+        let substitutionDefaultKeys = [
+            "NSAutomaticQuoteSubstitutionEnabled",
+            "NSAutomaticDashSubstitutionEnabled",
+            "NSAutomaticTextReplacementEnabled",
+            "NSAutomaticSpellingCorrectionEnabled",
+        ]
+        let defaults = UserDefaults.standard
+        let savedValues = substitutionDefaultKeys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, value) in zip(substitutionDefaultKeys, savedValues) {
+                defaults.set(value, forKey: key)
+            }
+        }
+        // Simulate a Mac with the system substitution settings turned on.
+        for key in substitutionDefaultKeys {
+            defaults.set(true, forKey: key)
+        }
+
+        let textView = SavingTextView.makeFilePreviewTextView()
+
+        #expect(!textView.isAutomaticQuoteSubstitutionEnabled)
+        #expect(!textView.isAutomaticDashSubstitutionEnabled)
+        #expect(!textView.isAutomaticTextReplacementEnabled)
+        #expect(!textView.isAutomaticSpellingCorrectionEnabled)
+        #expect(!textView.isAutomaticDataDetectionEnabled)
+        #expect(!textView.isAutomaticLinkDetectionEnabled)
+        #expect(!textView.smartInsertDeleteEnabled)
+
+        let json = #"{"hooks": {"Stop": [{"command": "cmux --notify 'done'"}]}}"#
+        textView.insertText(json, replacementRange: NSRange(location: 0, length: 0))
+        #expect(textView.string == json)
+    }
+
     @Test("text preview editor handles standard zoom key equivalents")
     func editorHandlesStandardZoomKeyEquivalents() throws {
         try withDefaultShortcutSettings {
