@@ -18,7 +18,6 @@ import os
 #if DEBUG
 import CmuxNextRemoteBrowser
 #endif
-
 /// Opens `cmux://history` (plans/cmux-next/history.md 5.1). The page is a
 /// browser tab whose record URL is `cmux://history`, so it survives relaunch
 /// like any tab; the React page reads the daemon's history module itself.
