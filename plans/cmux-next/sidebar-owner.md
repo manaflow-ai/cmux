@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-14 (cmux.sidebar/1, capability matrix row 3): Sidebar-Look: no visual change by default. Leo, verbatim:
+  "the sdk's stuff should all be hot reloadable from users' builds... oh yesh you guys needed to research what [two other tools]
+  had in terms of capabilities and we need to do better than then" and "3. yeah the whole point is for it to be
+  usable". An extension named in `sidebar.workspaceListApp` (empty by default) draws in the workspace list's frame
+  (`SidebarListSwap`, from `SidebarAppSectionProvider.workspaceList`); the built-in list stays the default and draws
+  whenever the extension is not drawn (none chosen, removed, loading, failing, safe mode). Bands, footer and cards stay
+  native. Regression: `SidebarListReplacementTests`.
+
 - 2026-11-14 (CMUX-383 Step B): Sidebar-Look: Leo asked for “Sidebar customization (look at BB and Herder)”. The existing sidebar surface and density now read the pinned Rust projection through Swift, applying section hide/order, same-section workspace grouping/order, and atomic cmux-next.json hot reload. Gallery variants cover default, hidden/reordered sections, and workspace grouping; the watcher test covers an editor-style atomic replace.
 
 - 2026-11-14 (ask-0a91bcfdb0, carved from #42277): a machine header has a screen button beside its +. Leo, verbatim:

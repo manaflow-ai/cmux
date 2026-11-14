@@ -94,8 +94,20 @@ public final class AppSectionProvider {
         return (parts[0], AppImplementation(interface: AppImplementation.section, id: parts[1]))
     }
 
+    /// This window's workspace list (`cmux.sidebar/1`, `sidebar.workspaceListApp`), made on first ask;
+    /// it mounts nothing until the person names an app.
+    public var workspaceList: SidebarListService {
+        if let list { return list }
+        let made = SidebarListService(client: client, chosenApp: { DesignSettings.shared.sidebarSections.workspaceListApp }, isPresented: isPresented)
+        list = made
+        return made
+    }
+    private var list: SidebarListService?
+
     /// Unmounts every section (the window's sidebar went away or replaced its sections).
     public func releaseAll() {
         for contribution in Array(mounts.keys) { release(contribution) }
+        list?.release()
+        list = nil
     }
 }

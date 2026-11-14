@@ -4721,6 +4721,11 @@
       "title" : "Top Sections Height",
       "type" : "number"
     },
+    "sidebar.workspaceListApp" : {
+      "description" : "The id of an installed extension that draws the whole workspace list (cmux.sidebar/1), such as local/workspace-list. Empty draws the built-in list, which also shows while the extension loads, fails or is removed.",
+      "title" : "Workspace List Extension",
+      "type" : "string"
+    },
     "sidebar.workspaceRow.agent.agentStatus" : {
       "description" : "sidebar.workspaceRow.agent.agentStatus",
       "title" : "Agent Status",

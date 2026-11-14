@@ -69,6 +69,7 @@ cmux ext dev --once --json   # one round, for an agent's loop
 | Name | What it is |
 | --- | --- |
 | `section(render)`, `pane(render)` | A sidebar section (`cmux.section/1`) and a pane (`cmux.pane/1`). Export the result under the manifest's `export` name. |
+| `sidebar(render)` | The whole workspace list (`cmux.sidebar/1`), drawn in place of the built-in one once the person names the extension in `sidebar.workspaceListApp`. The built-in list is the fallback. [`examples/extensions/workspace-list`](../../../examples/extensions/workspace-list) is the built-in list rebuilt on this SDK. |
 | `chatWidget(render)` | A chat widget (`cmux.chat.widget/1`): a card under each agent tool call whose name matches the manifest's `options.tools` (`*` matches any run of characters), and for widget parts an agent sends naming the extension. Render gets `{ surface: "chatWidget", widget: { key }, tool?: { name, title?, status?, input?, output? }, props? }`. cmux ships no widgets of its own; a missing, hidden or failing extension leaves the call as it was. Export the same render with `section(...)` to show it in the sidebar too. |
 | `command(run)` | A command an extension declares in `catalog.json`; runs from the palette, the CLI or another extension. |
 | `workspaces()`, `agents()`, `chats()` | Live lists: call one for the latest value; `.loading()`, `.error()`, `.refresh()`. One read however many views use it; re-read on the matching event. |

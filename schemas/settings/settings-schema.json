@@ -451,7 +451,8 @@
               "sidebar.sideBySide",
               "sidebar.groupPalette",
               "sidebar.groupGradient",
-              "sidebar.floatOnHover"
+              "sidebar.floatOnHover",
+              "sidebar.workspaceListApp"
             ],
             "title" : {
               "key" : "settings.pageGroup.sidebarLayout",
@@ -59121,6 +59122,142 @@
       "title" : {
         "key" : "settings.sidebar.sessionTree",
         "text" : "Session Tree"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.workspaceListApp.help",
+        "text" : "The id of an installed extension that draws the whole workspace list (cmux.sidebar/1), such as local/workspace-list. Empty draws the built-in list, which also shows while the extension loads, fails or is removed."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceListApp",
+      "keywords" : [
+        "sidebar",
+        "workspace list",
+        "extension",
+        "app",
+        "replace",
+        "fork",
+        "custom",
+        "layout"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "workspaceListApp"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.workspaceListApp"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.workspaceListApp",
+        "text" : "Workspace List Extension"
       },
       "validation" : "portable"
     },

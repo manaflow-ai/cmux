@@ -144,9 +144,9 @@
           "symbol": "sidebar.left",
           "groups": [
             {"group": "settings.group.sidebar", "note": "Show Workspace Tabs leads the Sidebar card: it is off by default, and this is where a person turns each workspace's tabs back on (#26384)."},
-            {"title": {"key": "settings.pageGroup.sidebarLayout", "text": "Sidebar Layout"}, "note": "The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card. Float Hidden Sidebar on Hover (f53a01f2ebaf) is claimed here so the Sidebar card stays under it too.", "keys": [
+            {"title": {"key": "settings.pageGroup.sidebarLayout", "text": "Sidebar Layout"}, "note": "The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card. Float Hidden Sidebar on Hover (f53a01f2ebaf) and Workspace List Extension (cmux.sidebar/1, which swaps the whole list) are claimed here so the Sidebar card stays under it too.", "keys": [
               "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupPalette", "sidebar.groupGradient",
-              "sidebar.floatOnHover"
+              "sidebar.floatOnHover", "sidebar.workspaceListApp"
             ]},
             {"title": {"key": "settings.pageGroup.sidebarWorkspaces", "text": "Sidebar Workspaces"}, "keys": [
               "workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree",

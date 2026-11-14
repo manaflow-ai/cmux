@@ -138,6 +138,12 @@ final class AppHoverCardContent: SidebarCustomContent {
 
     var isReady: Bool { mount.model.status == .ready }
 
+    /// The script failed to load or render; a disconnect is not a failure (it reconnects by itself).
+    var hasFailed: Bool {
+        if case .failed = mount.model.status { return true }
+        return false
+    }
+
     /// Why the card did not draw, in plain words: a script error's place and message (`Line 2,
     /// column 12: expecting ';'`), else what failed (AppFailureCopy); a disconnected reason as it is.
     var errorText: String? {

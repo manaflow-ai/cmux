@@ -159,6 +159,12 @@ impl Manifest {
         self.implement("cmux.section/1", export, title, symbol, Some(options))
     }
 
+    /// The whole workspace list (`cmux.sidebar/1`) drawn by the script's `export`, in place of
+    /// the built-in list once the person names this extension in `sidebar.workspaceListApp`.
+    pub fn sidebar(self, export: &str, title: &str, symbol: &str) -> Self {
+        self.implement("cmux.sidebar/1", export, title, symbol, None)
+    }
+
     /// A pane (`cmux.pane/1`) drawn by the script's `export`.
     pub fn pane(self, export: &str, title: &str, symbol: &str) -> Self {
         self.implement("cmux.pane/1", export, title, symbol, None)

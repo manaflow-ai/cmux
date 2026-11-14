@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 617,
+  "count": 618,
   "sections": [
     {
       "id": "general",
@@ -4224,6 +4224,14 @@
             "max": 0.9,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "sidebar.workspaceListApp",
+          "title": "Workspace List Extension",
+          "help": "The id of an installed extension that draws the whole workspace list (cmux.sidebar/1), such as local/workspace-list. Empty draws the built-in list, which also shows while the extension loads, fails or is removed.",
+          "kind": "text",
+          "default": null,
+          "group": "Sidebar"
         },
         {
           "key": "sidebar.workspaceRow.agentStatus",
