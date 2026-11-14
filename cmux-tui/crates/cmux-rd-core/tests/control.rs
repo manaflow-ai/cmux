@@ -465,6 +465,60 @@ fn a_keyframe_burst_alone_is_not_overuse() {
 }
 
 #[test]
+fn split_burst_feedback_does_not_turn_tail_processing_into_queue_growth() {
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectLan);
+    cc.on_sent(0, 0);
+    cc.on_feedback(&[Arrival { transport_seq: 0, arrival_us: 25_000 }], 0.0, 50_000);
+    let sent = 100_000u64;
+    let arrivals: Vec<_> = (1..=300u16)
+        .map(|seq| {
+            cc.on_sent(seq, sent);
+            Arrival {
+                transport_seq: seq,
+                // Serialization plus decoding the frame before reading its parity tail.
+                arrival_us: (sent
+                    + 25_000
+                    + u64::from(seq - 1) * 40
+                    + if seq > 256 { 10_000 } else { 0 }) as u32,
+            }
+        })
+        .collect();
+    cc.on_feedback(&arrivals[..128], 0.0, 155_000);
+    let target = cc.target_bps();
+    cc.on_feedback(&arrivals[128..256], 0.0, 160_000);
+    cc.on_feedback(&arrivals[256..], 0.0, 175_000);
+    assert_ne!(cc.usage(), Usage::Overuse, "one burst is not new queue-growth evidence");
+    assert_eq!(cc.target_bps(), target, "fragments must neither cut nor grow the target");
+}
+
+#[test]
+fn split_burst_feedback_still_detects_queue_growth_across_distinct_bursts() {
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
+    let initial = cc.target_bps();
+    for burst in 0..4u16 {
+        let sent = u64::from(burst) * 100_000;
+        let seq = burst * 2;
+        cc.on_sent(seq, sent);
+        cc.on_sent(seq + 1, sent);
+        let delay = 25_000 + u64::from(burst) * 10_000;
+        cc.on_feedback(
+            &[Arrival { transport_seq: seq, arrival_us: (sent + delay) as u32 }],
+            0.0,
+            sent + delay + 25_000,
+        );
+        let target = cc.target_bps();
+        cc.on_feedback(
+            &[Arrival { transport_seq: seq + 1, arrival_us: (sent + delay + 10_000) as u32 }],
+            0.0,
+            sent + delay + 35_000,
+        );
+        assert_eq!(cc.target_bps(), target, "one cut per independent timing sample");
+    }
+    assert_eq!(cc.usage(), Usage::Overuse);
+    assert!(cc.target_bps() < initial, "sustained queue growth must still reduce bitrate");
+}
+
+#[test]
 fn stale_overuse_does_not_reduce_bitrate_without_new_timing_evidence() {
     let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
     cc.on_sent(0, 0);
