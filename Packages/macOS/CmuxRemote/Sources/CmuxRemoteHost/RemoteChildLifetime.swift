@@ -10,7 +10,7 @@ final class RemoteChildLifetime: Sendable {
         var accepting = true
         var permanentlyClosed = false
         var starting = 0
-        var children: [pid_t: ProcessStamp?] = [:]
+        var children: [UUID: ProcessStamp?] = [:]
         var listeners: [UUID: AsyncStream<Bool>.Continuation] = [:]
     }
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -27,7 +27,7 @@ final class RemoteChildLifetime: Sendable {
             let child = try ChildProcess.spawn(executable: executable, arguments: arguments, environment: environment, logPath: logPath)
             let stop = state.withLock { value in
                 value.starting -= 1
-                value.children[child.pid] = .some(ProcessStamp.of(child.pid))
+                value.children[child.lifetimeID] = .some(ProcessStamp.of(child.pid))
                 return !value.accepting
             }
             // A spawn admitted before the freeze belongs to this host and must also terminate.
@@ -41,8 +41,8 @@ final class RemoteChildLifetime: Sendable {
     }
 
     /// Called only by the child's sole waitpid owner, after a successful reap.
-    func reaped(_ pid: pid_t) {
-        state.withLock { _ = $0.children.removeValue(forKey: pid) }
+    func reaped(_ child: ChildProcess) {
+        state.withLock { _ = $0.children.removeValue(forKey: child.lifetimeID) }
         changed()
     }
 

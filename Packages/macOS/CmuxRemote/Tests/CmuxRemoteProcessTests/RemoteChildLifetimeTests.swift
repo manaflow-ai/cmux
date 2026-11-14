@@ -26,9 +26,30 @@ import Testing
         lifetime.freeze()
         #expect(await lifetime.waitUntilEmpty(timeout: .zero) == false)
         ChildProcess.watch(child.pid, name: "capture-lease-test-reap") { status in
-            if status >= 0 { lifetime.reaped(child.pid) }
+            if status >= 0 { lifetime.reaped(child) }
         }
         close(child.stdin)
+        #expect(await lifetime.waitUntilEmpty(timeout: .seconds(5)))
+    }
+
+    @Test(.timeLimit(.minutes(1))) func staleReapCannotRemoveAnotherSpawnGeneration() async throws {
+        let lifetime = RemoteChildLifetime()
+        let old = try lifetime.spawn(executable: "/bin/cat", arguments: [], environment: [:], logPath: "/dev/null")
+        let current = try lifetime.spawn(executable: "/bin/cat", arguments: [], environment: [:], logPath: "/dev/null")
+        defer { close(old.stdout); close(current.stdout) }
+        lifetime.freeze()
+        ChildProcess.watch(old.pid, name: "capture-old-generation") { status in
+            if status >= 0 { lifetime.reaped(old) }
+        }
+        close(old.stdin)
+        // A stale callback addresses its spawn token, never another PID generation.
+        lifetime.reaped(old)
+        lifetime.reaped(old)
+        #expect(await lifetime.waitUntilEmpty(timeout: .zero) == false)
+        ChildProcess.watch(current.pid, name: "capture-current-generation") { status in
+            if status >= 0 { lifetime.reaped(current) }
+        }
+        close(current.stdin)
         #expect(await lifetime.waitUntilEmpty(timeout: .seconds(5)))
     }
 

@@ -183,7 +183,7 @@ final class ScreenWorkerSupervisor: Sendable {
         reader.start()
         ChildProcess.watch(child.pid, name: "remote-screen-worker-watch") { [self] status in
             // Remove this generation before exited() can spawn its replacement (and reuse its PID).
-            if status >= 0 { launch.lifetime.reaped(child.pid) }
+            if status >= 0 { launch.lifetime.reaped(child) }
             exited(generation: generation, status: status, ranFor: Date().timeIntervalSince(started), channel: channel)
         }
         onChange()
@@ -341,7 +341,7 @@ final class ComputerUseWorkers: Sendable {
             finish()
         }
         ChildProcess.watch(child.pid, name: "remote-cu-worker-watch") { [self] status in
-            if status >= 0 { launch.lifetime.reaped(child.pid) }
+            if status >= 0 { launch.lifetime.reaped(child) }
             logger.notice("Computer Use worker pid=\(child.pid, privacy: .public) exited status=\(status, privacy: .public)")
             state.withLock { _ = $0.removeValue(forKey: child.pid) }
             // The app side's read ends too, so its pump finishes.

@@ -5,6 +5,8 @@ import os
 
 /// A started child: its pid and the parent's ends of its stdin and stdout.
 public struct ChildProcess: Sendable {
+    /// One spawn generation, independent of operating-system PID reuse after waitpid.
+    public let lifetimeID = UUID()
     public let pid: pid_t
     /// Write end of the child's stdin; closing it is the child's stop signal.
     public let stdin: Int32

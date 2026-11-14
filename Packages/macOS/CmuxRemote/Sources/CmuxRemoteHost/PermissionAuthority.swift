@@ -111,7 +111,7 @@ public final class PermissionAuthority: Sendable {
             var result = waitpid(child.pid, &status, 0)
             while result < 0, errno == EINTR { result = waitpid(child.pid, &status, 0) }
             guard result == child.pid else { return nil }
-            lifetime.reaped(child.pid)
+            lifetime.reaped(child)
             guard let answer, let accessibility = answer["accessibility"] as? Bool,
                   let screenRecording = answer["screen_recording"] as? Bool else { return nil }
             return PermissionSnapshot(accessibility: accessibility, screenRecording: screenRecording, checkedAt: Date())
