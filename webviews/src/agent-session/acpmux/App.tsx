@@ -2123,6 +2123,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// Set when the rows next shaped close that Worked for, the view back at the latest row: the
   /// transcript folds it in the turn's end motion (VirtualTranscript `heldWorkedClosing`).
   const heldWorkedClosing = useRef(false);
+  // Let go once the render that hands those rows over has committed: the transcript read it there.
+  useLayoutEffect(() => {
+    heldWorkedClosing.current = false;
+  });
   /// Moves when the view follows again with commands or runs held out, so they go back in.
   const [callRelease, releaseCalls] = useReducer((count: number) => count + 1, 0);
   /// A held run the reader asks for (Find's match, a link to a call or to a message) goes back in,

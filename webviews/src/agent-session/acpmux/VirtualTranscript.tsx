@@ -1669,7 +1669,8 @@ function TranscriptView({
   inViewNow?: React.MutableRefObject<(() => readonly string[] | null) | undefined>;
   /// Set by the pane when the rows it hands over next close a turn's Worked for that was held open
   /// while the reader was scrolled up (App.tsx `heldWorked`), the reader now back at the latest row.
-  /// That close folds in the turn's end motion (conversation/turnEndFold.ts), and the flag is let go.
+  /// That close folds in the turn's end motion (conversation/turnEndFold.ts). Only read here: the
+  /// pane lets the flag go once the render that reads it has committed.
   heldWorkedClosing?: React.MutableRefObject<boolean>;
   /// A reply is streaming: Jump to latest remains static while the shared transcript spinner carries
   /// the working state.
@@ -3473,7 +3474,6 @@ function TranscriptView({
   // after tool calls get folded"): it folds in the turn's end motion instead, the rows over it
   // coming down together as the work leaves.
   const closingHeld = heldWorkedClosing?.current === true && rows !== rowsBefore;
-  if (closingHeld) heldWorkedClosing!.current = false;
   if (sameChat && endsTurn(rowsBefore, rows) && !pageAway())
     turnEndCapture.current = captureTurnEnd(thread.current, ref.current, rows, sessionId);
   else if (sameChat && closingHeld && !pageAway())
