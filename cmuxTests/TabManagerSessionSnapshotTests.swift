@@ -58,6 +58,95 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         try? FileManager.default.removeItem(atPath: path + ".lock")
     }
 
+    func testSessionSnapshotPastWorkspaceLimitKeepsSelectedWorkspace() {
+        let limit = SessionPersistencePolicy.maxWorkspacesPerWindow
+        let manager = makeTabManager()
+        while manager.tabs.count < limit + 2 {
+            manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        }
+        let selected = manager.tabs[limit + 1]
+        selected.setCustomTitle("Past the limit")
+        manager.selectWorkspace(selected)
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(snapshot.workspaces.count, limit)
+        XCTAssertEqual(snapshot.selectedWorkspaceIndex, limit - 1)
+        XCTAssertEqual(snapshot.workspaces.last?.workspaceId, selected.id)
+        XCTAssertEqual(manager.sessionSnapshotWorkspaceIds().last, selected.id)
+
+        let restored = makeTabManager()
+        restored.restoreSessionSnapshot(snapshot)
+        XCTAssertEqual(restored.selectedWorkspace?.customTitle, "Past the limit")
+
+        manager.selectWorkspace(manager.tabs[0])
+        let unselectedSnapshot = manager.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(unselectedSnapshot.selectedWorkspaceIndex, 0)
+        XCTAssertEqual(
+            unselectedSnapshot.workspaces.map(\.workspaceId),
+            manager.tabs.prefix(limit).map(\.id)
+        )
+    }
+
+    func testAutosaveFingerprintFollowsWorkspacesTheSnapshotSaves() throws {
+        let limit = SessionPersistencePolicy.maxWorkspacesPerWindow
+        let manager = makeTabManager()
+        while manager.tabs.count < limit + 2 {
+            manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        }
+        // Two tabs a snapshot skips push the last saved workspace past the
+        // first `limit` tabs.
+        for workspace in manager.tabs.prefix(2) {
+            let initialPanelId = try XCTUnwrap(workspace.focusedPanelId)
+            let paneId = try XCTUnwrap(workspace.paneId(forPanelId: initialPanelId))
+            _ = try XCTUnwrap(workspace.newMobilePairingSurface(inPane: paneId, focus: false))
+            _ = workspace.closePanel(initialPanelId, force: true)
+            XCTAssertFalse(workspace.isRestorableInSessionSnapshot)
+        }
+        manager.selectWorkspace(manager.tabs[2])
+        let lastSaved = manager.tabs[limit + 1]
+        XCTAssertEqual(manager.sessionSnapshotWorkspaceIds().last, lastSaved.id)
+
+        let before = manager.sessionAutosaveFingerprint()
+        lastSaved.setCustomTitle("Renamed")
+        XCTAssertNotEqual(manager.sessionAutosaveFingerprint(), before)
+    }
+
+    func testAutosaveFingerprintFollowsSelectedWorkspacePastTheLimit() {
+        let limit = SessionPersistencePolicy.maxWorkspacesPerWindow
+        let manager = makeTabManager()
+        while manager.tabs.count < limit + 2 {
+            manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        }
+        let selected = manager.tabs[limit + 1]
+        manager.selectWorkspace(selected)
+
+        let before = manager.sessionAutosaveFingerprint()
+        selected.setCustomTitle("Renamed")
+        XCTAssertNotEqual(manager.sessionAutosaveFingerprint(), before)
+    }
+
+    func testRestoringGroupWithoutItsSavedAnchorDoesNotCallAMemberGenerated() throws {
+        let manager = makeTabManager()
+        let child = manager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
+        let groupId = try XCTUnwrap(
+            manager.createWorkspaceGroup(name: "Group", childWorkspaceIds: [child.id])
+        )
+
+        var snapshot = manager.sessionSnapshot(includeScrollback: false)
+        var groups = try XCTUnwrap(snapshot.workspaceGroups)
+        let groupIndex = try XCTUnwrap(groups.firstIndex { $0.id == groupId })
+        // What a save writes when the generated anchor is outside the kept set.
+        groups[groupIndex].anchorMemberIndex = nil
+        groups[groupIndex].anchorWorkspaceId = UUID()
+        groups[groupIndex].anchorWorkspaceProvenance = WorkspaceGroupAnchorProvenance.generated.rawValue
+        snapshot.workspaceGroups = groups
+
+        let restored = makeTabManager()
+        restored.restoreSessionSnapshot(snapshot)
+        let group = try XCTUnwrap(restored.workspaceGroups.first { $0.id == groupId })
+        XCTAssertEqual(group.anchorWorkspaceProvenance, .unknown)
+    }
+
     func testSessionSnapshotSerializesWorkspacesAndRestoreRebuildsSelection() {
         let manager = makeTabManager()
         guard let firstWorkspace = manager.selectedWorkspace else {
