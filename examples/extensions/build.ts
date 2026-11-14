@@ -23,13 +23,13 @@ const fail = (dir: string, message: string) => {
 for (const name of readdirSync(here).filter((n) => statSync(join(here, n)).isDirectory()).sort()) {
   const dir = join(here, name)
   // A recipe with a committed dist/ names its manifest cmux-app.v2.json; an extension built on
-  // cmux-extension-sdk names it cmux-app.json (what `cmux ext dev` reads) and gitignores dist/,
+  // cmux-extension-sdk names it cmux-app.json (what `cmux ext dev` reads) and commits no dist/,
   // which is build output: here it is packed fresh, then checked like the others.
   const v2 = join(dir, "cmux-app.v2.json")
   const manifestFile = existsSync(v2) ? "cmux-app.v2.json" : existsSync(join(dir, "cmux-app.json")) ? "cmux-app.json" : null
   if (!manifestFile) continue
   const manifestPath = join(dir, manifestFile)
-  const built = existsSync(join(dir, ".gitignore")) && readFileSync(join(dir, ".gitignore"), "utf8").split("\n").some((l) => l.trim() === "dist/")
+  const built = manifestFile === "cmux-app.json"
   const pack = Bun.spawnSync(["bun", join(host, "tools/pack.ts"), dir, ...(check && !built ? ["--check"] : [])], { stdout: "inherit", stderr: "inherit" })
   if (pack.exitCode !== 0) failed = true
   const manifest = read(manifestPath)
