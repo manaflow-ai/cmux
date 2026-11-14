@@ -325,6 +325,67 @@ fn shells_on_the_holder_survive_a_holder_crash_and_a_daemon_crash() {
     }
 }
 
+/// A logout or a reboot ends the holder and the daemon together, and every
+/// shell with them. The next start respawns each tab (`terminal_respawn.rs`):
+/// the new shells run on the holder too. A respawn that started a
+/// `__terminal-host` per tab brought back the per-tab process (3.6 MB each)
+/// and put the parser in the process that holds the shell again.
+#[test]
+fn tabs_respawned_after_the_holder_and_daemon_died_together_run_on_the_holder() {
+    let mut daemon = Daemon::start();
+    let mut terminals = Vec::new();
+    for index in 0..TERMINALS {
+        let created = request(
+            &daemon.socket,
+            json!({"cmd": "run", "argv": ["/bin/cat"], "new_workspace": true,
+                "name": format!("respawn-{index}"), "cols": 80, "rows": 24}),
+        );
+        let surface = created["surface"].as_u64().unwrap();
+        daemon.track(surface);
+        send(&daemon.socket, surface, &format!("before-{index}"));
+        screen_contains(&daemon.socket, surface, &format!("before-{index}"));
+        terminals.push(created["terminal_id"].as_str().unwrap().to_string());
+    }
+    let holder =
+        parent_of(shell_pid(&daemon.socket, running_surface(&daemon.socket, &terminals[0])));
+
+    // The logout: the daemon, the holder and every shell end. Ended here, so
+    // the drop never signals these pids again.
+    daemon.sigkill();
+    let started: Vec<i32> = daemon.cleanup.drain(..).collect();
+    for pid in &started {
+        // SAFETY: SIGKILL of the holder and shells this test's daemon started.
+        unsafe { libc::kill(*pid, libc::SIGKILL) };
+    }
+    for pid in &started {
+        assert!(exits_within(*pid, Duration::from_secs(10)), "{pid} outlived its SIGKILL");
+    }
+    assert!(!alive(holder), "the holder outlived its SIGKILL");
+
+    daemon.restart();
+    let mut parents = Vec::new();
+    for (index, terminal_id) in terminals.iter().enumerate() {
+        let surface = running_surface(&daemon.socket, terminal_id);
+        daemon.track(surface);
+        send(&daemon.socket, surface, &format!("echo after-{index}"));
+        screen_contains(&daemon.socket, surface, &format!("after-{index}"));
+        let parent = parent_of(shell_pid(&daemon.socket, surface));
+        parents.push((parent, command_line(parent)));
+    }
+    let host_records: Vec<_> = walk(&daemon.dir.join("state"))
+        .into_iter()
+        .filter(|path| {
+            path.parent().is_some_and(|dir| dir.to_string_lossy().contains("terminal-hosts"))
+                && path.extension().is_some_and(|ext| ext == "json")
+        })
+        .collect();
+    assert!(host_records.is_empty(), "the respawn started terminal hosts: {host_records:?}");
+    assert!(
+        parents.iter().all(|(pid, _)| *pid > 1 && *pid == parents[0].0),
+        "the respawned shells do not share one holder: {parents:?}"
+    );
+}
+
 /// QUIT P0 (Lawrence 2026-11-01: "after quitting and reopening, i lose all
 /// the workspaces and terminals"): a new owner's startup pass must never end
 /// a shell the holder still runs. A previous owner that stopped (a version
