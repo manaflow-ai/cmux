@@ -1381,82 +1381,10 @@ fn list_chiefs(mux: &Mux) -> Vec<ChiefRecord> {
 }
 
 #[cfg(test)]
-mod record_engine_tests {
-    use super::record_engine_env;
-    use crate::chief_registry::Engine;
-
-    #[test]
-    fn a_record_harness_becomes_the_brains_starting_harness() {
-        let engine =
-            Engine { harness: Some("unii".into()), model: None, effort: Some("default".into()) };
-        assert_eq!(
-            record_engine_env(&engine),
-            vec![("OPTCHAT_CHIEF_HARNESS".to_owned(), "unii".to_owned())]
-        );
-        assert!(record_engine_env(&Engine::default()).is_empty());
-        let full = Engine {
-            harness: Some("codex".into()),
-            model: Some("gpt-5.5".into()),
-            effort: Some("high".into()),
-        };
-        assert_eq!(record_engine_env(&full).len(), 3);
-    }
-}
+mod record_engine_tests;
 
 #[cfg(test)]
-mod supervisor_idle_tests {
-    use super::*;
-
-    fn supervisor() -> Supervisor {
-        let (sender, _) = mpsc::channel();
-        Supervisor {
-            mux: Weak::new(),
-            socket: PathBuf::new(),
-            config: BrainsConfig {
-                executable: PathBuf::new(),
-                home: PathBuf::new(),
-                app: AppValues::default(),
-            },
-            brains: BTreeMap::new(),
-            sender,
-        }
-    }
-
-    /// A running brain still typing past the idle stop is not stopped
-    /// (`on_time` waits for its turn to end), so its idle deadline must not
-    /// stay in the past: the supervisor thread waited zero, found nothing to
-    /// do and ran again, a core at 100% in the app's headless owner for as
-    /// long as the turn kept its typing on.
-    #[test]
-    fn a_brain_typing_past_the_idle_stop_leaves_no_past_deadline() {
-        let now = Instant::now();
-        let Some(long_ago) = now.checked_sub(IDLE + Duration::from_secs(60)) else { return };
-        let mut supervisor = supervisor();
-        let mut brain = Brain::new();
-        // Reaped: the test's terminate (if any) signals nothing.
-        brain.process = Some(Process { pid: 0, reaped: Arc::new(Mutex::new(true)) });
-        brain.last_activity = long_ago;
-        brain.typing.insert("conversation".into());
-        supervisor.brains.insert("chief".into(), brain);
-
-        supervisor.on_time();
-        let brain = &supervisor.brains["chief"];
-        assert!(!brain.stopping, "a typing brain is not stopped for idleness");
-        assert!(
-            supervisor.next_deadline().is_none_or(|at| at > now),
-            "the supervisor's next wait is zero: it would spin"
-        );
-
-        // The turn ends: the idle stop counts from then.
-        supervisor.handle(Signal::Typing {
-            conversation: "conversation".into(),
-            participant: "chief".into(),
-            on: false,
-        });
-        let deadline = supervisor.next_deadline().expect("an idle brain has its stop due");
-        assert!(deadline >= now + IDLE - Duration::from_secs(1));
-    }
-}
+mod supervisor_idle_tests;
 
 /// Opens a brain's log for appending, first moving a log over
 /// [`HOST_LOG_ROTATE_BYTES`] to `<log>.1`.
@@ -1473,51 +1401,7 @@ fn open_host_log(path: &Path) -> std::io::Result<std::fs::File> {
 }
 
 #[cfg(all(test, unix))]
-mod host_log_tests {
-    use super::*;
-
-    /// A brain's log does not grow for the brain's whole life: a launch moves a log over the
-    /// limit aside (one older log kept) and starts a new one.
-    #[test]
-    fn a_launch_rotates_a_host_log_over_the_limit() {
-        let dir = std::env::temp_dir().join(format!("cmux-chief-log-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let log = dir.join("host.log");
-        let limit = usize::try_from(HOST_LOG_ROTATE_BYTES).unwrap();
-        std::fs::write(&log, vec![b'x'; limit + 1]).unwrap();
-        drop(open_host_log(&log).unwrap());
-        assert_eq!(std::fs::metadata(&log).unwrap().len(), 0, "a new log starts");
-        let kept = dir.join("host.log.1");
-        assert_eq!(std::fs::metadata(&kept).unwrap().len(), HOST_LOG_ROTATE_BYTES + 1);
-
-        // A log under the limit is appended to.
-        std::fs::write(&log, b"small").unwrap();
-        use std::io::Write as _;
-        open_host_log(&log).unwrap().write_all(b" more").unwrap();
-        assert_eq!(std::fs::read(&log).unwrap(), b"small more");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}
+mod host_log_tests;
 
 #[cfg(all(test, unix))]
-mod lock_probe_tests {
-    use super::*;
-
-    /// A look at a free brain lock leaves it free, also while a child the server forked
-    /// meanwhile has the look's descriptor: else a brain that starts then exits as a second
-    /// brain, and the next look reports a brain that is not there.
-    #[test]
-    fn a_look_at_a_free_brain_lock_leaves_it_free_while_a_forked_child_keeps_its_descriptor() {
-        let dir = crate::fork_tests::Scratch::new("chief_brains");
-        let lock = dir.path().join("host.lock");
-        std::fs::write(&lock, b"").unwrap();
-        let look = std::fs::File::open(&lock).unwrap();
-        let keeper = crate::fork_tests::Keeper::fork();
-        let held = lock_held_on(look);
-        let free = crate::fork_tests::free(&lock);
-        drop(keeper);
-        assert!(!held, "a free brain lock read as held");
-        assert!(free, "the look left the brain lock held");
-    }
-}
+mod lock_probe_tests;

@@ -371,100 +371,13 @@ impl Drop for OpenWait<'_> {
 }
 
 #[cfg(test)]
-mod retry_deciding_tests {
-    use super::*;
-
-    /// A row whose failed turn's retry is being decided holds a wait's answer, for at most
-    /// `RETRY_DECIDING_MAX` from when the wait first saw it so; any other row holds nothing.
-    #[test]
-    fn a_row_deciding_its_retry_holds_a_wait_for_a_bounded_time() {
-        let mut since = HashMap::new();
-        let t0 = tokio::time::Instant::now();
-        let deciding = json!({"status": "ready", "turn": null, "retryDeciding": true});
-        let mut holds = |s: &Value, at| holds_for_retry(s, since.entry("s".to_owned()), at);
-        assert!(holds(&deciding, t0));
-        assert!(holds(&deciding, t0 + Duration::from_secs(4)));
-        assert!(!holds(&deciding, t0 + RETRY_DECIDING_MAX), "bounded");
-        // Settled, then deciding again (its retry failed too): counted afresh.
-        let settled = json!({"status": "ready", "turn": null, "retry": {"attempt": 1}});
-        assert!(!holds(&settled, t0 + Duration::from_secs(6)));
-        assert!(holds(&deciding, t0 + Duration::from_secs(7)));
-        for s in [
-            json!({"status": "running", "turn": {"turnId": "t2"}, "retryDeciding": true}),
-            json!({"status": "closed", "turn": null, "retryDeciding": true}),
-            json!({"status": "closed", "missing": true, "retryDeciding": true}),
-            json!({"status": "unreachable", "stale": true, "turn": null, "retryDeciding": true}),
-            json!({"status": "ready", "turn": null}),
-        ] {
-            let mut since = HashMap::new();
-            assert!(!holds_for_retry(&s, since.entry("s".to_owned()), t0), "{s}");
-        }
-    }
-}
+mod retry_deciding_tests;
 
 #[cfg(test)]
-mod agent_messaging_tests {
-    use super::*;
-
-    /// A `wait` right after `send --no-wait` read the receiver's idle state from before the
-    /// message reached it (round-2 eval, A4: exit 0 `idle` in 0.5 s). With a turn still coming
-    /// (`Hub::work_coming`) the idle row is neither ready nor done; a permission still answers.
-    #[test]
-    fn an_idle_session_with_a_turn_coming_is_not_ready_yet() {
-        let idle = json!({"status": "ready", "turn": null, "unread": true});
-        assert!(Until::Ready.matches(&idle));
-        assert!(Until::Done.matches(&idle));
-        let mut coming = idle.clone();
-        coming.set(WORK_COMING, json!(true));
-        assert!(!Until::Ready.matches(&coming), "the message has not started its turn yet");
-        assert!(!Until::Done.matches(&coming));
-        assert!(!Until::Running.matches(&coming));
-        let mut asks = coming.clone();
-        asks.set("pendingPermissions", json!(1));
-        assert!(Until::Permission.matches(&asks));
-        let closed = json!({"status": "closed", WORK_COMING: true});
-        assert!(Until::Closed.matches(&closed));
-    }
-}
+mod agent_messaging_tests;
 
 #[cfg(test)]
-mod turn_ended_tests {
-    use super::*;
-
-    fn ended(s: Value) -> bool {
-        let t = TurnEnded::parse(Some(&json!({"turnId": "t1", "startedAt": 100}))).unwrap();
-        t.matches(&s)
-    }
-
-    #[test]
-    fn a_turn_has_ended_once_its_end_is_recorded_or_the_session_cannot_end_it() {
-        let running = json!({"status": "running", "turn": {"turnId": "t1"}, "lastTurn": {"turnId": "t0", "endedAt": 90}});
-        assert!(!ended(running), "still running");
-        // Taken out of the session, its end not recorded yet: not yet.
-        let between =
-            json!({"status": "running", "turn": null, "lastTurn": {"turnId": "t0", "endedAt": 90}});
-        assert!(!ended(between), "its end is not recorded yet");
-        // The turn before it ended in the millisecond it started.
-        let last = json!({"turnId": "t0", "endedAt": 100});
-        let tie = json!({"status": "running", "turn": {"turnId": "t1"}, "lastTurn": last.clone()});
-        assert!(!ended(tie), "it runs");
-        let tie = json!({"status": "running", "turn": null, "lastTurn": last});
-        assert!(!ended(tie), "its end is not recorded yet, in the same millisecond");
-        let recorded = json!({"status": "waiting", "turn": null, "lastTurn": {"turnId": "t1", "endedAt": 120}});
-        assert!(ended(recorded), "recorded, while a background ask waits");
-        let later =
-            json!({"status": "ready", "turn": null, "lastTurn": {"turnId": "t2", "endedAt": 150}});
-        assert!(ended(later), "a later turn ended since");
-        let next = json!({"status": "running", "turn": {"turnId": "t2"}, "lastTurn": null});
-        assert!(ended(next), "another turn runs");
-        assert!(ended(json!({"status": "closed", "turn": null})));
-        assert!(ended(json!({"sessionId": "s", "status": "closed", "missing": true})));
-        let lost = json!({"status": "unreachable", "stale": true, "turn": {"turnId": "t1"}});
-        assert!(ended(lost), "its machine is unreachable");
-        assert!(TurnEnded::parse(Some(&json!({"turnId": ""}))).is_none());
-        assert!(TurnEnded::parse(None).is_none());
-    }
-}
+mod turn_ended_tests;
 
 #[cfg(test)]
 #[path = "wait_stream_tests.rs"]

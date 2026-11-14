@@ -429,12 +429,7 @@ pub(crate) fn install_notify(filter: &[libc::sock_filter]) -> io::Result<OwnedFd
 }
 
 #[cfg(all(test, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
-mod unsupported_tests {
-    #[test]
-    fn unsupported_architecture_is_refused() {
-        assert!(super::deny_filter().is_err());
-    }
-}
+mod unsupported_tests;
 
 #[cfg(all(test, any(target_arch = "x86_64", target_arch = "aarch64")))]
 mod tests {

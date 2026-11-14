@@ -3501,32 +3501,7 @@ fn refuse_full_access_policy(hub: &Hub, policy: Option<PermissionPolicy>) -> Res
 mod dispatch_policy_tests;
 
 #[cfg(test)]
-mod admission_force_tests {
-    use super::*;
-
-    #[test]
-    fn force_admit_is_honoured_only_from_this_machine() {
-        let forced = json!({"_meta": {"acpmux": {"forceAdmit": true}}});
-        assert!(force_asked(&forced));
-        assert!(!force_asked(&json!({})));
-        assert!(can_force(Origin::Local), "the unix socket");
-        assert!(can_force(Origin::LocalApp), "the app");
-        assert!(!can_force(Origin::Web), "a Web client");
-        assert!(!can_force(Origin::Peer), "a peer");
-    }
-
-    #[test]
-    fn the_admission_name_is_the_one_the_create_takes() {
-        let name = |p: Value| create_name(&p);
-        assert_eq!(name(json!({"name": "top"})).as_deref(), Some("top"));
-        let both = json!({"name": "top", "_meta": {"acpmux": {"name": "meta"}}});
-        assert_eq!(name(both).as_deref(), Some("meta"));
-        // A `_meta` name that is not a string falls back to the top-level one, as the create does.
-        let null = json!({"name": "top", "_meta": {"acpmux": {"name": null}}});
-        assert_eq!(name(null).as_deref(), Some("top"));
-        assert_eq!(name(json!({})), None);
-    }
-}
+mod admission_force_tests;
 
 /// `_acpmux/rows` (`rows/serve.rs`), off the async thread: a chat's first read folds its log.
 /// With `follow`, the connection must be attached to the chat; its later row changes go to it
@@ -3653,27 +3628,7 @@ fn shutdown_reason(params: &Value) -> String {
 }
 
 #[cfg(test)]
-mod shutdown_reason_tests {
-    use super::shutdown_reason;
-    use serde_json::json;
-
-    #[test]
-    fn a_stop_logs_the_reason_its_client_gave_on_one_line() {
-        assert_eq!(
-            shutdown_reason(&json!({"reason": "update: build a -> b"})),
-            "update: build a -> b"
-        );
-        assert_eq!(shutdown_reason(&json!({"reason": "two\nlines"})), "two lines");
-        assert_eq!(shutdown_reason(&json!({"reason": "x".repeat(500)})).chars().count(), 160);
-    }
-
-    #[test]
-    fn a_stop_without_a_reason_logs_unspecified() {
-        assert_eq!(shutdown_reason(&json!({})), "unspecified");
-        assert_eq!(shutdown_reason(&json!({"reason": "  "})), "unspecified");
-        assert_eq!(shutdown_reason(&json!({"reason": 7})), "unspecified");
-    }
-}
+mod shutdown_reason_tests;
 
 fn preparation_budget(deadline: Option<&Value>, now: u64) -> Result<std::time::Duration, RpcError> {
     let deadline = match deadline {
@@ -3714,123 +3669,7 @@ async fn bounded_preparation<T>(
 }
 
 #[cfg(test)]
-mod cloud_preparation_tests {
-    use super::*;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::time::Duration;
-
-    #[test]
-    fn cloud_prepare_deadline_is_defaulted_bounded_and_strictly_typed() {
-        assert_eq!(preparation_budget(None, 1000).unwrap(), Duration::from_secs(120));
-        assert_eq!(
-            preparation_budget(Some(&json!(601000)), 1000).unwrap(),
-            Duration::from_secs(600)
-        );
-        for invalid in
-            [json!(1000), json!(999), json!(601001), json!(null), json!("2000"), json!(-1)]
-        {
-            assert!(preparation_budget(Some(&invalid), 1000).is_err(), "{invalid}");
-        }
-    }
-
-    struct Dropped(Arc<AtomicBool>);
-    impl Drop for Dropped {
-        fn drop(&mut self) {
-            self.0.store(true, Ordering::SeqCst);
-        }
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn cloud_prepare_timeout_drops_waiter_without_a_background_task() {
-        let (ended, receiver) = tokio::sync::watch::channel(false);
-        let (cancel_sender, cancel) = tokio::sync::watch::channel(false);
-        let dropped = Arc::new(AtomicBool::new(false));
-        let guard = Dropped(dropped.clone());
-        let wait = async move {
-            let _guard = guard;
-            std::future::pending::<Result<(), RpcError>>().await
-        };
-        assert!(
-            bounded_preparation(
-                wait,
-                tokio::time::Instant::now() + Duration::from_secs(1),
-                receiver,
-                cancel.clone()
-            )
-            .await
-            .is_err()
-        );
-        assert!(dropped.load(Ordering::SeqCst));
-        drop((ended, cancel_sender));
-    }
-
-    #[tokio::test]
-    async fn cloud_prepare_disconnect_and_cancel_drop_inflight_verification_or_wait() {
-        for disconnect in [false, true] {
-            let (ended, receiver) = tokio::sync::watch::channel(false);
-            let (cancel_sender, cancel) = tokio::sync::watch::channel(false);
-            let dropped = Arc::new(AtomicBool::new(false));
-            let guard = Dropped(dropped.clone());
-            let wait = async move {
-                let _guard = guard;
-                std::future::pending::<Result<(), RpcError>>().await
-            };
-            let mut ready = Box::pin(bounded_preparation(
-                wait,
-                tokio::time::Instant::now() + Duration::from_secs(120),
-                receiver,
-                cancel.clone(),
-            ));
-            assert!(futures::poll!(&mut ready).is_pending());
-            if disconnect {
-                ended.send_replace(true);
-            } else {
-                cancel_sender.send_replace(true);
-            }
-            assert!(ready.await.is_err());
-            assert!(dropped.load(Ordering::SeqCst));
-        }
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn cloud_prepare_ready_response_has_no_remaining_deadline_timer() {
-        let (ended, receiver) = tokio::sync::watch::channel(false);
-        let (cancel_sender, cancel) = tokio::sync::watch::channel(false);
-        let ready = bounded_preparation(
-            async { Ok("reserved") },
-            tokio::time::Instant::now() + Duration::from_secs(1),
-            receiver,
-            cancel.clone(),
-        )
-        .await
-        .unwrap();
-        tokio::time::advance(Duration::from_secs(600)).await;
-        assert_eq!(ready, "reserved");
-        assert!(!*cancel.borrow());
-        drop((ended, cancel_sender));
-    }
-
-    #[tokio::test]
-    async fn cloud_prepare_rechecks_disconnect_after_ready_result() {
-        let (ended, receiver) = tokio::sync::watch::channel(false);
-        let (cancel_sender, cancel) = tokio::sync::watch::channel(false);
-        let wait = async {
-            ended.send_replace(true);
-            Ok("ready but disconnected")
-        };
-        assert!(
-            bounded_preparation(
-                wait,
-                tokio::time::Instant::now() + Duration::from_secs(1),
-                receiver,
-                cancel.clone()
-            )
-            .await
-            .is_err()
-        );
-        drop(cancel_sender);
-    }
-}
+mod cloud_preparation_tests;
 
 /// What an `initialize` sets on its connection for the requests after it: the client's name,
 /// and whether a Mac lends this machine its GitHub login. Set in order, before the next request

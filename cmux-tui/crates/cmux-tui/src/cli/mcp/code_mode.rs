@@ -1269,139 +1269,19 @@ fn from_content(content: &Value, images: &mut Vec<Value>, failed: bool) -> Value
 }
 
 #[cfg(test)]
-mod bg_steer_tests {
-    use super::*;
-
-    /// A chat whose tools include acpmux's `bg_start` is told in `cmux_exec`'s own description
-    /// to run long commands there; one without it is not (acpmux docs/hibernation.md).
-    #[test]
-    fn the_exec_description_steers_long_commands_to_bg_start_only_where_it_is() {
-        let with = descriptors(&[json!({"name": BG_START}), json!({"name": "pane_split"})]);
-        let text = with[0]["description"].as_str().unwrap();
-        assert!(text.contains("cmux.acpmux_bg_start({command, cwd})"), "{text}");
-        assert!(text.contains("hibernates after 2 idle minutes"), "{text}");
-        // The parallel-work rule is the first-turn context's (`CONCURRENT_WORK_RULE`), sent once
-        // per chat; the tool description does not say it a second time.
-        assert!(!text.contains("one batch of independent tool calls"), "{text}");
-        let without = descriptors(&[json!({"name": "pane_split"})]);
-        assert!(!without[0]["description"].as_str().unwrap().contains("acpmux_bg_start"));
-    }
-}
+mod bg_steer_tests;
 
 #[cfg(test)]
-mod stable_description_tests {
-    use super::*;
-
-    /// `cmux_exec` is always loaded, so its description is part of every turn's cached prefix:
-    /// an app action added or removed mid-chat (`action.catalog.changed` re-lists the tools) must
-    /// leave it byte for byte the same, or the next turn writes the whole prompt to the cache
-    /// again. A family that appears or goes away still shows.
-    #[test]
-    fn the_exec_description_does_not_move_when_a_family_gains_a_tool() {
-        let before = descriptors(&[json!({"name": "app_new_tab"}), json!({"name": "pane_split"})]);
-        let after = descriptors(&[
-            json!({"name": "app_new_tab"}),
-            json!({"name": "app_close_tab"}),
-            json!({"name": "pane_split"}),
-        ]);
-        assert_eq!(before[0]["description"], after[0]["description"]);
-        let text = before[0]["description"].as_str().unwrap();
-        assert!(text.contains("Families: app, pane."), "{text}");
-        let fewer = descriptors(&[json!({"name": "pane_split"})]);
-        assert!(fewer[0]["description"].as_str().unwrap().contains("Families: pane."));
-    }
-}
+mod stable_description_tests;
 
 #[cfg(test)]
-mod github_steer_tests {
-    use super::*;
-
-    /// A chat with acpmux's `github_status` is told when to call it in `cmux_exec`'s own
-    /// description; one without it is not.
-    #[test]
-    fn the_exec_description_names_github_status_only_where_it_is() {
-        let with = descriptors(&[json!({"name": GITHUB_STATUS})]);
-        let text = with[0]["description"].as_str().unwrap();
-        assert!(text.contains("cmux.acpmux_github_status({})"), "{text}");
-        let without = descriptors(&[json!({"name": "pane_split"})]);
-        assert!(!without[0]["description"].as_str().unwrap().contains("github_status"));
-    }
-}
+mod github_steer_tests;
 
 #[cfg(test)]
-mod send_steer_tests {
-    use super::*;
-
-    /// A chat with acpmux's `send` folded in is told in `cmux_exec`'s description to message
-    /// other sessions with it, not the CLI in a shell; one without it is not.
-    #[test]
-    fn the_exec_description_names_the_send_tool_only_where_it_is() {
-        let with = descriptors(&[json!({"name": SEND}), json!({"name": "acpmux_inbox_reply"})]);
-        let text = with[0]["description"].as_str().unwrap();
-        assert!(text.contains("cmux.acpmux_send({to, text})"), "{text}");
-        assert!(text.contains("not `acpmux send` in a shell"), "{text}");
-        assert!(text.contains("cmux.acpmux_inbox_reply({thread, text})"), "{text}");
-        let without = descriptors(&[json!({"name": "pane_split"})]);
-        assert!(!without[0]["description"].as_str().unwrap().contains("acpmux_send"));
-    }
-}
+mod send_steer_tests;
 
 #[cfg(test)]
-mod wrap_up_steer_tests {
-    use super::*;
-
-    /// A chat with acpmux's `wrap_up` is told to end a turn with it in `cmux_exec`'s own
-    /// description, since code mode shows no other tool; one without it is not.
-    #[test]
-    fn the_exec_description_names_wrap_up_only_where_it_is() {
-        let with = descriptors(&[json!({"name": WRAP_UP})]);
-        let text = with[0]["description"].as_str().unwrap();
-        assert!(text.contains("cmux.acpmux_wrap_up({recap, ask, actions})"), "{text}");
-        let without = descriptors(&[json!({"name": "pane_split"})]);
-        assert!(!without[0]["description"].as_str().unwrap().contains("wrap_up"));
-    }
-
-    /// A chat with the cmux-sessions server folded in is told to suggest side work as a new chat
-    /// (`sessions_offer_session`) in `cmux_exec`'s description; one without it is not.
-    #[test]
-    fn the_exec_description_names_the_session_offer_only_where_it_is() {
-        let with =
-            descriptors(&[json!({"name": OFFER}), json!({"name": "sessions_suggest_tasks"})]);
-        let text = with[0]["description"].as_str().unwrap();
-        assert!(text.contains("cmux.sessions_offer_session({title, prompt, worktree?})"), "{text}");
-        let without = descriptors(&[json!({"name": "pane_split"})]);
-        assert!(!without[0]["description"].as_str().unwrap().contains("offer_session"));
-    }
-}
+mod wrap_up_steer_tests;
 
 #[cfg(test)]
-mod block_end_tests {
-    use super::*;
-
-    /// Braces inside strings, template literals and comments are skipped; a block that never
-    /// closes, or a string, escape or comment cut off at the end, is `None`, not a panic.
-    #[test]
-    fn block_end_skips_quoted_and_commented_braces_and_stops_at_the_end() {
-        let script = "{ \"}\" '}' `}` /* } */ // }\n }";
-        assert_eq!(block_end(script, 0), Some(script.len() - 1));
-        for cut in ["{ \"open", "{ 'a\\", "{ /* never closed", "{ // to the end", "{ {", "{ /"] {
-            assert_eq!(block_end(cut, 0), None, "{cut:?}");
-        }
-    }
-
-    /// Only the descriptor's own reads change: a cmux tool keeps its required list,
-    /// read-only and destructive hints in the compact form.
-    #[test]
-    fn compact_keeps_required_and_hints() {
-        let tool = json!({
-            "name": "pane_close",
-            "description": "Close a pane (cmux.protocol/2 `pane.close`).",
-            "inputSchema": {"type": "object", "properties": {"pane": {"type": "string"}}, "required": ["pane"]},
-            "annotations": {"readOnlyHint": false, "destructiveHint": true},
-        });
-        let out = compact(&tool);
-        assert_eq!(out["inputSchema"]["required"], json!(["pane"]));
-        assert_eq!(out.get("destructive"), Some(&json!(true)));
-        assert_eq!(out.get("readOnly"), None);
-    }
-}
+mod block_end_tests;
