@@ -831,6 +831,8 @@ impl Peer {
             );
             me.listed_links.lock_or_recover().push_back(link);
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
+            // The peer's list stream feeds the index from here, when it lists one.
+            me.start_mirror(link);
             // The path it is ready on is the one to dial first next time, also after a restart.
             me.note_ready_path();
             // What the last link bound to its connection and never answered, on this one.
@@ -1161,6 +1163,11 @@ impl Peer {
                         }
                         _ => continue,
                     };
+                    // A v2 frame of the peer's list stream goes to this link's mirror.
+                    if crate::link_v2::is_frame_line(&text) {
+                        self.mirror_frame(link, text);
+                        continue;
+                    }
                     let msg = match Message::parse(&text) {
                         Ok(msg) => msg,
                         // Only large messages are compressed, and a reply among them would be
