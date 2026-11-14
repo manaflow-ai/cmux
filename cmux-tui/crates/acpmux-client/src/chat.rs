@@ -49,6 +49,8 @@ pub enum ChatChange {
     /// The daemon dropped the sub; the core subscribed again under the same sid.
     #[serde(rename = "chatDropped")]
     Dropped { sid: String, cursor: Option<u64> },
+    /// A request failed. With method `sub` and any code but `not_ready` (`over_bound`,
+    /// `surface_off`, the daemon's own) the sub is over and the core holds nothing of it.
     #[serde(rename = "chatError")]
     Error { sid: Option<String>, method: String, id: Option<String>, code: String },
 }
@@ -85,6 +87,9 @@ pub struct ChatPageRequest {
 #[serde(rename_all = "camelCase")]
 pub struct ChatBlobRequest {
     pub sid: String,
+    /// The request's id, which the `chatBlob` change names; the core makes one when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub row_id: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -262,6 +267,11 @@ where
         let window = window.unwrap_or(100).clamp(1, MAX_CHAT_ROWS as u16);
         let sub = Sub::new(sid.clone(), format!("chat:{chat}")).around(anchor, window);
         Frame::json(FrameKind::Request, &Request::Sub(sub.clone()))?;
+        if self.phase == Phase::Fallback || !self.surface_granted(&sub.stream) {
+            // No v2 chat on this connection: one change, not held, nothing on the wire.
+            self.push_surface_off(sid.clone());
+            return Ok(sid);
+        }
         self.chats.insert(
             sid.clone(),
             ChatSub {
@@ -331,8 +341,29 @@ where
         if self.blobs.len() >= MAX_PENDING_BLOBS {
             return Err(FrameError::Refused("a handle holds at most 64 blob requests"));
         }
-        let id = format!("b{}", self.next_id);
-        self.next_id = self.next_id.saturating_add(1);
+        let held = |blobs: &std::collections::VecDeque<PendingBlob>, id: &str| {
+            blobs.iter().any(|blob| blob.request.id == id)
+        };
+        // Decision 228: the caller may name the id, so its answer and the reply's change name
+        // the same one whatever order they reach it in.
+        let id = match request.id {
+            Some(id) => {
+                if !wire::identifier_fits(&id) {
+                    return Err(FrameError::InvalidLength(id.len()));
+                }
+                if held(&self.blobs, &id) {
+                    return Err(FrameError::Refused("the blob id is held"));
+                }
+                id
+            }
+            None => loop {
+                let id = format!("b{}", self.next_id);
+                self.next_id = self.next_id.saturating_add(1);
+                if !held(&self.blobs, &id) {
+                    break id;
+                }
+            },
+        };
         let blob = Blob {
             id: id.clone(),
             stream: chat.request.stream.clone(),
@@ -348,6 +379,30 @@ where
             self.queue_request(Request::Blob(blob))?;
         }
         Ok(id)
+    }
+
+    fn push_surface_off(&mut self, sid: String) {
+        self.push_change(
+            Change::Chat(ChatChange::Error {
+                sid: Some(sid),
+                method: "sub".into(),
+                id: None,
+                code: "surface_off".into(),
+            }),
+            None,
+            0,
+            false,
+        );
+    }
+
+    /// Ends every chat sub, each with one `surface_off` change, in order of its sid.
+    pub(crate) fn end_chats_surface_off(&mut self) {
+        let mut sids: Vec<String> = self.chats.keys().cloned().collect();
+        sids.sort_unstable();
+        for sid in sids {
+            self.forget_chat(&sid);
+            self.push_surface_off(sid);
+        }
     }
 
     pub(crate) fn forget_chat(&mut self, sid: &str) -> bool {
@@ -440,7 +495,12 @@ where
         };
         let sid = window.sid.clone();
         if over_bound(&window.rows, window.refused.len()) {
+            // A window the caller cannot hold leaves nothing to add a delta to: the sub ends.
             self.refuse_over_bound(&sid, "sub", frame_bytes);
+            self.forget_chat(&sid);
+            if self.phase == Phase::Ready {
+                let _ = self.queue_request(Request::Unsub(wire::Unsub { sid }));
+            }
             return;
         }
         let Some(chat) = self.chats.get_mut(&sid) else { return };
