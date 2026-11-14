@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43607147684",
+  "recorded_at": "2026-11-14T15:05:56Z",
+  "reason": "cmux-tui 58f4fc94771e changes the image's cmux-tui (pinned 540274e11764)",
+  "dry_run": false,
+  "cmux_tui": "58f4fc94771e5c864a0da2a11018f795087daeb5",
+  "fixes": [
+    {
+      "sha": "58f4fc94771e5c864a0da2a11018f795087daeb5",
+      "mergedAt": "2026-11-14T06:32:44-08:00",
+      "subject": "Chat widgets are an SDK place again, for extensions only (cmux.chat.widget/1) (#43030)"
+    },
+    {
+      "sha": "6362452ad02b826378d38c9d2ee9f0e9e18b4840",
+      "mergedAt": "2026-11-14T08:28:41-06:00",
+      "subject": "cmux-tui: SelfRunner::running has the cfg of its users, so macOS clippy is clean"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T15:05:56Z",
+    "snapshot_id": "sh-b5b39781441b4e93b298b727e8a30770",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43607147684): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "be3844334489a9dd7dc9c42a24a872e76e665993",
+    "image": "cloud-native-auto-58f4fc94-43607147684-1",
+    "revision": "ci-43607147684-1",
+    "at": "2026-11-14T15:05:56Z"
+  },
+  "rolled_back": false
+}
