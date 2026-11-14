@@ -308,7 +308,7 @@ fn an_imported_scheme_installs_as_a_ghostty_theme_the_loader_reads() {
         Env { home: Some(home.clone()), xdg_data_dirs: Some(String::new()), ..Env::default() };
     let path = install_scheme(&env, "Tomorrow Night Import", &tomorrow(), false).unwrap();
     assert_eq!(path, home.join(".config/ghostty/themes/Tomorrow Night Import"));
-    assert_eq!(find_theme_file(&env, "Tomorrow Night Import"), Some(path.clone()));
+    assert_eq!(find_theme_file(&env, "Tomorrow Night Import"), Some(path));
     // A second install without replace is refused; with replace it writes.
     assert!(matches!(
         install_scheme(&env, "Tomorrow Night Import", &tomorrow(), false),
