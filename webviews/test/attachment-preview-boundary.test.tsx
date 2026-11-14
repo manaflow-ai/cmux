@@ -9,6 +9,7 @@
 // falls back the same way.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { settleReact } from "./support/domTeardown";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -209,10 +210,11 @@ try {
     expect(failed[0]!.textContent).toContain(NNBSP);
   });
 } finally {
-  afterAll(() => {
+  afterAll(async () => {
     console.error = quiet;
     setChipHost(undefined);
     act(() => root.unmount());
+    await settleReact();
     dom.window.close();
     for (const [key, had, value] of saved) {
       if (had) scope[key] = value;
