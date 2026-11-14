@@ -98,6 +98,8 @@ final class RemoteTerminalPlaceholderView: NSView {
         }
         connect.isHidden = state != .offline || onConnect == nil
         setSnapshot(snapshot)
+        reconnectHold.update(state == .reconnecting) { [weak self] in self?.status.isHidden = false }
+        status.isHidden = reconnectHold.held
         setAccessibilityLabel(status.stringValue)
     }
 
