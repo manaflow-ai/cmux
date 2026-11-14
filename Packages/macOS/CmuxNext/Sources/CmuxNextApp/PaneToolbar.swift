@@ -9,15 +9,16 @@ import CmuxNextSettings
 import CmuxNextTabs
 import os
 
-/// A pane's "…" at its tab bar's trailing end (Leo 2026-10-12; was cx-kk7lm's row of buttons), after
-/// the actions pinned as buttons (`tabs.toolbarButtons`, none by default; Lawrence 2026-10-12): they
-/// show only while the pointer is over the tab bar, like its "+". The menu is the strip plus's (a terminal,
-/// a browser, an agent chat, … in this pane), then the splits and zoom not pinned, Search Tabs,
-/// then Show in Tab Bar, which pins or unpins one. Content tools remain pinnable and searchable. A chat's
-/// pane has none: its header has its own (acpmux header/ChatHeaderTools.tsx).
+/// A pane's tab bar trailing controls: the actions pinned as buttons (`tabs.toolbarButtons`, none by default;
+/// Lawrence 2026-10-12), which show only while the pointer is over the tab bar, like its "+", and a zoomed pane's
+/// Exit Zoom. There is no "…" and no Toggle Terminal and Chat pair (user 2026-11-13: "get rid of these buttons"):
+/// with nothing pinned the tabs keep the whole row. What "…" offered lives elsewhere: what opens in the pane is the
+/// "+" and the tab bar's right-click (More > New), the splits and zoom are the right-click's More and their keys,
+/// and the rest, the shown content's own rows, Search Tabs and Show in Tab Bar, are the tab bar's right-click
+/// (``tabBarMenuRows()``). A chat's pane draws its own tools (acpmux header/ChatHeaderTools.tsx).
 @MainActor
 final class PaneToolbar {
-    /// What the selected tab is, for its own actions; nil is a chat: no "…".
+    /// What the selected tab is, for its own actions; nil is a chat: no pins.
     enum Kind: Hashable, Sendable {
         case newTab, terminal, browser, other
     }
@@ -28,21 +29,17 @@ final class PaneToolbar {
         var kind: Kind?
         var zoomed = false
         var pinned: [String] = []
-        /// What every tab of the pane that offers "…" is: the bar keeps their room whichever is
+        /// What every tab of the pane that can show pins is: the bar keeps their room whichever is
         /// selected, so a selection never changes the strip's width (Lawrence 2026-10-19).
         var paneKinds: Set<Kind> = []
         /// The strip selects a tab the store no longer lists (a provisional tab the store's tab
         /// just replaced): the selection follows on the strip's next apply, so the bar keeps what
-        /// it shows. Hiding "…" for that frame gave its width to the strip, which laid out every
-        /// tab again at once (10 tabs, cx-codh2).
+        /// it shows. Hiding the pins for that frame gave their width to the strip, which laid out
+        /// every tab again at once (10 tabs, cx-codh2).
         var behind = false
         var nativeOwnerID: ObjectIdentifier?
         var nativeItems: [PaneTabRowTool] = []
         var nativeEnabled = false
-        /// The selected tab's face of a terminal and chat pair (Toggle Terminal and Chat's control), and whether any
-        /// tab of the pane is half of one: its room is kept whichever tab is selected.
-        var terminalChat: PaneTerminalChatFace?
-        var paneHasTerminalChat = false
     }
 
     let view = PaneToolbarView()
@@ -50,12 +47,8 @@ final class PaneToolbar {
     private let paneTarget: ActionTargetRef?
     private let machineID: () -> String?
     static let creationActions: [ActionID] = ["newSurface", "openBrowser"]
-    /// Toggle Terminal and Chat: the toggle's press runs it, as its key does.
-    static let terminalChatToggle: ActionID = "palette.toggleTerminalChat"
-    /// The strip plus's menu for this pane (what opens in it).
-    private let newTabMenu: () -> NSMenu?
-    /// The shown content's own rows, first in the menu (``PaneMoreMenuContributing``: the docked
-    /// Home's Chief Actions), so the pane keeps one ⋮.
+    /// The shown content's own rows (``PaneMoreMenuContributing``: the docked Home's Chief Actions and
+    /// Subagents), first in the tab bar's right-click and the selected tab's.
     private let contentMenu: () -> [NSMenuItem]
     private(set) var target: String?
     private(set) var kind: Kind?
@@ -66,16 +59,13 @@ final class PaneToolbar {
     private var observation: Task<Void, Never>?
     private var refreshCurrent: (() -> Void)?
 
-    init(registry: @escaping () -> ActionRegistry?, newTabMenu: @escaping () -> NSMenu?, paneTarget: ActionTargetRef? = nil,
+    init(registry: @escaping () -> ActionRegistry?, paneTarget: ActionTargetRef? = nil,
          contentMenu: @escaping () -> [NSMenuItem] = { [] }, machineID: @escaping () -> String? = { nil }) {
         self.registry = registry
         self.machineID = machineID
         self.paneTarget = paneTarget
-        self.newTabMenu = newTabMenu
         self.contentMenu = contentMenu
-        view.moreMenu = { [weak self] in self?.moreMenu() }
         view.onPerform = { [weak self] id in self?.perform(ActionID(rawValue: id)) }
-        view.onToggleTerminalChat = { [weak self] in self?.perform(Self.terminalChatToggle) }
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -84,15 +74,10 @@ final class PaneToolbar {
         observation?.cancel()
     }
 
-    /// The pane's "…": follows its selected tab and the pane's zoom.
+    /// The pane's trailing controls: follow its selected tab and the pane's zoom.
     convenience init(pane: PaneController) {
         let services = pane.services
         self.init(registry: { [weak services] in services?.registry },
-                  newTabMenu: { [weak pane] in
-                      // The plus's rows, without its Chromium warmup: "…" is opened for a split as often.
-                      // Its rows join the "…" menu, so no Customize Menu… of the New Tab menu.
-                      pane.map { $0.services.registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: $0.paneKey), customize: false, machineID: $0.daemon.machineID) }
-                  },
                   paneTarget: ActionTargetRef(kind: .pane, id: pane.paneKey),
                   contentMenu: { [weak pane] in (pane?.view.content as? PaneMoreMenuContributing)?.paneMoreMenuItems() ?? [] }, machineID: { [weak pane] in pane?.daemon.machineID })
         writePinned = { [weak services] next in
@@ -135,8 +120,7 @@ final class PaneToolbar {
             model.onTabRowToolInvoked?(id, menuItemID)
         }
         update(target: state.behind ? target : state.target, kind: state.behind ? kind : state.kind,
-               zoomed: state.zoomed, pinned: state.pinned, paneKinds: state.paneKinds, nativeItems: state.nativeItems, nativeEnabled: state.nativeEnabled,
-               terminalChat: state.behind ? view.terminalChatToggle.face : state.terminalChat, paneHasTerminalChat: state.paneHasTerminalChat)
+               zoomed: state.zoomed, pinned: state.pinned, paneKinds: state.paneKinds, nativeItems: state.nativeItems, nativeEnabled: state.nativeEnabled)
     }
 
     private static func state(_ pane: PaneController) -> State {
@@ -144,19 +128,15 @@ final class PaneToolbar {
         let pinned = pane.services.settings.map { PaneToolbarButtonsSetting.current($0).pinned } ?? []
         let resolver = TabTitleResolver(services: pane.services)
         let paneKinds = Set(pane.pane.tabs.compactMap { kind($0, isNewTabPage: resolver.isNewTabPage($0)) })
-        // The Rust route's answer for each tab, from the facts the action reads (O(tabs of this pane)).
-        let faces = Dictionary(pane.pane.tabs.compactMap { tab in TerminalChatHandler.face(of: tab, services: pane.services).map { (tab.id, $0) } },
-                               uniquingKeysWith: { first, _ in first })
         // The pane's own workspace, not a store scan: this runs for every pane.
         let zoomed = pane.workspace?.workspace.screens.contains { $0.zoomedPane == pane.pane.handle } ?? false
         guard let key = pane.stripModel.selectedID?.rawValue else { return State(zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, nativeOwnerID: displayedModel.map(ObjectIdentifier.init), nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: displayedModel?.tabRow.nativeToolsEnabled == true) }
         guard let tab = pane.pane.tabs.first(where: { $0.id == key }) else {
-            // A window's own page or browser tab is never in the store: no "…", not a stale bar.
+            // A window's own page or browser tab is never in the store: no pins, not a stale bar.
             let local = key.hasPrefix(LocalPageTab.prefix) || key.hasPrefix(LocalBrowserTab.prefix)
             return State(zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, behind: !local, nativeOwnerID: displayedModel.map(ObjectIdentifier.init), nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: displayedModel?.tabRow.nativeToolsEnabled == true)
         }
-        return State(target: key, kind: kind(tab, isNewTabPage: resolver.isNewTabPage(tab)), zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, nativeOwnerID: displayedModel.map(ObjectIdentifier.init), nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: displayedModel?.tabRow.nativeToolsEnabled == true,
-                     terminalChat: faces[tab.id], paneHasTerminalChat: !faces.isEmpty)
+        return State(target: key, kind: kind(tab, isNewTabPage: resolver.isNewTabPage(tab)), zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, nativeOwnerID: displayedModel.map(ObjectIdentifier.init), nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: displayedModel?.tabRow.nativeToolsEnabled == true)
     }
 
     static func kind(_ tab: TabModel, isNewTabPage: Bool) -> Kind? {
@@ -182,44 +162,28 @@ final class PaneToolbar {
 
     static let zoom: ActionID = "toggleSplitZoom", search: ActionID = "tab.search"
 
-    private static let overflowNewTabTrimmedActions: Set<ActionID> = ["browserProfile.newTab", "newTab.page"]
-    private static let overflowTabTrimmedActions: Set<ActionID> = ["openDiffViewer", "file.open", "agentPane.searchChats"]
-
-    /// Shows the `pinned` actions tab `target` of `kind` can run and "…" (nil kind: none); lit, with a
-    /// pinned zoom button, while the pane is zoomed.
-    /// `paneKinds`: the kinds of every tab in the pane that offers "…", whichever is selected.
-    /// `terminalChat`: the selected tab's face of a terminal and chat pair; `paneHasTerminalChat`: a tab of the pane is half of one.
-    func update(target: String?, kind: Kind?, zoomed: Bool = false, pinned: [String] = [], paneKinds: Set<Kind> = [], nativeItems: [PaneTabRowTool] = [], nativeEnabled: Bool = ChromeTunables.nativeRowTools.value,
-                terminalChat: PaneTerminalChatFace? = nil, paneHasTerminalChat: Bool = false) {
+    /// Shows the `pinned` actions tab `target` of `kind` can run (nil kind: none), and the Exit Zoom
+    /// button while the pane is zoomed. `paneKinds`: the kinds of every tab in the pane, whichever is selected.
+    func update(target: String?, kind: Kind?, zoomed: Bool = false, pinned: [String] = [], paneKinds: Set<Kind> = [], nativeItems: [PaneTabRowTool] = [], nativeEnabled: Bool = ChromeTunables.nativeRowTools.value) {
         self.target = target
         self.kind = kind
         self.zoomed = zoomed
         self.pinned = pinned
-        let shown = target != nil && kind != nil
-        // The room the bar keeps: "…" and the most pins any tab of the pane shows, so selecting a tab
-        // without "…" (a chat, a window's own page) or fewer pins moves no tab. Search Tabs has no button
-        // (Lawrence 2026-10-20: "i dont like the down arrow"); it is a row of "…"'s menu.
+        // The room the bar keeps: the most pins any tab of the pane shows, so selecting a tab without
+        // pins (a chat, a window's own page) or fewer pins moves no tab. With nothing pinned: none.
         let kinds = kind.map { paneKinds.union([$0]) } ?? paneKinds
         let reservedPins = kinds.map { kind in pinned.count(where: { Self.actions(kind).contains(ActionID(rawValue: $0)) }) }.max() ?? 0
-        // A zoomed pane's Exit Zoom button sits left of "…" (`PaneToolbarView.zoomButton`, user 2026-11-09).
         let buttons = shownButtons()
-        // The new-terminal and new-browser buttons are not shown: the + and the "…" menu offer them (Lawrence 2026-10-27: too many buttons).
-        // A native page list needs an overflow route when a narrow pane cannot fit every real
-        // button. It also keeps chat panes discoverable, which otherwise have no pane "…".
+        // The new-terminal and new-browser buttons are not shown: the + offers them (Lawrence 2026-10-27: too many buttons).
         let nativeTools = nativeEnabled ? nativeItems : []
-        // Toggle Terminal and Chat: at rest on both faces of a pair, its tooltip the action's title and key (the catalog's).
-        let toggle = registry().flatMap { registry in registry.descriptor(for: Self.terminalChatToggle).map { ($0.title, registry.shortcutDisplay(for: Self.terminalChatToggle)) } }
-        view.show(buttons.compactMap(item), more: shown || !nativeTools.isEmpty, lit: zoomed && shown, zoomed: zoomed,
-                  reserving: kinds.isEmpty ? 0 : max(reservedPins, buttons.count) + 1,
-                  nativeItems: nativeTools, terminalChat: target == nil || toggle == nil ? nil : terminalChat,
-                  terminalChatTip: toggle ?? ("", nil), reservingTerminalChat: paneHasTerminalChat)
+        view.show(buttons.compactMap(item), zoomed: zoomed, reserving: max(reservedPins, buttons.count), nativeItems: nativeTools)
     }
 
-    /// The pinned actions the tab can run, in the user's order, as buttons before "…".
+    /// The pinned actions the tab can run, in the user's order, as buttons.
     func shownPins() -> [ActionID] { pinned.map(ActionID.init(rawValue:)).filter(tabActions().contains) }
 
-    /// The buttons before "…": the pins. While the pane is zoomed a pinned zoom gives way to the
-    /// bar's one Exit Zoom button beside "…", so the pane shows one zoom mark, never two.
+    /// The buttons: the pins. While the pane is zoomed a pinned zoom gives way to the bar's one
+    /// Exit Zoom button, so the pane shows one zoom mark, never two.
     func shownButtons() -> [ActionID] { zoomed ? shownPins().filter { $0 != Self.zoom } : shownPins() }
 
     /// A pinned action's button: the New Tab page's tool symbols (cx-kk7lm), a zoomed pane's lit zoom.
@@ -243,69 +207,39 @@ final class PaneToolbar {
 
     private func tabInvocation() -> ActionInvocation? { target.map { ActionInvocation(target: ActionTargetRef(kind: .tab, id: $0), origin: .user).onMachine(machineID()) } }
 
-    /// The tab's actions "…" offers: those it can run.
+    /// The tab's actions that can be pinned: those it can run.
     func tabActions() -> [ActionID] {
         guard let registry = registry(), let invocation = tabInvocation(), let kind else { return [] }
         return Self.actions(kind).filter { ActionTargetReasons.canPerform($0, invocation: invocation, in: registry) }
     }
 
-    /// "…": the content's own rows (the Chief's), what opens in the pane, the actions without a button
-    /// with their keys, Search Tabs, then Show in Tab Bar.
-    private func moreMenu() -> NSMenu? {
-        guard let registry = registry(), let target else { return nil }
-        let menu = newTabMenu() ?? NSMenu()
-        // The plus keeps the full creation menu; overflow keeps the common tab kinds.
-        for item in menu.items where ActionRegistry.menuRun(of: item).map({ Self.overflowNewTabTrimmedActions.contains($0.id) }) == true {
-            menu.removeItem(item)
+    /// The shown content's own rows (the docked Home's Chief Actions and Subagents), fresh each call.
+    func contentRows() -> [NSMenuItem] { contentMenu() }
+
+    /// The rows the pane's tab bar right-click adds to its menu, in sections: the content's own rows, the pins a
+    /// narrow pane hid, Search Tabs, then Show in Tab Bar, which pins or unpins one. "…" offered them; the
+    /// right-click's own rows and More (what opens in the pane, the splits, zoom) offer the rest it did.
+    func tabBarMenuRows() -> [[NSMenuItem]] {
+        guard let registry = registry() else { return [] }
+        var sections: [[NSMenuItem]] = [contentRows()]
+        if let target {
+            view.layoutSubtreeIfNeeded()
+            let hidden = zip(view.items, view.buttons).compactMap { item, button in button.isHidden ? ActionID(rawValue: item.id) : nil }
+            let pins = registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: target),
+                                                entries: tabActions().filter(hidden.contains).map { .action($0) }, machineID: machineID())
+            sections.append(Self.detach(pins))
         }
-        var previousWasSeparator = true
-        for item in menu.items {
-            if item.isSeparatorItem && previousWasSeparator { menu.removeItem(item) }
-            previousWasSeparator = item.isSeparatorItem
-        }
-        while menu.items.last?.isSeparatorItem == true { menu.removeItem(at: menu.items.count - 1) }
-        // New ▸ Kind ▸ place, the pane menu's rows (a Terminal, Browser, Agent Chat or New Tab Page at any of Fork To's places).
-        if let paneTarget, let folder = ContextMenuCatalog.shared.newPlacementFolder() {
-            if !menu.items.isEmpty { menu.addItem(.separator()) }
-            for item in registry.makeContextMenu(for: .pane, target: paneTarget, entries: [folder], customize: false, machineID: machineID()).items {
-                item.menu?.removeItem(item)
-                menu.addItem(item)
-            }
-        }
-        let own = contentMenu()
-        if !own.isEmpty, !menu.items.isEmpty { menu.insertItem(.separator(), at: 0) }
-        for (index, item) in own.enumerated() { menu.insertItem(item, at: index) }
-        view.layoutSubtreeIfNeeded()
-        let buttons = zip(view.items, view.buttons).compactMap { item, button in
-            button.isHidden ? nil : ActionID(rawValue: item.id)
-        }
-        let tabOwn = registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: target),
-                                              entries: tabActions().filter {
-                                                  !buttons.contains($0) && (!Self.overflowTabTrimmedActions.contains($0) || pinned.contains($0.rawValue))
-                                              }.map { .action($0) }, machineID: machineID())
-        if !menu.items.isEmpty, !tabOwn.items.isEmpty { menu.addItem(.separator()) }
-        for item in tabOwn.items {
-            tabOwn.removeItem(item)
-            menu.addItem(item)
-        }
-        if kind != nil {
-            // Search Tabs (was the bar's chevron) runs with no tab target: a tab target only reveals that tab.
-            let search = registry.makeContextMenu(for: .tab, entries: [.action(Self.search)])
-            if !search.items.isEmpty { menu.addItem(.separator()) }
-            for item in search.items {
-                search.removeItem(item)
-                menu.addItem(item)
-            }
-            menu.addItem(.separator())
-            menu.addItem(showInTabBarItem(registry: registry))
-        }
-        let native = view.nativeOverflowItems()
-        if !native.isEmpty {
-            if !menu.items.isEmpty { menu.addItem(.separator()) }
-            native.forEach(menu.addItem)
-        }
-        // Every row in the theme's highlight, like the sidebar's ⋮ menus and the strip's plus.
-        return menu.themeRows(in: view.themeScope.fullStrength)
+        // Search Tabs runs with no tab target: a tab target only reveals that tab.
+        sections.append(Self.detach(registry.makeContextMenu(for: .tab, entries: [.action(Self.search)])))
+        if kind != nil { sections.append([showInTabBarItem(registry: registry)]) }
+        return sections.filter { !$0.isEmpty }
+    }
+
+    /// `menu`'s rows, taken out of it so another menu can hold them.
+    private static func detach(_ menu: NSMenu) -> [NSMenuItem] {
+        let items = menu.items
+        menu.removeAllItems()
+        return items
     }
 
     /// Show in Tab Bar: the selected kind's controls, plus existing pins so they can be unpinned.

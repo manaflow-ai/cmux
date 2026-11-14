@@ -61,7 +61,6 @@ cmux-tui/crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h	cmux_daemon
 cmux-tui/crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h	cmux_daemon_launch_watch_call
 cmux-tui/crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h	cmux_daemon_launch_watch_free
 cmux-tui/crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h	cmux_daemon_launch_watch_new
-cmux-tui/crates/cmux-health-core/include/cmux_health.h	cmux_health_abi_version
 cmux-tui/crates/cmux-host-budget/include/cmux_host_budget_ffi.h	cmux_host_budget_ffi_abi_version
 cmux-tui/crates/cmux-host-budget/include/cmux_host_budget_ffi.h	cmux_host_budget_judge_json
 cmux-tui/crates/cmux-host-budget/include/cmux_host_budget_ffi.h	cmux_host_budget_local_verdict_json

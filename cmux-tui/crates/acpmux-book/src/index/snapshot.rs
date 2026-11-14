@@ -396,6 +396,41 @@ impl DiskSnapshot {
         self.head.data_end + self.head.origins_bytes + self.head.directory_bytes as u64
     }
 
+    /// Validate every sparse seek checkpoint before a hub publishes this
+    /// snapshot at open. Paging normally checks only the checkpoints it needs;
+    /// startup must reject a damaged directory as one unknown-boundary index.
+    pub fn validate_checkpoints(&self) -> io::Result<()> {
+        let count = self.head.directory_bytes / CHECKPOINT_BYTES;
+        let mut previous: Option<Checkpoint> = None;
+        for index in 0..count {
+            let mut bytes = [0; CHECKPOINT_BYTES];
+            read_at(
+                &self.file,
+                &mut bytes,
+                self.directory_offset() + (index * CHECKPOINT_BYTES) as u64,
+            )?;
+            let checkpoint = Checkpoint::decode(&bytes).map_err(classify_read_error)?;
+            if checkpoint.offset < HEADER_BYTES as u64
+                || checkpoint.offset >= self.head.data_end
+                || checkpoint.ordinal >= self.head.count
+                || checkpoint.first_len < 12
+                || checkpoint.first_len > super::MAX_INDEX_RECORD_BYTES + TRAILER_BYTES
+                || checkpoint.offset + checkpoint.first_len as u64 > self.head.data_end
+                || (index == 0
+                    && (checkpoint.offset != HEADER_BYTES as u64 || checkpoint.ordinal != 0))
+                || previous.as_ref().is_some_and(|prior| {
+                    prior.offset >= checkpoint.offset
+                        || prior.ordinal >= checkpoint.ordinal
+                        || prior.key >= checkpoint.key
+                })
+            {
+                return Err(fatal("snapshot checkpoint extent"));
+            }
+            previous = Some(checkpoint);
+        }
+        Ok(())
+    }
+
     pub(super) fn directory_offset(&self) -> u64 {
         self.head.data_end + self.head.origins_bytes
     }

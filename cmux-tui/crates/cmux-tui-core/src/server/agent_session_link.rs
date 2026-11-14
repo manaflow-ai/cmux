@@ -23,6 +23,8 @@ use serde_json::{Value, json};
 
 #[path = "agent_message_acpmux.rs"]
 mod agent_message_acpmux;
+#[path = "chat_marks.rs"]
+pub(crate) mod chat_marks;
 
 #[path = "agent_session_list_gate.rs"]
 pub(crate) mod list_gate;

@@ -1,4 +1,5 @@
 import CmuxMobileAgentChat
+import enum CmuxMobileModel.UserFacingError
 import CmuxMobileNotifications
 import CmuxMobileTransport
 import CryptoKit
@@ -89,9 +90,13 @@ public struct LinkPairing: Sendable {
         case "busy": "the Mac is already pairing this iPhone"
         case "mac_identity_changed": identityChanged
         case "unavailable": "the Mac isn't ready to pair. Retry in a moment"
-        default: error.message
+        // Never a raw code or an unreadable message (LinkError's display mapping).
+        default: error.displayReason
         }
     }
+
+    /// Said when pairing fails with an error that has no sentence of its own.
+    static let pairingFailed = "The Mac couldn't pair with this iPhone. Try again."
 
     /// When the phone asks the Mac again by itself after `auth` refused it on a live link.
     ///
@@ -164,7 +169,7 @@ public struct LinkPairing: Sendable {
         } catch let error as LinkError {
             return .failure(error)
         } catch {
-            return .failure(LinkError(code: "pairing", message: String(describing: error)))
+            return .failure(LinkError(code: "pairing", message: UserFacingError.message(error, fallback: Self.pairingFailed)))
         }
     }
 
@@ -280,7 +285,7 @@ public struct LinkPairing: Sendable {
         } catch let error as LinkError {
             return .refused(error)
         } catch {
-            return .refused(LinkError(code: "pairing", message: String(describing: error)))
+            return .refused(LinkError(code: "pairing", message: UserFacingError.message(error, fallback: Self.pairingFailed)))
         }
     }
 

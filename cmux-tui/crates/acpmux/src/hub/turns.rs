@@ -2527,6 +2527,9 @@ impl Hub {
             self.end_unadopted_host(session).await;
         }
         *session.turn.lock().unwrap() = None;
+        // A turn its agent ran on its own ends with the chat, whatever its agent's exit said or
+        // did not say (a direct agent, a host whose link was lost): no line spins in a closed chat.
+        self.end_background_turn(session, "exit");
         // Before the close's event, which sends the cards it owes (`tasks.rs`).
         self.orphan_tasks_of(session, purge);
         self.set_status(session, SessionStatus::Closed);
@@ -2570,7 +2573,20 @@ impl Hub {
                 .await;
             }
             self.git_branch_forget(&session.id);
-            self.store.delete(&session.id).map_err(|e| RpcError::internal(e.to_string()))?;
+            // v2's book of the chat lives in its directory: its actor is closed and forgotten
+            // first, so none writes into what the delete removes (`book_tee.rs`).
+            if let Some(tee) = self.book_tee().cloned() {
+                let id = session.id.clone();
+                let _ = tokio::task::spawn_blocking(move || tee.forget(&id)).await;
+            }
+            let deleted = self.store.delete(&session.id);
+            if deleted.is_err()
+                && let Some(tee) = self.book_tee()
+            {
+                // The chat stays: its book may be read again.
+                tee.unforget(&session.id);
+            }
+            deleted.map_err(|e| RpcError::internal(e.to_string()))?;
             // An earlier run's caller token proves a purged session no more (`caller_registry.rs`).
             self.caller_registry.forget(&session.id);
             #[cfg(test)]
@@ -2619,6 +2635,10 @@ impl Hub {
                 list_seq: 0,
             });
             drop(sessions);
+            // Gone from v1: a chat that comes back under the id gets a book again.
+            if let Some(tee) = self.book_tee() {
+                tee.unforget(&session.id);
+            }
             // Its parent's row and the rows below it read it (#42091 F1).
             self.note_rows_reading(session);
         }

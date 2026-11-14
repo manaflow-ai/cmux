@@ -215,7 +215,7 @@ fn exited_host_fixture_with_parser() -> (Arc<HostShared>, Receiver<ParserCommand
     exited_host_fixture_with_parser_at(root)
 }
 
-fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease) {
+pub(crate) fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease) {
     let root = std::env::temp_dir().join(format!(
         "cmux-host-record-{name}-{}-{}",
         std::process::id(),

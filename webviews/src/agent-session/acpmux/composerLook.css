@@ -16,10 +16,25 @@
   --acpmux-tray-tuck: 10px;
   --text-content--line-height: calc(var(--text-content, 14px) * 20 / 14);
 }
+/* New Tab's tray scales with its composer: its inset, tuck, top corners and side padding at New Tab's size scale
+   (newtab/screen.css --nt-density), 22, 10, 14 and 8 px at Default (Lucas 2026-11-14: "the top part should scale
+   down with the composer"). */
+.nt-composer[data-composer-look="codex"] {
+  --acpmux-tray-inset: calc(22px * var(--nt-density, 1));
+  --acpmux-tray-tuck: calc(10px * var(--nt-density, 1));
+  --nt-tray-corner: calc(14px * var(--nt-density, 1));
+  --nt-tray-pad: calc(var(--ds-space-2) * var(--nt-density, 1));
+}
 /* The trust stack is the composer's sibling, so it shares the active look's radius here. */
 :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"],
 .acpmux-dock > .acpmux-asks-stack:has(~ .acpmux-composer[data-composer-grid][data-composer-look="codex"]) {
   --grid-composer-radius: calc(22px * var(--acpmux-density));
+}
+/* New Tab's box in Codex's look is a full pill at one line, half its one-line height at every density (Lucas
+   2026-11-14: "codex is 50% radius so we can keep that one easy throughout all"); a taller draft keeps that corner
+   (newtab/screen.css --nt-box-radius). */
+.nt-composer[data-composer-look="codex"] {
+  --nt-box-round: 0.5;
 }
 :where(:root:not([data-top-strip="plain"])) .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip,
 .nt-composer[data-composer-look="codex"] > .nt-above {
@@ -43,6 +58,15 @@
   --nt-tray-room: calc((2px + var(--nt-composer-gap, 0px)) / 2);
   padding-block: var(--nt-tray-room) var(--acpmux-tray-tuck);
   margin-bottom: calc(var(--nt-tray-room) - var(--acpmux-tray-tuck) - var(--nt-composer-gap, 0px));
+  /* The tray's sides stand on the box's flat top, never on its corner: the pill's corner (--nt-box-radius) outgrows
+     the tray's 22 px inset at a roomy density, and the tray's sides then met the curve over a gap (Lucas
+     2026-11-14, Spacious: "the top part is not connected"). The extra inset comes out of the tray's own side
+     padding, as far as that goes, so the chips keep their column. */
+  --nt-tray-over: max(0px, calc(var(--nt-box-radius, 0px) - var(--acpmux-tray-inset)));
+  --acpmux-part-inset-left: calc(var(--acpmux-tray-inset) + var(--nt-tray-over));
+  --acpmux-part-inset-right: calc(var(--acpmux-tray-inset) + var(--nt-tray-over));
+  padding-inline: calc(var(--nt-tray-pad) - min(var(--nt-tray-pad), var(--nt-tray-over)));
+  border-radius: var(--nt-tray-corner) var(--nt-tray-corner) 0 0;
 }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip::after {
   content: none;
@@ -67,9 +91,6 @@
 .nt-composer[data-composer-look="codex"] > .nt-box {
   position: relative;
   z-index: var(--layer-raised, 1);
-}
-.nt-composer[data-composer-look="codex"] > .nt-box {
-  border-radius: var(--grid-composer-radius);
 }
 /* The box keeps its own four corners and whole rim over the tray (not the default's joined top). */
 :root .acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-strip) > .acpmux-composer-box {

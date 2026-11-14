@@ -320,6 +320,17 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "agentBoard.show",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agentBoard.show", "Show Agent Board"),
+        keywords: &["agent board", "board", "work tracking", "ledger", "evidence", "decisions", "permutations", "agents"],
+        category: "agents",
+        symbol: "square.grid.3x3.topleft.filled",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action agent-board-show",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "palette.toggleDictation",
         group: GROUP,
         title: t("ActionCatalog", "action.palette.toggleDictation", "Toggle Dictation"),

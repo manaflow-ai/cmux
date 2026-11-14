@@ -4,7 +4,7 @@ import { personalTeamIdFor } from "./domains/user.ts"
 import type { Env } from "./env.ts"
 import type { ReadResult } from "./owner-do.ts"
 import { signInRules, ssoRefusal, withSsoSession } from "./policy-gate.ts"
-import { stackHealDeps, stackTeamsOf, syncTeam, type StackHealDeps } from "./stack-team-heal.ts"
+import { HEAL_BUDGET_MS, keepAlive, stackHealDeps, stackTeamsOf, syncTeam, within, type StackHealDeps } from "./stack-team-heal.ts"
 
 const TEAM_ID = /^team_[0-9a-f]{20}$/
 type Membership = { role: string; display_name: string; kind: "personal" | "stack" } | null
@@ -55,11 +55,15 @@ export const listUserTeams = async (env: Env, p: Principal, deps: UserTeamsDeps 
   const personal = personalTeamIdFor(user)
   const stub = env.USER_DO.get(env.USER_DO.idFromName(user))
   const indexed = (await stub.homeTeamsOf(user)).filter((e) => e.team !== personal && TEAM_ID.test(e.team)).map((e) => e.team)
-  // Stack's own list joins the index, so a team TeamDO never mirrored is synced below and listed.
-  const fromStack = await stackTeamsOf(env, user, p.stack_user_id, deps)
+  // Stack's own list joins the index, so a team TeamDO never mirrored is synced below and listed. Waited on for
+  // HEAL_BUDGET_MS at most (the read goes on, and the next list has it); past that the list is incomplete.
+  const reading = stackTeamsOf(env, user, p.stack_user_id, deps)
+  const read = await within(reading, HEAL_BUDGET_MS)
+  if (!read.done) keepAlive(reading)
+  const fromStack = read.done ? read.value : new Map<string, string>()
   const index = [...new Set([...indexed, ...fromStack.keys()])]
   const candidates = index.slice(0, USER_TEAMS_LIST_MAX)
-  let incomplete = index.length > candidates.length
+  let incomplete = index.length > candidates.length || !read.done
   const own = await membershipOf(env, personal, user)
   if (own === "unreachable") incomplete = true
   // The personal team's SSO rule binds every request already (ssoGate), so it is never the picker's to flag.
@@ -74,8 +78,11 @@ export const listUserTeams = async (env: Env, p: Principal, deps: UserTeamsDeps 
         const stackTeam = fromStack.get(team)
         // Stack lists the person in a team TeamDO does not confirm: sync that team from Stack, then ask again.
         if (m === null && stackTeam !== undefined) {
-          await syncTeam(env, team, stackTeam, user, deps.now())
-          m = await membershipOf(env, team, user)
+          // A sync past the budget goes on; the team is left out of this list as unconfirmed (`incomplete`).
+          const sync = syncTeam(env, team, stackTeam, user, deps.now())
+          const synced = await within(sync, HEAL_BUDGET_MS)
+          if (!synced.done) keepAlive(sync)
+          m = synced.done ? await membershipOf(env, team, user) : "unreachable"
         }
         return m && m !== "unreachable" ? { m, sso: await ssoRequiredIn(env, p, team) } : { m, sso: false as const }
       })

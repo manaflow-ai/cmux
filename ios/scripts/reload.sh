@@ -1219,7 +1219,7 @@ reload_device() {
         [[ "$NO_ATTACH" -eq 1 ]] && deferred_enqueue_args+=(--no-attach)
         if ! "$QUEUE_SCRIPT" "${deferred_enqueue_args[@]}"; then
           echo "error: iPhone is locked/offline AND the build could NOT be queued; nothing will auto-install" >&2
-          echo "error: retry after unlocking: scripts/mobile-dev-launch.sh --tag $TAG --device --device-id $selected_device_install_id --ensure-mac" >&2
+          echo "error: retry after unlocking: scripts/mobile-dev-launch.sh --tag $TAG --device --device-id $selected_device_install_id --readiness app-receipt --auth-profile personal" >&2
           return 1
         fi
         reload_device_notify "iPhone locked/offline: $TAG build queued" \
@@ -1231,7 +1231,7 @@ reload_device() {
         # while the matching tagged Iroh route is absent. Fail closed unless the
         # caller explicitly requested a plain launch above.
         echo "error: installed $BUNDLE_ID, but the iPhone auth gate failed; refusing an unpaired fallback launch" >&2
-        echo "error: retry: scripts/mobile-dev-launch.sh --tag $TAG --device --device-id $selected_device_install_id --ensure-mac" >&2
+        echo "error: retry: scripts/mobile-dev-launch.sh --tag $TAG --device --device-id $selected_device_install_id --readiness app-receipt --auth-profile personal" >&2
         return 1
       elif [[ "$NO_ATTACH" -eq 1 ]]; then
         # Signed launch without pairing (human-authorized opt-out): the auth

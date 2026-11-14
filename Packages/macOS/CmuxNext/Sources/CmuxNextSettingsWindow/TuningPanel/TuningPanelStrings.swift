@@ -13,6 +13,8 @@ public nonisolated struct TuningPanelStrings {
     }
     /// The sidebar rows panel's title.
     public static var sidebarRows: String { text("tuningPanel.sidebarRows", "Sidebar Row Tuner") }
+    /// The browser chrome panel's title (``BrowserChromeTuning``, the Density Overlay Playground's controls).
+    public static var browserChrome: String { text("tuningPanel.browserChrome", "Browser Chrome by Density") }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, bundle: .module)

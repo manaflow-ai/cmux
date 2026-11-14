@@ -30,6 +30,60 @@ pub(super) struct Hydration {
 }
 
 impl HubWriter {
+    /// Quarantines the damaged derived files and leaves the hot in-memory
+    /// rows as the sole published view. The next compaction writes a clean
+    /// snapshot, while the rebuild counter tells each source to walk again.
+    pub(super) fn rebuild_if_requested(&mut self) {
+        if !self.rebuild_requested.load(Ordering::Acquire) {
+            return;
+        }
+        // Let an already-running compaction finish its owned snapshot before
+        // moving files aside. The flag remains set and this method owns the
+        // next writer turn, so no second rebuild task can race the first.
+        if self.compaction.is_some() || self.retirement.is_some() {
+            return;
+        }
+        self.rebuild_requested.store(false, Ordering::Release);
+        let Some(directory) = self.directory.clone() else {
+            // In-memory hubs have no derived files to quarantine. Still fence
+            // subscribers through the same source-walk epoch.
+            self.rebuild_count.fetch_add(1, Ordering::AcqRel);
+            self.mark_rebuild_ready();
+            return;
+        };
+        let current = self.published.load_full();
+        let published_seq = current.seq();
+        self.hydration = None;
+        self.maintenance = None;
+        self.log = None;
+        let quarantined = quarantine_index(&directory).is_ok();
+        let mut rebuild_error = !quarantined;
+        if quarantined {
+            match IndexLog::open_at(directory.join("index.log"), published_seq) {
+                Ok(log) => self.log = Some(log),
+                Err(_) => {
+                    rebuild_error = true;
+                }
+            }
+        }
+        if rebuild_error {
+            // Keep the hub alive even if quarantine or opening the fresh log
+            // hits a transient storage error. Never reopen old files.
+            self.log_errors.fetch_add(1, Ordering::Relaxed);
+        }
+        let next = current.empty_for_rebuild();
+        self.published.store(Arc::new(next));
+        drop(current);
+        self.rebuild_count.fetch_add(1, Ordering::AcqRel);
+        self.next_compaction = Some(std::time::Instant::now());
+        self.storage_retry = None;
+        self.mark_rebuild_ready();
+    }
+
+    fn mark_rebuild_ready(&self) {
+        self.hydrated.send_replace(HydrationState::Ready);
+    }
+
     pub(super) fn persist_origin(&mut self, record: &OriginRecord) -> Result<(), HubError> {
         if let Some(log) = self.log.as_mut() {
             if let Err(error) = log.append_origin(record) {
@@ -73,6 +127,15 @@ impl HubWriter {
                     self.compaction_counters
                         .damaged_snapshot_frames
                         .fetch_add(1, Ordering::Relaxed);
+                }
+                Some(Err(error)) if acpmux_book::index::is_fatal_snapshot_read(&error) => {
+                    // A structural snapshot boundary is a rebuild request,
+                    // not a permanent hydration failure. Keep the daemon
+                    // ready while the writer quarantines the derived files.
+                    self.rebuild_requested.store(true, Ordering::Release);
+                    self.updates.notify.notify_one();
+                    finished = true;
+                    break;
                 }
                 Some(Err(_)) => {
                     self.log_errors.fetch_add(1, Ordering::Relaxed);
@@ -176,6 +239,7 @@ impl HubWriter {
         {
             self.turn_measure = TurnMeasure::default();
         }
+        self.rebuild_if_requested();
         // Installation and releasing the old maps stay off runtime workers.
         self.install_compaction();
         self.maintain_compaction();

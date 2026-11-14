@@ -285,8 +285,10 @@ fn spawn_adopting_host(
     master: RawFd,
 ) -> anyhow::Result<(SpawnedHostProcess, ChildStdinPair)> {
     let orphan_env = host_orphan_env();
+    // macOS: one malloc magazine and no nano zone (host_session.rs).
+    let malloc_env = host_malloc_env();
     let configure = |command: &mut Command| {
-        if let Some((name, value)) = &orphan_env {
+        for (name, value) in orphan_env.iter().chain(&malloc_env) {
             command.env(name, value);
         }
         command

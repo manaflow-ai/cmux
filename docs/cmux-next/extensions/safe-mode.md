@@ -113,6 +113,25 @@ Shipped apps (first-party, samples, `CMUX_APPS_DIRS`) are read in place from the
 change only with cmux or that folder, so no earlier version of theirs is on disk to keep:
 `apps.rollback` answers `apps.rollback.unsupported` for them.
 
+## Budget ladder: Slowed and Paused
+
+One app can be slow without being broken. The supervisor holds every mount, store apps and
+`local/customize` alike, to the budgets in plans/cmux-next/extensibility-DESIGN.md (sections 3
+and 6), in `cmux-tui-core/src/apps/budget.rs`:
+
+| Step | Trigger | What the supervisor does | What an agent reads |
+| --- | --- | --- | --- |
+| Normal | within budget | forwards at most one scene batch per frame; batches sent sooner coalesce (consecutive `update`s of one node merge) | `budget: "normal"` |
+| Slowed | a mount sends more than 10 batches a second for 5 s | forwards that mount at most once a second, until it is back under the rate for 5 s | `budget: "slowed"`, a `warn` log line, an `apps-budget` event to the mount's client |
+| Paused | 3 entry timeouts in 60 s, a memory kill after a restart, or Slowed for 60 s | every mount fails with `Paused: this app used too much time`, the host stops, a mount answers `apps.paused` | `budget: "paused"`, `run_state: "paused: <why>"`, an `error` log line, an `apps-budget` broadcast |
+| Off | the person turns the app off | unmounts (as before); on again starts Normal | `enabled: false` |
+
+`budget` is in `apps-list` rows and in `apps.catalog.get` / `apps.installed.list` `install`;
+`apps-list` rows also carry `scene_batches {in, out}` (batches the app sent and the host forwarded
+since the daemon started). `apps.resume {app}` (`apps-store`, any origin, so an agent that fixed its
+app can resume it) makes a paused app Normal again with nothing counted; a save of a local app
+resumes it the same way. An app still over budget pauses again.
+
 ## Cost
 
 With safe mode off: one flag file read when the supervisor starts, and one `Option` check where a
@@ -141,3 +160,6 @@ files are copied once per new good version, on a thread of its own.
   "safe-mode"` (today the client re-lists on it, and a failed view mounts again when reopened).
 - The notice that names the paused extension: read `apps-list` `safe_mode.extensions` and offer
   Roll Back (when `can_rollback`), Remove, and Leave Safe Mode.
+- The header text for the budget ladder: "Slowed" with "Why?" (the app's logs) and "Paused: this app
+  used too much time" with Resume (sends `apps.resume`), from `apps-budget` events and the `budget`
+  field. Needs gallery variants for both states.
