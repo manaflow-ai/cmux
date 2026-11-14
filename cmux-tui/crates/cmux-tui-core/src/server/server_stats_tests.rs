@@ -181,3 +181,61 @@ fn server_stats_include_reports_disk_use_by_file_and_journal_kind() {
     mux.shutdown();
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// `registry_cleanup` shows the file that a registry rebuild replaced while
+/// it is kept beside the registry (name, size, the first time it can go and
+/// the full starts that are left), and counts the reducer states that did
+/// not load and are kept raw. Only when asked, only for a registry on disk.
+#[test]
+fn server_stats_include_shows_the_kept_registry_file_and_the_states_kept_raw() {
+    let memory = Mux::new_for_test("server-stats-cleanup-memory", crate::SurfaceOptions::default());
+    let client = memory.control_clients.register(ClientTransport::Unix, writer());
+    let request = json!({"cmd":"server-stats","include":["registry_cleanup"]});
+    let in_memory = stats(&memory, client, request.clone());
+    assert!(in_memory.get("registry_cleanup").is_none(), "{in_memory}");
+
+    let root = std::env::temp_dir()
+        .join(format!("cmux-server-stats-cleanup-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = Mux::open_persistent("server-stats-cleanup", crate::SurfaceOptions::default(), &root)
+        .unwrap();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer());
+    let plain = stats(&mux, client, json!({"cmd":"server-stats"}));
+    assert!(plain.get("registry_cleanup").is_none(), "{plain}");
+    let nothing_kept = stats(&mux, client, request.clone());
+    let section = &nothing_kept["registry_cleanup"];
+    assert!(section["kept_file"].is_null(), "{section}");
+    assert_eq!(section["kept_raw"], 0, "{section}");
+    assert!(section["error"].is_null(), "{section}");
+
+    // The file of a rebuild, and a saved state that a start kept raw.
+    let db_path = mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
+    let kept = crate::workspace_registry::output_cleanup::kept_path(&db_path);
+    std::fs::write(&kept, vec![0_u8; 4096]).unwrap();
+    rusqlite::Connection::open(&db_path)
+        .unwrap()
+        .execute(
+            "INSERT INTO meta(key, value) VALUES('journal_reducer_kept.agent_roster', 'raw')",
+            [],
+        )
+        .unwrap();
+
+    let full = stats(&mux, client, request);
+    let section = &full["registry_cleanup"];
+    let file = &section["kept_file"];
+    assert_eq!(file["name"], "workspace-registry.sqlite3.kept-before-cleanup", "{section}");
+    assert_eq!(file["bytes"], 4096, "{section}");
+    // This registry has no record of a rebuild: the time is the file's.
+    let swapped_at = file["swapped_at_ms"].as_u64().unwrap_or(0);
+    assert!(swapped_at > 0, "{section}");
+    assert_eq!(
+        file["kept_until_ms"].as_u64(),
+        Some(swapped_at + 7 * 24 * 60 * 60 * 1_000),
+        "{section}"
+    );
+    assert_eq!(file["full_starts"], 0, "{section}");
+    assert_eq!(file["full_starts_left"], 3, "{section}");
+    assert_eq!(section["kept_raw"], 1, "{section}");
+    assert!(section["error"].is_null(), "{section}");
+    mux.shutdown();
+    let _ = std::fs::remove_dir_all(root);
+}

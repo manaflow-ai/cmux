@@ -42,6 +42,10 @@ pub use disk_usage::{
 pub use long_connections::LongConnectionsFull;
 pub use terminal_seats::{HostSeat, HostSeating, SeatedTerminal, TerminalSeat};
 mod hook_queue;
+mod registry_cleanup;
+pub use registry_cleanup::{
+    KeptRegistryFileSnapshot, RegistryCleanupSnapshot, read_registry_cleanup,
+};
 pub(crate) mod request_log;
 mod write_path;
 pub use hook_queue::{
@@ -908,6 +912,10 @@ pub struct ServerStatsSnapshot {
     /// Present only when the request names `journal_followers` in `include`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub journal_followers: Option<crate::mux::JournalFollowersSnapshot>,
+    /// Present only when the request names `registry_cleanup` in `include`
+    /// and the session keeps its registry on disk.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registry_cleanup: Option<RegistryCleanupSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;

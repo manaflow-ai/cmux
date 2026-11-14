@@ -139,7 +139,9 @@ pub(super) fn catch_up(mux: &Mux, deadline: Option<Instant>) -> anyhow::Result<C
             break false;
         }
         let turn = mux.history.turn();
-        mux.history.restore(mux);
+        // A saved fold that cannot be read or kept: nothing is folded and
+        // nothing is saved in this turn; the next one tries again.
+        mux.history.restore(mux)?;
         let cursor = mux.history.cursor();
         let (records, scanned) = match page(mux, cursor) {
             Ok(page) => page,
@@ -161,6 +163,19 @@ pub(super) fn catch_up(mux: &Mux, deadline: Option<Instant>) -> anyhow::Result<C
         drop(turn);
     };
     Ok(CaughtUp { changed, complete })
+}
+
+/// [`catch_up`] until `deadline`, then a save of the fold when its cursor is
+/// `stride` records past the saved one (merged.rs `save_past`).
+pub(super) fn catch_up_and_save(
+    mux: &Mux,
+    deadline: Instant,
+    stride: u64,
+) -> anyhow::Result<CaughtUp> {
+    let caught = catch_up(mux, Some(deadline))?;
+    let _turn = mux.history.turn();
+    mux.history.save_past(mux, stride);
+    Ok(caught)
 }
 
 /// Starts the session's history feed once, when the shared journal is on.

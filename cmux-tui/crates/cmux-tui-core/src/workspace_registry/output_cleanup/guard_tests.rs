@@ -58,6 +58,7 @@ fn a_registry_mostly_of_other_records_is_not_staged_and_its_staging_file_goes() 
 
     let outcome = stage_registry(
         &db_path,
+        0,
         &StageControl {
             on_pending: &|| {},
             next_segment: &|| true,
@@ -78,6 +79,7 @@ fn stage_now(db_path: &Path) -> StageOutcome {
     unsafe { std::env::set_var("CMUX_TUI_TEST_OUTPUT_CLEANUP_MARGIN_BYTES", "0") };
     stage_registry(
         db_path,
+        0,
         &StageControl {
             on_pending: &|| {},
             next_segment: &|| true,
@@ -183,7 +185,7 @@ mod followups {
             )
             .unwrap();
         drop(connection);
-        let outcome = stage_registry(&db_path, &control());
+        let outcome = stage_registry(&db_path, 0, &control());
         assert!(
             !matches!(outcome, Ok(StageOutcome::Skipped(_))),
             "a journal of 999 output records in 1010 was skipped: {outcome:?}"
@@ -202,7 +204,7 @@ mod followups {
         // SAFETY: nextest runs each test in its own process. Under a shared
         // process the value only lowers the cleanup's free-space margin.
         unsafe { std::env::set_var("CMUX_TUI_TEST_OUTPUT_CLEANUP_MARGIN_BYTES", "0") };
-        let outcome = stage_registry(&db_path, &control()).unwrap();
+        let outcome = stage_registry(&db_path, 0, &control()).unwrap();
         assert!(!matches!(outcome, StageOutcome::Built), "completed: {outcome:?}");
         assert!(!staging_path(&db_path).exists(), "the staging file stays: {outcome:?}");
         fs::remove_dir_all(&dir).unwrap();
@@ -217,13 +219,13 @@ mod followups {
         STAGED_BYTES_LIMIT.with(|limit| limit.set(4096));
         // SAFETY: as in the test above.
         unsafe { std::env::set_var("CMUX_TUI_TEST_OUTPUT_CLEANUP_MARGIN_BYTES", "0") };
-        let first = stage_registry(&db_path, &control()).unwrap();
+        let first = stage_registry(&db_path, 0, &control()).unwrap();
         let StageOutcome::Skipped(reason) = first else { panic!("not refused: {first:?}") };
         assert!(reason.contains("staging file"), "{reason}");
         assert!(refused_path(&db_path).is_file(), "the refusal is not recorded");
 
         // The next start does not stage the same journal again.
-        let second = stage_registry(&db_path, &control()).unwrap();
+        let second = stage_registry(&db_path, 0, &control()).unwrap();
         let StageOutcome::Skipped(reason) = second else { panic!("staged again: {second:?}") };
         assert!(reason.contains("runs again once the journal reaches 202"), "{reason}");
         assert!(!staging_path(&db_path).exists(), "a staging file was made");
@@ -237,7 +239,7 @@ mod followups {
                 [],
             )
             .unwrap();
-        let third = stage_registry(&db_path, &control()).unwrap();
+        let third = stage_registry(&db_path, 0, &control()).unwrap();
         let StageOutcome::Skipped(reason) = third else { panic!("not refused: {third:?}") };
         assert!(
             reason.contains("staging file") && !reason.contains("runs again"),
@@ -258,7 +260,7 @@ mod followups {
         STAGED_BYTES_LIMIT.with(|limit| limit.set(4096));
         // SAFETY: as in the test above.
         unsafe { std::env::set_var("CMUX_TUI_TEST_OUTPUT_CLEANUP_MARGIN_BYTES", "0") };
-        let first = stage_registry(&db_path, &control()).unwrap();
+        let first = stage_registry(&db_path, 0, &control()).unwrap();
         assert!(matches!(first, StageOutcome::Skipped(_)), "not refused: {first:?}");
         assert!(refused_path(&db_path).is_file(), "the refusal is not recorded");
 
@@ -266,7 +268,7 @@ mod followups {
             .unwrap()
             .execute("UPDATE meta SET value = 'registry-replaced' WHERE key = 'registry_id'", [])
             .unwrap();
-        let second = stage_registry(&db_path, &control()).unwrap();
+        let second = stage_registry(&db_path, 0, &control()).unwrap();
         let StageOutcome::Skipped(reason) = second else { panic!("not refused: {second:?}") };
         assert!(
             reason.contains("staging file") && !reason.contains("runs again"),

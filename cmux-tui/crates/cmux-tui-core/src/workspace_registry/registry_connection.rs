@@ -397,12 +397,32 @@ impl RegistryConnection {
         }
     }
 
+    /// For a background writer with no registry lock held: the syncer looks
+    /// at every commit made so far (a checkpoint once the WAL is large) and
+    /// this thread waits for it, at most `timeout`
+    /// (`WalDurability::checkpoint_and_wait`). An in-memory registry has no
+    /// WAL: it always has room.
+    pub(crate) fn checkpoint_and_wait(
+        &self,
+        timeout: std::time::Duration,
+    ) -> super::wal_durability::WalRoom {
+        self.durability.as_ref().map_or(super::wal_durability::WalRoom::Room, |durability| {
+            durability.checkpoint_and_wait(timeout)
+        })
+    }
+
     /// Commits no flush was requested for (`WalDurability::unrequested_commits`).
     #[cfg(test)]
     pub(crate) fn unrequested_commits_for_test(&self) -> u64 {
         self.durability
             .as_ref()
             .map_or(0, super::wal_durability::WalDurability::unrequested_commits)
+    }
+
+    /// Commits the syncer has not begun to look at (`WalDurability::unhandled_commits`).
+    #[cfg(test)]
+    pub(crate) fn unhandled_commits_for_test(&self) -> u64 {
+        self.durability.as_ref().map_or(0, super::wal_durability::WalDurability::unhandled_commits)
     }
 
     /// (committed, synced) registry commits for `server-stats` `write_path`.

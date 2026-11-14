@@ -39,6 +39,40 @@ pub(crate) fn pruned_gap(connection: &Connection, after: u64, next: u64) -> anyh
     }
 }
 
+/// The first sequence of the pruned range that ends at `end`, if one does.
+fn range_ending_at(connection: &Connection, end: u64) -> anyhow::Result<Option<u64>> {
+    let start = connection
+        .query_row(
+            "SELECT start_sequence FROM journal_pruned_ranges WHERE end_sequence = ?1
+             ORDER BY start_sequence LIMIT 1",
+            [i64::try_from(end)?],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional();
+    match start {
+        Ok(start) => Ok(start.map(u64::try_from).transpose()?),
+        Err(error) if is_missing_table(&error) => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// The first sequence of the pruned ranges that end right before `first`,
+/// the first journal record (at least 1); that sequence itself when no range
+/// ends there. A run an earlier pass removed before the first record (its
+/// segments are gone) joins the first packed segment, so all that is left
+/// out before the first kept record is one pruned range. Each pass lowers
+/// the start, so the loop ends.
+pub(super) fn pruned_run_start(connection: &Connection, first: u64) -> anyhow::Result<u64> {
+    let mut lo = first.max(1);
+    while lo > 1
+        && let Some(start) = range_ending_at(connection, lo - 1)?
+        && start < lo
+    {
+        lo = start.max(1);
+    }
+    Ok(lo)
+}
+
 fn is_missing_table(error: &rusqlite::Error) -> bool {
     matches!(
         error,

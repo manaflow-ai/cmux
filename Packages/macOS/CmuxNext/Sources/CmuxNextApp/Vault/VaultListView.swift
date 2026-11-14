@@ -29,9 +29,13 @@ struct VaultListView: View {
                 .disabled(vault.isLoading)
             }
             .padding(Metrics.panelInset)
+            if vault.showsNotCompleteMark {
+                Text(verbatim: HistoryAppStrings.stillLoading).font(Font(Typography.caption)).foregroundStyle(colors.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding([.horizontal, .bottom], Metrics.panelInset)
+            }
             if rows.isEmpty {
                 Spacer()
-                Text(verbatim: vault.rows.isEmpty ? VaultStrings.empty : VaultStrings.noMatch)
+                Text(verbatim: !vault.rows.isEmpty ? VaultStrings.noMatch : vault.isPartial ? "" : VaultStrings.empty)
                     .font(Font(Typography.caption)).foregroundStyle(colors.tertiary)
                     .multilineTextAlignment(.center).padding(Metrics.panelInset * 2)
                 Spacer()

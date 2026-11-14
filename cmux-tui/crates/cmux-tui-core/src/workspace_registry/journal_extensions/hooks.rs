@@ -117,6 +117,18 @@ impl WorkspaceRegistry {
              WHERE hook_id = ?1 AND manifest_version <> ?2",
             params![manifest.hook_id, i64::from(manifest.manifest_version)],
         )?;
+        // The dispatcher runs deliveries of the enabled version only, and a
+        // replaced version is never enabled again (versions only increase).
+        // Its deliveries that still wait can never run: they end here, so
+        // that none of them holds the journal's retention floor for ever. One
+        // that executes now is left to the dispatcher, which finishes it.
+        tx.execute(
+            "UPDATE journal_hook_deliveries
+             SET state = 'abandoned', completed_at_ms = ?3,
+                 error = 'the hook version was replaced'
+             WHERE hook_id = ?1 AND manifest_version <> ?2 AND state = 'scheduled'",
+            params![manifest.hook_id, i64::from(manifest.manifest_version), i64::try_from(now)?],
+        )?;
         let session_id = transaction_session_id(&tx)?;
         let subjects = vec![
             JournalSubject { kind: "session".into(), id: session_id },

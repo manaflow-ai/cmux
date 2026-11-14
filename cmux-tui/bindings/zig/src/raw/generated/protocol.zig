@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde";
+pub const ir_sha256 = "e0f129ba9e5de0dd090224643abdee9397ad729c0df51ac7927fd1e33a0144b4";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -2226,6 +2226,21 @@ pub const ServerStatsLocks = struct {
     state: ServerStatsLockDetail,
 };
 
+pub const ServerStatsRegistryCleanup = struct {
+    @"error": wire.Nullable([]const u8),
+    kept_file: wire.Nullable(ServerStatsRegistryKeptFile),
+    kept_raw: u64,
+};
+
+pub const ServerStatsRegistryKeptFile = struct {
+    bytes: u64,
+    full_starts: u64,
+    full_starts_left: u64,
+    kept_until_ms: wire.Nullable(u64),
+    name: []const u8,
+    swapped_at_ms: wire.Nullable(u64),
+};
+
 pub const ServerStatsRegistryLock = struct {
     contended_acquisitions: u64,
     hold_us: ServerStatsHistogram,
@@ -2264,6 +2279,7 @@ pub const ServerStatsResult = struct {
     journal_followers: ?ServerStatsJournalFollowers = null,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
     locks: ?ServerStatsLocks = null,
+    registry_cleanup: ?ServerStatsRegistryCleanup = null,
     registry_lock: ServerStatsRegistryLock,
     resource_projection: ?ServerStatsResourceProjection = null,
     schema: u32,
@@ -2276,6 +2292,7 @@ pub const ServerStatsResult = struct {
         "hook_queue",
         "journal_followers",
         "locks",
+        "registry_cleanup",
         "resource_projection",
         "write_path",
     };

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde. */
+/* cmux-tui mux protocol 12, IR e0f129ba9e5de0dd090224643abdee9397ad729c0df51ac7927fd1e33a0144b4. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1279,6 +1279,21 @@ export type ServerStatsLocks = {
   "state": ServerStatsLockDetail;
 };
 
+export type ServerStatsRegistryCleanup = {
+  "error": (string) | null;
+  "kept_file": (ServerStatsRegistryKeptFile) | null;
+  "kept_raw": bigint;
+};
+
+export type ServerStatsRegistryKeptFile = {
+  "bytes": bigint;
+  "full_starts": bigint;
+  "full_starts_left": bigint;
+  "kept_until_ms": (bigint) | null;
+  "name": string;
+  "swapped_at_ms": (bigint) | null;
+};
+
 export type ServerStatsRegistryLock = {
   "contended_acquisitions": bigint;
   "hold_us": ServerStatsHistogram;
@@ -1317,6 +1332,7 @@ export type ServerStatsResult = {
   "journal_followers"?: ServerStatsJournalFollowers;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "locks"?: ServerStatsLocks;
+  "registry_cleanup"?: ServerStatsRegistryCleanup;
   "registry_lock": ServerStatsRegistryLock;
   "resource_projection"?: ServerStatsResourceProjection;
   "schema": number;

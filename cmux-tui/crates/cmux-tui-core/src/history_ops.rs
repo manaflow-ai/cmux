@@ -41,7 +41,7 @@ use crate::Mux;
 use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_router::ParsedResourceRequest;
 
-pub(crate) use merged::HistoryHost;
+pub(crate) use merged::{AGENT_FOLD_STATE_ID, AGENT_FOLD_STATE_VERSION, HistoryHost};
 use pages::run;
 
 /// Advertised in identify: the daemon answers `history.*` and publishes
@@ -50,6 +50,12 @@ pub(crate) const CAPABILITY: &str = "history-v1";
 /// Advertised in identify: `history.clear` takes `until_ms`, the end of a
 /// clear that waited in the app's queue (its click time).
 pub(crate) const CLEAR_UNTIL_CAPABILITY: &str = "history-clear-until-v1";
+/// Advertised in identify: an agent row of `history.entries.list` carries
+/// the whole session (`terminal`, `tab`, `started_at_ms`, `ended_at_ms`). A
+/// reader with this capability takes agent sessions from the list and never
+/// folds the journal from its first retained record: retention deletes the
+/// records of an old session, and the list still has it.
+pub(crate) const AGENT_SESSIONS_CAPABILITY: &str = "history-agent-sessions-v1";
 /// The one history operation only the user may run (request_origin.rs
 /// gate A2): it deletes the undo of a delete.
 pub(crate) const PURGE_OPERATION: &str = "history.backups.purge";
@@ -239,4 +245,22 @@ fn local_day_start_ms(now_ms: i64) -> i64 {
 /// A failure of the history store as `operation.failed`.
 fn store_failed(operation: &str, error: impl std::fmt::Display) -> ResourceError {
     ResourceError::operation_failed(operation, error.to_string(), json!({}))
+}
+
+/// The maintenance worker's fold of the agent history before a journal
+/// retention pass, for at most `budget`: the saved fold cursor is one input
+/// of the retention floor. The fold is saved after an agent record, or when
+/// its cursor is `save_stride` records past the saved one. True when the
+/// fold reached the journal head.
+pub(crate) fn fold_for_retention(
+    mux: &Mux,
+    budget: std::time::Duration,
+    save_stride: u64,
+) -> anyhow::Result<bool> {
+    let deadline = std::time::Instant::now() + budget;
+    let caught = journal_feed::catch_up_and_save(mux, deadline, save_stride)?;
+    if !caught.changed.is_empty() {
+        mux.history.changed(mux, &caught.changed);
+    }
+    Ok(caught.complete)
 }

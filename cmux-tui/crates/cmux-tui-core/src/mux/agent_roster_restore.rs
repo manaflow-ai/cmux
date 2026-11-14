@@ -242,6 +242,71 @@ pub(super) fn restore_agent_roster_with(
     restore_agent_roster_within(registry, limits, None)
 }
 
+/// The roster's base on a registry with a retention floor, as this build
+/// reads it (restored at the current reducer version, migrated from an
+/// older one), with its cursor and version. `None` on a registry with no
+/// floor, and when no base is there or it does not restore.
+pub(super) fn roster_base(registry: &WorkspaceRegistry) -> Option<(AgentRoster, u64, u32)> {
+    use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION};
+    let (version, cursor, snapshot) =
+        registry.journal_reducer_base(AGENT_ROSTER_REDUCER_ID).ok().flatten()?;
+    let roster = if version == AGENT_ROSTER_REDUCER_VERSION {
+        AgentRoster::restore(&snapshot)
+    } else {
+        AgentRoster::migrate(version, &snapshot)
+    };
+    roster.map(|roster| (roster, cursor, version))
+}
+
+/// A saved roster that does not load, on a registry where journal retention
+/// deleted records. That saved roster is the only copy of each agent whose
+/// records are all below the floor: the fold that replaces it starts at the
+/// first RETAINED record, and its saves write a smaller roster over it. So
+/// the raw value is first kept under a second `meta` key
+/// (`WorkspaceRegistry::keep_unloaded_reducer_state`), and the start says so
+/// in its diagnostic. The start itself goes on: from the roster's base when
+/// there is one (`based`), else it serves what the retained journal gives.
+fn keep_unloaded_roster(registry: &WorkspaceRegistry, based: bool, problems: &mut Vec<String>) {
+    use crate::journal_reducers::AGENT_ROSTER_REDUCER_ID;
+    // A floor that cannot be read is taken as "records are deleted".
+    let pruned_through = registry.journal_pruned_through().unwrap_or(u64::MAX);
+    if pruned_through == 0 {
+        return;
+    }
+    match registry.keep_unloaded_reducer_state(AGENT_ROSTER_REDUCER_ID) {
+        Ok(true) => {
+            eprintln!(
+                "cmux-tui: the saved agent roster does not load and journal retention deleted \
+                 records: its raw value is kept in meta \
+                 journal_reducer_kept.{AGENT_ROSTER_REDUCER_ID}"
+            );
+            let served = if based {
+                "the roster starts from its base"
+            } else {
+                "the agents with no later record are not served"
+            };
+            problems.push(format!(
+                "its saved state did not load after journal retention deleted records: \
+                 {served}, and the raw saved value is kept in meta \
+                 journal_reducer_kept.{AGENT_ROSTER_REDUCER_ID}"
+            ));
+        }
+        // No saved value is there: nothing is written over.
+        Ok(false) => {}
+        Err(error) => {
+            eprintln!(
+                "cmux-tui: the saved agent roster does not load and its raw value was not \
+                 kept: {error:#}"
+            );
+            problems.push(
+                "its saved state did not load after journal retention deleted records, and \
+                 the raw saved value could not be kept"
+                    .to_owned(),
+            );
+        }
+    }
+}
+
 pub(super) fn restore_agent_roster_within(
     registry: &WorkspaceRegistry,
     limits: RosterFoldLimits,
@@ -249,15 +314,21 @@ pub(super) fn restore_agent_roster_within(
 ) -> anyhow::Result<RestoredAgentRoster> {
     use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION};
     let mut problems = Vec::new();
+    // The saved state is there and does not load: see `keep_unloaded_roster`.
+    let mut unloaded = false;
     let state = registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID).unwrap_or_else(|_| {
         eprintln!("cmux-tui: agent roster snapshot is unreadable; rebuilding it from the journal");
         problems.push("its snapshot was unreadable".to_owned());
+        unloaded = true;
         Some((0, 0, String::new()))
     });
     let head = registry.session_journal_head()?;
     // A stale roster an earlier start served and did not finish rebuilding.
     let pending = registry.journal_reducer_rebuild_pending(AGENT_ROSTER_REDUCER_ID).ok().flatten();
     let mut rebuild_from = pending;
+    // The start goes on from the roster's base, not from the saved state.
+    let mut from_base = false;
+    let saved_version = state.as_ref().map(|(version, _, _)| *version);
     let (mut host, mut needs_repair) = match state {
         Some((version, cursor, snapshot)) if version == AGENT_ROSTER_REDUCER_VERSION => {
             match AgentRoster::restore(&snapshot) {
@@ -265,7 +336,10 @@ pub(super) fn restore_agent_roster_within(
                 // The cursor is meaningful only with the snapshot that was
                 // captured at the same fold boundary. Replaying from zero
                 // is the safe recovery path for malformed persisted state.
-                None => (AgentRosterHost::default(), true),
+                None => {
+                    unloaded = true;
+                    (AgentRosterHost::default(), true)
+                }
             }
         }
         Some((version, cursor, snapshot)) => {
@@ -285,6 +359,7 @@ pub(super) fn restore_agent_roster_within(
                          {AGENT_ROSTER_REDUCER_VERSION}: the old snapshot does not restore; \
                          serving live events while it rebuilds in the background"
                     );
+                    unloaded = true;
                     (AgentRosterHost { roster: AgentRoster::default(), cursor: head }, true)
                 }
             }
@@ -297,6 +372,31 @@ pub(super) fn restore_agent_roster_within(
     if host.cursor > head {
         host = AgentRosterHost::default();
         needs_repair = true;
+        unloaded = true;
+    }
+    // On a registry with a retention floor, a saved state that is not this
+    // reducer's own fold cannot stand for the records below the floor: an
+    // older build folds an empty roster and saves it under the same key.
+    // The base can (`journal_retention/base.rs`): the start goes on from it.
+    // A base of this version makes the fold below the rebuild itself, so
+    // the migrated state is never saved. A base of an older version is
+    // served migrated and marked stale, as a saved state of that version.
+    let own_fold =
+        pending.is_none() && !unloaded && saved_version == Some(AGENT_ROSTER_REDUCER_VERSION);
+    let base = if own_fold { None } else { roster_base(registry) };
+    // Before any save below: each of them writes over the saved state.
+    if unloaded {
+        keep_unloaded_roster(registry, base.is_some(), &mut problems);
+    }
+    if let Some((roster, cursor, version)) = base {
+        eprintln!(
+            "cmux-tui: the saved agent roster is not this build's own fold and journal \
+             retention deleted records: the roster starts from its base at sequence {cursor}"
+        );
+        host = AgentRosterHost { roster, cursor };
+        needs_repair = true;
+        rebuild_from = (version != AGENT_ROSTER_REDUCER_VERSION).then_some(version);
+        from_base = true;
     }
     // A fold from the first record is itself the rebuild.
     if host.cursor == 0 {
@@ -311,7 +411,9 @@ pub(super) fn restore_agent_roster_within(
     // rebuild replaces the roster. An earlier start's mark still stands, so
     // a later save of the stale roster needs none; the mark goes with the
     // save of a full fold.
-    let first_mark = rebuild_from.filter(|_| pending.is_none());
+    // A stale mark of an earlier start stands for another roster than a
+    // base of an older version: that base is saved with its own mark.
+    let first_mark = rebuild_from.filter(|_| pending.is_none() || from_base);
     let mut unmarked_from = None;
     if let Some(from_version) = first_mark {
         if registry

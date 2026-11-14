@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde";
+inline constexpr std::string_view kProtocolIrSha256 = "e0f129ba9e5de0dd090224643abdee9397ad729c0df51ac7927fd1e33a0144b4";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -187,6 +187,8 @@ struct ServerStatsLockSite;
 struct ServerStatsLockSiteDetail;
 struct ServerStatsLockStall;
 struct ServerStatsLocks;
+struct ServerStatsRegistryCleanup;
+struct ServerStatsRegistryKeptFile;
 struct ServerStatsRegistryLock;
 struct ServerStatsResourceProjection;
 struct ServerStatsResult;
@@ -5308,6 +5310,23 @@ struct ServerStatsLocks {
     friend bool operator==(const ServerStatsLocks&, const ServerStatsLocks&) = default;
 };
 
+struct ServerStatsRegistryKeptFile {
+    std::uint64_t bytes{};
+    std::uint64_t full_starts{};
+    std::uint64_t full_starts_left{};
+    std::optional<std::uint64_t> kept_until_ms{};
+    std::string name{};
+    std::optional<std::uint64_t> swapped_at_ms{};
+    friend bool operator==(const ServerStatsRegistryKeptFile&, const ServerStatsRegistryKeptFile&) = default;
+};
+
+struct ServerStatsRegistryCleanup {
+    std::optional<std::string> error{};
+    std::optional<ServerStatsRegistryKeptFile> kept_file{};
+    std::uint64_t kept_raw{};
+    friend bool operator==(const ServerStatsRegistryCleanup&, const ServerStatsRegistryCleanup&) = default;
+};
+
 struct ServerStatsRegistryLock {
     std::uint64_t contended_acquisitions{};
     ServerStatsHistogram hold_us{};
@@ -5367,6 +5386,7 @@ struct ServerStatsResult {
     std::optional<ServerStatsJournalFollowers> journal_followers{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
     std::optional<ServerStatsLocks> locks{};
+    std::optional<ServerStatsRegistryCleanup> registry_cleanup{};
     ServerStatsRegistryLock registry_lock{};
     std::optional<ServerStatsResourceProjection> resource_projection{};
     std::uint32_t schema{};
@@ -7567,6 +7587,18 @@ template <>
 struct Codec<ServerStatsLocks> {
     static Result<Json> encode(const ServerStatsLocks& value);
     static Result<ServerStatsLocks> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsRegistryCleanup> {
+    static Result<Json> encode(const ServerStatsRegistryCleanup& value);
+    static Result<ServerStatsRegistryCleanup> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsRegistryKeptFile> {
+    static Result<Json> encode(const ServerStatsRegistryKeptFile& value);
+    static Result<ServerStatsRegistryKeptFile> decode(const Json& value);
 };
 
 template <>

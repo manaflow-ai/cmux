@@ -20,6 +20,7 @@ use super::super::{
 use super::build::{Build, BuildControl, CaughtUp, build, catch_up, ensure_build_state, set_state};
 use super::chunks::{CHUNK_SCHEMA, StagedRecord, insert_chunk};
 use super::codec::{inflate_segment, split_records};
+use super::floor_rule::{floor_cut, staged_cut};
 use super::journal_compact;
 use super::session_puts::{
     SESSION_PUT_KIND, SESSION_PUTS_SCHEMA, SESSION_PUTS_STATE, SessionPuts, record_live_puts,
@@ -36,8 +37,11 @@ use crate::platform;
 /// Format 3 stores kept records compressed (`chunks.rs`); a format 2 file
 /// (plain JSON per record) is discarded and staged again. Format 4 drops
 /// superseded session puts (`session_puts.rs`): a format 3 file kept them
-/// all, so it is staged again.
-const STAGING_FORMAT: &str = "4";
+/// all, so it is staged again. Format 5 leaves out the sealed segments at
+/// or below a retention floor (state `floor`) and stores each segment's
+/// sequence span: a build of format 4 discards it and its own build of a
+/// format 5 file never mixes with this one.
+pub(super) const STAGING_FORMAT: &str = "5";
 /// Session put records (live rows, and every record of a sealed segment
 /// that lists the kind) from which a registry without stored output still
 /// needs the cleanup: superseded puts may be most of its journal.
@@ -51,12 +55,20 @@ thread_local! {
 }
 
 #[cfg(test)]
-fn put_records_worth_a_cleanup() -> u64 {
+pub(super) fn put_records_worth_a_cleanup() -> u64 {
     PUT_RECORDS_LIMIT.with(std::cell::Cell::get)
 }
 
+/// Sets [`PUT_RECORDS_LIMIT`] on this thread: the cleanup worker of a test
+/// daemon takes the limit of its test this way (its own thread would use
+/// the product's 100,000, and a test's registry never holds that many).
+#[cfg(test)]
+pub(crate) fn set_put_records_limit_for_test(limit: u64) {
+    PUT_RECORDS_LIMIT.with(|cell| cell.set(limit));
+}
+
 #[cfg(not(test))]
-fn put_records_worth_a_cleanup() -> u64 {
+pub(super) fn put_records_worth_a_cleanup() -> u64 {
     PUT_RECORDS_WORTH_A_CLEANUP
 }
 
@@ -109,26 +121,41 @@ pub(crate) struct StageControl<'a> {
 /// SQLite virtual machine steps between two stop checks during a read.
 const STOP_CHECK_STEPS: std::ffi::c_int = 10_000;
 
-/// [`stage_registry_in`] for the output cleanup.
-#[cfg(test)]
+/// Phase A of the output cleanup for the registry at `db_path` (owned by the
+/// running process). [`stage_registry_in`] is the entry for a mode with no
+/// floor.
+///
+/// `floor` is the retention floor: every journal record at or below it may
+/// be left out of the new registry.
 pub(crate) fn stage_registry(
     db_path: &Path,
+    floor: u64,
     control: &StageControl<'_>,
 ) -> anyhow::Result<StageOutcome> {
-    stage_registry_in(db_path, control, CleanupMode::Output)
+    stage_registry_at(db_path, floor, control, CleanupMode::Output)
 }
 
 /// Phase A for the registry at `db_path` (owned by the running process) and
-/// the cleanup of `mode`; the owner asks for [`CleanupMode::Compact`] only
-/// with the opt-in (`journal_compact.rs`). Whatever fails once the owner is
-/// stopping (a read the stop cut short) is a stop: the staged work so far
-/// stays and the next start resumes it.
+/// the cleanup of `mode`, with no retention floor. The owner asks for
+/// [`CleanupMode::Compact`] only with the opt-in (`journal_compact.rs`), and
+/// a compaction never has a floor: it leaves out no record.
 pub(crate) fn stage_registry_in(
     db_path: &Path,
     control: &StageControl<'_>,
     mode: CleanupMode,
 ) -> anyhow::Result<StageOutcome> {
-    match stage_registry_until_stopped(db_path, control, mode) {
+    stage_registry_at(db_path, 0, control, mode)
+}
+
+/// Whatever fails once the owner is stopping (a read the stop cut short) is
+/// a stop: the staged work so far stays and the next start resumes it.
+fn stage_registry_at(
+    db_path: &Path,
+    floor: u64,
+    control: &StageControl<'_>,
+    mode: CleanupMode,
+) -> anyhow::Result<StageOutcome> {
+    match stage_registry_until_stopped(db_path, floor, control, mode) {
         Err(_) if (control.stopped)() => Ok(StageOutcome::Stopped),
         outcome => outcome,
     }
@@ -145,6 +172,7 @@ fn stop_reads_on(
 
 fn stage_registry_until_stopped(
     db_path: &Path,
+    floor: u64,
     control: &StageControl<'_>,
     mode: CleanupMode,
 ) -> anyhow::Result<StageOutcome> {
@@ -155,32 +183,47 @@ fn stage_registry_until_stopped(
     // The memo is of one registry: another one at this path (restored,
     // rehomed) is not covered by it.
     let identity = meta_value(&source, "registry_id")?;
-    match mode {
+    let (cut, below) = match mode {
         CleanupMode::Output => {
-            if let Some(reason) = refusal_memo(db_path, identity.as_deref(), journal_head(&source)?)
+            // The rule for a rebuild at a floor: the sealed segments at or
+            // below it cover at least as many sequences as the session puts
+            // bound.
+            let (cut, below) = floor_cut(&source, floor)?;
+            let cut = if below >= put_records_worth_a_cleanup() { cut } else { 0 };
+            if let Some(reason) =
+                refusal_memo(db_path, identity.as_deref(), journal_head(&source)?, cut)
             {
                 return Ok(StageOutcome::Skipped(reason));
             }
-            if !output_present(&source)? && !session_puts_present(&source)? {
+            if cut == 0 && !output_present(&source)? && !session_puts_present(&source)? {
+                // A staging file of an earlier start was built for a floor
+                // that this start does not have: the next open must not swap
+                // it in.
+                remove_staging(db_path)?;
                 return Ok(StageOutcome::NotNeeded);
             }
+            (cut, below)
         }
         // The opt-in is explicit: a refusal memo of the output cleanup does
-        // not cover it, and every journal with a record is rewritten.
+        // not cover it, and every journal with a record is rewritten. A
+        // compaction has no floor: it leaves out no segment.
         CleanupMode::Compact => {
             if journal_head(&source)? == 0 {
                 return Ok(StageOutcome::NotNeeded);
             }
+            (0, 0)
         }
-    }
+    };
     // A mixed segment counts as output here (the staged count checks it as
-    // it goes), but every record counts toward the journal's size.
-    let sealed = sealed_records(&source, 0)?;
+    // it goes), but every record counts toward the journal's size. The
+    // segments at or below the cut keep nothing.
+    let sealed = sealed_records(&source, cut)?;
+    let below = if cut == 0 { 0 } else { below };
     // Before the live puts are read, none counts as kept: the staged counts
     // check the real number as staging goes.
     let (live_kept, live_total) = live_records_within(&source, None, max_kept_records(mode))?;
     if let Some(reason) =
-        kept_refusal_in(mode, sealed.kept_at_least + live_kept, sealed.total + live_total)
+        kept_refusal_in(mode, sealed.kept_at_least + live_kept, sealed.total + below + live_total)
     {
         remove_staging(db_path)?;
         return Ok(StageOutcome::Skipped(reason));
@@ -198,7 +241,17 @@ fn stage_registry_until_stopped(
         return Ok(StageOutcome::Refused(reason));
     }
     let registry_id = required_meta(&source, "registry_id")?;
-    let staging = open_staging_in(db_path, &registry_id, mode, source_bytes)?;
+    let mut staging = open_staging_in(db_path, &registry_id, mode, source_bytes)?;
+    if staged_cut(&staging, cut)?.is_none() {
+        eprintln!(
+            "cmux-tui: output cleanup: the staging file was built at a higher floor than \
+             {cut}; staging again"
+        );
+        drop(staging);
+        remove_staging(db_path)?;
+        staging = open_staging_in(db_path, &registry_id, mode, source_bytes)?;
+        staged_cut(&staging, cut)?.context("a new staging file has a floor")?;
+    }
     if mode == CleanupMode::Output {
         // Before any segment is staged: the latest live put of each session.
         // A compaction reads none, so it drops no put.
@@ -228,7 +281,7 @@ fn stage_registry_until_stopped(
         drop(staging);
         remove_staging(db_path)?;
         if mode == CleanupMode::Output {
-            write_refusal_memo(db_path, &registry_id, journal_head(&source)?, &reason);
+            write_refusal_memo(db_path, &registry_id, journal_head(&source)?, cut, &reason);
         }
         return Ok(StageOutcome::Skipped(reason));
     }
@@ -242,7 +295,7 @@ fn stage_registry_until_stopped(
                 drop(staging);
                 remove_staging(db_path)?;
                 if mode == CleanupMode::Output {
-                    write_refusal_memo(db_path, &registry_id, journal_head(&source)?, &reason);
+                    write_refusal_memo(db_path, &registry_id, journal_head(&source)?, cut, &reason);
                 }
                 return Ok(StageOutcome::Skipped(reason));
             }
@@ -385,11 +438,15 @@ fn journal_head(source: &Connection) -> anyhow::Result<u64> {
 }
 
 /// Records that staging of registry `registry_id` finished and was refused
-/// at journal head `head`, so later starts do not stage the same journal
-/// again (each would copy it all and be refused the same way). Best effort:
-/// without the memo the next start stages again.
-fn write_refusal_memo(db_path: &Path, registry_id: &str, head: u64, reason: &str) {
-    let memo = format!("format {STAGING_FORMAT}\nregistry {registry_id}\nhead {head}\n{reason}\n");
+/// at journal head `head` with the sealed segments through `cut` left out,
+/// so later starts do not stage the same journal again (each would copy it
+/// all and be refused the same way). Best effort: without the memo the next
+/// start stages again.
+fn write_refusal_memo(db_path: &Path, registry_id: &str, head: u64, cut: u64, reason: &str) {
+    let reason = reason.replace('\n', " ");
+    let memo = format!(
+        "format {STAGING_FORMAT}\nregistry {registry_id}\nhead {head}\n{reason}\ncut {cut}\n"
+    );
     if let Err(error) = std::fs::write(refused_path(db_path), memo) {
         eprintln!("cmux-tui: output cleanup: could not record the refusal: {error}");
     }
@@ -400,7 +457,14 @@ fn write_refusal_memo(db_path: &Path, registry_id: &str, head: u64, reason: &str
 /// one written before memos named it, covers nothing), and the journal head
 /// below twice the head it was refused at. A memo past that (or unreadable)
 /// is removed and the cleanup runs again.
-fn refusal_memo(db_path: &Path, registry_id: Option<&str>, head: u64) -> Option<String> {
+///
+/// The memo is of a pass that left out the sealed segments through its cut
+/// (no `cut` line: 0, a pass without a floor). A pass at a higher `cut`
+/// leaves out more, so it is another question: the memo neither covers it
+/// nor is removed by it. A registry of agent and progress records is refused
+/// without a floor (it would keep most of its journal) and is the one a
+/// rebuild at a retention floor is for.
+fn refusal_memo(db_path: &Path, registry_id: Option<&str>, head: u64, cut: u64) -> Option<String> {
     let path = refused_path(db_path);
     let text = std::fs::read_to_string(&path).ok()?;
     let mut lines = text.lines();
@@ -411,6 +475,14 @@ fn refusal_memo(db_path: &Path, registry_id: Option<&str>, head: u64) -> Option<
         .and_then(|line| line.strip_prefix("head "))
         .and_then(|n| n.parse::<u64>().ok());
     let reason = lines.next().unwrap_or_default();
+    let refused_cut = lines
+        .next()
+        .and_then(|line| line.strip_prefix("cut "))
+        .and_then(|n| n.parse::<u64>().ok())
+        .unwrap_or(0);
+    if cut > refused_cut {
+        return None;
+    }
     if let Some(refused_at) = refused_at
         && format == Some(STAGING_FORMAT)
         && registry.is_some()
@@ -561,6 +633,7 @@ pub(super) fn open_staging_in(
     }
     for (key, value) in SESSION_PUTS_STATE.into_iter().chain([
         ("format", STAGING_FORMAT),
+        ("floor", ""),
         ("mode", mode.state_value()),
         ("registry_id", registry_id),
         ("staged_through", "0"),
@@ -636,6 +709,8 @@ pub(super) fn stage_segments(
     let total: i64 =
         source.query_row("SELECT COUNT(*) FROM journal_segments", [], |row| row.get(0))?;
     let mut puts = SessionPuts::load(staging)?;
+    // A staging file made without a floor (tests) leaves out no segment.
+    let cut = state(staging, "floor")?.parse::<u64>().unwrap_or(0);
     let mut since_space_check = 0_u64;
     let mut last_log = Instant::now();
     loop {
@@ -669,13 +744,17 @@ pub(super) fn stage_segments(
             staged_through == 0 || start == staged_through + 1,
             "journal segments contain a gap before sequence {start}"
         );
-        let mode = CleanupMode::of(staging)?;
-        let kept = kept_segment_records(source, &segment_id, start, end, record_count, mode)?;
-        // A sequence an earlier cleanup pruned counts as removed: the
-        // segment's records are its whole sequence range.
-        let record_count = i64::try_from(end - start + 1)?;
+        // A segment at or below the cut is not read: all of it is left out.
+        let kept = if end <= cut {
+            Vec::new()
+        } else {
+            kept_segment_records(source, &segment_id, start, end, record_count)?
+        };
         let split = puts.split_segment(kept, start);
         let kept_count = i64::try_from(split.staged.len())? + i64::try_from(split.held)?;
+        // The sequences of the segment: one an earlier rebuild packed holds
+        // fewer records than that, the rest are its pruned ranges.
+        let record_count = i64::try_from(end - start + 1)?;
         let tx = staging.unchecked_transaction()?;
         tx.execute(
             "INSERT INTO output_cleanup_segments(
@@ -825,12 +904,11 @@ fn kept_segment_records(
     start: u64,
     end: u64,
     record_count: i64,
-    mode: CleanupMode,
 ) -> anyhow::Result<Vec<StagedRecord>> {
-    let gaps = match mode {
-        CleanupMode::Output => SegmentGaps::Damage,
-        CleanupMode::Compact => SegmentGaps::Pruned,
-    };
+    // Both cleanups read segments that an earlier one packed: the output
+    // cleanup when it builds again at a retention floor, the compaction
+    // after a cleanup. A gap that no pruned range covers is damage in both.
+    let gaps = SegmentGaps::Pruned;
     Ok(inflated_segment_records(source, segment_id, start, end, record_count, gaps)?
         .into_iter()
         .filter(|record| record.1 != OUTPUT_KIND)
@@ -844,7 +922,8 @@ pub(super) enum SegmentGaps {
     Damage,
     /// The records an earlier cleanup removed, where one row of the
     /// source's `journal_pruned_ranges` covers the gap; damage otherwise.
-    /// The journal compaction reads a registry that already had a cleanup.
+    /// The journal compaction reads a registry that already had a cleanup,
+    /// and so does a rebuild at a retention floor after the first one.
     Pruned,
 }
 

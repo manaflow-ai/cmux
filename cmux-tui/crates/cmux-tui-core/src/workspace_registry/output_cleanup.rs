@@ -25,15 +25,28 @@
 //!   any records a stopped catch-up left unpacked, over `SWAP_TAIL_LIMIT`
 //!   records defers the swap), every other table copied,
 //!   a check, and the rename over the registry. The old file stays as
-//!   `workspace-registry.sqlite3.pre-output-cleanup` until the next start
-//!   that opens the new registry. A start that swaps used to build the whole
-//!   journal here and took minutes on a large registry.
+//!   `workspace-registry.sqlite3.pre-output-cleanup` until one full start
+//!   on the new registry, then as `.kept-before-cleanup` for at least 7
+//!   days and 3 full starts (`backup.rs`). A start that swaps used to build
+//!   the whole journal here and took minutes on a large registry.
 //!
 //! The same pass drops the `personal.session.put` records a later put of
 //! the same session superseded ([`session_puts`] says which and why no
 //! reader needs them): a loop that re-put one session every few
 //! milliseconds left 11.5M of them in one registry. The pack records their
 //! runs in `journal_pruned_ranges` like removed output.
+//!
+//! The same pass rebuilds a registry at a retention floor
+//! (`stage_registry(db_path, floor, ..)`): every sealed segment that ends
+//! at or below the floor is left out without being read, with its subject
+//! and event index rows, its kept reducer records and the ingress receipts
+//! of its records. The floor is rounded down to a segment end, so a segment
+//! goes whole or stays whole and live rows always stay. All that is left
+//! out before the first kept record is one pruned range. The rule: the
+//! segments at or below the floor hold at least
+//! `PUT_RECORDS_WORTH_A_CLEANUP` records. After the swap no segment ends
+//! at or below that floor, so the same floor never rebuilds twice. A
+//! staging file built at a higher floor than the caller's is discarded.
 //!
 //! Sequences never change: cursors, checkpoints and hook deliveries keep
 //! pointing at the same records. The journal readers accept a missing run of
@@ -63,11 +76,19 @@
 //! The same pipeline runs a second, opt-in transformation
 //! ([`CleanupMode::Compact`], `journal_compact.rs`): it drops nothing and
 //! rewrites the resource records that restate the whole session. It has its
-//! own bounds and its own done marker.
+//! own bounds and its own done marker. The file that its swap replaces is
+//! held by the same rule as a rebuild's (`backup.rs`), and neither of the
+//! two stages or swaps while a file that the other's swap replaced is kept.
+//! A staging file belongs to one mode (the state key `mode`; a file with no
+//! such key is an output cleanup's): a start in the other mode discards it.
+//! Both read sealed segments that an earlier cleanup packed, where a gap is
+//! accepted only when one pruned range covers it (`stage::SegmentGaps`).
 
+mod backup;
 mod build;
 mod chunks;
 mod codec;
+mod floor_rule;
 pub(crate) mod journal_compact;
 mod mode;
 mod pruned;
@@ -83,16 +104,18 @@ use rusqlite::{Connection, params};
 use super::open_guard::sidecar_path;
 use super::{WorkspaceRegistry, meta_value};
 
+pub(crate) use backup::{backup_held, held_backup};
+pub(super) use backup::{
+    finish_pending_rollback, keep_or_remove_previous_registry, note_full_start,
+    refuse_open_beside_backup, restore_interrupted_swap, roll_back_swap, rollback_possible,
+};
 pub(crate) use mode::CleanupMode;
+use pruned::pruned_run_start;
 pub(crate) use pruned::{PRUNED_RANGES_SCHEMA, pruned_gap};
 #[cfg(test)]
-pub(crate) use stage::stage_registry;
-pub(crate) use stage::{StageControl, StageOutcome, stage_registry_in};
-pub(super) use swap::{
-    finish_pending_rollback, note_full_start, refuse_open_beside_backup,
-    remove_previous_registry_when_started, restore_interrupted_swap, roll_back_swap,
-    rollback_possible, swap_at_open,
-};
+pub(crate) use stage::set_put_records_limit_for_test;
+pub(crate) use stage::{StageControl, StageOutcome, stage_registry, stage_registry_in};
+pub(super) use swap::swap_at_open;
 
 /// Registry meta key set once the cleanup is done (or was not needed). The
 /// cleanup is one-time: a registry with this key is never staged again.
@@ -104,6 +127,8 @@ pub(crate) const DONE_META_KEY: &str = "output_cleanup_v2";
 pub(crate) const V1_DONE_META_KEY: &str = "output_cleanup_v1";
 const STAGING_SUFFIX: &str = ".output-cleanup";
 const PREVIOUS_SUFFIX: &str = ".pre-output-cleanup";
+/// The file a swap replaced, after the rollback window (`backup.rs`).
+const KEPT_SUFFIX: &str = ".kept-before-cleanup";
 /// Written when a swap failed for a reason other than free space; no later
 /// start stages this registry again until the file is removed.
 const FAILED_SUFFIX: &str = ".output-cleanup-failed";
@@ -149,6 +174,10 @@ pub(crate) fn previous_path(db_path: &Path) -> PathBuf {
     sidecar_path(db_path, PREVIOUS_SUFFIX)
 }
 
+pub(crate) fn kept_path(db_path: &Path) -> PathBuf {
+    sidecar_path(db_path, KEPT_SUFFIX)
+}
+
 pub(crate) fn failed_path(db_path: &Path) -> PathBuf {
     sidecar_path(db_path, FAILED_SUFFIX)
 }
@@ -161,7 +190,38 @@ pub(crate) fn refused_path(db_path: &Path) -> PathBuf {
     sidecar_path(db_path, REFUSED_SUFFIX)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// [`DISK_MARGIN_BYTES`] for a test on this thread.
+    static DISK_MARGIN_FOR_TEST: std::cell::Cell<Option<u64>> =
+        const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The retention floor a start reads, for a fixture on this thread that
+    /// stages at a floor it names (its own registry has none: every segment
+    /// is young and no fold is saved).
+    static START_FLOOR_FOR_TEST: std::cell::Cell<Option<u64>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// The retention floor of the start that reads `source`
+/// (`journal_retention::journal_retention_floor`): what this build still
+/// reads from the journal.
+fn start_floor(source: &Connection) -> anyhow::Result<u64> {
+    #[cfg(test)]
+    if let Some(floor) = START_FLOOR_FOR_TEST.with(std::cell::Cell::get) {
+        return Ok(floor);
+    }
+    super::journal_retention::journal_retention_floor(source)
+}
+
 fn disk_margin() -> u64 {
+    #[cfg(test)]
+    if let Some(bytes) = DISK_MARGIN_FOR_TEST.with(std::cell::Cell::get) {
+        return bytes;
+    }
     #[cfg(debug_assertions)]
     if let Some(bytes) = std::env::var("CMUX_TUI_TEST_OUTPUT_CLEANUP_MARGIN_BYTES")
         .ok()
@@ -388,6 +448,15 @@ fn build_stamp() -> String {
 
 /// True when an earlier attempt of this same build failed for a reason that
 /// would fail again. A marker of another build is removed.
+/// The retention floor of the registry at `db_path`, read beside its owner
+/// (`journal_retention::journal_retention_floor`). The cleanup worker
+/// resumes a staging file of an earlier start at this floor.
+pub(crate) fn registry_retention_floor(db_path: &Path) -> anyhow::Result<u64> {
+    let source = super::open_registry_database_read_only(db_path)?;
+    source.busy_timeout(std::time::Duration::from_secs(5))?;
+    super::journal_retention::journal_retention_floor(&source)
+}
+
 pub(crate) fn failed_for_this_build(db_path: &Path) -> bool {
     let marker = failed_path(db_path);
     let Ok(text) = std::fs::read_to_string(&marker) else { return false };
@@ -435,6 +504,25 @@ fn is_temporary(error: &anyhow::Error) -> bool {
 /// The message of an error that makes the staged work unusable.
 const STAGED_WORK_CHANGED: &str = "the registry's sealed segments changed after staging";
 
+/// [`WorkspaceRegistry::journal_rebuild_owed`] on `source`, a connection to
+/// the registry file that the registry lock does not guard. The read is a
+/// row of each sealed segment at or below `floor` (2,383 of them took 22 s
+/// under the lock on a generated registry of 13 GB, 2026-11-13), so the
+/// retention pass makes it there.
+pub(crate) fn journal_rebuild_owed_on(source: &Connection, floor: u64) -> anyhow::Result<bool> {
+    floor_rule::rebuild_owed(source, floor)
+}
+
+/// [`WorkspaceRegistry::journal_in_place_room`] on `source`, as
+/// [`journal_rebuild_owed_on`].
+pub(crate) fn journal_in_place_room_on(
+    source: &Connection,
+    floor: u64,
+    deleted: u64,
+) -> anyhow::Result<Option<u64>> {
+    floor_rule::in_place_room(source, floor, deleted)
+}
+
 /// The registry meta key that marks the cleanup of `mode` done.
 fn done_meta_key(mode: CleanupMode) -> &'static str {
     match mode {
@@ -474,6 +562,10 @@ fn mebibytes(bytes: u64) -> String {
 mod guard_tests;
 
 #[cfg(test)]
+#[path = "output_cleanup/floor_tests.rs"]
+mod floor_tests;
+
+#[cfg(test)]
 #[path = "output_cleanup/journal_compact_tests.rs"]
 mod journal_compact_tests;
 
@@ -481,6 +573,25 @@ impl WorkspaceRegistry {
     /// The cleanup ran (or found no output) for this registry.
     pub(crate) fn output_cleanup_done(&self) -> anyhow::Result<bool> {
         Ok(meta_value(&self.connection.get(), DONE_META_KEY)?.is_some())
+    }
+
+    /// True when the sealed segments at or below `floor` hold enough records
+    /// that the rebuild beside the file removes them, not the retention pass
+    /// (which would leave the file at its size).
+    pub(crate) fn journal_rebuild_owed(&self, floor: u64) -> anyhow::Result<bool> {
+        floor_rule::rebuild_owed(&self.connection.get(), floor)
+    }
+
+    /// The records the retention pass may still delete in place in this
+    /// start, after `deleted` of them, when no rebuild of this start takes
+    /// the run at or below `floor` (`floor_rule::in_place_room`); `None`: no
+    /// bound, the run is not worth a rebuild.
+    pub(crate) fn journal_in_place_room(
+        &self,
+        floor: u64,
+        deleted: u64,
+    ) -> anyhow::Result<Option<u64>> {
+        floor_rule::in_place_room(&self.connection.get(), floor, deleted)
     }
 
     /// The cleanup of `mode` ran (or was not needed) for this registry.

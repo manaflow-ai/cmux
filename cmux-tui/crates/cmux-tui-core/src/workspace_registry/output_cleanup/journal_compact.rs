@@ -13,7 +13,8 @@
 //! The compaction runs through the output cleanup's pipeline (the
 //! `output_cleanup` module docs: a new file staged beside the registry,
 //! swapped at the next start, the old file kept as `.pre-output-cleanup`
-//! until the next good start, a rollback when the new file does not open),
+//! until one full start and then as `.kept-before-cleanup` for at least 7
+//! days and 3 full starts, a rollback when the new file does not open),
 //! as [`CleanupMode::Compact`]. In that mode the pipeline drops no session
 //! put, and the pack rewrites each resource record.
 //!
@@ -45,8 +46,9 @@
 //! segments. The staging pass of this mode accepts a gap that one row of the
 //! registry's `journal_pruned_ranges` covers (`SegmentGaps::Pruned`) and
 //! counts those sequences as removed; the pack writes them as pruned ranges
-//! again. The output cleanup still refuses such a segment: for it a gap is
-//! damage.
+//! again. The output cleanup reads such a segment in the same way when it
+//! builds the registry again at a retention floor. A gap that no pruned
+//! range covers is damage in both.
 //!
 //! # Subjects
 //!

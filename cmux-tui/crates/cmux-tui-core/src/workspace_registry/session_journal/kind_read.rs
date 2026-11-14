@@ -180,7 +180,9 @@ fn active_kinds_after(
 /// the sequence the page covered through. A segment whose kind map names no
 /// accepted kind is skipped without loading its content; one that does is
 /// read from its kept reducer records when they cover those kinds, and
-/// decoded whole otherwise. Either way it is consumed whole, so the next
+/// decoded whole otherwise (also a segment at or below the retention floor,
+/// whose kept records retention may have deleted a part of). Either way it
+/// is consumed whole, so the next
 /// page never reads it again. Up to [`segment_decode_workers`] segments
 /// decode at once (`consume_batch`).
 ///
@@ -216,8 +218,11 @@ fn archived_kinds_after(
     // The archive head is the last segment's end, so a range below it has a
     // segment; none covers nothing, as the legacy read returned.
     let Some(first) = segments.first() else { return Ok((Vec::new(), through)) };
+    // Retention deleted the segments before the first one: the read goes on
+    // from the first retained record.
     anyhow::ensure!(
-        first.1 <= i64::try_from(sequence.saturating_add(1))?,
+        first.1 <= i64::try_from(sequence.saturating_add(1))?
+            || pruned_gap(connection, sequence, u64::try_from(first.1)?)?,
         "journal segments contain a gap before sequence {}",
         first.1
     );
@@ -236,6 +241,12 @@ fn archived_kinds_after(
     // reader cannot run the backfill that would finish it. Such a segment is
     // read as an unmapped one.
     let unproven = unproven_kind_maps(connection)?;
+    // Retention deletes the kept reducer records of a segment at or below
+    // its floor in more than one transaction, and the segment row with its
+    // content last (`workspace_registry::journal_retention`): between two of
+    // them, and after a kill there, the kept records are those of a part of
+    // the segment. Such a segment is read from its content, which is whole.
+    let pruned_through = journal_retention::journal_pruned_through(connection)?;
     let mut page = Page { sequence, through, kinds, records: Vec::new(), reached: sequence };
     let workers = segment_decode_workers();
     // Segments in order, each with how its accepted records are read.
@@ -261,15 +272,21 @@ fn archived_kinds_after(
         } else {
             // The segment's records of these kinds as sealing kept them, or
             // the segment itself when they were not kept (sealed by an older
-            // build, not yet backfilled).
-            match reducer_records::sealed_reducer_records(
-                connection,
-                &segment_id,
-                start,
-                end,
-                &accepted,
-                kinds,
-            )? {
+            // build, not yet backfilled) or can be a part only (at or below
+            // the retention floor).
+            let kept = if end <= pruned_through {
+                None
+            } else {
+                reducer_records::sealed_reducer_records(
+                    connection,
+                    &segment_id,
+                    start,
+                    end,
+                    &accepted,
+                    kinds,
+                )?
+            };
+            match kept {
                 Some(kept) => {
                     batch_kept += kept.len();
                     PageSegment::Kept(kept)

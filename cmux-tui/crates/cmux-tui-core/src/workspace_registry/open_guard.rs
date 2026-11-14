@@ -171,8 +171,8 @@ pub(crate) fn quarantine(db_path: &Path, reason: &str) -> anyhow::Result<Registr
 ///   opens a new, empty registry, and the output store drops the files of
 ///   every terminal that registry does not know; left in place, all of it
 ///   would be deleted at that start.
-/// - The backup of an output-cleanup swap (`.pre-output-cleanup` and its
-///   sidecars). With the registry gone, the next start takes a backup in
+/// - The backup of an output-cleanup swap (`.pre-output-cleanup` or, after
+///   one full start, `.kept-before-cleanup`, and its sidecars). With the registry gone, the next start takes a backup in
 ///   place for an interrupted swap and renames it in: it would serve the
 ///   session from before the swap. A start that rolls a failed swap back has
 ///   already put the backup in place before this runs.
@@ -188,6 +188,14 @@ pub(super) fn keep_with_quarantined(db_path: &Path, quarantined: &RegistryQuaran
         // only sidecars, which no open applies to anything.
         sources.push(previous.clone());
         sources.extend(SIDECAR_SUFFIXES.iter().map(|suffix| sidecar_path(&previous, suffix)));
+    }
+    // The kept file of a confirmed swap is of the quarantined registry too.
+    // No start reads it, but left in place it would stay beside the new
+    // registry for good and hold every later rebuild off.
+    let kept = crate::workspace_registry::output_cleanup::kept_path(db_path);
+    if kept.exists() {
+        sources.push(kept.clone());
+        sources.extend(SIDECAR_SUFFIXES.iter().map(|suffix| sidecar_path(&kept, suffix)));
     }
     let mut moved = false;
     for source in sources.into_iter().filter(|source| source.exists()) {

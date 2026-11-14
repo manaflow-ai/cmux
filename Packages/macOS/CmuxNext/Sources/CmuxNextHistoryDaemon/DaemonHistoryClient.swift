@@ -32,6 +32,16 @@ public struct DaemonHistoryClient: Sendable {
         return try await Self.decode(DaemonHistoryList.self, from: result)
     }
 
+    /// The daemon lists each agent session whole (`history-agent-sessions-v1`).
+    public static let agentSessionsCapability = DaemonCapability.historyAgentSessions.rawValue
+
+    /// Every agent session the daemon lists, as sessions of `machine` (the daemon keeps at most 500), and whether
+    /// that list is complete. While the daemon's fold is behind (`pending_kinds` names `agent`) it is not: these
+    /// are the sessions the fold has reached.
+    public func agentSessions(machine: String) async throws -> (sessions: [AgentSession], isComplete: Bool) {
+        try await list(kinds: [.agent], text: "", range: .all, limit: 5_000).agentSessions(machine: machine)
+    }
+
     /// Runs `read` up to `attempts` times, spaced by `backoff` (a busy daemon times out once, then
     /// answers). nil when no attempt answered, never an empty list in its place.
     public static func retrying<T>(attempts: Int = 3, backoff: Backoff = Backoff(initial: .milliseconds(150), maximum: .seconds(1)),

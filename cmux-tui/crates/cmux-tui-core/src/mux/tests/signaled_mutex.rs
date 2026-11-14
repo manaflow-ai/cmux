@@ -108,6 +108,65 @@ fn lock_detail_reports_per_site_hold_and_wait_percentiles() {
     assert!(long.hold_max_us >= 20_000, "{long:?}");
 }
 
+/// A pass that takes the registry lock many times in a row (the journal retention pass) gives a waiting locker its
+/// turn at each gap. The mutex alone does not: the thread that released it takes it again before the locker that the
+/// release woke. No timing: the test asks at each gap how many lockers waited, and when one did, its hold is the
+/// last one before the pass has the lock again. It proves that for the gaps where `give_way_to_waiters` reports a
+/// waiter: a run in which no gap had one (the count it prints is 0) proves only the order of the holds.
+#[test]
+fn a_waiter_that_give_way_reports_gets_the_registry_lock_before_the_next_hold() {
+    const ROUNDS: usize = 200;
+    let mutex = Arc::new(SignaledMutex::new(Vec::<(&'static str, usize)>::new()));
+    assert_eq!(mutex.give_way_to_waiters(), 0, "no locker waits, so the pass does not wait");
+    let (go, rounds) = std::sync::mpsc::channel::<usize>();
+    let waiter = {
+        let mutex = mutex.clone();
+        std::thread::spawn(move || {
+            for round in rounds {
+                mutex.lock().unwrap().push(("waiter", round));
+            }
+        })
+    };
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut gaps_with_a_waiter = 0;
+    let mut guard = mutex.lock().unwrap();
+    for round in 0..ROUNDS {
+        guard.push(("pass", round));
+        // The pass holds the lock, so the waiter of this round does not have it yet.
+        go.send(round).unwrap();
+        loop {
+            drop(guard);
+            let waited = mutex.give_way_to_waiters();
+            guard = mutex.lock().unwrap();
+            let had_its_turn = guard.last() == Some(&("waiter", round));
+            if waited > 0 {
+                gaps_with_a_waiter += 1;
+                assert!(
+                    had_its_turn,
+                    "round {round}: a locker waited at the gap and the pass took the lock again before it: {:?}",
+                    &guard[guard.len().saturating_sub(4)..]
+                );
+            }
+            if had_its_turn {
+                break;
+            }
+            // The other thread did not ask for the lock yet.
+            assert!(Instant::now() < deadline, "round {round}: the waiter never got the lock");
+            std::thread::yield_now();
+        }
+    }
+    let holds = guard.clone();
+    drop(guard);
+    drop(go);
+    waiter.join().unwrap();
+    let expected =
+        (0..ROUNDS).flat_map(|round| [("pass", round), ("waiter", round)]).collect::<Vec<_>>();
+    assert_eq!(holds, expected, "each hold of the pass has one hold of the waiter after it");
+    // On a host with one core the waiter can take its turn while the pass does not run; the gaps where it did wait
+    // are the ones this test is about.
+    eprintln!("GIVE_WAY gaps_with_a_waiter={gaps_with_a_waiter} of {ROUNDS}");
+}
+
 /// A writer that panics in the middle of a change leaves half-made routing tables. They are never published (the
 /// guard drops during the unwind, then the mutex is poisoned), so the input lane keeps routing by the last finished
 /// change (R-DAEMON-STATE stage S1).

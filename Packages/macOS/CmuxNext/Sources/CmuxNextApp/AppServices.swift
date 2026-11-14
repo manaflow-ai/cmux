@@ -26,6 +26,7 @@ public import CmuxNextDictation
 import CmuxNextFloating
 import CmuxNextFavicons
 import CmuxNextHibernation
+import CmuxNextHistory
 import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextKeepAwake

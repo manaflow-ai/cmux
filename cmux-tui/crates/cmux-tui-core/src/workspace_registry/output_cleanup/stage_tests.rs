@@ -38,7 +38,7 @@ fn a_mixed_segment_listed_as_output_only_keeps_its_other_records() {
     // The backfill was killed after its first kind row for this segment.
     source.execute("INSERT INTO journal_segment_kinds VALUES('mixed', ?1)", [OUTPUT_KIND]).unwrap();
 
-    let kept = kept_segment_records(&source, "mixed", 1, 2, 2, CleanupMode::Output).unwrap();
+    let kept = kept_segment_records(&source, "mixed", 1, 2, 2).unwrap();
     let kept: Vec<(u64, &str)> = kept.iter().map(|record| (record.0, record.1.as_str())).collect();
     assert_eq!(kept, vec![(2, "terminal.title")], "the title record is not output");
 }
@@ -259,6 +259,157 @@ fn the_staged_counts_fail_for_live_rows_counted_past_the_staged_segments() {
         )
         .unwrap();
     assert!(check_staged_counts(&staging).is_err(), "an unstaged archive passed the counts");
+    drop(staging);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A registry file with one sealed segment over the sequences 1 to 5 that
+/// holds only the records `sequences`, and `ranges` as its pruned ranges.
+fn source_with_a_gapped_segment(
+    name: &str,
+    sequences: &[u64],
+    ranges: &[(i64, i64)],
+) -> (std::path::PathBuf, Connection) {
+    let dir = seal_race_dir(name);
+    let db_path = dir.join("workspace-registry.sqlite3");
+    let source = Connection::open(&db_path).unwrap();
+    source
+        .execute_batch(
+            "CREATE TABLE journal_segments(
+               segment_id TEXT PRIMARY KEY, start_sequence INTEGER, end_sequence INTEGER,
+               record_count INTEGER, codec TEXT, content BLOB, uncompressed_bytes INTEGER,
+               sha256 BLOB, actors_json TEXT);
+             CREATE TABLE journal_segment_kinds(segment_id TEXT, kind TEXT);
+             CREATE TABLE journal_pruned_ranges(
+               start_sequence INTEGER PRIMARY KEY, end_sequence INTEGER NOT NULL);",
+        )
+        .unwrap();
+    let records = sequences
+        .iter()
+        .map(|sequence| {
+            format!(
+                r#"{{"sequence":{sequence},"kind":"terminal.title","payload":{{"title":"t"}}}}"#
+            )
+        })
+        .collect::<Vec<_>>();
+    let (content, bytes, sha256) = gzip_segment(format!("[{}]", records.join(",")).as_bytes());
+    source
+        .execute(
+            "INSERT INTO journal_segments
+             VALUES('gapped', 1, 5, ?1, 'gzip-json-v1', ?2, ?3, ?4, NULL)",
+            params![i64::try_from(sequences.len()).unwrap(), content, bytes, sha256],
+        )
+        .unwrap();
+    for (start, end) in ranges {
+        source.execute("INSERT INTO journal_pruned_ranges VALUES(?1, ?2)", [start, end]).unwrap();
+    }
+    (db_path, source)
+}
+
+/// The two cleanups stage the sealed segments through the same pass
+/// (`stage_segments`). A segment that an earlier cleanup packed has gaps;
+/// the pass takes a gap only when ONE pruned range of the registry covers
+/// all of it. Any other gap is damage in each mode: the pass fails, and it
+/// stages nothing of that segment (a staged gap would become a pruned range
+/// of the new registry, and the records would be gone with no trace).
+#[test]
+fn a_gap_that_no_pruned_range_covers_is_refused_in_each_mode() {
+    // (the records of the segment 1..=5, the pruned ranges): no range; a
+    // range over a part of the gap, at its start and at its end; a range
+    // beside the gap; a gap at the start and one at the end of the segment.
+    type Damage = (&'static [u64], &'static [(i64, i64)]);
+    const DAMAGED: [Damage; 7] = [
+        (&[1, 2, 5], &[]),
+        (&[1, 2, 5], &[(3, 3)]),
+        (&[1, 2, 5], &[(4, 4)]),
+        (&[1, 2, 5], &[(6, 9)]),
+        (&[4, 5], &[]),
+        (&[1, 2], &[]),
+        (&[1, 2], &[(3, 4)]),
+    ];
+    for (name, mode) in [("output", CleanupMode::Output), ("compact", CleanupMode::Compact)] {
+        for (case, (sequences, ranges)) in DAMAGED.into_iter().enumerate() {
+            let (db_path, source) =
+                source_with_a_gapped_segment(&format!("gap-{name}-{case}"), sequences, ranges);
+            let staging = open_staging_in(&db_path, "registry-gap", mode, 0).unwrap();
+            assert_eq!(CleanupMode::of(&staging).unwrap(), mode);
+            let error = match stage_segments(&source, &staging, &|| true, None) {
+                Err(error) => format!("{error:#}"),
+                Ok(_) => panic!(
+                    "{name}: the pass staged a segment with the records {sequences:?} of 1..=5 \
+                     and the pruned ranges {ranges:?}"
+                ),
+            };
+            assert!(
+                error.contains("journal segment gapped contains a sequence gap")
+                    || error.contains("journal segment gapped sequence range is invalid"),
+                "{name}, records {sequences:?}, ranges {ranges:?}: {error}"
+            );
+            assert_eq!(
+                state_u64(&staging, "staged_through").unwrap(),
+                0,
+                "{name}: the damaged segment was staged"
+            );
+            drop((source, staging));
+            std::fs::remove_dir_all(db_path.parent().unwrap()).unwrap();
+        }
+
+        // The control: one range over all of the gap. The pass stages the
+        // segment with its 3 records and counts the 2 sequences as removed.
+        let (db_path, source) =
+            source_with_a_gapped_segment(&format!("gap-{name}-covered"), &[1, 2, 5], &[(3, 4)]);
+        let staging = open_staging_in(&db_path, "registry-gap", mode, 0).unwrap();
+        let staged = stage_segments(&source, &staging, &|| true, None).unwrap();
+        assert!(matches!(staged, Staged::Finished), "{name}: the pass did not finish");
+        let counts: (i64, i64) = staging
+            .query_row("SELECT kept, removed FROM output_cleanup_segments", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(counts, (3, 2), "{name}: (kept, removed) of the segment 1..=5");
+        assert_eq!(state_u64(&staging, "staged_through").unwrap(), 5);
+        drop((source, staging));
+        std::fs::remove_dir_all(db_path.parent().unwrap()).unwrap();
+    }
+}
+
+/// The staging state key `mode` came with the journal compaction. A staging
+/// file of this format with no such key is an output cleanup's: a start
+/// resumes it as one, and a compaction does not take its staged work.
+#[test]
+fn a_staging_file_with_no_mode_key_is_an_output_cleanups() {
+    let dir = seal_race_dir("no-mode-key");
+    let db_path = dir.join("workspace-registry.sqlite3");
+    let staging = open_staging_in(&db_path, "registry-no-mode", CleanupMode::Output, 0).unwrap();
+    assert_eq!(state(&staging, "format").unwrap(), STAGING_FORMAT);
+    staging
+        .execute_batch(
+            "DELETE FROM output_cleanup_state WHERE key = 'mode';
+             UPDATE output_cleanup_state SET value = '7' WHERE key = 'staged_through';",
+        )
+        .unwrap();
+    assert!(state(&staging, "mode").is_err(), "the fixture still has the key");
+    assert_eq!(CleanupMode::of(&staging).unwrap(), CleanupMode::Output);
+    drop(staging);
+
+    // The output cleanup opens the same file again, with its staged work.
+    let staging = open_staging_in(&db_path, "registry-no-mode", CleanupMode::Output, 0).unwrap();
+    assert_eq!(
+        state_u64(&staging, "staged_through").unwrap(),
+        7,
+        "the output cleanup made a new staging file"
+    );
+    assert_eq!(CleanupMode::of(&staging).unwrap(), CleanupMode::Output);
+    drop(staging);
+
+    // A compaction does not: its file is a new one, with its own mode.
+    let staging = open_staging_in(&db_path, "registry-no-mode", CleanupMode::Compact, 0).unwrap();
+    assert_eq!(
+        state_u64(&staging, "staged_through").unwrap(),
+        0,
+        "a compaction took the staged work of an output cleanup"
+    );
+    assert_eq!(CleanupMode::of(&staging).unwrap(), CleanupMode::Compact);
     drop(staging);
     std::fs::remove_dir_all(&dir).unwrap();
 }

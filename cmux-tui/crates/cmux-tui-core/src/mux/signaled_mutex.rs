@@ -221,6 +221,48 @@ impl<T> SignaledMutex<T> {
         }
     }
 
+    /// Gives a waiting locker its turn between two holds of one thread.
+    ///
+    /// The mutex is not fair: a thread that releases the lock and takes it
+    /// again at once wins against a locker that the release has only just
+    /// woken. So a pass that takes the lock many times in a row (the
+    /// journal retention pass: one hold for each 256 records of a segment)
+    /// would keep a request waiting for all of its holds. Call this with
+    /// the lock NOT held, after a hold and before the next one: when a
+    /// locker waited at the call, it returns after another thread released
+    /// the lock, or when no locker waits any more (the one that waited has
+    /// the lock, and the caller's next `lock` waits for it). So each gap of
+    /// the pass is one turn for a waiter. With no waiter it returns at once.
+    ///
+    /// It waits on `released` as [`Self::wait_while`] does: it never tries
+    /// the lock and never spins, and the lock is free while it waits, so a
+    /// waiter always ends the wait. A release that another thread began
+    /// before the caller's hold can end the wait early: that costs the
+    /// waiters one gap, never more.
+    ///
+    /// Returns how many lockers waited at the call.
+    pub(crate) fn give_way_to_waiters(&self) -> usize {
+        HeldRank::check(LockRank::WorkspaceRegistry, REGISTRY_LOCK_NAME);
+        let waiting = || {
+            self.interactive_waiters.load(Ordering::Acquire)
+                + self.plain_waiters.load(Ordering::Acquire)
+        };
+        let waited_at_the_call = waiting();
+        if waited_at_the_call == 0 {
+            return 0;
+        }
+        let mut epoch = self.release_epoch.lock().unwrap_or_else(PoisonError::into_inner);
+        let at_the_call = *epoch;
+        while *epoch == at_the_call && waiting() > 0 {
+            epoch = self
+                .released
+                .wait_timeout(epoch, Duration::from_millis(20))
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        waited_at_the_call
+    }
+
     #[cfg(test)]
     #[track_caller]
     pub(super) fn try_lock(&self) -> TryLockResult<SignaledMutexGuard<'_, T>> {

@@ -595,7 +595,7 @@ connection, with a bounded cost (below).
 
 Params: `{include?: array<string>|null}`. `include` names optional result
 sections: `resource_projection`, `write_path`, `locks`, `hook_queue`, `disk`,
-`commands` and `journal_followers`; unknown names are ignored.
+`commands`, `journal_followers` and `registry_cleanup`; unknown names are ignored.
 An optional section is absent unless requested, because SDK decoders refuse
 unknown result fields.
 
@@ -665,6 +665,12 @@ object{
       client:uint64, stream_id:string, remote:boolean, kinds:array<string>,
       max_sensitivity:string|null, connected_ms:uint64, left_ms:uint64|null,
       keeps_hook_rows:boolean, keeps_report_rows:boolean}>
+  },
+  registry_cleanup?:object{
+    kept_file:object{
+      name:string, bytes:uint64, swapped_at_ms:uint64|null, kept_until_ms:uint64|null,
+      full_starts:uint64, full_starts_left:uint64}|null,
+    kept_raw:uint64, error:string|null
   }
 }
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
@@ -827,6 +833,49 @@ the report names none). The section reads memory only, never the registry.
 It takes the lock of the cached journal hook answer, so it can wait while a
 journal hook change commits or while the first report after a start reads
 the hooks.
+
+`registry_cleanup` says what the registry's rebuild and journal retention
+left that a person has to know about. `kept_file` is the whole registry from
+before the last rebuild, while it is beside the new one (`null` when none
+is): its `name` (`workspace-registry.sqlite3.pre-output-cleanup` until one
+full start on the rebuilt registry, then
+`workspace-registry.sqlite3.kept-before-cleanup`), its `bytes`, when the
+rebuild replaced it (`swapped_at_ms`), the first time it can go
+(`kept_until_ms`, 7 days later) and the full starts counted and left
+(`full_starts`, `full_starts_left`, of 3). The file goes at the first start
+after both conditions. Until then the session's directory is larger than the
+registry by `bytes`, no start reads the file, and no rebuild runs (retention
+deletes in place). To go back to it: first copy the kept file to a folder
+outside the session's directory. That copy is yours: no start touches it.
+Then quit cmux and each program that talks to the daemon, and stop the
+daemon. Make sure that no cmux daemon runs, and that none starts, until the
+last step is done. Move each file whose name starts with
+`workspace-registry.sqlite3`, but not the kept file and not a file whose
+name starts with the kept file's name, away together into one other folder:
+the registry, its `-wal`, `-shm` and `-journal` files, and each other file
+with that start of its name that exists. Do not delete them: they hold the
+work since the rebuild, and that work is not in the kept file. Make sure
+that no `-wal`, `-shm` or `-journal` file with the registry's name is left
+in the session's directory, and that the disk has free space of the size of
+the kept file. Then copy the kept file to a temporary name in the session's
+directory that does not start with `workspace-registry.sqlite3` (a copy,
+not a rename). When the copy is complete, rename the copy to
+`workspace-registry.sqlite3` and start cmux. The kept file that stays beside
+the registry that came back can go by itself. If the registry that came back
+holds the record of an earlier swap, the rule of 7 days and 3 full starts
+counts from that earlier swap, so the file can go at the first start. If it
+holds no such record, the file stays and no rebuild starts until you remove
+the file by hand, and a start writes `output cleanup: kept <file>: the
+registry is not the one made from it` to the log. While the file is there,
+retention deletes in place. `kept_raw` counts the saved reducer states
+that a start could not load after journal retention deleted records; each is
+kept as it was in `meta` under `journal_reducer_kept.<reducer>`. That start
+goes on from the reducer's base (`meta` `journal_reducer_base.<reducer>`, a
+copy of the saved state that each move of the retention floor makes); with
+no base, the agent list or History can be shorter than before. The section reads two file
+sizes and, on its own read-only connection, a few `meta` rows; `error` says
+why when the registry cannot be read. It is present only for a registry on
+disk.
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at

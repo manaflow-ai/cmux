@@ -526,6 +526,81 @@ fn a_rollback_of_a_compaction_restores_the_registry_byte_for_byte() {
     }
 }
 
+/// Makes the staging file of `db_path` the one a build with staging format 4
+/// left (the format of the builds that had the compaction before the
+/// rebuild at a retention floor): format "4", no `floor` key, and a mark
+/// that only this file has.
+fn make_staging_format_4(db_path: &Path) {
+    let staging = Connection::open(staging_path(db_path)).unwrap();
+    staging
+        .execute_batch(
+            "UPDATE output_cleanup_state SET value = '4' WHERE key = 'format';
+             DELETE FROM output_cleanup_state WHERE key = 'floor';
+             INSERT INTO output_cleanup_state(key, value) VALUES('made_by', 'format 4');",
+        )
+        .unwrap();
+    assert_eq!(CleanupMode::of(&staging).unwrap(), CleanupMode::Compact);
+}
+
+/// The state value `key` of the staging file of `db_path`.
+fn staging_state(db_path: &Path, key: &str) -> Option<String> {
+    let staging = Connection::open(staging_path(db_path)).unwrap();
+    staging
+        .query_row("SELECT value FROM output_cleanup_state WHERE key = ?1", [key], |row| row.get(0))
+        .ok()
+}
+
+/// This build reads no staging file of format 4. A compaction that a build
+/// of before this change began (staged in part, or built and not yet
+/// swapped) starts again from zero: the start discards that file and leaves
+/// the registry as it is, and the next compaction makes a new file.
+#[test]
+fn a_compaction_staged_by_an_older_build_starts_again_from_zero() {
+    let root = temp_root("format-4-fixture");
+    let fixture = restating_registry(&root, "journal-compact-format-4");
+    let at_open = copy_registry(&fixture, "format-4-at-open");
+    let at_stage = copy_registry(&fixture, "format-4-at-stage");
+    let original = std::fs::read(&fixture).unwrap();
+
+    // A built compaction of format 4 meets the swap of a start: no swap, the
+    // file is gone, and the registry has the same bytes.
+    assert_eq!(stage(&at_open, CleanupMode::Compact, &|| true), StageOutcome::Built);
+    make_staging_format_4(&at_open);
+    assert!(
+        !swap_at_open(&at_open, &|_| Ok(())),
+        "a staging file of format 4 was built into the registry"
+    );
+    assert!(!staging_path(&at_open).exists(), "the format 4 staging file is still there");
+    assert!(std::fs::read(&at_open).unwrap() == original, "the discard changed the registry");
+    for path in [previous_path(&at_open), kept_path(&at_open)] {
+        assert!(!path.exists(), "{} was made with no swap", path.display());
+    }
+    let db = open_registry_database_read_only(&at_open).unwrap();
+    assert_eq!(meta(&db, journal_compact::DONE_META_KEY), None);
+    drop(db);
+
+    // The next compaction makes a new file, and that one is swapped.
+    assert_eq!(stage(&at_open, CleanupMode::Compact, &|| true), StageOutcome::Built);
+    assert_eq!(staging_state(&at_open, "format").as_deref(), Some(stage::STAGING_FORMAT));
+    assert_eq!(staging_state(&at_open, "mode").as_deref(), Some("compact"));
+    assert_eq!(staging_state(&at_open, "made_by"), None, "the format 4 file was taken");
+    assert!(std::fs::read(&at_open).unwrap() == original, "staging changed the registry");
+    assert!(swap_at_open(&at_open, &|_| Ok(())), "the new compaction was not swapped");
+
+    // The same file meets the compaction's worker with no swap before it:
+    // the worker does not go on in it.
+    assert_eq!(stage(&at_stage, CleanupMode::Compact, &|| true), StageOutcome::Built);
+    make_staging_format_4(&at_stage);
+    assert_eq!(stage(&at_stage, CleanupMode::Compact, &|| true), StageOutcome::Built);
+    assert_eq!(staging_state(&at_stage, "format").as_deref(), Some(stage::STAGING_FORMAT));
+    assert_eq!(staging_state(&at_stage, "made_by"), None, "the worker went on in a format 4 file");
+    assert!(std::fs::read(&at_stage).unwrap() == original, "the discard changed the registry");
+
+    for path in [&root, at_open.parent().unwrap(), at_stage.parent().unwrap()] {
+        let _ = std::fs::remove_dir_all(path);
+    }
+}
+
 /// Without the opt-in the owner runs the output cleanup's mode, which leaves
 /// a restating registry alone: nothing is staged and the file is unchanged.
 /// Makes the event ids of [`append_output`] distinct.
@@ -655,6 +730,7 @@ fn a_restating_registry_is_not_staged_without_the_opt_in() {
 
     let outcome = stage_registry(
         &db_path,
+        0,
         &StageControl {
             on_pending: &|| panic!("a cleanup is pending without the opt-in"),
             next_segment: &|| true,

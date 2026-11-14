@@ -741,9 +741,49 @@ maintenance pass. Existing registries keep their current SQLite auto-vacuum
 mode; sealing still reclaims active journal rows, while filesystem shrinkage
 requires the registry's existing vacuum policy.
 
-Canonical segments are retained until explicit session deletion or an explicit
-export-and-forget policy. Size pressure cannot silently delete history. Storage
-v1 does not accept secret content. Encrypted secret retention and journaled
+Sealed segments are retained while a reader needs them. The maintenance worker
+computes a retention floor: the end of the last sealed segment at or below the
+oldest kept checkpoint (the newest 16), the saved cursor of the agent roster
+reducer, the saved cursor of the agent history fold, every enabled hook's
+cursor and every delivery of an enabled hook that is not final. Installing a
+newer version of a hook abandons the waiting deliveries of the replaced
+version: only the enabled version is dispatched. A reducer state of another
+version, or one with a rebuild pending, holds the floor at zero. A minimum
+window stays whatever those cursors say: the newest 1,024 records, and each
+segment sealed in the last 60 minutes (at most 65,536 records below the head).
+An ingress receipt is deleted with its record's segment, so a retry with the
+same key is a replay for those 60 minutes, or only while its record is among
+the newest 65,536 when more records than that were written in that time. The
+row of a frontend event in the event index goes with its record in the same
+way. The newest
+segment always stays. Each tick deletes at most eight segments at or below the
+floor, one transaction per segment, together with their kept reducer records
+and the subject index, event index and ingress receipt rows of their records.
+The deleted prefix is one `journal_pruned_ranges` row from sequence 1 and the
+`meta` key `journal_retention_floor`. The floor never moves back. The rule
+depends on what readers need, never on file size, and no setting changes it.
+
+After a deletion, `start: "beginning"` replays from the first retained record.
+A subscription cursor below the floor fails with `cursor.gap` and
+`oldest_revision` set to the floor; the subscriber takes a fresh state snapshot
+and subscribes from that revision. A reader of agent sessions does not fold
+the journal from its first retained record: that fold lacks every session
+whose records are all below the floor. The daemon keeps the fold of every
+agent record with its cursor, and the floor never passes that cursor. With
+`history-agent-sessions-v1` each agent row of `history.entries.list` is the
+whole session (`terminal`, `tab`, `started_at_ms`, `ended_at_ms` beside the
+entry's own fields), and that list is the state snapshot of agent sessions. Restore previews of every kept checkpoint,
+hook delivery and reducer restores do not read below the floor. An ingress
+retry whose receipt was deleted is appended as a new event, a frontend event
+that comes again after its index row was deleted is appended as a new
+record, and a
+`causation_id` that names a deleted event is refused. A roster reducer of a
+newer version, in the owner's background rebuild and in `server
+premigrate-registry`, continues from the saved roster when records are
+deleted: a fold of the retained journal alone lacks every agent whose records
+are all below the floor.
+
+Storage v1 does not accept secret content. Encrypted secret retention and journaled
 redaction markers are reserved for a later storage version.
 
 ## Migration state

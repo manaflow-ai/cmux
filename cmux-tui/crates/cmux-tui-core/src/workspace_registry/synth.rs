@@ -290,6 +290,13 @@ fn create_workspaces(mux: &Arc<crate::Mux>, count: u32) -> anyhow::Result<Vec<St
 /// Seal the journal through a fresh checkpoint, one segment per call, on
 /// owners opened for it. Returns the sealed end and the segments sealed.
 fn seal(state_root: &Path, options: &SynthOptions) -> anyhow::Result<(u64, u64)> {
+    seal_as(state_root, options, "")
+}
+
+/// [`seal`] with `label` in each idempotency key. A second seal of one
+/// registry needs a label of its own: with the keys of the first seal the
+/// owner answers the first seal's receipts and seals nothing.
+fn seal_as(state_root: &Path, options: &SynthOptions, label: &str) -> anyhow::Result<(u64, u64)> {
     let open = || {
         crate::Mux::open_persistent(
             options.session.clone(),
@@ -307,8 +314,10 @@ fn seal(state_root: &Path, options: &SynthOptions) -> anyhow::Result<(u64, u64)>
     };
     let mut mux = open()?;
     let mut opened = Instant::now();
-    let target =
-        mux.create_journal_checkpoint(ORIGIN, "synth-checkpoint")?.checkpoint.source_sequence;
+    let target = mux
+        .create_journal_checkpoint(ORIGIN, &format!("synth-checkpoint{label}"))?
+        .checkpoint
+        .source_sequence;
     let mut segments = 0_u64;
     let mut through = 0;
     while through < target {
@@ -318,7 +327,8 @@ fn seal(state_root: &Path, options: &SynthOptions) -> anyhow::Result<(u64, u64)>
             mux = open()?;
             opened = Instant::now();
         }
-        let sealed = mux.seal_journal_segments(target, ORIGIN, &format!("synth-seal-{segments}"));
+        let sealed =
+            mux.seal_journal_segments(target, ORIGIN, &format!("synth-seal{label}-{segments}"));
         let sealed = match sealed {
             Ok(sealed) => sealed,
             Err(error) => {
@@ -822,6 +832,12 @@ pub fn rebind_resource_pepper(state_root: &Path, registry_path: &Path) -> anyhow
 pub fn registry_path(state_root: &Path, session: &str) -> PathBuf {
     persistent_session_state_dir(state_root, session).join(WORKSPACE_REGISTRY_FILE)
 }
+
+#[path = "synth_shape.rs"]
+mod shape;
+pub use shape::{
+    ShapeOptions, ShapeReport, SparseReport, advance_checkpoints, counts, generate_shape,
+};
 
 #[cfg(test)]
 #[path = "synth_tests.rs"]

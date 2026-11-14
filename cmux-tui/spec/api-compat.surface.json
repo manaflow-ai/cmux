@@ -21060,6 +21060,49 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/registry_cleanup": {
+        "ty": "object"
+      },
+      "/data/registry_cleanup/error": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/registry_cleanup/kept_file": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/registry_cleanup/kept_file/bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/registry_cleanup/kept_file/full_starts": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/registry_cleanup/kept_file/full_starts_left": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/registry_cleanup/kept_file/kept_until_ms": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/registry_cleanup/kept_file/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/registry_cleanup/kept_file/swapped_at_ms": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/registry_cleanup/kept_raw": {
+        "ty": "uint64",
+        "required": true
+      },
       "/data/registry_lock": {
         "ty": "object",
         "required": true

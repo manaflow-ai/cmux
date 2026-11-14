@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use cmux_history::{
-    AgentSessionFold, EntryContext, HiddenHistory, HistoryEntry, HistoryKind, hidden_id,
+    AgentSession, AgentSessionFold, EntryContext, HiddenHistory, HistoryKind, hidden_id,
 };
 use serde_json::{Map, Value, json};
 
@@ -41,10 +41,16 @@ const LIST_FOLD_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
 /// The registry key (`journal_reducer.<id>` in `meta`) of the saved agent
 /// fold: its sessions and the journal cursor they reached. A restart folds
 /// only the records after that cursor, never the whole journal again.
-const AGENT_FOLD_STATE_ID: &str = "history.agent_sessions";
+pub(crate) const AGENT_FOLD_STATE_ID: &str = "history.agent_sessions";
 /// Bump when the saved fold's shape or meaning changes: a saved fold of
-/// another version is dropped and the journal folded again.
-const AGENT_FOLD_STATE_VERSION: u32 = 1;
+/// another version is dropped and the journal folded again. Not so when
+/// journal retention (`workspace_registry::journal_retention`) has deleted
+/// records: the journal no longer has the sessions below the floor, and the
+/// saved fold is their only copy. Then the saved fold of another version is
+/// the start state (see `HistoryHost::restore`), so a bump that changes the
+/// shape must keep the old shape readable (serde defaults), or the agent
+/// sessions older than the retained journal leave the History list.
+pub(crate) const AGENT_FOLD_STATE_VERSION: u32 = 1;
 /// A long fold (the first one over a large journal) saves its progress at
 /// least every this many journal sequences, so a restart midway keeps it.
 const SAVE_STRIDE: u64 = 50_000;
@@ -127,29 +133,139 @@ impl HistoryHost {
     /// and cursor, when the version matches and the cursor is not past the
     /// journal head (a newer journal than the one it folded). Call with the
     /// turn held.
-    pub(super) fn restore(&self, mux: &Mux) {
+    ///
+    /// A saved fold of another version is loaded too when journal retention
+    /// has deleted records. A fold from the first retained record would not
+    /// have the sessions below the floor, and the next save would write that
+    /// smaller fold over their only copy. Retention never deletes a record
+    /// after the saved cursor, so the fold goes on from that cursor with no
+    /// hole. The loaded fold is saved again at this build's version by the
+    /// next save.
+    ///
+    /// Not when the fold has a base (`journal_retention/base.rs`, written
+    /// each time the retention floor moves): a saved fold that is not this
+    /// build's own can be the fold of a build that does not decode the
+    /// journal. The base is then the start state, and the fold goes on from
+    /// the base's cursor.
+    ///
+    /// A saved fold that is there and does not load (its value is not JSON,
+    /// its snapshot does not parse, its cursor is past the head) is not
+    /// loaded: the fold starts at the base, or with none at the first
+    /// retained record. When retention
+    /// has deleted records, the next save would then write a smaller fold
+    /// over the only copy of the sessions below the floor. So the raw saved
+    /// value is first kept under a second `meta` key
+    /// (`WorkspaceRegistry::keep_unloaded_reducer_state`) and a diagnostic
+    /// is sent. An error (the registry does not give the saved value, the
+    /// head or the floor, or the copy is not written) leaves the fold not
+    /// restored: nothing is folded and nothing is saved, and the next turn
+    /// tries again.
+    pub(super) fn restore(&self, mux: &Mux) -> anyhow::Result<()> {
         if self.lock().restored {
-            return;
+            return Ok(());
         }
-        let saved = {
+        let mut another_version = false;
+        // The floor, when a saved fold that does not load was kept.
+        let mut kept_at = None;
+        // The cursor of the fold's base, when the fold starts from it.
+        let mut from_base = None;
+        let restored = {
             let registry = mux.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-            registry
-                .journal_reducer_state(AGENT_FOLD_STATE_ID)
-                .and_then(|state| Ok((state, registry.session_journal_head()?)))
-        };
-        let restored = match saved {
-            Ok((Some((AGENT_FOLD_STATE_VERSION, cursor, snapshot)), head)) if cursor <= head => {
-                serde_json::from_str::<AgentSessionFold>(&snapshot)
-                    .ok()
-                    .filter(|fold| fold.machine() == LOCAL_MACHINE && fold.cursor() <= cursor)
-                    .map(|fold| (fold, cursor))
+            let saved = match registry.journal_reducer_state(AGENT_FOLD_STATE_ID) {
+                // The registry did not give the value. Nothing says that the
+                // saved fold is bad, and a fold from the first record would
+                // be saved over it.
+                Err(error) if error.is::<rusqlite::Error>() => {
+                    return Err(error.context("reading the saved agent history failed"));
+                }
+                saved => saved,
+            };
+            let head = registry.session_journal_head()?;
+            let pruned_through = registry.journal_pruned_through()?;
+            let restored = match &saved {
+                Ok(Some((version, cursor, snapshot)))
+                    if *cursor <= head
+                        && (*version == AGENT_FOLD_STATE_VERSION || pruned_through > 0) =>
+                {
+                    another_version = *version != AGENT_FOLD_STATE_VERSION;
+                    serde_json::from_str::<AgentSessionFold>(snapshot)
+                        .ok()
+                        .filter(|fold| fold.machine() == LOCAL_MACHINE && fold.cursor() <= *cursor)
+                        .map(|fold| (fold, *cursor))
+                }
+                Ok(_) => None,
+                Err(error) => {
+                    eprintln!("cmux-tui: reading the saved agent history failed: {error:#}");
+                    None
+                }
+            };
+            let unloaded = restored.is_none() && !matches!(saved, Ok(None));
+            if unloaded && pruned_through > 0 {
+                let kept =
+                    registry.keep_unloaded_reducer_state(AGENT_FOLD_STATE_ID).map_err(|error| {
+                        error.context(
+                            "the saved agent history does not load and its raw value was not kept",
+                        )
+                    })?;
+                kept_at = kept.then_some(pruned_through);
             }
-            Ok(_) => None,
-            Err(error) => {
-                eprintln!("cmux-tui: reading the saved agent history failed: {error:#}");
+            // A saved fold that is not this build's own (another version,
+            // none, or one that does not load) cannot stand for the records
+            // below the floor: a build that does not decode the journal
+            // saves a fold without them under the same key. The fold's base
+            // can (`journal_retention/base.rs`): it is the start state, and
+            // the fold goes on from its cursor, where every record is still
+            // in the journal. It is saved at this build's version by the
+            // next save.
+            let own = restored.is_some() && !another_version;
+            let base = if own {
                 None
+            } else {
+                registry
+                    .journal_reducer_base(AGENT_FOLD_STATE_ID)
+                    .map_err(|error| error.context("reading the agent history base failed"))?
+                    .and_then(|(_, cursor, snapshot)| {
+                        serde_json::from_str::<AgentSessionFold>(&snapshot)
+                            .ok()
+                            .filter(|fold| {
+                                fold.machine() == LOCAL_MACHINE && fold.cursor() <= cursor
+                            })
+                            .map(|fold| (fold, cursor))
+                    })
+            };
+            match base {
+                Some((fold, cursor)) => {
+                    another_version = true;
+                    from_base = Some(cursor);
+                    Some((fold, cursor))
+                }
+                None => restored,
             }
         };
+        if let Some(cursor) = from_base {
+            eprintln!(
+                "cmux-tui: the saved agent history is not this build's own fold and journal \
+                 retention deleted records: the fold starts from its base at sequence {cursor}"
+            );
+        }
+        if let Some(pruned_through) = kept_at {
+            let message = match from_base {
+                Some(cursor) => format!(
+                    "the saved agent history does not load, and journal retention deleted the \
+                     records through {pruned_through}: the fold starts from its base at sequence \
+                     {cursor}. The raw saved value is kept in meta \
+                     journal_reducer_kept.{AGENT_FOLD_STATE_ID}"
+                ),
+                None => format!(
+                    "the saved agent history does not load, and journal retention deleted the \
+                     records through {pruned_through}: the agent sessions with no later record \
+                     are not listed. The raw saved value is kept in meta \
+                     journal_reducer_kept.{AGENT_FOLD_STATE_ID}"
+                ),
+            };
+            eprintln!("cmux-tui: {message}");
+            mux.report_internal_diagnostic(message);
+        }
         let mut state = self.lock();
         state.restored = true;
         if let Some((agents, cursor)) = restored
@@ -157,8 +273,11 @@ impl HistoryHost {
         {
             state.agents = agents;
             state.cursor = cursor;
-            state.saved_cursor = cursor;
+            // What the registry holds of another version is not saved yet.
+            state.saved_cursor = if another_version { 0 } else { cursor };
+            state.unsaved_agents |= another_version;
         }
+        Ok(())
     }
 
     /// Saves the agent fold and its cursor when agent records were folded
@@ -166,10 +285,17 @@ impl HistoryHost {
     /// cursor moved only by terminal output is not worth a write each
     /// commit). Call with the turn held.
     pub(super) fn save(&self, mux: &Mux) {
+        self.save_past(mux, SAVE_STRIDE);
+    }
+
+    /// [`Self::save`] with another stride: journal retention keeps every
+    /// record after the saved cursor, so the maintenance worker saves it
+    /// more often. Call with the turn held.
+    pub(super) fn save_past(&self, mux: &Mux, stride: u64) {
         let (cursor, snapshot) = {
             let state = self.lock();
-            let due = state.unsaved_agents
-                || state.cursor.saturating_sub(state.saved_cursor) >= SAVE_STRIDE;
+            let due =
+                state.unsaved_agents || state.cursor.saturating_sub(state.saved_cursor) >= stride;
             if state.cursor <= state.saved_cursor || !due {
                 return;
             }
@@ -241,16 +367,15 @@ impl HistoryHost {
         changed
     }
 
-    /// Agent entries the hides leave visible, each with the newer of the
-    /// journal's time and `live` (the daemon's own report times, keyed
-    /// `<provider>/<session id>`).
-    fn agent_entries(
+    /// Agent sessions the hides leave visible, newest first, each with the
+    /// newer of the journal's time and `live` (the daemon's own report times,
+    /// keyed `<provider>/<session id>`).
+    fn agent_sessions(
         &self,
         hidden: &HiddenHistory,
         live: &std::collections::HashMap<String, i64>,
-    ) -> Vec<HistoryEntry> {
-        let context = EntryContext { local_machine: LOCAL_MACHINE, available: true };
-        self.lock().agents.entries_with_live(&context, hidden, live)
+    ) -> Vec<AgentSession> {
+        self.lock().agents.visible_with_live(hidden, live)
     }
 
     fn revision(&self) -> u64 {
@@ -305,6 +430,8 @@ pub(super) fn list(
         );
     }
     let mut pending = Vec::new();
+    // Fields a row carries beyond its entry, by the entry's id.
+    let mut extras = Map::new();
     if wants(HistoryKind::Agent) {
         journal_feed::start(mux);
         // A first fold over a large journal can take minutes: answer what is
@@ -320,7 +447,16 @@ pub(super) fn list(
             pending.push(HistoryKind::Agent.as_str());
         }
         let (hidden, _) = hidden_doc::load(mux).map_err(|error| failed(OPERATION, &error))?;
-        entries.extend(mux.history.agent_entries(&hidden, &mux.live_agent_activity()));
+        // An agent row also carries its terminal, its tab and its start and
+        // end times. The fold is the only owner of a session whose records
+        // retention deleted, so a reader takes the whole session from here
+        // and never folds the journal from its first retained record.
+        let context = EntryContext { local_machine: LOCAL_MACHINE, available: true };
+        for session in mux.history.agent_sessions(&hidden, &mux.live_agent_activity()) {
+            let entry = session.entry(&context);
+            extras.insert(entry.id.clone(), sources::agent_session_fields(&session));
+            entries.push(entry);
+        }
     }
     if wants(HistoryKind::Command) {
         // Every unexpired row up to the store's page (1000): the search and
@@ -335,14 +471,12 @@ pub(super) fn list(
     }
     // A location row also carries its window and stored location (an app
     // rebuilds its Back/Forward steps from them).
-    let mut locations = Map::new();
     if wants(HistoryKind::Location) {
         let (document, _) = trail::load(mux).map_err(|error| failed(OPERATION, &error))?;
         let newest = document.entries.last().map(|entry| entry.id);
         for entry in &document.entries {
             let id = format!("location:{}", entry.id);
-            locations
-                .insert(id.clone(), json!({"window": entry.window, "location": entry.location}));
+            extras.insert(id.clone(), json!({"window": entry.window, "location": entry.location}));
             entries.push(sources::location_entry(&id, entry, Some(entry.id) == newest));
         }
     }
@@ -352,7 +486,7 @@ pub(super) fn list(
         .map(|entry| {
             let mut row = wire(entry);
             if let (Some(object), Some(Value::Object(extra))) =
-                (row.as_object_mut(), locations.get(&entry.id))
+                (row.as_object_mut(), extras.get(&entry.id))
             {
                 object.extend(extra.clone());
             }

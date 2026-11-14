@@ -3,8 +3,8 @@
 use super::*;
 
 const JOURNAL_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(30);
-const JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS: u64 = 4_096;
-const JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK: usize = 8;
+pub(super) const JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS: u64 = 4_096;
+pub(super) const JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK: usize = 8;
 /// Live rows a pending output cleanup may hold back from sealing: 64
 /// segments' worth.
 const OUTPUT_CLEANUP_SEAL_HOLD_RECORDS: u64 = 65_536;
@@ -72,7 +72,7 @@ impl MaintenanceSteps {
 #[cfg(debug_assertions)]
 const JOURNAL_MAINTENANCE_INTERVAL_TEST_ENV: &str = "CMUX_TUI_TEST_JOURNAL_MAINTENANCE_INTERVAL_MS";
 
-fn journal_maintenance_interval() -> Duration {
+pub(super) fn journal_maintenance_interval() -> Duration {
     #[cfg(debug_assertions)]
     if let Some(ms) = std::env::var(JOURNAL_MAINTENANCE_INTERVAL_TEST_ENV)
         .ok()
@@ -276,6 +276,20 @@ impl Mux {
             || self.control_clients.daemon_handoff_in_progress()
     }
 
+    /// One maintenance tick on the caller's thread, for a test that stopped
+    /// the worker: true when the tick settled. The tick is more than an hour
+    /// after the last one: retention keeps each segment for an hour after
+    /// its seal, and a test cannot wait for that.
+    #[cfg(test)]
+    pub(crate) fn run_journal_maintenance_for_test(&self) -> bool {
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .age_journal_segments_for_test();
+        let mut ledgers = ledger_maintenance::LedgerMaintenance::default();
+        self.run_journal_maintenance(&mut ledgers) == TickOutcome::Settled
+    }
+
     /// One tick; [`TickOutcome::Settled`] only when nothing is left: the
     /// ledgers are within their bounds, no migration, checkpoint or seal is
     /// due, and the free pages over [`JOURNAL_VACUUM_KEPT_FREE_PAGES`] are
@@ -297,6 +311,13 @@ impl Mux {
             .time("reducer_record_backfill", || self.backfill_sealed_reducer_records())
             .unwrap_or_else(|error| {
                 eprintln!("cmux-tui: sealed reducer record backfill deferred: {error:#}");
+                true
+            });
+        // After the roster caught up: its saved cursor is one input of the
+        // floor. Before the vacuum below gives the freed pages back.
+        let retention_remains =
+            steps.time("retention", || self.retain_journal()).unwrap_or_else(|error| {
+                eprintln!("cmux-tui: journal retention deferred: {error:#}");
                 true
             });
         let result = (|| -> anyhow::Result<TickOutcome> {
@@ -409,7 +430,9 @@ impl Mux {
             self.report_internal_diagnostic(report);
         }
         match result {
-            Ok(TickOutcome::Settled) if !ledgers_remain && !backfill_remains => {
+            Ok(TickOutcome::Settled)
+                if !ledgers_remain && !backfill_remains && !retention_remains =>
+            {
                 TickOutcome::Settled
             }
             Ok(_) => TickOutcome::WorkRemains,

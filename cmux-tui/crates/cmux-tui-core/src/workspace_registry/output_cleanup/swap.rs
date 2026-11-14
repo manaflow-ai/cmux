@@ -20,6 +20,7 @@ use super::super::{
     open_registry_database_read_only, open_registry_database_with_flags, required_meta,
     sqlite_filesystem_path,
 };
+use super::backup::{FULL_STARTS_META_KEY, restore_interrupted_swap};
 use super::build::{
     STEP_BUILT, journal_schema_digest, pack_rest, quote, schema_objects, segment_record_limit,
     stage_range, table_columns,
@@ -28,14 +29,10 @@ use super::stage::{open_existing_staging, state, state_u64};
 use super::{
     CleanupMode, DONE_META_KEY, OUTPUT_KIND, REBUILT_TABLES, STAGED_WORK_CHANGED, copied_bytes,
     done_meta_key, failed_for_this_build, file_len, free_space_refusal, is_temporary,
-    journal_compact, mebibytes, previous_path, remove_if_present, remove_staging,
-    rollback_pending_path, staged_bytes_refusal, staging_path, write_failure_marker,
+    journal_compact, kept_path, mebibytes, previous_path, remove_if_present, remove_staging,
+    staged_bytes_refusal, staging_path, start_floor, write_failure_marker,
 };
 use crate::platform;
-
-/// Meta key: full owner starts since the swap. The previous file is removed
-/// at an open once one start after the swap got through restore.
-const FULL_STARTS_META_KEY: &str = "output_cleanup_full_starts";
 
 /// Opens a built registry file the way the owner does and reads its layout.
 pub(crate) type VerifyOpen<'a> = &'a dyn Fn(&Path) -> anyhow::Result<()>;
@@ -46,7 +43,8 @@ enum Swap {
     /// The staging file passed its size bound (`output_cleanup` module
     /// docs).
     Abandoned(String),
-    /// The tail since the background build is too long for a start.
+    /// Not at this start, and the staged work stays: the tail since the
+    /// background build is too long for a start, or a reader holds the log.
     Deferred(String),
     Done(SwapStats),
 }
@@ -76,6 +74,17 @@ pub(crate) fn swap_at_open(db_path: &Path, verify_open: VerifyOpen<'_>) -> bool 
     }
     if failed_for_this_build(db_path) {
         let _ = remove_staging(db_path);
+        return false;
+    }
+    // One kept file at a time (`backup.rs`): a swap now would leave a second
+    // one beside it. No worker stages while a file is kept, so this is a
+    // staging file from before that rule; it waits.
+    if kept_path(db_path).exists() {
+        eprintln!(
+            "cmux-tui: output cleanup: swap deferred: the registry that the last swap replaced \
+             is still kept as {}",
+            kept_path(db_path).display()
+        );
         return false;
     }
     let started = Instant::now();
@@ -143,322 +152,6 @@ pub(crate) fn swap_at_open(db_path: &Path, verify_open: VerifyOpen<'_>) -> bool 
             let _ = remove_staging(db_path);
             write_failure_marker(db_path, &format!("{error:#}"));
             false
-        }
-    }
-}
-
-/// The swapped-in registry did not open: put the previous file back and
-/// never stage this registry again (the failure marker). When the previous
-/// file cannot be put back (the swapped file still held open: a syncer
-/// thread of the failed open, a sharing violation on Windows), the start is
-/// refused, and the next start finishes the rollback before anything opens
-/// the registry ([`finish_pending_rollback`]).
-pub(crate) fn roll_back_swap(db_path: &Path, error: &anyhow::Error) -> anyhow::Result<()> {
-    eprintln!(
-        "cmux-tui: output cleanup: the new registry did not open ({error:#}); \
-         restoring the previous registry"
-    );
-    write_failure_marker(db_path, &format!("the new registry did not serve: {error:#}"));
-    // On disk before the rename, so a crash or a failed rename leaves the
-    // next start a record to finish. A marker that cannot be written (a
-    // full disk) does not stop the rename: the failure marker and an
-    // unconfirmed swap are the fallback record.
-    let pending = rollback_pending_path(db_path);
-    if let Err(marker_error) = write_synced(&pending, &format!("{error:#}\n")) {
-        eprintln!(
-            "cmux-tui: output cleanup: could not record the rollback in {}: {marker_error:#}",
-            pending.display()
-        );
-    }
-    // A sidecar left behind belongs to the cleaned file's pages: the next
-    // open would apply its WAL frames to the previous registry. One that
-    // cannot go (held open without delete sharing on Windows) refuses the
-    // start like a failed rename, and the next start tries again.
-    for suffix in ["-wal", "-shm", "-journal"] {
-        remove_if_present(&sidecar_path(db_path, suffix)).context(
-            "clear the cleaned registry's sidecar before putting the previous registry back; \
-             the next start tries again",
-        )?;
-    }
-    let restored = fs::rename(previous_path(db_path), db_path);
-    if let Some(parent) = db_path.parent() {
-        let _ = platform::sync_directory(parent);
-    }
-    restored.with_context(|| {
-        format!(
-            "put the previous workspace registry {} back after a failed output cleanup; the \
-             next start tries again",
-            previous_path(db_path).display()
-        )
-    })?;
-    remove_if_present(&pending)?;
-    Ok(())
-}
-
-/// Writes `contents` to `path` and syncs the file and its directory.
-fn write_synced(path: &Path, contents: &str) -> anyhow::Result<()> {
-    use std::io::Write as _;
-    let mut file = fs::File::create(path)?;
-    file.write_all(contents.as_bytes())?;
-    file.sync_all()?;
-    if let Some(parent) = path.parent() {
-        platform::sync_directory(parent)?;
-    }
-    Ok(())
-}
-
-/// Finishes a rollback an earlier start could not complete: called before
-/// anything opens the registry. The record is the rollback marker, or, when
-/// that could not be written, the failure marker beside a swap no full start
-/// confirmed (only a rollback writes the failure marker after a swap).
-pub(crate) fn finish_pending_rollback(db_path: &Path) -> anyhow::Result<()> {
-    let pending = rollback_pending_path(db_path);
-    let unrecorded_rollback =
-        || super::failed_path(db_path).is_file() && rollback_possible(db_path);
-    if !(pending.is_file() || unrecorded_rollback()) {
-        return Ok(());
-    }
-    if !previous_path(db_path).is_file() {
-        // Already put back (the marker's removal did not happen).
-        return remove_if_present(&pending);
-    }
-    roll_back_swap(db_path, &anyhow::anyhow!("an earlier rollback could not finish"))
-}
-
-/// Refuses an open while the registry exists only as the backup of a swap
-/// (the restore of an interrupted swap failed). The error names the backup.
-pub(crate) fn refuse_open_beside_backup(db_path: &Path) -> anyhow::Result<()> {
-    let previous = previous_path(db_path);
-    anyhow::ensure!(
-        !rollback_pending_path(db_path).is_file(),
-        "an output cleanup rollback of the workspace registry is unfinished; the previous \
-         registry {} could not be put back in place (see the log above). Move it to {} by hand \
-         to start this session",
-        previous.display(),
-        db_path.display()
-    );
-    anyhow::ensure!(
-        db_path.exists() || !previous.is_file(),
-        "the workspace registry exists only as the output cleanup backup {}; it could not be \
-         put back in place (see the log above). Move it to {} by hand to start this session",
-        previous.display(),
-        db_path.display()
-    );
-    Ok(())
-}
-
-/// The registry at `db_path` is the one a swap made from the backup: same
-/// registry id, and the swap's completion record. A registry created in its
-/// place (another id, or no record) never lets the backup be removed or
-/// counts a start for it.
-fn is_swapped_registry(db_path: &Path) -> bool {
-    swapped_registry(db_path).unwrap_or_else(|error| {
-        eprintln!(
-            "cmux-tui: output cleanup: could not tell whether the registry was swapped: {error:#}"
-        );
-        false
-    })
-}
-
-/// [`is_swapped_registry`] that reports a file it could not read instead of
-/// answering "not swapped": a locked or unreadable backup is not evidence that
-/// the registry is another one. A missing key reads as absent.
-fn swapped_registry(db_path: &Path) -> anyhow::Result<bool> {
-    let read = |path: &Path, key: &str| -> anyhow::Result<Option<String>> {
-        let connection = open_registry_database_read_only(path)
-            .with_context(|| format!("open {} to read {key}", path.display()))?;
-        connection.busy_timeout(Duration::from_secs(5))?;
-        connection
-            .query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| {
-                row.get::<_, String>(0)
-            })
-            .optional()
-            .with_context(|| format!("read {key} from {}", path.display()))
-    };
-    let Some(current) = read(db_path, "registry_id")? else { return Ok(false) };
-    if read(&previous_path(db_path), "registry_id")?.as_deref() != Some(current.as_str()) {
-        return Ok(false);
-    }
-    // A swap writes what it kept. The version 1 cleanup wrote only the
-    // version 1 key, and version 2 may later mark that registry `not-needed`
-    // (#39381 review): its swap is still the version 1 one.
-    // A journal compaction's swap writes its own key (`journal_compact.rs`).
-    let swapped = |value: Option<String>| value.is_some_and(|value| value.contains("\"kept\""));
-    Ok(swapped(read(db_path, DONE_META_KEY)?)
-        || swapped(read(db_path, super::V1_DONE_META_KEY)?)
-        || swapped(read(db_path, journal_compact::DONE_META_KEY)?))
-}
-
-/// A previous registry exists and no owner got through a full start on the
-/// registry that replaced it: a failed owner build may still roll back.
-pub(crate) fn rollback_possible(db_path: &Path) -> bool {
-    if !previous_path(db_path).is_file() || !db_path.is_file() || !is_swapped_registry(db_path) {
-        return false;
-    }
-    open_registry_database_read_only(db_path)
-        .ok()
-        .map(|connection| {
-            connection
-                .query_row("SELECT value FROM meta WHERE key = ?1", [FULL_STARTS_META_KEY], |row| {
-                    row.get::<_, String>(0)
-                })
-                .ok()
-                .and_then(|value| value.parse::<u64>().ok())
-                .unwrap_or(0)
-                == 0
-        })
-        .unwrap_or(false)
-}
-
-/// Records a full owner start (restore done) on a registry that still has
-/// the file a swap replaced.
-pub(crate) fn note_full_start(db_path: &Path) -> anyhow::Result<()> {
-    if !previous_path(db_path).exists() {
-        return Ok(());
-    }
-    // A backup that cannot be read (held by another process, unreadable) is
-    // not proof the registry is another one: answering "not swapped" would
-    // let this start serve without its confirmation, and a later failed start
-    // could roll back over what it served. Once more after a failure, then
-    // the start is refused.
-    let swapped =
-        swapped_registry(db_path).or_else(|_| swapped_registry(db_path)).with_context(|| {
-            format!(
-                "check whether the registry was made from the output cleanup backup {} (the \
-                 start is refused; the next start tries again)",
-                previous_path(db_path).display()
-            )
-        })?;
-    if !swapped {
-        eprintln!(
-            "cmux-tui: output cleanup: the registry is not the one made from {}; it stays",
-            previous_path(db_path).display()
-        );
-        return Ok(());
-    }
-    let note = || -> anyhow::Result<()> {
-        let connection = open_registry_database_with_flags(
-            db_path,
-            OpenFlags::default().difference(OpenFlags::SQLITE_OPEN_CREATE),
-        )?;
-        connection.busy_timeout(Duration::from_secs(5))?;
-        connection.execute(
-            "INSERT INTO meta(key, value) VALUES(?1, '1')
-             ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1",
-            [FULL_STARTS_META_KEY],
-        )?;
-        Ok(())
-    };
-    // Once more after a failure (a busy registry). A start that cannot
-    // record itself is not a full start: the caller refuses it before it
-    // serves, so a later failed start can never roll back a served session.
-    note().or_else(|_| note()).context(
-        "record the first full start on the output-cleaned registry (the start is refused; \
-         the next start tries again)",
-    )
-}
-
-/// At an open after a swap: the previous file goes, off the start path, once
-/// an owner got through a full start on the new registry. Until then it stays
-/// so the original can be put back.
-pub(crate) fn remove_previous_registry_when_started(db_path: &Path) {
-    let previous = previous_path(db_path);
-    if !previous.exists() {
-        // Sidecars an older build left without their backup.
-        for suffix in ["-wal", "-shm", "-journal"] {
-            let _ = remove_if_present(&sidecar_path(&previous, suffix));
-        }
-        return;
-    }
-    if !is_swapped_registry(db_path) {
-        eprintln!(
-            "cmux-tui: output cleanup: kept {}: the registry is not the one made from it",
-            previous.display()
-        );
-        return;
-    }
-    let started = open_registry_database_read_only(db_path)
-        .ok()
-        .and_then(|connection| {
-            connection
-                .query_row("SELECT value FROM meta WHERE key = ?1", [FULL_STARTS_META_KEY], |row| {
-                    row.get::<_, String>(0)
-                })
-                .ok()
-        })
-        .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(0);
-    if started == 0 {
-        return;
-    }
-    let _ =
-        std::thread::Builder::new().name("cmux-output-cleanup-remove".into()).spawn(move || {
-            match remove_previous_with_sidecars(&previous) {
-                Ok(()) => eprintln!(
-                    "cmux-tui: output cleanup: removed the previous registry {}",
-                    previous.display()
-                ),
-                Err(error) => eprintln!(
-                    "cmux-tui: output cleanup: could not remove {}: {error:#}",
-                    previous.display()
-                ),
-            }
-        });
-}
-
-/// Removes the previous registry, then the sidecars SQLite left beside it
-/// (`-wal`, `-shm`, `-journal`: a read-only open of a WAL file makes them).
-/// The sidecars go after the main file, so a crash between the two never
-/// leaves a WAL beside a file it could be applied to. From Lawrence Chen's
-/// long-jobs branch (6825f3658ff, d66f49b98f6).
-fn remove_previous_with_sidecars(previous: &Path) -> anyhow::Result<()> {
-    remove_if_present(previous)?;
-    for suffix in ["-wal", "-shm", "-journal"] {
-        remove_if_present(&sidecar_path(previous, suffix))?;
-    }
-    Ok(())
-}
-
-/// Without hard links the swap renames the registry aside first; a crash
-/// between the two renames leaves only the previous file.
-pub(crate) fn restore_interrupted_swap(db_path: &Path) {
-    let previous = previous_path(db_path);
-    if db_path.exists() || !previous.is_file() {
-        return;
-    }
-    // Sidecars without their main file belong to a file that is gone; an old
-    // WAL must never be applied to the backup. They are moved aside, not
-    // deleted.
-    let orphaned = super::super::open_guard::orphaned_sidecars(db_path);
-    let shm = sidecar_path(db_path, "-shm");
-    if !orphaned.is_empty() || shm.exists() {
-        match super::super::open_guard::quarantine(
-            db_path,
-            "sidecars of a missing registry before an interrupted swap was undone",
-        ) {
-            Ok(kept) => eprintln!(
-                "cmux-tui: output cleanup: moved stale sidecars to {}",
-                kept.recovery_dir.display()
-            ),
-            Err(error) => {
-                eprintln!(
-                    "cmux-tui: output cleanup: could not move stale sidecars aside, \
-                     the backup stays at {}: {error:#}",
-                    previous.display()
-                );
-                return;
-            }
-        }
-    }
-    match fs::rename(&previous, db_path) {
-        Ok(()) => {
-            eprintln!("cmux-tui: output cleanup: restored the registry after an interrupted swap");
-        }
-        Err(error) => {
-            eprintln!(
-                "cmux-tui: output cleanup: could not restore {}: {error}",
-                previous.display()
-            );
         }
     }
 }
@@ -549,7 +242,16 @@ fn build_and_swap(db_path: &Path, verify_open: VerifyOpen<'_>) -> anyhow::Result
         source.busy_timeout(Duration::from_secs(5))?;
         let busy: i64 =
             source.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))?;
-        anyhow::ensure!(busy == 0, "the registry WAL could not be checkpointed");
+        if busy != 0 {
+            // A reader of the registry holds the log (another process, for
+            // at least the busy timeout). Nothing is wrong with the staged
+            // work: a later start swaps.
+            return Ok(Swap::Deferred(
+                "a reader of the registry holds its log, so the log could not be folded into \
+                 the registry file"
+                    .to_string(),
+            ));
+        }
     }
     steps.mark("checkpoint");
     // Nothing writes the registry file from here until the rename (the
@@ -559,6 +261,53 @@ fn build_and_swap(db_path: &Path, verify_open: VerifyOpen<'_>) -> anyhow::Result
     let source = open_registry_database_read_only(db_path)?;
     source.busy_timeout(Duration::from_secs(5))?;
     check_staged_prefix(&source, &staged)?;
+    // The floor of THIS start. It can be lower than at the build: an update
+    // whose roster or agent history reducer has another version folds from
+    // the first record it finds, and so does a hook that is enabled again. A
+    // file that left out records this start reads is not installed; the
+    // cleanup worker builds again at the floor it finds.
+    // A file with no floor recorded (an earlier format) left out no run.
+    let built_floor =
+        state(&staged, "floor").ok().and_then(|floor| floor.parse::<u64>().ok()).unwrap_or(0);
+    // A floor that cannot be read (a saved reducer state that is not JSON)
+    // is floor 0: this start may read every record, so only a file built at
+    // floor 0 is installed. It is not a failure of this registry.
+    let floor = if built_floor == 0 {
+        0
+    } else {
+        start_floor(&source).unwrap_or_else(|error| {
+            eprintln!("cmux-tui: output cleanup: could not read the retention floor: {error:#}");
+            0
+        })
+    };
+    if built_floor > floor {
+        eprintln!(
+            "cmux-tui: output cleanup: the new registry was built without the journal through \
+             {built_floor} and this start reads it after {floor}; discarding it"
+        );
+        drop(source);
+        drop(staged);
+        remove_staging(db_path)?;
+        return Ok(Swap::NotReady);
+    }
+    // The saved reducer states are the only copy of what the new file left
+    // out of the journal: the swap copies each to its base
+    // (`journal_retention/base.rs`). A state that cannot be a base (another
+    // version, a rebuild owed, a cursor below the floor of the build) is
+    // not this start's fold of those records: the file is not installed.
+    let retention = super::super::journal_retention::journal_pruned_through(&source)?;
+    if built_floor > retention
+        && !super::super::journal_retention::reducer_bases_possible(&source, built_floor)?
+    {
+        eprintln!(
+            "cmux-tui: output cleanup: the new registry was built without the journal through \
+             {built_floor} and a saved reducer state cannot stand for those records; discarding it"
+        );
+        drop(source);
+        drop(staged);
+        remove_staging(db_path)?;
+        return Ok(Swap::NotReady);
+    }
     let built_head = state_u64(&staged, "built_head")?;
     let head = query_journal_head(&source)?;
     // A catch-up stopped before it packed leaves staged records unpacked;
@@ -619,6 +368,10 @@ struct CommittedSwap {
     head: u64,
     /// Records the start packed (after `from`).
     tail_kept: u64,
+    /// The floor the file was built at: the journal through it is not in the
+    /// file (0: no run was left out). Absent in a record of an earlier build.
+    #[serde(default)]
+    floor: Option<u64>,
 }
 
 /// The registry file's length and modification time, with no WAL beside it
@@ -672,6 +425,24 @@ fn finish_committed(
             &staging_path(db_path),
             OpenFlags::default().difference(OpenFlags::SQLITE_OPEN_CREATE),
         )?;
+        // The start that finishes the swap can be of another build than the
+        // one that committed it (an update between the kill and this start),
+        // with a lower floor: the same rule as before the build.
+        let source = open_registry_database_read_only(db_path)?;
+        source.busy_timeout(Duration::from_secs(5))?;
+        if let Some((built_floor, floor)) = built_above_start_floor(&staged, &source, swap)? {
+            // Both files stay and the owner starts on the registry, which has
+            // every record. The new file is of no use to a later start (this
+            // owner writes the registry, so its stamp no longer names it):
+            // the cleanup worker replaces it when it builds again.
+            eprintln!(
+                "cmux-tui: output cleanup: the swap an earlier start committed was built without \
+                 the journal through {built_floor} and this start reads it after {floor}; it is \
+                 not installed, the registry is unchanged"
+            );
+            return Ok(Swap::NotReady);
+        }
+        drop(source);
         verify(&staged, registry_id, swap, &mut steps)?;
         let count = |sql: &str| -> anyhow::Result<u64> {
             Ok(u64::try_from(staged.query_row(sql, [], |row| row.get::<_, i64>(0))?)?)
@@ -699,6 +470,35 @@ fn finish_committed(
         largest_tables: String::new(),
         steps: steps.line(),
     }))
+}
+
+/// `Some((built floor, floor of this start))` when the committed new registry
+/// `staged` left out records that this start reads from `source`, the
+/// registry it was built from. A record of an earlier build names no floor:
+/// the floor is then what the new file says is gone, when that is more than
+/// the registry itself says.
+fn built_above_start_floor(
+    staged: &Connection,
+    source: &Connection,
+    swap: &CommittedSwap,
+) -> anyhow::Result<Option<(u64, u64)>> {
+    use super::super::journal_retention::journal_pruned_through;
+    let built_floor = match swap.floor {
+        Some(floor) => floor,
+        None => {
+            let gone = journal_pruned_through(staged)?;
+            if gone > journal_pruned_through(source)? { gone } else { 0 }
+        }
+    };
+    if built_floor == 0 {
+        return Ok(None);
+    }
+    // A floor that cannot be read is floor 0, as before the build.
+    let floor = start_floor(source).unwrap_or_else(|error| {
+        eprintln!("cmux-tui: output cleanup: could not read the retention floor: {error:#}");
+        0
+    });
+    Ok((built_floor > floor).then_some((built_floor, floor)))
 }
 
 /// The staged segments still describe the registry's archive: its last
@@ -813,6 +613,9 @@ fn build(
     Ok(built)
 }
 
+/// The one copied table that holds a row per journal record.
+const INGRESS_RECEIPTS_TABLE: &str = "journal_ingress_receipts";
+
 fn build_in(
     tx: &Transaction<'_>,
     source: &Connection,
@@ -850,6 +653,16 @@ fn build_in(
         tx.execute_batch(&format!("DROP TABLE IF EXISTS main.{}", quote(table)))?;
         tx.execute_batch(sql)?;
     }
+    // The receipts of the ingress records left out at the floor go with
+    // them: only the rows after it are copied (and counted below).
+    let cut = state(tx, "floor")?.parse::<u64>().unwrap_or(0);
+    let after_cut = |table: &str| -> String {
+        if table == INGRESS_RECEIPTS_TABLE && cut > 0 {
+            format!(" WHERE journal_sequence > {cut}")
+        } else {
+            String::new()
+        }
+    };
     // Rowids are kept: code orders by them (ledger retention, archives,
     // intents, effects, workspace positions).
     for (_, table, _, _) in &copied {
@@ -861,8 +674,9 @@ fn build_in(
         };
         tx.execute(
             &format!(
-                "INSERT INTO main.{0}({insert}) SELECT {select} FROM src.{0}{order}",
-                quote(table)
+                "INSERT INTO main.{0}({insert}) SELECT {select} FROM src.{0}{1}{order}",
+                quote(table),
+                after_cut(table)
             ),
             [],
         )?;
@@ -871,8 +685,9 @@ fn build_in(
     for (_, table, _, _) in &copied {
         let (main_count, src_count): (i64, i64) = tx.query_row(
             &format!(
-                "SELECT (SELECT COUNT(*) FROM main.{0}), (SELECT COUNT(*) FROM src.{0})",
-                quote(table)
+                "SELECT (SELECT COUNT(*) FROM main.{0}), (SELECT COUNT(*) FROM src.{0}{1})",
+                quote(table),
+                after_cut(table)
             ),
             [],
             |row| Ok((row.get(0)?, row.get(1)?)),
@@ -930,7 +745,7 @@ fn build_in(
             state_u64(tx, "compact_removed_changes")?
         ),
     };
-    let swap = CommittedSwap { source: stamp.clone(), from, head, tail_kept };
+    let swap = CommittedSwap { source: stamp.clone(), from, head, tail_kept, floor: Some(cut) };
     let swap_json = serde_json::to_string(&swap)?;
     for (key, value) in [
         (done_meta_key(mode), done.as_str()),
@@ -943,6 +758,26 @@ fn build_in(
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             [key, value],
         )?;
+    }
+    // The records through the cut are gone, as the ones retention deletes
+    // in place are: the same `meta` floor says so to the readers that ask
+    // it (`journal_pruned_through`). It never goes down.
+    if cut > 0 {
+        tx.execute(
+            "INSERT INTO main.meta(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value
+             WHERE CAST(meta.value AS INTEGER) < CAST(excluded.value AS INTEGER)",
+            [super::super::journal_retention::PRUNED_THROUGH_META_KEY, cut.to_string().as_str()],
+        )?;
+        // The saved reducer states (copied with `meta`) are the only copy
+        // of what the cut takes from the journal: each gets its base in the
+        // new file. `build_and_swap` asked before the build; a state that
+        // cannot be a base here is an error, and the registry stays.
+        let based = super::super::journal_retention::save_reducer_bases(tx, "main", cut)?;
+        anyhow::ensure!(
+            based || cut <= super::super::journal_retention::journal_pruned_through(source)?,
+            "a saved reducer state cannot stand for the journal through {cut}"
+        );
     }
     steps.mark("meta");
     // Indexes of the copied tables after their rows (the rebuilt tables got
@@ -1073,7 +908,7 @@ fn finish_staged_file(db_path: &Path) -> anyhow::Result<()> {
 
 /// Keeps the registry as `.pre-output-cleanup` (a hard link, so a crash at
 /// any point leaves a registry in place) and renames the new file over it.
-fn install(db_path: &Path) -> anyhow::Result<()> {
+pub(super) fn install(db_path: &Path) -> anyhow::Result<()> {
     let wal = sidecar_path(db_path, "-wal");
     anyhow::ensure!(file_len(&wal) == 0, "the registry WAL still holds data: {}", wal.display());
     remove_if_present(&wal)?;
@@ -1153,7 +988,3 @@ fn has_rowid(tx: &Connection, table: &str) -> anyhow::Result<bool> {
     )?;
     Ok(without == 0)
 }
-
-#[cfg(test)]
-#[path = "swap_rollback_tests.rs"]
-mod rollback_tests;
