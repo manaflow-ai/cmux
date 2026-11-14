@@ -2938,7 +2938,7 @@ class TabManager: ObservableObject {
             requiresConfirmation: true,
             source: .shortcut
         )
-        if hasActiveProcess {
+        if hasActiveProcess && warningStore.warnsBeforeClosingTab {
             warningKinds.insert(.safety)
         }
         if !warningKinds.isEmpty {

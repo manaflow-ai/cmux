@@ -559733,61 +559733,120 @@
         }
       }
     },
-    "settings.app.warnBeforeClosingTab.subtitle": {
+    "settings.app.warnBeforeClosingTab.subtitleOff": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Closing a tab asks for confirmation first."
+            "value": "Tabs close immediately without confirmation. Working agents follow their own setting."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Beim Schließen eines Tabs wird zuerst nach einer Bestätigung gefragt."
+            "value": "Tabs werden sofort und ohne Bestätigung geschlossen. Arbeitende Agenten folgen ihrer eigenen Einstellung."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Une confirmation est demandée avant la fermeture d’un onglet."
+            "value": "Les onglets se ferment immédiatement sans confirmation. Les agents en cours de travail suivent leur propre réglage."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يُطلب التأكيد قبل إغلاق علامة التبويب."
+            "value": "تُغلق علامات التبويب فورًا دون تأكيد. يتبع الوكلاء الذين يعملون إعدادهم الخاص."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se pide confirmación antes de cerrar una pestaña."
+            "value": "Las pestañas se cierran inmediatamente sin confirmación. Los agentes en funcionamiento siguen su propio ajuste."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "關閉標籤頁前先要求確認。"
+            "value": "標籤頁將立即關閉，無需確認。工作中的代理遵循其自身的設定。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "关闭标签页前先要求确认。"
+            "value": "标签页会直接关闭，不做确认。正在工作的代理遵循其自身设置。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "탭을 닫기 전에 확인을 요청합니다."
+            "value": "확인 창 없이 탭이 즉시 닫힙니다. 작업 중인 에이전트는 자체 설정을 따릅니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タブを閉じる前に確認します。"
+            "value": "確認なしにすぐタブを閉じます。作業中のエージェントは専用の設定に従います。"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingTab.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show a confirmation before closing a tab with a running process."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor dem Schließen eines Tabs mit einem laufenden Prozess eine Bestätigung anzeigen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher une confirmation avant de fermer un onglet dont un processus est en cours."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض تأكيد قبل إغلاق علامة تبويب تحتوي على عملية قيد التشغيل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar una confirmación antes de cerrar una pestaña con un proceso en ejecución."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉有執行中程序的標籤頁前顯示確認。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭有正在运行进程的标签页前显示确认。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 프로세스가 있는 탭을 닫기 전에 확인 창을 표시합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中のプロセスがあるタブを閉じる前に確認を表示します。"
           }
         }
       }
