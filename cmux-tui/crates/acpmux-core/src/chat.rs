@@ -6,11 +6,13 @@
 //! actor await a client.
 
 use acpmux_book::blobs::{Blobs, Body};
-use acpmux_book::checkpoint::{Checkpoint, Cursor, OpenBody, next_edition};
+use acpmux_book::checkpoint::{Checkpoint, Cursor, OpenBody, Person, next_edition};
 use acpmux_book::folds::Folds;
 use acpmux_book::log::{self, Error as BookError, Log, Options, RawRange};
 use acpmux_book::row::{Outline, RowKind};
-use acpmux_book::translate::{self, BodyField, BodySource, Change, Harness, OwnedRow, State};
+use acpmux_book::translate::{
+    self, BodyField, BodySource, Change, Harness, OwnedRow, QueueChange, State,
+};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fs;
@@ -22,7 +24,12 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+pub mod queue;
 pub mod source;
+pub mod stream;
+
+use crate::conn::Reply;
+use crate::wire::{Blob, Page};
 
 pub type SourceFactory = Arc<dyn Fn() -> std::io::Result<Box<dyn source::RawSource>> + Send + Sync>;
 
@@ -170,12 +177,71 @@ pub enum Recovery {
 
 enum Request {
     Wake,
-    Close { reply: mpsc::Sender<Result<(), ChatError>> },
+    Close {
+        reply: mpsc::Sender<Result<(), ChatError>>,
+    },
+    Sub {
+        sub: Box<stream::ChatSub>,
+        ticket: stream::Ticket,
+    },
+    Resume {
+        conn: u64,
+        sid: String,
+        cursor: u64,
+    },
+    End {
+        conn: u64,
+        sid: String,
+    },
+    Page {
+        page: Box<Page>,
+        person: stream::PersonId,
+        reply: Reply,
+    },
+    Blob {
+        blob: Box<Blob>,
+        person: stream::PersonId,
+        reply: Reply,
+    },
+    #[cfg(test)]
+    SetPerson(Person),
 }
 
 impl Request {
+    /// What the request holds, as the mailbox counts it.
     fn bytes(&self) -> usize {
-        16
+        let held = match self {
+            Self::Wake | Self::Close { .. } => 0,
+            Self::Sub { sub, .. } => std::mem::size_of::<stream::ChatSub>() + sub.sid.len(),
+            Self::Resume { sid, .. } | Self::End { sid, .. } => sid.len(),
+            Self::Page { page, .. } => {
+                std::mem::size_of::<Page>()
+                    + page.sid.len()
+                    + page.stream.as_str().len()
+                    + std::mem::size_of::<Reply>()
+            }
+            Self::Blob { blob, .. } => {
+                std::mem::size_of::<Blob>()
+                    + blob.id.len()
+                    + blob.stream.as_str().len()
+                    + blob.prompt.as_ref().map_or(0, String::len)
+                    + blob.from.as_ref().map_or(0, String::len)
+                    + std::mem::size_of::<Reply>()
+            }
+            #[cfg(test)]
+            Self::SetPerson(person) => person.folds.len() * 8,
+        };
+        std::mem::size_of::<Self>() + held
+    }
+}
+
+impl ChatError {
+    /// The `error` code a request this error refused is answered with.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::MailboxFull => "mailbox_full",
+            _ => "failed",
+        }
     }
 }
 
@@ -199,44 +265,85 @@ impl ChatHandle {
         *self.health.borrow() == crate::life::Health::Running
     }
 
-    fn send(&self, request: Request) -> Result<(), ChatError> {
+    /// Queues `request`, or gives it back with why it was refused, so its reply is answered at
+    /// once with the reason.
+    fn send(&self, request: Request) -> Result<(), (ChatError, Request)> {
         if *self.health.borrow() == crate::life::Health::Failed {
-            return Err(ChatError::Failed);
+            return Err((ChatError::Failed, request));
         }
         let bytes = request.bytes();
         {
-            let mut queued = self.queued.lock().map_err(|_| ChatError::Closed)?;
+            let Ok(mut queued) = self.queued.lock() else {
+                return Err((ChatError::Closed, request));
+            };
             if queued.saturating_add(bytes) > MAILBOX_BYTES {
-                return Err(ChatError::MailboxFull);
+                return Err((ChatError::MailboxFull, request));
             }
             *queued = queued.saturating_add(bytes);
         }
-        match self.tx.try_send(request) {
-            Ok(()) => Ok(()),
-            Err(TrySendError::Full(_)) => {
-                if let Ok(mut queued) = self.queued.lock() {
-                    *queued = queued.saturating_sub(bytes);
-                }
-                Err(ChatError::MailboxFull)
-            }
-            Err(TrySendError::Disconnected(_)) => {
-                if let Ok(mut queued) = self.queued.lock() {
-                    *queued = queued.saturating_sub(bytes);
-                }
-                Err(ChatError::Closed)
-            }
+        let refused = match self.tx.try_send(request) {
+            Ok(()) => return Ok(()),
+            Err(TrySendError::Full(request)) => (ChatError::MailboxFull, request),
+            Err(TrySendError::Disconnected(request)) => (ChatError::Closed, request),
+        };
+        if let Ok(mut queued) = self.queued.lock() {
+            *queued = queued.saturating_sub(bytes);
         }
+        Err(refused)
     }
 
     /// Wakes the actor to read one bounded source chunk.
     pub fn wake(&self) -> Result<(), ChatError> {
-        self.send(Request::Wake)
+        self.send(Request::Wake).map_err(|(error, _)| error)
     }
 
     pub fn close(&self) -> Result<(), ChatError> {
         let (reply_tx, reply_rx) = mpsc::channel();
-        self.send(Request::Close { reply: reply_tx })?;
+        self.send(Request::Close { reply: reply_tx }).map_err(|(error, _)| error)?;
         reply_rx.recv().map_err(|_| ChatError::Response)?
+    }
+
+    /// A `sub`: its window, its resume or `not_ready` comes from the actor through `ticket`'s
+    /// sink. Refused, the ticket says nothing and the error is the caller's to send.
+    pub fn subscribe(&self, sub: stream::ChatSub, ticket: stream::Ticket) -> Result<(), ChatError> {
+        match self.send(Request::Sub { sub: Box::new(sub), ticket }) {
+            Ok(()) => Ok(()),
+            Err((error, Request::Sub { ticket, .. })) => {
+                ticket.forget();
+                Err(error)
+            }
+            Err((error, _)) => Err(error),
+        }
+    }
+
+    /// The connection gave a stopped subscription credit again.
+    pub fn resume(&self, conn: u64, sid: &str, cursor: u64) -> Result<(), ChatError> {
+        self.send(Request::Resume { conn, sid: sid.to_owned(), cursor }).map_err(|(error, _)| error)
+    }
+
+    pub fn end(&self, conn: u64, sid: &str) -> Result<(), ChatError> {
+        self.send(Request::End { conn, sid: sid.to_owned() }).map_err(|(error, _)| error)
+    }
+
+    /// A `page`, answered through `reply`; refused, it is answered at once.
+    pub fn page(&self, page: Page, person: stream::PersonId, reply: Reply) {
+        let request = Request::Page { page: Box::new(page), person, reply };
+        if let Err((error, Request::Page { reply, .. })) = self.send(request) {
+            reply.error(error.code(), &error.to_string());
+        }
+    }
+
+    /// A `blob`, answered through `reply`; refused, it is answered at once.
+    pub fn blob(&self, blob: Blob, person: stream::PersonId, reply: Reply) {
+        let request = Request::Blob { blob: Box::new(blob), person, reply };
+        if let Err((error, Request::Blob { reply, .. })) = self.send(request) {
+            reply.error(error.code(), &error.to_string());
+        }
+    }
+
+    #[cfg(test)]
+    fn set_person(&self, person: Person) -> Result<(), ChatError> {
+        self.send(Request::SetPerson(person)).map_err(|(error, _)| error)
     }
 }
 
@@ -361,6 +468,44 @@ struct ActorState {
     /// The hint the last read that said `at_end` saw. The actor reads again when its mailbox is
     /// empty and the source's hint is another; the hint is never taken for an end.
     seen_hint: Option<u64>,
+    /// A read said `at_end` in this state's life: windows are cut from here on.
+    ready: bool,
+    subs: stream::Subscribers,
+    /// The people the book keeps: the row each has seen and the folds each opened.
+    people: Vec<Person>,
+    /// Each open row's generation: another one whenever the row's body is set again rather
+    /// than appended to, so a client knows bytes it holds before `fixed` are still the row's.
+    gens: BTreeMap<u64, u64>,
+    gen_next: u64,
+    /// The ids of the waiting prompts this actor named, by id hash, for their removal ops.
+    queue_ids: BTreeMap<u64, String>,
+}
+
+impl ActorState {
+    fn generation(&mut self, row: u64) -> u64 {
+        match self.gens.get(&row) {
+            Some(generation) => *generation,
+            None => self.next_generation(row),
+        }
+    }
+
+    fn next_generation(&mut self, row: u64) -> u64 {
+        self.gen_next = self.gen_next.wrapping_add(1);
+        self.gens.insert(row, self.gen_next);
+        self.gen_next
+    }
+}
+
+/// Where this actor's generations start: random, so no two lives of a chat give the same one.
+fn random_u64() -> u64 {
+    let mut bytes = [0u8; 8];
+    if let Ok(mut source) = fs::File::open("/dev/urandom")
+        && source.read_exact(&mut bytes).is_ok()
+    {
+        return u64::from_le_bytes(bytes);
+    }
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |duration| duration.as_nanos() as u64)
+        ^ u64::from(std::process::id()) << 32
 }
 
 fn run_supervised(
@@ -372,9 +517,12 @@ fn run_supervised(
 ) -> Result<(), ChatError> {
     let receiver = receiver.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut rebuild = false;
+    // The subscribers outlive a reopen and a rebuild; an actor that ends or panics drops them,
+    // and each is told `dropped`.
+    let mut subs = stream::Subscribers::default();
     loop {
         let mut state = if rebuild || suffix(&config.book, ".new").exists() {
-            match rebuild_from_raw(config.clone(), &receiver, &queued, stop)? {
+            match rebuild_from_raw(config.clone(), &receiver, &queued, stop, &mut subs)? {
                 Some(state) => state,
                 None => return Ok(()),
             }
@@ -389,7 +537,12 @@ fn run_supervised(
             }
         };
         rebuild = false;
-        match run_once(&mut state, &receiver, &queued, stop, health) {
+        state.subs = std::mem::take(&mut subs);
+        let edition = state.edition;
+        state.subs.reopened(edition);
+        let result = run_once(&mut state, &receiver, &queued, stop, health);
+        subs = std::mem::take(&mut state.subs);
+        match result {
             Ok(true) => return Ok(()),
             Ok(false) => {}
             Err(error) if damaged(&error) => rebuild = true,
@@ -524,6 +677,7 @@ fn rebuild_from_raw(
     rx: &Receiver<Request>,
     queued: &Arc<Mutex<usize>>,
     stop: &AtomicBool,
+    subs: &mut stream::Subscribers,
 ) -> Result<Option<ActorState>, ChatError> {
     let new_book = suffix(&config.book, ".new");
     if log::saved_checkpoint(&new_book)?.is_some_and(|saved| saved.edition != 0) {
@@ -595,6 +749,8 @@ fn rebuild_from_raw(
     let mut new_config = config.clone();
     new_config.book = new_book.clone();
     let mut state = restart_staging(&new_config, &mut basis)?;
+    // A staging book is never ready: its subscribers wait.
+    state.subs = std::mem::take(subs);
     rebuild_point("opened");
     loop {
         match read_source(&mut state) {
@@ -620,8 +776,10 @@ fn rebuild_from_raw(
             Err(ChatError::SourceChanged) => {
                 basis.keep = false;
                 save_basis(&new_book, &basis)?;
+                *subs = std::mem::take(&mut state.subs);
                 drop(state);
                 state = restart_staging(&new_config, &mut basis)?;
+                state.subs = std::mem::take(subs);
             }
             Err(error) => return Err(error),
         }
@@ -659,6 +817,7 @@ fn rebuild_from_raw(
     rebuild_point("edition-chosen");
     checkpoint(&mut state)?;
     rebuild_point("committed");
+    *subs = std::mem::take(&mut state.subs);
     drop(state);
     rebuild_point("closed");
     finish_swap(&config, &new_book)?;
@@ -760,6 +919,12 @@ fn open_state_from_log(
         settled_since_checkpoint: 0,
         replay_remaining: recovered.replayed,
         seen_hint: None,
+        ready: false,
+        subs: stream::Subscribers::default(),
+        people: saved_checkpoint.as_ref().map_or_else(Vec::new, |c| c.people.clone()),
+        gens: BTreeMap::new(),
+        gen_next: random_u64(),
+        queue_ids: BTreeMap::new(),
     };
     let stamp_changed = saved_checkpoint.as_ref().is_some_and(|checkpoint| {
         checkpoint.boot_id != actor.config.boot_id
@@ -805,6 +970,11 @@ fn run_once(
             return Ok(true);
         }
         let at_end = read_source(state)?;
+        if at_end && !state.ready {
+            state.ready = true;
+            stream::ready(state);
+        }
+        stream::step(state)?;
         if !at_end {
             match rx.try_recv() {
                 Ok(request) => {
@@ -830,7 +1000,10 @@ fn run_once(
             }
             Wait::Read => {}
             Wait::Idle => {
-                if state.translate.open_rows().next().is_none() {
+                if state.translate.open_rows().next().is_none()
+                    && state.subs.is_empty()
+                    && state.translate.queue_len() == 0
+                {
                     checkpoint(state)?;
                     return Ok(true);
                 }
@@ -856,11 +1029,28 @@ fn wait_for_work(state: &ActorState, rx: &Receiver<Request>, stop: &AtomicBool) 
         if stop.load(Ordering::Acquire) || state.source.hint().ok() != state.seen_hint {
             return Wait::Read;
         }
+        // A subscriber with a resume frame or a window to take: a request first, if one waits.
+        if state.subs.busy() {
+            return match rx.try_recv() {
+                Ok(request) => Wait::Request(request),
+                Err(mpsc::TryRecvError::Empty) => Wait::Read,
+                Err(mpsc::TryRecvError::Disconnected) => Wait::Closed,
+            };
+        }
         let left = IDLE_AFTER.saturating_sub(started.elapsed());
         if left.is_zero() {
             return Wait::Idle;
         }
-        match rx.recv_timeout(left.min(state.config.hint_poll.max(Duration::from_millis(1)))) {
+        let mut wait = left.min(state.config.hint_poll.max(Duration::from_millis(1)));
+        // Held text is due.
+        if let Some(at) = state.subs.flush_at() {
+            let now = Instant::now();
+            if at <= now {
+                return Wait::Read;
+            }
+            wait = wait.min(at - now);
+        }
+        match rx.recv_timeout(wait) {
             Ok(request) => return Wait::Request(request),
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => return Wait::Closed,
@@ -885,6 +1075,40 @@ fn handle_request(
             let failed = result.is_err();
             let _ = reply.send(result);
             if failed { Err(ChatError::Failed) } else { Ok(false) }
+        }
+        Request::Sub { sub, ticket } => {
+            stream::subscribe(state, *sub, ticket);
+            Ok(true)
+        }
+        Request::Resume { conn, sid, cursor } => {
+            stream::resume(state, conn, &sid, cursor);
+            Ok(true)
+        }
+        Request::End { conn, sid } => {
+            stream::end(state, conn, &sid);
+            Ok(true)
+        }
+        Request::Page { page, person, reply } => {
+            if state.ready {
+                stream::page(state, *page, person, reply);
+            } else {
+                reply.error("not_ready", "the chat's book is catching up");
+            }
+            Ok(true)
+        }
+        Request::Blob { blob, person: _, reply } => {
+            if state.ready {
+                stream::blob(state, *blob, reply);
+            } else {
+                reply.error("not_ready", "the chat's book is catching up");
+            }
+            Ok(true)
+        }
+        #[cfg(test)]
+        Request::SetPerson(person) => {
+            state.people.retain(|known| known.id != person.id);
+            state.people.push(person);
+            Ok(true)
         }
     }
 }
@@ -954,7 +1178,13 @@ fn apply_ops(
             len: u32::try_from(span).unwrap_or(u32::MAX),
         };
         match op.change {
-            Change::Row(row) => settle_or_open(state, row, raw)?,
+            Change::Row(row) => {
+                let id = row.id;
+                if settle_or_open(state, row, raw)? {
+                    state.next_generation(id);
+                    stream::opened(state, id)?;
+                }
+            }
             Change::Patch(row) => patch(state, row, raw)?,
             Change::Body { id, field, append, source } => {
                 let value = match &source {
@@ -973,10 +1203,19 @@ fn apply_ops(
                     state.bodies.entry(id).or_insert(Body::new(id).map_err(ChatError::Book)?);
                 state.blobs.set(body, key, &value, append)?;
                 state.raw_ranges.entry(id).or_insert(raw);
+                if append && field == BodyField::Text {
+                    // Appended text keeps the row's generation: the bytes before it stay.
+                    stream::text(state, id, &value);
+                } else {
+                    state.next_generation(id);
+                    stream::opened(state, id)?;
+                }
             }
-            Change::Queue(_) => {}
+            Change::Queue(QueueChange::Add(entry)) => stream::queued(state, &entry)?,
+            Change::Queue(QueueChange::Remove(id_hash)) => stream::unqueued(state, id_hash)?,
         }
     }
+    stream::publish(state);
     if checkpoint_now
         && changed
         && state.replay_remaining == 0
@@ -1031,12 +1270,14 @@ fn merge_row_fields(
     Ok(())
 }
 
-fn settle_or_open(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Result<(), ChatError> {
+/// Stores a row: settled, it is appended to the log and offered; open, its body is kept and
+/// `true` says so.
+fn settle_or_open(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Result<bool, ChatError> {
     merge_row_fields(state, &row, true)?;
     let body = state.bodies.get(&row.id).ok_or(ChatError::Closed)?;
     if row.open {
         state.raw_ranges.insert(row.id, raw);
-        return Ok(());
+        return Ok(true);
     }
     let mut body_bytes = Vec::new();
     state.blobs.write_body(body, &mut body_bytes)?;
@@ -1056,10 +1297,10 @@ fn settle_or_open(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Resul
         row.as_row(text).encode(None, &mut encoded).map_err(|_| ChatError::Closed)?;
     }
     let seq = match state.log.append_settled(row.id, row.rev, raw, &encoded) {
-        Ok(seq) => seq,
+        Ok(seq) => Some(seq),
         Err(BookError::AlreadySettled { .. }) | Err(BookError::StaleRev { .. }) => {
             state.replay_remaining = state.replay_remaining.saturating_sub(1);
-            state.log.last_seq()
+            None
         }
         Err(error) => return Err(error.into()),
     };
@@ -1072,8 +1313,11 @@ fn settle_or_open(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Resul
     }
     state.bodies.remove(&row.id);
     state.raw_ranges.remove(&row.id);
-    let _ = seq;
-    Ok(())
+    state.gens.remove(&row.id);
+    if let Some(seq) = seq {
+        stream::settled(state, "row", seq, &encoded, row.id);
+    }
+    Ok(false)
 }
 
 fn patch(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Result<(), ChatError> {
@@ -1092,15 +1336,13 @@ fn patch(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Result<(), Cha
     let body_text = std::str::from_utf8(&body_text).map_err(|_| ChatError::Closed)?;
     row.as_row(body_text).encode(None, &mut encoded).map_err(|_| ChatError::Closed)?;
     state.source.sync_through(state.raw_place)?;
-    let seq = match state.log.patch(row.id, row.rev, raw, &encoded) {
-        Ok(seq) => seq,
+    match state.log.patch(row.id, row.rev, raw, &encoded) {
+        Ok(seq) => stream::settled(state, "patch", seq, &encoded, row.id),
         Err(BookError::StaleRev { .. }) | Err(BookError::AlreadySettled { .. }) => {
             state.replay_remaining = state.replay_remaining.saturating_sub(1);
-            state.log.last_seq()
         }
         Err(error) => return Err(error.into()),
-    };
-    let _ = seq;
+    }
     Ok(())
 }
 
@@ -1128,6 +1370,7 @@ fn checkpoint(state: &mut ActorState) -> Result<(), ChatError> {
     let saved = state.translate.checkpoint()?;
     checkpoint.translator = saved.translator;
     checkpoint.prompts = saved.prompts;
+    checkpoint.people = state.people.clone();
     checkpoint.last_row = state.translate.last_row_id();
     checkpoint.folds_len = state.folds.len();
     if state.raw_file != 0 {
