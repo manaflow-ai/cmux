@@ -7,6 +7,7 @@ the worker's config. Only readback receipts go into the output directory.
 """
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import time
@@ -33,6 +34,8 @@ def transcript(state):
 
 
 class ChatFixture:
+    FAKE_AGENT = Path("cmux-tui/crates/acpmux/tests/fake_agent.py")
+
     def __init__(self, output):
         self.output = Path(output).resolve()
         self.output.mkdir(parents=True, exist_ok=False)
@@ -51,9 +54,31 @@ class ChatFixture:
             (root / "acpmux").mkdir(mode=0o700)
             profiles = root / "config/cmux/harnesses"
             profiles.mkdir(parents=True)
-            agent = Path(__file__).resolve().parents[2] / "cmux-tui/crates/acpmux/tests/fake_agent.py"
+            agent = Path(__file__).resolve().parents[2] / self.FAKE_AGENT
             if not agent.is_file():
-                raise RuntimeError(f"missing startup fixture agent: {agent}")
+                # The developer checkout used for this script can be sparse and
+                # omit cmux-tui even though the helper is tracked at HEAD. Keep
+                # the fallback private to this fixture rather than placing a
+                # generated harness in the checkout or artifact volume.
+                try:
+                    repo = subprocess.run(
+                        ["git", "rev-parse", "--show-toplevel"],
+                        cwd=Path(__file__).resolve().parents[2],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    ).stdout.strip()
+                    source = subprocess.run(
+                        ["git", "show", f"HEAD:{self.FAKE_AGENT.as_posix()}"],
+                        cwd=repo,
+                        check=True,
+                        capture_output=True,
+                    ).stdout
+                except (OSError, subprocess.CalledProcessError) as error:
+                    raise RuntimeError(f"missing startup fixture agent: {agent}") from error
+                agent = root / "fake_agent.py"
+                agent.write_bytes(source)
+                agent.chmod(0o700)
             (profiles / "startup-fixture.toml").write_text(
                 'id = "startup-fixture"\nname = "Startup fixture"\n'
                 f"command = {json.dumps(sys.executable)}\nargs = [{json.dumps(str(agent))}]\n"
