@@ -34,6 +34,7 @@ import type { NativeRowNeedsYou } from "./nativeRowTools";
 import type { NeedsYouItem } from "../needsYou/model";
 import { newKinds, type HeaderControls, type NewKind } from "./headerTrio";
 import { HeaderNewButton } from "./HeaderNewButton";
+import { useScreenSharing } from "../session-info/screenSharing";
 import { useShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
 import {
@@ -87,7 +88,7 @@ import { tooltipProps } from "../shortcuts";
 /// across it runs the chat it opened for (through that chat's guardedChatMenu), never the new one's.
 export function ChatHeaderTools({ chat, ...props }: ChatHeaderToolsProps & { chat?: string }) {
   const stable = useStableProps(props, { menu: [[]], summary: [[true], [false]] }, chat);
-  return <ChatHeaderToolsMemo {...stable} />;
+  return <ChatHeaderToolsMemo {...stable} screenShareSession={chat} />;
 }
 
 type ChatHeaderToolsProps = Parameters<typeof ChatHeaderToolsView>[0];
@@ -127,6 +128,7 @@ function ChatHeaderToolsView({
   nativeNeedsYou,
   working = false,
   motion,
+  screenShareSession,
 }: {
   /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
   /// `toggle` closes the split this button opened when it is still there.
@@ -194,10 +196,13 @@ function ChatHeaderToolsView({
   working?: boolean;
   /// The motion style, when the gallery picks one; else the App's (`agentChat.headerMotion`).
   motion?: HeaderMotionStyle;
+  /// The session id bound to the header's chevron screen-sharing action.
+  screenShareSession?: string;
 }) {
   // Debug measurement (acpmuxPerf): the header's committed renders (perf.ts `renders`).
   useCountedRender("header");
   const t = useT();
+  const screenSharing = useScreenSharing(screenShareSession);
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
   const splitDownKey = useShortcut(HEADER_ACTIONS.splitDown);
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
@@ -500,7 +505,11 @@ function ChatHeaderToolsView({
         {chatMenuButton}
         {sessionInfo}
         {typeof summary === "function" ? summary(false) : summary}
-        <HeaderNewButton kinds={newKinds(newButton.available)} make={newButton.make} />
+        <HeaderNewButton
+          kinds={newKinds(newButton.available)}
+          make={newButton.make}
+          onScreenShare={screenSharing.run}
+        />
       </div>
     );
   return (
