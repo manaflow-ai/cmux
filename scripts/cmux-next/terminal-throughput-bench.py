@@ -19,7 +19,7 @@ the row is the median.
 
 Rows (report.json `rows`, perf-cron.py kind budgets; reporting only, perf-cron.py judges no terminal.throughput row):
   terminal.throughput.next_mb_s, terminal.throughput.ghostty_mb_s (MB/s), terminal.throughput.ratio (x, NEXT/Ghostty).
-Prints TERMINAL-THROUGHPUT lines. Exits 1 when a terminal gave no timed burst (the report says why in `incomplete`).
+Prints TERMINAL-THROUGHPUT lines. Exits 1 when a terminal gave no timed burst (the report says why in `missing`).
 
   terminal-throughput-bench.py --app "<cmux DEV tag.app>" --out DIR [--json FILE] [--mb 200] [--runs 3]
       [--warmup-mb 16] [--timeout 240] [--ghostty-app PATH] [--no-ghostty]
@@ -261,7 +261,7 @@ def main(argv=None):
         payload = os.path.join(scratch, "payload.txt")
         size = write_payload(payload, opts.mb)
         report = {"suite": "terminal-throughput", "payload_bytes": size, "runs_per_terminal": opts.runs,
-                  "host": platform.node(), "incomplete": []}
+                  "host": platform.node(), "missing": []}
         report["next"] = measure_next(opts, writer, payload, scratch)
         first = next((r for r in report["next"]["runs"] if r.get("cols")), report["next"].get("warmup") or {})
         grid = (first.get("cols"), first.get("rows"))
@@ -273,11 +273,13 @@ def main(argv=None):
         report["next"]["median_mb_s"], report["ghostty"]["median_mb_s"] = next_mb_s, ghostty_mb_s
         for label, v in (("next", next_mb_s), ("ghostty", ghostty_mb_s)):
             if v is None:
-                report["incomplete"].append({"name": f"terminal.throughput.{label}_mb_s",
+                report["missing"].append({"name": f"terminal.throughput.{label}_mb_s",
                                              "reason": report[label].get("error") or "no timed burst"})
         report["rows"] = report_rows(next_mb_s, ghostty_mb_s)
-        if not report["incomplete"]:
-            del report["incomplete"]
+        if not report["missing"]:
+            # Not `incomplete`: perf-cron.py reads that key as the whole measurement's coverage, and a Ghostty download
+            # that failed must not keep the other parts' rows from a last good run.
+            del report["missing"]
         print("TERMINAL-THROUGHPUT-SUMMARY " + json.dumps({"next_mb_s": next_mb_s, "ghostty_mb_s": ghostty_mb_s,
                                                            "ratio": next((r["p50"] for r in report["rows"]
                                                                           if r["name"].endswith(".ratio")), None),
