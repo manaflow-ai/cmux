@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "build": "4357107390401",
+  "notes": "notes/4357107390401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 42914,
+      "title": "cmux-next-ios: Home's empty-state row takes the theme's background (fix the base compile)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42916,
+      "title": "ci: classify cmux-rd-windows.yml (base red since #42833)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42906,
+      "title": "feat(acpmux): complete agent-service v2 row 3a3 actor recovery",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42819,
+      "title": "cmux-next iOS: the foreground heartbeat probes only a link that went quiet",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41965,
+      "title": "cmux-next iOS: first-user journey nightly on a fresh simulator; permission audit reads every linked package",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42910,
+      "title": "cmux-tui: ship opt-level z for bundle size",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41549,
+      "title": "Themes: 16-color scheme import/export (base16, iTerm2, Windows Terminal, Ghostty) and a palette from an image, in Rust",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42872,
+      "title": "Cloud start-chat waits for the app's first machine list instead of refusing at once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42886,
+      "title": "v2 gates 05e: family pages carry child-set handles",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42882,
+      "title": "cloud start-chat: cloud.list_unread names the app's last Cloud error",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42901,
+      "title": "fix: prevent transient sidebar group targets during multi-view drags",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39975,
+      "title": "acpmux: a million-event chat never rereads its whole log on a turn",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42796,
+      "title": "CMUX-383 Step B: native sidebar section customization",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42899,
+      "title": "Screen Sharing: bind Stop Viewing Shared Screen so Debug launches no longer trap",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41554,
+      "title": "apps: host-enforced op-batch budget and Slowed/Paused ladder",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42885,
+      "title": "ci: every file under .github/ is one the helper walk places",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42799,
+      "title": "Launch to Home: the Chief conversation beside the dock steps, the homes' adoption from main, and marks (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42833,
+      "title": "rd: add Windows screen-share host",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42823,
+      "title": "Prompt rail: remove the latest shadow from the rail",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42797,
+      "title": "Extension SDK 1.0: a versioned TypeScript package and Rust crate, and an example extension built only on it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42859,
+      "title": "pages: a quiet page rests instead of beating every 2 s (CMUX-571, step B)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
