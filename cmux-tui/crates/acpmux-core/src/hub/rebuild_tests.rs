@@ -2,6 +2,7 @@ use super::*;
 use crate::wire::Sub;
 use acpmux_book::index::{SortedSnapshot, SummaryIndex};
 use std::fs;
+use std::path::Path;
 
 fn row(id: impl Into<String>, activity: u64) -> Summary {
     let mut row = Summary::new(id);
@@ -10,7 +11,7 @@ fn row(id: impl Into<String>, activity: u64) -> Summary {
     row
 }
 
-fn fixture(path: &std::path::Path, count: usize) -> SummaryIndex {
+fn fixture(path: &Path, count: usize) -> SummaryIndex {
     let mut index = SummaryIndex::new();
     for n in 0..count {
         index = index.apply(n as u64 + 1, row(format!("row-{n:04}"), count as u64 - n as u64));
@@ -19,13 +20,13 @@ fn fixture(path: &std::path::Path, count: usize) -> SummaryIndex {
     index
 }
 
-fn corrupt(path: &std::path::Path, at: usize) {
+fn corrupt(path: &Path, at: usize) {
     let mut bytes = fs::read(path).unwrap();
     bytes[at] ^= 0xa5;
     fs::write(path, bytes).unwrap();
 }
 
-fn bad_entries(path: &std::path::Path) -> Vec<String> {
+fn bad_entries(path: &Path) -> Vec<String> {
     fs::read_dir(path.join("index.bad"))
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
