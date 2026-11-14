@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43547332189",
+  "recorded_at": "2026-11-14T02:44:51Z",
+  "reason": "cmux-tui 3711bd6c4297 changes the image's cmux-tui (pinned 84598f403602)",
+  "dry_run": false,
+  "cmux_tui": "3711bd6c4297981b8438960b88ee9e9566aeac3f",
+  "fixes": [
+    {
+      "sha": "bb19fc80c1c8a048ecab25d1586fa4bb6319fb6c",
+      "mergedAt": "2026-11-13T18:12:04-08:00",
+      "subject": "v2 client: deliver closing summaries and bound mirror read retries (#42740)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T02:44:51Z",
+    "snapshot_id": "sh-4dcf2e0f066746b3997c64a2289e800c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43547332189): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a738930738ad888d699d7a8584e9f4575f3ffdf4",
+    "image": "cloud-native-auto-3711bd6c-43547332189-1",
+    "revision": "ci-43547332189-1",
+    "at": "2026-11-14T02:44:51Z"
+  },
+  "rolled_back": false
+}
