@@ -968,7 +968,7 @@
     },
     {
       "agent": "settable",
-      "why": "Whether old chats' logs are compressed on disk, and after how long: lossless (opening a chat brings its log back), a local disk policy as agents.hiddenChats.discard is for memory.",
+      "why": "Whether old chats' logs are compressed on disk, and after how long: lossless (opening a chat brings its log back), a local disk policy.",
       "keys": [
         "agents.chats.coldArchive",
         "agents.chats.coldArchiveAfterDays"
@@ -1004,14 +1004,6 @@
         "workspaces.freeing.idleMinutes",
         "workspaces.freeing.agents",
         "workspaces.freeing.runningCommands"
-      ]
-    },
-    {
-      "agent": "settable",
-      "why": "Whether hidden agent chats give back their memory: a lossless local memory policy, as browser.hibernation.",
-      "keys": [
-        "agents.hiddenChats.discard",
-        "agents.hiddenChats.discardAfterMinutes"
       ]
     },
     {
