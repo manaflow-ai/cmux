@@ -172,7 +172,8 @@ async fn a_batch_past_its_bounds_is_refused() {
     }
     // A hundred are answered.
     let hundred: Vec<String> = (0..100).map(|n| format!("k{n}")).collect();
-    let (reply, _) = call(&hub, method::MUX_INFO, json!({"sessionIds": hundred, "row": true})).await;
+    let (reply, _) =
+        call(&hub, method::MUX_INFO, json!({"sessionIds": hundred, "row": true})).await;
     assert_eq!(reply.unwrap()["missing"].as_array().unwrap().len(), 100);
 }
 
@@ -180,7 +181,8 @@ async fn a_batch_past_its_bounds_is_refused() {
 fn a_reply_past_its_bytes_names_the_rest_and_a_second_completes_it() {
     let keys: Vec<String> = (0..5).map(|n| format!("k{n}")).collect();
     let text = |n: usize| -> Option<Arc<str>> {
-        (n != 2).then(|| format!("{{\"sessionId\":\"k{n}\",\"pad\":\"{}\"}}", "x".repeat(90)).into())
+        (n != 2)
+            .then(|| format!("{{\"sessionId\":\"k{n}\",\"pad\":\"{}\"}}", "x".repeat(90)).into())
     };
     let texts: Vec<_> = (0..5).map(text).collect();
     // Two rows fit 250 bytes; a missing key is answered whatever the bytes.
@@ -266,8 +268,8 @@ fn emit(name: &str, small: &[Vec<u128>], god: &[Vec<u128>], unit: &str) -> (u128
         rounds.iter().map(|round| p95(&mut round.clone())).min().unwrap_or(0)
     };
     let (small_p95, god_p95) = (best(small), best(god));
-    let line = json!({"name": name, "small_p95": small_p95, "god_p95": god_p95, "unit": unit})
-        .to_string();
+    let line =
+        json!({"name": name, "small_p95": small_p95, "god_p95": god_p95, "unit": unit}).to_string();
     eprintln!("{line}");
     if let Some(path) = std::env::var_os("V2_GATE_OUT") {
         use std::io::Write;
