@@ -14,6 +14,7 @@ use tokio::runtime::Runtime;
 
 mod browser;
 mod classic_leftovers;
+mod link_side;
 mod terminal_prediction;
 
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
