@@ -112,6 +112,15 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
+        pr: "2",
+        name: "v2.pr02.card_patch",
+        done_when: "A card patch reads one chunk for each listed record, at most the list cap: a card at its cap whose records lie in old chunks of a long chat within 1.2x of one in a short chat.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
         pr: "3",
         name: "v2.pr03.chat_actor_window_resume",
         done_when: "First window within 50 ms of sub, 1.2x. Resume from a cursor costs O(missed). RSS with the god chat subscribed within 1.2x of small. An append that waits behind a cold page read: its wait 1.2x, god against small. The actor killed mid-turn 50 times: the replay settles every row once.",
