@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43651602653",
+  "recorded_at": "2026-11-14T23:16:53Z",
+  "reason": "cmux-tui 18886b02ad47 changes the image's cmux-tui (pinned a3af699c06f8)",
+  "dry_run": false,
+  "cmux_tui": "18886b02ad470c80c401184a4d69c169a94e782c",
+  "fixes": [
+    {
+      "sha": "18886b02ad470c80c401184a4d69c169a94e782c",
+      "mergedAt": "2026-11-14T14:45:24-08:00",
+      "subject": "Agent chat notices: one chat open in two tabs notifies once per turn and per wait (#43283)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T23:16:53Z",
+    "snapshot_id": "sh-f8da05563fa749d49f482989633d1777",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43651602653): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9ec67f7ea59b00eb1438350ad364769faf2a7459",
+    "image": "cloud-native-auto-18886b02-43651602653-1",
+    "revision": "ci-43651602653-1",
+    "at": "2026-11-14T23:16:53Z"
+  },
+  "rolled_back": false
+}
