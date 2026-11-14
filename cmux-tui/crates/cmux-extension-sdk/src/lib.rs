@@ -164,6 +164,12 @@ impl Manifest {
         self.implement("cmux.pane/1", export, title, symbol, None)
     }
 
+    /// A whole New Tab page (`cmux.newtab/1`) drawn by the script's `export`. It shows only once
+    /// the person names the extension in `tabs.newTabApp`; otherwise cmux draws its own page.
+    pub fn new_tab(self, export: &str, title: &str, symbol: &str) -> Self {
+        self.implement("cmux.newtab/1", export, title, symbol, None)
+    }
+
     /// A chat widget (`cmux.chat.widget/1`) drawn by the script's `export`: a card in the agent
     /// chat under each tool call whose name matches one of `tools` (`*` matches any run of
     /// characters), and for widget parts that name this extension. With no `tools` it draws only

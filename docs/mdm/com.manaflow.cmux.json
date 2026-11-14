@@ -5240,6 +5240,11 @@
       "title" : "Native New Tab Page",
       "type" : "boolean"
     },
+    "tabs.newTabApp" : {
+      "description" : "An extension that draws the whole New Tab page, by its id, such as \"local/showcase-newtab\". Unset, cmux draws its own page. If the extension is missing, hidden or fails, cmux draws its own page. Not used by the native New Tab page.",
+      "title" : "New Tab App",
+      "type" : "string"
+    },
     "tabs.newTabButtonPosition" : {
       "default" : "end",
       "description" : "Where the + button after the last tab puts the new tab. Cmd-T follows New Tab Position (Cmd-T).",

@@ -101,6 +101,8 @@ import Testing
             ("sidebarSection", "other", "cmux.section/1"),
             ("hoverCard", nil, "cmux.hovercard/1"),
             ("sessionInfoSection", "cmux.session.info.section/1", "cmux.session.info.section/1"),
+            // The whole New Tab page (tabs.newTabApp names the app; the page asks for no section).
+            ("newTab", nil, "cmux.newtab/1"),
         ] as [(String, String?, String)] {
             let reply = try await Self.mount(provider, surface: surface, section: section)
             #expect(reply["mount_id"]?.stringValue != nil)
@@ -116,6 +118,25 @@ import Testing
         }
         await #expect(throws: PageError.self) { try await Self.mount(provider, surface: "sessionInfoSection") }
         await #expect(throws: PageError.self) { try await Self.mount(provider, surface: "pane", app: "local/missing") }
+    }
+
+    /// `tabs.newTabApp` names an app: the New Tab page mounts its `cmux.newtab/1` only while it is
+    /// installed, enabled and shown, and is refused otherwise, so the page draws cmux's own instead.
+    @Test func newTabMountsOnlyAVisibleAppThatImplementsIt() async throws {
+        let hiddenTransport = FakePanelsTransport(manifest: FakePanelsTransport.everySurface())
+        hiddenTransport.hidden = true
+        let hidden = AppsPanelsPageProvider(client: try await Self.listedClient(hiddenTransport))
+        await #expect(throws: PageError.self) { try await Self.mount(hidden, surface: "newTab") }
+
+        let without = AppsPanelsPageProvider(client: try await Self.listedClient(FakePanelsTransport()))
+        await #expect(throws: PageError.self) { try await Self.mount(without, surface: "newTab") }
+
+        let transport = FakePanelsTransport(manifest: FakePanelsTransport.everySurface())
+        let client = try await Self.listedClient(transport)
+        let shown = AppsPanelsPageProvider(client: client)
+        #expect(try await Self.mount(shown, surface: "newTab")["mount_id"] != nil)
+        await client.tail?.value
+        #expect(transport.mounts.last?.interface == "cmux.newtab/1")
     }
 
     @Test func hoverCardMountsOnlyTheUsersOwnApp() async throws {
@@ -262,6 +283,9 @@ private final class FakePanelsTransport: AppsTransport {
     private let manifest: AppJSON
     private let bundleDirectory: String?
 
+    /// The listed app is hidden (Settings > Apps > Hide): it shows on no surface.
+    var hidden = false
+
     init(manifest: AppJSON = FakePanelsTransport.sessionInfo, bundleDirectory: String? = nil) {
         self.manifest = manifest
         self.bundleDirectory = bundleDirectory
@@ -279,6 +303,7 @@ private final class FakePanelsTransport: AppsTransport {
             "cmux.section/1": ["export": "renderSection"],
             "cmux.hovercard/1": ["export": "renderCard"],
             "cmux.session.info.section/1": ["export": "renderInfo"],
+            "cmux.newtab/1": ["export": "renderNewTab"],
         ],
     ] }
 
@@ -289,7 +314,7 @@ private final class FakePanelsTransport: AppsTransport {
 
     func start() {}
     func list() async throws(AppsTransportError) -> AppsListReply {
-        var record: [String: AppJSON] = ["id": manifest["id"] ?? "local/customize", "installed": true, "manifest": manifest]
+        var record: [String: AppJSON] = ["id": manifest["id"] ?? "local/customize", "installed": true, "hidden": .bool(hidden), "manifest": manifest]
         if let bundleDirectory { record["bundle_dir"] = .string(bundleDirectory) }
         return AppsListReply(revision: 1, apps: [AppRecord(json: .object(record))].compactMap { $0 })
     }

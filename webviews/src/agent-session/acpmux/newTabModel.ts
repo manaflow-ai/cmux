@@ -84,6 +84,9 @@ export type NewTabHost = {
   /// Which design (Debug Settings `newTab.layout`): "b" the one-input screen (default),
   /// "a" this Terminal | Browser | Agent page, kept until B passes dogfood (decision Q6).
   layout: "a" | "b";
+  /// The extension that draws the whole page (`tabs.newTabApp`: an app id with `cmux.newtab/1`,
+  /// newtab/NewTabAppPage.tsx); unset draws cmux's own page.
+  app?: string;
   /// The saved template (`tabs.newTabTemplate`); unset follows `layout` (newtab/templates.ts).
   template?: NewTabTemplate;
   /// The agent last picked (decision Q3).
@@ -119,6 +122,16 @@ function readNewTabStart(value: unknown): NewTabStart | undefined {
     ...(typeof cwd === "string" && cwd.startsWith("/") ? { cwd } : {}),
     chooseFolder: chooseFolder === true,
   };
+}
+
+/// An app id, `publisher/name` (Swift NewTabAppSetting.isValidID): what `tabs.newTabApp` holds.
+export const NEW_TAB_APP_ID = /^[^\s/]+\/[^\s/]+$/;
+
+/// The app that draws this New Tab page (`tabs.newTabApp`): none on history, and none for the visit
+/// (`adoptions`, one per Cmd-T adopt) whose app page could not show (`goneAt`). The next adopt tries
+/// again, also on a parked spare that keeps its screen because its context did not change.
+export function pickedNewTabApp(host: NewTabHost | undefined, goneAt: number | undefined, adoptions: number) {
+  return host && !host.history && host.app && goneAt !== adoptions ? host.app : undefined;
 }
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
@@ -162,6 +175,9 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
       : {}),
     layout: object.layout === "a" ? "a" : "b",
     ...(template ? { template } : {}),
+    ...(typeof object.app === "string" && object.app.length <= 200 && NEW_TAB_APP_ID.test(object.app)
+      ? { app: object.app }
+      : {}),
     ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
     ...(isStartableProject(typeof object.startedProject === "string" ? object.startedProject : undefined)
       ? { startedProject: object.startedProject as string }

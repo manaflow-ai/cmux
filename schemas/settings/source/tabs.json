@@ -123,6 +123,38 @@
           ]
         },
         {
+          "key": "tabs.newTabApp",
+          "note": "A whole New Tab page drawn by an extension (cmux.newtab/1), by app id. Unset (the default) draws cmux's own page; a missing, hidden, disabled or failing app draws it too. Read by the web page only.",
+          "title": {
+            "key": "settings.tabs.newTabApp",
+            "text": "New Tab App"
+          },
+          "help": {
+            "key": "settings.tabs.newTabApp.help",
+            "text": "An extension that draws the whole New Tab page, by its id, such as \"local/showcase-newtab\". Unset, cmux draws its own page. If the extension is missing, hidden or fails, cmux draws its own page. Not used by the native New Tab page."
+          },
+          "summary": {
+            "key": "settings.tabs.newTabApp.summary",
+            "text": "An extension's New Tab page"
+          },
+          "kind": "text",
+          "swift_owner": "NewTabAppSetting",
+          "default": null,
+          "default_label": {
+            "key": "settings.choice.none",
+            "text": "None"
+          },
+          "keywords": [
+            "new tab",
+            "extension",
+            "app",
+            "launcher",
+            "start page",
+            "custom page",
+            "cmux.newtab"
+          ]
+        },
+        {
           "key": "tabs.newTabPosition",
           "note": "Where Cmd-T (tabs.newTabPosition) and the strip's + (tabs.newTabButtonPosition) put a new tab (cx-d0d.58). Cmd-T: right after the current tab by default (Lawrence 2026-10-20); the +: at the end, after the last tab, by default (Lucas 2026-11-07). New Tab After Current Tab, New Tab at Start and New Tab at End (and the tab menu's New Tab to the Right) ignore both settings.",
           "title": {

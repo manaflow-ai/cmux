@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 617,
+  "count": 618,
   "sections": [
     {
       "id": "general",
@@ -1341,6 +1341,14 @@
           "help": "Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now.",
           "kind": "toggle",
           "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.newTabApp",
+          "title": "New Tab App",
+          "help": "An extension that draws the whole New Tab page, by its id, such as \"local/showcase-newtab\". Unset, cmux draws its own page. If the extension is missing, hidden or fails, cmux draws its own page. Not used by the native New Tab page.",
+          "kind": "text",
+          "default": null,
           "group": "Tabs"
         },
         {

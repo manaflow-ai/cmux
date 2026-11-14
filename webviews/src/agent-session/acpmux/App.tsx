@@ -73,13 +73,14 @@ import { NativeError } from "./nativeError";
 import { errorMessage, isStartCancelled, startCancelled, knownRefusalText } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
 import { NewTabPage } from "./NewTabPage";
-import { FOCUS_LOCATION_EVENT, newTabHost, type NewTabChat, type NewTabHost } from "./newTabModel";
+import { FOCUS_LOCATION_EVENT, newTabHost, pickedNewTabApp, type NewTabChat, type NewTabHost } from "./newTabModel";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
 import { setAttentionTabs } from "./needsYou/attentionTabs";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
+import { NewTabAppPage } from "./newtab/NewTabAppPage";
 import { historyPages } from "./queue/historyPages";
 import type { AllChatsPage } from "./newtab/allChatsListModel";
 import { newTabScreenActions } from "./newtab/screenActions";
@@ -550,8 +551,6 @@ import type { LocalCommand } from "./localCommands";
 import {
   cloudPageRefusal,
   cloudRunsHere,
-  cloudSendAfterCheck,
-  heldPromptShown,
   composerAgentLocal,
   cloudFolderGrants,
   cloudStartFolder,
@@ -563,6 +562,8 @@ import {
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
   type CloudStartAnswer,
+  cloudSendAfterCheck,
+  heldPromptShown,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
@@ -662,10 +663,10 @@ import {
   hostErrorShows,
   hostIsReconnecting,
   hostRefusedTooLarge,
-  hostSelfRetrying,
   nextRetryDelay,
   offersAcpmuxRestart,
   readHostRestoring,
+  hostSelfRetrying,
   lostRetryDelay,
   jitteredDelay,
 } from "./hostRetry";
@@ -4581,6 +4582,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const newTabGeneration = useNewTabAdoption(adoptNewTab, currentNewTab);
   // A Fix from a link's failure is that New Tab visit's: the next visit starts without it.
   useEffect(() => setNewTabFixError(undefined), [newTabGeneration]);
+  // `tabs.newTabApp` (newtab/NewTabAppPage.tsx): the visit (adoption) whose app page could not show
+  // draws cmux's own; the next Cmd-T tries the app again, also on a spare that keeps its screen.
+  const [newTabAppGone, setNewTabAppGone] = useState<number>();
   // A start owns this visit's screen until accepted, even while a switch publishes queued rows.
   // A new adoption has a different generation and never inherits this pending/error view.
   const [newTabStartPage, setNewTabStartPage] = useState<number>();
@@ -10923,6 +10927,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (newTabStartPage === newTabGeneration ||
       ((sessionSelection?.state === "pending" || !snapshot.sessionId) && snapshot.rows.length === 0)) &&
     (handshaken || hostError === undefined);
+  // The extension the person picked to draw the whole page (`tabs.newTabApp`), until it could not show.
+  const newTabApp = showNewTab ? pickedNewTabApp(newTab, newTabAppGone, newTabAdoptions) : undefined;
   if (newTab !== undefined && !handshaken && hostError !== undefined) composerStoodIn.current = true;
   /// The one-time Cloud hint shows on a new chat this Mac starts while Cloud is offered and is not
   /// its mode (cloudChatHintModel.ts); never in a quick chat or a chat on another machine.
@@ -10935,10 +10941,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudPicked: sandbox.mode === "cloud",
     started: Boolean(snapshot.sessionId),
   };
-  /// Only where it draws: the chat composer, or the New Tab screen (not the classic New Tab page, nor
-  /// history), so a claim never spends the budget on a hint nobody saw.
+  /// Only where it draws: the chat composer, or the New Tab screen (not the classic New Tab page,
+  /// history, nor an extension's page), so a claim never spends the budget on a hint nobody saw.
   const cloudHintDraws =
-    !showNewTab || (newTab !== undefined && !newTab.history && shownTemplate(newTab) !== "classic");
+    !showNewTab || (newTab !== undefined && !newTab.history && !newTabApp && shownTemplate(newTab) !== "classic");
   const cloudHintDue = !quick && !onOtherMachine && cloudHintDraws && cloudChatHintDue(cloudHintFacts);
   /// Only the page the person looks at asks: a spare in the pool never does.
   useCloudChatHintClaim(cloudHintDue, cloudHint.claim);
@@ -13233,7 +13239,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           ref={setPaneMain}
         >
           <div ref={setToastTop} className="acpmux-toasts-top" />
-          {!harnessesOpen && showNewTab && !newTab.history && (
+          {!harnessesOpen && showNewTab && !newTab.history && !newTabApp && (
             // The page's dots, under it: Claude Minimal and Codex Minimal (newtab/tabDots.ts, the
             // composer's look), then on every layout but Minimal the page's other styles
             // (newtab/PageDots.tsx); a pick shows in place at once.
@@ -13245,7 +13251,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             />
           )}
           {showNewTab && folderAskView}
-          {showNewTab && !newTab.history && shownTemplate(newTab) !== "classic" ? (
+          {newTabApp && !harnessesOpen ? (
+            <NewTabAppPage
+              key={`${newTabGeneration}:${newTabApp}`}
+              app={newTabApp}
+              {...(newTab?.cwd ? { cwd: newTab.cwd } : {})}
+              onUnavailable={() => setNewTabAppGone(newTabAdoptions)}
+              inputToken={newTab?.inputToken}
+              onInputReady={(token) => void callNative("newTab.inputReady", { token })}
+            />
+          ) : showNewTab && !newTab.history && shownTemplate(newTab) !== "classic" ? (
             <>
               {/* Setup keeps this page's draft and project, while its hidden input effects stop. */}
               <Activity mode={harnessesOpen ? "hidden" : "visible"}>

@@ -715,7 +715,7 @@ pub(super) fn write_types(dir: &Path, types: &str) -> std::io::Result<bool> {
 }
 
 /// Where each contribution shows, from the manifest.
-fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
+pub(super) fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
     let Some(implements) = manifest.get("implements").and_then(Value::as_object) else {
         return Vec::new();
     };
@@ -731,6 +731,10 @@ fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
                 }
                 "cmux.session.info.section/1" => "the agent pane's Session Info".into(),
                 "cmux.pane/1" => "a tab (Open in the Command Palette)".into(),
+                "cmux.newtab/1" => {
+                    "the whole New Tab page, once you pick it (cmux settings set tabs.newTabApp <id>)"
+                        .into()
+                }
                 "cmux.sidebar.rows/1" => "workspace rows in the sidebar".into(),
                 "cmux.chat.widget/1" => {
                     match entry.pointer("/options/tools").and_then(Value::as_array) {
@@ -752,7 +756,8 @@ fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
 fn probe_interface(manifest: &Value) -> Option<String> {
     let implements = manifest.get("implements")?.as_object()?;
     let has_export = |name: &str| implements.get(name).and_then(|e| e.get("export")).is_some();
-    const PREFERRED: [&str; 3] = ["cmux.section/1", "cmux.pane/1", "cmux.session.info.section/1"];
+    const PREFERRED: [&str; 4] =
+        ["cmux.section/1", "cmux.pane/1", "cmux.session.info.section/1", "cmux.newtab/1"];
     PREFERRED
         .iter()
         .find(|name| has_export(name))

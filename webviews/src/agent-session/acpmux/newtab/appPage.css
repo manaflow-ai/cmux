@@ -1,0 +1,23 @@
+/* A whole New Tab page drawn by an extension (NewTabAppPage.tsx, cmux.newtab/1): the page's own
+   background and column, the scene inside it in the app's scene kit (apps/scene/scene.css). */
+.nt-app-page {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-x: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--ds-space-48) var(--ds-space-4) var(--ds-space-5);
+  box-sizing: border-box;
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+/* The chat column's width (--cv-column), as cmux's own page centers its composer. */
+.nt-app-page-body {
+  width: 100%;
+  min-width: 0;
+  max-width: var(--cv-column, 720px);
+}

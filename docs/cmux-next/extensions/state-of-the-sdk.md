@@ -15,7 +15,7 @@ missing. Design: `plans/cmux-next/extensibility-DESIGN.md` (rules R1-R7, steps) 
 | Settings file | `~/.config/cmux/cmux-next.json`: `actions`, `commands`, `sidebar`, `shortcuts`, `ui`, `terminal`, `notifications`, `browser`, `agents`, `packs`; `cmux settings set/validate/reload-configuration` | `cmux-tui/crates/cmux-config` (`watch/` inotify and kqueue), schema `web/data/cmux.schema.json`, `schemas/settings/` | yes, on save; a bad value names file, line and column and the last good config stays | `schemaVersion` only |
 | Your own views | `~/.config/cmux/customize/` (the `local/customize` app); `cmux customize save/use/generations/rollback` | `cmux-tui/crates/cmux-customize`, templates in `skills/cmux-customization/templates/` | yes, on save | 100 generations, portable profiles |
 | Extensions (apps) | `cmux ext new NAME`, `cmux ext dev [--once --json]`, `cmux ext shot`, `cmux ext list/remove`; `cmux apps list/place/run/reload` | manifest v2 `cmux-tui/crates/cmux-app-host/schema/v2/`, validator `cmux-app-manifest`, sandboxed QuickJS host `cmux-app-host`, CLI `cmux-tui/src/cli/ext/` | yes: `ext dev` reloads one extension per save and keeps the last good version on a load error | interfaces carry a major (`cmux.section/1`); manifest `engines.cmux`; runtime `1.2.0` |
-| Places an extension can draw | sidebar section (`cmux.section/1`), sidebar row decorations (`cmux.sidebar.rows/1`), hover cards, Session Info section, pane (`cmux.pane/1`, scene), palette scope, diff renderer and source, terminal backend | `cmux-app-host/interfaces/`, drawn natively (`CmuxNextApps/Manifest/AppImplementation.swift`) or by the React `SceneRenderer` | yes | `/1` each, drafts until an outside app proves them |
+| Places an extension can draw | sidebar section (`cmux.section/1`), sidebar row decorations (`cmux.sidebar.rows/1`), hover cards, Session Info section, pane (`cmux.pane/1`, scene), a whole New Tab page the person picks (`cmux.newtab/1` with `tabs.newTabApp`), palette scope, diff renderer and source, terminal backend | `cmux-app-host/interfaces/`, drawn natively (`CmuxNextApps/Manifest/AppImplementation.swift`) or by the React `SceneRenderer` | yes | `/1` each, drafts until an outside app proves them |
 | Live data | `cmux.watch("github.pulls" \| "workspace.list" \| "agent.list")`; `cmux.live(op)`; `cmux.events.on("workspace.changed" \| "pane.changed" \| "tab.changed" \| "terminal.changed" \| "agent.changed" \| "screen.changed")` | `schema/v2/signals.json`, `cmux-tui-core/src/apps/routing.rs` | pushed, cached, budgeted | signal names are drafts |
 | Socket API and client SDKs | `cmux raw operation OP`, and the clients in TypeScript (npm `cmux-sdk` 1.0.0), Python, Go, Rust (crates.io `cmux-sdk`), Java, C++, Zig | catalog `cmux-tui/spec/resource-operations-v2.json`, `cmux-tui/bindings/` | n/a | `cmux.protocol/2`; ops are additive; `api-compat` gate |
 | Agent hooks | `cmux agent hook install [provider]`, `cmux agent hook status` | `cmux-tui/crates/cmux-tui-hooks`, `cmux-tui/docs/agent-hooks.md` | n/a | n/a |
@@ -40,10 +40,11 @@ it into each new extension.
 3. **Chat events.** An extension can react to workspaces, panes, tabs, terminals and agents, but not
    to chats: no `chat.list`, no `chat.changed`, and `agent_chat.changed` is handled in
    `apps/subscriptions.rs` but not declared in the catalog, so it is untyped (#41582 adds them).
-4. **Places not built:** `render: web` panes, new tab widgets (`cmux.newtab.widget/1` is not in
-   `cmux-app-manifest/src/interfaces.rs`), status items (validated, never drawn), chat widgets
-   (`cmux.chat.widget/1` is validated and routed by the daemon, `apps.chat_widgets.route`; the
-   transcript does not draw them yet),
+4. **Places not built:** `render: web` panes, New Tab widgets (removed 2026-11-11; a whole New Tab
+   page, `cmux.newtab/1`, is built and shows only when the person sets `tabs.newTabApp`;
+   `cmux.newtab.widget/1` is not in `cmux-app-manifest/src/interfaces.rs`), status items
+   (validated, never drawn), chat widgets (`cmux.chat.widget/1` is validated and routed by the
+   daemon, `apps.chat_widgets.route`; the transcript does not draw them yet),
    right sidebar panels. `cmux ext new` scaffolds only a sidebar section.
 5. **Sharing.** Extensions install from a local folder only; `cmux ext add/share/search` is #42068.
 6. **Budgets.** The batch-rate ladder (Slowed, Paused) is designed but not enforced (#41554); the

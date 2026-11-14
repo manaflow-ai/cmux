@@ -122,7 +122,7 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
         guard let rawSurface = params["surface"]?.stringValue, let surface = AppMountSurface(rawValue: rawSurface),
               let app = params["app"]?.stringValue,
               let rawContext = params["context"], case .object = rawContext else {
-            throw PageError.invalidParams("surface (pane, sidebarSection, hoverCard or sessionInfoSection), app and object context are required")
+            throw PageError.invalidParams("surface (pane, sidebarSection, hoverCard, sessionInfoSection or newTab), app and object context are required")
         }
         let section = params["section"]?.stringValue
         guard let record = client.app(app), let implementation = surface.implementation(of: record, id: section) else {
