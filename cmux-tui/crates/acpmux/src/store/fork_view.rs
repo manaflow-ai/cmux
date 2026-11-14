@@ -537,6 +537,21 @@ impl Store for ForkView {
     ) -> Result<()> {
         self.back(id, after, before, skip, visit, true)
     }
+    /// A fork's view joins two logs: it keeps no restore point, and its load reads it whole.
+    fn restore_point(&self, id: &str) -> Option<Vec<u8>> {
+        let _held = self.shared();
+        match self.reference(id) {
+            Ok(None) => self.inner.restore_point(id),
+            _ => None,
+        }
+    }
+    fn save_restore_point(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        let _held = self.shared();
+        match self.reference(id)? {
+            None => self.inner.save_restore_point(id, bytes),
+            Some(_) => Ok(()),
+        }
+    }
     fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
         let _held = self.shared();
         let Some(r) = self.reference(id)? else { return self.inner.tail_after(id, after) };
@@ -598,6 +613,34 @@ impl Store for ForkView {
             return Ok(());
         }
         self.inner.scan_kinds_strict(id, kinds, &mut |rec| rec.seq <= r.through_seq || visit(rec))
+    }
+    /// A fork's view is read whole (it keeps no restore point): its kinds as `scan_kinds` joins
+    /// them, past `after`.
+    fn scan_kinds_after(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        let _held = self.shared();
+        if self.reference(id)?.is_none() {
+            return self.inner.scan_kinds_after(id, after, kinds, visit);
+        }
+        self.scan_kinds(id, kinds, &mut |rec| rec.seq <= after || visit(rec))
+    }
+    fn scan_kinds_after_strict(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        let _held = self.shared();
+        if self.reference(id)?.is_none() {
+            return self.inner.scan_kinds_after_strict(id, after, kinds, visit);
+        }
+        self.scan_kinds_strict(id, kinds, &mut |rec| rec.seq <= after || visit(rec))
     }
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         let _held = self.shared();
