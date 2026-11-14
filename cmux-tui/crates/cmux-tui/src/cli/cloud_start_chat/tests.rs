@@ -874,7 +874,8 @@ fn a_machine_list_the_app_loads_late_is_waited_for_within_its_bound() {
     assert_eq!(verbs[..4], ["list-machines", "list-machines", "list-machines", "start-session"]);
     assert_eq!(fake.paused, LIST_LOAD_PAUSE * 2);
 
-    // Never loaded: refused once the wait is over, and it never waits much past it.
+    // Never loaded: refused once the wait is over. It ends within the first read, the wait, and one
+    // read started just before the wait ran out (5 s each in `Fake`).
     let mut fake = Fake::new(unloaded_lists(unloaded.clone()));
     let began = fake.clock;
     let Outcome::Failed { error, exit } = run(&mut fake, &request(&[])) else {
@@ -884,7 +885,7 @@ fn a_machine_list_the_app_loads_late_is_waited_for_within_its_bound() {
     assert!(only_lists(&fake), "{:?}", fake.ran);
     assert!(fake.ran.len() > 2, "read again: {:?}", fake.ran);
     assert!(
-        fake.clock - began <= LIST_LOAD_WAIT + Duration::from_secs(5),
+        fake.clock - began <= LIST_LOAD_WAIT + Duration::from_secs(10),
         "{:?}",
         fake.clock - began
     );
