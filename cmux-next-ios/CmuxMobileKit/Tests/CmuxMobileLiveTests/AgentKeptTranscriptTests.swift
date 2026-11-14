@@ -104,6 +104,27 @@ import Testing
         #expect(attach.params["maxBytes"] == nil)
     }
 
+    /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up and load
+    /// faster/percievably load faster". A relaunch (a fresh cache, only the disk holds the chat)
+    /// restores the kept turns in the source's init, in the same turn, so the reopened chat's
+    /// first frame draws them. Before, they came from a disk read off the main thread and the
+    /// first frame showed "Loading chat…".
+    @Test func aRelaunchRestoresTheKeptTurnsInTheSameTurn() async throws {
+        let directory = Self.folder()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let key = try #require(AgentTranscriptCache.key(accountID: "acct", macID: "mac1", tabID: "s7"))
+        let writer = Self.cache(directory)
+        writer.save(key, sessionID: "s1", earlier: false, records: Self.json((0..<5).flatMap(Long.turnRecords)))
+        writer.flush()
+
+        let relaunched = Self.cache(directory)
+        let source = Self.hub(relaunched).source(sessionID: "s1", summary: Self.summary)
+        #expect(source.replayCount > 0, "the kept turns, restored in init")
+        let store = AgentChatStore(source: source)
+        await Long.waitUntil { store.turns.count == 5 }
+        #expect(store.turns.map(\.id) == ["t0", "t1", "t2", "t3", "t4"])
+    }
+
     /// Records kept for another session of the tab (the Mac started a new one) are not shown.
     @Test func keptRecordsOfAnotherSessionAreIgnored() async throws {
         let cache = Self.cache()
