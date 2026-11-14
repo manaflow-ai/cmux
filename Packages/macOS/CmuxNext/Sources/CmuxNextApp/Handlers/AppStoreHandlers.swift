@@ -1,8 +1,6 @@
-import AppKit
 import CmuxNextActions
 import CmuxNextApps
 import CmuxNextDaemon
-import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextPalette
 import CmuxNextSettings
@@ -62,15 +60,8 @@ enum AppStoreHandlers {
             return AppCommandPalette.rootItems(services)
         })
         services.palette.sources.actionPages["app.command.run"] = { [weak services] in services.map(AppCommandPalette.page) }
-        // `contributes.menus`: app rows in the workspace row, tab and terminal menus, read at each open (apps-changed lists
-        // again). Each is a registry row running `app.menu.run` on the right-clicked object, like every menu row.
-        registry.contributedMenuItems = { [weak services] context, target in
-            guard let services, !services.registry.disabledFeatures.contains(.apps), let menu = AppMenuItem.Target(menuContext: context.rawValue) else { return [] }
-            return Self.menuItems(services.apps.client.menuRows(for: menu), in: context, target: target, registry: services.registry)
-        }
-        // One app row (also `cmux app run-menu-item <app> --item <id>` on a workspace or tab): the row's op with the
-        // right-clicked object as `args.target` and the invocation's origin; a refusal goes to the app's log.
-        registry.bindEffect("app.menu.run", effect: { Self.menuRunEffect($0, client: services.apps.client) })
+        // `contributes.menus`: app rows in the workspace row, tab and terminal menus, each running `app.menu.run`.
+        services.apps.client.installMenuRows(in: registry)
         registry.bind("app.command.run", run: { invocation in
             let appID = invocation["app"]?.stringValue ?? ""
             let commandID = invocation["command"]?.stringValue ?? ""
@@ -104,39 +95,6 @@ enum AppStoreHandlers {
                 // action-wait-allow: the consent card shows at once; the change exists only after the person confirms
                 return .waiting(.daemonEcho) { Self.failure(await change.send(through: provider)) }
             })
-        }
-    }
-
-    /// `rows` as rows of the `context` menu on `target`: each runs `app.menu.run` with its app and item id
-    /// (``ActionRegistry/makeContextMenuItem(for:in:target:arguments:title:)``), titled and drawn by its app.
-    @MainActor
-    static func menuItems(_ rows: [AppsClient.MenuRow], in context: ActionMenuContext, target: ActionTargetRef,
-                          registry: ActionRegistry) -> [NSMenuItem] {
-        rows.compactMap { row in
-            let arguments: [String: ActionValue] = ["app": .string(row.app), "item": .string(row.item.id)]
-            guard let item = registry.makeContextMenuItem(for: "app.menu.run", in: context, target: target, arguments: arguments,
-                                                          title: row.item.title.resolved()) else { return nil }
-            item.image = NSImage.menuSymbol(row.item.symbol ?? "puzzlepiece.extension")
-            item.identifier = NSUserInterfaceItemIdentifier(row.identifier)
-            return item
-        }
-    }
-
-    /// `app.menu.run`: app `app`'s row `item` on `invocation`'s target, run by `client` with the invocation's origin.
-    @MainActor
-    static func menuRunEffect(_ invocation: ActionInvocation, client: AppsClient) -> ActionEffect {
-        if let reason = client.unavailableReason { return .refused(reason.text) }
-        let appID = invocation["app"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
-        guard let row = client.menuRow(app: appID, item: invocation["item"]?.stringValue ?? "") else {
-            return .refused(RefusalStrings.text("refusal.app.unknown", "No installed app with that id."))
-        }
-        guard let target = invocation.target else {
-            return .refused(RefusalStrings.text("refusal.app.menuTarget", "Choose a workspace or tab for this menu item."))
-        }
-        let origin = AppOrigin(rawValue: invocation.origin.rawValue) ?? .script
-        // action-wait-allow: the row's op runs in the app's own process; cmux has no change of its own to show first
-        return .waiting(.externalProcess) {
-            await client.runMenuRow(row, kind: target.kind.rawValue, id: target.id, origin: origin).map { ActionWorkFailure($0.description) }
         }
     }
 

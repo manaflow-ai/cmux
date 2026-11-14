@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApps
 import Testing
-@testable import CmuxNextApp
 
 /// `contributes.menus` rows are registry rows (Lawrence: a menu row runs a registered action, never an
 /// inline selector): each runs `app.menu.run` with its app, item and the right-clicked object, and a
@@ -55,9 +54,9 @@ import Testing
         client.start()
         await Self.settle()
         let registry = Self.registry()
-        #expect(registry.bindEffect("app.menu.run", effect: { AppStoreHandlers.menuRunEffect($0, client: client) }))
+        client.installMenuRows(in: registry)
         let target = ActionTargetRef(kind: .workspace, id: "ws1")
-        let items = AppStoreHandlers.menuItems(client.menuRows(for: .workspace), in: .workspaceRow, target: target, registry: registry)
+        let items = registry.contributedMenuItems?(.workspaceRow, target) ?? []
         let item = try #require(items.first)
         #expect(items.count == 1)
         #expect(item.title == "Copy Branch")
@@ -84,7 +83,7 @@ import Testing
         client.start()
         await Self.settle()
         let registry = Self.registry()
-        registry.bindEffect("app.menu.run", effect: { AppStoreHandlers.menuRunEffect($0, client: client) })
+        client.installMenuRows(in: registry)
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: "ws1"),
                                           arguments: ["app": .string("local/branchy"), "item": .string("gone")])
         _ = registry.perform("app.menu.run", invocation: invocation)
