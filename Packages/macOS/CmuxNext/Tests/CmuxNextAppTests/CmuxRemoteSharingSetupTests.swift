@@ -269,6 +269,39 @@ struct CmuxRemoteSharingSetupTests {
         #expect(CmuxDialogCenter.shared.records.isEmpty)
     }
 
+    @Test func nativeShareWithReadyPermissionsEnablesWithoutOverview() async throws {
+        _ = NSApplication.shared
+        let fixture = Fixture(permissions: (true, true), answers: [])
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 640, height: 480), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer {
+            CmuxDialogCenter.shared.dismissAll()
+            window.close()
+        }
+
+        let effect = fixture.setup().begin(in: window)
+        // Close an unexpected overview so a regression fails instead of hanging on its answer.
+        let overview = CmuxDialogCenter.shared.records.first {
+            $0.spec.identifier == "cmux.dialog.screenSharing.setup.overview"
+        }
+        #expect(overview == nil)
+        if let overview { _ = CmuxDialogCenter.shared.press(overview.id, button: "cancel") }
+        guard case .appliedResult(let result) = effect.kind else {
+            Issue.record("Share should return an applied result effect")
+            return
+        }
+        let outcome = await result()
+        guard case .success(let fields) = outcome else {
+            Issue.record("Share with ready permissions should succeed")
+            return
+        }
+        #expect(fields["shared"] == .bool(true))
+        #expect(fixture.enables == 1)
+        #expect(fixture.screenRequests == 0 && fixture.controlRequests == 0)
+        #expect(CmuxDialogCenter.shared.records.isEmpty)
+    }
+
     @Test func readyPermissionsEnableWithoutPrompts() async throws {
         let fixture = Fixture(permissions: (true, true), answers: [])
         let setup = fixture.setup()
