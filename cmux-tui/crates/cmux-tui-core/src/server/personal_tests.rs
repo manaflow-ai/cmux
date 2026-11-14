@@ -245,7 +245,7 @@ fn deleting_a_space_into_another_moves_its_document_items_in_the_same_commit() {
                 profile.as_deref(),
                 Some("default"),
                 "the space's group stayed in the deleted space"
-            )
+            );
         }
         body => panic!("itm_grp is not a group: {body:?}"),
     }
