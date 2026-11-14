@@ -47,15 +47,20 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
         checkShell(try runDemo(phase: "kbshell", name: "reading", defaults: ["CmuxMobileTerminalDemoShell": "reading"]), following: false)
     }
 
+    /// Rows streaming in move the page on their own, so only resizes and
+    /// blank frames are counted here; the video's frame splits show the rest.
     @MainActor
     func testStreamingOutputRidesTheKeyboard() throws {
-        checkShell(try runDemo(phase: "kbshell", name: "stream", defaults: ["CmuxMobileTerminalDemoShell": "stream"]), following: true)
+        checkShell(try runDemo(phase: "kbshell", name: "stream", defaults: ["CmuxMobileTerminalDemoShell": "stream"]), motion: false)
     }
 
-    /// An inline agent (Codex CLI's box) on the primary screen.
+    /// An inline agent (Codex CLI's box) on the primary screen. Its document
+    /// is shorter than the page, so with the keyboard down it rests at the
+    /// top, not on the composer: its rows move with the keyboard only as far
+    /// as they must.
     @MainActor
     func testInlineAgentRidesTheKeyboardWithoutResizing() throws {
-        checkShell(try runDemo(phase: "kbshell", name: "inline", defaults: ["CmuxMobileTerminalDemoShell": "inline"]), following: true)
+        checkShell(try runDemo(phase: "kbshell", name: "inline", defaults: ["CmuxMobileTerminalDemoShell": "inline"]), following: false)
     }
 
     private func checkFullScreenApp(_ values: [String: String]) throws {
@@ -71,11 +76,12 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
         XCTAssertEqual(values["snap"], "0", "frames where the grid moved while the composer stood still")
     }
 
-    private func checkShell(_ values: [String: String], following: Bool) {
+    private func checkShell(_ values: [String: String], following: Bool = false, motion: Bool = true) {
         let steps = resizeSteps(values)
         XCTAssertEqual(steps.count, 10, "five shows and five hides (\(values["rz"] ?? "-"))")
         XCTAssertTrue(steps.allSatisfy { $0.1 == 0 }, "the primary screen never resizes for the keyboard (\(values["rz"] ?? "-"))")
         XCTAssertEqual(values["blank"], "0", "frames with blank rows")
+        guard motion else { return }
         XCTAssertEqual(values["rev"], "0", "frames where the rows moved against the keyboard")
         XCTAssertEqual(values["snap"], "0", "frames where the rows moved while the composer stood still")
         if following {

@@ -10,7 +10,8 @@ import UIKit
 /// `debug.terminal-flicker` probe.
 ///
 /// Counted from the demo's first toggle (`show0`) to its end (`done.`):
-/// - `jump`: frames where the rows on screen are not where they belong. A
+/// - `jump`: frames where the rows on screen are not where they belong, two
+///   or more frames in a row (`jump1`: single frames, see `measure`). A
 ///   full-screen app's grid ends on the composer stack's top (`pin`, its
 ///   bottom edge minus the stack's top, against the value at rest); a
 ///   shell's last row keeps its gap above the stack (`gap`). A held frame
@@ -79,6 +80,10 @@ final class TerminalFlickerTrace: NSObject {
     private var step = ""
     private var counts: [String: Int] = [:]
     private var largestJump: CGFloat = 0
+    /// Consecutive frames off their place so far.
+    private var jumpRun = 0
+    /// The last frame's placement value (pin or gap).
+    private var previousValue: CGFloat = 0
     private var jumpLog: [String] = []
 
     init(host: UIView, sample: @escaping () -> Sample?) {
@@ -174,19 +179,37 @@ final class TerminalFlickerTrace: NSObject {
         let reference = reference ?? value
         self.reference = reference
         if !now.held, abs(value - reference) > 1 {
-            count("jump")
+            jumpRun += 1
+            // A reading one frame long can be an intermediate commit the
+            // display never showed (the page commits more than once a frame);
+            // `jump` counts frames from the second in a row on, `jump1` the
+            // single ones (checked against the video's frame splits).
+            switch jumpRun {
+            case 1: count("jump1")
+            case 2:
+                counts["jump1", default: 0] -= 1
+                counts["jump", default: 0] += 2
+            default: count("jump")
+            }
             largestJump = max(largestJump, abs(value - reference))
             if jumpLog.count < 24 { jumpLog.append(String(format: "%.3f@%@:%.1f", t, now.demo, value - reference)) }
         }
+        if now.held || abs(value - reference) <= 1 { jumpRun = 0 }
+        defer { previousValue = value }
         guard let previous, previous.isTUI == now.isTUI else { return }
         let stackMoved = now.stackTop - previous.stackTop
         let rowsMoved = now.isTUI ? now.gridTop - previous.gridTop : now.contentBottom - previous.contentBottom
-        if abs(stackMoved) < 0.1, abs(rowsMoved) > 1, !now.held, !previous.held { count("snap") }
+        // A full-screen app's grid swaps once per toggle (its top moves with
+        // the new rows, its bottom stays on the composer): only a move off
+        // the composer is a snap. The swap after a one-frame `jump1` reading
+        // is not one either.
+        let moved = now.isTUI ? abs(value - previousValue) > 1 && abs(value - reference) > 1 : abs(rowsMoved) > 1
+        if abs(stackMoved) < 0.1, moved, !now.held, !previous.held { count("snap") }
         if !now.isTUI, abs(rowsMoved) > 0.5, abs(stackMoved) > 0.1, (rowsMoved > 0) != (stackMoved > 0) { count("rev") }
     }
 
     private func summary(demo: String) -> String {
-        let keys = ["frames", "jump", "blank", "note", "band", "snap", "rev", "sized", "hitch1", "hitch2"]
+        let keys = ["frames", "jump", "jump1", "blank", "note", "band", "snap", "rev", "sized", "hitch1", "hitch2"]
         var parts = keys.map { "\($0)=\(counts[$0] ?? 0)" }
         parts.append(String(format: "jmax=%.1f", largestJump))
         parts.append("demo=\(demo)")
