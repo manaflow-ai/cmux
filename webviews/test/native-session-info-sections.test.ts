@@ -14,7 +14,7 @@ import { until } from "./support/until";
 
 const t: Translate = (key, values) => translate(key, values, "en");
 
-test("screen sharing is one action below the named machine and preserves Cloud lifetime", () => {
+test("screen sharing is one action below the named machine and preserves Cloud lifetime", async () => {
   const actions = new NativeInfoActions();
   let requests = 0;
   const section = environmentSection(
@@ -34,6 +34,7 @@ test("screen sharing is one action below the named machine and preserves Cloud l
   expect(share.id).toBe("screen-sharing");
   expect(share.subtitle).toBe("Host approval is required.");
   actions.run(share.action!);
+  await Promise.resolve();
   expect(requests).toBe(1);
 });
 
