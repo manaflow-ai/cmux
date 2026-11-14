@@ -1417,11 +1417,17 @@
 /* Neighbouring chips on the right (the model, Plan, a harness's Options, the effort) keep their
    labels 8 px apart, as with the old 4 px inset: each one after the first tucks its leading pill
    padding under the one before it, so the wider pill moves no label. The later chip takes the
-   pointer over the shared 8 px. */
-.acpmux-composer-foot .acpmux-chips > :not(.acpmux-access) ~ :not(.acpmux-access) {
+   pointer over the shared 8 px.
+   "After the first" is "not the first child": the model chip (or Add harness) leads the row whenever
+   an access chip shows, as the access modes come from the harness it names. Not a sibling rule whose
+   subject is any element (`:not(.acpmux-access) ~ :not(.acpmux-access)`): Chromium keys such a rule
+   to no class, so a class that changed on any element in the pane restyled the whole subtree of every
+   sibling after it, and each transcript row that arrived or changed kind restyled the whole thread
+   (bench/transcript-replay.bench.ts INVALIDATIONS=1; test/css-invalidation-scope.test.ts). */
+.acpmux-composer-foot .acpmux-chips > :not(.acpmux-access):not(:first-child) {
   margin-inline-start: calc(8px - 2 * var(--acpmux-row-inset));
 }
-.acpmux-composer-foot .acpmux-chips > :not(.acpmux-access) ~ .acpmux-effort {
+.acpmux-composer-foot .acpmux-chips > .acpmux-effort:not(:first-child) {
   margin-inline-start: calc(9px - 2 * var(--acpmux-row-inset));
 }
 /* The box with the chips gone, as the Claude desktop composer lays it (Leo 2026-10-20): no row of

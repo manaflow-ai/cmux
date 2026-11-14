@@ -11,6 +11,10 @@
 //! ID`), labels for the relay to show; `ACPMUX_FROM` stays the lead's name, the one reply address
 //! the relay has, so the far side's answer reaches the lead (W5-M (b), 2026-11-09).
 //!
+//! An explicit message class is passed as `ACPMUX_SEND_CLASS` (canonical `block`, `question`,
+//! `result` or `fyi`); without one, that variable is removed. The argv remains `SESSION -`
+//! for existing relay commands. A relay that understands classes forwards this metadata.
+//!
 //! Only the no-session refusal relays: a target here or on a peer, down or not, is sent as
 //! always, and with no `sendRelay` nothing changes. The relay carries text only, so a send with
 //! `--attach` is refused rather than relayed without its files. The MCP `send` tool relays the
@@ -26,6 +30,7 @@
 use crate::cli::errors::{AppError, Code};
 use crate::cli::output::print_json;
 use crate::cli::sender::{FROM_ENV, Subagent};
+use crate::prompt_class::PromptClass;
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -210,18 +215,23 @@ fn hidden_in_a_label(c: char) -> bool {
         )
 }
 
-/// Who a relayed send is from: `name`, the relay's `ACPMUX_FROM` (the sender's session, where
-/// the far side's answer goes), and the Claude Code subagent of that session that sent it, if
-/// one did (`cli::sender::SUBAGENT_ENV`, or the MCP call's tool use id).
+/// A relayed send's explicit class and sender metadata. `name` is the relay's `ACPMUX_FROM`
+/// (the sender's session, where the far side's answer goes); `subagent` names the Claude Code
+/// subagent that sent it (`cli::sender::SUBAGENT_ENV`, or the MCP call's tool use id).
 #[derive(Debug, Default, Clone, PartialEq)]
-pub(crate) struct RelaySender {
+pub(crate) struct RelayMetadata {
     pub name: Option<String>,
     pub subagent: Option<Subagent>,
+    pub class: Option<PromptClass>,
 }
 
-impl RelaySender {
+impl RelayMetadata {
     /// `name`'s send, by the subagent `sub` (`{id, type}`, plain words) when one is given.
-    pub(crate) fn new(name: Option<String>, sub: Option<&Value>) -> Self {
+    pub(crate) fn new(
+        name: Option<String>,
+        sub: Option<&Value>,
+        class: Option<PromptClass>,
+    ) -> Self {
         let subagent = sub.and_then(|sub| {
             let word = |key: &str| {
                 sub.get(key)
@@ -231,7 +241,7 @@ impl RelaySender {
             };
             Some(Subagent { kind: word("type")?, id: word("id")? })
         });
-        Self { name, subagent }
+        Self { name, subagent, class }
     }
 
     /// `ACPMUX_FROM_LABEL`: "lane's general-purpose subagent a0a68e7a". The name comes from
@@ -259,7 +269,7 @@ impl RelaySender {
 
 /// The cross-host audit line of one relayed send (`xhost_audit.rs`), never its text: `sent`
 /// when the relay took it, `refused` when it exited non-zero (nothing crossed machines).
-pub(crate) fn audit_sent(session: &str, text: &str, from: &RelaySender, done: &Relayed) {
+pub(crate) fn audit_sent(session: &str, text: &str, from: &RelayMetadata, done: &Relayed) {
     let sub = from.subagent.as_ref().map(Subagent::to_value);
     crate::xhost_audit::record(
         if done.status == 0 { "sent" } else { "refused" },
@@ -304,7 +314,7 @@ pub(crate) fn relay_with_deadline(
     relay: &SendRelay,
     session: &str,
     text: &str,
-    from: &RelaySender,
+    from: &RelayMetadata,
     capture: bool,
     deadline: Option<Instant>,
 ) -> Result<Relayed> {
@@ -329,6 +339,11 @@ pub(crate) fn relay_with_deadline(
             .env(FROM_SUBAGENT_ENV, format!("{}:{}", sub.kind, sub.id))
             .env(FROM_LABEL_ENV, label),
         _ => cmd.env_remove(FROM_SUBAGENT_ENV).env_remove(FROM_LABEL_ENV),
+    };
+    // Per-message metadata must never inherit a previous relay's class.
+    match from.class {
+        Some(class) => cmd.env("ACPMUX_SEND_CLASS", class.as_str()),
+        None => cmd.env_remove("ACPMUX_SEND_CLASS"),
     };
     let child = cmd.spawn().with_context(|| format!("cannot run the send relay {program:?}"))?;
     // Written beside the wait, so a relay that answers before reading it all never blocks us.
@@ -371,7 +386,7 @@ pub(crate) fn send_with_deadline(
     config: &SendRelay,
     session: &str,
     text: &str,
-    from: &RelaySender,
+    from: &RelayMetadata,
     attachments: bool,
     json_out: bool,
     deadline: Option<Instant>,
@@ -414,8 +429,8 @@ pub(crate) fn send_with_deadline(
 mod tests {
     use super::*;
 
-    fn named(name: &str) -> RelaySender {
-        RelaySender { name: Some(name.to_owned()), subagent: None }
+    fn named(name: &str) -> RelayMetadata {
+        RelayMetadata { name: Some(name.to_owned()), ..Default::default() }
     }
 
     #[test]
@@ -515,8 +530,9 @@ mod tests {
         assert_eq!(done.output.as_deref(), Some("delivery-42"));
         assert_eq!(std::fs::read_to_string(&seen).unwrap(), "send|lane-b|-|vm/lane|hello\nthere");
 
-        let done = relay_with_deadline(&config, "refuse", "x", &RelaySender::default(), true, None)
-            .unwrap();
+        let done =
+            relay_with_deadline(&config, "refuse", "x", &RelayMetadata::default(), true, None)
+                .unwrap();
         assert_eq!(done.status, 7);
         assert_eq!(std::fs::read_to_string(&seen).unwrap(), "send|refuse|-|unset|x");
 
@@ -528,14 +544,14 @@ mod tests {
         );
         let early = SendRelay { argv: vec![early.display().to_string()], ls_argv: None };
         let big = "x".repeat(1 << 20);
-        let e = relay_with_deadline(&early, "lane-b", &big, &RelaySender::default(), true, None)
+        let e = relay_with_deadline(&early, "lane-b", &big, &RelayMetadata::default(), true, None)
             .unwrap_err();
         assert!(e.to_string().contains("did not read the whole message"), "{e}");
 
         let missing =
             SendRelay { argv: vec![dir.join("absent").display().to_string()], ls_argv: None };
         assert!(
-            relay_with_deadline(&missing, "lane-b", "x", &RelaySender::default(), true, None)
+            relay_with_deadline(&missing, "lane-b", "x", &RelayMetadata::default(), true, None)
                 .is_err()
         );
         let _ = std::fs::remove_dir_all(&dir);
@@ -545,7 +561,7 @@ mod tests {
     fn a_relayed_send_with_attachments_is_refused() {
         let config = SendRelay { argv: vec!["/nonexistent/relay".into()], ls_argv: None };
         let e =
-            send_with_deadline(&config, "lane-b", "x", &RelaySender::default(), true, true, None)
+            send_with_deadline(&config, "lane-b", "x", &RelayMetadata::default(), true, true, None)
                 .unwrap_err();
         assert_eq!(e.downcast_ref::<AppError>().map(|a| a.code), Some(Code::Usage));
         assert!(e.to_string().contains("text only"), "{e}");
