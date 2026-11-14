@@ -51,6 +51,9 @@ struct Message<'a> {
     held: Option<&'a RawValue>,
     #[serde(rename = "promptIds", borrow)]
     prompt_ids: Option<&'a RawValue>,
+    #[serde(borrow)]
+    order: Option<&'a RawValue>,
+    next: bool,
 }
 #[derive(Deserialize, Default)]
 #[serde(default)]
@@ -170,6 +173,14 @@ fn mux(
         "queued" => {
             let text_len = msg.text.map(input::decoded_len).transpose()?.unwrap_or(0);
             state.queue_add(&msg.prompt_id, state.at_ms, false, place, span, text_len, out);
+            // An inbox digest's record holds the queue's order with it in it.
+            state.queue_order(msg.order, out);
+        }
+        "queue_order" => {
+            if msg.next {
+                state.queue_release(&msg.prompt_id, out);
+            }
+            state.queue_order(msg.order, out);
         }
         "queue_paused" => state.queue_set_held(msg.held, true, out)?,
         "queue_resumed" => {
@@ -179,7 +190,7 @@ fn mux(
                 state.queue_set_all_held(false, out);
             }
         }
-        "dequeued" | "queue_removed" => state.queue_remove(&msg.prompt_id, out),
+        "dequeued" | "queue_removed" | "queue_declined" => state.queue_remove(&msg.prompt_id, out),
         "steer_read" => state.steer_read(&msg.prompt_id, out)?,
         "user_message" => {
             let notice = matches!(

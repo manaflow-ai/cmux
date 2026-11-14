@@ -267,8 +267,11 @@ jobs:
   # so two changes left their tests red on base in one day (2026-11-14): #42834 changed what
   # acpmux-book answers and left acpmux-core's test of the old answer, and #42906 left two
   # acpmux-core tests that #42943 repaired. tests/test_cargo_test_verdict.py fails when the
-  # suites miss such a crate or one of its tests/ files. The job and step keep their names:
-  # the scope step finds earlier runs by them.
+  # suites miss such a crate or one of its tests/ files. acpmux's own tests/v2_gate_home.rs
+  # runs here as well: it is the only test build of the v2 gate registry (benches/v2/mod.rs),
+  # no hosted job ran it, and #42725 left two of its tests red on base. The same Python test
+  # asks for every tests/v2_*.rs of acpmux that holds a test a plain run starts. The job and
+  # step keep their names: the scope step finds earlier runs by them.
   acpmux-tests:
     name: acpmux tests (lib, hub_integration)
     needs: changes
@@ -390,7 +393,8 @@ jobs:
           verdict=../scripts/ci/cargo_test_verdict.py
           head_log="$RUNNER_TEMP/acpmux-tests-head.log"
           suites=(--locked -p acpmux -p acpmux-book -p acpmux-build-id -p acpmux-client -p acpmux-core
-            -p acpmux-list-types --lib --test hub_integration --test ffi --test v2_client --no-fail-fast)
+            -p acpmux-list-types --lib --test hub_integration --test ffi --test v2_client
+            --test v2_gate_home --no-fail-fast)
           started=$SECONDS
           if cargo test "${suites[@]}" 2>&1 | tee "$head_log"; then
             echo "acpmux tests: green in $((SECONDS - started)) s" >> "$GITHUB_STEP_SUMMARY"
