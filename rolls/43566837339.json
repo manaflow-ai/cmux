@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43566837339",
+  "recorded_at": "2026-11-14T06:41:42Z",
+  "reason": "cmux-tui 86252c2445bd changes the image's cmux-tui (pinned 2b03d8859aa3)",
+  "dry_run": false,
+  "cmux_tui": "86252c2445bdb8421193e0e241f19a68aa8ec5f0",
+  "fixes": [
+    {
+      "sha": "86252c2445bdb8421193e0e241f19a68aa8ec5f0",
+      "mergedAt": "2026-11-13T22:11:15-08:00",
+      "subject": "App Store: one capability manifest in Rust (apps-capabilities, cmux ext capabilities, ext dev keeps the types live) (#41615)"
+    },
+    {
+      "sha": "072ab1f35f2f8dddcefd5625131e1a8cb4e7b912",
+      "mergedAt": "2026-11-13T22:10:59-08:00",
+      "subject": "cmux-next iOS: a drag over a full-screen app is Ghostty's scroll, as on the Mac (no program list) (#42798)"
+    },
+    {
+      "sha": "c286e47a6c364719b3094665913d963101b5a2ad",
+      "mergedAt": "2026-11-13T22:08:27-08:00",
+      "subject": "feat(acpmux): raw-driven chat actor follow-up (3a2) (#42556)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T06:41:42Z",
+    "snapshot_id": "sh-01a58240998642f4b3bfb1940e91c4a0",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43566837339): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "846babc0ae45d8f706e316a76bc6349bbcb43353",
+    "image": "cloud-native-auto-86252c24-43566837339-1",
+    "revision": "ci-43566837339-1",
+    "at": "2026-11-14T06:41:42Z"
+  },
+  "rolled_back": false
+}
