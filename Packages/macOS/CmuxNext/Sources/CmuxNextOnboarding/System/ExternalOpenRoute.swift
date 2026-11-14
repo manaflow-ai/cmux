@@ -157,7 +157,7 @@ public nonisolated struct ExternalOpenRouter: Sendable {
     }
 
     /// Whether a file of extension `ext` is a picture (PNG, JPEG, HEIC, TIFF, GIF and the rest).
-    public static func isImage(_ ext: String) -> Bool {
+    static func isImage(_ ext: String) -> Bool {
         !ext.isEmpty && UTType(filenameExtension: ext)?.conforms(to: .image) == true
     }
 

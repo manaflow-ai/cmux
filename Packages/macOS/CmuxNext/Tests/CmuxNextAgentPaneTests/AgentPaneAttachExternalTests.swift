@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -109,5 +110,46 @@ struct AgentPaneAttachExternalTests {
                                             "bytes": .number(10), "source": .string("Preview")])]),
             "text": .string(""),
         ]))
+    }
+
+    /// Send to cmux Chat takes the image files Finder selected, else a picture's bytes, PNG first.
+    @Test func theServiceTakesImageFilesElseAPicture() async throws {
+        #expect(AgentPaneDroppedPaths.imageFiles(["/tmp/a.png", "/tmp/b.txt", "/tmp/c.HEIC", "/tmp/docs"]).map(\.path)
+            == ["/tmp/a.png", "/tmp/c.HEIC"])
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("external-image-data-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        #expect(AgentPaneDroppedPaths.imageData(on: pasteboard) == nil)
+        pasteboard.setData(Data([1, 2]), forType: .tiff)
+        #expect(AgentPaneDroppedPaths.imageData(on: pasteboard)?.ext == "tiff")
+        pasteboard.setData(Data([3]), forType: .png)
+        let picture = try #require(AgentPaneDroppedPaths.imageData(on: pasteboard))
+        #expect(picture.data == Data([3]) && picture.ext == "png")
+        // Kept under Chat Uploads as a file the route can hand on.
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("uploads-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let written = await AgentPaneDroppedPaths.save(picture.data, ext: picture.ext, in: ChatUploadFolders(root: root))
+        let saved = try #require(written)
+        #expect(saved.lastPathComponent == "Image.png")
+        #expect(saved.path.hasPrefix(root.path))
+        #expect(try Data(contentsOf: saved) == Data([3]))
+    }
+
+    /// Files that come while a new chat opens for earlier ones join them: one new chat, not two;
+    /// a chat that could not start leaves nothing waiting.
+    @Test func filesWhileANewChatOpensJoinIt() {
+        let route = AgentPaneExternalAttach()
+        var opened = 0
+        let open: (@escaping @MainActor (AgentPaneView?) -> Void) -> Bool = { _ in
+            opened += 1
+            return true
+        }
+        route.attach([URL(fileURLWithPath: "/tmp/a.png")], claimed: nil, target: nil, openChat: open, show: { _ in })
+        route.attach([URL(fileURLWithPath: "/tmp/b.png")], claimed: nil, target: nil, openChat: open, show: { _ in })
+        #expect(opened == 1)
+        #expect(route.waitsForChat)
+        let refused = AgentPaneExternalAttach()
+        refused.attach([URL(fileURLWithPath: "/tmp/a.png")], claimed: nil, target: nil, openChat: { _ in false }, show: { _ in })
+        #expect(!refused.waitsForChat)
     }
 }

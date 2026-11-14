@@ -21,7 +21,7 @@ final class ExternalOpenController {
     /// "Always allow this host" writes `ssh.linkAllowedHosts` (Settings > Privacy and Security).
     private(set) lazy var sshGate = makeSSHGate()
     /// Files from another app into a chat's composer (``attachToChat(_:from:)``).
-    private(set) lazy var chatAttach = ExternalChatAttach(services: services)
+    let chatAttach = AgentPaneExternalAttach()
 
     private func makeSSHGate() -> ExternalLinkGate {
         let services = services
@@ -80,7 +80,7 @@ final class ExternalOpenController {
     /// draft (an image opened with cmux, the Send to cmux Chat service; a capture shortcut and the
     /// Share menu later): the focused agent chat of the current window, else the one focused most
     /// recently there, else a new agent chat, brought forward with its composer focused
-    /// (``ExternalChatAttach``). `source`: the bundle id of the app they came from, when known; a
+    /// (``AgentPaneExternalAttach``). `source`: the bundle id of the app they came from, when known; a
     /// file's own metadata (a screenshot's) still names its source first.
     func attachToChat(_ urls: [URL], from source: String?) {
         guard !urls.isEmpty else { return }
@@ -196,7 +196,17 @@ final class ExternalOpenController {
         // The one file path every opener takes (Open File..., `file.open`); a refusal shows its reason.
         case .file(let url): services.viewers.openFile(url, in: pane, markdown: false)
         case .shareLink(let url): AgentShareLinks(host: services).open(url) { [weak pane] in pane?.newBrowserTab(url: $0) }
-        case .attachImages(let urls, let source): chatAttach.attach(urls, claimed: source, in: pane)
+        case .attachImages(let urls, let source):
+            // The pane's chat, else the one shown in the workspace's most recently focused pane; a New Tab page is no chat.
+            let recent = pane.workspace.map { content in content.recentPanes.compactMap { content.panes[$0] } } ?? []
+            let target = ([pane] + recent).lazy.compactMap { candidate in candidate.shownChat.map { (pane: candidate, view: $0) } }.first
+            let shown = target?.pane ?? pane, tabs = services.agentTabs, machine = pane.daemon.machineID
+            chatAttach.attach(urls, claimed: source, target: target?.view, openChat: { made in
+                pane.openAgentTab(seed: pane.agentSeedFromSelectedTab()) { made(tabs.existingView($0, machine: machine) ?? tabs.view(for: $0, machine: machine)) }
+            }, show: { [weak shown, services] _ in
+                guard let shown, let key = shown.currentTabKey else { return }
+                _ = services.registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .user).onMachine(shown.daemon.isLocal ? nil : shown.daemon.machineID))
+            })
         case .deepLink, .unsupported: return
         }
     }
@@ -231,38 +241,10 @@ final class CmuxServicesProvider: NSObject {
     /// (``ExternalOpenController/attachToChat(_:from:)``), named as coming from the app that sent them.
     @objc(sendToChat:userData:error:) func sendToChat(_ pasteboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString?>) {
         // The service's caller is still the frontmost app: cmux is not activated until the route runs.
-        let source = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        let files = Self.imageFiles(pasteboard)
+        let source = NSWorkspace.shared.frontmostApplication?.bundleIdentifier, files = AgentPaneDroppedPaths.imageFiles(Self.paths(pasteboard))
         if !files.isEmpty { return open.attachToChat(files, from: source) }
-        guard let (data, ext) = Self.imageData(pasteboard), let folders = ChatUploadFolders.standard else { return }
-        let folder = folders.freshUpload(session: nil)
-        // task-owner: one write of the service's picture, then the route on the main actor
-        Task { [open] in
-            let saved = await Task.detached(priority: .userInitiated) { () -> URL? in
-                let file = folder.appending(path: "Image.\(ext)")
-                do {
-                    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                    try data.write(to: file, options: .atomic)
-                    return file
-                } catch {
-                    return nil
-                }
-            }.value
-            if let saved { open.attachToChat([saved], from: source) }
-        }
-    }
-
-    /// The image files on `pasteboard` (``paths(_:)``, pictures only).
-    static func imageFiles(_ pasteboard: NSPasteboard) -> [URL] {
-        paths(pasteboard).map { URL(fileURLWithPath: $0) }.filter { ExternalOpenRouter.isImage($0.pathExtension.lowercased()) }
-    }
-
-    /// A picture's bytes on `pasteboard` and the extension its file takes: PNG first, else TIFF
-    /// (the page converts TIFF as it does a pasted one).
-    static func imageData(_ pasteboard: NSPasteboard) -> (Data, String)? {
-        if let png = pasteboard.data(forType: .png), !png.isEmpty { return (png, "png") }
-        if let tiff = pasteboard.data(forType: .tiff), !tiff.isEmpty { return (tiff, "tiff") }
-        return nil
+        guard let picture = AgentPaneDroppedPaths.imageData(on: pasteboard), let folders = ChatUploadFolders.standard else { return }
+        Task { [open] in if let saved = await AgentPaneDroppedPaths.save(picture.data, ext: picture.ext, in: folders) { open.attachToChat([saved], from: source) } } // task-owner: one write of the service's picture
     }
 
     /// File URLs, legacy filename lists, or absolute paths as plain text.
@@ -274,6 +256,14 @@ final class CmuxServicesProvider: NSObject {
             return names
         }
         return (pasteboard.string(forType: .string) ?? "").split(whereSeparator: \.isNewline).map(String.init).filter { $0.hasPrefix("/") }
+    }
+}
+
+extension PaneController {
+    /// The agent chat this pane shows, not a New Tab page; nil for any other tab.
+    var shownChat: AgentPaneView? {
+        guard case .agent(let view) = currentContent, view.model.newTab == nil else { return nil }
+        return view
     }
 }
 
