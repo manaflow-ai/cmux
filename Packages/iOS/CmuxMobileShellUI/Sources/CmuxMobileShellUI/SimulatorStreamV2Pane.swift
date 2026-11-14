@@ -45,21 +45,28 @@ struct SimulatorStreamV2Pane: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ZStack {
-                Color.black
-                if let store {
-                    SimStreamDisplayRepresentable(store: store)
-                        .accessibilityIdentifier("SimulatorStreamV2Video")
-                    if hostNeedsRecovery(store.hostStatus) {
-                        recoveryOverlay
-                    } else {
-                        overlay(for: store.phase)
-                    }
+        ZStack {
+            Color.black
+            if let store {
+                SimStreamDisplayRepresentable(store: store)
+                    .accessibilityIdentifier("SimulatorStreamV2Video")
+                if hostNeedsRecovery(store.hostStatus) {
+                    recoveryOverlay
+                } else {
+                    overlay(for: store.phase)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             bottomBar
+        }
+        .overlay(alignment: .topTrailing) {
+            if let store, case .streaming = store.phase {
+                liveStatusPill
+                    .padding(.top, 12)
+                    .padding(.trailing, 12)
+            }
         }
         .accessibilityIdentifier("SimulatorStreamV2Pane")
         .onAppear {
@@ -136,6 +143,7 @@ struct SimulatorStreamV2Pane: View {
                     "mobile.simulatorStream.waitingDetail",
                     defaultValue: "The first frame will appear when the Mac is ready."),
                 symbol: "iphone",
+                showsProgress: true,
                 refresh: .afterStall
             )
             .accessibilityIdentifier("SimulatorStreamV2Placeholder")
@@ -147,6 +155,7 @@ struct SimulatorStreamV2Pane: View {
                     "mobile.simulatorStream.stalledDetail",
                     defaultValue: "The video feed stalled. Restoring the stream."),
                 symbol: "arrow.triangle.2.circlepath",
+                showsProgress: true,
                 refresh: .afterStall
             )
             .accessibilityIdentifier("SimulatorStreamV2ReconnectingOverlay")
@@ -158,6 +167,7 @@ struct SimulatorStreamV2Pane: View {
                     "mobile.simulatorStream.unavailable", defaultValue: "Simulator Unavailable"),
                 detail: Self.unavailableDetailText(detail),
                 symbol: "iphone.slash",
+                showsProgress: false,
                 refresh: detail == "simulator_disabled" ? .hidden : .immediate
             )
             .accessibilityIdentifier("SimulatorStreamV2UnavailableOverlay")
@@ -211,44 +221,29 @@ struct SimulatorStreamV2Pane: View {
     /// pane's Reconnect affordance so the fix is one tap away on the phone.
     private var recoveryOverlay: some View {
         ZStack {
-            Color.black.opacity(0.72)
-            VStack(spacing: 12) {
-                Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 36))
-                Text(
-                    L10n.string(
-                        "mobile.simulatorStream.needsRecovery",
-                        defaultValue: "Simulator Needs Recovery")
-                )
-                .font(.headline)
-                Text(
-                    L10n.string(
-                        "mobile.simulatorStream.needsRecoveryDetail",
-                        defaultValue:
-                            "The Simulator session on the Mac stopped and is showing its last frame.")
-                )
-                .font(.subheadline)
-                .multilineTextAlignment(.center)
+            Color.black.opacity(0.58)
+            statusCard(
+                title: L10n.string(
+                    "mobile.simulatorStream.needsRecovery",
+                    defaultValue: "Simulator Needs Recovery"),
+                detail: L10n.string(
+                    "mobile.simulatorStream.needsRecoveryDetail",
+                    defaultValue:
+                        "The Simulator session on the Mac stopped and is showing its last frame."),
+                symbol: "exclamationmark.triangle",
+                tint: .orange,
+                showsProgress: refreshTask != nil
+            ) {
                 if supportsRecover {
-                    Button {
-                        refreshStream()
-                    } label: {
-                        Text(
-                            L10n.string(
-                                "mobile.simulatorStream.recover", defaultValue: "Recover")
-                        )
-                        .font(.subheadline.weight(.semibold))
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 8)
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(.white)
-                    .accessibilityIdentifier("SimulatorStreamV2RecoverButton")
+                    overlayRefreshButton(
+                        title: L10n.string(
+                            "mobile.simulatorStream.recover", defaultValue: "Recover"),
+                        systemImage: "arrow.clockwise",
+                        identifier: "SimulatorStreamV2RecoverButton")
                 }
             }
-            .foregroundStyle(.white)
-            .padding(28)
         }
+        .accessibilityIdentifier("SimulatorStreamV2RecoveryOverlay")
     }
 
     /// Host detail strings are protocol tokens, never user-facing prose:
@@ -288,137 +283,232 @@ struct SimulatorStreamV2Pane: View {
     }
 
     private func statusOverlay(
-        title: String, detail: String, symbol: String, refresh: OverlayRefresh
+        title: String,
+        detail: String,
+        symbol: String,
+        showsProgress: Bool,
+        refresh: OverlayRefresh
     ) -> some View {
         ZStack {
-            Color.black.opacity(0.72)
-            VStack(spacing: 12) {
-                Image(systemName: symbol).font(.system(size: 36))
-                Text(title).font(.headline)
-                Text(detail).font(.subheadline).multilineTextAlignment(.center)
+            Color.black.opacity(0.58)
+            statusCard(
+                title: title,
+                detail: detail,
+                symbol: symbol,
+                tint: .accentColor,
+                showsProgress: showsProgress
+            ) {
                 switch refresh {
                 case .hidden:
                     EmptyView()
                 case .immediate:
-                    overlayRefreshButton
+                    overlayRefreshButton()
                 case .afterStall:
                     if stallRevealed {
-                        overlayRefreshButton
+                        overlayRefreshButton()
                     }
                 }
             }
-            .foregroundStyle(.white)
-            .padding(28)
         }
         // A dead stream has nothing useful under the overlay, so swallowing
         // touches costs nothing and keeps the refresh button tappable.
         .allowsHitTesting(refresh != .hidden)
     }
 
-    private var overlayRefreshButton: some View {
+    @ViewBuilder
+    private func statusCard<Actions: View>(
+        title: String,
+        detail: String,
+        symbol: String,
+        tint: Color,
+        showsProgress: Bool,
+        @ViewBuilder actions: () -> Actions
+    ) -> some View {
+        VStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(tint.opacity(0.18))
+                    .frame(width: 64, height: 64)
+                Image(systemName: symbol)
+                    .font(.system(size: 25, weight: .semibold))
+                    .foregroundStyle(tint)
+                if showsProgress {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.white)
+                        .offset(y: 37)
+                        .accessibilityLabel(
+                            L10n.string(
+                                "mobile.connection.reconnecting",
+                                defaultValue: "Reconnecting"))
+                }
+            }
+            VStack(spacing: 6) {
+                Text(title)
+                    .font(.headline)
+                    .multilineTextAlignment(.center)
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            actions()
+        }
+        .frame(maxWidth: 340)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 28)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(.white.opacity(0.18), lineWidth: 1)
+        }
+        .padding(24)
+        .foregroundStyle(.primary)
+    }
+
+    private var liveStatusPill: some View {
+        Label(
+            L10n.string("mobile.connection.connected", defaultValue: "Connected"),
+            systemImage: "circle.fill"
+        )
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(.white)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(.black.opacity(0.62), in: Capsule())
+        .accessibilityIdentifier("SimulatorStreamV2LiveStatus")
+    }
+
+    @ViewBuilder
+    private func overlayRefreshButton(
+        title: String = L10n.string("mobile.simulatorStream.refresh", defaultValue: "Refresh"),
+        systemImage: String = "arrow.clockwise",
+        identifier: String = "SimulatorStreamV2RefreshButton"
+    ) -> some View {
         Button {
             refreshStream()
         } label: {
-            Text(L10n.string("mobile.simulatorStream.refresh", defaultValue: "Refresh"))
-                .font(.subheadline.weight(.semibold))
-                .padding(.horizontal, 18)
-                .padding(.vertical, 8)
+            if refreshTask != nil {
+                ProgressView()
+                    .controlSize(.small)
+                Text(
+                    L10n.string(
+                        "mobile.connection.reconnecting", defaultValue: "Reconnecting"))
+            } else {
+                Label(title, systemImage: systemImage)
+            }
         }
-        .buttonStyle(.bordered)
-        .tint(.white)
-        .accessibilityIdentifier("SimulatorStreamV2RefreshButton")
+        .buttonStyle(.borderedProminent)
+        .controlSize(.regular)
+        .disabled(refreshTask != nil)
+        .accessibilityIdentifier(identifier)
     }
 
     private var bottomBar: some View {
-        HStack(spacing: 10) {
-            TextField(
-                L10n.string("mobile.simulatorStream.textPlaceholder", defaultValue: "Text"),
-                text: $pendingText
-            )
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled(true)
-            .submitLabel(.send)
-            .focused($textFocused)
-            .font(.footnote)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(.quaternary.opacity(0.5), in: Capsule())
-            .onSubmit { submitText() }
-            .accessibilityIdentifier("SimulatorStreamV2TextField")
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                TextField(
+                    L10n.string("mobile.simulatorStream.textPlaceholder", defaultValue: "Text"),
+                    text: $pendingText
+                )
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled(true)
+                .submitLabel(.send)
+                .focused($textFocused)
+                .font(.body)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 44)
+                .mobileGlassField(cornerRadius: 16)
+                .onSubmit { submitText() }
+                .accessibilityIdentifier("SimulatorStreamV2TextField")
 
-            chromeButton(
-                systemImage: "paperplane",
-                label: L10n.string("mobile.simulatorStream.sendText", defaultValue: "Send Text"),
-                identifier: "SimulatorStreamV2SendTextButton",
-                disabled: pendingText.isEmpty
-            ) { submitText() }
-
-            hardwareButton(
-                .home, systemImage: "house",
-                label: L10n.string("mobile.simulatorStream.home", defaultValue: "Home"),
-                identifier: "SimulatorStreamV2HomeButton")
-            hardwareButton(
-                .lock, systemImage: "lock",
-                label: L10n.string("mobile.simulatorStream.lock", defaultValue: "Lock"),
-                identifier: "SimulatorStreamV2LockButton")
-
-            Menu {
-                menuButton(
-                    .appSwitcher, systemImage: "rectangle.stack",
-                    label: L10n.string(
-                        "mobile.simulatorStream.appSwitcher", defaultValue: "App Switcher"))
-                menuButton(
-                    .volumeUp, systemImage: "speaker.plus",
-                    label: L10n.string(
-                        "mobile.simulatorStream.volumeUp", defaultValue: "Volume Up"))
-                menuButton(
-                    .volumeDown, systemImage: "speaker.minus",
-                    label: L10n.string(
-                        "mobile.simulatorStream.volumeDown", defaultValue: "Volume Down"))
-                menuButton(
-                    .siri, systemImage: "waveform",
-                    label: L10n.string("mobile.simulatorStream.siri", defaultValue: "Siri"))
-                // Manual escape hatch in every state, including a frozen
-                // frame the phase machine still believes is streaming.
-                Button {
-                    refreshStream()
-                } label: {
-                    Label(
-                        L10n.string(
-                            "mobile.simulatorStream.refreshSimulator",
-                            defaultValue: "Refresh Simulator"),
-                        systemImage: "arrow.clockwise"
-                    )
-                }
-                .accessibilityIdentifier("SimulatorStreamV2RefreshMenuItem")
-                qualityMenu
-                if supportsDeviceSwitching, !devices.isEmpty {
-                    deviceMenu
-                }
-                // Menu content materializes when the menu opens, so this
-                // refreshes the device inventory (and stale checkmarks from
-                // Mac-side switches) right before the user can reach the
-                // Switch Simulator submenu.
-                Color.clear
-                    .frame(width: 0, height: 0)
-                    .onAppear { refreshDevices() }
-            } label: {
-                Image(systemName: "ellipsis.circle").frame(width: 24, height: 24)
+                chromeButton(
+                    systemImage: "paperplane.fill",
+                    label: L10n.string("mobile.simulatorStream.sendText", defaultValue: "Send Text"),
+                    identifier: "SimulatorStreamV2SendTextButton",
+                    disabled: pendingText.isEmpty
+                ) { submitText() }
+                .mobileGlassCircle()
             }
-            .accessibilityLabel(
-                L10n.string("mobile.simulatorStream.moreButtons", defaultValue: "More Buttons")
-            )
-            .accessibilityIdentifier("SimulatorStreamV2MoreButtons")
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    hardwareButton(
+                        .home, systemImage: "house",
+                        label: L10n.string("mobile.simulatorStream.home", defaultValue: "Home"),
+                        identifier: "SimulatorStreamV2HomeButton")
+                    hardwareButton(
+                        .lock, systemImage: "lock",
+                        label: L10n.string("mobile.simulatorStream.lock", defaultValue: "Lock"),
+                        identifier: "SimulatorStreamV2LockButton")
+
+                    Menu {
+                        menuButton(
+                            .appSwitcher, systemImage: "rectangle.stack",
+                            label: L10n.string(
+                                "mobile.simulatorStream.appSwitcher", defaultValue: "App Switcher"))
+                        menuButton(
+                            .volumeUp, systemImage: "speaker.plus",
+                            label: L10n.string(
+                                "mobile.simulatorStream.volumeUp", defaultValue: "Volume Up"))
+                        menuButton(
+                            .volumeDown, systemImage: "speaker.minus",
+                            label: L10n.string(
+                                "mobile.simulatorStream.volumeDown", defaultValue: "Volume Down"))
+                        menuButton(
+                            .siri, systemImage: "waveform",
+                            label: L10n.string("mobile.simulatorStream.siri", defaultValue: "Siri"))
+                        // Manual escape hatch in every state, including a frozen
+                        // frame the phase machine still believes is streaming.
+                        Button {
+                            refreshStream()
+                        } label: {
+                            Label(
+                                L10n.string(
+                                    "mobile.simulatorStream.refreshSimulator",
+                                    defaultValue: "Refresh Simulator"),
+                                systemImage: "arrow.clockwise"
+                            )
+                        }
+                        .accessibilityIdentifier("SimulatorStreamV2RefreshMenuItem")
+                        qualityMenu
+                        if supportsDeviceSwitching, !devices.isEmpty {
+                            deviceMenu
+                        }
+                        // Menu content materializes when the menu opens, so this
+                        // refreshes the device inventory (and stale checkmarks from
+                        // Mac-side switches) right before the user can reach the
+                        // Switch Simulator submenu.
+                        Color.clear
+                            .frame(width: 0, height: 0)
+                            .onAppear { refreshDevices() }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .mobileGlassCircle()
+                    .accessibilityLabel(
+                        L10n.string("mobile.simulatorStream.moreButtons", defaultValue: "More Buttons")
+                    )
+                    .accessibilityIdentifier("SimulatorStreamV2MoreButtons")
+                }
+                .padding(.horizontal, 2)
+            }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .background(.regularMaterial)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(.white.opacity(0.14))
+                .frame(height: 1)
+        }
         // Neutral chrome: the hardware-button icons read as controls, not
         // links, so they must not pick up the app accent color.
         .tint(.primary)
-        .mobileGlassPill()
-        .clipShape(Capsule())
-        .padding(.horizontal, 12)
-        .padding(.bottom, 10)
     }
 
     private var qualityMenu: some View {
@@ -508,7 +598,9 @@ struct SimulatorStreamV2Pane: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: systemImage).frame(width: 24, height: 24)
+            Image(systemName: systemImage)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
         .disabled(disabled)
         .accessibilityLabel(label)
@@ -526,6 +618,7 @@ struct SimulatorStreamV2Pane: View {
         ) {
             store?.sendButton(button)
         }
+        .mobileGlassCircle()
     }
 
     private func menuButton(
