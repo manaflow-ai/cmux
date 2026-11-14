@@ -2170,6 +2170,14 @@ impl Hub {
         ids.into_iter().filter_map(|id| sessions.get(&id).cloned()).collect()
     }
 
+    /// How many sessions the map holds, and how many of them are not closed, each read under
+    /// its own lock (never both at once, as [`Hub::live_session_handles`]): not one snapshot.
+    pub(super) fn session_counts(&self) -> (usize, usize) {
+        let live = self.live_session_ids.lock().unwrap_or_else(|e| e.into_inner()).len();
+        let all = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).len();
+        (all, live)
+    }
+
     // ------------------------------------------------------------ lookup
 
     pub fn sessions(&self) -> Vec<Arc<Session>> {
