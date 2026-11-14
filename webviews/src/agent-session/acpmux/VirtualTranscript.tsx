@@ -3479,10 +3479,9 @@ function TranscriptView({
   // after tool calls get folded"): it folds in the turn's end motion instead, the rows over it
   // coming down together as the work leaves.
   const closingHeld = heldWorkedClosing?.current === true && rows !== rowsBefore;
-  if (sameChat && endsTurn(rowsBefore, rows) && !pageAway())
-    turnEndCapture.current = captureTurnEnd(thread.current, ref.current, rows, sessionId);
-  else if (sameChat && closingHeld && !pageAway())
-    turnEndCapture.current = captureTurnEnd(thread.current, ref.current, rows, sessionId, true);
+  const turnEnds = endsTurn(rowsBefore, rows);
+  if (sameChat && (turnEnds || closingHeld) && !pageAway())
+    turnEndCapture.current = captureTurnEnd(thread.current, ref.current, rows, sessionId, !turnEnds);
   else if (!sameChat) turnEndCapture.current = undefined;
   // A subagent's view starts with its "Subagent of" pill (subagentRows.ts): pinned over the top, where
   // its row lies at rest: the scroller's top in the stage (under the header) and the thread's own top
