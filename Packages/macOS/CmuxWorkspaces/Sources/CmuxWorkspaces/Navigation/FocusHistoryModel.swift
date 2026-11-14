@@ -29,6 +29,12 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
     // here, and returning records the position it left, so repeated presses
     // toggle between the two most recent positions.
     private var lastLeftFocusEntry: FocusHistoryEntry?
+    // The surface and the workspace focus most recently moved away from,
+    // recorded on every focus change whatever the navigation scope. Focus
+    // Last Surface and Focus Last Workspace return here and toggle the same
+    // way Focus Last does.
+    private var lastLeftSurfaceEntry: FocusHistoryEntry?
+    private var lastLeftWorkspaceEntry: FocusHistoryEntry?
     private var focusHistoryRecordingSuppressionDepth = 0
     private var focusHistorySuppressedSelectionSideEffectGenerations: Set<UInt64> = []
     private let maxHistorySize: Int
@@ -82,6 +88,8 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
         focusHistory.removeAll()
         historyIndex = -1
         lastLeftFocusEntry = nil
+        lastLeftSurfaceEntry = nil
+        lastLeftWorkspaceEntry = nil
         focusHistoryRecordingSuppressionDepth = 0
         focusHistorySuppressedSelectionSideEffectGenerations.removeAll()
     }
@@ -102,6 +110,9 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
            historyIndex < focusHistory.count,
            focusHistory[historyIndex].entry.workspaceId == workspaceId {
             if focusHistory[historyIndex].entry != entry {
+                // The rewrite drops the surface focus is leaving from the
+                // stack, so keep it as the Focus Last Surface target first.
+                noteFocusLeft(focusHistory[historyIndex].entry, for: entry)
                 focusHistory[historyIndex] = FocusHistoryRecord(entry: entry, focusedAt: now())
                 host?.focusHistoryRevisionDidChange()
             }
@@ -116,6 +127,7 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
 
         if let leavingEntry = recordedEntryLeft(for: entry) {
             lastLeftFocusEntry = leavingEntry
+            noteFocusLeft(leavingEntry, for: entry)
         }
 
         var didMutateHistory = false
@@ -183,6 +195,7 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
            historyIndex < focusHistory.count - 1,
            focusHistory[historyIndex].entry.workspaceId == workspaceId {
             if focusHistory[historyIndex].entry != entry {
+                noteFocusLeft(focusHistory[historyIndex].entry, for: entry)
                 focusHistory[historyIndex] = FocusHistoryRecord(entry: entry, focusedAt: now())
                 host?.focusHistoryRevisionDidChange()
             }
@@ -200,6 +213,16 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
         return leavingEntry == newEntry ? nil : leavingEntry
     }
 
+    /// Keeps `leavingEntry` as the Focus Last Surface target, and as the
+    /// Focus Last Workspace target when the move changes workspace.
+    private func noteFocusLeft(_ leavingEntry: FocusHistoryEntry, for newEntry: FocusHistoryEntry) {
+        guard leavingEntry != newEntry else { return }
+        lastLeftSurfaceEntry = leavingEntry
+        if leavingEntry.workspaceId != newEntry.workspaceId {
+            lastLeftWorkspaceEntry = leavingEntry
+        }
+    }
+
     // MARK: - Invalidation
 
     public func invalidateFocusHistoryTarget(workspaceId: UUID, panelId: UUID?) {
@@ -213,6 +236,12 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
 
         if lastLeftFocusEntry?.workspaceId == workspaceId {
             lastLeftFocusEntry = nil
+        }
+        if lastLeftSurfaceEntry?.workspaceId == workspaceId {
+            lastLeftSurfaceEntry = nil
+        }
+        if lastLeftWorkspaceEntry?.workspaceId == workspaceId {
+            lastLeftWorkspaceEntry = nil
         }
 
         let oldCount = focusHistory.count
@@ -501,6 +530,7 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
         }
 
         let leavingEntry = recordedEntryLeft(for: entry)
+        let resolvedEntry = resolvedFocusHistoryEntry(for: entry)
         var didRestore = false
         withFocusHistoryRecordingSuppressed {
             didRestore = restoreFocusHistoryEntry(entry)
@@ -508,6 +538,19 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
         guard didRestore else { return false }
         if let leavingEntry {
             lastLeftFocusEntry = leavingEntry
+            noteFocusLeft(leavingEntry, for: entry)
+        }
+        // Workspace-only navigation restores the workspace's remembered tab,
+        // which can differ from the tab this record ended on. Record the tab
+        // focus landed on, the same rewrite the restore's deferred focus
+        // notice makes, so that notice doesn't read as a move away from a tab
+        // focus never left and the next move leaves the right tab.
+        if navigationScope() == .workspacesOnly,
+           let resolvedEntry,
+           focusHistory.indices.contains(targetIndex),
+           focusHistory[targetIndex].entry.workspaceId == resolvedEntry.workspaceId,
+           focusHistory[targetIndex].entry != resolvedEntry {
+            focusHistory[targetIndex] = FocusHistoryRecord(entry: resolvedEntry, focusedAt: now())
         }
         historyIndex = targetIndex
         didNavigate = true
@@ -617,6 +660,57 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
         recordFocusInHistory(resolvedEntry)
         if let startEntry, startEntry != resolvedEntry {
             self.lastLeftFocusEntry = startEntry
+        }
+        return true
+    }
+
+    /// Returns focus to the surface it most recently left, in any workspace,
+    /// whatever the navigation scope. Like ``navigateToLastFocused()``, a
+    /// second call returns to the starting surface.
+    @discardableResult
+    public func navigateToLastFocusedSurface() -> Bool {
+        guard let lastLeftSurfaceEntry else { return false }
+        guard navigateToLastLeft(lastLeftSurfaceEntry, requiringOtherWorkspace: false) else {
+            if resolvedFocusHistoryEntry(for: lastLeftSurfaceEntry) == nil {
+                self.lastLeftSurfaceEntry = nil
+            }
+            return false
+        }
+        return true
+    }
+
+    /// Returns focus to the workspace it most recently left, on the surface
+    /// that last had focus there, whatever the navigation scope. A second
+    /// call returns to the starting workspace.
+    @discardableResult
+    public func navigateToLastFocusedWorkspace() -> Bool {
+        guard let lastLeftWorkspaceEntry else { return false }
+        let entry = FocusHistoryEntry(workspaceId: lastLeftWorkspaceEntry.workspaceId, panelId: nil)
+        guard navigateToLastLeft(entry, requiringOtherWorkspace: true) else {
+            if resolvedFocusHistoryEntry(for: entry) == nil {
+                self.lastLeftWorkspaceEntry = nil
+            }
+            return false
+        }
+        return true
+    }
+
+    /// Restores `entry` and records the move like any other focus change,
+    /// which makes the position it left the next toggle target.
+    private func navigateToLastLeft(_ entry: FocusHistoryEntry, requiringOtherWorkspace: Bool) -> Bool {
+        let startEntry = currentFocusHistoryEntry
+        guard let resolvedEntry = resolvedFocusHistoryEntry(for: entry) else { return false }
+        if requiringOtherWorkspace, resolvedEntry.workspaceId == startEntry?.workspaceId { return false }
+        if let startEntry, resolvedEntry == startEntry { return false }
+
+        var didRestore = false
+        withFocusHistoryRecordingSuppressed {
+            didRestore = restoreFocusHistoryEntry(entry)
+        }
+        guard didRestore else { return false }
+        recordFocusInHistory(resolvedEntry)
+        if let startEntry {
+            noteFocusLeft(startEntry, for: resolvedEntry)
         }
         return true
     }

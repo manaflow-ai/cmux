@@ -206,6 +206,60 @@ struct FocusHistoryScopeTests {
         #expect(manager.selectedTabId == secondWorkspace.id)
     }
 
+    /// Workspace-only history rewrites its record on a tab change, so Focus
+    /// Last has no previous tab to return to; Focus Last Surface still does.
+    @Test func focusLastSurfaceTogglesTabsWithWorkspacesOnlySetting() throws {
+        let suiteName = "FocusHistoryScopeTests.lastSurface.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        settings.set(false, for: SettingCatalog().app.focusHistoryIncludesPanesAndTabs)
+        let manager = TabManager(settings: settings)
+        let workspace = try #require(manager.selectedWorkspace)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let secondPanelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+
+        workspace.focusPanel(firstPanelId)
+        settleFocusBroadcasts()
+        workspace.focusPanel(secondPanelId)
+        settleFocusBroadcasts()
+
+        #expect(!manager.navigateToLastFocused())
+        #expect(manager.navigateToLastFocusedSurface())
+        settleFocusBroadcasts()
+        #expect(workspace.focusedPanelId == firstPanelId)
+        #expect(manager.navigateToLastFocusedSurface())
+        settleFocusBroadcasts()
+        #expect(workspace.focusedPanelId == secondPanelId)
+    }
+
+    /// With tabs in history, Focus Last returns to the previous tab; Focus
+    /// Last Workspace skips tab changes and returns to the previous workspace,
+    /// on the tab it last had focused.
+    @Test func focusLastWorkspaceSkipsTabsWithPanesAndTabsSetting() throws {
+        try withPaneHistoryManager { manager in
+            let firstWorkspace = try #require(manager.selectedWorkspace)
+            let secondWorkspace = manager.addWorkspace(select: true)
+            settleFocusBroadcasts()
+            let pane = try #require(secondWorkspace.bonsplitController.allPaneIds.first)
+            let firstPanelId = try #require(secondWorkspace.focusedPanelId)
+            let secondPanelId = try #require(secondWorkspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+            secondWorkspace.focusPanel(firstPanelId)
+            settleFocusBroadcasts()
+            secondWorkspace.focusPanel(secondPanelId)
+            settleFocusBroadcasts()
+
+            #expect(manager.navigateToLastFocusedWorkspace())
+            settleFocusBroadcasts()
+            #expect(manager.selectedTabId == firstWorkspace.id)
+            #expect(manager.navigateToLastFocusedWorkspace())
+            settleFocusBroadcasts()
+            #expect(manager.selectedTabId == secondWorkspace.id)
+            #expect(secondWorkspace.focusedPanelId == secondPanelId)
+        }
+    }
+
     @Test func scopeChangeInvalidatesAvailability() throws {
         let suiteName = "FocusHistoryScopeTests.scopeChange.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
