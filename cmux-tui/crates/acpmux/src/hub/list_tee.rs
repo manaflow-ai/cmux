@@ -786,4 +786,6 @@ mod roundtrip_tests;
 #[cfg(test)]
 mod snapshot_tests;
 #[cfg(test)]
+mod status_state_tests;
+#[cfg(test)]
 mod tests;

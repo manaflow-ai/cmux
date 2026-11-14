@@ -42,8 +42,8 @@
 //!   written) is finished, with nothing minted.
 //! - Every redeem says what this acpmux can do (`capabilities`, `vault.proxy.v1` when it runs
 //!   the vault's egress proxy, else an empty list). A join from before the hub took the list
-//!   keeps its credential: a sign-in never rotates it (a rotate the hub committed whose answer
-//!   was lost would leave this machine with a retired credential, read as revoked).
+//!   states it with its own credential (`self_capabilities.rs`), never by a rotate: a rotate the
+//!   hub committed whose answer was lost would leave this machine with a retired credential.
 //!
 //! Neither the access token nor the join token is put in argv, the environment, a file or a
 //! log: both stay in memory (zeroized when dropped) and go only into their own hub request.
@@ -151,6 +151,10 @@ pub(super) trait EnrollHub {
         &self,
         record: MachineCredential,
     ) -> impl Future<Output = leave::HubAnswer> + Send;
+    /// Starts, in the background, a joined record with no list stating this acpmux's
+    /// capabilities with its own credential (`self_capabilities.rs`). It saves only after the
+    /// enroll let go of the join lock.
+    fn state_capabilities(&self);
 }
 
 /// Whose a join is to the account acting on it.
@@ -205,7 +209,7 @@ fn enroll_name(build_tag: Option<&str>) -> String {
 }
 
 /// A sign-out's leave, marked before it starts and cleared when it is done (or a sign-in comes).
-const LEAVE_FILE: &str = "machine-join.leave.json";
+pub(super) const LEAVE_FILE: &str = "machine-join.leave.json";
 
 /// Queues `record`'s hub row, which the hub did not revoke, so it is revoked later; with
 /// `retry`, with its credential, so its own revoke is asked again. Never a match on the node key
@@ -332,7 +336,7 @@ pub(crate) async fn record_leave_intent(account: &str) -> Result<()> {
 }
 
 /// Takes the join lock in `home`, waiting up to [`LOCK_WAIT`] for a join or leave in progress.
-async fn wait_for_lock(home: &Path) -> Option<HeldLock> {
+pub(super) async fn wait_for_lock(home: &Path) -> Option<HeldLock> {
     let take = async {
         loop {
             if let Ok(lock) =
@@ -449,6 +453,9 @@ pub(super) async fn enroll_at(
                 }
                 if let Err(e) = port.repair_relay() {
                     tracing::warn!("sign-in enroll: the relay config was not repaired: {e:#}");
+                }
+                if record.capabilities.is_none() {
+                    port.state_capabilities();
                 }
                 return EnrollOutcome::AlreadyJoined;
             }
@@ -646,6 +653,10 @@ impl EnrollHub for Platform {
 
     async fn revoke_own(&self, record: MachineCredential) -> leave::HubAnswer {
         revoke_self(record).await
+    }
+
+    fn state_capabilities(&self) {
+        super::self_capabilities::state_on_sign_in();
     }
 }
 
@@ -890,6 +901,8 @@ mod tests {
         resumes: AtomicUsize,
         /// The record a pending join completes into when resumed, if any.
         resumed: Mutex<Option<MachineCredential>>,
+        /// How many capability statements a sign-in started.
+        statements: AtomicUsize,
         /// What the hub answers a revoke with the machine's own credential; Revoked when None.
         own_answer: Mutex<Option<leave::HubAnswer>>,
         /// The credentials each such revoke sent.
@@ -964,6 +977,9 @@ mod tests {
         async fn revoke_own(&self, record: MachineCredential) -> leave::HubAnswer {
             self.own_revokes.lock().unwrap().push(record.credential);
             self.own_answer.lock().unwrap().clone().unwrap_or(leave::HubAnswer::Revoked)
+        }
+        fn state_capabilities(&self) {
+            self.statements.fetch_add(1, Ordering::SeqCst);
         }
     }
 
@@ -1175,21 +1191,37 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_legacy_credential_is_never_rotated_by_a_sign_in() {
+    async fn an_empty_list_saved_after_a_409_changes_nothing_sent_and_states_nothing_again() {
+        // `self_capabilities.rs` saves [] when the hub refused to widen a narrower list.
+        let home = tempfile::tempdir().unwrap();
+        joined(home.path(), |r| r.capabilities = Some(Vec::new()));
+        // What this acpmux runs and sends comes from the build, never from the record.
+        const { assert!(RUNS_EGRESS_PROXY, "the egress proxy runs whatever the record says") };
+        assert_eq!(machine_capabilities(), vec!["vault.proxy.v1".to_owned()]);
+        // A sign-in finds a list recorded: no statement of its own.
+        let port = FakeHub::at(home.path());
+        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::AlreadyJoined);
+        assert_eq!(port.statements.load(Ordering::SeqCst), 0);
+        assert_eq!(load_at(home.path()).unwrap().unwrap().capabilities, Some(Vec::new()));
+    }
+
+    #[tokio::test]
+    async fn a_legacy_credential_states_its_list_with_its_own_credential_and_is_never_rotated() {
         // A rotate the hub committed whose answer was lost would leave this machine with a
-        // retired credential, its relay's 401 read as a revoke: a sign-in never rotates, so the
-        // joined credential stays the one the hub holds.
+        // retired credential; a sign-in never rotates, so the joined credential stays the same.
         let home = tempfile::tempdir().unwrap();
         joined(home.path(), |r| r.capabilities = None);
         let port = FakeHub::at(home.path());
-        for _ in 0..2 {
-            assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::AlreadyJoined);
-            let record = load_at(home.path()).unwrap().unwrap();
-            assert_eq!((record.credential.as_str(), record.credential_generation), ("cmm_old", 1));
-            assert_eq!(record.capabilities, None);
-            assert!(!record.revoked);
-        }
+        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::AlreadyJoined);
+        assert_eq!(port.statements.load(Ordering::SeqCst), 1);
+        let record = load_at(home.path()).unwrap().unwrap();
+        assert_eq!((record.credential.as_str(), record.credential_generation), ("cmm_old", 1));
+        assert_eq!(record.capabilities, None, "the statement saves the hub's answer itself");
         assert_eq!(port.mints.load(Ordering::SeqCst), 0);
+        // Its hub never answered: the next sign-in asks again, and still rotates nothing.
+        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::AlreadyJoined);
+        assert_eq!(port.statements.load(Ordering::SeqCst), 2);
+        assert_eq!(load_at(home.path()).unwrap().unwrap().credential, "cmm_old");
     }
 
     /// A join proposal in `home` as `recovery::new_pending` writes it.
