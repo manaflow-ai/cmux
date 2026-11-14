@@ -577,3 +577,7 @@ impl Drop for Link {
 #[cfg(test)]
 #[path = "link_v2_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "link_v2_gates.rs"]
+mod gates;

@@ -86,10 +86,7 @@ impl Hub {
                 id: origin.id.clone(),
                 state: origin.state,
                 since: origin.since,
-                extra: origin
-                    .extra
-                    .as_ref()
-                    .and_then(|extra| serde_json::from_str(extra.get()).ok()),
+                extra: origin.extra.as_ref().and_then(|extra| super::parse_extra(extra)),
             })
             .collect::<Vec<_>>();
         let origin_bytes = serde_json::to_vec(&origins).map_err(FrameError::Encode)?.len();

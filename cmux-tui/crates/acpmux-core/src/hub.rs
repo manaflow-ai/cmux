@@ -895,6 +895,16 @@ impl Hub {
         Ok(Some(target))
     }
 
+    /// Ops encoded in peer form since the peer history was made: one per local change, read
+    /// by the peer link's gates against the number of peers sent to.
+    pub fn peer_encodes(&self) -> u64 {
+        self.peer_history
+            .lock()
+            .ok()
+            .and_then(|slot| slot.as_ref().map(PeerHistory::encodes))
+            .unwrap_or(0)
+    }
+
     pub fn peer_resume_target(&self, cursor: u64) -> Result<Option<u64>, HubError> {
         let slot = self.peer_history.lock().map_err(|_| HubError::WriterGone)?;
         let Some(history) = slot.as_ref() else { return Ok(None) };
@@ -1188,10 +1198,7 @@ impl Hub {
                     id: origin.id.clone(),
                     state: origin.state,
                     since: origin.since,
-                    extra: origin
-                        .extra
-                        .as_ref()
-                        .and_then(|extra| serde_json::from_str(extra.get()).ok()),
+                    extra: origin.extra.as_ref().and_then(|extra| parse_extra(extra)),
                 })
                 .collect(),
             before_key: page.before_key.map(wire_key),
@@ -1311,6 +1318,21 @@ impl Hub {
         }
         HubError::page_error(error)
     }
+}
+
+static EXTRA_PARSES: AtomicU64 = AtomicU64::new(0);
+
+/// Every `extra` the list's path parses: an origin record's, for a local window. Nothing that
+/// sends to a peer parses one; the peer link's gates read this.
+pub fn extra_parses() -> u64 {
+    EXTRA_PARSES.load(Ordering::Relaxed)
+}
+
+pub(crate) fn parse_extra<T: serde::de::DeserializeOwned>(
+    extra: &serde_json::value::RawValue,
+) -> Option<T> {
+    EXTRA_PARSES.fetch_add(1, Ordering::Relaxed);
+    serde_json::from_str(extra.get()).ok()
 }
 
 fn book_key(key: &crate::wire::ListKey) -> SortKey {

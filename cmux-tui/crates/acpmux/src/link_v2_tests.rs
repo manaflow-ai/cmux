@@ -762,3 +762,102 @@ async fn v1_replies_and_pushes_on_a_link_are_byte_equal_with_peers_on_and_off() 
     assert!(!off.is_empty());
     assert_eq!(on, off);
 }
+
+/// The value at `id` in a v1 reply: the summary row whose `sessionId` is `id`, at any depth.
+fn v1_row<'a>(value: &'a Value, id: &str) -> Option<&'a Value> {
+    match value {
+        Value::Object(map) if map.get("sessionId").and_then(Value::as_str) == Some(id) => {
+            Some(value)
+        }
+        Value::Object(map) => map.values().find_map(|value| v1_row(value, id)),
+        Value::Array(values) => values.iter().find_map(|value| v1_row(value, id)),
+        _ => None,
+    }
+}
+
+/// A chat with a secret in its title and prompt and a stuck harness: the row a peer reads over
+/// the link carries what v1's watch gives that peer on the same connection. Text is masked the
+/// same way, and neither carries the stuck diagnostics (`stuckError`, `stuckSince`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_link_row_carries_what_v1_watch_gives_the_same_peer() {
+    let hub = memory_hub();
+    let token = format!("gh{}_{}", "p", "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234");
+    let session = hub.insert_test_session(
+        serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "stuck", "name": "stuck",
+            "title": format!("deploy with {token}"), "lastPrompt": format!("use {token} now"),
+            "harness": "fake", "cwd": "/work/project", "status": "running",
+            "createdAt": 1, "updatedAt": 5_000
+        }))
+        .unwrap(),
+    );
+    hub.edit_test_meta(&session, |meta| {
+        let base = meta.harness_failures.through_seq;
+        for offset in 1..=3 {
+            meta.harness_failures.observe(
+                &json!({"status": "failed", "errorText": format!("HTTP 503 bearer {token}")}),
+                base + offset,
+                offset * 10,
+            );
+        }
+    });
+    let (core, writer) = acpmux_core::hub::Hub::new(acpmux_book::index::SummaryIndex::new());
+    let surfaces = ["list", "peers"].into_iter().map(str::to_owned).collect();
+    let v2 = Arc::new(acpmux_core::life::V2::with_surfaces(core, writer, surfaces));
+    hub.link_v2.install(v2.clone());
+    let (tee, task) = crate::hub::list_tee::start_v2_tee(hub.clone(), v2.clone());
+    hub.install_v2_tee(tee);
+    let tee = tokio::spawn(task);
+    let writer = tokio::spawn(v2.take_writer().unwrap().run());
+    let core = v2.hub();
+    tokio::time::timeout(WAIT, async {
+        while !peer_rows(&core).contains_key("stuck") {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the tee writes the chat");
+
+    let mut wire = link(&hub);
+    let mut v1 = Vec::new();
+    wire.call(1, method::INITIALIZE, initialize()).await;
+    let watch = wire.call(2, method::MUX_WATCH, json!({})).await;
+    let old = v1_row(&watch, "stuck").expect("v1's watch lists the chat").clone();
+    wire.send(hello_frame()).await;
+    assert_eq!(wire.frame(&mut v1).await.0, 1);
+    wire.send(request_frame(
+        json!({"method":"sub","params":{"sid":"s","stream":"list","view":"live","cursor":0}}),
+    ))
+    .await;
+    let (kind, window) = wire.frame(&mut v1).await;
+    assert_eq!(kind, 2, "{window}");
+    let new = window["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["chatId"] == "stuck")
+        .expect("the window lists the chat")
+        .clone();
+
+    assert_eq!(new["chatId"], old["sessionId"]);
+    assert_eq!(new["title"], old["title"], "titles: link {new} v1 {old}");
+    assert_eq!(new["harness"], old["harness"]);
+    assert_eq!(new["state"], old.get("state").unwrap_or(&old["status"]));
+    assert_eq!(new["lastActivity"], old["updatedAt"]);
+    let extra = new["extra"].as_object().expect("the row carries extra");
+    assert!(!extra.is_empty());
+    for (key, value) in extra {
+        assert_eq!(Some(value), old.get(key), "extra {key}: link {new} v1 {old}");
+    }
+    for row in [&new, &old] {
+        let text = row.to_string();
+        assert!(!text.contains(&token), "a peer reads the secret: {text}");
+        assert!(text.contains("GitHub"), "the mask names what it hid: {text}");
+        for key in ["stuckError", "stuckSince"] {
+            assert!(row.get(key).is_none() && row["extra"].get(key).is_none(), "{key}: {row}");
+        }
+    }
+    assert_eq!(hub.link_v2.counters.value_parses.load(Ordering::Relaxed), 0);
+    tee.abort();
+    writer.abort();
+}
