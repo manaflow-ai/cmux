@@ -107,5 +107,60 @@ class ConnectedPhonesTests(unittest.TestCase):
         self.assertIn('FAILED=1', result.stdout)
 
 
+class SimulatorWindowTests(unittest.TestCase):
+    """The review opens the simulator's window with whichever app this Xcode ships.
+
+    Xcode 26 and earlier: Developer/Applications/Simulator.app, told which device by
+    -CurrentDeviceUDID. Xcode 27: no Simulator.app; DeviceHub (com.apple.dt.Devices) opens a
+    device from devices://device/open?id=<udid>. Both open with -g, never taking focus.
+    """
+
+    UDID = '5A9CE81B-1BF6-4CB5-8217-0D41719042B6'
+
+    def open_window(self, layout):
+        func = re.search(r'\n(review_open_simulator_window\(\) \{\n.*?\n\})\n', RELOAD.read_text(), re.S).group(1)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            developer = root / 'Xcode.app/Contents/Developer'
+            developer.mkdir(parents=True)
+            if layout == 'xcode26':
+                (developer / 'Applications/Simulator.app').mkdir(parents=True)
+            elif layout == 'xcode27':
+                (root / 'Xcode.app/Contents/Applications/DeviceHub.app').mkdir(parents=True)
+            bin_dir = root / 'bin'
+            bin_dir.mkdir()
+            log = root / 'calls.log'
+            (bin_dir / 'open').write_text(f'#!/bin/sh\necho "open $*" >> "{log}"\n')
+            (bin_dir / 'pgrep').write_text(f'#!/bin/sh\necho "pgrep $*" >> "{log}"\nexit 0\n')
+            for tool in ('open', 'pgrep'):
+                (bin_dir / tool).chmod(0o755)
+            script = f'set -u\nREVIEW_SIM_WINDOW_APP=""\n{func}\nreview_open_simulator_window {self.UDID}; rc=$?\necho "APP=$REVIEW_SIM_WINDOW_APP"; exit $rc'
+            env = dict(os.environ, PATH=f"{bin_dir}:/usr/bin:/bin", DEVELOPER_DIR=str(developer))
+            result = subprocess.run(['bash', '-c', script], env=env, capture_output=True, text=True, timeout=30)
+            calls = log.read_text() if log.exists() else ''
+            return result, calls
+
+    def test_xcode26_opens_simulator_app_in_the_background(self):
+        result, calls = self.open_window('xcode26')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f'open -g ', calls)
+        self.assertIn(f'Applications/Simulator.app --args -CurrentDeviceUDID {self.UDID}', calls)
+        self.assertIn('pgrep -x Simulator', calls)
+        self.assertIn('APP=Simulator', result.stdout)
+
+    def test_xcode27_opens_the_device_in_device_hub_in_the_background(self):
+        result, calls = self.open_window('xcode27')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f'open -g -b com.apple.dt.Devices devices://device/open?id={self.UDID}', calls)
+        self.assertIn('pgrep -x DeviceHub', calls)
+        self.assertIn('APP=DeviceHub', result.stdout)
+
+    def test_no_simulator_app_is_an_error(self):
+        result, calls = self.open_window('none')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('neither Simulator.app nor DeviceHub.app', result.stderr)
+        self.assertNotIn('open ', calls)
+
+
 if __name__ == '__main__':
     unittest.main()

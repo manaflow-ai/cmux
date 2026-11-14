@@ -31,8 +31,9 @@ It does, in order, and fails (non-zero) if any step fails:
    `scripts/verify-iphone-auth.sh` PASS. Never raw `devicectl`. One phone's failure does not stop
    the others; each gets its own line in the report.
 3. Boots the tag's isolated simulator `cmux-dev-<slug>` on the person's Mac (at most three booted),
-   opens its Simulator window in the background (`open -g`, never taking focus) and launches the
-   app signed in and paired, ready to review. This review simulator signs in with the `personal`
+   opens its window in the background (`open -g`, never taking focus) and launches the app signed
+   in, ready to review. Xcode 26 and earlier open it in Simulator.app; Xcode 27 has no
+   Simulator.app, so it opens in DeviceHub (`devices://device/open?id=<udid>`). Both are supported. This review simulator signs in with the `personal`
    profile, the phone's account, so it cannot replace the phone's pairing with the tagged Mac;
    agent-driven Simulator verification still uses `agent`.
 4. Runs `verify-iphone-auth.sh` again on each phone, so every phone is proven signed in after the
