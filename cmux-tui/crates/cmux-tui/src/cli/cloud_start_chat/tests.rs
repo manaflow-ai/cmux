@@ -2791,3 +2791,41 @@ fn a_promptless_start_answers_the_chat_s_daemon_tab() {
         assert_eq!(answer.get("daemon_tab").cloned().unwrap_or(Value::Null), tab);
     }
 }
+
+/// A list the app never loaded says why (cmuxterm-hq run 43553290380): its refresh failed, and that failure
+/// reaches only the app's last Cloud error (`cloud.machines`' `last_error`), which `cloud.list_unread` now names.
+/// An app with no last error, or none that answers, refuses as before.
+#[test]
+fn an_unread_list_names_the_apps_last_cloud_error() {
+    let unread =
+        json!({"account": {"signed_in": true}, "loaded": false, "machines": [], "creating": []});
+    let why = "machine list failed: the cmux app did not answer in time";
+    let paths: [(&str, &[&str]); 2] = [
+        ("a fresh name", &["--prompt", "x"]),
+        ("--environment's name", &["--prompt", "x", "--environment", "env_1", "--name", "py-1"]),
+    ];
+    for (path, words) in paths {
+        for (stream, said) in [
+            (Some(Ok(json!({"loaded": false, "last_error": why}))), Some(why)),
+            (Some(Ok(json!({"loaded": false, "last_error": null}))), None),
+            (Some(Err(json!({"code": "policy_refused"}))), None),
+            (None, None),
+        ] {
+            let mut fake = Fake::new(vec![ok(unread.clone())]);
+            fake.stream = stream;
+            let Outcome::Failed { error, exit } = run(&mut fake, &request(words)) else {
+                panic!("{path}: {:?}", fake.ran)
+            };
+            assert_eq!((error["code"].as_str(), exit), (Some("cloud.list_unread"), 75), "{path}");
+            assert_eq!(error["details"]["last_error"].as_str(), said, "{path}: {error}");
+            let message = error["message"].as_str().unwrap();
+            assert_eq!(message.contains(why), said.is_some(), "{path}: {message}");
+            assert!(
+                message.contains("run this command again")
+                    || message.contains("Run this command again")
+            );
+            assert_eq!(fake.called[0].0, "cloud.machines", "{path}");
+            assert_eq!(fake.ran.len(), 1, "{path}: nothing started or made: {:?}", fake.ran);
+        }
+    }
+}
