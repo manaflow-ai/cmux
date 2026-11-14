@@ -31,6 +31,10 @@ tailnet = ["dep:cmux-tailnet", "dep:tokio-rustls"]
 # The deterministic simulation's in-process agent seam (src/sim_agent.rs, tests/sim.rs). Never in
 # a shipped build: only `cargo test --features sim --test sim` turns it on.
 sim = []
+# Another crate's tests' in-process daemon that serves the v2 list (src/test_support.rs; row 7c,
+# cmux-tui-core's list callers). Never in a shipped build: only a crate's dev-dependencies turn it
+# on.
+test-support = []
 # Dev only: the sign-in output parser from a WebAssembly module that a debug daemon swaps live
 # when ACPMUX_HOT_MODULE's file changes (crates/acpmux-hot). Never in a shipped build.
 hot-modules = ["dep:acpmux-hot"]

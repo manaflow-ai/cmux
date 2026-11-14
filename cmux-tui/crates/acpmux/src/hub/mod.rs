@@ -96,6 +96,8 @@ mod shutdown_tests;
 #[cfg(test)]
 mod startup_wait_tests;
 #[cfg(test)]
+mod steer_on_start_tests;
+#[cfg(test)]
 mod time_breakdown_restore_tests;
 #[cfg(test)]
 mod transcript_seq_tests;
@@ -2121,7 +2123,7 @@ impl Hub {
         self.events.row_changed(session);
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn insert_test_session(&self, meta: SessionMeta) -> Arc<Session> {
         let id = meta.id.clone();
         let session = self.make_session(meta);
