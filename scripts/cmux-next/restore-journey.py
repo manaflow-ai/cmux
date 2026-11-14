@@ -1060,7 +1060,6 @@ def seed_agent():
     if not ws.get("workspace_id"):
         return
     cli("workspace", ws["workspace_id"], "focus")
-    action("palette.newAgentChat", focus=True)
     client = acpmux_client()
     if not client:
         say("  no acpmux home for this tag; the agent chat is not seeded")
@@ -1075,9 +1074,12 @@ def seed_agent():
         client.request("session/prompt", {"sessionId": sid, "prompt": [{"type": "text", "text": f"{text} {RUN}"}],
                                           "_meta": {"acpmux": {"promptId": f"rj-{RUN}-{i}"}}}, timeout=60)
     client.request("_acpmux/draft_set", {"sessionId": sid, "text": f"rj unsent draft {RUN}"})
+    bound = open_session_tab("rj-agent", sid, "rj-agent") is not None
     pane = next((p.get("id") for s_ in (workspace_named("rj-agent") or {}).get("screens", []) for p in s_.get("panes", [])
                  if any(t.get("kind") == "conversation" for t in p.get("tabs", []))), None)
     for attempt in range(4):
+        if bound:
+            break
         # The pane, then the focused agent pane (the new chat tab may not be the shown one yet).
         target = pane if attempt % 2 == 0 else None
         params = {"action": "select_session", "session": sid, **({"pane": target} if target else {})}
@@ -1211,32 +1213,34 @@ def seed_long_chat():
                                                   else "make_chat failed (see the seed log)"), "seed"))
 
 
+def open_session_tab(ws_name, sid, label):
+    """Opens acpmux session `sid`'s chat as a tab of workspace `ws_name`'s first pane
+    (`agent.openSessionTab`, `cmux agent open-tab`) and shows it: the tab is bound to the session
+    from the start. The palette's New Agent Chat opens no conversation tab in a scripted run any
+    more (2026-11-14: every seeded chat said "no new chat tab", so the relaunch measured no chat).
+    Returns the tab, or None."""
+    ws = workspace_named(ws_name) or {}
+    pane = next((p.get("id") for s_ in ws.get("screens", []) for p in s_.get("panes", [])), None)
+    answer = action("agent.openSessionTab", args={"session": sid}, **({"target": f"pane:{pane}"} if pane else {}),
+                    focus=True)
+    tab = wait(lambda: next((t for t in tabs_of(workspace_named(ws_name)) if t.get("agent_session") == sid), None), 30, 0.5)
+    if not tab:
+        say(f"  {label}: agent.openSessionTab made no tab bound to {sid}: {json.dumps(answer)[:200]}")
+    return tab
+
+
 def make_chat(client, label, harness):
     """A new agent chat tab in rj-chats bound to a new acpmux session, with the harness's picks:
     {"label", "harness", "session", "tab"}, or None when a step failed."""
-    known = {t.get("id") for t in tabs_of(workspace_named("rj-chats"))}
-    action("palette.newAgentChat", focus=True)
-    fresh = wait(lambda: next((t for t in tabs_of(workspace_named("rj-chats"))
-                               if t.get("kind") == "conversation" and t.get("id") not in known), None), 30, 0.5)
-    if not fresh:
-        say(f"  {label}: no new chat tab")
-        return None
     created = client.request("session/new", {"cwd": opts.out, "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}})
     sid = (created.get("result") or {}).get("sessionId")
     if not sid:
         say(f"  {label}: session/new -> {json.dumps(created)[:200]}")
         return None
+    fresh = open_session_tab("rj-chats", sid, label)
+    if not fresh:
+        return None
     _, pane = place_of(fresh["id"])
-    # The page learns of a new acpmux session a moment after it is made: select it until the
-    # tab's record names it.
-    for attempt in range(4):
-        # The new tab may not be the pane's shown tab yet; then the focused agent pane.
-        target = pane if attempt % 2 == 0 else None
-        say(f"  {label}: select_session -> {json.dumps(page(target, 'select_session', session=sid))[:160]}")
-        if wait(lambda: any(t.get("agent_session") == sid for t in tabs_of(workspace_named("rj-chats"))), 15, 1):
-            break
-    else:
-        say(f"  {label}: the tab never recorded session {sid}")
     pick = CHAT_PICKS[harness]
     if pick:
         # The pick a person makes in the composer's menus; through acpmux when the page refuses.
