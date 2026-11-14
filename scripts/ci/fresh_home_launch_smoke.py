@@ -118,6 +118,14 @@ NOT_COUNTED = "not-counted"
 SEEDED_STARTUP_LIMIT = 45.0
 DAEMON_REREAD_SECONDS = 5.0
 SEEDED_SCAN_WAIT = 30.0
+# The daemon's request log (cmux-tui's request_log.rs): JSON lines in this file and its rotated .1, in the daemon's
+# session folder under the launch's HOME.
+REQUEST_LOG = "slow-requests.jsonl"
+# The app under test wrote that log, and a CI log shows what this tool prints: a name from it is said only when
+# it has this form, else as "other".
+PLAIN_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+# What report.json's `request_log` says of a home with no request log (an older build, or a launch that never ran).
+NOT_JUDGED = "not-judged"
 # The seeded source (ImportSourceRecord.sourceKey is BROWSER/PROFILE). The browser is made up, in no row of the
 # app's browser table (browser-sources.json): the app has a Keychain item name ("Chrome Safe Storage") only for a
 # browser of that table, so it has none to ask for here, whatever a build does with the seeded cookies.
@@ -1327,6 +1335,83 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
     return FAIL
 
 
+# The request log of each launch's daemon, read after both arms (each arm stops its processes before it returns).
+# The text of these 2 functions is in comments, not docstrings: the fresh-home client carries this file as step
+# arguments of a bounded size, and it carries no comments.
+#
+# THE RULE. A run that passed, of a launch that no caller prepares or drives (AFTER_RENDER, PREPARE_HOME and READY
+# are all None), fails (exit 1) when a home's log has 1 record or more of a client of kind `plugin` with the error
+# `validation.invalid`: the daemon refused a request of the plugin. One record is the whole rule, never a count:
+# the daemon writes the first refusal at once and counts its repeats into a line a minute later, which a launch of
+# 30 s does not live to write. So a repeat line is the same fault, not a second one. The rule reads the record's
+# `error`, not its `outcome`: a refused request whose client had gone has the outcome `client_gone` and the code.
+#
+# WHAT THE RULE STANDS ON. `client_kind` is a word that a client declares of itself; the daemon does not prove
+# it, and the file has the same word for the plugin that the daemon started. In a home that this tool made, only
+# the app's own plugin declares it. A client that declares it there is judged as the plugin, and the failure says
+# the name that the client declared.
+#
+# NEVER A FAILURE: each other error record of a client of kind `plugin`, and a plugin_restart line (findings, in
+# report.json and the log); such a record in a launch with a caller hook or in a run that did not pass (a finding;
+# the run's own verdict and report stand); a home with no log (NOT_JUDGED); a fault of this read (main).
+def request_log(home: Path) -> dict | None:
+    # What the request log under HOME holds, None when HOME has none: its files (at most 8; regular files only, no
+    # link; 2 MiB of each, which is more than the daemon keeps in one), its records (lines that are a JSON object),
+    # those with an error code, and of a client of kind `plugin` the lines of each "operation / code[ / client name]".
+    seen: dict = {"files": 0, "records": 0, "errors": 0, "plugin": {}, "plugin_restarts": 0}
+    for path in sorted(home.rglob(REQUEST_LOG + "*"))[:8]:
+        if path.is_symlink() or not path.is_file():
+            continue
+        seen["files"] += 1
+        with open(path, "rb") as handle:
+            lines = handle.read(2 << 20).split(b"\n")
+        for line in lines:
+            try:
+                record = json.loads(line)
+            except (ValueError, RecursionError):  # a line that was cut, or is no JSON
+                continue
+            if not isinstance(record, dict):
+                continue
+            seen["records"] += 1
+            seen["plugin_restarts"] += record.get("kind") == "plugin_restart"
+            if not isinstance(record.get("error"), str):
+                continue
+            seen["errors"] += 1
+            if record.get("client_kind") == "plugin":
+                names = [record.get(key) for key in ("name", "error", "client_name")
+                         if key != "client_name" or key in record]
+                what = " / ".join(n if isinstance(n, str) and PLAIN_NAME.fullmatch(n) else "other" for n in names)
+                seen["plugin"][what] = seen["plugin"].get(what, 0) + 1
+    return seen if seen["files"] else None
+
+
+def judge_request_log(args: argparse.Namespace, root: Path, report: dict, status: int) -> int:
+    # Puts what each arm's home holds into report.json's `request_log` and returns the run's exit code: FAIL by
+    # the rule above (the report's verdict is then "fail" and its failures name each refused record), else STATUS.
+    said = report["request_log"] = {"refused": [], "findings": [], "counted": False}
+    for arm in args.arms:
+        where, home = ("seeded home: ", root / SEEDED / "h") if arm == SEEDED else ("", root / "h")
+        seen = said[arm] = request_log(home) or NOT_JUDGED
+        log(f"request log: {where}{'not judged (this home has none)' if seen == NOT_JUDGED else json.dumps(seen)}")
+        if seen == NOT_JUDGED:
+            continue
+        for what in seen["plugin"]:
+            refused = what.split(" / ")[1] == "validation.invalid"
+            said["refused" if refused else "findings"].append(
+                f"{where}request log: {'the daemon refused a request' if refused else 'an error record'} of a "
+                f"client of kind plugin: {what}")
+        if seen["plugin_restarts"]:
+            said["findings"].append(f"{where}request log: the plugin was started again")
+    counted = said["counted"] = bool(said["refused"]) and status == PASS and all(
+        hook is None for hook in (AFTER_RENDER, PREPARE_HOME, READY))
+    for text in said["refused"] + said["findings"]:
+        log(("FAIL: " if counted and text in said["refused"] else "finding, no failure: ") + text)
+    if not counted:
+        return status
+    report.update(verdict="fail", failures=list(said["refused"]))
+    return FAIL
+
+
 def arms_asked(value: str) -> tuple[str, ...]:
     names = tuple(name.strip() for name in value.split(",") if name.strip())
     if not names or names[0] != EMPTY or len(set(names)) != len(names) or any(name not in ARMS for name in names):
@@ -1377,6 +1462,10 @@ def main(argv: list[str] | None = None) -> int:
             status = CANNOT_RUN
         if SEEDED in args.arms:
             status = run_seeded(args, root, report, launch, status)
+        try:
+            status = judge_request_log(args, root, report, status)
+        except Exception as error:  # noqa: BLE001 - a fault of this read is never the launch's verdict
+            log(f"warning: the request log was not judged ({type(error).__name__})")
     finally:
         seeded_pid = ((report.get("arms") or {}).get(SEEDED) or {}).get("pid")
         for pid in (report.get("pid"), seeded_pid):
