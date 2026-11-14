@@ -37,6 +37,11 @@ import sys
 import time
 import urllib.request
 import xml.etree.ElementTree as ET
+from pathlib import Path
+
+# Run as a file (python3 .publish-tooling/scripts/ci/nightly_deltas_yield.py): its own directory holds deadline_http.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
 
 QUIET_MINUTES = 2.0
 MAX_MINUTES = 40.0
@@ -82,8 +87,8 @@ def verdict(build: int, live: int | None, next_head: str, tip: str, live_commit:
 
 def read_feed(url: str) -> str:
     request = urllib.request.Request(url, headers={"User-Agent": "cmux-delta-yield/1"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return response.read().decode("utf-8", "replace")
+    _, body, _ = deadline_http.request(request, 30, raise_errors=True)
+    return body.decode("utf-8", "replace")
 
 
 def ls_remote(repo: str, branch: str) -> str:
