@@ -50,7 +50,7 @@ use serde_json::{Value, json};
 
 use super::super::agents_doctor::{on_path, read_json, read_text, toml_error};
 use super::super::fix_command::quote_arg;
-use super::mcp_writer::{Writer, dev_build, names_shared_settings, writer};
+use super::mcp_writer::{RESTORABLE_ENV, Writer, dev_build, settings_path, writer};
 use super::{Outcome, Refusal};
 use cmux_json::JsonSet as _;
 use cmux_tui_core::user_settings::{AgentsCmuxMcp, CONFIG_OVERRIDE};
@@ -133,6 +133,7 @@ impl Client {
                             .flatten()
                             .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
                             .collect(),
+                        unread: unread_json(server),
                     })
                     .collect())
             }
@@ -169,6 +170,7 @@ impl Client {
                             .flatten()
                             .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
                             .collect(),
+                        unread: unread_toml(server),
                     })
                     .collect())
             }
@@ -225,6 +227,57 @@ struct Entry {
     args: Vec<String>,
     /// Its `env` (string values only).
     env: Vec<(String, String)>,
+    /// What setup did not read into the fields above, so could not put back:
+    /// another field (Codex `cwd`, `env_vars`, `startup_timeout_sec`,
+    /// `enabled_tools`), an `env` value or `args` item that is no string.
+    unread: Vec<String>,
+}
+
+/// Fields a Claude Code stdio entry may have that setup reads or rewrites.
+const CLAUDE_FIELDS: [&str; 4] = ["type", "command", "args", "env"];
+/// Fields a Codex entry may have that setup reads.
+const CODEX_FIELDS: [&str; 3] = ["command", "args", "env"];
+
+/// What of the Claude Code entry `server` setup does not read ([`Entry::unread`]).
+fn unread_json(server: &Value) -> Vec<String> {
+    let Some(fields) = server.as_object() else { return vec!["the entry".into()] };
+    let mut unread: Vec<String> =
+        fields.keys().filter(|key| !CLAUDE_FIELDS.contains(&key.as_str())).cloned().collect();
+    if fields.get("type").is_some_and(|kind| kind.as_str() != Some("stdio")) {
+        unread.push("type".into());
+    }
+    if let Some(args) = fields.get("args")
+        && args.as_array().is_none_or(|args| args.iter().any(|arg| !arg.is_string()))
+    {
+        unread.push("args".into());
+    }
+    match fields.get("env") {
+        Some(Value::Object(env)) => unread
+            .extend(env.iter().filter(|(_, v)| !v.is_string()).map(|(k, _)| format!("env {k}"))),
+        Some(_) => unread.push("env".into()),
+        None => {}
+    }
+    unread
+}
+
+/// What of the Codex entry `server` setup does not read ([`Entry::unread`]).
+fn unread_toml(server: &toml::Value) -> Vec<String> {
+    let Some(fields) = server.as_table() else { return vec!["the entry".into()] };
+    let mut unread: Vec<String> =
+        fields.keys().filter(|key| !CODEX_FIELDS.contains(&key.as_str())).cloned().collect();
+    if let Some(args) = fields.get("args")
+        && args.as_array().is_none_or(|args| args.iter().any(|arg| !arg.is_str()))
+    {
+        unread.push("args".into());
+    }
+    match fields.get("env") {
+        Some(toml::Value::Table(env)) => {
+            unread.extend(env.iter().filter(|(_, v)| !v.is_str()).map(|(k, _)| format!("env {k}")));
+        }
+        Some(_) => unread.push("env".into()),
+        None => {}
+    }
+    unread
 }
 
 impl Entry {
@@ -252,12 +305,28 @@ impl Entry {
         self.env.iter().find(|(key, _)| key == CONFIG_OVERRIDE).map(|(_, value)| value.as_str())
     }
 
-    /// What adds it back: its command, args and every `env` key. The line is
-    /// printed in the report, and a key of the person's may hold a secret, so
-    /// only cmux's own `CMUX_*` values are shown; another key's value is
-    /// `<value of KEY>`, named in [`Restore::hidden`].
+    /// What setup could not put back if it replaced or removed this entry:
+    /// [`Entry::unread`], and every `env` key outside [`RESTORABLE_ENV`] (a
+    /// token, a proxy, a cmux secret such as `CMUX_SOCKET_PASSWORD`). Setup
+    /// leaves an entry with any of these alone and names them to the person.
+    fn unrestorable(&self) -> Vec<String> {
+        let mut lost = self.unread.clone();
+        lost.extend(
+            self.env
+                .iter()
+                .filter(|(key, _)| !RESTORABLE_ENV.contains(&key.as_str()))
+                .map(|(key, _)| format!("env {key}")),
+        );
+        lost
+    }
+
+    /// What adds it back: its command, args and `env`. Only a
+    /// [`RESTORABLE_ENV`] value is printed (the line goes in the report); any
+    /// other key reads `<value of KEY>` and is named in [`Restore::hidden`].
+    /// Setup restores only entries with nothing [`Entry::unrestorable`], so
+    /// that never happens in practice.
     fn restore(&self, client: Client) -> Option<Restore> {
-        let shown = |key: &str| key.starts_with("CMUX_");
+        let shown = |key: &str| RESTORABLE_ENV.contains(&key);
         let env: Vec<(String, String)> = self
             .env
             .iter()
@@ -266,25 +335,27 @@ impl Entry {
                 (key.clone(), value)
             })
             .collect();
-        let hidden =
+        let mut hidden: Vec<String> =
             self.env.iter().map(|(key, _)| key).filter(|key| !shown(key)).cloned().collect();
+        hidden.extend(self.unread.iter().cloned());
         let command = self.command.as_deref()?;
         Some(Restore { line: client.line(&client.add(command, &self.args, &env)), hidden })
     }
 
-    /// Whether a shipped build wrote it: no settings file in its `env` but the
-    /// shared one (by path or link), and a command that is no DEV build's.
+    /// Whether a shipped build wrote it, by its command: a command that is no
+    /// DEV build's ([`dev_build`]; a bare name on PATH counts as shipped),
+    /// whatever settings file its `env` names.
     fn shipped(&self) -> bool {
-        self.settings_file()
-            .is_none_or(|file| names_shared_settings(Path::new(file), &|key| std::env::var_os(key)))
-            && self.command.as_deref().is_none_or(|command| dev_build(Path::new(command)).is_none())
+        self.command.as_deref().is_none_or(|command| dev_build(Path::new(command)).is_none())
     }
 
-    /// Whether the settings file its `env` names is there (no file named:
-    /// the shared one, always). A file that is gone (a scratch launch's) would
-    /// leave the server reading nothing, so the entry is replaced.
+    /// Whether the settings file its `env` names is there, a leading `~`
+    /// expanded (no file named: the shared one, always). A file that is gone
+    /// (a scratch launch's) would leave the server reading nothing, so the
+    /// entry is replaced.
     fn settings_file_exists(&self) -> bool {
-        self.settings_file().is_none_or(|file| Path::new(file).is_file())
+        self.settings_file()
+            .is_none_or(|file| settings_path(file, &|key| std::env::var_os(key)).is_file())
     }
 
     /// For the report: no `env` values beyond the settings file, since a
@@ -307,8 +378,8 @@ impl Restore {
     fn note(hidden: &[String]) -> Option<String> {
         (!hidden.is_empty()).then(|| {
             format!(
-                "The undo line does not show the old entry's value of {}: put each value in \
-                 place of <value of KEY> before you run it, or the entry comes back without it",
+                "The undo line does not put back all of the old entry: {} (values read \
+                 <value of KEY>; put each in place before you run it)",
                 hidden.join(", ")
             )
         })
@@ -479,6 +550,7 @@ fn remove(request: &Request, only_unshipped: bool) -> Outcome {
         if request.clients.is_empty() { CLIENTS.to_vec() } else { request.clients.clone() };
     let (mut rows, mut undo) = (Vec::new(), Vec::new());
     let (mut failed, mut planned, mut changed, mut inexact) = (false, false, false, false);
+    let mut user_action = Value::Null;
     for client in clients {
         let here = on_path(path.as_deref(), client.id()).is_some();
         let mut row = json!({
@@ -515,8 +587,20 @@ fn remove(request: &Request, only_unshipped: bool) -> Outcome {
             Ok(None) => "ok",
             Ok(Some(entry)) if only_unshipped && entry.shipped() => {
                 row.set("entry", entry.json());
-                row.set("kept", json!("a shipped cmux wrote this entry; this build leaves it"));
+                row.set(
+                    "kept",
+                    json!("this entry runs no development build of cmux; this build leaves it"),
+                );
                 "ok"
+            }
+            Ok(Some(entry)) if !entry.unrestorable().is_empty() => {
+                row.set("entry", entry.json());
+                let action = keep(client, &entry.unrestorable(), true);
+                if user_action.is_null() {
+                    user_action = action.clone();
+                }
+                row.set("user_action", action);
+                "needs_user"
             }
             Ok(Some(entry)) => {
                 row.set("entry", entry.json());
@@ -552,6 +636,8 @@ fn remove(request: &Request, only_unshipped: bool) -> Outcome {
     }
     let state = if failed {
         "failed"
+    } else if !user_action.is_null() {
+        "needs_user"
     } else if changed {
         "changed"
     } else if planned {
@@ -572,7 +658,7 @@ fn remove(request: &Request, only_unshipped: bool) -> Outcome {
         "clients": rows,
         "undo": (!undo.is_empty()).then(|| undo.join(" && ")),
         "undo_exact": !inexact,
-        "user_action": Value::Null,
+        "user_action": user_action,
     });
     Outcome { report, failed }
 }
@@ -781,10 +867,11 @@ fn parse(args: &[String]) -> Result<Request, Refusal> {
     Ok(request)
 }
 
-/// This cmux's own path: the command the harness runs.
+/// This cmux's own path, links followed (the path [`writer`] judged): the
+/// command the harness runs.
 fn this_cli() -> Result<String, Refusal> {
     std::env::current_exe()
-        .map(|exe| exe.to_string_lossy().into_owned())
+        .map(|exe| exe.canonicalize().unwrap_or(exe).to_string_lossy().into_owned())
         .map_err(|error| Refusal::Failed(format!("cmux: setup mcp: no path to this cmux: {error}")))
 }
 
@@ -832,6 +919,10 @@ fn plan(client: Client, named: bool, path: Option<&OsStr>) -> (Plan, Option<Entr
     };
     let taken = entries.swap_remove(at);
     if taken.serves_cmux() {
+        let lost = taken.unrestorable();
+        if !lost.is_empty() {
+            return (Plan::Person(keep(client, &lost, false)), Some(taken));
+        }
         return (Plan::Replace, Some(taken));
     }
     let remove = client.line(&client.remove());
@@ -927,6 +1018,28 @@ fn run_cli(client: Client, args: &[String]) -> Result<(), String> {
     let text = stderr.and_then(|reader| reader.join().ok()).unwrap_or_default();
     let text: String = text.trim().chars().take(2000).collect();
     Err(format!("`{line}` failed ({status}): {text}"))
+}
+
+/// `client`'s `cmux` entry holds what setup could not put back (`lost`:
+/// another field, a non-string value, an `env` key such as a token): setup
+/// leaves it as it is, never deleting what it cannot restore, and names the
+/// exact command for the person to run once they have kept what they need.
+fn keep(client: Client, lost: &[String], removing: bool) -> Value {
+    let remove = client.line(&client.remove());
+    let command =
+        if removing { remove } else { format!("{remove} && cmux setup mcp {}", client.id()) };
+    json!({
+        "kind": "keep",
+        "text": format!(
+            "{}'s cmux entry has settings cmux cannot put back ({}), so cmux left it as it is. \
+             To {} it, keep what you need from it, then run `{command}`",
+            client.name(),
+            lost.join(", "),
+            if removing { "remove" } else { "replace" },
+        ),
+        "command": command,
+        "url": Value::Null,
+    })
 }
 
 /// The person's answer was no (`agents.cmuxMcp` `off`): the setting to

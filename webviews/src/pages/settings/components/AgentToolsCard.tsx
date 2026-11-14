@@ -68,7 +68,11 @@ export function AgentToolsCard() {
                 </div>
                 <div className="row-control">
                   <span
-                    className={row.state === "failed" || row.state === "conflict" ? "badge badge-warning" : "badge"}
+                    className={
+                      row.state === "failed" || row.state === "conflict" || row.state === "kept"
+                        ? "badge badge-warning"
+                        : "badge"
+                    }
                   >
                     {t(`settingsWindow.agentTools.state.${row.state}`)}
                   </span>

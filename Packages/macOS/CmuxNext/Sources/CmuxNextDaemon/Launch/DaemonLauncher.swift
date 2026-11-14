@@ -205,8 +205,14 @@ public struct DaemonLauncher: Sendable {
     /// the Chief owner follows the same rules as the app's own daemon, so its off switch must reach it too.
     static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
         let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", "CMUX_TUI_CHIEF_TOOLS_SOCKET",
-                    "CMUX_TUI_CHIEF_BRAINS", "CMUX_NEXT_CONFIG_FILE"]
+                    "CMUX_TUI_CHIEF_BRAINS"]
         var environment = base.filter { kept.contains($0.key) }
+        // The same absolute path the app's terminals and daemon get (``SettingsFileOverride``).
+        let home = base["HOME"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        if let file = SettingsFileOverride(environment: base, home: home).path {
+            environment[SettingsFileOverride.key] = file
+        }
         let knobs = DaemonDiagnosticKnobs(processEnvironment: base).daemonEnvironment
         for name in DaemonDiagnosticKnobs.chiefOwnerDaemonNames {
             if let value = knobs[name] {

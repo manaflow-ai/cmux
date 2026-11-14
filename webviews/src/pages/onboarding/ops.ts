@@ -212,7 +212,7 @@ export interface AgentToolsRow {
   id: string;
   /** The product's own name ("Claude Code"): never translated. */
   name: string;
-  state: "ready" | "added" | "terminals" | "conflict" | "failed";
+  state: "ready" | "added" | "terminals" | "conflict" | "kept" | "failed";
 }
 
 export interface AgentToolsState {

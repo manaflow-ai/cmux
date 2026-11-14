@@ -1070,7 +1070,7 @@ export type AgentToolsCardRow = {
   id: string;
   name: string;
   /** `terminals`: a DEV build leaves the agent's config alone; its terminals give the agent cmux's tools. */
-  state: "ready" | "added" | "terminals" | "conflict" | "failed";
+  state: "ready" | "added" | "terminals" | "conflict" | "kept" | "failed";
   /** Its config still holds a cmux entry a development build wrote; Remove takes it out. */
   stale?: boolean;
 };

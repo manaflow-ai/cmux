@@ -1189,6 +1189,138 @@
         }
       }
     },
+    "onboarding.agentTools.state.kept": {
+      "comment": "Onboarding, cmux Tools step: may cmux add its tools (MCP server, Computer Use included) to the person's coding agents",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Has its own cmux settings, left as is"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لديه إعدادات cmux خاصة به، تُركت كما هي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ima vlastite cmux postavke, ostavljene kakve jesu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Har sine egne cmux-indstillinger, uændrede"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hat eigene cmux-Einstellungen, unverändert gelassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiene su propia configuración de cmux; se dejó igual"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A ses propres réglages cmux, laissés tels quels"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ha impostazioni cmux proprie, lasciate invariate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "独自の cmux 設定があるため、そのままにしました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានការកំណត់ cmux ផ្ទាល់ខ្លួន ទុកដដែល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자체 cmux 설정이 있어 그대로 둠"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Har egne cmux-innstillinger, uendret"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ma własne ustawienia cmux, pozostawione bez zmian"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tem configurações próprias do cmux, mantidas como estão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Есть собственные настройки cmux, оставлены как есть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีการตั้งค่า cmux ของตัวเอง จึงปล่อยไว้ตามเดิม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kendi cmux ayarları var, olduğu gibi bırakıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Має власні налаштування cmux, залишено як є"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Có cài đặt cmux riêng, giữ nguyên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有自己的 cmux 设置，已保持不变"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有自己的 cmux 設定，已保持不變"
+          }
+        }
+      }
+    },
     "onboarding.agentTools.state.failed": {
       "comment": "Onboarding, cmux Tools step: may cmux add its tools (MCP server, Computer Use included) to the person's coding agents",
       "extractionState": "manual",

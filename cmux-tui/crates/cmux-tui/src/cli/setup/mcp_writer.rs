@@ -32,6 +32,19 @@ pub(super) const SHIPPED_BUNDLE_IDS: [&str; 5] = [
     "com.cmuxterm.app.rc",
 ];
 
+/// The app names of those channels (`EXPECTED_NAME` in the same script), to
+/// know a bundle that is gone and whose Info.plist can no longer be read.
+pub(super) const SHIPPED_BUNDLE_NAMES: [&str; 5] =
+    ["cmux", "cmux NIGHTLY", "cmux NEXT", "cmux NEXT Stable", "cmux RC"];
+
+/// The `env` keys of a `cmux` entry whose values setup may print and put
+/// back: cmux's own routing and settings-file keys, none of them a secret.
+/// Any other key (a token, a proxy, `CMUX_SOCKET_PASSWORD`) is never printed,
+/// and an entry with one is never replaced or removed (cmux could not put it
+/// back).
+pub(super) const RESTORABLE_ENV: [&str; 4] =
+    ["CMUX_NEXT_CONFIG_FILE", "CMUX_TAG", "CMUX_BUNDLE_ID", "CMUX_TUI_SOCKET"];
+
 /// The app's shared settings file under the home.
 const SHARED_FILE: &str = ".config/cmux/cmux-next.json";
 
@@ -112,41 +125,62 @@ fn shipped_bundle(exe: &Path) -> bool {
     })
 }
 
-/// Whether `path` is in a cargo target folder: `target/debug`,
-/// `target/release`, or the same under a target triple (`cargo run`).
-fn in_cargo_target(path: &Path) -> bool {
-    let parts: Vec<&std::ffi::OsStr> = path
-        .components()
+/// The normal components of `path`, as strings.
+fn parts(path: &Path) -> Vec<&str> {
+    path.components()
         .filter_map(|part| match part {
-            Component::Normal(name) => Some(name),
+            Component::Normal(name) => name.to_str(),
             _ => None,
         })
-        .collect();
-    let profile = |part: Option<&&std::ffi::OsStr>| {
-        part.is_some_and(|name| *name == "debug" || *name == "release")
-    };
-    parts.iter().enumerate().any(|(at, part)| {
-        *part == "target" && (profile(parts.get(at + 1)) || profile(parts.get(at + 2)))
-    })
+        .collect()
 }
 
-/// Why the cmux at `command` is a development build, or `None`: it runs from
-/// Xcode's DerivedData or a cargo target folder, or from a cmux app bundle
-/// that is no shipped channel's ([`SHIPPED_BUNDLE_IDS`] with no tag). A bare
-/// command name (found on PATH) and a bundle that is no cmux app are not.
+/// Whether `path`, outside any app bundle, is where a shipped release
+/// installs cmux's CLI: npm's platform package
+/// (`node_modules/cmux-tui-<platform>/bin/cmux-tui`,
+/// cmux-tui/dist/npm/cmux/bin/cmux.js) or the PyPI wheel
+/// (`site-packages/cmux_tui/bin/cmux-tui`, cmux-tui/dist/scripts/package_pypi.py),
+/// never npx's or uv's disposable caches. Any other unbundled binary (a
+/// cargo target, `cargo install`, a custom target folder) is a development
+/// build. The app's own `cmux` link (`/usr/local/bin/cmux`) resolves into
+/// its bundle and is judged there.
+fn known_install(path: &Path) -> bool {
+    let parts = parts(path);
+    if parts.iter().any(|part| *part == "_npx" || *part == "archive-v0") {
+        return false;
+    }
+    let [.., package_parent, package, bin, _file] = parts.as_slice() else {
+        return false;
+    };
+    *bin == "bin"
+        && ((*package_parent == "node_modules" && package.starts_with("cmux-tui-"))
+            || (*package_parent == "site-packages" && *package == "cmux_tui"))
+}
+
+/// Why the cmux at `command` is a development build, or `None`. A cmux app
+/// bundle is shipped only as a [`SHIPPED_BUNDLE_IDS`] bundle with no tag; a
+/// bundle that is gone (its Info.plist cannot be read) by its name
+/// ([`SHIPPED_BUNDLE_NAMES`]; a `cmux DEV <tag>.app` is DEV). Xcode's
+/// DerivedData is DEV. A binary outside any bundle is shipped only at a
+/// [`known_install`] path. A bare command name (found on PATH) is the
+/// person's, and not judged.
 pub(super) fn dev_build(command: &Path) -> Option<String> {
     if command.components().count() < 2 {
         return None;
     }
     let command = resolved(command);
-    if command.components().any(|part| part == Component::Normal("DerivedData".as_ref())) {
+    if parts(&command).contains(&"DerivedData") {
         return Some("it runs from Xcode's DerivedData".to_owned());
     }
-    let identity = AppIdentity::from_bundle(Some(&command));
-    if identity.is_none() && in_cargo_target(&command) {
-        return Some("it runs from a cargo target folder".to_owned());
-    }
-    let identity = identity?;
+    let Some(bundle) = containing_app_bundle(&command) else {
+        return (!known_install(&command))
+            .then(|| "it runs from outside any installed cmux".to_owned());
+    };
+    let Some(identity) = AppIdentity::from_bundle(Some(&command)) else {
+        let name = bundle.file_stem().and_then(|name| name.to_str()).unwrap_or_default();
+        return (!SHIPPED_BUNDLE_NAMES.contains(&name))
+            .then(|| format!("it ran from {name}.app, which is no shipped cmux"));
+    };
     if shipped_bundle(&command) {
         return None;
     }
@@ -157,6 +191,12 @@ pub(super) fn dev_build(command: &Path) -> Option<String> {
             identity.bundle_id.as_deref().unwrap_or("an unknown bundle")
         ),
     })
+}
+
+/// `value` of an entry's `CMUX_NEXT_CONFIG_FILE` as a path, a leading `~`
+/// expanded to `HOME` from `getenv` (as `path_from` does).
+pub(super) fn settings_path(value: &str, getenv: &impl Fn(&str) -> Option<OsString>) -> PathBuf {
+    path_from(|key| if key == CONFIG_OVERRIDE { Some(OsString::from(value)) } else { getenv(key) })
 }
 
 #[cfg(test)]
@@ -213,7 +253,9 @@ mod tests {
                 None,
             ),
             bundle(dir.path(), "cmux RC", "com.cmuxterm.app.rc", None),
-            dir.path().join("opt/cmux/bin/cmux"),
+            // npm's platform package and the PyPI wheel, installed for good.
+            dir.path().join("lib/node_modules/cmux-tui-darwin-arm64/bin/cmux-tui"),
+            dir.path().join("venv/lib/python3.12/site-packages/cmux_tui/bin/cmux-tui"),
         ];
         for exe in &shipped {
             assert_eq!(writer(exe, env(base())), Writer::Global, "{exe:?}");
@@ -231,10 +273,19 @@ mod tests {
             bundle(dir.path(), "cmux STAGING", "com.cmuxterm.app.staging", None),
             bundle(dir.path(), "cmux NEXT other", "com.cmuxterm.app.nightly.cmux-next-x", None),
             dir.path().join("Library/Developer/Xcode/DerivedData/cmux-x/Build/cmux"),
-            // `cargo run` and `cargo build` outputs.
+            // `cargo run` and `cargo build` outputs, under any target folder name.
             dir.path().join("cmux/cmux-tui/target/debug/cmux-tui"),
             dir.path().join("w/target/release/cmux"),
             dir.path().join("w/target/aarch64-apple-darwin/debug/cmux-tui"),
+            dir.path().join("cmux/.build/cmux-tui-rust-target/debug/cmux-tui"),
+            dir.path().join("cmux/target-tui/release/cmux-tui"),
+            dir.path().join("scratch/out/cmux"),
+            // `cargo install`, and npx's and uv's disposable caches.
+            dir.path().join("home/.cargo/bin/cmux-tui"),
+            dir.path().join("home/.npm/_npx/1a2b/node_modules/cmux-tui-darwin-arm64/bin/cmux-tui"),
+            dir.path().join(
+                "home/.cache/uv/archive-v0/x/lib/python3.12/site-packages/cmux_tui/bin/cmux-tui",
+            ),
         ];
         for exe in &dev {
             assert!(matches!(writer(exe, env(base())), Writer::Terminals(_)), "{exe:?}");
@@ -255,15 +306,24 @@ mod tests {
         let script = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../../scripts/verify-app-bundle-channel-metadata.sh");
         let text = std::fs::read_to_string(&script).expect("the channel metadata script");
-        let ids: Vec<&str> = text
-            .lines()
-            .filter_map(|line| line.trim().strip_prefix("EXPECTED_BUNDLE_ID=\""))
-            .filter_map(|rest| rest.strip_suffix('"'))
-            .collect();
+        let values = |key: &str| -> Vec<String> {
+            text.lines()
+                .filter_map(|line| line.trim().strip_prefix(&format!("{key}=\"")))
+                .filter_map(|rest| rest.strip_suffix('"'))
+                .map(str::to_owned)
+                .collect()
+        };
+        let ids = values("EXPECTED_BUNDLE_ID");
         assert!(ids.len() >= 5, "{ids:?}");
+        // A deleted app of every channel is known by its name.
+        for name in values("EXPECTED_NAME") {
+            let gone = Path::new("/Applications/gone")
+                .join(format!("{name}.app/Contents/Resources/bin/cmux"));
+            assert_eq!(dev_build(&gone), None, "{name}");
+        }
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("home");
-        for (at, id) in ids.iter().enumerate() {
+        for (at, id) in ids.iter().map(String::as_str).enumerate() {
             let exe = bundle(dir.path(), &format!("channel {at}"), id, None);
             assert_eq!(
                 writer(&exe, env(vec![("HOME", home.display().to_string())])),
@@ -304,12 +364,26 @@ mod tests {
         );
         assert!(dev_build(derived).is_some());
         assert!(dev_build(Path::new("/Users/u/cmux/cmux-tui/target/debug/cmux-tui")).is_some());
-        assert_eq!(dev_build(Path::new("cmux")), None);
-        assert_eq!(dev_build(Path::new("/usr/local/bin/cmux")), None);
+        assert_eq!(dev_build(Path::new("cmux")), None, "a bare name on PATH is the person's");
+        // An unbundled binary outside a known install is a development build.
+        assert!(dev_build(Path::new("/Users/u/target/cmux")).is_some());
+        // A deleted DEV app is still a DEV app; a deleted shipped app is not.
+        let gone =
+            |name: &str| format!("/Applications/gone/{name}.app/Contents/Resources/bin/cmux");
+        assert!(dev_build(Path::new(&gone("cmux DEV cu-fresh"))).is_some());
+        assert!(dev_build(Path::new(&gone("cmux DEV"))).is_some());
+        assert_eq!(dev_build(Path::new(&gone("cmux NEXT Stable"))), None);
+        assert_eq!(dev_build(Path::new(&gone("cmux"))), None);
+    }
+
+    /// An entry's settings file with a leading `~` is the home's.
+    #[test]
+    fn an_entrys_settings_file_expands_the_home() {
+        let getenv = env(vec![("HOME", "/Users/u".to_owned())]);
         assert_eq!(
-            dev_build(Path::new("/Users/u/target/cmux")),
-            None,
-            "a folder named target alone"
+            settings_path("~/.config/cmux/cmux-next.json", &getenv),
+            PathBuf::from("/Users/u/.config/cmux/cmux-next.json")
         );
+        assert_eq!(settings_path("/a/b.json", &getenv), PathBuf::from("/a/b.json"));
     }
 }

@@ -145,6 +145,7 @@ const TOOLS_STATE_KEYS: Record<AgentToolsRow["state"], string> = {
   added: "onboarding.agentTools.state.added",
   terminals: "onboarding.agentTools.state.terminals",
   conflict: "onboarding.agentTools.state.conflict",
+  kept: "onboarding.agentTools.state.kept",
   failed: "onboarding.agentTools.state.failed",
 };
 

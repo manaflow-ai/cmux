@@ -1,4 +1,5 @@
 public import CmuxNextCompat
+import CmuxNextDaemon
 public import CmuxNextProcessEnvironment
 public import Foundation
 
@@ -78,10 +79,7 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// process's directory), so terminals and the app name one file. `~/` is
     /// `home`; nil on the shared file.
     static func configFile(processEnvironment: [String: String], home: URL) -> String? {
-        guard let raw = processEnvironment[configFileKey], !raw.isEmpty else { return nil }
-        if raw == "~" { return home.path }
-        if raw.hasPrefix("~/") { return home.appendingPathComponent(String(raw.dropFirst(2))).path }
-        return URL(fileURLWithPath: (raw as NSString).expandingTildeInPath).standardizedFileURL.path
+        SettingsFileOverride(environment: processEnvironment, home: home).path
     }
 
     /// Pure resolution. `bundledEnvironment` is the bundle's own

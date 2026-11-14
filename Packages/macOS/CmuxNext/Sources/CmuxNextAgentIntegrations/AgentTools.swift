@@ -28,6 +28,9 @@ public struct AgentToolsAgent: Sendable, Equatable {
         case conflict
         /// Its config could not be read or written.
         case failed
+        /// Its cmux entry has settings cmux cannot put back (another field, a token in its `env`):
+        /// `cmux setup mcp` left it as it is and named the command the person runs themselves.
+        case kept
 
         /// Whether the agent gets cmux's tools: from its own config, or in this build's terminals.
         public var givesTools: Bool { self == .added || self == .terminals }
@@ -66,6 +69,7 @@ public extension AgentToolsAgent {
             let state: State = switch client["state"] as? String {
             case "failed": .failed
             case "needs_user" where action == "conflict": .conflict
+            case "needs_user" where action == "keep": .kept
             // `--remove`: `changed` took cmux out, `ok` found none, `planned` (a dry run) still has it.
             case "ok" where removing, "changed" where removing: .ready
             case "planned" where removing: .added
