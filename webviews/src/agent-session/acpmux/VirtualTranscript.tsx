@@ -71,7 +71,7 @@ import {
   writeAnchorScrollTop,
 } from "./conversation/scrollCoordinates";
 import { createFollowGlide, followRoom } from "./conversation/followGlide";
-import { createTailGlide, type TailGlide } from "./conversation/tailGlide";
+import { createTailGlide, type PlacedRows, type TailGlide } from "./conversation/tailGlide";
 import { finishCarry, notePinPass, pinLiveLine, refreshPinned } from "./conversation/pinnedLiveLine";
 import {
   createFollowChase,
@@ -1234,6 +1234,18 @@ function indexOfRow(rows: readonly AcpmuxRow[], id: string | undefined, hint: { 
   const at = rows.findIndex((row) => row.id === id);
   hint.current = at;
   return at;
+}
+
+/// The index of mounted row `id` in `rows`, or -1 (a row not mounted has no place on the page):
+/// O(mounted rows) id compares at most, never the chat's length.
+function mountedIndexOf(
+  rows: readonly AcpmuxRow[],
+  mounted: readonly { first: number; last: number }[],
+  id: string,
+): number {
+  for (const { first, last } of mounted)
+    for (let index = first; index < last; index++) if (rows[index]?.id === id) return index;
+  return -1;
 }
 
 /// A read-only transcript draws inside the guest boundary (conversation/GuestActionsBoundary.tsx).
@@ -4833,6 +4845,18 @@ function TranscriptView({
       !thread.current?.hasAttribute(TURN_END_ATTR) &&
       !(sends !== seenSends.current || performance.now() < sendRiseUntil.current);
     const carry = pinLiveLine(thread.current, pinLive, !followingRef.current);
+    // The glide reads where the rows lie from this placement (each frame's `top` is set from it), not
+    // from every mounted row's box. Rows that flow (a live resize) lie where the page puts them: read.
+    const placedGeometry = layout.geometry;
+    const placedRows: PlacedRows | undefined = thread.current?.classList.contains(FLOW_CLASS)
+      ? undefined
+      : {
+          idAt: (index) => rows[index]?.id,
+          indexOf: (id) => mountedIndexOf(rows, mountedRanges, id),
+          topAt: (index) => THREAD_TOP + placedGeometry.topAt(index),
+          heightAt: (index) => placedGeometry.heightAt(index),
+          mounted: mountedRanges,
+        };
     tailGlide.current?.place(
       thread.current,
       tailGlides && chasing,
@@ -4840,6 +4864,7 @@ function TranscriptView({
       chasing && followingRef.current,
       pinLive ? LIVE_THINKING : undefined,
       carry,
+      placedRows,
     );
     refreshPinned(thread.current);
     finishCarry(thread.current, carry, (px) => {
@@ -6294,9 +6319,22 @@ function TranscriptView({
     [scannedRetry.promptId, scannedRetry.footerId],
   );
   const finalFooter = useMemo(() => finalFooterId(rows), [rows]);
+  /// The row drawn with `data-turn-revealed`, while it is the pointed turn's mounted row: a commit that
+  /// leaves it so (a streamed token, with the pointer anywhere or nowhere) costs one check, not a pass
+  /// over every row in view (Leo, 2026-11-04: "never ... acceptable ... linear time growth degradation").
+  const markedTurn = useRef<HTMLElement | null>(null);
   const markTurns = useCallback(() => {
-    for (const node of thread.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? [])
-      node.toggleAttribute("data-turn-revealed", node.dataset.rowId === pointedTurn.current);
+    const id = pointedTurn.current;
+    const marked = markedTurn.current;
+    if (marked ? marked.isConnected && marked.dataset.rowId === id : id === undefined) return;
+    marked?.removeAttribute("data-turn-revealed");
+    markedTurn.current = null;
+    const host = thread.current;
+    if (id === undefined || !host) return;
+    const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
+    const row = host.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
+    row?.setAttribute("data-turn-revealed", "");
+    markedTurn.current = row;
   }, []);
   // Mark only when the mounted rows, their range, or the last turn changes. The old no-deps
   // layout effect scanned every commit, including scroll/follow state commits that cannot change
