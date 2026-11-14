@@ -176,7 +176,7 @@ fn removals_and_closed_rows_follow_the_remote_row_rules() {
     assert_eq!(hub.mirror_mark(ORIGIN).map(|mark| mark.cursor), Some(2));
 }
 
-fn log_path(writer: &HubWriter) -> std::path::PathBuf {
+fn log_path(writer: &HubWriter) -> PathBuf {
     writer.log.as_ref().expect("disk log").path().to_owned()
 }
 
@@ -210,10 +210,10 @@ fn a_unit_with_no_rows_writes_its_mark_alone_and_reopens_whole() {
         );
         path = log_path(&writer);
     }
-    let length = std::fs::metadata(&path).unwrap().len();
+    let length = fs::metadata(&path).unwrap().len();
     {
         let (hub, mut writer) = Hub::open(directory.path(), 101, || 7).unwrap();
-        assert_eq!(std::fs::metadata(&path).unwrap().len(), length, "the opener cut nothing");
+        assert_eq!(fs::metadata(&path).unwrap().len(), length, "the opener cut nothing");
         assert_eq!(
             hub.mirror_mark(ORIGIN),
             Some(MirrorMark { cursor: 2, edition: 4, whole: true })
@@ -222,9 +222,9 @@ fn a_unit_with_no_rows_writes_its_mark_alone_and_reopens_whole() {
         writer.process_batch();
         writer.sync_batch().unwrap();
     }
-    let length = std::fs::metadata(&path).unwrap().len();
+    let length = fs::metadata(&path).unwrap().len();
     let (hub, _writer) = Hub::open(directory.path(), 101, || 7).unwrap();
-    assert_eq!(std::fs::metadata(&path).unwrap().len(), length, "the write-off was kept");
+    assert_eq!(fs::metadata(&path).unwrap().len(), length, "the write-off was kept");
     assert_eq!(hub.mirror_mark(ORIGIN), None);
     assert!(hub.snapshot().get_row(&RowKey::new("local", "mine")).is_some());
 }
@@ -263,10 +263,10 @@ fn the_bound_is_two_frames_joined_into_one_append() {
     let path = log_path(&writer);
     let end = writer.log.as_ref().unwrap().offset();
     drop((hub, writer));
-    let bytes = std::fs::read(&path).unwrap();
+    let bytes = fs::read(&path).unwrap();
     for cut in start..=end {
         let copy = tempfile::tempdir().unwrap();
-        std::fs::write(copy.path().join("index.log"), &bytes[..cut as usize]).unwrap();
+        fs::write(copy.path().join("index.log"), &bytes[..cut as usize]).unwrap();
         let (hub, _writer) = Hub::open(copy.path(), 101, || 7).unwrap();
         if hub.mirror_mark(ORIGIN).is_some() {
             assert_eq!(cut, end, "the mark is the append's last bytes");
@@ -297,8 +297,8 @@ fn a_kill_before_the_mark_resumes_with_no_second_op() {
         origin: ORIGIN.to_owned(),
         mark: Some(MirrorMark { cursor: 2, edition: 4, whole: true }),
     };
-    let length = std::fs::metadata(&path).unwrap().len();
-    let file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+    let length = fs::metadata(&path).unwrap().len();
+    let file = fs::OpenOptions::new().write(true).open(&path).unwrap();
     file.set_len(length - mark.encoded_len()).unwrap();
     drop(file);
     let (hub, mut writer) = Hub::open(directory.path(), 101, || 7).unwrap();

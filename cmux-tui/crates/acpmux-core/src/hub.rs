@@ -83,7 +83,7 @@ enum PendingUpdate {
     Gone { source: Source },
     Origin { record: OriginRecord },
     Takeover { origin: String, source: Source },
-    Unit { source: Source, unit: Box<mirror::MirrorUnit> },
+    Unit { source: Source, unit: Box<MirrorUnit> },
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Ord, PartialOrd)]

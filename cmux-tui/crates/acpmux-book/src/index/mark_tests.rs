@@ -139,7 +139,7 @@ fn every_cut_leaves_the_mark_at_or_behind_its_rows() {
     assert_eq!(whole.mirror_mark(ORIGIN), Some(mark(UNITS)));
     let expected = rows(&whole);
     let bytes = fs::read(&path).unwrap();
-    let mut boundaries = vec![0];
+    let mut boundaries = vec![0usize];
     let mut reader = bytes.as_slice();
     while let Some((_, len)) = codec::read_any(&mut reader).unwrap() {
         boundaries.push(boundaries.last().unwrap() + len);

@@ -6,7 +6,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::time::Instant;
 
-const ROUNDS: usize = 6;
+const ROUNDS: usize = 10;
 const SAMPLES: usize = 200;
 const UNIT_CHANGES: usize = 10;
 
