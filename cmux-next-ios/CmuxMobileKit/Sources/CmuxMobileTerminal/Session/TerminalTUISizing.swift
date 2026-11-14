@@ -136,6 +136,11 @@ public struct TerminalResizeSettle: Equatable, Sendable {
     }
 
     public static let settle: Duration = .milliseconds(250)
+    /// The settle for the rows the keyboard's end gives a full-screen app,
+    /// known at will-show or will-hide (the end frame), not measured mid-change:
+    /// long enough that a toggle reversed within a few frames sends nothing,
+    /// short enough that the Mac's redraw lands about when the keyboard stops.
+    public static let keyboardSettle: Duration = .milliseconds(60)
 
     /// The size the Mac was last given.
     public private(set) var applied: Size?

@@ -230,6 +230,21 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// the settled rows is in (`TerminalTUIGridHold`).
     private var tuiGridHold = TerminalTUIGridHold()
     private var tuiGridHoldExpiry: Task<Void, Never>?
+    /// The keyboard is moving (will-show/will-hide until did-show/did-hide).
+    private var keyboardMoving = false
+    private var keyboardMovement = 0
+    /// A mirror reset arrived while `holdsReplay`: the held frame goes up when
+    /// it is fed.
+    private var heldReset = false
+    /// The size being measured is the keyboard's end, known at will-show or
+    /// will-hide: it settles in `TerminalResizeSettle.keyboardSettle`.
+    private var keyboardClaim = false
+    /// The Mac's redraw at fewer rows came while the keyboard was still
+    /// rising: it waits for the keyboard to stop (`keyboardStopped`). Shown
+    /// earlier, the shorter grid pinned to a composer still on its way up
+    /// left a band of background above it; the taller grid on screen stays
+    /// pinned to the composer, its top rows under the toolbar, until then.
+    private var holdsReplay = false
     #if DEBUG
     /// DEBUG frame pacing while the page is dragged or decelerates: the gap
     /// between scroll callbacks (one per displayed frame while moving) and
@@ -910,8 +925,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             sendResize(size, why: "first")
         case .wait:
             settleTask?.cancel()
+            let settle = keyboardClaim ? TerminalResizeSettle.keyboardSettle : TerminalResizeSettle.settle
             settleTask = Task { @MainActor [weak self] in
-                try? await ContinuousClock().sleep(for: TerminalResizeSettle.settle)
+                try? await ContinuousClock().sleep(for: settle)
                 guard let self, !Task.isCancelled, let size = self.resizeSettle.settled() else { return }
                 self.sendResize(size, why: "settled")
             }
@@ -1276,7 +1292,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 // goes back to their rows once it is in (V2-3,
                 // TerminalReadingMark); otherwise to the prompt.
                 markReadingPosition()
-                freezeLastFrame()
+                // Held for the keyboard: the frame is held when it is fed.
+                if holdsReplay { heldReset = true } else { freezeLastFrame() }
                 // Held already (a second reset, D4): the frame that releases
                 // it is one placed after this reset's replay.
                 placedSinceHold = false
@@ -1311,6 +1328,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             output.append(alternateScreen: on)
             scheduleOutput()
         case .hostGrid(let columns, let rows):
+            // The Mac's shorter grid while the keyboard still rises: it and
+            // what follows wait for the keyboard to stop (`holdsReplay`).
+            if model.isTUI, keyboardMoving, let held = tuiGridHold.heldRows, rows < held, rows == tuiRows {
+                holdsReplay = true
+            }
             // In order with the bytes too: the mirror takes the Mac's new
             // grid right before the first byte drawn for it.
             output.append(hostGrid: columns, rows: rows)
@@ -1391,6 +1413,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     private func pumpOutput() {
+        // The Mac's redraw waits for the keyboard to stop (`holdsReplay`).
+        if holdsReplay {
+            stopOutputLink()
+            return
+        }
         guard pacer.canFeed(at: CACurrentMediaTime()) else {
             armBurstWake()
             return
@@ -3170,8 +3197,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // In this app's points (an iPhone app on an iPad gets the iPad's keyboard in iPad points).
         let frame = keyboardDock.keyboardFrame(notified: notified, showing: true)
         let screen = view.window?.screen.bounds ?? UIScreen.main.bounds
-        measured("keyboard-will") { dock.keyboardWillShow(visibleHeight: max(0, screen.intersection(frame).height)) }
+        dock.keyboardWillShow(visibleHeight: max(0, screen.intersection(frame).height))
         setKeyBar(visible: dock.softKeyboard == .shown, note: note)
+        measured("keyboard-will") { keyboardWillMove(note) }
     }
 
     @objc private func keyboardWillHide(_ note: Notification) {
@@ -3180,6 +3208,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #endif
         dock.keyboardWillHide()
         setKeyBar(visible: false, note: note)
+        measured("keyboard-will") { keyboardWillMove(note) }
     }
 
     @objc private func keyboardDidHide(_ note: Notification) {
@@ -3234,11 +3263,56 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         tuiSizing.keyboardSettled(stackTop: bottomStack.frame.minY + composerGrowth + jumpRowHeight, restingStackTop: restingStackTop, isTUI: model.isTUI)
     }
 
+    /// The keyboard starts to move (will-show, will-hide), and UIKit has
+    /// already laid the stack out at its end (the dock follows will-change,
+    /// which UIKit posts first). A full-screen app's rows for that end go to
+    /// the Mac now, a short settle later (`TerminalResizeSettle.keyboardSettle`),
+    /// not after did-show plus the layout settle: its redraw lands about when
+    /// the keyboard stops (R1-1). Did-show and did-hide settle again from the
+    /// laid-out stack, which normally asks for the same rows. A target that a
+    /// newer toggle reverts within the settle sends nothing; the newest wins.
+    private func keyboardWillMove(_ note: Notification) {
+        let duration = (note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0
+        keyboardMoving = duration > 0
+        if keyboardMoving {
+            keyboardMovement &+= 1
+            let movement = keyboardMovement
+            // A did-show or did-hide that never comes (a reversed transition)
+            // ends the movement after its own duration.
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.1) { [weak self] in
+                guard let self, self.keyboardMovement == movement, self.keyboardMoving else { return }
+                self.keyboardStopped()
+            }
+        }
+        guard model.isTUI else { return }
+        view.layoutIfNeeded()
+        keyboardClaim = true
+        settleKeyboardLift()
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        keyboardClaim = false
+    }
+
+    /// The keyboard reached its end (or a reversal ended its movement): output
+    /// held back while it moved (`holdsReplay`) goes to the screen.
+    private func keyboardStopped() {
+        keyboardMoving = false
+        guard holdsReplay else { return }
+        holdsReplay = false
+        sizingLog.notice("keyboard stopped: the Mac's redraw at \(self.tuiRows, privacy: .public) rows goes to the screen")
+        if heldReset {
+            heldReset = false
+            freezeLastFrame()
+        }
+        scheduleOutput()
+    }
+
     @objc private func keyboardDidChange() {
         measured("keyboard-did") { keyboardSettledLayout() }
     }
 
     private func keyboardSettledLayout() {
+        keyboardStopped()
         view.setNeedsLayout()
         view.layoutIfNeeded()
         // The keyboard settled: a TUI gets the rows above the composer now,
