@@ -13,6 +13,9 @@
 //   wakeups/s         the timer, frame and idle callbacks all pages ran over IDLE_MS of nothing (bench/stability.ts);
 //   warm load         from navigation to the newest reply drawn, for every chat after the first: a chat page built
 //                     in the warm shared renderer, as a released hidden chat is when it shows again.
+// HIDDEN=1 hides every chat but the newest before each sample (the document turns hidden, as a chat tab that is not
+// shown does in the app), so a row is what hidden chats cost; after the last count the oldest chat shows again and
+// its time from shown to the newest reply drawn is printed (chat_pages_memory.reshow).
 // The empty row (count 0) is the renderer holding one about:blank page of the same site, what the app's renderer
 // holds with no chat open: the per-chat target is a chat page costing about nothing beside it.
 //   bun bench/chat-pages-memory.bench.ts [counts=1,10,30] [turns=100]
@@ -150,6 +153,19 @@ try {
     build: { outDir: out, emptyOutDir: true },
     logLevel: "error",
   });
+  // CSS=inline: the page's stylesheets as one inline <style>, as the page shipped them before; else linked
+  // files the memory cache keeps (Cache-Control), as the shipped page links pane.css (build-agent-pane-web.sh).
+  if (process.env.CSS === "inline") {
+    const index = path.join(out, "index.html");
+    const html = fs
+      .readFileSync(index, "utf8")
+      .replace(
+        /<link rel="stylesheet"[^>]*href="([^"]+)"[^>]*>/g,
+        (_, href: string) => `<style>${fs.readFileSync(path.join(out, href), "utf8")}</style>`,
+      );
+    fs.writeFileSync(index, html);
+  }
+  const cssHeaders: Record<string, string> = process.env.CSS === "inline" ? {} : { "cache-control": "max-age=3600" };
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -158,7 +174,8 @@ try {
       if (pathname === "/empty")
         return new Response("<!doctype html><title>empty</title>", { headers: { "content-type": "text/html" } });
       const file = Bun.file(path.join(out, pathname === "/" ? "index.html" : pathname));
-      return (await file.exists()) ? new Response(file) : new Response("not found", { status: 404 });
+      if (!(await file.exists())) return new Response("not found", { status: 404 });
+      return new Response(file, { headers: pathname.endsWith(".css") ? cssHeaders : {} });
     },
   });
   releases.push(() => statics.stop(true));
@@ -175,6 +192,53 @@ try {
   const root = server.process().pid!;
   const browser = await chromium.connect(server.wsEndpoint());
   const context = await browser.newContext({ viewport: { width: 1200, height: 800 } });
+  // MEMDUMP=1: Chromium's own accounting of the renderer by allocator (memory-infra), the owner split PSS hides:
+  // v8, blink_gc, partition_alloc (and its partitions), malloc, cc (raster tiles), skia, font caches.
+  const memoryDump = async (): Promise<Map<string, number>> => {
+    const cdp = await browser.newBrowserCDPSession();
+    const events: {
+      ph?: string;
+      pid?: number;
+      args?: { dumps?: { allocators?: Record<string, { attrs?: Record<string, { value?: string }> }> } };
+    }[] = [];
+    cdp.on("Tracing.dataCollected", (data: { value: typeof events }) => events.push(...data.value));
+    const done = new Promise<void>((resolve) => cdp.once("Tracing.tracingComplete", () => resolve()));
+    await cdp.send("Tracing.start", {
+      transferMode: "ReportEvents",
+      traceConfig: { includedCategories: ["disabled-by-default-memory-infra"], memoryDumpConfig: { triggers: [] } },
+    } as never);
+    await cdp.send("Tracing.requestMemoryDump", { deterministic: true, levelOfDetail: "detailed" } as never);
+    await cdp.send("Tracing.end");
+    await done;
+    await cdp.detach();
+    const pids = new Set(renderers(root));
+    const sizes = new Map<string, number>();
+    for (const event of events) {
+      if (event.ph !== "v" || !pids.has(event.pid ?? -1)) continue;
+      for (const [name, dump] of Object.entries(event.args?.dumps?.allocators ?? {})) {
+        const depth = name.split("/").length;
+        const keep =
+          depth === 1 ||
+          (name.startsWith("partition_alloc/partitions/") && depth === 3) ||
+          (name.startsWith("v8/main/heap/") && depth === 4);
+        const size = dump.attrs?.size?.value;
+        if (!keep || size === undefined) continue;
+        sizes.set(name, (sizes.get(name) ?? 0) + parseInt(size, 16) / 1048576);
+      }
+    }
+    return sizes;
+  };
+  let lastDump: { count: number; sizes: Map<string, number> } | undefined;
+  const printDump = async (count: number) => {
+    if (process.env.MEMDUMP !== "1") return;
+    const sizes = await memoryDump();
+    const per = lastDump ? count - lastDump.count : 0;
+    const rows = [...sizes].filter(([, mb]) => mb >= 0.05).sort((a, b) => b[1] - a[1]);
+    console.log(
+      `  memdump at ${count}: ${rows.map(([n, mb]) => `${n} ${mb.toFixed(1)}${per ? ` (+${((mb - (lastDump!.sizes.get(n) ?? 0)) / per).toFixed(2)}/chat)` : ""}`).join(", ")}`,
+    );
+    lastDump = { count, sizes };
+  };
   await addStabilityProbe(context, { boxes: false });
 
   const sample = async (pages: { page: Page; cdp: CDPSession }[]) => {
@@ -184,6 +248,33 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 1500));
     const pids = renderers(root);
     const mb = pids.reduce((sum, pid) => sum + pssMB(pid), 0);
+    if (process.env.DETAIL === "1") {
+      // Where the renderer's memory is: its mappings by name (PSS), the DOM it holds, and Blink's own counters.
+      const byName = new Map<string, number>();
+      for (const pid of pids) {
+        let name = "";
+        for (const line of fs.readFileSync(`/proc/${pid}/smaps`, "utf8").split("\n")) {
+          const head = /^[0-9a-f]+-[0-9a-f]+ \S+ \S+ \S+ \S+\s*(.*)$/.exec(line);
+          if (head) name = head[1] || "[anon]";
+          const pss = /^Pss:\s+(\d+) kB/.exec(line);
+          if (pss) byName.set(name, (byName.get(name) ?? 0) + Number(pss[1]) / 1024);
+        }
+      }
+      const top = [...byName].sort((a, b) => b[1] - a[1]).slice(0, 8);
+      console.log(`  smaps: ${top.map(([n, v]) => `${path.basename(n) || n} ${v.toFixed(1)}`).join(", ")}`);
+      const dom = (await pages[0]!.cdp.send("Memory.getDOMCounters")) as Record<string, number>;
+      console.log(`  dom (page 0): ${JSON.stringify(dom)}`);
+      let nodes = 0;
+      let rows = 0;
+      for (const { page } of pages) {
+        const counts = await page
+          .evaluate(() => [document.getElementsByTagName("*").length, document.querySelectorAll(".acpmux-row").length])
+          .catch(() => [0, 0]);
+        nodes += counts[0]!;
+        rows += counts[1]!;
+      }
+      console.log(`  elements (all pages): ${nodes}, transcript rows drawn: ${rows}`);
+    }
     return { renderers: pids.length, mb, heap };
   };
 
@@ -209,6 +300,30 @@ try {
     }
     return sizes;
   };
+  // A chat tab that is not shown: its document turns hidden (CEF's WasHidden). Headless Chromium keeps every page
+  // visible, so the page's own view of it is set and announced as the engine would.
+  const setHidden = (page: Page, hidden: boolean) =>
+    page.evaluate((hide) => {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => (hide ? "hidden" : "visible"),
+      });
+      Object.defineProperty(document, "hidden", { configurable: true, get: () => hide });
+      document.dispatchEvent(new Event("visibilitychange"));
+    }, hidden);
+  // HIDDEN_MINIMIZE=1: each hidden chat's window is minimized as well, so Chromium itself counts the page hidden
+  // (WasHidden: its compositor turns invisible), as a cmux page whose window is ordered out.
+  const browserCdp = await browser.newBrowserCDPSession();
+  const setMinimized = async (cdp: CDPSession, minimized: boolean) => {
+    if (process.env.HIDDEN_MINIMIZE !== "1") return;
+    const { targetInfo } = await cdp.send("Target.getTargetInfo");
+    const { windowId } = await browserCdp.send("Browser.getWindowForTarget", { targetId: targetInfo.targetId });
+    await browserCdp.send("Browser.setWindowBounds", {
+      windowId,
+      bounds: { windowState: minimized ? "minimized" : "normal" },
+    });
+  };
+  const hiddenPages = new Set<Page>();
   const warmLoads: number[] = [];
   let kindsAt: { count: number; sizes: Map<string, number> } | undefined;
   let first: { count: number; mb: number } | undefined;
@@ -230,6 +345,22 @@ try {
     // The newest pages' own settling (read-ahead, fonts, the first paints) is not idle.
     await new Promise((resolve) => setTimeout(resolve, 3000));
     for (const { page } of pages) await settledAt(page).catch(() => undefined);
+    if (process.env.HIDDEN === "1") {
+      for (const { page, cdp } of pages.slice(0, -1)) {
+        if (hiddenPages.has(page)) continue;
+        await setMinimized(cdp, true);
+        await setHidden(page, true);
+        hiddenPages.add(page);
+      }
+      // HIDDEN_FREEZE=1: then frozen, as the app freezes a hidden chat after browser.freezeHiddenTabs (30 s). DevTools'
+      // freeze hides the page to Chromium first (CEFTab+Freeze.swift), so its compositor lets its tiles go.
+      if (process.env.HIDDEN_FREEZE === "1") {
+        await new Promise((resolve) => setTimeout(resolve, 6000));
+        for (const { cdp } of pages.slice(0, -1))
+          await cdp.send("Page.setWebLifecycleState", { state: "frozen" }).catch(() => undefined);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
     const idle = await measureIdle(
       pages.map(({ page }) => ({ page, cdp: null })),
       IDLE_WINDOW_MS,
@@ -237,6 +368,7 @@ try {
     const wakeups = idle.reduce((sum, row) => sum + row.wakeups, 0) / (IDLE_WINDOW_MS / 1000);
     const sources = idle.flatMap((row) => row.sources).slice(0, 4);
     const now = await sample(pages);
+    await printDump(count);
     if (process.env.KINDS === "1") {
       const sizes = bySize(await takeSnapshot(pages[0]!.cdp));
       if (kindsAt) {
@@ -273,6 +405,22 @@ try {
     console.log(
       `${pages.length} purged | ${purged.renderers} | ${purged.mb.toFixed(1)} | ${((purged.mb - empty.mb) / pages.length).toFixed(1)} | ${purged.heap.toFixed(1)} | -`,
     );
+  }
+  if (process.env.HIDDEN === "1" && hiddenPages.size) {
+    const { page, cdp } = pages[0]!;
+    if (process.env.HIDDEN_FREEZE === "1") await cdp.send("Page.setWebLifecycleState", { state: "active" });
+    const start = await page.evaluate(() => performance.now());
+    await setMinimized(cdp, false);
+    await setHidden(page, false);
+    hiddenPages.delete(page);
+    const shown = await page.waitForFunction(
+      (text) => (document.body.textContent?.includes(text) ? performance.now() : false),
+      FIRST_TEXT,
+      { timeout: 120_000, polling: "raf" },
+    );
+    const reshow = Number(await shown.jsonValue()) - start;
+    console.log(`chat-pages-memory: a hidden chat shown again draws its newest reply in ${reshow.toFixed(0)} ms`);
+    perfRow({ name: "chat_pages_memory.reshow", p50: reshow, p95: reshow, unit: "ms" });
   }
   if (warmLoads.length) {
     const sorted = [...warmLoads].sort((a, b) => a - b);

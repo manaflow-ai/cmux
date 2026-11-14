@@ -1,0 +1,34 @@
+{
+  "$comment": "The event streams an extension can subscribe to (cmux.events.on, cmux.live). An event is an invalidation with no payload: the app reads again. The daemon delivers <family>.changed only to an app that may call <family>.list or <family>.get (apps/subscriptions.rs stream_readable), so `reads` names that op and its scope is the stream's scope. tools/gen-cmux-global.ts checks each `reads` against the catalog and writes the SDKs' table (cmux-extension-sdk/api.json); cmux-tui-core's routing tests check that every stream the daemon publishes is listed here.",
+  "version": 1,
+  "events": {
+    "workspace.changed": {
+      "docs": "A workspace was created, closed, renamed, reordered, selected or restyled.",
+      "reads": "workspace.list"
+    },
+    "screen.changed": {
+      "docs": "A screen (a workspace's layout) changed.",
+      "reads": "screen.list"
+    },
+    "pane.changed": {
+      "docs": "A pane was split, closed, resized or focused.",
+      "reads": "pane.list"
+    },
+    "tab.changed": {
+      "docs": "A tab was opened, closed, moved or selected.",
+      "reads": "tab.list"
+    },
+    "terminal.changed": {
+      "docs": "A terminal started, ended or changed its title or folder.",
+      "reads": "terminal.list"
+    },
+    "agent.changed": {
+      "docs": "An agent's state changed (working, blocked, idle, done).",
+      "reads": "agent.list"
+    },
+    "agent_chat.changed": {
+      "docs": "An agent chat was added, closed, renamed, read or changed state.",
+      "reads": "agent_chat.list"
+    }
+  }
+}
