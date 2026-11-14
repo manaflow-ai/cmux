@@ -8,6 +8,7 @@
 
 use super::*;
 use crate::mesh::{AddressBook, BookSession};
+use acpmux_book::index::OriginState;
 use std::collections::BTreeMap;
 
 /// The most hub rows kept: a person's machines list far fewer, and the list stays bounded.
@@ -90,7 +91,7 @@ impl Hub {
     /// the shared list is rebuilt once (`list_guard.rs`). Empty when the relay stops.
     pub(crate) fn set_mesh_book(&self, hosts: BTreeMap<String, u64>, sessions: Vec<BookSession>) {
         let now = now_ms();
-        let (gone, changed, moved) = {
+        let (gone, changed, moved, came, left) = {
             let mut book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
             let mut rows = BTreeMap::new();
             let mut changed = Vec::new();
@@ -123,9 +124,18 @@ impl Hub {
                 .collect();
             // A heartbeat's time alone changes no row: only a machine coming or going does.
             let moved = !book.hosts.keys().eq(hosts.keys());
+            let (came, left) = if moved {
+                let came: Vec<String> =
+                    hosts.keys().filter(|h| !book.hosts.contains_key(*h)).cloned().collect();
+                let left: Vec<String> =
+                    book.hosts.keys().filter(|h| !hosts.contains_key(*h)).cloned().collect();
+                (came, left)
+            } else {
+                Default::default()
+            };
             book.rows = rows;
             book.hosts = hosts;
-            (gone, changed, moved)
+            (gone, changed, moved, came, left)
         };
         if !gone.is_empty() || !changed.is_empty() || moved {
             self.remote_sessions.write().writes += 1;
@@ -136,6 +146,39 @@ impl Hub {
         for (peer, summary) in changed {
             self.announce_remote(&peer, summary, "status");
         }
+        // Each machine is an origin of the v2 list, as an ssh peer is (`list_tee.rs`): connected
+        // while the book lists it, removed with its rows when it leaves. A machine that left
+        // because it is an ssh peer now keeps its one origin, which the peer's link states.
+        if !came.is_empty() || !left.is_empty() {
+            let ssh: std::collections::HashSet<String> =
+                self.peers.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
+            for host in left.iter().filter(|host| !ssh.contains(*host)) {
+                self.events.origin_tee(host, OriginState::Removed, now);
+            }
+            for host in &came {
+                self.events.origin_tee(host, OriginState::Connected, now);
+            }
+        }
+    }
+
+    /// The hub row of machine `host`'s session `id`: one lookup, its `Arc` cloned.
+    pub(super) fn mesh_book_row(&self, host: &str, id: &str) -> Option<Arc<RemoteSession>> {
+        let key = format!("{host}/{id}");
+        let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+        book.rows.get(&key).map(|(_, r)| r.clone())
+    }
+
+    /// The machines the book lists and the `(host, id)` of each of its rows, copied under its
+    /// lock: what the v2 list's reconcile compares its rows to (`list_tee.rs`).
+    pub(super) fn mesh_book_keys(&self) -> (Vec<String>, Vec<(String, String)>) {
+        let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+        let hosts = book.hosts.keys().cloned().collect();
+        let keys = book
+            .rows
+            .values()
+            .map(|(_, r)| (r.peer.clone(), r.receipt.mux_session_id.clone()))
+            .collect();
+        (hosts, keys)
     }
 
     /// The hub rows `keep` takes, cloning no other.

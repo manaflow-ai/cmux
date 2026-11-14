@@ -63,6 +63,9 @@ struct TeeState {
     remote_ready: AtomicBool,
     notify: Notify,
     marks: AtomicU64,
+    /// Peer and hub rows submitted or removed, and origin states written.
+    remote_submits: AtomicU64,
+    origin_writes: AtomicU64,
     all: AtomicBool,
     #[cfg(test)]
     walk_peak_page_bytes: AtomicU64,
@@ -417,6 +420,7 @@ fn drain_marks(v1: &Hub, v2: &V2, state: &TeeState, expiries: &mut Expiries) {
         state.pending.lock().unwrap_or_else(|e| e.into_inner()).extend(ids);
     }
     for (id, origin_state, since) in state.take_origins(BATCH) {
+        state.origin_writes.fetch_add(1, Ordering::Relaxed);
         if let Err(error) = v2.hub.origin(&id, origin_state, since) {
             tracing::warn!(origin = %id, %error, "v2 list tee rejected an origin state");
         }
@@ -430,28 +434,47 @@ fn drain_marks(v1: &Hub, v2: &V2, state: &TeeState, expiries: &mut Expiries) {
         }
     }
     for (peer, id) in state.take_remote(BATCH.saturating_sub(used)) {
-        submit_remote_id(v1, v2, &peer, &id, state.remote_ready.load(Ordering::Acquire));
+        if submit_remote_id(v1, v2, &peer, &id, state.remote_ready.load(Ordering::Acquire)) {
+            state.remote_submits.fetch_add(1, Ordering::Relaxed);
+        }
     }
 }
 
-fn submit_remote_id(v1: &Hub, v2: &V2, peer: &str, id: &str, remote_ready: bool) {
-    if v2.hub.source(peer) == Some(Source::Mirror) {
-        return;
-    }
+/// The summary of an ssh peer's row `(peer, id)` or, when it has none, of the mesh hub's row of
+/// machine `peer` (`mesh_book.rs`), built after the book's lock is dropped: v1's list joins both.
+fn remote_row_summary(v1: &Hub, peer: &str, id: &str) -> Option<std::io::Result<Summary>> {
     let rows = v1.remote_sessions.snapshot();
     if let Some(row) = rows.find_live_mux(peer, id) {
-        match summary_from_remote(peer, &row.summary) {
-            Ok(summary) => {
-                if let Err(error) = v2.hub.submit_from(Source::V1, summary) {
-                    tracing::warn!(peer, session_id = id, %error, "v2 list tee rejected a remote summary");
-                }
+        return Some(summary_from_remote(peer, &row.summary));
+    }
+    drop(rows);
+    let row = v1.mesh_book_row(peer, id)?;
+    Some(summary_from_remote(peer, &row.summary))
+}
+
+/// Submits or removes `(peer, id)`; answers whether it wrote to the index's queue.
+fn submit_remote_id(v1: &Hub, v2: &V2, peer: &str, id: &str, remote_ready: bool) -> bool {
+    if v2.hub.source(peer) == Some(Source::Mirror) {
+        return false;
+    }
+    match remote_row_summary(v1, peer, id) {
+        Some(Ok(summary)) => {
+            if let Err(error) = v2.hub.submit_from(Source::V1, summary) {
+                tracing::warn!(peer, session_id = id, %error, "v2 list tee rejected a remote summary");
             }
-            Err(error) => {
-                tracing::warn!(peer, session_id = id, %error, "v2 list tee could not build a remote summary")
-            }
+            true
         }
-    } else if remote_ready && let Err(error) = v2.hub.remove_from(Source::V1, peer, id) {
-        tracing::warn!(peer, session_id = id, %error, "v2 list tee rejected a remote removal");
+        Some(Err(error)) => {
+            tracing::warn!(peer, session_id = id, %error, "v2 list tee could not build a remote summary");
+            false
+        }
+        None if remote_ready => {
+            if let Err(error) = v2.hub.remove_from(Source::V1, peer, id) {
+                tracing::warn!(peer, session_id = id, %error, "v2 list tee rejected a remote removal");
+            }
+            true
+        }
+        None => false,
     }
 }
 
@@ -528,8 +551,16 @@ async fn reconcile_remote(v1: &Hub, v2: &V2, state: &TeeState) {
         let origin_state = super::peers::peer_origin_state(&handle);
         state.origin(name, origin_state, crate::store::now_ms());
     }
+    // The machines the mesh hub lists are origins as ssh peers are, connected while listed; the
+    // book never lists an ssh peer's host (`mesh_book::mine`).
+    let (book_hosts, book_keys) = v1.mesh_book_keys();
+    for host in book_hosts {
+        if peer_names.insert(host.clone()) {
+            state.origin(&host, OriginState::Connected, crate::store::now_ms());
+        }
+    }
     let remote_rows = v1.remote_sessions.snapshot();
-    let remote_keys: HashSet<(String, String)> = remote_rows
+    let mut remote_keys: HashSet<(String, String)> = remote_rows
         .values()
         .filter_map(|row| row.summary.session_id().map(|id| (row.peer.clone(), id.to_owned())))
         .collect();
@@ -537,6 +568,11 @@ async fn reconcile_remote(v1: &Hub, v2: &V2, state: &TeeState) {
         if let Some(id) = row.summary.session_id() {
             state.mark_remote(&row.peer, id);
         }
+    }
+    drop(remote_rows);
+    for (host, id) in book_keys {
+        state.mark_remote(&host, &id);
+        remote_keys.insert((host, id));
     }
     for origin in v2.hub.snapshot().origins() {
         if !peer_names.contains(&origin.id) {
@@ -719,15 +755,16 @@ impl acpmux_core::hub::PageProvider for V1PageProvider {
                 None => Ok(None),
             };
         }
-        let rows = self.hub.remote_sessions.snapshot();
-        rows.find_live_mux(&key.origin, &key.chat_id)
-            .map(|row| summary_from_remote(&key.origin, &row.summary).map(Arc::new).map(Some))
+        remote_row_summary(&self.hub, &key.origin, &key.chat_id)
+            .map(|summary| summary.map(Arc::new).map(Some))
             .unwrap_or(Ok(None))
     }
 }
 
 #[cfg(all(test, target_os = "linux"))]
 mod gates;
+#[cfg(test)]
+mod hub_rows_tests;
 #[cfg(test)]
 mod roundtrip_tests;
 #[cfg(test)]

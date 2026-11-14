@@ -553,6 +553,15 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
+        pr: "5h",
+        name: "v2.pr05h.hub_row_submit",
+        done_when: "One changed hub row reaches the v2 index in one tee submit: with 2,048 book rows and 11,000 closed rows against one book row and an empty index, p95 within 1.2x, the sides alternating rounds.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
         pr: "5g",
         name: "v2.pr05g.rebuild_cost",
         done_when: "A rebuild walk costs at most 1.2x a first start at 11,000 sessions against 20.",

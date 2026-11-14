@@ -480,3 +480,100 @@ async fn keyed_page_gate() {
     let measured = emit("v2.pr05c.keyed_page", &small, &god, "ns");
     assert_bounds("v2.pr05c.keyed_page", measured, Some(200));
 }
+
+/// One side of the hub row gate: a v1 hub whose book lists `book_rows` rows of one machine, and
+/// a v2 index already holding them and `closed` closed rows of this daemon's.
+struct HubRowSide {
+    v1: Arc<Hub>,
+    v2: Arc<V2>,
+    state: Arc<TeeState>,
+    expiries: Expiries,
+    sessions: Vec<crate::mesh::BookSession>,
+    writer: tokio::task::JoinHandle<Result<(), acpmux_core::hub::HubError>>,
+    _scope: cmux_scope::Scope,
+}
+
+fn hub_book_session(n: usize, state: &str) -> crate::mesh::BookSession {
+    crate::mesh::BookSession {
+        name: format!("chat-{n}"),
+        session_id: crate::god_fixture::chat_id(n),
+        host: "machine-b".into(),
+        daemon_id: "d-machine-b".into(),
+        harness: "claude".into(),
+        state: state.into(),
+        last_seen_at: 5,
+    }
+}
+
+fn hub_book(
+    sessions: Vec<crate::mesh::BookSession>,
+) -> (std::collections::BTreeMap<String, u64>, Vec<crate::mesh::BookSession>) {
+    (std::collections::BTreeMap::from([("machine-b".to_owned(), 5)]), sessions)
+}
+
+impl HubRowSide {
+    async fn new(book_rows: usize, closed: usize) -> Self {
+        let index = if closed == 0 { SummaryIndex::new() } else { index_for(&fixture(closed), 0) };
+        let v1 = memory_hub();
+        let (hub, writer) = CoreHub::new(index);
+        let v2 = Arc::new(V2::new(hub, writer));
+        let state = Arc::new(TeeState::default());
+        v1.install_v2_tee(Arc::new(TeeHandle { state: state.clone() }));
+        state.remote_ready();
+        let scope = cmux_scope::Scope::new("hub-row-gate");
+        let writer = scope.spawn(v2.take_writer().unwrap().run());
+        let sessions: Vec<_> = (0..book_rows).map(|n| hub_book_session(n, "ready")).collect();
+        let (hosts, rows) = hub_book(sessions.clone());
+        v1.set_mesh_book(hosts, rows);
+        let mut expiries = Expiries::default();
+        while state.has_pending() {
+            drain_marks(&v1, &v2, &state, &mut expiries);
+        }
+        eventually(|| v2.hub.snapshot().len() == closed + book_rows).await;
+        Self { v1, v2, state, expiries, sessions, writer, _scope: scope }
+    }
+
+    /// The tee's turn for one changed hub row: the book read marks it (not timed), then the tee
+    /// submits it and the index publishes it.
+    async fn round(&mut self, round: u64) -> Vec<u128> {
+        let mut samples = Vec::with_capacity(200);
+        for n in 0..200_u64 {
+            let next = if (round * 200 + n).is_multiple_of(2) { "running" } else { "ready" };
+            self.sessions[0] = hub_book_session(0, next);
+            let (hosts, rows) = hub_book(self.sessions.clone());
+            self.v1.set_mesh_book(hosts, rows);
+            let before = self.v2.hub.snapshot().seq();
+            let started = Instant::now();
+            drain_marks(&self.v1, &self.v2, &self.state, &mut self.expiries);
+            eventually(|| self.v2.hub.snapshot().seq() > before).await;
+            samples.push(started.elapsed().as_nanos());
+            assert_eq!(self.state.remote_submits.load(Ordering::Relaxed), 1);
+            self.state.remote_submits.store(0, Ordering::Relaxed);
+        }
+        samples
+    }
+
+    async fn close(self) {
+        self.v2.hub.close();
+        let _ = self.writer.await;
+    }
+}
+
+#[ignore = "Linux release gate: one changed hub row, 2,048 book rows and 11,000 closed rows vs one"]
+#[tokio::test]
+async fn hub_row_submit_gate() {
+    let mut small_side = HubRowSide::new(1, 0).await;
+    let mut god_side = HubRowSide::new(2_048, 11_000).await;
+    small_side.state.remote_submits.store(0, Ordering::Relaxed);
+    god_side.state.remote_submits.store(0, Ordering::Relaxed);
+    let (mut small, mut god) = (Vec::with_capacity(5), Vec::with_capacity(5));
+    // The two sides alternate their rounds: a slow minute of the host lands on both.
+    for round in 0..5_u64 {
+        small.push(small_side.round(round).await);
+        god.push(god_side.round(round).await);
+    }
+    small_side.close().await;
+    god_side.close().await;
+    let measured = emit("v2.pr05h.hub_row_submit", &small, &god, "ns");
+    assert_bounds("v2.pr05h.hub_row_submit", measured, Some(200));
+}
