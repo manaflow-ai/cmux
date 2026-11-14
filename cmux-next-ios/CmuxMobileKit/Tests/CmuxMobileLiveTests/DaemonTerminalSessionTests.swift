@@ -55,6 +55,9 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     /// screen, as cmux-tui's `HistoryWindow::plan` sends it (at most 10,000
     /// rows; a gap shorter than the window is sent as rows down to the screen).
     var windowReplay = false
+    /// The lane refuses `replay_history_start` (a Mac app older than its
+    /// daemon, whose daemon still advertises the window).
+    var laneRefusesHistoryStart = false
     /// History rows each attach's replay held (tail or window), in order.
     private var heldRows: [Int] = []
     var replayedHistoryRows: [Int] { lock.withLock { heldRows } }
@@ -81,6 +84,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
                     + (sharedSizing ? ["shared-sizing-v1", "host-size-policy-v1"] : [])
                     + (tailReplay ? ["attach-replay-history-rows-v1"] : [])
                     + (lock.withLock { windowReplay } ? ["attach-replay-history-window-v1"] : [])])]
+        case "attach-surface" where object["replay_history_start"] != nil && lock.withLock({ laneRefusesHistoryStart }):
+            return [Self.line(["id": id, "ok": false, "error": "attach-surface does not take replay_history_start from a phone"])]
         case "attach-surface" where object["replay_history_rows"] != nil && lock.withLock({ laneRefusesHistoryRows }):
             return [Self.line(["id": id, "ok": false, "error": "attach-surface does not take replay_history_rows from a phone"])]
         case "get-host-size-policy":

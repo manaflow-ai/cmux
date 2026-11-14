@@ -239,6 +239,32 @@ import Testing
         #expect(session.loadOlderHistory(), "older rows are fetched after the resize")
     }
 
+    /// A Mac app older than its daemon refuses the window field while the
+    /// daemon still advertises it: after the first refusal the session fetches
+    /// the newest rows in chunks, as before the window, and line 1 is reached.
+    /// Before, every replacement attach asked for a window again, and the
+    /// reader never got past about 12,000 rows.
+    @Test func aLaneThatRefusesTheWindowStillReachesLineOne() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.tailReplay = true
+        daemon.windowReplay = true
+        daemon.laneRefusesHistoryStart = true
+        daemon.historyRows = 30_000
+        daemon.afterAttach = nil
+        let session = session(daemon, ChannelLog())
+        defer { session.stop() }
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        var fetches = 0
+        while session.historyRowsOmitted > 0, fetches < 60 {
+            try await ask { session.historyRowsOmitted == 0 || session.loadOlderHistory() }
+            fetches += 1
+        }
+        try await waitUntil { session.historyRowsOmitted == 0 }
+        #expect(session.historyRowsOmitted == 0, "line 1 is reached after \(fetches) fetches")
+        #expect(attaches(daemon).filter { $0["replay_history_start"] != nil }.count == 1, "one refused window, then chunks")
+    }
+
     /// Past the newest 10,000 rows the mirror holds a window: coming back down
     /// moves it toward the screen until the Mac sends the rows down to the
     /// screen again; coming up from the screen brings the newest rows at once.
