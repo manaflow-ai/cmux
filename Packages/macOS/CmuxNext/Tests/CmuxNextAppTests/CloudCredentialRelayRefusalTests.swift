@@ -34,7 +34,7 @@ struct CloudCredentialRelayRefusalTests {
                 await sent.add(path, body)
                 return (200, Data(#"{"op":"cloud.machine.list","value":{"machines":[]},"revision":"1","stream":"s"}"#.utf8))
             },
-            token: { "install-token-for-test" },
+            token: { .init(token: "install-token-for-test") },
             invalidate: {},
             session: { CloudCredentialRelay.Session(signedIn: true, team: "team_test") },
             allowedOps: { if let allowed { allowed } else { await CloudCredentialRelay.bundledServedOps() } })
@@ -134,7 +134,7 @@ struct CloudCredentialRelayRefusalTests {
                 await sent.add(path, body)
                 return (200, Data("{}".utf8))
             },
-            token: { "install-token-for-test" },
+            token: { .init(token: "install-token-for-test") },
             invalidate: {},
             session: { CloudCredentialRelay.Session(signedIn: signedIn, team: "team_test") },
             allowedOps: { [] },

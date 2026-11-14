@@ -225,21 +225,53 @@ fn the_vm_kind_and_fingerprint_ops_answer() {
 fn the_capability_ops_answer() {
     // The process holds the token: the app sends no state, and a drop forgets it.
     call(c"cloud_capability_drop", &json!({}));
-    let first = call(c"cloud_capability_header", &json!({"team": "team-a", "nowMs": 1.0e12})).1;
-    assert_eq!(first, json!({"header": null, "fetch": true}));
+    // The app reads the generation (a call with no team) in the same step as it captures a bearer,
+    // and names it on the call: a Double, as Swift's `JSONValue` sends it.
+    let generation = || {
+        call(c"cloud_capability_header", &json!({"team": null, "nowMs": 1.0e12})).1["generation"]
+            .as_f64()
+            .expect("the reply names the generation")
+    };
+    let ask = |now: f64, generation: f64| {
+        call(
+            c"cloud_capability_header",
+            &json!({"team": "team-a", "nowMs": now, "generation": generation}),
+        )
+        .1
+    };
+    let captured = generation();
+    let first = ask(1.0e12, captured);
+    assert_eq!((&first["header"], &first["fetch"]), (&json!(null), &json!(true)));
+    // The fetch's id goes back with its answer, as Swift's `JSONValue` sends it: a Double.
+    let id = first["fetchId"].as_f64().expect("a fetch names its id");
     let body = json!({"ok": true, "value": {"capability": "cc1.a.b", "team": "team-a", "issued_at": 5.0, "expires_at": 300_005.0, "refresh_at": 240_005.0}});
     let kept = call(
         c"cloud_capability_answer",
-        &json!({"team": "team-a", "sentMs": 1.0e12, "nowMs": 1.0e12 + 200.0, "status": 200.0, "body": body}),
+        &json!({"team": "team-a", "fetchId": id, "sentMs": 1.0e12, "nowMs": 1.0e12 + 200.0, "status": 200.0, "body": body}),
     )
     .1;
     assert_eq!(kept["outcome"], "held");
-    let next =
-        call(c"cloud_capability_header", &json!({"team": "team-a", "nowMs": 1.0e12 + 1000.0})).1;
-    assert_eq!(next, json!({"header": "cc1.a.b", "fetch": false}));
+    let next = ask(1.0e12 + 1000.0, captured);
+    assert_eq!(next["generation"].as_f64(), Some(captured));
+    assert_eq!(
+        (&next["header"], &next["fetch"], &next["fetchId"]),
+        (&json!("cc1.a.b"), &json!(false), &json!(null))
+    );
     call(c"cloud_capability_drop", &json!({}));
-    let after =
-        call(c"cloud_capability_header", &json!({"team": "team-a", "nowMs": 1.0e12 + 2000.0})).1;
-    assert_eq!(after, json!({"header": null, "fetch": true}));
+    // A bearer captured before the drop gets nothing: no token, no fetch, no id.
+    let stale = ask(1.0e12 + 1500.0, captured);
+    assert_eq!(
+        (&stale["header"], &stale["fetch"], &stale["fetchId"]),
+        (&json!(null), &json!(false), &json!(null))
+    );
+    let after = ask(1.0e12 + 2000.0, generation());
+    assert_eq!((&after["header"], &after["fetch"]), (&json!(null), &json!(true)));
+    // The answer to the fetch from before the drop is refused: the ids, not the times, tell them apart.
+    let late = call(
+        c"cloud_capability_answer",
+        &json!({"team": "team-a", "fetchId": id, "sentMs": 1.0e12 + 2000.0, "nowMs": 1.0e12 + 2100.0, "status": 200.0, "body": body}),
+    )
+    .1;
+    assert_eq!(late["outcome"], "dropped");
     call(c"cloud_capability_drop", &json!({}));
 }

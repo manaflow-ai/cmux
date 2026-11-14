@@ -29,8 +29,10 @@ const GUEST_PATH = /^\/v1\/cloud\/machines\/(vm_[a-z0-9]{20})\/(exec|fs\/(?:dir|
 const CARRIER_PATH = /^\/v1\/cloud\/machines\/(vm_[a-z0-9]{20})\/carrier$/
 /** The team's inference gateway (cmux-platform InferenceGatewayRoute.ts): its mode and machine, and the gateway's own socket. */
 const INFERENCE_GATEWAY_PATH = /^\/v1\/cloud\/inference-gateway(?:\/connect)?$/
+/** The signed Cloud capability's mint (cmux-platform#1126 CloudCapabilityRoute.ts), asked at sign-in, a team switch and on Cloud intent. */
+const CAPABILITY_PATH = /^\/v1\/cloud\/capability$/
 /** The machine routes only cmux-platform serves (cmux-api has no handler for them). */
-const PLATFORM_ONLY_PATHS: ReadonlyArray<RegExp> = [/^\/v1\/cloud\/bind$/, /^\/v1\/cloud\/keyset$/, ACPMUX_PATH, CLIENT_SESSION_PATH, GUEST_PATH, TRAJECTORY_PATH, CARRIER_PATH, INFERENCE_GATEWAY_PATH]
+const PLATFORM_ONLY_PATHS: ReadonlyArray<RegExp> = [CAPABILITY_PATH, /^\/v1\/cloud\/bind$/, /^\/v1\/cloud\/keyset$/, ACPMUX_PATH, CLIENT_SESSION_PATH, GUEST_PATH, TRAJECTORY_PATH, CARRIER_PATH, INFERENCE_GATEWAY_PATH]
 
 /** NEXT Cloud's machine routes outside the op path (bind, keyset, keyed acpmux start, client session, guest exec and files, trajectories, the carrier ticket, the team's inference gateway), the platform's Native network target read (cmux-platform NativeNetwork.ts), the platform's remote off switch for the Mac's login copy (cmux-platform LoginCopySwitch.ts) and its client config (the app's origins and the backend's create capabilities, cmux-platform Http.ts), which have no op and no route here. Unbound, the client config answers 404 here as before and the app keeps its built-in table. */
 const CLOUD_PATHS: ReadonlyArray<RegExp> = [...PLATFORM_ONLY_PATHS, /^\/v1\/host\/network\/target$/, /^\/v1\/cloud\/harness-login-copy$/, /^\/v1\/client-config$/]

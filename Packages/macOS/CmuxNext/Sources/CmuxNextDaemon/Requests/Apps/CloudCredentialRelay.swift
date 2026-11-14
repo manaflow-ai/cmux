@@ -53,7 +53,20 @@ public nonisolated struct CloudCredentialRelay: Sendable {
 
     /// POSTs `body` to `path` on the API Worker with `bearer`; returns the
     /// status and the body. Never logs the bearer.
-    public typealias Post = @Sendable (_ path: String, _ body: Data, _ bearer: String) async throws -> (status: Int, body: Data)
+    public typealias Post = @Sendable (_ path: String, _ body: Data, _ bearer: Bearer) async throws -> (status: Int, body: Data)
+
+    /// An install token, and the account generation read in the same step as
+    /// it was captured (the app's Cloud pre-approval passes it to Rust, which
+    /// refuses a bearer captured before the last drop). `nil`: none read.
+    public struct Bearer: Sendable, Equatable {
+        public var token: String
+        public var generation: Double?
+
+        public init(token: String, generation: Double? = nil) {
+            self.token = token
+            self.generation = generation
+        }
+    }
 
     public struct Session: Sendable, Equatable {
         public var signedIn: Bool
@@ -73,7 +86,7 @@ public nonisolated struct CloudCredentialRelay: Sendable {
 
     let post: Post
     /// A valid install token; throws when no user is signed in or the mint fails.
-    let token: @Sendable () async throws -> String
+    let token: @Sendable () async throws -> Bearer
     /// The Worker refused the token (401): the next ``token`` mints again.
     let invalidate: @Sendable () async -> Void
     let session: @Sendable () async -> Session
@@ -113,7 +126,7 @@ public nonisolated struct CloudCredentialRelay: Sendable {
         .failure(CarrierRefusal(code: "unavailable", message: "this cmux has no Cloud carrier"))
     }
 
-    public init(post: @escaping Post, token: @escaping @Sendable () async throws -> String,
+    public init(post: @escaping Post, token: @escaping @Sendable () async throws -> Bearer,
                 invalidate: @escaping @Sendable () async -> Void, session: @escaping @Sendable () async -> Session,
                 allowedOps: @escaping @Sendable () async -> Set<String>,
                 carrierSocket: @escaping CarrierSocket = CloudCredentialRelay.noCarrier) {
