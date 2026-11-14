@@ -33,8 +33,8 @@ public struct ElapsedTextSchedule: TimelineSchedule, Sendable {
             first = start
             let elapsed = start.timeIntervalSince(schedule.since).rounded(.down)
             // The first whole second after `start`, and none inside the quiet stretch.
-            let next = elapsed.isFinite ? Int(max(min(elapsed, 1e9), -1e9)) + 1 : 0
-            second = max(next, schedule.quietSeconds)
+            let next = elapsed.isFinite ? Int(Swift.max(Swift.min(elapsed, 1e9), -1e9)) + 1 : 0
+            second = Swift.max(next, schedule.quietSeconds)
         }
 
         public mutating func next() -> Date? {
