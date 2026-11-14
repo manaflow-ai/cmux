@@ -393,13 +393,12 @@ pub fn under(leader: u32) -> Option<Vec<Under>> {
     shared().fresh(leader, own_group(), std::time::Instant::now(), read_table)
 }
 
-/// [`under`] from the reading this process took last when it is younger than
-/// `proc_table::MAX_AGE` and lists `leader` (`Reused`), else from a fresh one: one reading serves
-/// every census of an idle pass, each costing O(its subtree), not O(every process on the
-/// machine). A caller acts on a reused census only when it says nothing else runs, and asks
-/// [`under`] again otherwise (`proc_table.rs`).
-pub fn under_shared(leader: u32) -> Option<(Vec<Under>, super::proc_table::Reading)> {
-    shared().under(leader, own_group(), std::time::Instant::now(), read_table)
+/// [`under`] from a reading shared with the censuses that asked at about the same time: one that
+/// began after this call did, so it sees what a fresh one would. The idle pass's censuses run
+/// together and share each reading, each costing O(its subtree) on it (`proc_table.rs`).
+pub fn under_shared(leader: u32) -> Option<Vec<Under>> {
+    let asked = std::time::Instant::now();
+    shared().under(leader, own_group(), asked, std::time::Instant::now, read_table)
 }
 
 fn shared() -> &'static super::proc_table::Shared {

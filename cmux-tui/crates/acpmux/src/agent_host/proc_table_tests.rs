@@ -1,7 +1,7 @@
 use std::cell::Cell;
 use std::time::{Duration, Instant};
 
-use super::{MAX_AGE, Reading, Shared, Table};
+use super::{Shared, Table};
 
 /// A machine of `agents` harnesses (pid 10_000 + i, each its own group under the daemon, pid 2),
 /// each with one MCP server under it, and `others` unrelated processes.
@@ -19,70 +19,65 @@ fn machine(agents: u32, others: u32) -> String {
 }
 
 /// The scaling bug of cmux#43143: each harness's census read the whole machine (`ps -axww`), so an
-/// idle pass over N agents cost N readings of an N-sized table. One reading must serve them all.
+/// idle pass over N agents cost N readings of an N-sized table. Censuses that asked together (the
+/// pass's burst) must share one reading.
 #[test]
-fn one_reading_serves_every_census_of_an_idle_pass() {
+fn censuses_that_asked_together_share_one_reading() {
     let text = machine(1_000, 5_000);
     let reads = Cell::new(0);
     let shared = Shared::default();
-    let t0 = Instant::now();
+    let asked = Instant::now();
+    let began = asked + Duration::from_millis(1);
     for i in 0..1_000u32 {
-        let at = t0 + Duration::from_micros(u64::from(i));
         let read = || {
             reads.set(reads.get() + 1);
             Table::parse(&text)
         };
-        let (found, reading) = shared.under(10_000 + i, 2, at, read).unwrap();
+        let found = shared.under(10_000 + i, 2, asked, || began, read).unwrap();
         assert_eq!(found.iter().map(|u| u.pid).collect::<Vec<_>>(), vec![500_000 + i]);
-        assert_eq!(reading, if i == 0 { Reading::Fresh } else { Reading::Reused });
     }
     assert_eq!(reads.get(), 1, "the process table was read once per harness");
 }
 
+/// A census never uses a reading that began before it asked: a process its harness started a
+/// moment before would be missing, and the harness would end beside it.
 #[test]
-fn a_reading_at_its_age_is_read_again() {
-    let text = machine(2, 0);
+fn a_census_never_uses_a_reading_older_than_its_ask() {
+    let before = machine(1, 0);
+    let after = format!("{before}777 10000 10000 S npm run dev\n");
     let shared = Shared::default();
     let t0 = Instant::now();
+    let t1 = t0 + Duration::from_millis(1);
     let reads = Cell::new(0);
-    let read = || {
-        reads.set(reads.get() + 1);
-        Table::parse(&text)
-    };
-    shared.under(10_000, 2, t0, read).unwrap();
-    let (_, reading) = shared.under(10_001, 2, t0 + MAX_AGE, read).unwrap();
-    assert_eq!((reads.get(), reading), (2, Reading::Fresh), "a reading at its age is not reused");
+    shared.under(10_000, 2, t0, || t0, || Table::parse(&before)).unwrap();
+    let found = shared
+        .under(
+            10_000,
+            2,
+            t1,
+            || t1,
+            || {
+                reads.set(reads.get() + 1);
+                Table::parse(&after)
+            },
+        )
+        .unwrap();
+    assert_eq!(reads.get(), 1, "a reading from before the ask was used");
+    assert!(found.iter().any(|u| u.pid == 777), "{found:?}");
 }
 
-/// A harness started after the reading is not in it: a fresh reading is taken, which lists it.
+/// A harness the held reading does not list (started after it) gets a fresh one, which is then
+/// held for the censuses that asked before it.
 #[test]
 fn a_harness_the_reading_does_not_list_takes_a_fresh_one() {
     let before = machine(1, 0);
     let after = format!("{before}20000 2 20000 S fake_agent new\n");
     let shared = Shared::default();
     let t0 = Instant::now();
-    shared.under(10_000, 2, t0, || Table::parse(&before)).unwrap();
-    let (found, reading) = shared.under(20_000, 2, t0, || Table::parse(&after)).unwrap();
-    assert_eq!((found.len(), reading), (0, Reading::Fresh));
-    // And the fresh reading is the one held now.
-    let (_, reading) = shared.under(20_000, 2, t0, || None).unwrap();
-    assert_eq!(reading, Reading::Reused);
-}
-
-#[test]
-fn fresh_always_reads_and_is_shared_after() {
-    let text = machine(2, 0);
-    let shared = Shared::default();
-    let t0 = Instant::now();
-    let reads = Cell::new(0);
-    let read = || {
-        reads.set(reads.get() + 1);
-        Table::parse(&text)
-    };
-    shared.fresh(10_000, 2, t0, read).unwrap();
-    shared.fresh(10_000, 2, t0, read).unwrap();
-    assert_eq!(reads.get(), 2);
-    assert_eq!(shared.under(10_001, 2, t0, read).unwrap().1, Reading::Reused);
+    shared.under(10_000, 2, t0, || t0, || Table::parse(&before)).unwrap();
+    let found = shared.under(20_000, 2, t0, || t0, || Table::parse(&after)).unwrap();
+    assert!(found.is_empty());
+    assert!(shared.under(20_000, 2, t0, || t0, || None).is_some(), "the fresh reading is held");
     assert!(shared.fresh(10_000, 2, t0, || None).is_none(), "a failed reading says nothing");
 }
 

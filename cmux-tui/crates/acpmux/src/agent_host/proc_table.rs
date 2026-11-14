@@ -1,33 +1,23 @@
-//! One reading of the machine's process table, shared by every idle census in this process
-//! (`tree::under_shared`, `hub/idle_census.rs`).
+//! One reading of the machine's process table, shared by the idle censuses that run at once in
+//! this process (`tree::under_shared`, `hub/idle_census.rs`).
 //!
 //! The census asks, for one harness, what runs under it: by parent chain, and by process group for
 //! a member reparented to init. Reading the table is O(every process on the machine) (`ps -axww`),
 //! and the idle pass read it once per harness: at 1,000 idle agents the pass spent most of its time
 //! in `ps`, so agents hibernated at ~4.4 per second and 690-820 stayed live a day past their idle
-//! deadline (cmux#43143). Now the censuses an idle pass runs at once (`hub/idle.rs`, 16 at a time)
-//! share one reading: they wait for the one being taken and use it, within [`MAX_AGE`] of when it
-//! began. It is indexed by parent and by group, so a census on it costs O(the harness's own
-//! subtree).
+//! deadline (cmux#43143). The pass now runs 16 censuses at once (`hub/idle.rs`), and one reading
+//! answers every census that asked before it began: the censuses that asked while one ran wait for
+//! the next and share it. A reading is indexed by parent and by group, so a census on it costs
+//! O(the harness's own subtree).
 //!
-//! A reused reading can only let a harness end early, never keep one up for good: the census
-//! takes a fresh reading for any harness the reused one does not list, and for any verdict but
-//! "nothing else runs" (a process that ended since reads as unknown work). What a reused reading
-//! cannot see is a process the harness started in the [`MAX_AGE`] before the census: about the
-//! time one `ps` of a busy machine takes, the gap a fresh census already had between its `ps` and
-//! the harness's end. The census runs only while the harness is idle, with no turn and no start
-//! allowed, and its ending reads the tree afresh (`tree::descendants`).
+//! A census never uses a reading that began before it asked, so it sees everything a `ps` of its
+//! own would have: a process its harness started a moment ago is in it.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use super::tree::Under;
-
-/// How long after it began one reading serves later censuses: censuses that waited for it, not
-/// a cache that outlives the pass's burst (an older reading let a harness end beside a process
-/// it started since).
-pub const MAX_AGE: Duration = Duration::from_millis(100);
 
 /// One row of `ps -o pid=,ppid=,pgid=,stat=,args=`.
 #[derive(Debug, Clone)]
@@ -108,64 +98,49 @@ impl Table {
     }
 }
 
-/// Whether a census came from the held reading or a fresh one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Reading {
-    Reused,
-    Fresh,
-}
-
-/// The shared reading and when it was taken.
+/// The latest reading and when it began.
 #[derive(Default)]
 pub struct Shared {
     held: Mutex<Option<(Instant, Arc<Table>)>>,
-    /// Held while [`Shared::under`] takes a fresh reading.
+    /// Held while a reading is taken: one `ps` at a time.
     reading: Mutex<()>,
 }
 
 impl Shared {
-    /// The census of `leader` from the held reading when it is younger than [`MAX_AGE`] and
-    /// lists `leader`, else from a fresh one `read` takes (then held). `None` when `read` fails
-    /// or the fresh table lists no live `leader`.
+    /// The census of `leader`, asked at `asked`: from the held reading when it began at or after
+    /// `asked` and lists `leader`, else from a fresh one `read` takes (begun at `clock()`, then
+    /// held). Censuses that ask while a reading is taken wait for it to end, then take the next
+    /// one together. `None` when `read` fails or the fresh table lists no live `leader`.
     pub fn under(
         &self,
         leader: u32,
         own: u32,
-        now: Instant,
+        asked: Instant,
+        clock: impl Fn() -> Instant,
         read: impl FnOnce() -> Option<Table>,
-    ) -> Option<(Vec<Under>, Reading)> {
-        if let Some(found) = self.reuse(leader, own, now) {
-            return Some((found, Reading::Reused));
-        }
-        // One reading at a time: censuses that run at once and all find the held one too old
-        // wait for the first one's fresh reading and share it, instead of each running `ps`.
+    ) -> Option<Vec<Under>> {
         let _one = self.reading.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(found) = self.reuse(leader, own, now) {
-            return Some((found, Reading::Reused));
+        let held = self.held.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some((began, table)) = held
+            && began >= asked
+            && let Some(found) = table.under(leader, own)
+        {
+            return Some(found);
         }
-        Some((self.fresh(leader, own, now, read)?, Reading::Fresh))
+        self.fresh(leader, own, clock(), read)
     }
 
-    /// The census of `leader` from the held reading, when it is younger than [`MAX_AGE`] at `now`
-    /// and lists `leader`.
-    fn reuse(&self, leader: u32, own: u32, now: Instant) -> Option<Vec<Under>> {
-        let (at, table) = self.held.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
-        if now.saturating_duration_since(at) >= MAX_AGE {
-            return None;
-        }
-        table.under(leader, own)
-    }
-
-    /// The census of `leader` from a fresh reading `read` takes, which later censuses then share.
+    /// The census of `leader` from a fresh reading `read` takes, begun at `began`; later censuses
+    /// that asked before `began` share it.
     pub fn fresh(
         &self,
         leader: u32,
         own: u32,
-        now: Instant,
+        began: Instant,
         read: impl FnOnce() -> Option<Table>,
     ) -> Option<Vec<Under>> {
         let table = Arc::new(read()?);
-        *self.held.lock().unwrap_or_else(|e| e.into_inner()) = Some((now, Arc::clone(&table)));
+        *self.held.lock().unwrap_or_else(|e| e.into_inner()) = Some((began, Arc::clone(&table)));
         table.under(leader, own)
     }
 }
