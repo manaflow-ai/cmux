@@ -16,7 +16,11 @@ import AppKit
         // The feature toggle alone is not enough: single-view grouping remains
         // available while the side-by-side feature is enabled.
         if SidebarTunables.multiViewOn && list.model.onScreen.count > 1 {
-            if case .some(.ontoWorkspace) = resolved { return .some(nil) }
+            if case .some(.ontoWorkspace) = resolved {
+                // Suppressing grouping must leave the last reorder slot in place. A nil target
+                // makes displayLayout close that slot, so the release cancels and loses the move.
+                return drag.lastPosition.map { .some(.position($0)) } ?? .some(nil)
+            }
             return resolved
         }
         let hit = SidebarGroupBand.hit(y: card.midY, layout: list.displayed, hidden: drag.hiddenKeys, dragged: ids,
