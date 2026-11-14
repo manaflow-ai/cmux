@@ -554,7 +554,7 @@ fn a_known_request_reads_no_git_head_and_sends_each_stale_directory_to_the_refre
     let session = Session::of("list-counts-known-refresh", 2);
     let mux = &session.mux;
     let repository = session.repository("repository", "main");
-    session.give_directories(&[repository.clone()]);
+    session.give_directories(std::slice::from_ref(&repository));
     let render = Arc::new(RenderService::new());
     let app = Connection::open(mux, &render, &TAB_CAPABILITIES);
     let known = known_of(&app.list_since(mux, &json!({})));
