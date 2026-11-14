@@ -83,7 +83,11 @@ enum AgentHandlers {
                              }
                              return context.services.pages.storeKey(of: id) ?? id
                          }, open: { record, invocation, byPerson in
-                             guard let pane = context.paneController(invocation) else { return }
+                             let pane: PaneController?
+                             if let target = context.explicitTarget(invocation, kinds: [.tab]), LocalPageTab.page(of: target.id) != nil {
+                                 pane = context.paneController(invocation)
+                             } else { pane = try context.pane(invocation) }
+                             guard let pane else { return }
                              context.services.macScreenTabs.open(try record(), in: pane, focus: ActionRunScope.viewChangeAllowed(), byPerson: byPerson)
                          }, refusal: { registry.refuse(thrown: $0) }).bind(into: registry)
         context.services.cmuxRemoteActions.bind(into: registry)
