@@ -307,7 +307,7 @@ fn complete_frame_at(file: &File, offset: u64) -> io::Result<bool> {
     let mut probe = file.try_clone()?;
     probe.seek(SeekFrom::Start(offset))?;
     let mut header = [0; 8];
-    std::io::Read::read_exact(&mut probe, &mut header)?;
+    io::Read::read_exact(&mut probe, &mut header)?;
     let length = u32::from_le_bytes(header[..4].try_into().unwrap()) as u64;
     if length > (super::MAX_INDEX_RECORD_BYTES - 8) as u64 {
         return Ok(true);
