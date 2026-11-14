@@ -15,8 +15,7 @@
 //!
 //! A system that is not Unix has no call that reads a name through an open
 //! folder. There the top folder is found by its path at each entry, and each
-//! folder above the entry is looked at by its path, at each entry; a folder
-//! that becomes a link between that look and the read is not seen.
+//! folder above the entry is looked at by its path, at each entry.
 
 use std::ffi::OsStr;
 use std::path::{Component, Path};
