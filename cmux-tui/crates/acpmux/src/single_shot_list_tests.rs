@@ -167,7 +167,12 @@ const V1_LIST_USES: &[(&str, &str, usize, &str)] = &[
     ("cli/run/fanout.rs", "method::MUX_SESSIONS", 1, "`send --tag`'s fallback"),
     ("acpmux_mcp.rs", "method::MUX_SESSIONS", 1, "MCP `ls`'s fallback"),
     // v1 read kept: `ls --cursor C` reads one v1 page.
-    ("cli/run/ls.rs", "method::MUX_SESSIONS", 1, "v1 read kept: moves before the v1 list is deleted"),
+    (
+        "cli/run/ls.rs",
+        "method::MUX_SESSIONS",
+        1,
+        "v1 read kept: moves before the v1 list is deleted",
+    ),
     // Part two of row 7b: callers that want one chat, which then read no list.
     ("acpmux_mcp_send.rs", "method::MUX_SESSIONS", 1, "7b part two: MCP send's tag read"),
     ("cli/orchestrate.rs", "method::MUX_SESSIONS", 1, "7b part two: ensure by name"),
@@ -199,7 +204,10 @@ const V1_WHILE_CLOSED_REMOTE_LISTED: &[(&str, &str, &str)] = &[(
 fn the_hub_machines_read_is_named_once() {
     let files = crate_sources();
     for (file, text, why) in V1_WHILE_HUB_LISTED.iter().chain(V1_WHILE_CLOSED_REMOTE_LISTED) {
-        let found = files.iter().find(|(rel, _)| rel == file).map(|(_, source)| source.matches(text).count());
+        let found = files
+            .iter()
+            .find(|(rel, _)| rel == file)
+            .map(|(_, source)| source.matches(text).count());
         assert_eq!(found, Some(1), "src/{file} names `{text}` once ({why})");
     }
 }

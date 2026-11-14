@@ -40,7 +40,11 @@ pub enum Opened<R, W> {
     List(Box<ListConnection<R, W>>),
     /// The daemon answered the upgrade as an old daemon does. `bytes` are bytes it sent after
     /// that answer, already read.
-    Fallback { reader: R, writer: W, bytes: Vec<u8> },
+    Fallback {
+        reader: R,
+        writer: W,
+        bytes: Vec<u8>,
+    },
 }
 
 /// What one read asks for.
@@ -102,11 +106,9 @@ where
     };
     match connection.upgrade().await? {
         None => Ok(Opened::List(Box::new(connection))),
-        Some(bytes) => Ok(Opened::Fallback {
-            reader: connection.reader,
-            writer: connection.writer,
-            bytes,
-        }),
+        Some(bytes) => {
+            Ok(Opened::Fallback { reader: connection.reader, writer: connection.writer, bytes })
+        }
     }
 }
 
@@ -297,10 +299,8 @@ where
     /// Rows as v1 gave them. A parent not among `rows` is read by key, [`KEYS_PER_PAGE`] a
     /// request; one that is missing or unknown gives no `spawnedBy`.
     pub async fn v1_rows(&mut self, rows: &[Summary]) -> io::Result<Vec<Value>> {
-        let given: HashMap<(String, String), &Summary> = rows
-            .iter()
-            .map(|row| (row_identity(&row.origin, &row.chat_id), row))
-            .collect();
+        let given: HashMap<(String, String), &Summary> =
+            rows.iter().map(|row| (row_identity(&row.origin, &row.chat_id), row)).collect();
         let mut asked = HashSet::new();
         let wanted: Vec<ListKey> = rows
             .iter()
@@ -387,7 +387,8 @@ where
             let next = match &self.state {
                 ReadState::Walk { .. } if has_after => Some(ReadState::Walk {
                     after: Some(
-                        after_key.ok_or_else(|| protocol("a window with hasAfter and no afterKey"))?,
+                        after_key
+                            .ok_or_else(|| protocol("a window with hasAfter and no afterKey"))?,
                     ),
                 }),
                 ReadState::Window | ReadState::Walk { .. } | ReadState::Done => {

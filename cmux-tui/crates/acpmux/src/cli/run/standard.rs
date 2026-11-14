@@ -36,6 +36,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Worktree(..)
             | Command::Group(..)
             | Command::Attach { .. }
+            | Command::ResumeHere { .. }
             | Command::Tail { .. }
             | Command::Info { .. }
     )
@@ -1077,6 +1078,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             crate::tui::run(client, id).await
         }
+        Command::ResumeHere { session, print } => {
+            crate::cli::resume_here::run(connect(true).await?, &session, print, json_out).await
+        }
         Command::Tail { session, last, follow, since } => {
             orchestrate::tail(connect(true).await?, &session, last, since, follow, suppress_reads)
                 .await
@@ -1458,9 +1462,13 @@ pub(crate) async fn pending_output(
         let d = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
         for p in d.get("pending").and_then(Value::as_array).cloned().unwrap_or_default() {
             let req = p.get("request").cloned().unwrap_or(Value::Null);
-            let title =
-                req.pointer("/toolCall/title").and_then(Value::as_str).unwrap_or("permission").to_owned();
-            let kind = req.pointer("/toolCall/kind").and_then(Value::as_str).unwrap_or("").to_owned();
+            let title = req
+                .pointer("/toolCall/title")
+                .and_then(Value::as_str)
+                .unwrap_or("permission")
+                .to_owned();
+            let kind =
+                req.pointer("/toolCall/kind").and_then(Value::as_str).unwrap_or("").to_owned();
             let options: Vec<Value> =
                 req.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
             let hint = crate::question_answer::pending_hint(&req, &name);

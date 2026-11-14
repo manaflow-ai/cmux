@@ -220,8 +220,12 @@ async fn status_counts_the_closed_rows_the_list_holds() {
     let (status, _) = call(&hub, method::MUX_STATUS, json!({})).await;
     let (list, _) = call(&hub, method::MUX_SESSIONS, json!({})).await;
     let list = list.unwrap();
-    let closed: Vec<&Value> =
-        list["sessions"].as_array().unwrap().iter().filter(|row| row["status"] == "closed").collect();
+    let closed: Vec<&Value> = list["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["status"] == "closed")
+        .collect();
     assert_eq!(closed.len(), 2);
     let remote = closed.iter().filter(|row| row["peer"].is_string()).count();
     assert_eq!(remote, 1, "the peer's closed row");
