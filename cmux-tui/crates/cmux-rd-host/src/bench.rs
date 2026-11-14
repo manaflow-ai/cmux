@@ -194,6 +194,10 @@ struct Viewer {
     /// default there); OpenH264 decodes constrained baseline only.
     #[cfg(target_os = "macos")]
     vt: Option<crate::vtdecode::VtDecoder>,
+    /// `--decoder vp9|av1` (features `vp9`, `av1`): a royalty-free codec's decoder, for a
+    /// host started with the same `--codec`, and the picture it decodes into.
+    #[cfg(any(feature = "vp9", feature = "av1"))]
+    alt: Option<(Box<dyn cmux_encode::VideoDecoder>, cmux_encode::I420)>,
 }
 
 fn pct(xs: &mut [f64]) -> serde_json::Value {
@@ -250,6 +254,32 @@ impl Viewer {
                                 }
                             }
                             Ok(None) => {}
+                            Err(_) => self.decode_errors += 1,
+                        }
+                        continue;
+                    }
+                    #[cfg(any(feature = "vp9", feature = "av1"))]
+                    if let Some((dec, pic)) = self.alt.as_mut() {
+                        let decoded = dec.decode(&frame.body.access_unit, pic);
+                        let t1 = now_ns();
+                        self.decode_ms.push((t1 - t0) as f64 / 1e6);
+                        match decoded {
+                            Ok(true) => {
+                                let read = marker::decode_luma_at(
+                                    &pic.y,
+                                    pic.width,
+                                    true,
+                                    self.marker_origin,
+                                );
+                                if let Some(v) = read {
+                                    if self.marker != Some(v) {
+                                        self.marker = Some(v);
+                                        self.marker_at_ns = t1;
+                                        self.marker_capture_us = frame.body.t_capture_us;
+                                    }
+                                }
+                            }
+                            Ok(false) => {}
                             Err(_) => self.decode_errors += 1,
                         }
                         continue;
@@ -604,6 +634,15 @@ pub fn run(opts: &Opts) -> Res<()> {
             "videotoolbox" => Some(crate::vtdecode::VtDecoder::new()),
             "openh264" => None,
             other => return Err(format!("--decoder {other}: use videotoolbox or openh264").into()),
+        },
+        #[cfg(any(feature = "vp9", feature = "av1"))]
+        alt: match opts.get("decoder").and_then(cmux_encode::Codec::parse) {
+            Some(codec @ (cmux_encode::Codec::Vp9 | cmux_encode::Codec::Av1)) => Some((
+                cmux_codecs::open_decoder(codec, 2)?
+                    .ok_or(format!("--decoder {}: not in this build", codec.wire_name()))?,
+                cmux_encode::I420::new(2, 2),
+            )),
+            _ => None,
         },
         marker_origin: match opts.get("marker-origin") {
             Some(at) => {
