@@ -52,7 +52,8 @@ fn own_tree_a_setup_does_not_start_with_a_ports_file_above_the_size_limit() {
     assert_eq!(read_status(&root).map(|status| status.state), Some("failed".to_string()));
     let log = fs::read_to_string(root.join(LOG_FILE)).unwrap_or_default();
     assert!(log.contains("is larger than 1 MiB"), "{log}");
-    assert_eq!(fs::read_to_string(&ports_file).unwrap(), ports, "the ports file stays");
+    // No `assert_eq`: its message has both texts, each above the limit.
+    assert!(fs::read_to_string(&ports_file).unwrap() == ports, "the ports file changed");
     assert!(!root.join("started").exists(), "the setup ran");
     fs::remove_dir_all(root).unwrap();
 }

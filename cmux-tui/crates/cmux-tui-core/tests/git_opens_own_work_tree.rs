@@ -190,8 +190,10 @@ fn own_tree_git_worktree_setup_takes_a_status_file_above_the_size_limit_as_no_st
     });
     std::fs::write(&status_file, status.to_string()).unwrap();
     let reply = client.reply_with("git.worktree.setup", &linked, &[]);
-    assert_eq!(reply["ok"], true, "{reply}");
-    assert_eq!(reply["result"]["run"]["state"], "none", "{reply}");
+    // No message has the whole reply: when the status is read, the reply has its text, and a
+    // failure's output is then one line above the limit.
+    assert_eq!(reply["ok"], true, "{}", reply["error"]);
+    assert_eq!(reply["result"]["run"]["state"], "none");
 }
 
 #[test]
@@ -214,5 +216,6 @@ fn own_tree_git_worktree_setup_reads_no_port_from_a_ports_file_above_the_size_li
     let reply = client.reply_with("git.worktree.setup", &linked, &[]);
     assert_eq!(reply["ok"], true, "{reply}");
     assert_eq!(reply["result"]["run"]["port"], Value::Null, "{reply}");
-    assert_eq!(std::fs::read_to_string(&ports_file).unwrap(), ports);
+    // No `assert_eq`: its message has both texts, each above the limit.
+    assert!(std::fs::read_to_string(&ports_file).unwrap() == ports, "the ports file changed");
 }
