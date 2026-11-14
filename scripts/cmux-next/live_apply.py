@@ -28,8 +28,10 @@ import subprocess
 import sys
 
 # Folders and files that never ship in the app, checked before everything else. images/ is the Cloud
-# machine image (its bot's image rolls); ci-target-graph.json is CI's test-target map.
-NOAPP_PATH = re.compile(r"(^|/)(docs?|plans|research|\.github|tests?|Tests|UITests|scripts|skills|release-notes|schemas|fixtures|bench|benchmarks|tools|build-fleet)(/|$)|^(web|backend|workers|services|images|cmux-tui/relays)/|(^|/)ci-target-graph\.json$|(^|/)CHANGELOG|LICENSE|\.gitignore$|\.test\.(ts|tsx)$|\.gallery\.(ts|tsx|css)$|/gallery/")
+# machine image (its bot's image rolls); ci-target-graph.json is CI's test-target map. Root examples/ holds
+# sample extensions only a lint reads; cmux-tui/bindings/examples/ is built into the app, so the rule is anchored.
+# A *-gallery.html page is a design gallery.
+NOAPP_PATH = re.compile(r"(^|/)(docs?|plans|research|\.github|tests?|Tests|UITests|scripts|skills|release-notes|schemas|fixtures|bench|benchmarks|tools|build-fleet)(/|$)|^(web|backend|workers|services|images|examples|cmux-tui/relays)/|(^|/)ci-target-graph\.json$|-gallery\.html$|(^|/)CHANGELOG|LICENSE|\.gitignore$|\.test\.(ts|tsx)$|\.gallery\.(ts|tsx|css)$|/gallery/")
 # Extensions that change nothing in the app, checked after the web, resource and Rust rules, so a
 # Cargo.lock, a bundled Resources/x.sh or webviews' vite.config.mjs still counts.
 NOAPP_EXT = re.compile(r"\.(md|txt|yml|yaml|toml|lock|sh|py|mjs)$")

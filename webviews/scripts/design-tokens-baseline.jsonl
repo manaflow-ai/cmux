@@ -635,7 +635,7 @@
 {"file":"pages/settings/styles.css","kind":"font-weight","property":"font-weight","values":{"500":1}}
 {"file":"pages/settings/styles.css","kind":"height","property":"height","values":{"1px":1,"16px":1,"14px":1,"68px":1,"26px":1,"6px":1,"12px":1}}
 {"file":"pages/settings/styles.css","kind":"height","property":"min-height","values":{"72px":1}}
-{"file":"pages/settings/styles.css","kind":"radius","property":"border-radius","values":{"2px":4,"10px":2,"5px":2,"7px":1,"3px":1,"9px":2}}
+{"file":"pages/settings/styles.css","kind":"radius","property":"border-radius","values":{"2px":4,"10px":2,"5px":1,"7px":1,"3px":1}}
 {"file":"pages/settings/styles.css","kind":"spacing","property":"bottom","values":{"6px":1,"calc(var(--content-fade-bottom, 28px) + 4px - var(--content-pad-end, 0px))":1}}
 {"file":"pages/settings/styles.css","kind":"spacing","property":"gap","values":{"2px":2,"6px":10,"3px":1,"10px":3}}
 {"file":"pages/settings/styles.css","kind":"spacing","property":"margin","values":{"3px 0 0":1,"0 0 10px":2,"0 0 3px 8px":1,"4px 0 10px":1,"0 6px":1}}

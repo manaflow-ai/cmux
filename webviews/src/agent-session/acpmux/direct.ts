@@ -111,6 +111,8 @@ import {
   rememberReadAhead,
   rememberTail,
   shareReadAhead,
+  hostTailOf,
+  type TailHandOver,
 } from "./tailCache";
 import { HOVER_RECENT, HoverPrefetch, type HoverOptions } from "./hoverPrefetch";
 import { type PeerCopy, PEER_COPY_READ_MS, peerBack, peerCopyTail, peerDown, sameGeneration } from "./peerCopy";
@@ -1393,6 +1395,16 @@ export function mergeEventRecords(...batches: EventRecord[][]): EventRecord[] {
 /// The most held records a rebuild folds again (`rebuild`): a pane open on a busy chat holds every
 /// record streamed since it opened, and a lag read or a repaired turn refolded all of them.
 export const REBUILD_WINDOW = 5_000;
+/// How many records a chat left open keeps when it lets go of its oldest (`shedOlderHeld`): one older page's
+/// worth (`OLDER_PAGE_RECORDS`), so scrolling up past the cut reads one page to have them back. Kept at the
+/// rebuild's whole window (5,000) and shed at twice that, a chat left open held 5,000 to 10,000 records: in the
+/// god log 3,000 to 6,500 rows, against a 600-turn chat's 2,800 whole, and each streamed thought and tool call
+/// cost 1.5x to 1.8x that chat's (bench/transcript-replay.bench.ts, FIXTURE=god; Leo, 2026-11-12: "even if a
+/// chat is long, there should be no percievable difference").
+export const HELD_KEPT = OLDER_PAGE_RECORDS;
+/// How many records a chat left open holds before its oldest are let go (`shedOlderHeld`): twice what a cut
+/// keeps, so it sheds at most once per `HELD_KEPT` records, one refold of what it keeps each time.
+export const HELD_RECORDS = 2 * HELD_KEPT;
 
 /// The index of the first record in `events` (oldest first) at or after `seq`: a binary search, so
 /// a read of the newest records costs O(log held), not a walk over every one.
@@ -1408,13 +1420,18 @@ export function firstHeldFrom(events: readonly EventRecord[], seq: number): numb
 }
 
 /// Where a rebuild of `events` (held, oldest first) starts folding again: 0 to fold them all, when
-/// they fit `REBUILD_WINDOW`; else the turn start at or before both the newest `REBUILD_WINDOW`
+/// they fit `window` (`REBUILD_WINDOW`); else the turn start at or before both the newest `window`
 /// records and `changedFrom`, the oldest record that changed, and before `openSince` (when a
 /// subagent still running started). A turn is folded whole, so the rows above the cut are the same
 /// as before it, and the turn before it ended first (`endsTurnBefore`). 0 when no turn starts there.
-export function rebuildCut(events: readonly EventRecord[], changedFrom: number, openSince = Infinity): number {
-  if (events.length <= REBUILD_WINDOW) return 0;
-  let at = Math.min(events.length - REBUILD_WINDOW, firstHeldFrom(events, changedFrom));
+export function rebuildCut(
+  events: readonly EventRecord[],
+  changedFrom: number,
+  openSince = Infinity,
+  window = REBUILD_WINDOW,
+): number {
+  if (events.length <= window) return 0;
+  let at = Math.min(events.length - window, firstHeldFrom(events, changedFrom));
   // Back to the turn a subagent still running started in (`openSince`, its start time).
   while (at > 0 && events[at]!.at >= openSince) at -= 1;
   while (at > 0 && !(startsTurn(events[at]!) && endsTurnBefore(events, at))) at -= 1;
@@ -3450,6 +3467,9 @@ export class AcpmuxDirectClient {
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
   private historyExhausted = false;
+  /// Whether the transcript follows its latest row (the pane says, `setFollowing`): only then are the oldest held
+  /// records let go (`shedOlderHeld`), so nothing the reader has in view or scrolled to ever leaves.
+  private following = true;
   /// The oldest `native_history` record held (reduced): where the transcript's older turns end.
   private nativeSeed?: { seq: number; before: number; mark?: string };
   /// Where the next older native page ends, once one was read, for the held transcript
@@ -3623,6 +3643,19 @@ export class AcpmuxDirectClient {
   /// the flow this cache exists for.
   handOverCurrentTail(): void {
     this.rememberCurrentTail();
+  }
+
+  /// The chat on screen for a pane about to open on it (`chat.subagentPane`): kept on this page as
+  /// `handOverCurrentTail` keeps it, and returned for the request to carry (`handOver`) instead of
+  /// a `chat.tail` of its own, which could reach the host after the pane's open had read it (#36650).
+  tailHandOver(): TailHandOver | undefined {
+    const kept = this.rememberCurrentTail(true, false);
+    const tail = kept && hostTailOf(kept.tail);
+    if (kept && tail) return { sessionId: kept.sessionId, tail };
+    // Nothing to carry, or nothing fits the host's bound: the host hears it as before (a tail cut
+    // to nothing forgets what it held).
+    if (kept) this.rememberCurrentTail();
+    return undefined;
   }
 
   /// A client with no connection that shows one recorded session as it stood at a point in it
@@ -4455,11 +4488,14 @@ export class AcpmuxDirectClient {
   /// (`replayThrough`, a fork's preview), would be kept half-read.
   ///
   /// `forThisPage` is false when this client is the one going away, so the tail goes to the app
-  /// host alone and not into this page's map (tailCache.ts `rememberTail`).
-  private rememberCurrentTail(forThisPage = true): void {
+  /// host alone and not into this page's map (tailCache.ts `rememberTail`). `toHost` is false when
+  /// the caller carries it to the host itself (`tailHandOver`). The chat and tail kept, if any.
+  private rememberCurrentTail(forThisPage = true, toHost = true): { sessionId: string; tail: KeptTail } | undefined {
     const sessionId = this.selectedSessionId;
     const tail = this.currentTail();
-    if (sessionId && tail) rememberTail(sessionId, tail, forThisPage);
+    if (!sessionId || !tail) return undefined;
+    rememberTail(sessionId, tail, forThisPage, toHost);
+    return { sessionId, tail };
   }
 
   /// The selected chat's tail as this page read it (its newest `KEPT_EVENTS` records and what they
@@ -7539,8 +7575,44 @@ export class AcpmuxDirectClient {
     this.reduce(event);
     this.noticeRefusal(event);
     this.emitInFrame(event.kind, this.streamGrew);
-    if (event.dir === "mux" && event.kind === "turn_result" && event.sessionId)
+    if (event.dir === "mux" && event.kind === "turn_result" && event.sessionId) {
       this.checkFinishedTurn(event.sessionId, event.seq);
+      this.shedOlderHeld();
+    }
+  }
+
+  /// The pane's transcript follows its latest row, or the reader scrolled away (VirtualTranscript `following`).
+  setFollowing(following: boolean): void {
+    this.following = following;
+  }
+
+  /// A chat left open lets go of its oldest records once it holds more than `HELD_RECORDS`, as a chat opened on
+  /// its newest page holds only those: what it holds, and the work of each streamed update over the rows drawn
+  /// from it, stay the same however long the chat runs (Leo, 2026-11-12: "even if a chat is long, there should
+  /// be no percievable difference"; bench/transcript-replay.bench.ts god log: 4.4x the heap of a small chat and
+  /// 2.1-2.4x the work per token). Only at a turn's end, while the view follows the latest row and no paging,
+  /// replay or held snapshot is under way, and at a turn start (`rebuildCut`, which also keeps a subagent still
+  /// running whole), so the rows kept are drawn as a fresh open of the same page draws them. The rows above the
+  /// cut leave the transcript; scrolling up reads them again as any older page (`loadOlder`). One full refold of
+  /// at most `HELD_RECORDS` records, keeping `HELD_KEPT`, once per `HELD_KEPT` records at most: O(1) per record.
+  private shedOlderHeld(): void {
+    if (this.events.length <= HELD_RECORDS || !this.following) return;
+    if (this.replayThrough !== undefined || this.loadingOlder || this.snapshotHold) return;
+    if (this.indexedPlaceholders?.size || this.indexedGaps.length > 0) return;
+    // Native history (seq < 1) pages in by its own cursor (`fetchNativeOlder`): a chat holding it keeps it.
+    if ((this.events[0]?.seq ?? 1) < 1) return;
+    let openSince = Infinity;
+    for (const agent of this.subagents.all())
+      if (agent.state === "running") openSince = Math.min(openSince, agent.startedAt);
+    const cut = rebuildCut(this.events, Infinity, openSince, HELD_KEPT);
+    if (cut <= 0) return;
+    this.events = this.events.slice(cut);
+    this.historyExhausted = false;
+    this.turnOpener = undefined;
+    // An older page in flight, or read ahead, was read for the held history that just went.
+    this.historyEpoch += 1;
+    this.cancelOlderPaging();
+    this.rebuildKeepingLiveState();
   }
 
   /// A turn that just ended live is drawn from its stored records, not only from the ones that

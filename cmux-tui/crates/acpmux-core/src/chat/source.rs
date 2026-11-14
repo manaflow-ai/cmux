@@ -127,6 +127,10 @@ pub trait RawSource: Send + 'static {
     fn identity(&self) -> &[u8];
     /// Changes whenever a previously delivered line can read differently.
     fn stamp(&self) -> u64;
+    /// A file source inside a derived book must retain its path and inode at swap.
+    fn file_path(&self) -> Option<&Path> {
+        None
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -141,6 +145,7 @@ pub struct ReadStats {
 pub struct FileSource {
     file: File,
     identity: Vec<u8>,
+    path: std::path::PathBuf,
     cursor: u64,
     looked: u64,
     stats: ReadStats,
@@ -165,6 +170,7 @@ impl FileSource {
         Ok(Self {
             file,
             identity: identity.into_bytes(),
+            path,
             cursor: 0,
             looked: 0,
             stats: ReadStats::default(),
@@ -184,6 +190,10 @@ impl FileSource {
 }
 
 impl RawSource for FileSource {
+    fn file_path(&self) -> Option<&Path> {
+        Some(&self.path)
+    }
+
     fn read_chunk(&mut self, place: u64) -> io::Result<Chunk> {
         let length = self.hint()?;
         let mut budget = CHUNK_BYTES;
@@ -479,6 +489,14 @@ mod tests {
             god.0 as f64 / small.0 as f64,
             god.1 as f64 / small.1 as f64
         );
+        if let Ok(path) = std::env::var("V2_GATE_OUT") {
+            let mut output = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
+            writeln!(
+                output,
+                "{{\"name\":\"v2.pr03a.source_read_bounds\",\"small_p95\":{},\"god_p95\":{},\"unit\":\"bytes\"}}",
+                small.0, god.0
+            )?;
+        }
         Ok(())
     }
 }
