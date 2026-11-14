@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43628065569",
+  "recorded_at": "2026-11-14T18:50:35Z",
+  "reason": "cmux-tui 041117de15b9 changes the image's cmux-tui (pinned 95e5f04cc275)",
+  "dry_run": false,
+  "cmux_tui": "041117de15b9c29cc4f6734b28bd4b6eff9e71d5",
+  "fixes": [
+    {
+      "sha": "ce7b80aa9e38e1d5d814d13b6b08f487299fa96a",
+      "mergedAt": "2026-11-14T10:20:53-08:00",
+      "subject": "acpmux-client: chat subs end over the bound, on a surface not granted and at fallback (#43163)"
+    },
+    {
+      "sha": "034eaa8f1ee3701223b8d819e710bb4dd81cf90b",
+      "mergedAt": "2026-11-14T10:08:19-08:00",
+      "subject": "cmux-codecs build.rs: libvpx builds from a path with spaces, and checks its tarball on macOS (#43173)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T18:50:35Z",
+    "snapshot_id": "sh-a9ac8e9b869245298694e5915240f964",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43628065569): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "78ce9f92520c02e7de1b4f4c2257904bd1338934",
+    "image": "cloud-native-auto-041117de-43628065569-1",
+    "revision": "ci-43628065569-1",
+    "at": "2026-11-14T18:50:35Z"
+  },
+  "rolled_back": false
+}
