@@ -393,6 +393,10 @@ public struct AgentResumeArgv: Sendable, Equatable {
         /// The launcher is a cmux wrapper; the associated value is its resume argv, or `nil` when the
         /// wrapper has no resumable form (e.g. one-shot `omx`/`omc`).
         case resolved([String]?)
+        /// The record claims a routed Codex launch but its executable identity
+        /// does not match the captured argv. Do not fall through to a direct
+        /// resume that could retain Subrouter provider settings.
+        case rejected
         /// The launcher is a plain agent executable; fall through to ``builtInKind(kind:sessionId:executablePath:arguments:)``.
         case passthrough
     }
@@ -412,7 +416,16 @@ public struct AgentResumeArgv: Sendable, Equatable {
         arguments: [String],
         environment: [String: String]? = nil
     ) -> LauncherResolution {
-        if let routed = SubrouterCodexResumeRouting().resumeArguments(
+        let normalizedLauncher = launcher?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalizedLauncher == "codex",
+           !capturedCodexExecutableMatches(arguments: arguments, executablePath: executablePath),
+           SubrouterCodexResumeRouting().capturedEnvironment(in: environment).isEmpty == false {
+            return .rejected
+        }
+        let capturedExecutableMatches = normalizedLauncher != "codex" ||
+            capturedCodexExecutableMatches(arguments: arguments, executablePath: executablePath)
+        if capturedExecutableMatches,
+           let routed = SubrouterCodexResumeRouting().resumeArguments(
             launcher: launcher,
             sessionID: sessionId,
             launchArguments: arguments,
@@ -466,6 +479,17 @@ public struct AgentResumeArgv: Sendable, Equatable {
         }
     }
 
+    private func capturedCodexExecutableMatches(arguments: [String], executablePath: String?) -> Bool {
+        guard let first = arguments.first else { return false }
+        let argvExecutable = URL(fileURLWithPath: first).lastPathComponent
+        // Older captures record no executable path; argv[0] is then the only
+        // identity evidence, and it has to name Codex itself.
+        guard let executablePath, !executablePath.isEmpty else {
+            return argvExecutable == "codex"
+        }
+        return argvExecutable == URL(fileURLWithPath: executablePath).lastPathComponent
+    }
+
     /// Builds the resume argv for a built-in agent kind, or `nil` if the kind is unknown or its launch
     /// arguments cannot be preserved.
     ///
@@ -502,6 +526,26 @@ public struct AgentResumeArgv: Sendable, Equatable {
                 preservePromptTags: false,
                 stripCmuxHooks: parts.executable == "codex"
             ) else { return nil }
+            // Older bindings can prove that the captured Codex invocation used
+            // Subrouter but lack the paired launch marker. Never replay the
+            // captured `model_providers.subrouter.*` argv in that case: it may
+            // contain a dead per-process localhost endpoint. Re-enter through
+            // `sr` so the provider allocates a fresh route on resume.
+            // The kind is known to be Codex, so a custom executable name
+            // (e.g. `codex-enterprise`) still counts as a Codex invocation.
+            if SubrouterCodexResumeRouting().providerEvidence(
+                in: [parts.executable] + parts.tail,
+                launcher: "codex"
+            ) == .provider("subrouter") {
+                // Same identity rule as a bound-marker capture: argv[0] has to
+                // be the captured executable, or this is not that launch.
+                guard capturedCodexExecutableMatches(arguments: arguments, executablePath: executablePath) else {
+                    return nil
+                }
+                let clean = SubrouterCodexResumeRouting().removingRoutingArguments(from: preserved)
+                return ["sr", "codex", "resume", sessionId]
+                    + codexResumeConfigOverrides(preserved: clean) + clean
+            }
             let replayExecutable = codexReplayExecutable(
                 capturedExecutable: parts.executable,
                 launchTail: parts.tail
