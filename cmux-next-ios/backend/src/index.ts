@@ -3,6 +3,7 @@ import type { Env } from "./env.ts"
 import { iceServers } from "./ice.ts"
 import { createTeam, sendTeamInvite, userEmail, userTeams } from "./stack.ts"
 import { audienceOf, judgedAt, parseReport, ReportError } from "./connectivity-alerts.ts"
+import { CanaryError, isCanaryEmail, parseCanary } from "./connectivity-canary.ts"
 import { apnsConfig, apnsTopics, clean, isSealedText, MAX_MAILBOX_SEALED, notifyFailures, notifyLimitKey, parseNotify, pushTargets, sendApns, TURN_PUSH_WINDOW_MS, turnPushKey, wantedKinds } from "./push.ts"
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { userHubName, type Attachment } from "./team-hub.ts"
@@ -405,6 +406,64 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     )
     if (!r.accepted) return fail(409, "conflict", "this incident id belongs to another account")
     return json({ accepted: true, route: audience.route, ...(r.note ? { note: r.note } : {}) }, 202)
+  }
+
+  if (path === "/v1/diagnostics/connectivity-canary" && method === "POST") {
+    // The synthetic canary reports a round of runs (PROTOCOL.md "Connectivity canary"). Only its own verified
+    // account is heard; whether its Mac was awake comes from that account's hub, never from the body.
+    await limit(env.INCIDENT_LIMIT, `${me}:canary`, "canary reports")
+    let results
+    try {
+      results = parseCanary(await readJson(req))
+    } catch (e) {
+      if (e instanceof CanaryError) throw new HttpError(400, "bad_request", e.message)
+      throw e
+    }
+    let who
+    try {
+      who = await t.span("stack_user", userEmail(env, caller))
+    } catch (e) {
+      console.log(JSON.stringify({ msg: "canary report: user lookup failed", error: String(e) }))
+      throw new HttpError(502, "user_unavailable", "could not look up the account; retry later")
+    }
+    if (!who.verified || !isCanaryEmail(who.email, env.CONNECTIVITY_CANARY_EMAILS)) return fail(403, "not_canary", "canary reports come only from the canary's account")
+    const hub = userHub(env, caller)
+    const checks = await Promise.all(
+      results.map((r) =>
+        t
+          .span("hub", hub.macLiveness(me, r.mac.id, Math.min(Date.now(), Date.parse(r.at))))
+          .then((liveness) => ({ liveness }))
+          .catch((e) => {
+            console.log(JSON.stringify({ msg: "canary report: liveness unavailable", error: String(e) }))
+            return { liveness: null }
+          })
+      )
+    )
+    const desk = env.CONNECTIVITY_ALERT_DESK.get(env.CONNECTIVITY_ALERT_DESK.idFromName("desk"))
+    await t.span("desk", desk.canary(results, checks))
+    return json({ accepted: results.length }, 202)
+  }
+
+  if (path === "/v1/diagnostics/connectivity-heartbeat" && method === "POST") {
+    // A team phone in front says it can still reach the alerts (PROTOCOL.md "Connectivity heartbeat"):
+    // the desk posts "alerting is blind" when no team phone has for 4 hours of working time.
+    await limit(env.INCIDENT_LIMIT, `${me}:heartbeat`, "connectivity heartbeats")
+    const body = await readJson(req)
+    const app = typeof body.app === "object" && body.app !== null ? (body.app as Record<string, unknown>) : {}
+    if (typeof app.simulator !== "boolean") throw new HttpError(400, "bad_request", "app.simulator must be a boolean")
+    const build = { simulator: app.simulator, config: typeof app.config === "string" ? app.config : "?" }
+    let who
+    try {
+      who = await t.span("stack_user", userEmail(env, caller))
+    } catch (e) {
+      console.log(JSON.stringify({ msg: "connectivity heartbeat: user lookup failed", error: String(e) }))
+      throw new HttpError(502, "user_unavailable", "could not look up the account; retry later")
+    }
+    const audience = audienceOf(who.email, who.verified, build, env.CONNECTIVITY_ALERT_EXCLUDED_EMAILS)
+    if (audience.route === "refuse") return fail(403, audience.why === "unverified" ? "email_unverified" : "not_team", "connectivity heartbeats are for the cmux team")
+    const desk = env.CONNECTIVITY_ALERT_DESK.get(env.CONNECTIVITY_ALERT_DESK.idFromName("desk"))
+    await t.span("desk", desk.heartbeat(audience.route))
+    return json({ accepted: true, route: audience.route }, 202)
   }
 
   if (path === "/v1/me/devices" && method === "GET") {

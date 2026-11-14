@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers"
 import type { Env } from "./env.ts"
 import type { MacLiveness } from "./team-hub.ts"
+import { applyCanary, applyHeartbeat, checkSilence, nextWatchDue, normalizeWatch, staleWatch, storageKey, type CanaryResult, type WatchIncident, type WatchState } from "./connectivity-canary.ts"
 
 /**
  * Connectivity alerts (PROTOCOL.md "Connectivity incidents"): a cmux team member's phone reports a major
@@ -452,7 +453,7 @@ export const tellHeld = (desk: DeskState, now: number): Array<SlackAction> => {
   for (const route of ["team", "test"] as const) {
     const held = desk.meta.held[route]
     if (!held.length || now - held[0]!.at < HOUR) continue
-    const who = [...new Set(held.map((h) => desk.incidents[h.id]?.reporter.email).filter((e): e is string => !!e))]
+    const who = [...new Set(held.map((h) => (h.id.startsWith("canary:") ? "the connectivity canary" : desk.incidents[h.id]?.reporter.email)).filter((e): e is string => !!e))]
     actions.push({
       kind: "notice",
       route,
@@ -634,6 +635,9 @@ const RETRY_S = [5, 30, 120, 600, 1800]
 /** A call that keeps failing for a passing reason is retried as long as its incident is kept, then dropped (logged). */
 const MAX_AGE_MS = RETENTION_MS
 
+/** A phone incident or a watch incident: what the outbox needs of either (its Slack message). */
+type Messaged = { slack?: { channel: string; ts: string } }
+
 interface Outbox {
   action: SlackAction
   tries: number
@@ -689,6 +693,68 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
     return { accepted: outcome.accepted, ...(outcome.note ? { note: outcome.note } : {}), queued: outcome.actions.length }
   }
 
+  private async loadWatchIncidents(): Promise<Record<string, WatchIncident>> {
+    const incidents: Record<string, WatchIncident> = {}
+    for (const [, incident] of await this.ctx.storage.list<WatchIncident>({ prefix: "can:" })) incidents[incident.id] = incident
+    return incidents
+  }
+
+  /** Queues `actions` and the changed state, then sends after the answer (as `report` does). */
+  private async commitWatch(desk: DeskState, watch: WatchState, incidents: Record<string, WatchIncident>, changed: Iterable<string>, actions: ReadonlyArray<SlackAction>): Promise<void> {
+    const outbox = await this.outbox()
+    for (const action of actions) outbox.push({ action, tries: 0, at: Date.now() })
+    const writes: Record<string, unknown> = { meta: desk.meta, outbox, watch }
+    for (const id of changed) if (incidents[id]) writes[storageKey(id)] = incidents[id]
+    await this.putAll(writes)
+    const retryAt = (await this.ctx.storage.get<number>("retryAt")) ?? 0
+    if (outbox.length && retryAt <= Date.now()) this.ctx.waitUntil(this.drain())
+    await this.scheduleAlarm(desk)
+  }
+
+  /** Applies one round of canary results; `checks[i]` is the canary Mac's liveness around `results[i]`. */
+  async canary(results: ReadonlyArray<CanaryResult>, checks: ReadonlyArray<MacCheck>): Promise<{ queued: number }> {
+    const desk = await this.loadDesk()
+    const watch = normalizeWatch(await this.ctx.storage.get<Partial<WatchState>>("watch"))
+    const incidents = await this.loadWatchIncidents()
+    const actions: Array<SlackAction> = []
+    const changed = new Set<string>()
+    const now = Date.now()
+    results.forEach((result, i) => {
+      const o = applyCanary(desk, watch, incidents, result, checks[i] ?? { liveness: null }, now)
+      actions.push(...o.actions)
+      for (const id of o.changed) changed.add(id)
+    })
+    await this.commitWatch(desk, watch, incidents, changed, actions)
+    console.log(JSON.stringify({ msg: "connectivity canary", results: results.map((r) => `${r.probe}:${r.outcome}${r.step ? `@${r.step}` : ""}`).join(","), queued: actions.length }))
+    return { queued: actions.length }
+  }
+
+  /** A phone's heartbeat (PROTOCOL.md "Connectivity heartbeat"). */
+  async heartbeat(route: "team" | "test"): Promise<{ queued: number }> {
+    const desk = await this.loadDesk()
+    const watch = normalizeWatch(await this.ctx.storage.get<Partial<WatchState>>("watch"))
+    const incidents = await this.loadWatchIncidents()
+    const o = applyHeartbeat(watch, incidents, route, Date.now())
+    await this.commitWatch(desk, watch, incidents, o.changed, o.actions)
+    return { queued: o.actions.length }
+  }
+
+  /** Test only: the watch and its incidents as stored. */
+  async watchSnapshot(): Promise<{ watch: WatchState; incidents: Record<string, WatchIncident> }> {
+    return { watch: normalizeWatch(await this.ctx.storage.get<Partial<WatchState>>("watch")), incidents: await this.loadWatchIncidents() }
+  }
+
+  /** Test only: the alarm's silence check as if `now` were the time. */
+  async silenceAt(now: number): Promise<number> {
+    const desk = await this.loadDesk()
+    const watch = normalizeWatch(await this.ctx.storage.get<Partial<WatchState>>("watch"))
+    const incidents = await this.loadWatchIncidents()
+    const o = checkSilence(desk, watch, incidents, now)
+    await this.commitWatch(desk, watch, incidents, o.changed, o.actions)
+    await this.drain()
+    return o.actions.length
+  }
+
   /** Test only: the desk and outbox as stored. */
   async snapshot(): Promise<{ desk: DeskState; outbox: Array<Outbox> }> {
     return { desk: await this.loadDesk(), outbox: await this.outbox() }
@@ -708,6 +774,15 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
     const expired = expireStale(desk, now)
     const told = tellHeld(desk, now)
     expired.actions.push(...told)
+    // The watch: a silent canary or silent team phones post "alerting is blind"; old canary incidents go.
+    const watch = normalizeWatch(await this.ctx.storage.get<Partial<WatchState>>("watch"))
+    const watched = await this.loadWatchIncidents()
+    const silence = checkSilence(desk, watch, watched, now)
+    if (silence.actions.length) console.log(JSON.stringify({ msg: "connectivity alerting blind", count: silence.actions.length }))
+    expired.actions.push(...silence.actions)
+    const stale = staleWatch(watched, now)
+    await this.putAll({ watch, ...Object.fromEntries(silence.changed.map((id) => [storageKey(id), watched[id]])) })
+    if (stale.length) await this.deleteAll(stale.map(storageKey))
     if (expired.actions.length) {
       const outbox = await this.outbox()
       for (const action of expired.actions) outbox.push({ action, tries: 0, at: now })
@@ -724,7 +799,8 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
   /** `replace`: set the alarm to the soonest due time even if one is set later (or earlier: a stale retry). */
   private async scheduleAlarm(desk: DeskState, replace = false): Promise<void> {
     const retryAt = await this.ctx.storage.get<number>("retryAt")
-    const candidates = [retryAt, nextExpiry(desk)].filter((t): t is number => typeof t === "number")
+    const watch = normalizeWatch(await this.ctx.storage.get<Partial<WatchState>>("watch"))
+    const candidates = [retryAt, nextExpiry(desk), nextWatchDue(watch)].filter((t): t is number => typeof t === "number")
     if (!candidates.length) return
     const at = Math.min(...candidates)
     const current = await this.ctx.storage.getAlarm()
@@ -769,7 +845,7 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
         await this.ctx.storage.setAlarm(Date.now() + 600_000)
         return
       }
-      const incident = head.action.kind === "notice" ? undefined : await this.ctx.storage.get<Incident>(`inc:${head.action.incident}`)
+      const incident = head.action.kind === "notice" ? undefined : await this.ctx.storage.get<Messaged>(storageKey(head.action.incident))
       const result = await this.send(head.action, incident, config, call).catch((e) => ({ ok: false as const, error: `network: ${String(e).slice(0, 80)}` }))
       const outbox = await this.outbox()
       const giveUp = !result.ok && (!retryable(result.error) || Date.now() - head.at > MAX_AGE_MS)
@@ -778,8 +854,9 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
         outbox.shift()
         const writes: Record<string, unknown> = { outbox }
         if (result.ok && "posted" in result && result.posted && head.action.kind !== "notice") {
-          const fresh = await this.ctx.storage.get<Incident>(`inc:${head.action.incident}`)
-          if (fresh) writes[`inc:${head.action.incident}`] = { ...fresh, slack: result.posted }
+          const key = storageKey(head.action.incident)
+          const fresh = await this.ctx.storage.get<Messaged>(key)
+          if (fresh) writes[key] = { ...fresh, slack: result.posted }
         }
         await this.ctx.storage.put(writes)
         continue
@@ -797,7 +874,7 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
   /** One Slack call; a post returns the message it made. */
   private async send(
     action: SlackAction,
-    incident: Incident | undefined,
+    incident: Messaged | undefined,
     config: SlackConfig | undefined,
     call: SlackCall
   ): Promise<{ ok: boolean; error?: string; posted?: { channel: string; ts: string } }> {
@@ -807,7 +884,7 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
       return call("chat.postMessage", { channel, text: action.text, unfurl_links: false })
     }
     if (!incident) return { ok: true }
-    const threadOf = async (id: string | undefined) => (id ? (await this.ctx.storage.get<Incident>(`inc:${id}`))?.slack : undefined)
+    const threadOf = async (id: string | undefined) => (id ? (await this.ctx.storage.get<Messaged>(storageKey(id)))?.slack : undefined)
     switch (action.kind) {
       case "post": {
         const channel = action.route === "team" ? config?.teamChannel : config?.testChannel
