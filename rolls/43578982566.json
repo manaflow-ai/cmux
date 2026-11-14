@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43578982566",
+  "recorded_at": "2026-11-14T09:13:45Z",
+  "reason": "cmux-tui 1c3ccb67ea2a changes the image's cmux-tui (pinned 764b12d7a969)",
+  "dry_run": false,
+  "cmux_tui": "1c3ccb67ea2a0cb330592f9d72e0c94dfedf8bb6",
+  "fixes": [
+    {
+      "sha": "1c3ccb67ea2a0cb330592f9d72e0c94dfedf8bb6",
+      "mergedAt": "2026-11-14T00:47:15-08:00",
+      "subject": "cmux-git: test each git operation against a refused folder; 2 problem texts say what the open knows (#42908)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T09:13:45Z",
+    "snapshot_id": "sh-551969bb303b4bc98630bc3f6ab659bc",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43578982566): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "04c39841bdecaa818daccdaf021e892db3e5a260",
+    "image": "cloud-native-auto-1c3ccb67-43578982566-1",
+    "revision": "ci-43578982566-1",
+    "at": "2026-11-14T09:13:45Z"
+  },
+  "rolled_back": false
+}
