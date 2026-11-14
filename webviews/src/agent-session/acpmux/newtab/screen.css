@@ -494,21 +494,10 @@
   height: calc(var(--acpmux-chip-glyph) * 13 / 16);
   border-radius: calc(var(--acpmux-chip-glyph) * 13 / 16 * 3 / 16);
 }
-/* The tray's chips (folder, computer) draw their open and pressed fill 1 pt lower and their content 1 pt higher
-   inside it, so the content stays put and the fill centers on it: the button centers its text's line box, ascender
-   to baseline, and a lowercase name's ink sits low in that box, so the fill read 1 pt high (Lucas 2026-11-14). */
-.nt-above .acpmux-location-button {
-  --acpmux-location-fill-drop: 1px;
-  top: var(--acpmux-location-fill-drop);
-  padding-top: 0;
-  padding-bottom: calc(2 * var(--acpmux-location-fill-drop));
-}
-/* A tray chip's leading mark (the folder, the laptop, a project's picture or mark) sits 1 pt under the label's line
-   box, where a lowercase name's ink sits, so the marks and the names share one line (Lucas 2026-11-14: "the
-   folder/project image ... needs to drop by 1pt", "make sure the laptop icon is aligned"). */
-.nt-above .acpmux-location-button > :is(.ui-ghost-icon, .acpmux-project-badge):first-child {
-  translate: 0 1px;
-}
+/* The tray's chips have no optical nudges: the button is a flex row with align-items: center, so its mark, its name
+   and its chevron share one center and its fill centers on them at every density. Fixed 1 pt nudges tuned at Default
+   put the marks 1.6 pt under the names at Compact (Lucas 2026-11-14: "shouldnt this just be a div with a flex
+   container and then align items"). */
 /* The badge centers on the chip's line as the folder and computer glyphs do: it sat 1 px under them. */
 :is(.acpmux-composer, .nt-composer) .acpmux-location-button > .acpmux-project-badge:first-child {
   align-self: center;
