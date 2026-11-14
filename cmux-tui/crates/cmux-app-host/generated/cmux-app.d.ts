@@ -1138,16 +1138,6 @@ interface CmuxGlobal {
       get: CmuxOp<Record<string, never>, Cmux.TeamIntegrationPolicy>
     }
   }
-  integrations: {
-    /** `integrations.connect` (mutation, scope `integrations:write`, owner `app:cmux/integrations`): Start connecting a provider; it completes only with a person at the provider. */
-    connect: CmuxOp<{ provider: "github" | "linear" | "slack" }, unknown>
-    /** `integrations.cycle_variant` (mutation, scope `integrations:write`, owner `app:cmux/integrations`): Switch to the next Integrations design variant (DEV and NIGHTLY). */
-    cycle_variant: CmuxOp<Record<string, never>, unknown>
-    /** `integrations.import_api` (mutation, scope `integrations:write`, owner `app:cmux/integrations`): Add an API from an OpenAPI 3 document, a GraphQL introspection result or an MCP tool list. */
-    import_api: CmuxOp<{ source: string }, unknown>
-    /** `integrations.open` (mutation, scope `integrations:write`, owner `app:cmux/integrations`): Open the Integrations pane, or one connection. */
-    open: CmuxOp<{ connection?: string }, unknown>
-  }
   invite: {
     /** `invite.approve_join` (mutation, scope `invite:write`): Approve (default) or decline a join that waits for approval (pending_approval). */
     approve_join: CmuxOp<{ conversation: Cmux.ConversationId; invite_id: Cmux.InviteId; approve?: boolean; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
@@ -1778,16 +1768,6 @@ interface CmuxGlobal {
     wait: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; pattern: string; timeout_ms?: string; new?: boolean }, Cmux.TerminalWaitResult>
     /** `terminal.wait_exit` (read, scope `terminal:read`) */
     wait_exit: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; timeout_ms?: string }, Cmux.TerminalWaitExitResult>
-  }
-  theme: {
-    scheme: {
-      /** `theme.scheme.convert` (read, scope `theme:read`) */
-      convert: CmuxOp<{ machine?: string; session?: string; text: string; file?: string | null; from?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null; to?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null }, Cmux.ThemeSchemeText>
-      /** `theme.scheme.export` (read, scope `theme:read`) */
-      export: CmuxOp<{ machine?: string; session?: string; name: string; format?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null }, Cmux.ThemeSchemeText>
-      /** `theme.scheme.from_image` (read, scope `theme:read`) */
-      from_image: CmuxOp<{ machine?: string; session?: string; width: number; height: number; channels: number; pixels: string; appearance?: "dark" | "light" | null; format?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null }, Cmux.ThemeSchemeFromImageResult>
-    }
   }
   thread: {
     /** `thread.update` (mutation, scope `thread:write`): Set the title, status (open or resolved) or owner of the thread of a top-level message; any participant, a chief too. An empty title or owner clears it; the owner is a current participant. A new reply reopens a resolved thread. */
