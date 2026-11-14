@@ -308,6 +308,7 @@ fn raw_frame(
     Ok(Ok(frame))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn pump(
     hub: Arc<Hub>,
     mut sub: Sub,

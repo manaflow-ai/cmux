@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use thiserror::Error;
 use tokio::sync::Notify;
 
-use crate::wire::{Frame, FrameError, FrameKind, Origin, Sub};
+use crate::wire::{Frame, FrameError, FrameKind, ListFilter, Origin, Sub};
 mod compaction;
 mod disk;
 #[cfg(test)]
@@ -867,10 +867,10 @@ impl Hub {
     /// Lazily allocates the sparse peer projection ring. Local-only hubs never
     /// pay for this storage.
     pub fn enable_peer_history(&self) {
-        if let Ok(mut slot) = self.peer_history.lock() {
-            if slot.is_none() {
-                *slot = Some(PeerHistory::new());
-            }
+        if let Ok(mut slot) = self.peer_history.lock()
+            && slot.is_none()
+        {
+            *slot = Some(PeerHistory::new());
         }
     }
 
@@ -1000,10 +1000,7 @@ impl Hub {
                 true,
                 requested,
                 crate::wire::MAX_PAGE_BYTES.saturating_sub(8192 + sub.sid.len()),
-                Some(&crate::wire::ListFilter {
-                    origin: Some("local".into()),
-                    ..Default::default()
-                }),
+                Some(&ListFilter { origin: Some("local".into()), ..Default::default() }),
             )
             .map_err(|error| self.page_error(error))?;
         let window = crate::wire::Window {
@@ -1055,10 +1052,7 @@ impl Hub {
                 false,
                 MAX_WINDOW_ROWS,
                 max - 8192 - request.sid.len(),
-                Some(&crate::wire::ListFilter {
-                    origin: Some("local".into()),
-                    ..Default::default()
-                }),
+                Some(&ListFilter { origin: Some("local".into()), ..Default::default() }),
             )
             .map_err(|error| self.page_error(error))?;
         let reply = crate::wire::PageResult {

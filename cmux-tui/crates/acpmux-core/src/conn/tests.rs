@@ -171,9 +171,10 @@ fn list_pair() -> ListPair {
     let (client, server) = tokio::io::duplex(4096);
     let (rd, wr) = tokio::io::split(server);
     let serving = source.clone();
-    let task = tokio::spawn(async move {
-        run(rd, wr, serving, "test", &["list".into()], super::Role::Local).await
-    });
+    let task =
+        tokio::spawn(
+            async move { run(rd, wr, serving, "test", &["list".into()], Role::Local).await },
+        );
     (client, task, hub, writer, source)
 }
 
@@ -201,7 +202,7 @@ async fn folder_hydration_does_not_block_other_sids_or_credit() {
     let (rd, wr) = tokio::io::split(server);
     let task_source = source.clone();
     let task = tokio::spawn(async move {
-        run(rd, wr, task_source, "test", &["list".into()], super::Role::Local).await
+        run(rd, wr, task_source, "test", &["list".into()], Role::Local).await
     });
 
     hello(&mut client).await;
@@ -764,7 +765,7 @@ async fn sixty_pipelined_page_replies_are_all_written_in_order() {
     let (mut client, server) = tokio::io::duplex(1024);
     let (rd, wr) = tokio::io::split(server);
     let connection = tokio::spawn(async move {
-        run(rd, wr, Arc::new(PageSource), "test", &["list".into()], super::Role::Local).await
+        run(rd, wr, Arc::new(PageSource), "test", &["list".into()], Role::Local).await
     });
     hello(&mut client).await;
     let (mut rd, mut wr) = tokio::io::split(client);
@@ -891,7 +892,7 @@ async fn read_and_write_errors_release_every_source_subscriber() {
         source.clone(),
         "test",
         &["list".into()],
-        super::Role::Local,
+        Role::Local,
     )
     .await;
     assert!(matches!(result, Err(ConnError::Io(_))));
@@ -901,15 +902,9 @@ async fn read_and_write_errors_release_every_source_subscriber() {
     // After these requests the reader stays pending, so only the writer can end it.
     let (mut client, server) = tokio::io::duplex(4096);
     client.write_all(&input).await.unwrap();
-    let result = run(
-        server,
-        WriteThenFail(false),
-        source.clone(),
-        "test",
-        &["list".into()],
-        super::Role::Local,
-    )
-    .await;
+    let result =
+        run(server, WriteThenFail(false), source.clone(), "test", &["list".into()], Role::Local)
+            .await;
     assert!(matches!(result, Err(ConnError::Io(_))));
     assert_eq!(source.task_count(), 0);
     assert_eq!(hub.subscriber_count(), 0);
@@ -979,9 +974,10 @@ async fn the_source_decides_editions_and_may_resume_with_a_window() {
     let (mut client, server) = tokio::io::duplex(4096);
     let (rd, wr) = tokio::io::split(server);
     let driver = source.clone();
-    let task = tokio::spawn(async move {
-        run(rd, wr, driver, "test", &["chat".into()], super::Role::Local).await
-    });
+    let task =
+        tokio::spawn(
+            async move { run(rd, wr, driver, "test", &["chat".into()], Role::Local).await },
+        );
     hello(&mut client).await;
     send(
         &mut client,
@@ -1070,9 +1066,10 @@ async fn not_ready_then_window_uses_the_same_subscription_until_unsub() {
     let driver = source.clone();
     let (mut client, server) = tokio::io::duplex(4096);
     let (rd, wr) = tokio::io::split(server);
-    let task = tokio::spawn(async move {
-        run(rd, wr, driver, "test", &["chat".into()], super::Role::Local).await
-    });
+    let task =
+        tokio::spawn(
+            async move { run(rd, wr, driver, "test", &["chat".into()], Role::Local).await },
+        );
     hello(&mut client).await;
     send(&mut client, json!({"method":"sub","params":{"sid":"s","stream":"chat:x"}})).await;
     let reply = receive(&mut client).await;
@@ -1175,9 +1172,10 @@ async fn source_failure_after_first_frame_ends_only_its_generation() {
     let driver = source.clone();
     let (mut client, server) = tokio::io::duplex(4096);
     let (rd, wr) = tokio::io::split(server);
-    let task = tokio::spawn(async move {
-        run(rd, wr, driver, "test", &["chat".into()], super::Role::Local).await
-    });
+    let task =
+        tokio::spawn(
+            async move { run(rd, wr, driver, "test", &["chat".into()], Role::Local).await },
+        );
     hello(&mut client).await;
     let request = json!({"method":"sub","params":{"sid":"s","stream":"chat:x"}});
     send(&mut client, request.clone()).await;
