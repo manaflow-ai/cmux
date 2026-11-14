@@ -740,9 +740,13 @@ fn a_remote_devices_known_moves_with_the_sidebar_order_it_sees() {
     let again = listed_since(&mux, &phone, known.clone());
     assert_eq!(again["unchanged"], true, "{again}");
 
-    // The Mac drags its last visible workspace to the top of its section.
+    // The Mac drags a workspace that is not the phone's first row to the top
+    // of its section (new workspaces may already list first by default).
+    let page = line(&mux, &phone, json!({"id": "p0", "cmd": "list-workspaces", "limit": 1}));
+    let top = page["data"]["workspaces"][0]["resource_id"].clone();
+    let target = names.iter().find(|name| json!(name) != top).expect("a row below the top");
     let doc = sidebar("get-2");
-    let last = item_of(&doc, &names[2]).unwrap_or_else(|| panic!("no item: {doc}"));
+    let last = item_of(&doc, target).unwrap_or_else(|| panic!("no item: {doc}"));
     let moved = v2(
         &mux,
         &app,
@@ -752,7 +756,7 @@ fn a_remote_devices_known_moves_with_the_sidebar_order_it_sees() {
     );
     assert_eq!(moved["ok"], true, "{moved}");
     let page = line(&mux, &phone, json!({"id": "p", "cmd": "list-workspaces", "limit": 1}));
-    assert_eq!(page["data"]["workspaces"][0]["resource_id"], json!(names[2]), "{page}");
+    assert_eq!(page["data"]["workspaces"][0]["resource_id"], json!(target), "{page}");
 
     let after = listed_since(&mux, &phone, known.clone());
     assert!(
