@@ -39,6 +39,15 @@ jobs:
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # cmux-rd-host is its own cargo workspace; feat-cmux-next pushes save the cache, pull requests read it.
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui/crates/cmux-rd-host -> target
+          shared-key: cmux-rd-windows-host
+          save-if: ${{ github.event_name == 'push' }}
+
       - name: Build the Windows host
         working-directory: cmux-tui/crates/cmux-rd-host
         run: cargo build --locked --no-default-features --features bench
@@ -184,3 +193,4 @@ jobs:
             ${{ runner.temp }}/cmux-rd-live.json
             ${{ runner.temp }}/cmux-rd-live.log
           if-no-files-found: ignore
+          retention-days: 3
