@@ -24,8 +24,11 @@ visually verified. No screenshot receipt exists at this source-edit stage.
 
 `schemas/design-scale/design-scale.json:transientMaterial` is the common numeric
 contract. `CmuxTheme.TransientMaterial.standard` is ordinary checked source, not a
-new committed generated artifact. `gen-design-scale.mjs` checks it and emits the
-existing web scale. `check-surface-roles.py` binds the unchanged toast role to it.
+new committed generated artifact. `gen-design-scale.mjs` emits the existing web scale
+from schemas alone, including in web-only sparse checkouts. `check-surface-roles.py`
+checks every native numeric token and binds the unchanged toast role to it.
+`tests/test_transient_material_generation.py` exercises generation without native
+source and rejects drift in each native token, or a missing native token file.
 
 | Property | Value / owner |
 | --- | --- |

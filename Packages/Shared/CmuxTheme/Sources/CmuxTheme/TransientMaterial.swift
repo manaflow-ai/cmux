@@ -1,5 +1,5 @@
 // Follows schemas/design-scale/design-scale.json: change the schema and this token together.
-// webviews/scripts/pages/gen-design-scale.mjs checks these constants before emitting the web scale.
+// scripts/cmux-next/check-surface-roles.py checks these constants against the web scale's schema.
 
 /// The regular translucent material shared by non-chat transient surfaces.
 /// Shapes, interaction and accessibility fallbacks stay with their platform owners.

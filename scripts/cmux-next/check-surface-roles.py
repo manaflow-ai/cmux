@@ -16,6 +16,7 @@ says and prints the text the copy should have.
 """
 import json
 import os
+import re
 import sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
@@ -23,8 +24,9 @@ SOURCE = "schemas/surface-roles/surface-roles.json"
 CSS_FILE = "webviews/src/ui/glass/glass.css"
 SWIFT_FILE = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingGlass/SurfaceRole.swift"
 DESIGN_SCALE = "schemas/design-scale/design-scale.json"
+TRANSIENT_FILE = "Packages/Shared/CmuxTheme/Sources/CmuxTheme/TransientMaterial.swift"
 # What this check reads. scripts/web_lint_prepush.py runs it alone when a push touches one (declared_inputs()).
-INPUTS = (SOURCE, DESIGN_SCALE, CSS_FILE, SWIFT_FILE)
+INPUTS = (SOURCE, DESIGN_SCALE, CSS_FILE, SWIFT_FILE, TRANSIENT_FILE)
 BEGIN = "/* surface-roles:begin. Follows " + SOURCE + " (scripts/cmux-next/check-surface-roles.py checks it). */"
 END = "/* surface-roles:end */"
 # The neutral glass's gray levels (FloatingGlassStyle.look): dark veil, light veil. The web reads them
@@ -63,7 +65,19 @@ def load():
             assert role["tone"] == "theme" and set(role) == FIELDS, role
     assert len(styles) == len(set(styles)), "one role per neutral style"
     with open(os.path.join(ROOT, DESIGN_SCALE)) as handle:
-        transient = json.load(handle)["transientMaterial"]
+        scale = json.load(handle)
+    transient = scale["transientMaterial"]
+    # This guard already needs native source. Keep web generation independent
+    # of platform files omitted from gallery and other web-only checkouts.
+    with open(os.path.join(ROOT, TRANSIENT_FILE)) as handle:
+        native = handle.read()
+    tokens = dict(transient)
+    tokens.update({key: scale["glassMaterial"][key] for key in ("neutralDark", "neutralLight")})
+    for key, value in tokens.items():
+        if not isinstance(value, (int, float)):
+            continue
+        match = re.search(r"public let " + re.escape(key) + r": Double = ([0-9.]+)", native)
+        assert match and float(match[1]) == value, f"{TRANSIENT_FILE} {key} must match the design scale"
     toast = next(role for role in data["roles"] if role["name"] == "toast")
     for appearance in ("dark", "light"):
         assert toast["veil"][appearance] == transient[appearance + "VeilAlpha"], "toast and transient veil differ"
