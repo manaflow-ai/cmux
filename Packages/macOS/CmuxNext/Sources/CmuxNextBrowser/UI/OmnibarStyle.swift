@@ -103,6 +103,11 @@ enum OmnibarStyle {
     static var chipLeading: CGFloat { max(edgeInset, (barHeight * 22 / 30 - chipSize / 2).rounded()) }
     /// Text distance after the chip: the text's column less the chip's end.
     static var textLeading: CGFloat { max(fieldTrailingGap, (barHeight * 42 / 30 - chipLeading - chipSize).rounded()) }
+    /// The bar's field draws its text 1 pt further in than a suggestion row's label does at the same x (the field
+    /// editor's and the label's fixed text insets differ), so the field sits 1 pt further right and the typed text
+    /// starts on the rows' column (Lucas 2026-11-14: "like 1pt to the right for search input"). A fixed inset of the
+    /// text views, so it does not scale with the density.
+    static let fieldTextInsetCorrection: CGFloat = 1
     /// The bar's trailing marks' distance from its edge.
     static let edgeInset: CGFloat = 2
     /// The field's distance from the trailing marks.

@@ -215,7 +215,9 @@ public final class AddressBarView: NSView {
             density.bind(chip.widthAnchor.constraint(greaterThanOrEqualToConstant: 0)) { OmnibarStyle.chipSize },
             density.bind(chip.heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.chipSize },
 
-            density.bind(field.leadingAnchor.constraint(equalTo: chip.trailingAnchor)) { OmnibarStyle.textLeading },
+            density.bind(field.leadingAnchor.constraint(equalTo: chip.trailingAnchor)) {
+                OmnibarStyle.textLeading + OmnibarStyle.fieldTextInsetCorrection
+            },
             fieldToEdge,
             field.centerYAnchor.constraint(equalTo: centerYAnchor),
             badges.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.edgeInset - 2),
