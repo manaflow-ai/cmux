@@ -60,6 +60,7 @@ use crate::fsio;
 use crate::row::MAX_ROW_TEXT;
 use checkpoint::Mark;
 use index::{Entry, RowIndex, SeqIndex};
+use std::cell::RefCell;
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -78,7 +79,7 @@ const MAX_READERS: usize = 4;
 const LOCK_TRIES: u32 = 100;
 const LOCK_WAIT: std::time::Duration = std::time::Duration::from_millis(2);
 /// The most bytes one [`Log::read_blob`] returns.
-pub const MAX_BLOB_READ: usize = 1024 * 1024;
+pub const MAX_BLOB_READ: usize = 256 * 1024;
 const UNDO_HEAD_LEN: usize = 16;
 const UNDO_ENTRY_LEN: usize = 28;
 
@@ -436,6 +437,9 @@ pub struct Log {
     tail: Tail,
     rows: RowIndex,
     seqs: SeqIndex,
+    /// Derived closed-fold ranges. The actor owns the writer; reads borrow the file briefly for
+    /// its binary search so a page never loads the index whole.
+    folds: RefCell<crate::folds::Folds>,
     /// Older segments open for reading, the most recently used first.
     readers: Vec<(u32, File)>,
     /// The record being written; at most a row text and its 44 bytes.
@@ -844,6 +848,9 @@ impl Log {
             let len = file.metadata()?.len();
             Tail { seg: last, file, len }
         };
+        let folds_path = dir.join("folds.idx");
+        let folds_len = fs::metadata(&folds_path).map_or(0, |meta| meta.len());
+        let folds = crate::folds::Folds::open(&folds_path, folds_len)?;
         stats.index_mapped_bytes = rows.mapped_bytes();
         stats.bytes_written = rewritten;
         stats.writes = rewrites;
@@ -868,6 +875,7 @@ impl Log {
             tail,
             rows,
             seqs,
+            folds: RefCell::new(folds),
             readers: Vec::new(),
             scratch: Vec::new(),
             last_seq,

@@ -65,6 +65,9 @@ pub struct Blobs {
     stopped: bool,
 }
 
+/// The maximum bytes returned by one body range read.
+pub const MAX_BLOB_READ: usize = 256 * 1024;
+
 impl Blobs {
     pub fn open(book: &Path) -> Result<Self, Error> {
         let dir = book.join("blobs");
@@ -212,6 +215,48 @@ impl Blobs {
         }
         out.write_all(b"}")?;
         Ok(())
+    }
+
+    /// Reads one bounded range of an open body's field. Inline fields are sliced directly;
+    /// spilled fields are read at the requested offset from their immutable open file. The
+    /// returned length is the complete field length, so callers can continue until the body is
+    /// exhausted without reading it first.
+    pub fn read_open_range(
+        &self,
+        body: &Body,
+        key: &str,
+        offset: u64,
+        max: usize,
+        out: &mut Vec<u8>,
+    ) -> Result<u64, Error> {
+        out.clear();
+        let Some(value) = body.fields.get(key) else {
+            return Err(Error::InvalidInput("open body field is missing"));
+        };
+        let (len, amount) = match value {
+            Value::Inline(bytes) => {
+                let len = bytes.len() as u64;
+                let start = usize::try_from(offset).unwrap_or(usize::MAX).min(bytes.len());
+                let amount = max.min(MAX_BLOB_READ).min(bytes.len().saturating_sub(start));
+                out.extend_from_slice(
+                    bytes.get(start..start.saturating_add(amount)).unwrap_or_default(),
+                );
+                (len, amount)
+            }
+            Value::File(field) => {
+                let len = field.len;
+                let left = usize::try_from(len.saturating_sub(offset)).unwrap_or(usize::MAX);
+                let amount = max.min(MAX_BLOB_READ).min(left);
+                out.resize(amount, 0);
+                let path = self.open.join(field_name(body.row, key, field.generation));
+                let file = File::open(path).map_err(named_file_error)?;
+                let read = fsio::read_at(&file, out, offset)?;
+                out.truncate(read);
+                (len, read)
+            }
+        };
+        let _ = amount;
+        Ok(len)
     }
 
     /// The caller syncs raw first. A small final body stays inline even if it once spilled.
