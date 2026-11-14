@@ -168,6 +168,7 @@ public final class PaneToolbarView: NSView {
             || terminalChatTip.shortcut != terminalChatToggle.terminalButton.themedToolTipShortcut {
             terminalChatToggle.show(terminalChat, title: terminalChatTip.title, shortcut: terminalChatTip.shortcut)
             needsLayout = true
+            superview?.needsLayout = true
         }
         guard items != self.items || more != hasMore || lit != self.lit || zoomed != self.zoomed || reserving != reservedCount ||
             filteredNativeItems != self.nativeItems || nextNativeMoreTool != nativeMoreTool || reservesPair != reservesTerminalChat else { return }
@@ -418,8 +419,6 @@ public final class PaneToolbarView: NSView {
     /// The toggle's room and its gap to the slot right of it, when `kept`.
     private func terminalChatRoom(_ kept: Bool) -> CGFloat { kept ? PaneTerminalChatToggleView.width + Metrics.space1 / 2 : 0 }
 
-    /// The toggle shows: "…"'s slot is kept right of it beside a chat too, so it sits at one x on both faces.
-    private var showsTerminalChat: Bool { terminalChatToggle.face != nil }
 
     /// The bar's width beside a page whose own tools share the tab row (a chat's header): what it shows now and the
     /// trailing gap, never room kept for a hidden "…" or pin (``reservedCount``). That room is the selected tab's to
@@ -429,12 +428,14 @@ public final class PaneToolbarView: NSView {
     /// the pane's trailing control column, where "…" sits, in every pane.
     public var tabRowWidth: CGFloat {
         let allButtons = buttons + nativeButtons
-        let keepsMore = !hasMore && showsTerminalChat
+        // A pane with a pair keeps the toggle's room and "…"'s slot right of it beside a chat too: the toggle sits at
+        // one x on both faces, and a selection in the pane moves nothing.
+        let keepsMore = !hasMore && reservesTerminalChat
         let count = shownCount + (keepsMore ? 1 : 0)
         let buttonWidth = allButtons.reduce(CGFloat.zero) { $0 + $1.preferredWidth }
         let moreWidth = (hasMore || keepsMore ? TitlebarBandButton.side : 0) + (zoomed ? TitlebarBandButton.side : 0)
         let gaps = CGFloat(max(count - 1, 0)) * Metrics.space1 / 2
-        return buttonWidth + moreWidth + gaps + Self.trailingGap + terminalChatRoom(showsTerminalChat)
+        return buttonWidth + moreWidth + gaps + Self.trailingGap + terminalChatRoom(reservesTerminalChat)
     }
 
     /// The bar's width in a pane `width` wide, which gives it at most half: `sharing`, beside a chat's tools in the row
@@ -469,14 +470,14 @@ public final class PaneToolbarView: NSView {
         guard full > limit else { return full }
         let side = TitlebarBandButton.side, gap = Metrics.space1 / 2
         let allButtons = buttons + nativeButtons
-        let trailingSlot: CGFloat = hasMore || reservedCount > allButtons.count || showsTerminalChat ? 1 : 0
+        let trailingSlot: CGFloat = hasMore || reservedCount > allButtons.count || reservesTerminalChat ? 1 : 0
         // The same walk as layout(), at the capped width: a button shows only in a whole slot; creation buttons fold
         // together once the bar is capped (`alwaysVisible`, the cap being why we are here).
         var cursor = limit - Self.trailingGap - trailingSlot * (side + gap)
         var leading = hasMore ? limit - Self.trailingGap - side : limit - Self.trailingGap
         if zoomed { leading = min(leading, cursor - side); cursor -= side + gap }
         if reservesTerminalChat {
-            if showsTerminalChat { leading = min(leading, cursor - PaneTerminalChatToggleView.width) }
+            leading = min(leading, cursor - PaneTerminalChatToggleView.width)
             cursor -= terminalChatRoom(true)
         }
         for index in allButtons.indices.reversed() {

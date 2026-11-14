@@ -101,5 +101,10 @@ struct PaneTerminalChatToggleTests {
         view.layoutSubtreeIfNeeded()
         #expect(view.bounds.maxX - view.terminalChatToggle.frame.maxX == terminalGap)
         #expect(view.terminalChatToggle.frame.width == PaneTerminalChatToggleView.width)
+        // Another chat of the pane, not a pair: no control, the same room (one rule for the width and the layout).
+        toolbar.update(target: "chat-2", kind: nil, paneKinds: [.terminal], terminalChat: nil, paneHasTerminalChat: true)
+        #expect(view.terminalChatToggle.isHidden)
+        #expect(view.tabRowWidth == terminalWidth)
+        #expect(view.tabRowWidth(fitting: 1000) == terminalWidth)
     }
 }

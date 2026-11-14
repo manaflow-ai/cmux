@@ -88,11 +88,21 @@ enum TerminalChatHandler {
         /// The live terminals running a chat's session, best first (as an `agent/` link picks them).
         let terminals: [String]
 
-        init(_ tab: TabModel, services: AppServices) {
+        /// `membership`: only what decides whether the route refuses the tab (the tab's kind and its session), for the
+        /// toolbar, which asks for every tab of every pane: the running terminals, the turn and the hand-off only pick
+        /// among the routes that act, and reading them there would observe every machine's agents.
+        init(_ tab: TabModel, services: AppServices, membership: Bool = false) {
             let tabs = services.agentTabs, terminal = tab.kind == .pty
             // A terminal's session is its agent's report (a hook's `agent_session_id`); a chat's, the outside session it adopted.
             let adopted = terminal ? nil : tabs.adoption(of: tab.id)
             key = adopted.map { "\($0.harness):\($0.agentSessionId)" }
+            guard !membership else {
+                terminals = []
+                facts = WindowRules.ToggleFacts(terminal: terminal, chat: !terminal && tabs.isAgentTab(tab.id),
+                                                agent: terminal ? tab.agent?.agent : adopted?.harness,
+                                                session: terminal ? tab.agent?.harnessSessionID : adopted?.agentSessionId)
+                return
+            }
             terminals = adopted.map { adopted in
                 DeepLink.agentTabs(harness: adopted.harness, session: adopted.agentSessionId, adopted: nil,
                                    harnessSessions: services.machines.daemons.flatMap(\.store.reachableAgentHarnessSessions).filter { $0.tab != tab.id })
@@ -110,7 +120,7 @@ enum TerminalChatHandler {
     /// The face of a terminal and chat pair `tab` is, nil when the route refuses it (not a terminal or chat,
     /// no session, a harness acpmux cannot resume): the pane toolbar's toggle shows only on a pair.
     static func face(of tab: TabModel, services: AppServices) -> PaneTerminalChatFace? {
-        let facts = Facts(tab, services: services).facts
+        let facts = Facts(tab, services: services, membership: true).facts
         return face(WindowRules().terminalChatToggle(facts), terminal: facts.terminal)
     }
 
