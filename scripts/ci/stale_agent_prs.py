@@ -139,6 +139,12 @@ def scored(line: str) -> str | None:
     return text
 
 
+def is_generated(path: str) -> bool:
+    """A lockfile, string catalog, project file or bundle. score() skips it and base_texts() doesn't
+    read its base copy; reverse_applies() still compares it, so a difference there blocks a close."""
+    return GENERATED.search(PurePosixPath(path).name) is not None
+
+
 def score(files: list[dict], base_text: dict[str, str | None]) -> Score:
     """How much of the PR's diff is already on the base.
 
@@ -150,7 +156,7 @@ def score(files: list[dict], base_text: dict[str, str | None]) -> Score:
     result = Score()
     for entry in files:
         path = entry["filename"]
-        if GENERATED.search(PurePosixPath(path).name):
+        if is_generated(path):
             continue
         base = base_text.get(path)
         if entry.get("status") == "removed":
@@ -355,6 +361,12 @@ def base_file(base: str, path: str) -> str | None:
     return subprocess.run(["git", "show", f"origin/{base}:{path}"], check=True, capture_output=True, text=True, errors="replace").stdout
 
 
+def base_texts(files: list[dict], base: str) -> dict[str, str | None]:
+    """The base copy of each file score() reads. Generated files are skipped, so a large or
+    unreadable lockfile neither costs a read nor leaves the whole PR unscored."""
+    return {f["filename"]: base_file(base, f["filename"]) for f in files if not is_generated(f["filename"])}
+
+
 def base_sha(base: str) -> str:
     return subprocess.run(["git", "rev-parse", f"origin/{base}"], check=True, capture_output=True, text=True).stdout.strip()
 
@@ -400,7 +412,7 @@ def main() -> int:
         if not skip_reason(pr, now) and not list_only_reason(pr, live) and (now - last_activity(pr)).days >= landed_idle_days:
             try:
                 files = pr_files(repo, pr["number"])
-                result = score(files, {f["filename"]: base_file(pr["baseRefName"], f["filename"]) for f in files})
+                result = score(files, base_texts(files, pr["baseRefName"]))
                 applied = reverse_applies(files, pr["baseRefName"], scratch)
             except subprocess.CalledProcessError as error:
                 print(f"#{pr['number']}: cannot read files, not scored: {(error.stderr or '').strip()[:200]}", file=sys.stderr)

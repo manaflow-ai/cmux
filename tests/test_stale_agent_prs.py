@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("stale_agent_prs", ROOT / "scripts/ci/stale_agent_prs.py")
@@ -141,7 +142,7 @@ class ScoreTests(unittest.TestCase):
 
 
 class ReverseApplyTests(unittest.TestCase):
-    """reverse_applies against a real git tree, the check that gates closing."""
+    """reverse_applies, the check that gates closing, and base_texts, against a real git tree."""
 
     BEFORE = "def a():\n    load()\n    self.refresh()\n\ndef b():\n    load()\n    save()\n"
     # The PR adds self.refresh() to b(); the same line already exists in a().
@@ -194,6 +195,31 @@ class ReverseApplyTests(unittest.TestCase):
             {"filename": "L.xcstrings", "status": "modified", "patch": "@@ -1 +1 @@\n-{}\n+{\"k\": 1}"},
         ]
         self.assertFalse(self.applies(files))
+
+    GENERATED_AND_SCORED = [
+        {"filename": "m.py", "status": "modified", "patch": "@@ -1 +1 @@\n-value = legacy()\n+value = compute()"},
+        {"filename": "L.xcstrings", "status": "modified", "patch": "@@ -1 +1 @@\n-{}\n+{\"k\": 1}"},
+        {"filename": "bun.lock", "status": "modified", "patch": "@@ -1 +1 @@\n-{}\n+{\"pkg\": 1}"},
+        {"filename": "gone.py", "status": "removed", "patch": "@@ -1 +0,0 @@\n-y = 2"},
+    ]
+
+    def test_base_texts_reads_only_the_files_score_reads(self):
+        self.base({"m.py": "value = compute()\n", "L.xcstrings": "{}\n", "bun.lock": "{}\n"})
+        self.assertEqual(module.base_texts(self.GENERATED_AND_SCORED, "main"), {"m.py": "value = compute()\n", "gone.py": None})
+
+    def test_unreadable_generated_file_does_not_stop_scoring(self):
+        self.base({"m.py": "value = compute()\n", "L.xcstrings": "{}\n", "bun.lock": "{}\n"})
+        real = module.base_file
+
+        def base_file(base, path):
+            if module.is_generated(path):
+                raise subprocess.CalledProcessError(128, ["git", "show", f"origin/{base}:{path}"])
+            return real(base, path)
+
+        with mock.patch.object(module, "base_file", side_effect=base_file):
+            texts = module.base_texts(self.GENERATED_AND_SCORED, "main")
+        result = module.score(self.GENERATED_AND_SCORED, texts)
+        self.assertEqual((result.present, result.total, result.removed_left, result.unreadable), (1, 1, 0, 0))
 
 
 class SuccessorTests(unittest.TestCase):
