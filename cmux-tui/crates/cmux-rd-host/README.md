@@ -245,7 +245,7 @@ owned process to keep the desktop changing. The benchmark temporarily sets the
 desktop resolution and restores it on exit. A driver rejecting optional 4K with
 `DISP_CHANGE_BADMODE` reports `4K: not measured, no display mode` and succeeds
 without metrics. Missing 1080p or any capture/transport/viewer failure still fails.
-It uses the production GDI capture, encoder, media engine, stream framing and
+It uses the selected production capture backend, encoder, media engine, stream framing and
 feedback path over TCP loopback. The receiver reassembles and decodes the stream,
 presents it in a visible GDI window and checks its center pixel with `GetPixel`.
 At least two distinct presented colors are required. No tailnet or credentials
@@ -259,3 +259,20 @@ readback). Stage distributions include startup; sample vectors cap at 8192.
 Duration is bounded to 2–30 seconds, sockets have timeouts, and the host and
 viewer each have a deadline. Keep this harness and motion source unchanged
 when comparing before/after optimization results.
+
+The Windows host prefers DXGI Desktop Duplication and falls back to GDI if the
+primary output cannot be duplicated or access is lost. `--capture gdi` and
+`--capture dxgi` select a backend explicitly; forced DXGI fails by HRESULT rather
+than measuring GDI under the DXGI name. The workflow runs both through the same
+loopback harness and motion source. JSON `capture_details` identifies the backend,
+fallback reason, acquired frames and copied bytes.
+
+Duplication retains one CPU BGRA surface and one staging texture. It copies dirty
+rectangles and move destinations from the complete current desktop texture,
+respects row pitch, and uses a full copy for initialization or fragmented damage.
+It avoids full-frame hashing. Encoding still converts the full frame, so no
+unchanged-region conversion claim is made. An unchanged acquisition reuses the
+last surface when feedback requests a frame. Memory is bounded to a 256 MiB CPU
+surface plus the matching staging texture and at most 1 MiB metadata per list.
+The existing capture surface excludes a separately supplied hardware cursor;
+this preserves the GDI BitBlt behavior. Rotated outputs retain the GDI path.

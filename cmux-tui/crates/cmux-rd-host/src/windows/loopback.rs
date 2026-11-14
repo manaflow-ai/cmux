@@ -72,7 +72,34 @@ impl Drop for DesktopMode {
     }
 }
 
-struct ViewerWindow(HWND);
+const PREVIEW_WIDTH: usize = 320;
+const PREVIEW_HEIGHT: usize = 180;
+
+// Sample the whole preview explicitly. GDI's default shrinking mode combines
+// source pixels, so a scaled destination pixel is not an exact source oracle.
+fn preview_bgr(rgb: &[u8], width: usize, height: usize, preview: &mut [u8]) -> Res<()> {
+    if width == 0
+        || height == 0
+        || width.checked_mul(height).and_then(|n| n.checked_mul(3)) != Some(rgb.len())
+        || preview.len() != PREVIEW_WIDTH * PREVIEW_HEIGHT * 3
+    {
+        return Err("invalid decoded frame or preview dimensions".into());
+    }
+    for y in 0..PREVIEW_HEIGHT {
+        for x in 0..PREVIEW_WIDTH {
+            let source = ((y * height / PREVIEW_HEIGHT) * width + x * width / PREVIEW_WIDTH) * 3;
+            let dest = (y * PREVIEW_WIDTH + x) * 3;
+            preview[dest..dest + 3].copy_from_slice(&[
+                rgb[source + 2],
+                rgb[source + 1],
+                rgb[source],
+            ]);
+        }
+    }
+    Ok(())
+}
+
+struct ViewerWindow(HWND, Vec<u8>);
 
 impl ViewerWindow {
     fn new(width: u32, height: u32) -> Res<Self> {
@@ -98,22 +125,20 @@ impl ViewerWindow {
         if hwnd.is_null() {
             return Err(format!("Windows viewer window: {}", io::Error::last_os_error()).into());
         }
-        Ok(Self(hwnd))
+        Ok(Self(hwnd, vec![0; PREVIEW_WIDTH * PREVIEW_HEIGHT * 3]))
     }
 
-    fn present(&self, rgb: &mut [u8], width: usize, height: usize) -> Res<u32> {
+    fn present(&mut self, rgb: &[u8], width: usize, height: usize) -> Res<u32> {
+        preview_bgr(rgb, width, height, &mut self.1)?;
         let center = (height / 2 * width + width / 2) * 3;
         let pixel = rgb.get(center..center + 3).ok_or("decoded center pixel missing")?;
         let expected =
             u32::from(pixel[0]) | (u32::from(pixel[1]) << 8) | (u32::from(pixel[2]) << 16);
-        for p in rgb.chunks_exact_mut(3) {
-            p.swap(0, 2); // RGB from the decoder -> Windows' BGR bitmap.
-        }
         let mut info: BITMAPINFO = unsafe { zeroed() };
         info.bmiHeader = BITMAPINFOHEADER {
             biSize: size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: width as i32,
-            biHeight: -(height as i32),
+            biWidth: PREVIEW_WIDTH as i32,
+            biHeight: -(PREVIEW_HEIGHT as i32),
             biPlanes: 1,
             biBitCount: 24,
             biCompression: BI_RGB,
@@ -131,7 +156,7 @@ impl ViewerWindow {
         if dc.is_null() {
             return Err("Windows viewer GetDC failed".into());
         }
-        // SAFETY: initialized 24-bit top-down image; both requested widths have 4-byte row alignment.
+        // SAFETY: initialized, row-aligned 24-bit preview, drawn 1:1 with no GDI resampling.
         let rows = unsafe {
             StretchDIBits(
                 dc,
@@ -141,9 +166,9 @@ impl ViewerWindow {
                 180,
                 0,
                 0,
-                width as i32,
-                height as i32,
-                rgb.as_ptr().cast(),
+                PREVIEW_WIDTH as i32,
+                PREVIEW_HEIGHT as i32,
+                self.1.as_ptr().cast(),
                 &info,
                 DIB_RGB_COLORS,
                 SRCCOPY,
@@ -191,7 +216,7 @@ pub(super) fn run(opts: &Opts) -> Res<()> {
         );
         return Ok(());
     };
-    let viewer = ViewerWindow::new(width, height)?;
+    let mut viewer = ViewerWindow::new(width, height)?;
     let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
     let address = listener.local_addr()?;
     let args = vec![
@@ -203,6 +228,8 @@ pub(super) fn run(opts: &Opts) -> Res<()> {
         "60".into(),
         "--codec".into(),
         opts.str_or("codec", "openh264"),
+        "--capture".into(),
+        opts.str_or("capture", "auto"),
     ];
     let host_opts = Opts::parse(&args)?;
     // Connect before spawning, so accept cannot wait forever if viewer setup fails.
@@ -221,13 +248,15 @@ pub(super) fn run(opts: &Opts) -> Res<()> {
                 .map_err(|e| e.to_string())?;
             serve_connection(connection, &host_opts).map_err(|e| e.to_string())
         });
-        let result = measure(&mut stream, &viewer, connected, width, height, duration);
+        let result = measure(&mut stream, &mut viewer, connected, width, height, duration);
         // Closing our socket releases the host on every error; its own deadline is a second bound.
         drop(stream);
         let host_result = host.join().map_err(|_| "Windows loopback host thread panicked");
         // A reset caused by cleanup must not hide the original decoder/readback failure.
         let mut report = result?;
         let metrics = host_result??;
+        report["capture"] = metrics.capture_details["backend"].clone();
+        report["capture_details"] = metrics.capture_details;
         report["capture_ms"] = distribution(&metrics.capture_ms);
         report["convert_ms"] = distribution(&metrics.convert_ms);
         report["encode_ms"] = distribution(&metrics.encode_ms);
@@ -239,7 +268,7 @@ pub(super) fn run(opts: &Opts) -> Res<()> {
 
 fn measure(
     stream: &mut TcpStream,
-    viewer: &ViewerWindow,
+    viewer: &mut ViewerWindow,
     connected: Instant,
     width: u32,
     height: u32,
@@ -384,6 +413,35 @@ fn optional_4k_mode_unavailable(width: u32, height: u32, result: i32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn viewer_reads_exact_sample_surrounded_by_different_pixels() {
+        let (width, height) = (640, 360);
+        let mut rgb = vec![0; width * height * 3];
+        let center = (height / 2 * width + width / 2) * 3;
+        rgb[center..center + 3].copy_from_slice(&[0xc3, 0x51, 0x33]);
+        let mut viewer = ViewerWindow::new(640, 480).unwrap();
+        assert_eq!(viewer.present(&rgb, width, height).unwrap(), 0x3351c3);
+    }
+
+    #[test]
+    fn preview_preserves_exact_samples_and_channel_order() {
+        let (width, height) = (640, 360);
+        let mut rgb = vec![0; width * height * 3];
+        for y in 0..height {
+            for x in 0..width {
+                let i = (y * width + x) * 3;
+                rgb[i..i + 3].copy_from_slice(&[x as u8, y as u8, (x ^ y) as u8]);
+            }
+        }
+        let mut preview = vec![0; PREVIEW_WIDTH * PREVIEW_HEIGHT * 3];
+        preview_bgr(&rgb, width, height, &mut preview).unwrap();
+        for (x, y) in [(0, 0), (1, 1), (160, 90), (319, 179)] {
+            let i = (y * PREVIEW_WIDTH + x) * 3;
+            assert_eq!(&preview[i..i + 3], &[(2 * x ^ 2 * y) as u8, (2 * y) as u8, (2 * x) as u8]);
+        }
+        assert!(preview_bgr(&rgb[..3], width, height, &mut preview).is_err());
+    }
 
     #[test]
     fn optional_4k_mode_does_not_hide_product_or_required_mode_failures() {
