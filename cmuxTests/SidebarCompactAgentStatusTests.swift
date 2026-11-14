@@ -405,6 +405,7 @@ struct SidebarCompactAgentStatusTests {
 
     @Test
     func settingDefaultsOffAndInvalidatesCachedSnapshots() {
+        let workspaceId = UUID()
         let off = SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults())
         #expect(!off.compactsAgentStatus)
 
@@ -414,8 +415,8 @@ struct SidebarCompactAgentStatusTests {
         #expect(on.compactsAgentStatus)
 
         #expect(
-            SidebarWorkspaceSnapshotFactory.presentationKey(settings: off, showsAgentActivity: true, customColorHex: nil)
-                != SidebarWorkspaceSnapshotFactory.presentationKey(settings: on, showsAgentActivity: true, customColorHex: nil)
+            SidebarWorkspaceSnapshotFactory.presentationKey(workspaceId: workspaceId, settings: off, showsAgentActivity: true, customColorHex: nil)
+                != SidebarWorkspaceSnapshotFactory.presentationKey(workspaceId: workspaceId, settings: on, showsAgentActivity: true, customColorHex: nil)
         )
     }
 
