@@ -143,7 +143,7 @@ describe("dashboard.account.billing", () => {
     const body = await response.json();
     expect(body.selectedTeamId).toBe("user-pro");
     expect(body.team).toBeNull();
-    expect(body.personal.planStatus).toEqual({ isPro: true, planId: "pro", billingManagement: "stripe", billingSource: "stripe", manageUrl: null, foundersEdition: false });
+    expect(body.personal.planStatus).toEqual({ isPro: true, planId: "pro", billingManagement: "stripe", billingSource: "stripe", manageUrl: null, appStoreSubscription: false, foundersEdition: false });
     expect(body.personal.subscription).toEqual({
       plan: "pro",
       status: "active",
@@ -416,6 +416,22 @@ describe("dashboard billing screen", () => {
     expect(html).toContain("Billed through the App Store");
     expect(html).toContain('href="https://apps.apple.com/account/subscriptions"');
     expect(html).not.toContain('href="/api/billing/portal"');
+  });
+
+  test("an App Store subscription in billing retry past grace shows the App Store notice, not checkout", async () => {
+    // It grants no plan now, but Apple charges again if a retry succeeds.
+    appleRows = [{
+      ...appleMaxRow(),
+      status: "billing_retry",
+      expiresAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+      gracePeriodExpiresAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000),
+    }];
+
+    const html = await renderBillingPage();
+
+    expect(html).toContain("Billed through the App Store");
+    expect(html).toContain('href="https://apps.apple.com/account/subscriptions"');
+    expect(html).not.toContain("/api/billing/checkout");
   });
 
   test("keeps Stripe management beside the App Store notice when both bill the user", async () => {

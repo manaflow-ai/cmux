@@ -360,13 +360,19 @@ async function stripePersonalCheckout(
     if (hasExistingPersonalSubscription(stripeBillingStatus)) {
       return existingSubscriptionRedirect(request, user.id, plan, interval, stripeBillingStatus, attribution);
     }
-    const status = await resolveProPlanStatus(user, { stripeBillingStatus });
     // An App Store subscriber changes plans in the App Store; a Stripe
     // subscription on top would bill them twice for one entitlement. That
     // includes an App Store subscription that grants nothing right now but
     // can still charge (billing retry past grace, auto-renew on): if Apple
     // recovers it, both would bill. A failed read throws: fail closed.
-    if (status.billingSource === "apple" || await appleSubscriptionBlockingStripeCheckout(user.id)) {
+    const appStoreSubscription = await appleSubscriptionBlockingStripeCheckout(user.id);
+    if (appStoreSubscription) {
+      captureCheckoutDecision(user.id, plan, appStoreSubscription.planId, "app_store_managed", attribution, interval);
+      return NextResponse.redirect(new URL("/dashboard/billing", requestOrigin(request)));
+    }
+    const status = await resolveProPlanStatus(user, { stripeBillingStatus });
+    // A granting Sandbox plan (an allowlisted tester) is App Store managed too.
+    if (status.billingSource === "apple") {
       captureCheckoutDecision(user.id, plan, status.planId, "app_store_managed", attribution, interval);
       return NextResponse.redirect(new URL("/dashboard/billing", requestOrigin(request)));
     }

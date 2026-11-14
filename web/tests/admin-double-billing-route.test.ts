@@ -90,7 +90,7 @@ describe("GET /api/admin/subscriptions/double-billing", () => {
 
   test("a storage failure is 503", async () => {
     currentUser = admin;
-    listIncidents.mockImplementationOnce(async () => { throw new Error("db down"); });
-    expect((await GET(request())).status).toBe(503);
+    const failing = createDoubleBillingHandlers({ store: { listIncidents: async () => { throw new Error("db down"); } } });
+    expect((await failing.GET(request())).status).toBe(503);
   });
 });

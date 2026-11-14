@@ -1186,7 +1186,7 @@ describe("billing checkout route", () => {
       expect(createStripeSession).not.toHaveBeenCalled();
     });
 
-    test.each([
+    test.each<[string, Record<string, unknown>]>([
       ["a Sandbox row (free, never charges)", { environment: "Sandbox" }],
       ["billing retry with auto-renew off (Apple stops retrying)", { autoRenewEnabled: false }],
       ["billing retry past Apple's 60-day retry window (a missed EXPIRED)", { expiresAt: new Date(Date.now() - 61 * DAY) }],
