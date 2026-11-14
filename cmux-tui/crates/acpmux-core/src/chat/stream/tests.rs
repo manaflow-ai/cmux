@@ -1295,6 +1295,90 @@ fn a_page_and_a_resume_asked_past_their_bounds_hold_them() {
     });
 }
 
+/// A sink that takes every frame and keeps what it was given: each frame's sid and kind, and
+/// the sids it was told were dropped.
+#[derive(Default)]
+struct Recorder {
+    offers: Mutex<Vec<(String, FrameKind)>>,
+    dropped: Mutex<Vec<String>>,
+}
+
+impl OfferSink for Recorder {
+    fn offer(&self, sid: &str, frame: Frame, _cursor: Cursor) -> Offer {
+        self.offers.lock().unwrap().push((sid.to_owned(), frame.kind));
+        Offer::Taken
+    }
+    fn fail(&self, _sid: &str) {}
+    fn dropped(&self, sid: &str) {
+        self.dropped.lock().unwrap().push(sid.to_owned());
+    }
+    fn control(&self, _sid: &str) -> Option<Arc<conn::SubscriptionControl>> {
+        Some(Arc::default())
+    }
+    fn metrics(&self) -> Arc<ConnectionMetrics> {
+        Arc::default()
+    }
+}
+
+/// An actor's state at its source's end, as the actor reads it, and ready.
+fn ready_state(chat: &Chat) -> ActorState {
+    let config = chat.config.lock().unwrap().clone();
+    let mut state = crate::chat::open_state(config).unwrap();
+    let stop = AtomicBool::new(false);
+    while !crate::chat::read_history(&mut state, &stop).unwrap() {}
+    state.ready = true;
+    crate::chat::checkpoint(&mut state).unwrap();
+    state
+}
+
+fn subscriber(state: &ActorState, sid: &str, sink: Arc<dyn OfferSink>, phase: Phase) -> Subscriber {
+    Subscriber {
+        conn: 1,
+        sid: sid.to_owned(),
+        sink,
+        person: person_id(None),
+        edition: state.edition,
+        phase,
+        taken: 0,
+    }
+}
+
+/// A resume whose way to the record after its cursor meets a header that is not the next
+/// record's: its size cannot be measured, so it gets a window, and the step ends in a rebuild
+/// from raw, as one that refused a record does. The record is 600 rows back, where the window
+/// never reads it, so only the measure meets the damage.
+#[test]
+fn a_resume_that_cannot_be_measured_past_a_damaged_header_ends_its_step_in_a_rebuild() {
+    let lines: Vec<String> = (1..=300).flat_map(|n| turn(n, &format!("reply {n}"))).collect();
+    let chat = Chat::new(&lines);
+    let mut state = ready_state(&chat);
+    assert!(state.log.last_seq() > 600, "{} records", state.log.last_seq());
+    // The header of a record at or before the cursor gets another seq.
+    let cursor = 10;
+    let segment = chat.book().join("rows/000001.seg");
+    let mut bytes = fs::read(&segment).unwrap();
+    let damaged = (1..=cursor)
+        .filter_map(|id| state.log.row(id))
+        .map(|row| row.off as usize - log::HEADER_LEN)
+        .find(|&at| {
+            let seq = u64::from_le_bytes(bytes[at + 4..at + 12].try_into().unwrap());
+            (2..=cursor).contains(&seq)
+        })
+        .expect("a record between seq.idx's first entry and the cursor");
+    bytes[damaged + 4..damaged + 12].copy_from_slice(&u64::MAX.to_le_bytes());
+    fs::write(&segment, &bytes).unwrap();
+    let sink = Arc::new(Recorder::default());
+    let resuming = Phase::Resuming { cursor, checked: false };
+    let sub = subscriber(&state, "r", sink.clone(), resuming);
+    state.subs.list.push(sub);
+    let stepped = step(&mut state);
+    assert_eq!(*sink.offers.lock().unwrap(), [("r".to_owned(), FrameKind::Window)]);
+    assert!(
+        matches!(stepped, Err(ChatError::Book(log::Error::Rebuild(_)))),
+        "the step did not end in a rebuild: {stepped:?}"
+    );
+}
+
 /// Row 3c's release gates, beside the tests whose chats and clients they use.
 #[cfg(target_os = "linux")]
 #[path = "gates_tests.rs"]
