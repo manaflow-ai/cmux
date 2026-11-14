@@ -76,11 +76,14 @@ enum AgentHandlers {
         context.services.pages.register(context.services.macScreenTabs)
         MacScreenActions(pages: context.services.macScreenPages, selectedTab: { context.scope().tab?.id.rawValue },
                          providerKey: { id, machine in
-                             if let machine, context.targetTab(id, ActionInvocation().onMachine(machine)) == nil,
-                                context.services.paneController(showingTab: id)?.daemon.machineID != machine { return nil }
+                             if let machine {
+                                 guard let daemon = context.services.machines.anyDaemon(machine: machine) else { return nil }
+                                 if context.services.pages.storeKey(of: id) != nil { return context.services.pages.storeKey(of: id, in: daemon.store) }
+                                 guard context.services.paneController(showingTab: id)?.daemon.machineID == machine else { return nil }
+                             }
                              return context.services.pages.storeKey(of: id) ?? id
                          }, open: { record, invocation, byPerson in
-                             let pane = try context.pane(invocation)
+                             guard let pane = context.paneController(invocation) else { return }
                              context.services.macScreenTabs.open(try record(), in: pane, focus: ActionRunScope.viewChangeAllowed(), byPerson: byPerson)
                          }, refusal: { registry.refuse(thrown: $0) }).bind(into: registry)
         context.services.cmuxRemoteActions.bind(into: registry)
