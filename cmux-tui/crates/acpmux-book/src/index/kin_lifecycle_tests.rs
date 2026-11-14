@@ -354,6 +354,9 @@ pub(super) fn randomized_hot_lifecycle() {
             _ => unreachable!(),
         }
         assert_kin(&index, step + 1, &parents, &forks, &folders);
+        if step % 1_000 == 999 {
+            assert_independent_kin_oracle(&index);
+        }
     }
 
     assert!(attempted.iter().all(|count| *count > 0), "every operation must run: {attempted:?}");
@@ -444,6 +447,7 @@ fn deep_handle_refresh_matches_a_fresh_table_at_the_64_level_edge() {
             expected.rows.iter().map(|row| row.key()).collect::<Vec<_>>(),
             "stale handle at chain depth {depth}",
         );
+        assert_eq!(actual.deeper, expected.deeper, "deeper mismatch at chain depth {depth}");
     }
 }
 
