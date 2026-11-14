@@ -42,6 +42,43 @@ final class HomeNewMessageUITests: XCTestCase {
         return to
     }
 
+    /// New Message's message bar works before a conversation exists (user report 2026-11-13: the
+    /// + and the microphone did nothing): the + opens the apps menu with Photos, a tap on the
+    /// record button says to hold it, and the list scrolls under To: and the bar (native edge effect).
+    @MainActor
+    func testPlusAndRecordWorkBeforeAConversationExists() {
+        for look in Look.allCases {
+            let app = launch(look: look)
+            _ = openSheet(app, look)
+            XCTAssertTrue(app.cells["conversation.compose.suggestion.chief:cloud"].waitForExistence(timeout: 10),
+                          "the Chiefs\n\(app.debugDescription)")
+            attach(app, look, "edge-00-rest")
+            app.tables["conversation.compose.suggestions"].swipeUp()
+            Self.pause(0.8)
+            attach(app, look, "edge-01-scrolled-under-bars")
+            app.tables["conversation.compose.suggestions"].swipeDown()
+            Self.pause(0.6)
+
+            let record = app.buttons["conversation.composer.record"]
+            XCTAssertTrue(record.waitForExistence(timeout: 5), "record button\n\(app.debugDescription)")
+            XCTAssertTrue(record.isHittable, "record button takes touches")
+            record.tap()
+            XCTAssertTrue(app.staticTexts["conversation.recording.holdHint"].waitForExistence(timeout: 3), "a tap shows the hold hint")
+            attach(app, look, "mic-01-hold-hint")
+
+            let plus = app.buttons["conversation.composer.plus"]
+            XCTAssertTrue(plus.isEnabled, "the + is enabled")
+            plus.tap()
+            let photos = app.descendants(matching: .any)["conversation.apps.photo.on.rectangle"]
+            XCTAssertTrue(photos.waitForExistence(timeout: 5), "the + opens the apps menu with Photos\n\(app.debugDescription)")
+            attach(app, look, "plus-01-apps-menu")
+            photos.tap()
+            Self.pause(1.5)
+            attach(app, look, "plus-02-photo-picker")
+            app.terminate()
+        }
+    }
+
     /// A1–A4, A8, A9: the sheet, the sections before typing, typed matches, tokens, addresses and refusals.
     @MainActor
     func testSectionsTypingTokensAndRefusals() {
@@ -260,6 +297,8 @@ final class HomeNewMessageUITests: XCTestCase {
             _ = openSheet(app, look)
             let newChief = app.cells["conversation.compose.action.newChief"]
             XCTAssertTrue(newChief.waitForExistence(timeout: 10), "New Chief row\n\(app.debugDescription)")
+            // The list runs under the message bar (native edge effect): bring the row above it.
+            Self.scrollAbove(app, newChief)
             newChief.tap()
             XCTAssertTrue(app.alerts["New Chief"].waitForExistence(timeout: 8), "New Chief's prompt on Home\n\(app.debugDescription)")
             attach(app, look, "18-new-chief-prompt")
@@ -273,8 +312,8 @@ final class HomeNewMessageUITests: XCTestCase {
             XCTAssertTrue((macChief.value as? String ?? "").contains("Main"), "tagged Main: \(macChief.value ?? "")")
             let invite = app.cells["conversation.compose.action.invite"]
             XCTAssertTrue(invite.waitForExistence(timeout: 5), "Invite for a team of one\n\(app.debugDescription)")
-            // N2: the Invite row on screen (the list scrolls above the message bar).
-            if !invite.isHittable { app.tables["conversation.compose.suggestions"].swipeUp() }
+            // N2: the Invite row on screen, above the message bar the list runs under.
+            Self.scrollAbove(app, invite)
             Self.pause(0.6)
             XCTAssertTrue(invite.isHittable, "the Invite row is on screen")
             attach(app, look, "19-mac-only-invite")
@@ -336,6 +375,17 @@ final class HomeNewMessageUITests: XCTestCase {
         let text = field.value as? String ?? ""
         guard !text.isEmpty, text != "To:" else { return }
         field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: text.count))
+    }
+
+    /// The list runs under the message bar: swipe until `row` sits wholly above the bar.
+    @MainActor
+    static func scrollAbove(_ app: XCUIApplication, _ row: XCUIElement) {
+        let bar = app.buttons["conversation.composer.plus"]
+        for _ in 0..<4 {
+            guard bar.exists, row.exists, row.frame.maxY > bar.frame.minY - 4 else { return }
+            app.tables["conversation.compose.suggestions"].swipeUp()
+            pause(0.6)
+        }
     }
 
     static func pause(_ seconds: Double) {

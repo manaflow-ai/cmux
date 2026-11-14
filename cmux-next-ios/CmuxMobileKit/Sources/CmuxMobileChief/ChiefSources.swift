@@ -54,6 +54,10 @@ public final class ChiefSources {
     public private(set) var turningOnChief: String?
     /// Why the last Turn On did not take, while that chief's brain is still off (``offCard``).
     public private(set) var turnOnRefusal: ChiefOffCard.Refusal?
+    /// The name of the Chief a New Chief is making, from the Create tap until the read after it
+    /// lands (or the create fails): Home shows it at once instead of nothing for the seconds the
+    /// create, its brain's turn-on and the read after them take.
+    public private(set) var creatingChief: String?
 
     /// The model and effort a Chief made or turned on here runs with.
     nonisolated static let defaultModel = "claude-opus-5-5"
@@ -228,6 +232,7 @@ public final class ChiefSources {
         brainsAvailable = false
         turningOnChief = nil
         turnOnRefusal = nil
+        creatingChief = nil
         pathMonitor?.cancel()
         pathMonitor = nil
         lastPath = nil
@@ -292,7 +297,11 @@ public final class ChiefSources {
     /// Reads `chief.list` (and the chief's brain state) and points the
     /// Cloud session at the preferred chief's main conversation.
     public func refresh() {
-        guard let http, let userID else { return }
+        guard let http, let userID else {
+            // No read follows to replace the new Chief's row.
+            creatingChief = nil
+            return
+        }
         generation += 1
         let current = generation
         lookup?.cancel()
@@ -308,6 +317,9 @@ public final class ChiefSources {
     private func apply(_ found: Lookup, userID: String, http: ChiefCloudHTTP) {
         // A Turn On's follow-up read (or any newer one) answered: the card shows what it found.
         turningOnChief = nil
+        // Only the create's own read (after it ends) drops the new Chief's row: a wake's read
+        // landing while the create runs would flash Home's old state.
+        if !isChanging { creatingChief = nil }
         // A failed look (no network, a failed read) never takes down a Cloud Chief that works: only an
         // answer does (the list without it: archived or deleted; its brain turned off; no brains here).
         if case let .ready(current) = cloudState, case let .unavailable(_, nil, chiefs, brains) = found,
@@ -346,18 +358,30 @@ public final class ChiefSources {
         isChanging = true
         changeError = nil
         defer { isChanging = false }
-        let display = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let display = trimmed.isEmpty ? String(localized: "Chief") : trimmed
+        // Home shows the new Chief at once; the read after the turn-on replaces it (``apply``).
+        creatingChief = display
+        let chief: CloudChief
         do {
-            let chief = try await Self.create(http, displayName: display.isEmpty ? String(localized: "Chief") : display,
-                                              first: cloudChiefs.isEmpty)
-            // Open the new chief even if its brain then refuses to turn on.
-            selectedChiefID = chief.id
-            try await Self.turnOn(http, chiefID: chief.id)
-            refresh()
+            chief = try await Self.create(http, displayName: display, first: cloudChiefs.isEmpty)
         } catch {
+            creatingChief = nil
             changeError = Self.changeMessage(error)
             refresh()
+            return
         }
+        // Open the new chief even if its brain then refuses to turn on.
+        selectedChiefID = chief.id
+        do {
+            try await Self.turnOn(http, chiefID: chief.id)
+            turnOnRefusal = nil
+        } catch {
+            // Home's off card says why (Try Again, or no button when the account may not run
+            // the model), as a Turn On's refusal does, never a bare "Chief Is Off".
+            turnOnRefusal = ChiefOffCard.refusal(of: chief.id, for: error)
+        }
+        refresh()
     }
 
     /// Turns a chief's Cloud brain on (``defaultModel``, ``defaultEffort``):
