@@ -541,10 +541,12 @@ fn stop(place: &Place) {
             status.is_some_and(|status| live(&status) && held(&place.git_dir))
         };
         // The marker goes first: a run whose status says copying may not
-        // hold its lock yet, and it checks the marker once it does.
+        // hold its lock yet, and it checks the marker once it does. Only the
+        // marker's name is used, so its open writes nothing: no file that
+        // has this name as a second name changes.
         if read_status(&place.git_dir).is_some_and(|status| live(&status)) {
             let mut options = OpenOptions::new();
-            options.create(true).truncate(true).write(true);
+            options.create(true).truncate(false).write(true);
             drop(open_as_own(&mut options, &place.git_dir.join(CANCEL_FILE)));
         }
         if unfinished(read_status(&place.git_dir)) {
@@ -719,10 +721,39 @@ fn open_as_own(options: &mut OpenOptions, path: &Path) -> Option<File> {
 
 /// Opens the log of the worktree whose git folder is `git_dir`, for a read
 /// and for writes at its end, and makes it when there is none
-/// ([`open_as_own`]).
+/// ([`open_as_own`]). A log that has a second name is not written: its
+/// lines would go into the file at that name too. The log's name is then
+/// removed and the log is made new, as the second name of a JSON file is
+/// ([`write_own`]): what comes to the name after the removal stops the open.
 fn open_log(git_dir: &Path) -> Option<File> {
+    let path = git_dir.join(LOG_FILE);
     let mut options = OpenOptions::new();
-    open_as_own(options.create(true).read(true).append(true), &git_dir.join(LOG_FILE))
+    let log = open_as_own(options.create(true).read(true).append(true), &path)?;
+    if has_one_name(&log, &path) {
+        return Some(log);
+    }
+    drop(log);
+    let _ = fs::remove_file(&path);
+    let mut options = OpenOptions::new();
+    open_as_own(options.create_new(true).read(true).append(true), &path)
+}
+
+/// Whether the open file `file` is the file at `path` and has no other name.
+/// One look at the name gives the file and the count of its names together,
+/// so no change between two looks is missed.
+#[cfg(unix)]
+fn has_one_name(file: &File, path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt as _;
+    let (Ok(open), Ok(named)) = (file.metadata(), fs::symlink_metadata(path)) else {
+        return false;
+    };
+    named.nlink() == 1 && named.dev() == open.dev() && named.ino() == open.ino()
+}
+
+/// The count of a file's names is not read here.
+#[cfg(not(unix))]
+fn has_one_name(_file: &File, _path: &Path) -> bool {
+    true
 }
 
 /// Writes `bytes` as the whole of the JSON file `path` that cmux keeps in a
