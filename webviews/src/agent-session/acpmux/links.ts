@@ -64,6 +64,7 @@ function markRow(row: HTMLElement): true {
 export function scrollToTurn(turnId: string, root: ParentNode = document): boolean {
   for (const row of root.querySelectorAll<HTMLElement>("[data-turn-id]")) {
     if (row.dataset.turnId !== turnId) continue;
+    revealIntent(root)?.programmatic();
     row.scrollIntoView({ block: "center" });
     return markRow(row);
   }
@@ -76,6 +77,7 @@ export function scrollToTurn(turnId: string, root: ParentNode = document): boole
 export function scrollToRow(rowId: string, root: ParentNode = document): boolean {
   for (const row of root.querySelectorAll<HTMLElement>("[data-row-id]")) {
     if (row.dataset.rowId !== rowId && row.dataset.rowId !== `${rowId}:fold`) continue;
+    revealIntent(root)?.programmatic();
     row.scrollIntoView({ block: "center" });
     return markRow(row);
   }

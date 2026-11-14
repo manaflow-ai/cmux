@@ -152,9 +152,10 @@ describe("revealing one message", () => {
   );
 
   test("scrolls to a row by id, and to nothing for an id no row carries", () => {
-    const { root, scrolled } = transcript(["assistant-2"]);
+    const { root, scrolled, scroller } = transcript(["assistant-2"]);
 
     expect(scrollToRow("assistant-2", root)).toBe(true);
+    expect(userScrollIntent(scroller as unknown as HTMLElement).consumeProgrammatic()).toBe(true);
     expect(scrollToRow("assistant-3", root)).toBe(false);
     expect(scrolled).toEqual(["assistant-2"]);
   });

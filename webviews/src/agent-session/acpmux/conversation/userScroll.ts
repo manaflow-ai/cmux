@@ -24,7 +24,9 @@ function createIntent() {
   let at = -Infinity;
   let generation = 0;
   let pressed = false;
+  let programmatic = false;
   const listeners = new Set<Listener>();
+  const programmaticListeners = new Set<() => void>();
   const quietListeners = new Set<() => void>();
   let quietTimer: ReturnType<typeof setTimeout> | undefined;
   const scheduleQuiet = () => {
@@ -50,6 +52,19 @@ function createIntent() {
       const started = generation;
       return () => generation === started;
     },
+    /// An explicit jump (a link, Find or a saved place) owns the next transcript scroll. It is
+    /// separate from reader input so a streamed layout cannot reclaim the bottom before the native
+    /// scroll event arrives.
+    programmatic() {
+      programmatic = true;
+      generation += 1;
+      for (const listener of programmaticListeners) listener();
+    },
+    consumeProgrammatic() {
+      const owned = programmatic;
+      programmatic = false;
+      return owned;
+    },
     mark(event?: Event) {
       at = performance.now();
       generation += 1;
@@ -74,6 +89,12 @@ function createIntent() {
         listeners.delete(listener);
       };
     },
+    subscribeProgrammatic(listener: () => void) {
+      programmaticListeners.add(listener);
+      return () => {
+        programmaticListeners.delete(listener);
+      };
+    },
     subscribeQuiet(listener: () => void) {
       quietListeners.add(listener);
       scheduleQuiet();
@@ -89,6 +110,7 @@ function createIntent() {
       this.mark();
       at = -Infinity;
       pressed = false;
+      programmatic = false;
       clearTimeout(quietTimer);
       quietTimer = undefined;
     },

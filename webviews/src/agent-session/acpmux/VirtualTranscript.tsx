@@ -3468,6 +3468,19 @@ export function VirtualTranscript({
     // A hidden scroller has no height, so every offset would read as scrolled up (cx-t0zqt): the view
     // keeps following until the reader scrolls a visible one.
     if (node.clientHeight === 0) return;
+    const explicit = userScrollIntent(node).consumeProgrammatic();
+    if (explicit) {
+      const next = node.scrollTop;
+      scrolledTo.current = { top: next, atLatest: false };
+      seenAnchor.current = null;
+      followTrace.set(next);
+      queueScroll(next, false, immediate);
+      if (onAnchor) {
+        clearTimeout(anchorTimer.current);
+        anchorTimer.current = setTimeout(reportAnchor, SCROLL_ANCHOR_SETTLE_MS);
+      }
+      return;
+    }
     // The room above the loaded rows holds history still to load (conversation/olderReserve.ts):
     // the reader stops at the loaded rows' top, as at the top of the chat, until a page lands into
     // the room. A view inside it showed nothing, and the pages then landed under it unseen.
@@ -3595,6 +3608,19 @@ export function VirtualTranscript({
     const intent = userScrollIntent(node);
     const detachIntent = attachUserScrollIntent(node);
     const followIntent = (next: boolean) => followRef.current(next);
+    const explicitJump = () => {
+      // A link/Find jump is reader-requested, but it may move the DOM before its native scroll
+      // event. Release bottom follow synchronously so a stream cannot reclaim the view in that gap.
+      revealing.current = undefined;
+      revealWindow.current = 0;
+      followRequest.current = undefined;
+      stopBottomStackFold();
+      foldAnchor.current = undefined;
+      stopJump();
+      followIntent(false);
+      scrolledTo.current = { top: node.scrollTop, atLatest: false };
+    };
+    const unsubscribeProgrammatic = intent.subscribeProgrammatic(explicitJump);
     const cancelProgrammatic = (event?: Event) => {
       revealing.current = undefined;
       revealWindow.current = 0;
@@ -3840,6 +3866,7 @@ export function VirtualTranscript({
       wheelGlide.current = undefined;
       stopJump();
       unsubscribeIntent();
+      unsubscribeProgrammatic();
       unsubscribeQuiet();
       detachIntent();
       if (findFrame.current !== undefined) cancelAnimationFrame(findFrame.current);
