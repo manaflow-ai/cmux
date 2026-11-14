@@ -70,6 +70,9 @@ import UIKit
         if grid == nil { tui.enterTUI() }
         try await TerminalPredictionInputTests.waitUntil(5) { model.isTUI && screen.surface.superview?.superview?.isHidden == false }
         try #require(model.isTUI, "the tab never showed the full-screen app")
+        let marker = grid == nil ? "HEADER" : "Mac grid"
+        try await TerminalPredictionInputTests.waitUntil(5) { screen.surface.activeAreaText()?.contains(marker) == true }
+        try #require(screen.surface.activeAreaText()?.contains(marker) == true, "the app's screen was never drawn")
         // The demo's frames land; SwiftUI may lay the page out again.
         try await Task.sleep(for: .milliseconds(500)) // test: the page's layout passes settle
         screen.view.setNeedsLayout()
@@ -90,6 +93,8 @@ import UIKit
         session.enterTUI()
         try await TerminalPredictionInputTests.waitUntil(5) { model.isTUI && screen.surface.superview?.superview?.isHidden == false }
         try #require(model.isTUI, "the page never showed the full-screen app")
+        try await TerminalPredictionInputTests.waitUntil(5) { screen.surface.activeAreaText()?.contains("HEADER") == true }
+        try #require(screen.surface.activeAreaText()?.contains("HEADER") == true, "the app's screen was never drawn")
         screen.view.setNeedsLayout()
         screen.view.layoutIfNeeded()
         return Page(screen: screen, session: session, window: window)
