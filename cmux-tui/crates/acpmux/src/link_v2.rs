@@ -23,7 +23,7 @@ use serde::Deserialize;
 use std::borrow::Cow;
 use std::io;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll, Waker};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
@@ -186,6 +186,8 @@ pub struct Slot {
     state: Mutex<SlotState>,
     filled: Notify,
     counters: Option<Arc<Shared>>,
+    reader_ended: AtomicBool,
+    ended: Notify,
 }
 
 #[derive(Default)]
@@ -197,7 +199,36 @@ struct SlotState {
 
 impl Slot {
     pub fn new(shared: Option<Arc<Shared>>) -> Arc<Self> {
-        Arc::new(Self { state: Mutex::default(), filled: Notify::new(), counters: shared })
+        Arc::new(Self {
+            state: Mutex::default(),
+            filled: Notify::new(),
+            counters: shared,
+            reader_ended: AtomicBool::new(false),
+            ended: Notify::new(),
+        })
+    }
+
+    /// The transport's reader ended: no connection writes here again, a waiting write fails
+    /// now, and a wait to hand the connection a frame is cancelled.
+    fn end_reader(&self) {
+        self.reader_ended.store(true, Ordering::Release);
+        self.retire();
+        self.ended.notify_waiters();
+    }
+
+    fn is_reader_ended(&self) -> bool {
+        self.reader_ended.load(Ordering::Acquire)
+    }
+
+    /// Resolves once the transport's reader has ended.
+    pub async fn reader_ended(&self) {
+        loop {
+            let ended = self.ended.notified();
+            if self.is_reader_ended() {
+                return;
+            }
+            ended.await;
+        }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, SlotState> {
@@ -541,6 +572,11 @@ pub struct Link {
 
 impl Link {
     /// The serving end of a link whose writer drains `slot`, when links serve the stream.
+    /// The slot this link's connection writes to.
+    pub fn slot(&self) -> Arc<Slot> {
+        self.slot.clone()
+    }
+
     pub fn serving(hub: &Arc<crate::hub::Hub>, slot: Arc<Slot>) -> Option<Self> {
         let v2 = hub.link_v2.v2()?.clone();
         Some(Self { hub: hub.clone(), v2, slot, running: None })
@@ -557,6 +593,12 @@ impl Link {
             self.counters().drop_one();
             return;
         };
+        // Its reader gone, a link starts no connection and hands it nothing.
+        if self.slot.is_reader_ended() {
+            self.end();
+            self.counters().drop_one();
+            return;
+        }
         let running = self.running.as_ref().is_some_and(|(adapter, _)| !adapter.closed());
         if frame.is_hello() {
             if running {
@@ -601,6 +643,25 @@ impl Link {
         if let Some((adapter, _task)) = self.running.take() {
             adapter.close();
             adapter.slot.retire();
+        }
+    }
+}
+
+/// Held by a transport's read task. Dropped when the reader ends (end of input, a read error,
+/// or the abort a revoked credential sends), it ends the link's slot: the link's connection
+/// is ended even while the peer stops reading, so revoking a machine stops its access at once.
+pub struct ReaderEnd(Option<Arc<Slot>>);
+
+impl ReaderEnd {
+    pub fn new(slot: Option<Arc<Slot>>) -> Self {
+        Self(slot)
+    }
+}
+
+impl Drop for ReaderEnd {
+    fn drop(&mut self) {
+        if let Some(slot) = &self.0 {
+            slot.end_reader();
         }
     }
 }

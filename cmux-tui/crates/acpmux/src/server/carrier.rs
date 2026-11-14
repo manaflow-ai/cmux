@@ -590,7 +590,9 @@ where
     // The owner's link may carry the v2 list stream: its frames wait here, never in `out_tx`.
     let slot = hub.link_v2.slot();
     let writer_slot = slot.clone();
+    let reader_end = crate::link_v2::ReaderEnd::new(slot.clone());
     let reader = tokio::spawn(async move {
+        let _reader_end = reader_end;
         while let Some(Ok(frame)) = source.next().await {
             match frame {
                 Frame::Text(t) if in_tx.send(t.to_string()).await.is_err() => break,

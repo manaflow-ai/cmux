@@ -1275,7 +1275,9 @@ pub async fn serve_ws_until(
             let (uploads, replies) = tokio::sync::watch::channel(None);
             let frames = upload_frames::spawn(hub.clone(), origin, proof, replies);
             let read_shutdown = shutdown.clone();
+            let reader_end = crate::link_v2::ReaderEnd::new(slot.clone());
             let reader = tokio::spawn(async move {
+                let _reader_end = reader_end;
                 tokio::select! {
                     biased;
                     () = read_shutdown.closing() => {},
@@ -1775,12 +1777,20 @@ async fn serve_connection_from(
         // A v2 frame, known by its first bytes and never parsed into a `Value` (`link_v2.rs`).
         // Its wait for the connection to read the frame before it ends when the link does.
         if crate::link_v2::is_frame_line(&line) {
+            // The wait also ends when the transport's reader does (a revoked credential).
             match link_v2.as_mut() {
-                Some(link) => tokio::select! {
-                    biased;
-                    () = conn.out.closed() => break,
-                    () = link.take(&line) => {}
-                },
+                Some(link) => {
+                    let slot = link.slot();
+                    let reader_ended = tokio::select! {
+                        biased;
+                        () = conn.out.closed() => break,
+                        () = slot.reader_ended() => true,
+                        () = link.take(&line) => false,
+                    };
+                    if reader_ended {
+                        link.end();
+                    }
+                }
                 None => hub.link_v2.counters.drop_one(),
             }
             continue;

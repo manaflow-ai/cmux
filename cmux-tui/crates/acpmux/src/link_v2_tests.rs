@@ -968,6 +968,64 @@ async fn a_link_row_carries_what_v1_watch_gives_the_same_peer() {
 /// A connection that stopped reading (its requests wait on replies its stopped writer cannot
 /// write) still ends when its link does: the task returns, its subscription is cleaned up, and
 /// the slot holds no bytes of it.
+/// A revoked credential aborts only the transport's reader; the output stays open while the
+/// peer stops reading. The reader's end alone ends the link: the wait to hand the connection a
+/// frame is cancelled, the connection's waiting write fails, and its subscription is cleaned up
+/// before the peer could read again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_reader_ending_with_the_output_open_ends_a_stuck_link() {
+    let hub = memory_hub();
+    let mut writer = peers_on(&hub);
+    writer.apply(row("local", "a", 10, "running")).unwrap();
+    let core = v2_hub(&hub);
+    let mut wire = link(&hub);
+    let mut v1 = Vec::new();
+    wire.send(hello_frame()).await;
+    assert_eq!(wire.frame(&mut v1).await.0, 1);
+    wire.send(request_frame(
+        json!({"method":"sub","params":{"sid":"s","stream":"list","view":"live","cursor":0}}),
+    ))
+    .await;
+    assert_eq!(wire.frame(&mut v1).await.0, 2);
+    assert_eq!(core.subscriber_count(), 1);
+    wire.stop_writer.send_replace(true);
+    let refused = request_frame(
+        json!({"method":"sub","params":{"sid":"x","stream":"list","view":"live","anchor":"end"}}),
+    );
+    let to_daemon = wire.to_daemon.clone();
+    let flood = tokio::spawn(async move {
+        for _ in 0..200 {
+            if to_daemon.send(refused.clone()).await.is_err() {
+                break;
+            }
+        }
+    });
+    tokio::time::timeout(WAIT, async {
+        while !wire.slot.holds() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("a reply waits in the slot");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    flood.abort();
+    let Wire { to_daemon, from_daemon, stop_writer, slot, serving } = wire;
+    // The reader ends; the writer stays stopped and the output open.
+    drop(to_daemon);
+    drop(crate::link_v2::ReaderEnd::new(Some(slot.clone())));
+    tokio::time::timeout(WAIT, async {
+        while core.subscriber_count() != 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the connection ended and its subscription was cleaned up with the output open");
+    tokio::time::timeout(WAIT, serving).await.expect("the link ends").unwrap();
+    assert!(!slot.holds(), "no frame waits for a peer that reads again");
+    assert_eq!(hub.link_v2.counters.held_bytes.load(Ordering::Relaxed), 0);
+    drop((from_daemon, stop_writer));
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_connection_whose_writer_waits_ends_with_its_link() {
     let hub = memory_hub();
