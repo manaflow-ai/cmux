@@ -80471,7 +80471,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Pauses the machine (--target machine:<id>); the run ends when the server has paused it. Returns no fields. `cmux cloud resume-machine --target machine:<id>` starts it again.",
+      "description" : "Pauses the machine (--target machine:<id>); the run ends when the server has paused it, answering machine_id, target and status `paused`. A pause that takes longer than 30 s answers `pending: true` with status `pausing` and goes on; `cmux vm status` shows when it lands. `cmux cloud resume-machine --target machine:<id>` starts it again.",
       "focuses" : false,
       "group" : "CloudActionCatalog",
       "hint" : null,
@@ -80524,7 +80524,7 @@
       "title" : "Pause Machine",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
-      "waitsForResult" : false
+      "waitsForResult" : true
     },
     {
       "arguments" : [
@@ -80545,7 +80545,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Resumes a paused machine (--target machine:<id>); the run ends when the server has resumed it. Returns no fields.",
+      "description" : "Resumes a paused machine (--target machine:<id>); the run ends when the server has resumed it, answering machine_id, target and status `running`. A resume that takes longer than 30 s answers `pending: true` with status `starting` and goes on; `cmux vm status` shows when it lands.",
       "focuses" : false,
       "group" : "CloudActionCatalog",
       "hint" : null,
@@ -80599,7 +80599,7 @@
       "title" : "Resume Machine",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
-      "waitsForResult" : false
+      "waitsForResult" : true
     },
     {
       "arguments" : [
