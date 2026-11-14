@@ -140,6 +140,60 @@ fn ack_rtt_tracks_a_slower_path_after_old_samples_expire() {
 }
 
 #[test]
+fn repeated_and_reordered_acks_do_not_refresh_rtt_samples() {
+    let mut e = engine();
+    e.set_frames_in_flight(2);
+    let first = e.start(0).expect("first");
+    send(&mut e, &first, true, 1_000, 0);
+    let second = e.damage(0, Rect { x: 0, y: 0, width: 8, height: 8 }, 20_000).expect("second");
+    send(&mut e, &second, false, 1_000, 20_000);
+    e.on_datagram(
+        &feedback(&Feedback { acked_frame: second.frame, ..Feedback::default() }),
+        true,
+        70_000,
+    );
+    assert_eq!(e.ack_rtt_us(), Some(50_000));
+    for (frame, now) in [(first.frame, 2_000_000), (second.frame, 3_000_000)] {
+        e.on_datagram(
+            &feedback(&Feedback { acked_frame: frame, ..Feedback::default() }),
+            true,
+            now,
+        );
+        assert_eq!(e.ack_rtt_us(), Some(50_000), "old ACKs are not new samples");
+    }
+}
+
+#[test]
+fn carrier_rtt_survives_later_acks_and_updates_existing_and_new_streams() {
+    let mut e = engine();
+    let first = e.start(0).expect("first");
+    send(&mut e, &first, true, 1_000, 0);
+    e.on_datagram(
+        &feedback(&Feedback { acked_frame: first.frame, ..Feedback::default() }),
+        true,
+        10_000,
+    );
+    e.update_frames_in_flight_from_rtt(Some(10_000));
+    e.update_frames_in_flight_from_rtt(Some(50_000));
+    e.update_frames_in_flight_from_rtt(None);
+    assert_eq!(e.ack_rtt_us(), Some(10_000), "older fallback is still present");
+    e.add_stream(3, 200, 100).expect("new popup inherits the window");
+    let damage = Rect { x: 0, y: 0, width: 8, height: 8 };
+    for i in 1..=5 {
+        for stream in [0, 3] {
+            let req = e
+                .damage(stream, damage, i * 20_000)
+                .expect("five frames fit the measured path despite the old ACK");
+            send(&mut e, &req, i == 1, 1_000, i * 20_000);
+        }
+        e.update_frames_in_flight_from_rtt(None);
+    }
+    for stream in [0, 3] {
+        assert!(e.damage(stream, damage, 120_000).is_none(), "window stays bounded");
+    }
+}
+
+#[test]
 fn bdp_window_covers_a_fifty_ms_path_at_sixty_fps() {
     // Four frame intervals cover the 50 ms RTT; the helper adds one frame
     // that is being encoded while the earlier frames await acknowledgement.

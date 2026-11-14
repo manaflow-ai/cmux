@@ -61,7 +61,6 @@ pub struct MediaSession {
     desktop: Box<dyn Desktop>,
     au: Vec<u8>,
     engine: MediaEngine,
-    max_fps: u32,
     /// Upstream media the viewer opened (rd change C4).
     upstreams: Upstreams<Box<dyn UpstreamSink>>,
     deferred_error: Option<String>,
@@ -172,7 +171,6 @@ impl MediaSession {
             desktop,
             au: Vec::new(),
             engine,
-            max_fps: cfg.max_fps,
             upstreams: Upstreams::new(sink, negotiated_caps),
             deferred_error: None,
             stats_frames_sent: 0,
@@ -256,9 +254,7 @@ impl MediaSession {
                 return reason;
             }
             if let Some(rtt_us) = carrier.take_path_rtt_us() {
-                let frames_in_flight =
-                    cmux_rd_engine::frames_in_flight_for(rtt_us, self.max_fps).max(2);
-                self.engine.set_frames_in_flight(frames_in_flight);
+                self.engine.update_frames_in_flight_from_rtt(Some(rtt_us));
             }
             for item in incoming.drain(..) {
                 match item {
@@ -281,11 +277,7 @@ impl MediaSession {
             // Socket/proxy carriers do not expose a link path event. Once a
             // cumulative frame acknowledgement arrives, use its measured RTT
             // to size the BDP-equivalent send window just like the secure link.
-            if let Some(rtt_us) = self.engine.ack_rtt_us() {
-                let frames_in_flight =
-                    cmux_rd_engine::frames_in_flight_for(rtt_us, self.max_fps).max(2);
-                self.engine.set_frames_in_flight(frames_in_flight);
-            }
+            self.engine.update_frames_in_flight_from_rtt(None);
             // Damage from the desktop.
             damage.clear();
             if let Err(e) = self.drain_settled(&mut damage) {

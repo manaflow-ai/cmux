@@ -27,6 +27,10 @@ pub use cmux_rd_core::loss::LossMeter;
 
 /// Frames kept for NACK resends.
 pub const HISTORY_FRAMES: usize = 16;
+/// Keep a short, bounded RTT history so queueing spikes do not set the window,
+/// and an earlier, faster route cannot constrain a slower route forever.
+const ACK_RTT_WINDOW_US: u64 = 1_000_000;
+const ACK_RTT_SAMPLES: usize = 64;
 /// Datagrams resent per feedback, so a hostile feedback cannot amplify.
 pub const MAX_RESENDS_PER_FEEDBACK: usize = 64;
 /// Shortest time between two forced keyframes.
@@ -329,10 +333,10 @@ pub struct MediaEngine {
     frames: u64,
     keyframes: u64,
     clock: Option<ClockEstimate>,
-    /// Minimum cumulative frame-ack round trip observed on this session.
-    /// This is a path RTT sample, not a frame decode time: the send timestamp
-    /// is recorded before packetization and the ack is cumulative.
-    ack_rtt_us: Option<u64>,
+    /// Recent cumulative frame-ack round trips: (observation time, round trip).
+    ack_rtts: VecDeque<(u64, u64)>,
+    /// A carrier's measured RTT takes precedence over the frame-ack fallback.
+    path_rtt_us: Option<u64>,
     upstreams: BTreeMap<u16, Upstream>,
 }
 
@@ -356,7 +360,8 @@ impl MediaEngine {
             frames: 0,
             keyframes: 0,
             clock: None,
-            ack_rtt_us: None,
+            ack_rtts: VecDeque::new(),
+            path_rtt_us: None,
             upstreams: BTreeMap::new(),
             cfg,
         }
@@ -384,6 +389,16 @@ impl MediaEngine {
         self.cfg.frames_in_flight = frames_in_flight;
         for state in self.streams.values_mut() {
             state.gate.set_max_in_flight(frames_in_flight);
+        }
+    }
+
+    /// Adapts the host's send window to its carrier RTT, or recent frame ACKs
+    /// while the carrier has no RTT measurement. A path event remains authoritative
+    /// on subsequent wakes, when the carrier has no new event to consume.
+    pub fn update_frames_in_flight_from_rtt(&mut self, path_rtt_us: Option<u64>) {
+        self.path_rtt_us = path_rtt_us.or(self.path_rtt_us);
+        if let Some(rtt_us) = self.path_rtt_us.or_else(|| self.ack_rtt_us()) {
+            self.set_frames_in_flight(frames_in_flight_for(rtt_us, self.cfg.max_fps).max(2));
         }
     }
 
@@ -646,10 +661,17 @@ impl MediaEngine {
         self.last_feedback_us = now_us;
         let Some(state) = self.streams.get_mut(&stream) else { return };
         if fb.acked_frame > 0
-            && let Some(sent_at_us) = state.sent_at_us.get(&fb.acked_frame).copied()
+            && let Some(sent_at_us) = state.sent_at_us.remove(&fb.acked_frame)
         {
             let sample = now_us.saturating_sub(sent_at_us);
-            self.ack_rtt_us = Some(self.ack_rtt_us.map_or(sample, |best| best.min(sample)));
+            // Sample each cumulative ACK once. Repeated keepalives and reordered
+            // feedback must not turn an old frame's age into a new RTT sample.
+            state.sent_at_us.retain(|frame, _| *frame > fb.acked_frame);
+            self.ack_rtts.retain(|(at, _)| now_us.saturating_sub(*at) <= ACK_RTT_WINDOW_US);
+            self.ack_rtts.push_back((now_us, sample));
+            while self.ack_rtts.len() > ACK_RTT_SAMPLES {
+                self.ack_rtts.pop_front();
+            }
         }
         let mut budget = MAX_RESENDS_PER_FEEDBACK;
         for nack in &fb.nacks {
@@ -778,11 +800,11 @@ impl MediaEngine {
         }
     }
 
-    /// Returns the best cumulative frame-ack RTT observed so far. Secure-link
-    /// carriers may provide a lower-level path probe; callers can use either
-    /// value to size the BDP-equivalent frame window.
+    /// Returns the minimum recent cumulative frame-ack RTT. The history ages
+    /// out when a new ACK advances, so an earlier short route cannot constrain
+    /// a slower route for the rest of the session.
     pub fn ack_rtt_us(&self) -> Option<u64> {
-        self.ack_rtt_us
+        self.ack_rtts.iter().map(|(_, rtt)| *rtt).min()
     }
 
     /// Answers a clock ping at once (receive and send time are the same call).
