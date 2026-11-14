@@ -8,7 +8,9 @@ import AppKit
 extension ChatController {
     /// The field changed: the menu opens, follows the command or closes. One character test for a
     /// draft that does not start with `/` (this runs on every key typed into the box).
-    func updateSlashMenu() {
+    /// - Parameter reading: Whether this update may read the list again (an edit); a finished
+    ///   read's redraw passes false.
+    func updateSlashMenu(reading: Bool = true) {
         guard let source = slashSkills, let field = demo?.compose.textView.view,
               field.string.utf16.first == 0x2F, !field.hasMarkedText() else {
             slashMenuDismissed = nil
@@ -17,12 +19,16 @@ extension ChatController {
         }
         if slashMenuDismissed == field.string { return }
         slashMenuDismissed = nil
-        // A fresh `/` reads the folders again in the background; the menu shows the last list now.
-        if field.string == "/" || source.skills.isEmpty { source.refresh() }
+        // A fresh `/` reads the list again in the background (folders, or a paired server's host);
+        // the menu shows the last list now. Typing more never asks again: a host that is down would
+        // get one request per key.
+        if reading, field.string == "/" || !source.hasLoaded { source.refresh() }
         guard var menu = SlashSkillMenu(text: field.string, caret: field.selectedRange().location, skills: source.skills) else {
             if slashMenu != nil { slashMenu = nil }
             return
         }
+        menu.isLoading = menu.matches.isEmpty && !source.hasLoaded
+        menu.loadFailed = menu.matches.isEmpty && source.failed
         // The same command keeps its row (a list refresh); a new one starts at the best match.
         if let old = slashMenu, old.query == menu.query, let choice = old.choice, let i = menu.matches.firstIndex(of: choice) {
             menu.select(i)

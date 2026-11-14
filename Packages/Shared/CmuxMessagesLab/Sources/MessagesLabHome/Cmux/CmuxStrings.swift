@@ -92,6 +92,14 @@ enum CmuxStrings {
     static func slashSkillsNoMatch(_ query: String) -> String {
         String(format: String(localized: "home.slashSkills.noMatch", defaultValue: "No skills match “%@”", table: "CmuxHome", bundle: .module), query)
     }
+    /// The menu's only row while the first list is on its way (a Chief on a paired server).
+    static var slashSkillsLoading: String {
+        String(localized: "home.slashSkills.loading", defaultValue: "Loading skills…", table: "CmuxHome", bundle: .module)
+    }
+    /// The menu's only row when a paired server's Chief host did not answer with its list.
+    static var slashSkillsFailed: String {
+        String(localized: "home.slashSkills.failed", defaultValue: "Couldn't load skills", table: "CmuxHome", bundle: .module)
+    }
     /// The source tag of a Chief skill.
     static var slashSkillsSourceChief: String {
         String(localized: "home.slashSkills.source.chief", defaultValue: "Chief", table: "CmuxHome", bundle: .module)

@@ -30,6 +30,16 @@ public struct SlashSkill: Equatable, Sendable {
         self.source = source
     }
 
+    /// The source a Chief host names (`chief`, `claude`, `plugin:<plugin>`; engine_control.rs).
+    /// - Parameter wire: The host's word for it.
+    public static func source(wire: String) -> Source {
+        switch wire {
+        case "chief": .chief
+        case "claude": .claude
+        default: .plugin(wire.hasPrefix("plugin:") ? String(wire.dropFirst("plugin:".count)) : wire)
+        }
+    }
+
     /// What the field holds once the skill is picked: the command and a space for its input.
     var completion: String { "/\(name) " }
 }
