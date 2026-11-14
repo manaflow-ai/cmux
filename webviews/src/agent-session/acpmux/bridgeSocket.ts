@@ -29,6 +29,7 @@ const FATAL = new Set(["transport.closed", "transport.stale_connection"]);
 /// connecting for good, with no error and no retry; past it the socket fails as a refused open does
 /// (`closeError` `transport.open_timed_out`), and the pane's handshake loop asks again. Opening
 /// answers in milliseconds; a daemon that is starting is the host's wait, not this one.
+// timeout: an unanswered open is a dead host reply, not slow work; the handshake loop retries after it.
 export const TRANSPORT_OPEN_TIMEOUT_MS = 15_000;
 
 const live = new Map<number, BridgeSocket>();
