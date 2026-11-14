@@ -42,7 +42,7 @@ pub(crate) const BOOK: &str = "book";
 pub(crate) struct HubStore(Arc<Hub>);
 
 impl AsRef<dyn Store> for HubStore {
-    fn as_ref(&self) -> &dyn Store {
+    fn as_ref(&self) -> &(dyn Store + 'static) {
         self.0.store.as_ref()
     }
 }

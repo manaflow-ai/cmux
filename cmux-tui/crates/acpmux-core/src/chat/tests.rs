@@ -371,7 +371,7 @@ fn registry_evicts_a_failed_actor_without_waiting_for_retry() {
     let registry = crate::registry::Registry::new();
     let mut config = faulty_config(home.path(), false, Arc::new(AtomicU64::new(u64::MAX)));
     config.supervision.failed_wait = Duration::from_secs(60);
-    let handle = registry.hydrate(config);
+    let handle = registry.hydrate(config).unwrap();
     wait_health(&handle, crate::life::Health::Failed);
     let started = Instant::now();
     assert!(registry.evict("chat"));

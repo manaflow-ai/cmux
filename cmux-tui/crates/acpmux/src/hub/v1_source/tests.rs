@@ -2,7 +2,7 @@
 //! no registry, no daemon.
 
 use super::*;
-use crate::store::{CompactMode, EventRecord, ForkView, HistoryRef, HistoryWriter, LocalStore};
+use crate::store::{CompactMode, EventRecord, ForkView, HistoryRef, LocalStore};
 use acpmux_book::checkpoint::Checkpoint;
 use acpmux_book::log::{self, CheckpointHead, Log, Options};
 use acpmux_book::translate::{self, Change, Harness, State};
