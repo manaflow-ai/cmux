@@ -78,6 +78,16 @@ import Testing
         #expect(WorkingLabel.elapsedText(since: since, at: since.addingTimeInterval(65)) == "· 1m 5s")
     }
 
+    /// A start a little ahead of the phone's clock (another device's time): nothing
+    /// shows until 5 s after it, then each second, as before.
+    @Test func aStartAheadOfTheClockWaitsForItsFifthSecond() {
+        let since = Self.start.addingTimeInterval(2.3)
+        let dates = Self.redraws(since: since, from: Self.start, to: Self.start.addingTimeInterval(10))
+        #expect(dates.first == Self.start)
+        #expect(Array(dates.dropFirst()) == [5, 6, 7].map { since.addingTimeInterval($0) })
+        #expect(WorkingLabel.elapsedText(since: since, at: Self.start) == nil)
+    }
+
     /// The row's first draw shows the text of the moment it appears.
     @Test func theFirstDrawShowsTheCurrentText() {
         for since in Self.rowStarts(20) {

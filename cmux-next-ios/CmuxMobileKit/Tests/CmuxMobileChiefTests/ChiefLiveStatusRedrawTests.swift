@@ -27,6 +27,16 @@ import Testing
         #expect(count == 0)
     }
 
+    /// What the view runs: the line's TimelineView draws when it appears, and
+    /// with no time to count never again.
+    @Test func theLinesTimelineDrawsOnceWithoutATime() {
+        let schedule = ChiefStatusSchedule(ticks: ChiefLiveStatusLine.redrawSchedule(since: nil, now: Self.start))
+        let dates = Array(schedule.entries(from: Self.start, mode: .normal).prefix(5))
+        #expect(dates == [Self.start])
+        let ticking = ChiefStatusSchedule(ticks: ChiefLiveStatusLine.redrawSchedule(since: Self.start, now: Self.start))
+        #expect(Array(ticking.entries(from: Self.start, mode: .normal).prefix(3)).count == 3)
+    }
+
     /// A step's line ("Editing app.ts · 12s") still redraws on every second,
     /// and each redraw shows a new time.
     @Test func aStepRedrawsEverySecondWithANewTime() {
