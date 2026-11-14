@@ -11,7 +11,9 @@
 //!   live journal;
 //! - sealed segments are summed once per daemon, then only the segments
 //!   sealed since the last request (a range of the `start_sequence` index;
-//!   `length(content)` reads no overflow page). An output cleanup that
+//!   `length(content)` reads no overflow page, and the rows are summed here,
+//!   not by a `GROUP BY`, whose sorter would copy `content` to a temporary
+//!   file). An output cleanup that
 //!   rewrites the registry file sums them again once.
 
 use std::collections::BTreeMap;
@@ -353,10 +355,14 @@ fn read_segments(
     let to_u64 = |value: i64| u64::try_from(value).unwrap_or(0);
     let mut through = totals.through_start;
     {
+        // No GROUP BY: SQLite sorts for one, and its sorter takes every
+        // column the sums read, the whole `content` blob included, into a
+        // temporary file (2,438 MiB written by one request on a registry
+        // with 2,012 MiB of segments, 2026-11-13). Row by row, `length`
+        // reads the blob's size from the row header and no overflow page.
         let mut statement = snapshot.prepare(
-            "SELECT codec, COUNT(*), SUM(record_count), SUM(length(content)),
-                    SUM(uncompressed_bytes), MAX(start_sequence)
-             FROM journal_segments WHERE start_sequence > ?1 GROUP BY codec",
+            "SELECT codec, record_count, length(content), uncompressed_bytes, start_sequence
+             FROM journal_segments WHERE start_sequence > ?1",
         )?;
         let mut rows = statement.query([totals.through_start])?;
         while let Some(row) = rows.next()? {
@@ -364,13 +370,12 @@ fn read_segments(
             let entry = totals.by_codec.entry(codec.clone()).or_insert_with(|| {
                 SegmentCodecSnapshot { codec, ..SegmentCodecSnapshot::default() }
             });
-            let segments = to_u64(row.get(1)?);
-            entry.segments += segments;
-            entry.records += to_u64(row.get(2)?);
-            entry.compressed_bytes += to_u64(row.get(3)?);
-            entry.uncompressed_bytes += to_u64(row.get(4)?);
-            totals.counted += segments;
-            through = through.max(row.get::<_, i64>(5)?);
+            entry.segments += 1;
+            entry.records += to_u64(row.get(1)?);
+            entry.compressed_bytes += to_u64(row.get(2)?);
+            entry.uncompressed_bytes += to_u64(row.get(3)?);
+            totals.counted += 1;
+            through = through.max(row.get::<_, i64>(4)?);
         }
     }
     {
