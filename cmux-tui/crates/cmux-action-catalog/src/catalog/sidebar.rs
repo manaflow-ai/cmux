@@ -26,7 +26,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "sidebar.customize",
         group: GROUP,
-        title: t("ActionCatalog", "action.sidebar.customize", "Customize sidebar…"),
+        title: t("ActionCatalog", "action.sidebar.customize", "Customize Sidebar…"),
         keywords: &["sidebar", "customize", "rows", "layout", "density", "sections"],
         category: "sidebar",
         symbol: "slider.horizontal.3",

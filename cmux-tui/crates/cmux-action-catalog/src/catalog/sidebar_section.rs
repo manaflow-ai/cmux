@@ -464,7 +464,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "eye",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 110)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 110).folder("options")], ..SurfacePlan::DEFAULT },
         cli_name: "action sidebar-sections-show-hidden",
         ..Action::DEFAULT
     },
