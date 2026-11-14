@@ -19,16 +19,16 @@ import Testing
         sizing.tuiStarted()
         // Mid-animation nothing settled: the rows do not follow the frames.
         #expect(rows(sizing) == 37)
-        sizing.keyboardSettled(stackTop: 400, restingStackTop: resting, isTUI: true)
+        sizing.keyboardSettled(stackTop: 400, restingStackTop: resting, keyboardShown: true, isTUI: true)
         // top's header fits above the composer: (400 - 62) / 16.4 = 20 rows.
         #expect(rows(sizing) == 20)
-        sizing.keyboardSettled(stackTop: resting, restingStackTop: resting, isTUI: true)
+        sizing.keyboardSettled(stackTop: resting, restingStackTop: resting, keyboardShown: false, isTUI: true)
         #expect(rows(sizing) == 37)
     }
 
     @Test func aShellKeepsItsRowsWithTheKeyboardUp() {
         var sizing = TerminalTUISizing()
-        sizing.keyboardSettled(stackTop: 400, restingStackTop: resting, isTUI: false)
+        sizing.keyboardSettled(stackTop: 400, restingStackTop: resting, keyboardShown: true, isTUI: false)
         #expect(rows(sizing) == 37)
         // A TUI started with the keyboard up gets the rows above the composer.
         sizing.tuiStarted()
@@ -40,7 +40,7 @@ import Testing
     @Test func quittingATUIWithTheKeyboardUpRestoresTheShellRows() {
         var sizing = TerminalTUISizing()
         sizing.tuiStarted()
-        sizing.keyboardSettled(stackTop: 400, restingStackTop: resting, isTUI: true)
+        sizing.keyboardSettled(stackTop: 400, restingStackTop: resting, keyboardShown: true, isTUI: true)
         #expect(rows(sizing) == 20)
         sizing.tuiEnded()
         #expect(rows(sizing) == 37)
@@ -56,7 +56,7 @@ import Testing
     @Test func theRowsFollowTheRestingTopAfterTheKeyboardSettled() {
         var sizing = TerminalTUISizing()
         sizing.tuiStarted()
-        sizing.keyboardSettled(stackTop: 400, restingStackTop: resting, isTUI: true)
+        sizing.keyboardSettled(stackTop: 400, restingStackTop: resting, keyboardShown: true, isTUI: true)
         #expect(rows(sizing) == 20)
         // The dock grew by 76 pt (the composer came in): the keyboard still
         // lifts the stack 276 pt, so (600 - 276 - 62) / 16.4 = 15 rows.
@@ -65,11 +65,22 @@ import Testing
         #expect(sizing.rows(restingStackTop: 776, chromeTop: top, cellHeight: cell) == 26)
     }
 
+    /// A settle with the keyboard down is never a lift, even when the stack
+    /// sat above the resting top it was measured against (a tab's insets
+    /// arrived after the page's first settle: 8 pt, a row of the app lost).
+    @Test func aSettleWithTheKeyboardDownIsNeverALift() {
+        var sizing = TerminalTUISizing()
+        sizing.tuiStarted()
+        sizing.keyboardSettled(stackTop: resting - 8, restingStackTop: resting, keyboardShown: false, isTUI: true)
+        #expect(sizing.keyboardLift == nil)
+        #expect(rows(sizing) == 37)
+    }
+
     /// With the keyboard down a TUI gets exactly the resting rows, wherever
     /// the resting top moves.
     @Test func aTUIWithTheKeyboardDownGetsTheRestingRowsWhereverTheDockMoves() {
         var sizing = TerminalTUISizing()
-        sizing.keyboardSettled(stackTop: resting, restingStackTop: resting, isTUI: false)
+        sizing.keyboardSettled(stackTop: resting, restingStackTop: resting, keyboardShown: false, isTUI: false)
         sizing.tuiStarted()
         #expect(rows(sizing) == 37)
         // (810 - 62) / 16.4 = 45.6: the resting rows, not 37.
