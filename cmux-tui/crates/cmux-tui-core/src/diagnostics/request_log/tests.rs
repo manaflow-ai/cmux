@@ -358,11 +358,16 @@ fn test_writer(dir: &cmux_unix_socket::TestDir) -> Writer {
 
 /// The record of one request that arrived at `at_ms`, as the request path hands it to the writer.
 fn ended(name: &str, error: Option<&str>, kind: &str, at_ms: u64) -> Entry {
+    ended_by(7, name, error, kind, at_ms)
+}
+
+/// [`ended`] for a request of the connection with the number `client`.
+fn ended_by(client: u64, name: &str, error: Option<&str>, kind: &str, at_ms: u64) -> Entry {
     let now = Instant::now();
     let line = r#"{"id":1,"cmd":"request","surface":3}"#;
     Entry::Request(Box::new(Data {
         connection: Arc::new(AtomicBool::new(true)),
-        client: 7,
+        client,
         client_name: None,
         client_kind: Label::token(kind),
         fields: allowed_fields(line),
@@ -491,6 +496,71 @@ fn a_ninth_run_writes_the_count_of_the_oldest_run_before_its_own_first_line() {
     assert_eq!(records[RUNS + 1]["name"], "op-new");
     assert!(records[RUNS + 1].get("repeats").is_none(), "{text}");
     assert_eq!(writer.due_wait(4_000, &mut line), None, "no count waits after it");
+}
+
+/// The log is read to find WHICH client failed: the failed requests of 2 clients are 2 runs,
+/// also with the same name, error code and kind.
+#[test]
+fn equal_failed_requests_of_two_clients_write_a_line_each_at_once() {
+    const FIRST_MS: u64 = 1_700_000_000_000;
+    let dir = cmux_unix_socket::short_test_dir("srl");
+    let mut writer = test_writer(&dir);
+    let mut line = String::new();
+    writer.take(ended_by(7, "list-workspaces", Some("error"), "agent", FIRST_MS), &mut line);
+    writer.take(ended_by(8, "list-workspaces", Some("error"), "agent", FIRST_MS + 1), &mut line);
+
+    let text = file_text(&dir);
+    let first = records(&dir);
+    assert_eq!(first.len(), 2, "one line at once for each client: {text}");
+    assert_eq!(first[0]["client"], 7);
+    assert_eq!(first[1]["client"], 8);
+    assert!(first.iter().all(|record| record["client_kind"] == "agent"), "{text}");
+    assert!(first.iter().all(|record| record.get("repeats").is_none()), "{text}");
+
+    // Each client has its own run: its repeats are counted there, and its count has its number.
+    writer.take(ended_by(7, "list-workspaces", Some("error"), "agent", FIRST_MS + 2), &mut line);
+    writer.take(ended_by(8, "list-workspaces", Some("error"), "agent", FIRST_MS + 3), &mut line);
+    writer.take(ended_by(8, "list-workspaces", Some("error"), "agent", FIRST_MS + 4), &mut line);
+    assert_eq!(records(&dir).len(), 2, "a repeat of a client adds no line inside its window");
+    assert_eq!(writer.due_wait(FIRST_MS + 1 + REPEAT_WINDOW_MS, &mut line), None);
+
+    let text = file_text(&dir);
+    let records = records(&dir);
+    assert_eq!(records.len(), 4, "one count line for each client: {text}");
+    assert_eq!(records[2]["client"], 7);
+    assert!(records[2].get("repeats").is_none(), "client 7 had 1 repeat: {text}");
+    assert_eq!(records[2]["at_ms"], FIRST_MS + 2);
+    assert_eq!(records[3]["client"], 8);
+    assert_eq!(records[3]["repeats"], 2, "client 8 had 2 repeats: {text}");
+    assert_eq!(records[3]["at_ms"], FIRST_MS + 4);
+    assert_eq!(stood_for(&records), 5, "each request is in a line or in a count: {text}");
+}
+
+/// The journal plugin's connection is a new one for each pass of the plugin: its run has no
+/// client number, or no refusal of it would be a repeat.
+#[test]
+fn equal_refused_requests_of_plugin_connections_are_one_run() {
+    const FIRST_MS: u64 = 1_700_000_000_000;
+    let dir = cmux_unix_socket::short_test_dir("srl");
+    let mut writer = test_writer(&dir);
+    let mut line = String::new();
+    for client in 7..10 {
+        let at_ms = FIRST_MS + client;
+        writer.take(ended_by(client, REFUSED.0, Some(REFUSED.1), REFUSED.2, at_ms), &mut line);
+    }
+    let text = file_text(&dir);
+    let first = records(&dir);
+    assert_eq!(first.len(), 1, "3 connections of the plugin are one run: {text}");
+    assert_eq!(first[0]["client"], 7);
+    assert_eq!(first[0]["client_kind"], "plugin");
+
+    assert_eq!(writer.due_wait(FIRST_MS + 7 + REPEAT_WINDOW_MS, &mut line), None);
+    let text = file_text(&dir);
+    let records = records(&dir);
+    assert_eq!(records.len(), 2, "one count line for the 2 later connections: {text}");
+    assert_eq!(records[1]["client"], 9, "the count line is the newest record: {text}");
+    assert_eq!(records[1]["repeats"], 2);
+    assert_eq!(stood_for(&records), 3, "each request is in a line or in a count: {text}");
 }
 
 #[test]
