@@ -1,0 +1,503 @@
+{
+  "title": "Extension hot reload: an installed customize-folder extension saved with each editor write pattern, read back from the running app after every save",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 4,
+      "shot": false
+    },
+    {
+      "title": "A workspace whose terminal edits the extension",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Hot reload"
+      ],
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Shell helpers: the customize folder (the daemon's), a script writer and a manifest writer",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Hot reload",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\"; js() { printf 'function renderSection() {\\n  return VStack({ spacing: 2 }, [Text(\"%s\"), Row({ title: \"%s row\", symbol: \"bolt.horizontal\" })])\\n}\\nglobalThis.__cmuxAppExports = { renderSection }\\n' \"$1\" \"$1\"; }; mf() { printf '{\"manifestVersion\": 2, \"id\": \"local/customize\", \"name\": \"Hot reload probe\", \"version\": \"1.0.0\", \"description\": \"A sidebar section the hot reload tour rewrites.\", \"engines\": {\"cmux\": \"^2.0\"}, \"runtime\": {\"main\": \"main.js\"}, \"implements\": {\"cmux.section/1\": {\"export\": \"renderSection\", \"title\": \"%s\", \"symbol\": \"bolt.horizontal\", \"options\": {\"defaultRegion\": \"top\"}}}}\\n' \"$1\"; }; echo \"customize folder: $D\"\r"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Install: main.js, then cmux-app.json, into the customize folder",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Hot reload",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "js token-install > \"$D/main.js\"; mf \"Probe title 0\" > \"$D/cmux-app.json\"; clear\r"
+      ],
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Read back: the section shows the installed script",
+      "rpc": {
+        "method": "apps.views",
+        "params": {
+          "app": "local/customize"
+        }
+      },
+      "wait": 0.2,
+      "shot": true,
+      "record": true,
+      "readback": {
+        "at": "views.*.texts",
+        "contains": [
+          "token-install"
+        ],
+        "within": 30
+      }
+    },
+    {
+      "title": "Save 1: in place (open, truncate, write: VS Code, cat >)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Hot reload",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "js token-1-inplace > \"$D/main.js\"; clear\r"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Read back save 1: the section shows token-1-inplace",
+      "rpc": {
+        "method": "apps.views",
+        "params": {
+          "app": "local/customize"
+        }
+      },
+      "wait": 0.2,
+      "shot": true,
+      "record": true,
+      "readback": {
+        "at": "views.*.texts",
+        "contains": [
+          "token-1-inplace"
+        ],
+        "within": 20
+      }
+    },
+    {
+      "title": "Save 2: atomic rename (a temp file renamed over it: Zed, JetBrains, sed -i)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Hot reload",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "js token-2-atomic > \"$D/main.js.tmp-$$\" && mv -f \"$D/main.js.tmp-$$\" \"$D/main.js\"; clear\r"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Read back save 2: the section shows token-2-atomic",
+      "rpc": {
+        "method": "apps.views",
+        "params": {
+          "app": "local/customize"
+        }
+      },
+      "wait": 0.2,
+      "shot": true,
+      "record": true,
+      "readback": {
+        "at": "views.*.texts",
+        "contains": [
+          "token-2-atomic"
+        ],
+        "within": 20
+      }
+    },
+    {
+      "title": "Save 3: rename away (a main.js~ backup, then a new main.js: Vim, Emacs)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Hot reload",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "mv \"$D/main.js\" \"$D/main.js~\" && js token-3-away > \"$D/main.js\" && rm -f \"$D/main.js~\"; clear\r"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Read back save 3: the section shows token-3-away",
+      "rpc": {
+        "method": "apps.views",
+        "params": {
+          "app": "local/customize"
+        }
+      },
+      "wait": 0.2,
+      "shot": true,
+      "record": true,
+      "readback": {
+        "at": "views.*.texts",
+        "contains": [
+          "token-3-away"
+        ],
+        "within": 20
+      }
+    },
+    {
+      "title": "Save 4: two chunks half a second apart in one open file",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Hot reload",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "{ js token-4-chunks | head -c 40; sleep 0.5; js token-4-chunks | tail -c +41; } > \"$D/main.js\"; clear\r"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Read back save 4: the section shows token-4-chunks",
+      "rpc": {
+        "method": "apps.views",
+        "params": {
+          "app": "local/customize"
+        }
+      },
+      "wait": 0.2,
+      "shot": true,
+      "record": true,
+      "readback": {
+        "at": "views.*.texts",
+        "contains": [
+          "token-4-chunks"
+        ],
+        "within": 20
+      }
+    },
+    {
+      "title": "Save 5: the manifest's section title, in place",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Hot reload",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "mf \"Probe title 5\" > \"$D/cmux-app.json\"; clear\r"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Read back save 5: the section's title is Probe title 5",
+      "rpc": {
+        "method": "apps.views",
+        "params": {
+          "app": "local/customize"
+        }
+      },
+      "wait": 0.2,
+      "shot": false,
+      "record": true,
+      "readback": {
+        "at": "views.*.title",
+        "contains": [
+          "Probe title 5"
+        ],
+        "within": 20
+      }
+    },
+    {
+      "title": "Save 6: in place (open, truncate, write: VS Code, cat >)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Hot reload",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "js token-6-inplace > \"$D/main.js\"; clear\r"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Read back save 6: the section shows token-6-inplace",
+      "rpc": {
+        "method": "apps.views",
+        "params": {
+          "app": "local/customize"
+        }
+      },
+      "wait": 0.2,
+      "shot": false,
+      "record": true,
+      "readback": {
+        "at": "views.*.texts",
+        "contains": [
+          "token-6-inplace"
+        ],
+        "within": 20
+      }
+    },
+    {
+      "title": "Save 7: atomic rename (a temp file renamed over it: Zed, JetBrains, sed -i)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Hot reload",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "js token-7-atomic > \"$D/main.js.tmp-$$\" && mv -f \"$D/main.js.tmp-$$\" \"$D/main.js\"; clear\r"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Read back save 7: the section shows token-7-atomic",
+      "rpc": {
+        "method": "apps.views",
+        "params": {
+          "app": "local/customize"
+        }
+      },
+      "wait": 0.2,
+      "shot": false,
+      "record": true,
+      "readback": {
+        "at": "views.*.texts",
+        "contains": [
+          "token-7-atomic"
+        ],
+        "within": 20
+      }
+    },
+    {
+      "title": "Save 8: rename away (a main.js~ backup, then a new main.js: Vim, Emacs)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Hot reload",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "mv \"$D/main.js\" \"$D/main.js~\" && js token-8-away > \"$D/main.js\" && rm -f \"$D/main.js~\"; clear\r"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Read back save 8: the section shows token-8-away",
+      "rpc": {
+        "method": "apps.views",
+        "params": {
+          "app": "local/customize"
+        }
+      },
+      "wait": 0.2,
+      "shot": false,
+      "record": true,
+      "readback": {
+        "at": "views.*.texts",
+        "contains": [
+          "token-8-away"
+        ],
+        "within": 20
+      }
+    },
+    {
+      "title": "Save 9: two chunks half a second apart in one open file",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Hot reload",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "{ js token-9-chunks | head -c 40; sleep 0.5; js token-9-chunks | tail -c +41; } > \"$D/main.js\"; clear\r"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Read back save 9: the section shows token-9-chunks",
+      "rpc": {
+        "method": "apps.views",
+        "params": {
+          "app": "local/customize"
+        }
+      },
+      "wait": 0.2,
+      "shot": false,
+      "record": true,
+      "readback": {
+        "at": "views.*.texts",
+        "contains": [
+          "token-9-chunks"
+        ],
+        "within": 20
+      }
+    },
+    {
+      "title": "Save 10: the manifest's section title, in place",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Hot reload",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "mf \"Probe title 10\" > \"$D/cmux-app.json\"; clear\r"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Read back save 10: the section's title is Probe title 10",
+      "rpc": {
+        "method": "apps.views",
+        "params": {
+          "app": "local/customize"
+        }
+      },
+      "wait": 0.2,
+      "shot": false,
+      "record": true,
+      "readback": {
+        "at": "views.*.title",
+        "contains": [
+          "Probe title 10"
+        ],
+        "within": 20
+      }
+    },
+    {
+      "title": "Clean up: the customize folder's files",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Hot reload",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "rm -f \"$D/main.js\" \"$D/cmux-app.json\" \"$D/main.js~\"; clear\r"
+      ],
+      "wait": 1,
+      "shot": false
+    }
+  ]
+}
