@@ -92,10 +92,7 @@ extension RemoteTmuxControlConnection {
         if !commands.isEmpty {
             _ = sendBatchInternal(commands, kinds: commands.map { _ in .other })
         }
-        let installTarget = sessionId.map { "$\($0)" } ?? sessionName
-        if let command = RemoteTmuxAgentHookInstaller.installCommand(sessionTarget: installTarget) {
-            send(command)
-        }
+        requestAgentHookInstall(sessionTarget: sessionId.map { "$\($0)" } ?? sessionName)
     }
 
     /// Builds the `set-environment -t <target> KEY VALUE` command lines for a
@@ -491,6 +488,9 @@ extension RemoteTmuxControlConnection {
                 seenPaneIDs.insert($0).inserted
             }
         }
+        // A pane that mounted while the stream was down was queued but not started. The
+        // reseed covers it, so drop it from the queue rather than seed it a second time.
+        queuedPaneSeedPaneIDs.removeAll { seenPaneIDs.contains($0) }
         pumpReconnectPaneSeeds()
         // A batch rejection synchronously begins another reconnect and discards
         // its seeds. Never resurrect those IDs or announce readiness for the dead
