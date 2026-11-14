@@ -12,7 +12,7 @@ def declarations(header):
     # Read C prototypes independently of the build's allowed symbol prefixes.
     text = re.sub(r"/\*.*?\*/|//[^\n]*", "", header, flags=re.S)
     return set(re.findall(
-        r"^[ \t]*(?:[A-Za-z_]\w*[\s*]+)+([A-Za-z_]\w*)\s*\([^;{}]*\)\s*;",
+        r"^[ \t]*(?!typedef\b)(?:[A-Za-z_]\w*[\s*]+)+([A-Za-z_]\w*)\s*\([^;{}]*\)\s*;",
         text, re.M,
     ))
 
