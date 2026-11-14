@@ -138,10 +138,10 @@ pub(crate) struct ConnectionOrigin {
     pub(crate) peer_key: Option<String>,
     /// Kernel-bound local peer class, set at accept. An exit of the peer, a
     /// change of its session, or a pass of its connected descriptor does not
-    /// change it. One thing changes it: the end of the seat of a kept host
-    /// that gave it (`kept_seat`). The record then keeps its terminal only
-    /// when the seat of the peer's session names the same terminal, and has
-    /// `Other` in each other case.
+    /// change it. One thing changes it: the seat of a kept host that gave it
+    /// (`kept_seat`) gives it no more. The record then keeps its terminal
+    /// only when the seat of the session that the peer had at accept names
+    /// the same terminal, and has `Other` in each other case.
     pub(crate) local_peer: LocalPeer,
     /// The seat of a kept host that gave `local_peer`, while that seat gives
     /// it. At the seat's end `local_peer` is the same terminal or `Other`,
