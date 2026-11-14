@@ -2150,6 +2150,12 @@ impl Hub {
         self.events.install_tee(tee);
     }
 
+    /// The v2 list holds the hub machines' rows: `initialize` names
+    /// [`list_tee::HUB_ROWS_FEATURE`] on every connection.
+    pub(crate) fn v2_lists_hub_rows(&self) -> bool {
+        self.events.tee_lists_hub_rows()
+    }
+
     pub(crate) fn session_count(&self) -> usize {
         self.sessions.lock().unwrap_or_else(|e| e.into_inner()).len()
     }

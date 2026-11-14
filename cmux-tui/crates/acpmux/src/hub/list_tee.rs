@@ -52,7 +52,17 @@ impl TeeHandle {
     pub(super) fn remote_ready(&self) {
         self.state.remote_ready();
     }
+
+    /// Whether the daemon's v2 `list` holds the hub machines' rows ([`HUB_ROWS_FEATURE`]).
+    pub(super) fn lists_hub_rows(&self) -> bool {
+        self.state.lists
+    }
 }
+
+/// The `initialize` feature of a daemon whose v2 list holds the rows of the hub's machines
+/// (`mesh_book.rs`) as v1's list does: a caller that reads the v2 list without it takes v1's
+/// while a hub machine is listed.
+pub(crate) const HUB_ROWS_FEATURE: &str = "listHubRows";
 
 #[derive(Default)]
 struct TeeState {
@@ -61,6 +71,8 @@ struct TeeState {
     remote: std::sync::Mutex<HashSet<(String, String)>>,
     origins: std::sync::Mutex<HashMap<String, VecDeque<(OriginState, u64)>>>,
     remote_ready: AtomicBool,
+    /// The v2 index serves the `list` surface: its rows are v1's, the hub machines' included.
+    lists: bool,
     notify: Notify,
     marks: AtomicU64,
     /// Peer and hub rows submitted or removed, and origin states written.
@@ -615,7 +627,11 @@ pub(crate) fn start_v2_tee(
     v1: Arc<Hub>,
     v2: Arc<V2>,
 ) -> (Arc<TeeHandle>, impl std::future::Future<Output = ()> + Send + 'static) {
-    let state = Arc::new(TeeState { hub: Arc::downgrade(&v2.hub), ..TeeState::default() });
+    let state = Arc::new(TeeState {
+        hub: Arc::downgrade(&v2.hub),
+        lists: v2.allows_surfaces(&["list"]),
+        ..TeeState::default()
+    });
     let handle = Arc::new(TeeHandle { state: state.clone() });
     let task = async move {
         let (mut expiries, initial_complete) = reconcile(&v1, &v2, &state).await;

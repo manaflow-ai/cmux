@@ -349,3 +349,42 @@ async fn the_page_provider_reads_a_hub_row() {
     assert_eq!(row.state, "running");
     assert!(provider.row(&RowKey::new("machine-b", "b-9")).unwrap().is_none());
 }
+
+/// The `initialize` features of a local connection to `v1`.
+async fn local_features(v1: &Arc<Hub>) -> Vec<Value> {
+    let (input, incoming) = tokio::sync::mpsc::channel(8);
+    let (output, mut outgoing) = tokio::sync::mpsc::channel(8);
+    let task = tokio::spawn(crate::server::serve_connection(v1.clone(), incoming, output));
+    let hello = crate::rpc::Message::request(1, "initialize", json!({"protocolVersion": 1}));
+    input.send(hello.to_line()).await.unwrap();
+    // timeout: Test-only deadline detects a missing reply; no user request is cancelled.
+    let line = tokio::time::timeout(std::time::Duration::from_secs(10), outgoing.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    drop(input);
+    task.abort();
+    let reply: Value = serde_json::from_str(&line).unwrap();
+    reply["result"]["_meta"]["acpmux"]["features"].as_array().unwrap().clone()
+}
+
+/// `listHubRows` is a fact of the daemon's index: a local connection's `initialize` names it
+/// when v2 serves `list`, and not with v2 off or `list` not allowed (decision 212).
+#[tokio::test]
+async fn initialize_names_list_hub_rows_only_with_the_v2_list() {
+    let named = |features: &[Value]| features.iter().any(|f| f == HUB_ROWS_FEATURE);
+    let off = v1_hub();
+    assert!(!named(&local_features(&off).await), "v2 off");
+
+    for (surfaces, expected) in [(&["list"][..], true), (&["chat"][..], false)] {
+        let v1 = v1_hub();
+        let (hub, writer) = acpmux_core::hub::Hub::new(SummaryIndex::new());
+        let surfaces = surfaces.iter().map(|s| (*s).to_owned()).collect();
+        let v2 = Arc::new(V2::with_surfaces(hub, writer, surfaces));
+        let (tee, _task) = start_v2_tee(v1.clone(), v2);
+        v1.install_v2_tee(tee);
+        let features = local_features(&v1).await;
+        assert_eq!(named(&features), expected, "{features:?}");
+        assert!(!features.iter().any(|f| f == "listStream"), "5h names no listStream");
+    }
+}
