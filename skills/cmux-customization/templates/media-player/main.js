@@ -1,9 +1,10 @@
 // A radio player in the sidebar: SomaFM's listener-supported stations (no key, no account),
 // the song on now, and play, previous, next and favorites. Play opens the station's stream in
-// a cmux browser tab, so the tab's speaker button mutes it and closing the tab stops it. The
-// stations and their songs are read every 30 s while the section shows. Needs net:somafm.com
-// (the stations), actions:run (play) and storage:local (your station and favorites), in
-// Settings > Apps > My views.
+// one cmux browser tab, so the tab's speaker button mutes it and closing the tab stops it; a
+// station change moves that tab, never a second stream. The stations, their songs and whether
+// the stream tab is open are read every 30 s while the section shows. Needs net:somafm.com
+// (the stations), actions:run (play), browser:write (switch stations) and storage:local (your
+// station and favorites), in Settings > Apps > My views.
 
 const [stations, setStations] = signal([]) // [{ id, title, genre, description, listeners, song }]
 const [current, setCurrent] = signal(null) // the chosen station's id
@@ -56,13 +57,35 @@ function choose(s) {
   keep("station", s.id)
 }
 
+const STREAM = "https://ice2.somafm.com/"
+const streamOf = (s) => `${STREAM}${s.id}-128-mp3`
+
+// The player's own tab: the browser tab on a SomaFM stream, if one is open. Reading it
+// (browser:read, granted at install) says whether the radio plays: closing the tab stops it.
+let streamBrowser = null // its browser id, from the last read
+async function readPlaying() {
+  try {
+    streamBrowser = (await cmux.browser.list({})).find((b) => b.url.startsWith(STREAM))?.id ?? null
+  } catch (e) {
+    streamBrowser = null
+  }
+  setPlaying(streamBrowser !== null)
+}
+
+// One stream at a time: a station change moves the open stream tab to the new station
+// (browser:write), and only with no stream tab open does play open one (actions:run). Both
+// calls go out in the click's own turn: an action from a click must not wait on a read first.
 function play(s) {
   if (!s) return
   choose(s)
-  cmux.actions.run("openBrowser", { url: `https://ice2.somafm.com/${s.id}-128-mp3` }).then(
-    () => setPlaying(true),
-    (e) => cmux.toast({ title: "Turn on Run actions for My views to play", message: message(e), tone: "warning" })
-  )
+  const moving = streamBrowser !== null
+  const call = moving ? cmux.browser.navigate({ browser: streamBrowser, url: streamOf(s) }) : cmux.actions.run("openBrowser", { url: streamOf(s) })
+  call.then(readPlaying, (e) => {
+    // A stream tab closed since the last read: the next Play opens a new one.
+    readPlaying()
+    const scope = moving ? "Change browsers" : "Run actions"
+    cmux.toast({ title: moving ? "Press Play again to open the radio tab" : `Turn on ${scope} for My views to play`, message: message(e), tone: "warning" })
+  })
 }
 
 // Previous and next walk the list as it shows, and play when the player was playing.
@@ -83,8 +106,9 @@ function toggleFavorite(id) {
 // Timers belong to the view that started them and end with it, so every render starts its own;
 // the saved station and favorites are read once.
 function start() {
-  cmux.timer.every(30000, loadStations)
+  cmux.timer.every(30000, () => (loadStations(), readPlaying()))
   loadStations()
+  readPlaying()
   if (loaded) return
   loaded = true
   cmux.storage.get("station").then((id) => typeof id === "string" && current() === null && setCurrent(id), () => undefined)
@@ -97,7 +121,7 @@ function renderPlayer() {
     Panel({ title: "Now playing" }, [
       () => {
         const s = station()
-        if (!s) return error() ? null : ProgressView()
+        if (!s) return stations().length === 0 && !error() ? ProgressView() : null
         const song = split(s.song)
         return VStack({ spacing: 2 }, [
           Text(song.title || s.title).font("headline").lineLimit(1),
@@ -110,7 +134,7 @@ function renderPlayer() {
       },
       HStack({ spacing: 8 }, [
         Button(Icon("backward.fill"), () => step(-1)).help("Previous station"),
-        Button(HStack({ spacing: 4 }, [Icon("play.fill"), Text(() => (playing() ? "Play again" : "Play"))]), () => play(station())),
+        Button(HStack({ spacing: 4 }, [Icon("play.fill"), Text("Play")]), () => play(station())),
         Button(Icon("forward.fill"), () => step(1)).help("Next station"),
         Spacer(),
         Button(Icon(() => (station() && isFavorite(station().id) ? "star.fill" : "star")), () => station() && toggleFavorite(station().id)).help("Favorite")

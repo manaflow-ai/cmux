@@ -4,6 +4,21 @@ import { readFileSync } from "node:fs"
 import { describe, expect, test } from "bun:test"
 import { app, FakeHost } from "./fake-host.ts"
 
+/** A template's init with only the ops its manifest's scopes allow, the way an install grants them,
+ * so a template that calls or watches an op it does not declare fails here instead of in the app. */
+function declared(name: string) {
+  const root = new URL("../../../../../skills/cmux-customization/templates/", import.meta.url)
+  const scopes = Object.keys(JSON.parse(readFileSync(new URL(`${name}/cmux-app.json`, root), "utf8")).scopes ?? {})
+  const table: Record<string, { scope: string }> = JSON.parse(readFileSync(new URL("../../generated/scopes.json", import.meta.url), "utf8")).ops
+  const granted = (scope: string) =>
+    scope === "none" ||
+    scopes.includes(scope) ||
+    (scope === "net:<host>" && scopes.some((s) => s.startsWith("net:"))) ||
+    (scope === "integration:<provider>" && scopes.some((s) => s.startsWith("integration:")))
+  const ops = Object.entries(table).filter(([, v]) => granted(v.scope)).map(([op]) => op)
+  return { app: { id: "local/customize", version: "1.0.0" }, apiVersion: "1.0.0", ops }
+}
+
 describe("Toggle", () => {
   test("is a two-way bound switch: the value is a prop, a change runs onChange with the new value", async () => {
     const host = new FakeHost(app(`
@@ -152,7 +167,7 @@ describe("the template folders (skills/cmux-customization/templates)", () => {
     host.dispatch(mount, host.findNode(mount, (n) => n.type === type && (n.props.title ?? n.props.label) === title)!, "tap", payload)
 
   test("starter: a click redraws its text and Say hi toasts", async () => {
-    const host = new FakeHost(load("starter"), init)
+    const host = new FakeHost(load("starter"), declared("starter"))
     host.handlers["toast.show"] = ok()
     expect(host.mount("m", "renderSection")).toBe("")
     tap(host, "m", "Button", "Click")
@@ -164,7 +179,7 @@ describe("the template folders (skills/cmux-customization/templates)", () => {
   })
 
   test("sidebar-section: the focused workspace's tabs, read again on a tab change, a click focuses", async () => {
-    const host = new FakeHost(load("sidebar-section"), init)
+    const host = new FakeHost(load("sidebar-section"), declared("sidebar-section"))
     let tabs = [
       { id: "tab_1", pane_id: "pane_1", name: "zsh", index: 0, focused: true, content_kind: "terminal" },
       { id: "tab_2", pane_id: "pane_1", name: null, index: 1, focused: false, content_kind: "browser" }
@@ -187,7 +202,7 @@ describe("the template folders (skills/cmux-customization/templates)", () => {
   })
 
   test("command-button: a button runs the person's own action with the click's gesture", async () => {
-    const host = new FakeHost(load("command-button"), init)
+    const host = new FakeHost(load("command-button"), declared("command-button"))
     host.handlers["action.run"] = ok()
     expect(host.mount("m", "renderCommands")).toBe("")
     tap(host, "m", "Button", "Run tests", { gesture: "g2" })
@@ -198,7 +213,7 @@ describe("the template folders (skills/cmux-customization/templates)", () => {
   })
 
   test("command-button: with actions:run off a click says which switch to turn on", async () => {
-    const host = new FakeHost(load("command-button"), init)
+    const host = new FakeHost(load("command-button"), declared("command-button"))
     host.handlers["action.run"] = () => ({ ok: false, body: { code: "scope.missing", message: "actions:run is not granted", retryable: false } })
     host.handlers["toast.show"] = ok()
     host.mount("m", "renderCommands")
@@ -208,7 +223,7 @@ describe("the template folders (skills/cmux-customization/templates)", () => {
   })
 
   test("pane: the checklist adds, checks and saves, and the sidebar row opens the pane", async () => {
-    const host = new FakeHost(load("pane"), init)
+    const host = new FakeHost(load("pane"), declared("pane"))
     const saved: unknown[] = []
     host.handlers["app.storage.get"] = ok([{ id: "a", text: "Ship it", done: false }])
     host.handlers["app.storage.set"] = (p) => (saved.push(p.value), { ok: true, body: { value: null } })
@@ -231,7 +246,7 @@ describe("the template folders (skills/cmux-customization/templates)", () => {
   })
 
   test("threads: agent chats as cards, needs-you first, running ones shelved, a click shows the chat's workspace", async () => {
-    const host = new FakeHost(load("threads"), init)
+    const host = new FakeHost(load("threads"), declared("threads"))
     const now = Date.now()
     const chat = (id: string, title: string, state: string, minutes: number, extra: Record<string, unknown> = {}) => ({
       id, title, state, unread: false, harness: "claude", project: "api", cwd: "/src/api", workspace: null, machine: null,
@@ -282,7 +297,7 @@ describe("the widget templates (clock-weather, my-prs, design-links, media-playe
   const fetched = (body: unknown) => ({ ok: true, body: { value: { status: 200, headers: {}, body: JSON.stringify(body) } } })
 
   test("clock-weather: the time with no scope; a saved city reads its weather; a typed city is found and kept", async () => {
-    const host = new FakeHost(load("clock-weather"), init)
+    const host = new FakeHost(load("clock-weather"), declared("clock-weather"))
     host.handlers["app.storage.get"] = ok(null)
     host.handlers["app.storage.set"] = ok()
     host.handlers["net.fetch"] = (p) =>
@@ -304,7 +319,7 @@ describe("the widget templates (clock-weather, my-prs, design-links, media-playe
   })
 
   test("my-prs: yours and your reviews, kept in the order you move them, read again when a chat changes", async () => {
-    const host = new FakeHost(load("my-prs"), init)
+    const host = new FakeHost(load("my-prs"), declared("my-prs"))
     const item = (id: number, title: string) => ({ id, number: id, title, html_url: `https://github.com/o/r/pull/${id}`, repository_url: "https://api.github.com/repos/o/r", draft: false })
     host.handlers["app.storage.get"] = ok(null)
     host.handlers["app.storage.set"] = ok()
@@ -338,7 +353,7 @@ describe("the widget templates (clock-weather, my-prs, design-links, media-playe
   })
 
   test("my-prs: with no connected account it asks for a login and reads the public API", async () => {
-    const host = new FakeHost(load("my-prs"), init)
+    const host = new FakeHost(load("my-prs"), declared("my-prs"))
     host.handlers["app.storage.get"] = ok(null)
     host.handlers["app.storage.set"] = ok()
     host.handlers["integration.request"] = () => ({ ok: false, body: { code: "provider.unavailable", message: "no provider", retryable: false } })
@@ -362,7 +377,7 @@ describe("the widget templates (clock-weather, my-prs, design-links, media-playe
   })
 
   test("my-prs: a login with no open PRs can still be changed", async () => {
-    const host = new FakeHost(load("my-prs"), init)
+    const host = new FakeHost(load("my-prs"), declared("my-prs"))
     host.handlers["app.storage.get"] = (p) => ({ ok: true, body: { value: p.key === "login" ? "quiet" : null } })
     host.handlers["app.storage.set"] = ok()
     host.handlers["integration.request"] = () => ({ ok: false, body: { code: "provider.unavailable", message: "no provider", retryable: false } })
@@ -377,7 +392,7 @@ describe("the widget templates (clock-weather, my-prs, design-links, media-playe
   })
 
   test("design-links: a pasted Figma link gets its file name and opens in a browser tab", async () => {
-    const host = new FakeHost(load("design-links"), init)
+    const host = new FakeHost(load("design-links"), declared("design-links"))
     host.handlers["app.storage.get"] = ok(null)
     host.handlers["app.storage.set"] = ok()
     host.handlers["action.run"] = ok()
@@ -400,11 +415,15 @@ describe("the widget templates (clock-weather, my-prs, design-links, media-playe
   })
 
   test("media-player: the stations with their songs, play opens the stream, next walks the list, a favorite is kept", async () => {
-    const host = new FakeHost(load("media-player"), init)
+    const host = new FakeHost(load("media-player"), declared("media-player"))
     const channel = (id: string, title: string, listeners: string, lastPlaying: string) => ({ id, title, genre: "ambient|chill", description: `${title} radio`, listeners, lastPlaying })
     host.handlers["app.storage.get"] = ok(null)
     host.handlers["app.storage.set"] = ok()
-    host.handlers["action.run"] = ok()
+    // The stream tab exists once play opened it; a station change moves it.
+    let tab: { id: string; tab_id: string; url: string } | null = null
+    host.handlers["action.run"] = (p) => ((tab = { id: "browser_1", tab_id: "tab_1", url: p.args.url }), { ok: true, body: { value: null } })
+    host.handlers["browser.list"] = () => ({ ok: true, body: { value: tab ? [tab] : [] } })
+    host.handlers["browser.navigate"] = (p) => ((tab = { ...tab!, url: p.url }), { ok: true, body: { value: null } })
     host.handlers["net.fetch"] = () =>
       fetched({ channels: [channel("dronezone", "Drone Zone", "40", "Stars of the Lid - Requiem"), channel("groovesalad", "Groove Salad", "900", "Bonobo - Kerala")] })
     expect(host.mount("m", "renderPlayer")).toBe("")
@@ -423,10 +442,12 @@ describe("the widget templates (clock-weather, my-prs, design-links, media-playe
     await host.settle()
     const play = host.calls.find((c) => c.name === "action.run")!
     expect([play.params, play.options.gesture]).toEqual([{ id: "openBrowser", args: { url: "https://ice2.somafm.com/groovesalad-128-mp3" } }, "g2"])
-    expect(liveTexts(host)).toContain("Play again")
+    // Next while playing moves the one stream tab; it never opens a second stream.
     host.dispatch("m", help("Next station"), "tap", { gesture: "g3" })
-    await host.settle()
-    expect(host.calls.filter((c) => c.name === "action.run").at(-1)?.params.args.url).toBe("https://ice2.somafm.com/dronezone-128-mp3")
+    await host.settle(10)
+    expect(host.calls.filter((c) => c.name === "action.run")).toHaveLength(1)
+    const move = host.calls.find((c) => c.name === "browser.navigate")!
+    expect([move.params, move.options.gesture]).toEqual([{ browser: "browser_1", url: "https://ice2.somafm.com/dronezone-128-mp3" }, "g3"])
     host.dispatch("m", help("Favorite"), "tap", { gesture: "g4" })
     await host.settle()
     expect(host.calls.filter((c) => c.name === "app.storage.set" && c.params.key === "favorites").at(-1)?.params.value).toEqual(["dronezone"])
@@ -434,7 +455,7 @@ describe("the widget templates (clock-weather, my-prs, design-links, media-playe
   })
 
   test("start-page: a greeting, launch buttons that run New Tab's actions, workspaces and PRs that open on a click", async () => {
-    const host = new FakeHost(load("start-page"), init)
+    const host = new FakeHost(load("start-page"), declared("start-page"))
     host.handlers["action.run"] = ok()
     host.handlers["workspace.focus"] = ok()
     host.handlers["workspace.list"] = ok([{ id: "ws_1", session_id: "s", name: "cmux", index: 0, focused: true }, { id: "ws_2", session_id: "s", name: "website", index: 1, focused: false }])

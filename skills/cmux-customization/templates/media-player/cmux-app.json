@@ -18,6 +18,8 @@
   "scopes": {
     "net:somafm.com": "Read SomaFM's stations and the song each one plays now.",
     "actions:run": "Play a station in a cmux browser tab.",
+    "browser:read": "See whether the stream tab is open, so the player knows it plays.",
+    "browser:write": "Move the stream tab to the next station instead of opening a second one.",
     "storage:local": "Remember your station and your favorites."
   }
 }

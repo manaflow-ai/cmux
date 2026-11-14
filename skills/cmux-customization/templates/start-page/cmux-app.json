@@ -23,6 +23,7 @@
   "scopes": {
     "actions:run": "Open a chat, a terminal, a browser or a PR from the page, and the page from the sidebar.",
     "workspace:write": "Show a workspace when you click it.",
-    "net:api.github.com": "Read your PRs by your GitHub login when GitHub is not connected."
+    "workspace:read": "List your workspaces.",
+    "integration:github:read": "Read your pull requests with the connected GitHub account."
   }
 }

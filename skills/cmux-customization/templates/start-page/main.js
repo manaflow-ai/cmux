@@ -5,7 +5,8 @@
 // still opens cmux's own New Tab page; there is no setting that swaps it for this one yet.
 // Workspaces come from cmux.watch("workspace.list") (pushed, never polled) and PRs from
 // cmux.watch("github.pulls") through your connected GitHub account. Clicks need actions:run
-// (open) and workspace:write (show a workspace), in Settings > Apps > My views.
+// (open) and workspace:write (show a workspace), in Settings > Apps > My views; the two reads
+// (workspace:read, integration:github:read) are granted at install.
 
 const [now, setNow] = signal(Date.now())
 
