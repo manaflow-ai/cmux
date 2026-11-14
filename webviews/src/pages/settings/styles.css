@@ -448,7 +448,7 @@ mark {
   gap: var(--ds-space-2);
   margin-bottom: var(--ds-space-3);
   padding: var(--ds-space-2) 0;
-  border-bottom: 1px solid var(--border);
+  box-shadow: inset 0 -1px 0 var(--border);
 }
 
 .try-on-text {
@@ -475,10 +475,9 @@ mark {
 .try-on-meter {
   position: absolute;
   right: 0;
-  bottom: -1px;
+  bottom: 0;
   left: 0;
-  height: 1px;
-  background: var(--border-strong);
+  border-bottom: 1px solid var(--border-strong);
   transform: scaleX(var(--try-on-left, 1));
   transform-origin: left;
   transition: transform var(--cmux-motion-quick) linear;
@@ -489,6 +488,7 @@ mark {
   border: 1px solid var(--border);
   border-radius: var(--ds-radius-lg);
   background: var(--input-bg);
+  box-shadow: none;
 }
 
 .try-on[data-look="card"] .try-on-meter {
@@ -503,6 +503,7 @@ mark {
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--ds-radius-xl);
+  box-shadow: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
