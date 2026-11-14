@@ -163,10 +163,13 @@ def reserve_mini_jobs(env: Mapping[str, str], route: str, jobs: Sequence[str],
                    "busy": runner.get("busy") is True,
                    "labels": list(pool.runner_labels(runner))}
                   for runner in runners if route in pool.runner_labels(runner)]
+    observed_at = next((str(runner.get("_portable_observed_at") or "") for runner in runners
+                        if runner.get("_portable_observed_at")),
+                       dt.datetime.now(dt.timezone.utc).isoformat())
     acquired: list[tuple[str, str]] = []
     for job in jobs:
         payload = {"action": "acquire", "label": route, "request_id": _lease_request_id(env, job),
-                   "job": job, "ttl_s": 120, "candidates": candidates}
+                   "job": job, "ttl_s": 120, "observed_at": observed_at, "candidates": candidates}
         try:
             response = transport.exchange(endpoint, payload, allow_http_errors=True)
         except Exception as error:  # noqa: BLE001 - controller outage keeps the hosted route usable
@@ -362,8 +365,10 @@ def read(env: Mapping[str, str], now: dt.datetime, *, use_state: bool = True
             # Read only the validated publication.  Do not instantiate a
             # client: missing queue data must not fall through to an artifact
             # API request and spend the installation budget.
-            runners = [*state["repository_runners"],
-                       *(runner for group in state["runner_groups"].values() for runner in group)]
+            observed_at = str(state.get("generated_at") or now.isoformat())
+            runners = [dict(runner, _portable_observed_at=observed_at) for runner in
+                       [*state["repository_runners"],
+                        *(runner for group in state["runner_groups"].values() for runner in group)]]
             snapshot = pool.document_queue_snapshot(state, now=now, branch=pool.SNAPSHOT_BRANCH)
             return runners, snapshot
         except Exception as error:  # noqa: BLE001 - fail open to the overflow route
@@ -383,6 +388,8 @@ def read(env: Mapping[str, str], now: dt.datetime, *, use_state: bool = True
                 runners = client.runners(use_state=use_state, include_repository=False)
             else:
                 runners = client.runners(use_state=use_state)
+            observed_at = now.isoformat()
+            runners = [dict(runner, _portable_observed_at=observed_at) for runner in runners]
             break
         except Exception as error:  # noqa: BLE001 - fail open: every job keeps Blacksmith
             print(f"::warning title=portable placement::could not list runners with {name} ({error})")

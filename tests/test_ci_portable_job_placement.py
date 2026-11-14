@@ -222,6 +222,11 @@ class Decide(unittest.TestCase):
             result = placement.decide(config, idle(2), snapshot(), NOW)
         self.assertEqual(result.mini_jobs, tuple(JOBS.split())[:2])
         self.assertEqual(result.mini_lease_ids, ("lease-1", "lease-2"))
+
+        observed = []
+        with mock.patch.object(placement.transport, "exchange", side_effect=lambda _url, payload, **kwargs: observed.append(payload) or {"_http_status": 409, "status": "no_free_runner"}):
+            placement.decide(config, idle(1), snapshot(), NOW)
+        self.assertTrue(observed[0]["observed_at"])
         with tempfile.NamedTemporaryFile() as output:
             placement.write(result, {"GITHUB_OUTPUT": output.name})
             self.assertIn("mini_lease_ids= lease-1 lease-2 ", Path(output.name).read_text())
