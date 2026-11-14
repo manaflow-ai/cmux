@@ -40,6 +40,19 @@ test("a row still entering (not yet rested) does not count, a step's first frame
   ).toBeGreaterThan(0);
 });
 
+test("an entrance held on its first frame, then rising, is the animation's, not a shift (#40937)", () => {
+  // A loaded runner holds the palette's ui-enter at its -8 px start for a few frames, then it plays.
+  const held = Array.from({ length: REST_FRAMES + 1 }, () => [[1, row(92, { animating: true })]] as [number, BoxSample][]);
+  const shift = scoreBoxFrames(frames(...held, [[1, row(97, { animating: true })]], [[1, row(100)]], [[1, row(100)]]), viewport);
+  expect(shift.score).toBe(0);
+  // Once it finished and rested, a jump counts again.
+  const after = scoreBoxFrames(
+    frames(...held, [[1, row(100)]], ...rested(1, 100), [[1, row(130)]]),
+    viewport,
+  );
+  expect(after.score).toBeGreaterThan(0);
+});
+
 test("moves a scroller made count (the browser's CLS subtracts them): a bottom-pinned transcript scrolling up", () => {
   const shift = scoreBoxFrames(frames(...rested(1, 400), [[1, row(250)]]), viewport, { restedAtStart: true });
   expect(shift.score).toBeGreaterThan(0.01);
