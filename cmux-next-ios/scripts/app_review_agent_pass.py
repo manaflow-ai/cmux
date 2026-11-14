@@ -18,9 +18,12 @@ judged nothing (axe or claude missing, the agent failed or wrote no findings
 array, or it took no screenshot) is itself a blocker and exits 1.
 
 A run the API never served (the CLI's result shows a 429, 529 or 5xx status,
-a rate_limit or overloaded error, or zero API time and zero input tokens) is
-retried once after a backoff; a second such run ends red as
-agent.api-unavailable, so the red names the shared account, not the PR.
+a rate_limit or overloaded error, or zero API time and zero input tokens) ends
+red as agent.api-unavailable, so the red names the shared account, not the
+PR. A transient one is retried once after a backoff first; a weekly or other
+usage limit is not, since a minute cannot clear it. It prints one
+`::error::agent.api-unavailable {json}` marker with the CLI's fields, which
+scripts/ci/base_red_excuse.py excuses when the recorded API usage was zero.
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ import argparse
 import json
 import os
 import random
+import re
 import shlex
 import shutil
 import subprocess
@@ -60,6 +64,16 @@ AGENT_BUDGET_S = 45 * 60
 RETRY_BACKOFF_ENV = "APP_REVIEW_AGENT_RETRY_BACKOFF_S"
 DEFAULT_RETRY_BACKOFF_S = 60.0
 API_UNAVAILABLE_MESSAGE = "agent pass: API unavailable (rate limited)"
+# The one line a merge's classifier reads (scripts/ci/base_red_excuse.py,
+# AGENT_API_UNAVAILABLE): this prefix, a space, then the evidence as JSON.
+API_UNAVAILABLE_MARKER = "agent.api-unavailable"
+UNSERVED_ERROR_TYPES = frozenset({"rate_limit", "rate_limit_error", "overloaded", "overloaded_error"})
+USAGE_LIMIT_ERRORS = frozenset({"usage_limit_reached"})
+# The CLI's own result text for a usage limit (gate run 43637095919: "You've
+# hit your weekly limit · resets Nov 18 at 3am (UTC)"). It only names the
+# limit and its reset once a structured field already says the API refused.
+USAGE_LIMIT_TEXT = re.compile(r"\bhit your (?P<limit>[\w-]+(?: [\w-]+)?) limit\b(?:.*?\bresets (?P<resets>.+?))?\s*$",
+                              re.IGNORECASE | re.DOTALL)
 
 PROMPT = """You are an Apple App Review reviewer testing the cmux iOS app on an iPad
 or iPhone simulator. You have no Mac and you have never seen cmux before.
@@ -126,13 +140,23 @@ def bundle_id(app: Path) -> str:
     return out.strip()
 
 
-def unjudged(findings: Path, rule: str, message: str, where: str = "") -> int:
+def unjudged(findings: Path, rule: str, message: str, where: str = "", api: dict | None = None) -> int:
     """The pass judged nothing: a blocker the report shows, and a red step.
     It used to be a warning and exit 0, so a pass with no axe on the runner
-    looked green for weeks (job 132387096997 and every run after it)."""
-    findings.write_text(json.dumps([{"severity": "blocker", "guideline": "2.1", "rule": rule,
-                                     "source": "agent reviewer pass", "message": message, "where": where}], indent=2))
-    print(f"::error::agent reviewer pass: {message}", file=sys.stderr)
+    looked green for weeks (job 132387096997 and every run after it). With
+    API, the CLI result's evidence, the step's only error line is the marker."""
+    entry = {"severity": "blocker", "guideline": "2.1", "rule": rule,
+             "source": "agent reviewer pass", "message": message, "where": where}
+    if api is not None:
+        entry["api"] = api
+    findings.write_text(json.dumps([entry], indent=2))
+    if api is None:
+        print(f"::error::agent reviewer pass: {message}", file=sys.stderr)
+    else:
+        evidence = json.dumps(api, separators=(",", ":"))
+        # A workflow command's data escapes these three (GitHub's toolkit).
+        evidence = evidence.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        print(f"::error::{API_UNAVAILABLE_MARKER} {evidence}", file=sys.stderr)
     return 1
 
 
@@ -157,24 +181,49 @@ def cli_result(stdout: str) -> dict | None:
     return body if isinstance(body, dict) else None
 
 
-def api_unavailable(result: dict | None) -> str | None:
-    """Which of the CLI result's own fields show the API never served the
-    run, or None. Only structured fields count: never the result text, which
-    carries whatever the agent read in the app or the reviewer notes."""
+def count(value) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def api_unavailable(result: dict | None) -> dict | None:
+    """The CLI result's evidence that the API never served the run, or None.
+    Only its structured fields classify: api_error_status or error.status
+    429, 529 or 5xx; api_error_type, error.type or error rate_limit or
+    overloaded; api_error usage_limit_reached; or duration_api_ms 0 with
+    usage.input_tokens 0. The result text never classifies (it can carry
+    what the agent read in the app or the reviewer notes); once a field
+    has, its "hit your weekly limit · resets ..." names the limit."""
     if result is None:
         return None
     error = result.get("error") if isinstance(result.get("error"), dict) else {}
-    for field, status in (("api_error_status", result.get("api_error_status")), ("error.status", error.get("status"))):
-        if isinstance(status, int) and not isinstance(status, bool) and (status in (429, 529) or 500 <= status < 600):
-            return f"{field}={status}"
-    for field, kind in (("error.type", error.get("type")), ("error", result.get("error"))):
-        if isinstance(kind, str) and kind in ("rate_limit", "rate_limit_error", "overloaded", "overloaded_error"):
-            return f"{field}={kind}"
     usage = result.get("usage") if isinstance(result.get("usage"), dict) else {}
-    api_ms, tokens = result.get("duration_api_ms"), usage.get("input_tokens")
-    if api_ms == 0 and tokens == 0 and not isinstance(api_ms, bool) and not isinstance(tokens, bool):
-        return "duration_api_ms=0, usage.input_tokens=0"
-    return None
+    shown = []
+    for field, status in (("api_error_status", result.get("api_error_status")), ("error.status", error.get("status"))):
+        status = count(status)
+        if status is not None and (status in (429, 529) or 500 <= status < 600):
+            shown.append(f"{field}={status}")
+    for field, kind in (("api_error_type", result.get("api_error_type")), ("error.type", error.get("type")),
+                        ("error", result.get("error"))):
+        if isinstance(kind, str) and kind in UNSERVED_ERROR_TYPES:
+            shown.append(f"{field}={kind}")
+    api_error = result.get("api_error") if isinstance(result.get("api_error"), str) else None
+    usage_limit = api_error in USAGE_LIMIT_ERRORS
+    if usage_limit:
+        shown.append(f"api_error={api_error}")
+    api_ms, tokens = count(result.get("duration_api_ms")), count(usage.get("input_tokens"))
+    if api_ms == 0 and tokens == 0:
+        shown.append("duration_api_ms=0, usage.input_tokens=0")
+    if not shown:
+        return None
+    limit = resets = None
+    text = result.get("result")
+    if result.get("is_error") is True and isinstance(text, str) and (said := USAGE_LIMIT_TEXT.search(text)):
+        usage_limit, limit, resets = True, said["limit"].lower(), said["resets"]
+    api_type = result.get("api_error_type")
+    return {"message": API_UNAVAILABLE_MESSAGE, "fields": ", ".join(shown), "duration_api_ms": api_ms,
+            "input_tokens": tokens, "api_error_status": count(result.get("api_error_status")),
+            "api_error_type": api_type if isinstance(api_type, str) else None, "api_error": api_error,
+            "usage_limit": usage_limit, "limit": limit, "resets": resets}
 
 
 def retry_backoff() -> float:
@@ -247,6 +296,15 @@ def main(argv: list[str] | None = None) -> int:
         unserved = api_unavailable(cli_result(proc.stdout or "")) if items is None else None
         if unserved is None:
             break
+        unserved["attempts"] = attempt
+        if unserved["usage_limit"]:
+            # Gate run 43637095919 (job 132576237860): the account's weekly
+            # limit, which no retry in this run can clear.
+            limit = f"{unserved['limit'] or 'usage'} limit"
+            resets = f", resets {unserved['resets']}" if unserved["resets"] else ""
+            return unjudged(findings, "agent.api-unavailable",
+                            f"{API_UNAVAILABLE_MESSAGE}: {limit}{resets}; the CLI result showed {unserved['fields']};"
+                            " not retried, since a usage limit does not clear in a minute", str(out), unserved)
         if attempt == 1:
             # Gate run 43621274696 (job 132527403700): about 2 s, no API time,
             # no tokens, the shared account rate limited.
@@ -257,17 +315,17 @@ def main(argv: list[str] | None = None) -> int:
                 path.replace(out / f"attempt-1-{path.name}")
             if time.monotonic() + backoff >= deadline:
                 break
-            print(f"::warning::agent reviewer pass: the API did not serve the run ({unserved}); "
+            print(f"::warning::agent reviewer pass: the API did not serve the run ({unserved['fields']}); "
                   f"retrying once in {backoff:.0f} s", file=sys.stderr)
             time.sleep(backoff)
             continue
         return unjudged(findings, "agent.api-unavailable",
-                        f"{API_UNAVAILABLE_MESSAGE}: the CLI result showed {unserved} on both attempts;"
-                        " nothing was judged, so rerun the gate once the account recovers", str(out))
+                        f"{API_UNAVAILABLE_MESSAGE}: the CLI result showed {unserved['fields']} on both attempts;"
+                        " nothing was judged, so rerun the gate once the account recovers", str(out), unserved)
     if unserved is not None:
         return unjudged(findings, "agent.api-unavailable",
-                        f"{API_UNAVAILABLE_MESSAGE}: the CLI result showed {unserved}, with no time left to retry;"
-                        " nothing was judged, so rerun the gate once the account recovers", str(out))
+                        f"{API_UNAVAILABLE_MESSAGE}: the CLI result showed {unserved['fields']}, with no time left to"
+                        " retry; nothing was judged, so rerun the gate once the account recovers", str(out), unserved)
     detail = (proc.stderr or proc.stdout or "").strip().splitlines()[-1:] or ["no output"]
     if items is None:
         return unjudged(findings, "agent.no-verdict",
