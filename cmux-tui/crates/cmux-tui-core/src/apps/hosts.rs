@@ -31,6 +31,8 @@ const MAX_SUBSCRIPTIONS: usize = 256;
 
 impl Supervisor {
     /// `apps-mount` from no gesture: what an app, a script or a test asks.
+    /// Only the tests call it; the daemon passes its origin to `mount_as`.
+    #[cfg(test)]
     pub fn mount(
         &self,
         client: u64,
