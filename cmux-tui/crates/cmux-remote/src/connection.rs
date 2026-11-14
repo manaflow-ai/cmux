@@ -1566,17 +1566,34 @@ async fn authenticate_one(
     context: LinkHandshakeContext,
 ) -> Result<(Vec<Lane>, crate::crypto::SecureLink, BTreeMap<Lane, u64>), ConnectionError> {
     let primary = lanes[0];
-    let physical =
-        group.open(LinkRequest { lane: primary, generation: context.generation }).await?;
-    // Every step of a link's setup shares the attempt's deadline, the daemon's welcome and its
-    // link-ready too: a link that stalls after the Noise exchange fails this attempt (so it is
-    // retried) instead of hanging it, and cannot hand back a session the daemon dropped meanwhile
-    // as an incomplete link group. An invitation is the exception: its welcome waits on a person's
-    // approval, so only its link-ready, once the welcome is in, has the deadline.
+    // Every step of a link's setup shares the attempt's deadline, from the link's open (a
+    // provider's dial may have no timeout of its own: an unbounded TCP connect) to the daemon's
+    // welcome and its link-ready: a link that stalls anywhere fails this attempt (so it is
+    // retried) instead of hanging it, the first connect's too, and cannot hand back a session the
+    // daemon dropped meanwhile as an incomplete link group. An invitation is the exception: its
+    // welcome waits on a person's approval, so only its open and, once the welcome is in, its
+    // link-ready have the deadline.
     let timeout = config.reconnect.attempt_timeout;
     let timed_out = || ConnectionError::Crypto(CryptoError::HandshakeTimeout { timeout });
     let invitation = matches!(auth, ClientAuthMode::Invitation { .. });
     let started = tokio::time::Instant::now();
+    let attempt_deadline = started + timeout;
+    // A provider that declares a longer, bounded wait for this open (a relay parking a first
+    // connect's allocation until the daemon registers) keeps it, plus one attempt timeout for the
+    // open's own remaining steps; the rest of the setup then has a full attempt timeout from the
+    // open's end. Any other open shares the attempt's deadline.
+    let request = LinkRequest { lane: primary, generation: context.generation };
+    let open_deadline = group
+        .open_wait_until(&request)
+        .map_or(attempt_deadline, |wait_until| (wait_until + timeout).max(attempt_deadline));
+    let physical = tokio::time::timeout_at(open_deadline, group.open(request))
+        .await
+        .map_err(|_| timed_out())??;
+    let attempt_deadline = if open_deadline > attempt_deadline {
+        attempt_deadline.max(tokio::time::Instant::now() + timeout)
+    } else {
+        attempt_deadline
+    };
     let setup = initiate_secure_link(
         physical,
         ClientHandshake {
@@ -1597,7 +1614,7 @@ async fn authenticate_one(
         let secure = setup.await?;
         (secure, tokio::time::Instant::now() + timeout)
     } else {
-        let deadline = started + timeout;
+        let deadline = attempt_deadline;
         (tokio::time::timeout_at(deadline, setup).await.map_err(|_| timed_out())??, deadline)
     };
     let answer =
