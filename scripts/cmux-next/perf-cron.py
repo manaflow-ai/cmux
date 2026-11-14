@@ -167,6 +167,10 @@ PARTS = [
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     {"name": "chat-anim", "args": [*MEASURE, "--suite=budgets", "--only=acp,anim"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
+    # The app's idle memory, empty and with 10 idle agent chats open (memory-agents-cron.py, bench_memory.py on the
+    # acpmux test agent): the rows behind goals ram-baseline and memory-per-chat in cmuxterm-hq's NOW (CMUX-571).
+    {"name": "memory-agents", "args": [*MEASURE, "--suite=memory-agents", "--agents=10"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents", "run_seconds": 1500},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -189,7 +193,7 @@ ROW_PARTS = [
     (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
-    (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.", "launch"),
+    (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.", "launch"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
     (r"^webui\.(god_ratio\.|[a-z0-9_]+\.god\.)", "web-ui-god"), (r"^webui\.", "web-ui"),
@@ -1604,7 +1608,7 @@ def supported_parts_at(sha):
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{GOD_FIXTURE}"], capture_output=True).returncode == 0
         elif need == "web-ui-growth":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{STATE_GROWTH_BENCH}"], capture_output=True).returncode == 0
-        elif need in ("perf-gate", "launch"):
+        elif need in ("perf-gate", "launch", "memory-agents"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = f"--suite={need}" in text
