@@ -668,12 +668,18 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             guard let self else { return }
             // A refusal comes back as `.inputNotSent` from inside `send`.
             inputRefused = false
-            // Ghostty's own replies to terminal queries are no keys the
-            // person typed: they never make the "not sent" notice.
-            if surface.isPerformingInput {
+            // Only what the person typed, pressed or pasted is a key (Leo,
+            // 2026-11-14: "all I did was navigate away and then it showed
+            // this, but I didn't type anything"). A scroll's wheel reports, a
+            // tap's click report, a key release and Ghostty's replies to
+            // terminal queries go only while attached and never make the
+            // "Keys typed while your Mac was unreachable" notice.
+            if surface.isEncodingUserInput {
                 model.session.send(data)
             } else {
                 model.session.sendReply(data)
+                // A scroll or a tap is still the person's: this phone is the active device.
+                if surface.isPerformingInput { model.session.noteInteraction() }
             }
         }
         // Held for a reattach (or a first attach still coming) is not sent:

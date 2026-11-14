@@ -307,6 +307,9 @@ public final class TerminalModel {
             break
         case .connection:
             break
+        case .inputNotSent(let bytes) where bytes <= 0:
+            // Nothing the person typed was dropped: nothing to say.
+            break
         case .inputNotSent:
             composerNotice = TerminalConnectionState.inputNotSentNotice
             // A composer send that waited out a blip and was dropped comes back to edit.
