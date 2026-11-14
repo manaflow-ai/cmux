@@ -205,6 +205,21 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&sidebar_drop::tab_drop_refusal(&request))
                     .map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_change_failure" => {
+                // A refused or failed sidebar document change: its code (a reducer
+                // refusal, or `no_answer`, `unavailable`, `failed`) and the text the
+                // app shows when the person made the change.
+                #[derive(serde::Deserialize)]
+                struct Request {
+                    code: String,
+                }
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let text = cmux_layout_reducer::sidebar_doc::change_failure_text(&request.code);
+                let refusal =
+                    cmux_layout_reducer::sidebar_doc::Refusal::from_code(&request.code).is_some();
+                serde_json::to_vec(&serde_json::json!({ "text": text, "refusal": refusal }))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"sidebar_layout_reduce" => {
                 let request: sidebar_layout::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
@@ -399,6 +414,25 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 );
                 serde_json::to_vec(&serde_json::json!({ "check": check }))
                     .map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_start_list_wait" => {
+                #[derive(serde::Deserialize)]
+                #[serde(rename_all = "camelCase")]
+                struct Request {
+                    elapsed_ms: u64,
+                    #[serde(default)]
+                    deadline_left_ms: Option<u64>,
+                    loaded: bool,
+                    signed_in: bool,
+                }
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let next = cmux_cloud_start_core::list_wait::list_wait(
+                    std::time::Duration::from_millis(request.elapsed_ms),
+                    request.deadline_left_ms.map(std::time::Duration::from_millis),
+                    request.loaded,
+                    request.signed_in,
+                );
+                serde_json::to_vec(&next).map_err(|_| ERR_INVALID)?
             }
             b"cloud_start_uploads" => {
                 let request: cmux_cloud_start_core::start::Folder =

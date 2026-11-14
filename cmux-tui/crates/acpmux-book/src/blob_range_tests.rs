@@ -67,8 +67,10 @@ fn open_range_caps_bytes_and_matches_the_settled_body() -> TestResult {
                 end: end as u64,
                 total: expected.len() as u64,
                 generation: body.generation,
+                fixed: body.fixed(),
             }
         );
+        assert_eq!(expected.get(body.fixed() as usize), Some(&b'"'));
         assert!(out.len() <= MAX_BLOB_READ);
     }
     Ok(())
@@ -146,5 +148,63 @@ fn range_reads_only_intersecting_files_and_refuses_short_fields() -> TestResult 
     // A stopped store is an error even for an empty read.
     assert!(blobs.recover(std::slice::from_ref(&body), body.row).is_err());
     assert!(matches!(blobs.read_open_range(&body, 0, 0, &mut out), Err(Error::Stopped)));
+    Ok(())
+}
+
+#[test]
+fn fixed_is_the_closing_quote_of_text_or_the_body_length() -> TestResult {
+    let home = tempfile::tempdir()?;
+    let mut blobs = Blobs::open(home.path())?;
+    let check = |blobs: &Blobs, body: &Body, has_text: bool| -> TestResult {
+        let stored = whole_body(blobs, body)?;
+        let fixed = body.fixed();
+        let mut out = Vec::new();
+        assert_eq!(blobs.read_open_range(body, 0, 0, &mut out)?.fixed, fixed);
+        if has_text {
+            let at = usize::try_from(fixed)?;
+            assert_eq!(stored.get(at), Some(&b'"'), "the closing quote of text");
+            // The bytes before it end with text's content, opened by `"text":"`.
+            let opened = stored.windows(8).position(|w| w == b"\"text\":\"").ok_or("no text")?;
+            let content = body.fields.get("text").map(value_len).ok_or("no text field")?;
+            assert_eq!(opened as u64 + 8 + content, fixed);
+        } else {
+            assert_eq!(fixed, body.len());
+            assert_eq!(fixed, stored.len() as u64);
+        }
+        Ok(())
+    };
+    // No fields, then fields with no text.
+    let mut plain = Body::new(11)?;
+    check(&blobs, &plain, false)?;
+    blobs.set(&mut plain, "content", "[1,2]", false)?;
+    blobs.set(&mut plain, "title", "\"t\"", false)?;
+    check(&blobs, &plain, false)?;
+    blobs.spill(&mut plain)?;
+    check(&blobs, &plain, false)?;
+    // Text alone, then fields before it ("content") and after it ("title"), inline and spilled.
+    let mut body = Body::new(12)?;
+    blobs.set(&mut body, "text", "\"\"", false)?;
+    check(&blobs, &body, true)?;
+    blobs.set(&mut body, "text", "\"a\\\"b\\n漢\"", true)?;
+    check(&blobs, &body, true)?;
+    blobs.set(&mut body, "content", "{\"x\":\"\\\"\"}", false)?;
+    check(&blobs, &body, true)?;
+    blobs.set(&mut body, "title", "\"after\"", false)?;
+    check(&blobs, &body, true)?;
+    blobs.spill(&mut body)?;
+    check(&blobs, &body, true)?;
+    blobs.set(&mut body, "text", "\"more\"", true)?;
+    check(&blobs, &body, true)?;
+    // Text only after other fields: "aaa" sorts before it, "zzz" after.
+    let mut only_before = Body::new(13)?;
+    blobs.set(&mut only_before, "aaa", "1", false)?;
+    blobs.set(&mut only_before, "text", "\"x\"", false)?;
+    check(&blobs, &only_before, true)?;
+    let mut only_after = Body::new(14)?;
+    blobs.set(&mut only_after, "text", "\"x\"", false)?;
+    blobs.set(&mut only_after, "zzz", "null", false)?;
+    check(&blobs, &only_after, true)?;
+    blobs.spill(&mut only_after)?;
+    check(&blobs, &only_after, true)?;
     Ok(())
 }

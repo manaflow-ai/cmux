@@ -124,6 +124,7 @@ pub mod hunk_summary;
 mod job;
 pub mod launch_credential;
 pub mod launch_policy;
+pub mod link_v2;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_sandbox;
 pub mod list_bytes;
@@ -246,6 +247,9 @@ mod test_exec;
 mod test_hooks_tree;
 #[cfg(test)]
 mod test_stack;
+/// Another crate's tests' daemon (`test-support`; row 7c's `cmux-tui-core` gates). Never shipped.
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub mod test_support;
 pub mod tools_mcp;
 pub mod touched_files;
 pub mod transcript;

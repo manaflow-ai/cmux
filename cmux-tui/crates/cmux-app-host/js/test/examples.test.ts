@@ -2,8 +2,8 @@
 // sample's budget: timers and upstream reads before (hand-rolled cmux.timer.every) and after
 // (cmux.watch), counted the same way.
 import { beforeAll, describe, expect, test } from "bun:test"
-import { readFileSync, rmSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { join, dirname } from "node:path";
 import { FakeHost } from "./fake-host.ts"
 
 const root = join(import.meta.dir, "../../../../..")
@@ -241,5 +241,102 @@ describe("cmux-extension-sdk", () => {
     expect(host.eval("__sdk.RUNTIME_VERSION")).not.toBe("")
     expect(host.eval("__sdk.EVENT_STREAMS")).toEqual(Object.keys(json("schema/v2/events.json").events))
     expect(host.eval(`__sdk.scopeFor("agent_chat.changed")`)).toBe("agent_chat:read")
+    expect(host.eval(`__sdk.scopeFor("settings.changed")`)).toBe("settings:read")
+    expect(host.eval(`__sdk.scopeFor("theme.changed")`)).toBe("settings:read")
+  })
+})
+
+// examples/extensions/pr-card is a chat widget (cmux.chat.widget/1) built only against the public
+// SDK: the context is what the daemon's route answers for a tool call (apps.chat_widgets.route).
+describe("local/pr-card (a chat widget, cmux-extension-sdk only)", () => {
+  const dir = "examples/extensions/pr-card"
+  let built: string | undefined
+  beforeAll(async () => {
+    const { pack } = await import("../../tools/pack.ts")
+    built = await pack(join(root, dir))
+  })
+  const texts = (host: FakeHost, mount: string) =>
+    [...host.tree(mount).nodes.values()].map((n) => n.props.title ?? n.props.text).filter(Boolean)
+  const checks = Array.from({ length: 7 }, (_, i) => ({ id: i + 1, name: `check-${i + 1}`, status: "completed", conclusion: i === 6 ? "failure" : "success", html_url: `https://github.com/o/r/runs/${i + 1}` }))
+  function card() {
+    const host = new FakeHost(built!, { app: { id: "local/pr-card", version: "1.0.0" }, settings: {} })
+    const storage = new Map<string, unknown>()
+    host.handlers["integration.request"] = (p) => {
+      const path = String(p.path)
+      if (path === "/repos/o/r/pulls/7") return ok({ title: "Chat widgets", state: "open", merged_at: null, draft: false, user: { login: "octo" }, html_url: "https://github.com/o/r/pull/7", head: { sha: "abc" } })
+      if (path.startsWith("/repos/o/r/commits/abc/check-runs")) return ok({ check_runs: checks })
+      return { ok: false, body: { code: "not_found", message: path } }
+    }
+    host.handlers["app.storage.get"] = (p) => ok(storage.get(String(p.key)) ?? null)
+    host.handlers["app.storage.set"] = (p) => { storage.set(String(p.key), p.value); return ok(null) }
+    host.handlers["action.run"] = () => ok(null)
+    return { host, storage }
+  }
+  const toolContext = {
+    surface: "chatWidget",
+    widget: { key: "chat_1#call_7" },
+    tool: { name: "mcp__github__get_pull_request", status: "completed", input: { owner: "o", repo: "r", pullNumber: 7 }, output: "{}" }
+  }
+
+  test("imports nothing but cmux-extension-sdk", () => {
+    const src = readFileSync(join(root, dir, "src/main.ts"), "utf8")
+    expect([...src.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1])).toEqual(["cmux-extension-sdk"])
+    expect(built).toContain("__cmuxAppExports")
+  })
+
+  test("an agent's tool result renders the card: the PR, its checks failures first, five a page", async () => {
+    const { host, storage } = card()
+    expect(host.mount("w", "renderCard", toolContext)).toBe("")
+    await host.settle(10)
+    const rowTitles = [...host.tree("w").nodes.values()].filter((n) => n.type === "Row").map((n) => n.props.title)
+    expect(rowTitles).toEqual(["o/r #7", "check-7", "check-1", "check-2", "check-3", "check-4"])
+    expect(texts(host, "w")).toEqual(expect.arrayContaining(["Chat widgets", "Page 1 of 2", "Previous", "Next"]))
+    // Next: page 2, kept under the widget's key.
+    host.dispatch("w", host.findNode("w", (n) => n.type === "Button" && n.props.title === "Next")!, "tap")
+    await host.settle(10)
+    expect(storage.get("page:chat_1#call_7")).toBe(1)
+    expect(texts(host, "w")).toContain("Page 2 of 2")
+  })
+
+  test("a widget part's props draw the same card, and the sidebar section lists what the cards showed", async () => {
+    const { host } = card()
+    host.mount("w", "renderCard", { surface: "chatWidget", widget: { key: "msg_1#0" }, props: { repo: "o/r", number: 7 } })
+    host.mount("s", "renderSection")
+    await host.settle(10)
+    expect(texts(host, "w")).toContain("Chat widgets")
+    expect(texts(host, "s")).toContain("Chat widgets")
+  })
+
+  test("a call without a pull request says what it needs", () => {
+    const { host } = card()
+    host.mount("w", "renderCard", { surface: "chatWidget", widget: { key: "k" }, tool: { name: "mcp__github__get_pull_request", input: {} } })
+    expect(texts(host, "w")).toContain("No pull request")
+  })
+})
+
+describe("cmux-extension-sdk/testing", () => {
+  const sdk = join(root, "cmux-tui/crates/cmux-extension-sdk/typescript")
+
+  test("an extension's tests get the fake host, the packer and the validator from the package", async () => {
+    const testing = await import(join(sdk, "src/testing.ts"))
+    expect(testing.FakeHost).toBe(FakeHost)
+    const host = new testing.FakeHost(await testing.pack(join(root, "examples/extensions/activity")))
+    expect(typeof host.global.__cmuxAppExports.renderSection).toBe("function")
+    expect(testing.validatePackage(join(root, "first-party-apps/caffeinate")).errors).toEqual([])
+    expect(new testing.SchemaValidator(testing.manifestSchema()).validate({})).not.toEqual([])
+    expect(testing.interfaceContract("cmux.section/1")).toBeDefined()
+    for (const bad of ["cmux.section", "cmux.section/x", "../x/1", "cmux.nothing/1"]) expect(testing.interfaceContract(bad)).toBeUndefined()
+  })
+
+  test("runtime-files.json lists every cmux-app-host file the package reads", () => {
+    const list = JSON.parse(readFileSync(join(sdk, "runtime-files.json"), "utf8")) as { root: string; files: string[] }
+    const shipped = list.files.map((file) => join(sdk, list.root, file))
+    for (const path of shipped) expect([path, existsSync(path)]).toEqual([path, true])
+    const sources = ["src/index.ts", "src/testing.ts"].map((f) => join(sdk, f))
+    const read = new Set<string>()
+    for (const file of sources) {
+      for (const m of readFileSync(file, "utf8").matchAll(/["'](\.\.\/\.\.\/\.\.\/cmux-app-host\/[^"']+)["']/g)) read.add(join(dirname(file), m[1]!))
+    }
+    for (const path of read) expect([path, shipped.some((s) => path === s || path.startsWith(s + "/"))]).toEqual([path, true])
   })
 })

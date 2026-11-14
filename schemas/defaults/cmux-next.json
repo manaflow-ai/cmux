@@ -706,7 +706,7 @@
     "setting.phone.keepAwake": "pluggedIn",
     "setting.picker.pinned": [],
     "setting.remote.endSharingOnQuit": false,
-    "setting.remote.ultraMode": false,
+    "setting.remote.ultra": "auto",
     "setting.screenshots.findTools": true,
     "setting.screenshots.folders": [],
     "setting.sessions.allowFullAccess": true,

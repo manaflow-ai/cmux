@@ -27,6 +27,8 @@ pub mod host {
     }
 }
 pub mod link;
+#[cfg(unix)]
+pub(crate) mod proc_table;
 pub mod program_wait;
 #[cfg(unix)]
 pub(crate) mod record_watch;
