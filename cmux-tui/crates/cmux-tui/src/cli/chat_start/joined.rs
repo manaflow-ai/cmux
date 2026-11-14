@@ -57,8 +57,11 @@ pub(in crate::cli) struct Sources<H, R> {
 }
 
 /// The joined machine `selector` names, `None` when it names none (and is no `joined:ID`), so
-/// the caller keeps its own refusal. `joined:ID` and a name the hub does not list need the
-/// account's list; a name the hub lists does not.
+/// the caller keeps its own refusal. The account's list is read first and decides: a revoked
+/// row is refused even while the hub still lists the machine (revocation reaches the hub
+/// later). The hub's list only says a machine is up, and names one by itself only when the
+/// account's list cannot be read. A name matches without regard to case, and the machine
+/// carries its own spelling on (`--on STUDIO` starts on `studio`).
 pub(in crate::cli) fn resolve<H, R>(
     selector: &str,
     sources: Sources<H, R>,
@@ -81,18 +84,20 @@ where
         .filter(|peer| peer.get_str("via") == Some("hub"))
         .filter_map(|peer| peer.get_str("name").map(str::to_owned))
         .collect();
-    let on_hub = |host: &str| hub_hosts.iter().any(|listed| listed.eq_ignore_ascii_case(host));
-    if by_id.is_none() && on_hub(selector) {
-        return Some(Ok(JoinedMachine {
-            id: None,
-            name: selector.to_owned(),
-            host: selector.to_owned(),
-        }));
-    }
+    let listed = |host: &str| hub_hosts.iter().find(|listed| listed.eq_ignore_ascii_case(host));
+    let on_hub = |host: &str| listed(host).is_some();
     let rows = match (sources.rows)() {
         Ok(rows) => rows,
-        // Without the account's list only `joined:ID` is ours to refuse.
+        // Without the account's list: a name the hub lists, as the hub spells it; else only
+        // `joined:ID` is ours to refuse.
         Err(reason) => {
+            if let Some(host) = listed(selector).filter(|_| by_id.is_none()) {
+                return Some(Ok(JoinedMachine {
+                    id: None,
+                    name: host.clone(),
+                    host: host.clone(),
+                }));
+            }
             return by_id.map(|id| {
                 Err(refusal(
                     "chat_target.unknown_device",
@@ -128,10 +133,17 @@ where
             )));
         }
     };
-    Some(machine(row, &on_hub))
+    Some(machine(row, &on_hub).map(|mut found| {
+        // The host as the hub spells it, when the hub lists it in another case.
+        if let Some(host) = listed(&found.host) {
+            found.host.clone_from(host);
+        }
+        found
+    }))
 }
 
-/// The row `key` names: by id, or (`by_id` false) by id, name or hostname, a live one first.
+/// The row `key` names: by id, or (`by_id` false) by id, name or hostname, a live one first;
+/// a name spelled as the row spells it first, then one that differs only in case.
 /// Err: the ids of several live rows with that name.
 fn find<'a>(key: &str, by_id: bool, rows: &'a [Value]) -> Result<Option<&'a Value>, Vec<String>> {
     let joined =
@@ -142,9 +154,13 @@ fn find<'a>(key: &str, by_id: bool, rows: &'a [Value]) -> Result<Option<&'a Valu
     if by_id {
         return Ok(None);
     }
-    let named: Vec<&Value> = joined()
-        .filter(|row| row.get_str("name") == Some(key) || row.get_str("hostname") == Some(key))
-        .collect();
+    let names = |row: &Value, same: &dyn Fn(&str) -> bool| {
+        row.get_str("name").is_some_and(same) || row.get_str("hostname").is_some_and(same)
+    };
+    let mut named: Vec<&Value> = joined().filter(|row| names(row, &|name| name == key)).collect();
+    if named.is_empty() {
+        named = joined().filter(|row| names(row, &|name| name.eq_ignore_ascii_case(key))).collect();
+    }
     let live: Vec<&Value> =
         named.iter().copied().filter(|row| row.get_str("state") != Some("revoked")).collect();
     match (live.as_slice(), named.as_slice()) {
@@ -410,10 +426,32 @@ fn acp_json(words: &[&str], stdin: Option<&str>) -> Result<Value, Value> {
     let exe = std::env::current_exe()
         .map_err(|e| error("acpmux.unreachable", &format!("cannot find cmux: {e}"), true))?;
     let mut command = Command::new(exe);
+    command.arg0("cmux");
+    run_acp(acp_command(command, words), words, stdin, START_DEADLINE)
+}
+
+/// `command` (this binary, in production) as `… acp WORDS`, with no cmux credential in its
+/// environment: an acpmux daemon `cmux acp` auto-starts, and the harnesses it runs, would keep
+/// them for their lifetime ([`crate::devices::CREDENTIAL_ENV`], the list every `cmux` child
+/// is started without).
+pub(in crate::cli) fn acp_command(mut command: Command, words: &[&str]) -> Command {
+    command.arg("acp").args(words);
+    for name in crate::devices::CREDENTIAL_ENV {
+        command.env_remove(name);
+    }
     command
-        .arg0("cmux")
-        .arg("acp")
-        .args(words)
+}
+
+/// Runs `command` (`cmux acp WORDS`), with `stdin` on its stdin, for at most `limit`: its
+/// stdout's JSON answer, or the failure. A child still running at `limit` is ended (dropping
+/// its `Child` sends SIGTERM, then SIGKILL) and the answer is `acpmux.timeout`.
+pub(in crate::cli) fn run_acp(
+    mut command: Command,
+    words: &[&str],
+    stdin: Option<&str>,
+    limit: Duration,
+) -> Result<Value, Value> {
+    command
         .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -423,14 +461,48 @@ fn acp_json(words: &[&str], stdin: Option<&str>) -> Result<Value, Value> {
     if let (Some(text), Some(mut pipe)) = (stdin, child.stdin.take()) {
         let _ = pipe.write_all(text.as_bytes());
     }
-    let out = child
-        .wait_with_output()
-        .map_err(|e| error("acpmux.unreachable", &format!("cmux acp did not finish: {e}"), true))?;
-    let stdout = String::from_utf8_lossy(&out.stdout);
+    // Both pipes are read on their own threads, so the wait below is the only thing bounded:
+    // a reader left behind at the timeout ends when the child's end of its pipe closes.
+    let read = |pipe: Option<Box<dyn std::io::Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            if let Some(mut pipe) = pipe {
+                let _ = std::io::Read::read_to_end(&mut pipe, &mut bytes);
+            }
+            bytes
+        })
+    };
+    let stdout = read(child.stdout.take().map(|pipe| Box::new(pipe) as _));
+    let stderr = read(child.stderr.take().map(|pipe| Box::new(pipe) as _));
+    let status = match child.wait_timeout(limit) {
+        Ok(Some(status)) => status,
+        Ok(None) => {
+            drop(child);
+            return Err(error(
+                "acpmux.timeout",
+                &format!(
+                    "cmux acp {} did not answer within {}s; `cmux acp host ls` shows whether acpmux and the hub answer",
+                    words.join(" "),
+                    limit.as_secs()
+                ),
+                true,
+            ));
+        }
+        Err(e) => {
+            return Err(error(
+                "acpmux.unreachable",
+                &format!("cmux acp did not finish: {e}"),
+                true,
+            ));
+        }
+    };
+    let joined = |reader: std::thread::JoinHandle<Vec<u8>>| reader.join().unwrap_or_default();
+    let (out_bytes, err_bytes) = (joined(stdout), joined(stderr));
+    let stdout = String::from_utf8_lossy(&out_bytes);
     let parsed =
         stdout.lines().rev().find_map(|line| serde_json::from_str::<Value>(line.trim()).ok());
-    if !out.status.success() {
-        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_owned();
+    if !status.success() {
+        let stderr = String::from_utf8_lossy(&err_bytes).trim().to_owned();
         let message = if stderr.is_empty() { stdout.trim().to_owned() } else { stderr };
         let mut failure =
             error("acpmux.failed", &format!("cmux acp {}: {message}", words.join(" ")), false);

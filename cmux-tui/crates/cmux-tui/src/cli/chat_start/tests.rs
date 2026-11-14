@@ -614,7 +614,7 @@ fn joined_at(id: Option<&str>, name: &str, host: &str) -> Result<Route, Value> {
 /// A joined machine is found by its name, the hub's host name, or `joined:ID`, with no ssh.
 #[test]
 fn a_joined_machine_is_a_chat_target_by_name_or_id() {
-    // By name: the hub lists it, so the account's list is not read.
+    // By name: the account's list is read even though the hub lists it (it decides).
     let read = Cell::new(false);
     let by_hub = route_or_joined(
         Some("studio"),
@@ -636,8 +636,8 @@ fn a_joined_machine_is_a_chat_target_by_name_or_id() {
             },
         },
     );
-    assert_eq!(by_hub, joined_at(None, "studio", "studio"));
-    assert!(!read.get(), "the hub's list named it");
+    assert_eq!(by_hub, joined_at(Some("m_studio"), "studio", "studio"));
+    assert!(read.get(), "the account's list decides, not the hub's");
     // By its account id, and by its label: the hub's host name is the hostname.
     assert_eq!(
         on_joined("joined:m_studio", Some(joined_rows())),
@@ -712,7 +712,7 @@ fn a_catalog_device_without_a_route_is_its_joined_machine() {
         },
         Sources { hub, rows: || Ok(joined_rows()) },
     );
-    assert_eq!(found, joined_at(None, "studio", "studio"));
+    assert_eq!(found, joined_at(Some("m_studio"), "studio", "studio"));
 }
 
 /// The acpmux start: `session start NAME --machine HOST`, with the harness and folder.
@@ -952,4 +952,95 @@ fn a_refused_or_unset_setting_is_no_setting() {
         Ok(None)
     );
     finish(app);
+}
+
+/// #38355 review F2: the account's list decides before the hub's. A machine revoked on the
+/// account that the hub still lists (revocation reaches the hub later) is refused, never
+/// started on; so is it by its id.
+#[test]
+fn a_revoked_machine_the_hub_still_lists_is_refused() {
+    let stale_hub = || {
+        vec![
+            json!({"name": "old", "connected": true, "state": "connected", "via": "hub"}),
+            json!({"name": "studio", "connected": true, "state": "connected", "via": "hub"}),
+        ]
+    };
+    for on in ["old", "OLD", "joined:m_old"] {
+        let refused = route_or_joined(
+            Some(on),
+            || {
+                route(
+                    Some(on),
+                    Reads {
+                        catalog: || Ok(catalog()),
+                        signed_in: || true,
+                        cloud_machines: || Ok(listed()),
+                    },
+                )
+            },
+            Sources { hub: stale_hub, rows: || Ok(joined_rows()) },
+        );
+        assert_eq!(code(refused), "chat_target.revoked", "--on {on}");
+    }
+}
+
+/// #38355 review F3: a name matches without regard to case, and the start names the machine
+/// as the account (and the hub) spell it: `--on STUDIO` sends `--machine studio`.
+#[test]
+fn a_joined_machine_named_in_another_case_starts_under_its_own_name() {
+    let found = on_joined("STUDIO", Some(joined_rows()));
+    assert_eq!(found, joined_at(Some("m_studio"), "studio", "studio"));
+    let Ok(Route::Joined(machine)) = found else { unreachable!() };
+    let words = joined::start_words(&start(&["--on", "STUDIO", "go"]), &machine, "n").unwrap();
+    assert_eq!(words, words(&["session", "start", "n", "--machine", "studio", "--json"]));
+    // Without the account's list, the hub's spelling.
+    assert_eq!(on_joined("Mini-2", None), joined_at(None, "mini-2", "mini-2"));
+    // A label in another case: the account's label and the hub's host name.
+    assert_eq!(
+        on_joined("desk mac", Some(joined_rows())),
+        joined_at(Some("m_desk"), "Desk Mac", "mini-2")
+    );
+}
+
+/// #38355 review F1: `cmux acp` starts with no cmux credential in its environment (the list
+/// every `cmux` child is started without), whatever this process has; other variables pass.
+#[test]
+fn cmux_acp_starts_without_the_cmux_credentials() {
+    assert!(crate::devices::CREDENTIAL_ENV.contains(&"CMUX_JOIN"));
+    assert!(crate::devices::CREDENTIAL_ENV.contains(&"CMUX_CLOUD_ACCESS_TOKEN"));
+    let mut shell = cmux_process::Command::new("/bin/sh");
+    shell
+        .args([
+            "-c",
+            r#"printf '{"join":"%s","token":"%s","keep":"%s","argv":"%s"}' "${CMUX_JOIN-unset}" "${CMUX_CLOUD_ACCESS_TOKEN-unset}" "${KEEP_ME-unset}" "$0 $1 $2""#,
+        ])
+        .env("CMUX_JOIN", "cmj_secret")
+        .env("CMUX_CLOUD_ACCESS_TOKEN", "bearer_secret")
+        .env("KEEP_ME", "kept");
+    let command = joined::acp_command(shell, &["host", "ls"]);
+    let seen = joined::run_acp(command, &["host", "ls"], None, std::time::Duration::from_secs(60))
+        .unwrap();
+    assert_eq!(seen["join"], "unset", "{seen}");
+    assert_eq!(seen["token"], "unset", "{seen}");
+    assert_eq!(seen["keep"], "kept", "{seen}");
+    assert_eq!(seen["argv"], "acp host ls", "{seen}");
+}
+
+/// The SHIP review's follow-up: a `cmux acp` that never answers is ended at the limit and the
+/// answer is `acpmux.timeout`, not a wait with no end.
+#[test]
+fn a_cmux_acp_that_hangs_ends_with_a_timeout_error() {
+    let mut hang = cmux_process::Command::new("/bin/sh");
+    hang.args(["-c", "exec sleep 600"]);
+    let began = std::time::Instant::now();
+    let answer = joined::run_acp(
+        hang,
+        &["send", "h/n", "-"],
+        Some("hi"),
+        std::time::Duration::from_millis(300),
+    );
+    let error = answer.unwrap_err();
+    assert_eq!(error["code"], "acpmux.timeout", "{error}");
+    assert_eq!(error["retryable"], true);
+    assert!(began.elapsed() < std::time::Duration::from_secs(20), "{:?}", began.elapsed());
 }
