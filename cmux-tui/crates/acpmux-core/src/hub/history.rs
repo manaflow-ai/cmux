@@ -9,6 +9,9 @@ use std::sync::Arc;
 #[cfg(test)]
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+#[cfg(test)]
+mod replay_tests;
+
 const CREDIT_WINDOW_BYTES: usize = 1024 * 1024;
 // Every encoded op is longer than 32 bytes, including an empty gone at seq 0.
 const MIN_OP_BYTES: usize = 32;
