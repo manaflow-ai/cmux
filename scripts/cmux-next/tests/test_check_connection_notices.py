@@ -449,14 +449,39 @@ class Allowlist(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("EditorPage shows a connection state", out)
 
-    def test_an_untouched_file_is_not_judged_with_a_base(self):
-        tree = self.noisy()
+    def test_an_offender_made_by_a_change_elsewhere_is_judged_with_a_base(self):
+        """Third review: deleting a strings type's last gated user in its module spilled its words to a view in
+        another module; neither file changed, so --base passed and the next full run failed."""
+        kit = "Packages/iOS/Kit/Sources"
+        tree = Tree(self)
+        tree.write(f"{kit}/ModA/ModAStrings.swift", 'struct ModAStrings {\n    static let offline = "Offline"\n}\n')
+        tree.write(f"{kit}/ModA/GatedView.swift",
+                   "struct GatedView: View {\n    @State var gate = QuietStatusGate()\n"
+                   "    var body: some View { Text(ModAStrings.offline) }\n}\n")
+        tree.write(f"{kit}/ModB/OtherView.swift",
+                   "struct OtherView: View {\n    var body: some View { Text(ModAStrings.offline) }\n}\n")
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
         tree.commit("base")
-        tree.write(f"{WEB}/Unrelated.ts", "export const x = 1;\n")
+        tree.remove(f"{kit}/ModA/GatedView.swift")
+        tree.commit("head: the gated user goes")
+        code, out = tree.check(base="HEAD^1")
+        self.assertEqual(code, 1, out)
+        self.assertIn("OtherView shows a connection state", out)
+
+    def test_a_new_rows_surface_text_does_not_make_a_move(self):
+        """Third review: a row copying a deleted row's surface text took it for a unit on another surface."""
+        tree = self.noisy()
+        tree.allow(self.NOTICE)
+        tree.commit("base")
+        tree.remove(f"{WEB}/AutoResumeNotice.tsx")
+        tree.write(f"{IOS}/AutoResumeNotice.swift",
+                   'struct AutoResumeNotice: View {\n    var body: some View { Text("Reconnecting…") }\n}\n')
+        tree.allow(f"{IOS}/AutoResumeNotice.swift::AutoResumeNotice")  # same "web:test" surface text
         tree.commit("head")
         code, out = tree.check(base="HEAD^1")
-        self.assertEqual(code, 0, out)
-        self.assertIn("1 unlisted unit(s) in files this change does not touch", out)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"new row {IOS}/AutoResumeNotice.swift::AutoResumeNotice", out)
 
     def test_a_base_that_does_not_resolve_refuses(self):
         tree = self.noisy()

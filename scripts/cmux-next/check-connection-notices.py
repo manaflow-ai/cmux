@@ -31,7 +31,8 @@ when it
   listed  is in the allowlist (scripts/cmux-next/connection-notices-allowlist.tsv: unit, surface, owner, reason).
 The allowlist only shrinks: with --base REV a row the list at REV lacks fails (a unit that moved to another file
 under the same name keeps its row), and a row whose unit no longer shows an unbounded connection state (fixed,
-renamed or deleted) fails as stale until the same change removes it. The unit is the granularity: a component with
+renamed or deleted, by any file) fails as stale until a change removes it. Every unlisted offender is judged on
+every run, with or without --base. The unit is the granularity: a component with
 any button passes, so the check catches a new state drawn with nothing to do, not a button that does the wrong thing.
 
     python3 scripts/cmux-next/check-connection-notices.py                     # the working tree
@@ -51,7 +52,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 ALLOWLIST = "scripts/cmux-next/connection-notices-allowlist.tsv"
-CHECK_PATH = "scripts/cmux-next/check-connection-notices.py"
 ALLOWLIST_HEADER = (
     "# check-connection-notices.py allowlist: unit<TAB>surface<TAB>owner<TAB>reason. It only shrinks: a PR that fixes\n"
     "# a unit (a bound, or one action) removes its row in the same change; a stale row fails the check.\n"
@@ -498,14 +498,6 @@ def base_allowlist(root: Path, rev: str) -> dict[str, tuple[str, str, str]] | No
     return read_allowlist(proc.stdout.decode("utf-8", errors="replace"))
 
 
-def changed_files(root: Path, base: str) -> set[str]:
-    """The files the working tree changes from BASE."""
-    proc = git(root, "diff", "--name-only", "--no-renames", base, "--")
-    if proc.returncode != 0:
-        raise BaseUnreadable(f"git diff against {base} failed")
-    return {line for line in proc.stdout.decode("utf-8", errors="replace").split("\n") if line}
-
-
 def check(root: Path, base: str | None, *, list_all: bool = False, out=sys.stdout) -> int:
     tree = Tree(root)
     units = scan(tree)
@@ -514,27 +506,18 @@ def check(root: Path, base: str | None, *, list_all: bool = False, out=sys.stdou
     offenders = {u.id: u for u in units if not u.ok}
     unit_ids = tree.unit_ids
     problems: list[str] = bound_drift(tree)
-    # With a base, judge only what the change touches (its files, or the files its words come from): a change never
-    # pays for a file it left alone, like the pre-push gate. A change to a string table can turn any unit's words
-    # into a connection state (or out of one), so it judges everything; so does a change to this check or its list's
-    # rows: a unit whose row the change removed is judged wherever it is.
+    # Every unlisted offender is judged on every run, whatever file the change touched: whether a unit offends also
+    # depends on files it does not live in (a strings map, a string table, the last in-module user of a Swift strings
+    # type), so judging only touched files let an offender in that a later full run then failed on. The base passes
+    # a full run, so no change pays for another's debt. --base adds the ratchet on the list's rows.
     try:
         before = base_allowlist(root, base) if base is not None else None
-        changed = changed_files(root, base) if base is not None else None
     except BaseUnreadable as error:
         print(f"connection notices: cannot judge the change: {error}", file=out)
         return 2
-    if changed is not None and any(p.endswith(STRING_TABLE_SUFFIX) or p in (NOTICE_TIMING, CHECK_PATH)
-                                   for p in changed):
-        changed = None
     unlisted = set(before) - set(allow) if before is not None else set()
-    touched = (lambda path: True) if changed is None else (lambda path: path in changed)
-    skipped = 0
     for uid, unit in sorted(offenders.items()):
         if uid in allow:
-            continue
-        if not (uid in unlisted or touched(unit.path) or any(touched(h.origin) for h in unit.hits)):
-            skipped += 1
             continue
         first = unit.hits[0]
         why = (f"a literal grace under the bound ({', '.join(unit.literal_grace)}); name CONNECTION_QUIET_MS"
@@ -546,10 +529,14 @@ def check(root: Path, base: str | None, *, list_all: bool = False, out=sys.stdou
                             "remove the row in this change")
     if before is not None:
         # A row whose unit moved (same name and surface, another file, and the old unit no longer exists) is the
-        # same debt, not a new one; each removed row covers one move.
-        gone = sorted((uid.split("::", 1)[1], before[uid][0]) for uid in unlisted if uid not in unit_ids)
+        # same debt, not a new one; each removed row covers one move. The surface comes from the paths, never from
+        # the row's text, which the change writes.
+        def move_key(uid: str) -> tuple[str, str | None]:
+            path, name = uid.split("::", 1)
+            return name, surface_of(path)
+        gone = sorted((move_key(uid) for uid in unlisted if uid not in unit_ids), key=str)
         for uid in sorted(set(allow) - set(before)):
-            key = (uid.split("::", 1)[1], allow[uid][0])
+            key = move_key(uid)
             if key in gone:
                 gone.remove(key)
                 continue
@@ -563,9 +550,6 @@ def check(root: Path, base: str | None, *, list_all: bool = False, out=sys.stdou
                 print(f"{state}\t{unit.surface}\t{unit.path}:{hit.line}\t{unit.name}\t{hit.text}", file=out)
     for line in problems:
         print(line, file=out)
-    if skipped:
-        print(f"connection notices: {skipped} unlisted unit(s) in files this change does not touch, not judged here",
-              file=out)
     if problems:
         print(f"connection notices: {len(problems)} finding(s). A connection state the person can do nothing about "
               "waits CONNECTION_QUIET_MS (useLasting / NoticeTiming.connectionQuiet) or carries one action; see "
