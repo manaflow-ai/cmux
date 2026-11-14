@@ -34,6 +34,7 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
   cmux customize save NAME [NOTE]             Save what is live as a profile: one file to keep or share
   cmux customize use NAME|FILE                Preview a profile, then apply or discard it
   cmux customize profiles                     The saved profiles
+  cmux customize recipes [--open]             Ten ready-made changes to try with `use` (--open: the guide, in cmux)
 
 You can also edit the files yourself (`cmux customize paths`): every save shows in cmux at
 once, an agent you ask next keeps your edits, and apply, discard and rollback work the same.
@@ -65,6 +66,7 @@ const VERBS: &[&str] = &[
     "save",
     "use",
     "profiles",
+    "recipes",
     "paths",
     "brief",
     "check",
@@ -96,6 +98,7 @@ pub(super) enum Request {
     Save { name: String, note: String },
     Use { source: String },
     Profiles,
+    Recipes { open: bool },
     Paths,
 }
 
@@ -126,6 +129,11 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             none(Request::Generations)
         }
         "profiles" => none(Request::Profiles),
+        "recipes" | "recipe" => match rest {
+            [] => Ok(Request::Recipes { open: false }),
+            [flag] if flag == "--open" => Ok(Request::Recipes { open: true }),
+            _ => Err("customize recipes takes only --open".to_owned()),
+        },
         "paths" => none(Request::Paths),
         "apply" => Ok(Request::Apply { note: (!rest.is_empty()).then(|| rest.join(" ")) }),
         "rollback" | "undo" | "switch" => match rest {
@@ -385,6 +393,29 @@ pub(super) fn execute(
             Answer::Using { name: profile.name, begun, status: customize.status()? }
         }
         Request::Profiles => Answer::Profiles(customize.profiles()?),
+        Request::Recipes { open } => recipes(customize, open, chat)?,
         Request::Paths => Answer::Paths(customize.roots().clone()),
     })
+}
+
+/// Writes the recipes (cmux-customize-recipes) where `use` reads them, and
+/// with `open` shows their guide in cmux's Markdown page, where each
+/// recipe's command has a Run button: the one-click Try it. The recipes
+/// are profiles, so trying one is `use`: a draft, then apply or discard.
+fn recipes(
+    customize: &Customize,
+    open: bool,
+    chat: &dyn ask::Chat,
+) -> Result<render::Answer, Failure> {
+    let dir = customize.roots().state_dir.join("recipes");
+    let written = cmux_customize_recipes::write_all(&dir).map_err(Error::from)?;
+    let opened = open.then(|| {
+        let guide = written.guide.display().to_string();
+        match chat.run(&["open".to_owned(), guide]) {
+            Ok(result) if result.ok => Ok(()),
+            Ok(result) => Err(result.stderr.trim().to_owned()),
+            Err(error) => Err(error),
+        }
+    });
+    Ok(render::Answer::Recipes { written, opened })
 }

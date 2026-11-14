@@ -145,6 +145,14 @@ const TOOLS: &[CustomizeTool] = &[
         note: None,
         mutation: false,
     },
+    CustomizeTool {
+        name: "customize_recipes",
+        verb: "recipes",
+        description: "Ten ready-made customizations (a compact sidebar, a different font, a PR widget, a tiling look, pane keys, vertical tabs, larger text, calm, glass, a clock): each one's name, title, wish, what it changes and the `path` of its profile file. To try one, call customize_use with that path: it previews as a draft the person applies or discards. To tailor one, use its `ask` with customize_ask.",
+        argument: None,
+        note: None,
+        mutation: false,
+    },
 ];
 
 pub(super) fn descriptors() -> Vec<Value> {
