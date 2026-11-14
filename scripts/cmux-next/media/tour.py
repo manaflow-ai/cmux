@@ -902,12 +902,21 @@ class App:
         pid = self.identity.get("pid")
         if isinstance(pid, int):
             self.session.run(["kill", str(pid)])
-        if self.process and self.process.poll() is None:
-            try:
-                os.killpg(self.process.pid, signal.SIGTERM)
-                self.process.wait(timeout=10)
-            except (ProcessLookupError, PermissionError, subprocess.TimeoutExpired):
-                pass
+        if self.process:
+            # The group, whatever its leader's state: an exited leader can leave a child running in it (cmux#41767
+            # review F1). The group keeps the leader's pid as its id while any member lives.
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                try:
+                    os.killpg(self.process.pid, sig)
+                except ProcessLookupError:
+                    break
+                except PermissionError:
+                    pass
+                if sig == signal.SIGTERM:
+                    try:
+                        self.process.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        pass
         if isinstance(pid, int):
             self.session.run(["kill", "-9", str(pid)])
         # The app leaves its daemon running by design; this tour started it.

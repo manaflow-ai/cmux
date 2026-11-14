@@ -13,7 +13,7 @@ struct PageHeartbeatTests {
         let router = PageRouter(descriptor: Self.descriptor, routes: [])
         var beats: [UInt64] = []
         var edits: [Bool] = []
-        router.heartbeat = { beats.append($0); edits.append($1) }
+        router.heartbeat = { beats.append($0); edits.append($1); _ = $2; return true }
         let reply = await router.handle(["t": "call", "id": 1, "op": .string(PageNativeOp.pageHeartbeat), "params": ["handled": 3]])
         #expect(reply["t"]?.stringValue == "ok", "\(reply)")
         #expect(beats == [3])
@@ -57,6 +57,24 @@ struct PageHeartbeatTests {
         page.loaded = true
         page.holdsUnsavedEdits = { true }
         #expect(await page.reloadKeepingState(saveWait: .milliseconds(20)) == false)
+    }
+
+    /// CMUX-571: a page with nothing happening in it rests (its last beat says `rest`) and beats no
+    /// more, so an idle app wakes for no page. The page rests only on a host that answered its beat
+    /// with `rest: true`; the host hands the rest to app health, which stops timing its silence.
+    @Test func aRestBeatReachesTheHostAndTheReplySaysTheHostTakesRests() async {
+        let router = PageRouter(descriptor: Self.descriptor, routes: [])
+        var rests: [Bool] = []
+        var takes = true
+        router.heartbeat = { _, _, rest in rests.append(rest); return takes }
+        let beat = await router.handle(["t": "call", "id": 1, "op": .string(PageNativeOp.pageHeartbeat), "params": ["handled": 1]])
+        #expect(beat["value"]?["rest"]?.boolValue == true, "\(beat)")
+        _ = await router.handle(["t": "call", "id": 2, "op": .string(PageNativeOp.pageHeartbeat), "params": ["handled": 1, "rest": true]])
+        #expect(rests == [false, true])
+        // A host whose health model would time a resting page (an older pinned model) says no: the page keeps beating.
+        takes = false
+        let refused = await router.handle(["t": "call", "id": 3, "op": .string(PageNativeOp.pageHeartbeat), "params": ["handled": 1]])
+        #expect(refused["value"]?["rest"]?.boolValue == false, "\(refused)")
     }
 
     @Test func aHostWithoutHealthStillAnswers() async {

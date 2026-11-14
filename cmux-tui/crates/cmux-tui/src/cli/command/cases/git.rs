@@ -32,6 +32,23 @@ pub(super) fn git_cases() -> Vec<(Vec<&'static str>, &'static str)> {
             ],
             "diff.comments.delete",
         ),
+        (
+            vec![
+                "git",
+                "comments",
+                "send",
+                "--root",
+                "/repo",
+                "dc_1",
+                "--acp-session",
+                "ses_1",
+                "--text",
+                "Address these review comments",
+                "--versions-json",
+                r#"{"dc_1":"2026-11-08T00:00:00Z"}"#,
+            ],
+            "diff.comments.send",
+        ),
         (vec!["git", "branches", "--path", "/repo", "--limit", "50"], "git.branches"),
         (
             vec![

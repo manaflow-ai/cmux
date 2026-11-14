@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import * as chaos from "./cloud-chaos.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-import { causeEndedAt, chaosProbeRow, countedSteps, countingTurnScript, countMarker, dropCommand, FAULTS, journalCommand, journalEvent, judgeLoss, judgeTerminal, NOT_INJECTED, relayCutCommand, SeqTerminal, sessionHostKillCommand, type ChaosResult, type SeqEvent, type TerminalRead } from "./cloud-chaos.ts";
+import { causeEndedAt, chaosProbeRow, countedSteps, countingTurnScript, countMarker, dropCommand, FAULTS, feltTurnScript, journalCommand, journalEvent, judgeLoss, judgeTerminal, NOT_INJECTED, relayCutCommand, SeqTerminal, sessionHostKillCommand, type ChaosResult, type SeqEvent, type TerminalRead } from "./cloud-chaos.ts";
 
 const ok = (fault: string, ms: number): ChaosResult => ({ fault, outcome: "ok", felt_ms: ms, recover_ms: Math.round(ms / 3), carrier: "resumed the session", turn: "completed once", detail: "" });
 
@@ -195,6 +195,13 @@ describe("judgeLoss", () => {
 });
 
 describe("the counting turn", () => {
+  test("the felt turn is text-only and matches warm-up and reply prompts", () => {
+    const turn = feltTurnScript();
+    expect(new RegExp(turn.match).test("[chaos-felt jr-1-warm] warm up.")).toBe(true);
+    expect(turn.steps).toEqual([{ text: "Felt reply {{prompt}}." }]);
+    expect(turn.steps.some((step) => "shell" in step)).toBe(false);
+  });
+
   test("the shared model stub plays it from the turn's own prompt; only a step's output carries its number", () => {
     const script = { version: 1, steps: [{ shell: "echo first" }, { text: "done" }], turns: [countingTurnScript(3)] };
     const dir = mkdtempSync(join(tmpdir(), "chaos-count-"));

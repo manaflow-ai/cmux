@@ -137,7 +137,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                 Section {
                     AppearanceTiles(selection: $settings.appearance)
                         .listRowInsets(EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16))
-                    // ask-87d30da8e5: the chrome takes the theme and wallpaper of the Mac.
+                    // ask-87d30da8e5: the accent (until one is picked) and the terminals take the Mac's theme;
+                    // the app's own backgrounds stay the stock ones.
                     Toggle(isOn: $macTheme.matchesMac) {
                         SettingsLabel("Match Mac theme", symbol: "macbook.and.iphone")
                     }
