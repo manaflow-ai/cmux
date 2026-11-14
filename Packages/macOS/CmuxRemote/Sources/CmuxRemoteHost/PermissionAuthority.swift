@@ -107,10 +107,8 @@ public final class PermissionAuthority: Sendable {
             let channel = LineChannel(read: child.stdout, write: child.stdout)
             let answer = channel.readObject()
             close(child.stdout)
-            var status: Int32 = 0
-            var result = waitpid(child.pid, &status, 0)
-            while result < 0, errno == EINTR { result = waitpid(child.pid, &status, 0) }
-            guard result == child.pid else { return nil }
+            let status = lifetime.waitForExit(child)
+            guard status >= 0 else { return nil }
             lifetime.reaped(child)
             guard let answer, let accessibility = answer["accessibility"] as? Bool,
                   let screenRecording = answer["screen_recording"] as? Bool else { return nil }

@@ -65,7 +65,30 @@ actor RemoteCaptureLease {
         } catch { return false }
     }
 
-    func cleanup(_ binding: CaptureLeaseBinding, writersExited: Bool) -> CaptureLeaseResult {
+    /// Admit cleanup after a daemon prepare failed before the native marker was created.
+    /// The namespace must still be empty; any marker or identity makes this fail closed.
+    func beginUnpreparedCleanup(_ binding: CaptureLeaseBinding) -> Bool {
+        guard binding.owns(stateDirectory: stateDirectory, home: home) else { return false }
+        do {
+            guard try CaptureLeaseMarker.read(stateDirectory: stateDirectory) == nil else { return false }
+            return try empty()
+        } catch { return false }
+    }
+
+    func cleanup(_ binding: CaptureLeaseBinding, writersExited: Bool, unprepared: Bool = false) -> CaptureLeaseResult {
+        if unprepared {
+            guard binding.owns(stateDirectory: stateDirectory, home: home), writersExited else {
+                return CaptureLeaseResult(code: writersExited ? "remote_lease_mismatch" : "remote_worker_timeout",
+                                          leaseBound: true)
+            }
+            do {
+                guard try CaptureLeaseMarker.read(stateDirectory: stateDirectory) == nil, try empty() else {
+                    return CaptureLeaseResult(code: "remote_namespace_not_empty", leaseBound: true)
+                }
+                return CaptureLeaseResult(code: "no_remote_started", leaseBound: true,
+                                          verifiedAbsent: true, quiescent: true)
+            } catch { return CaptureLeaseResult(code: "remote_cleanup_unverified", leaseBound: true) }
+        }
         guard binding.owns(stateDirectory: stateDirectory, home: home),
               let marker = try? CaptureLeaseMarker.read(stateDirectory: stateDirectory),
               marker.binding == binding, marker.keychainScope == keychainScope, marker.cleaning else {

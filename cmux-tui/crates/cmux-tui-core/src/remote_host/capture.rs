@@ -128,6 +128,7 @@ impl RemoteHostSupervisor {
             }
             _ => return Err("remote_lease_mismatch".into()),
         };
+        let unprepared_cleanup = method == "capture.cleanup" && lease.host.is_none();
         match method {
             "capture.resume" => {
                 if lease.phase != Phase::Prepared || lease.owner == app {
@@ -162,8 +163,9 @@ impl RemoteHostSupervisor {
             json!({"app": app}),
             std::time::Duration::from_secs(5),
         )?;
+        let native_method = if unprepared_cleanup { "capture.cleanup.unprepared" } else { method };
         let mut result = connection.call(
-            method,
+            native_method,
             serde_json::to_value(&lease.binding).map_err(|_| "remote_invalid_binding")?,
         )?;
         let expected = Stamp::of_record(&connection.record);

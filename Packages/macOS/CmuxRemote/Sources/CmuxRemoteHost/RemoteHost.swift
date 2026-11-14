@@ -310,7 +310,7 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
         let (id, method, params) = (request.id, request.method, request.params)
         guard let host else { return RemoteWire.failure(id: id, code: "gone", message: "the host is stopping") }
         switch method {
-        case "capture.prepare", "capture.cleanup":
+        case "capture.prepare", "capture.cleanup", "capture.cleanup.unprepared":
             return await capture(request, host: host)
         case "status":
             return RemoteWire.answer(id: id, result: status())
@@ -395,6 +395,16 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
         if method == "capture.prepare" {
             result = await host.captureLease.prepare(binding, children: host.children,
                                                     workerAbsent: host.screen.pid == nil && host.computerUse.running.isEmpty)
+        } else if method == "capture.cleanup.unprepared" {
+            host.children.freeze()
+            host.screen.setWanted(false)
+            host.children.stopOwnedChildren()
+            let exited = await host.children.waitUntilEmpty(timeout: .seconds(15))
+            guard exited, await host.captureLease.beginUnpreparedCleanup(binding) else {
+                return RemoteWire.answer(id: id, result: CaptureLeaseResult(code: exited ? "remote_lease_mismatch" : "remote_worker_timeout",
+                                                                            leaseBound: true).fields)
+            }
+            result = await host.captureLease.cleanup(binding, writersExited: exited, unprepared: true)
         } else {
             guard await host.captureLease.beginCleanup(binding) else {
                 return RemoteWire.answer(id: id, result: CaptureLeaseResult(code: "remote_lease_mismatch").fields)

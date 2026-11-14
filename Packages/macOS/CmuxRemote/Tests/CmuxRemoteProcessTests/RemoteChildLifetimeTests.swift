@@ -25,10 +25,22 @@ import Testing
         #expect(!lifetime.claimIdle())
         lifetime.freeze()
         #expect(await lifetime.waitUntilEmpty(timeout: .zero) == false)
-        ChildProcess.watch(child.pid, name: "capture-lease-test-reap") { status in
+        lifetime.watch(child, name: "capture-lease-test-reap") { status in
             if status >= 0 { lifetime.reaped(child) }
         }
         close(child.stdin)
+        #expect(await lifetime.waitUntilEmpty(timeout: .seconds(5)))
+    }
+
+    @Test(.timeLimit(.minutes(1))) func stopOwnedChildrenUsesTheGatedReaper() async throws {
+        let lifetime = RemoteChildLifetime()
+        let child = try lifetime.spawn(executable: "/bin/cat", arguments: [], environment: [:], logPath: "/dev/null")
+        defer { close(child.stdout) }
+        lifetime.watch(child, name: "capture-lease-test-gated-stop") { status in
+            if status >= 0 { lifetime.reaped(child) }
+        }
+        lifetime.freeze()
+        lifetime.stopOwnedChildren()
         #expect(await lifetime.waitUntilEmpty(timeout: .seconds(5)))
     }
 
@@ -38,7 +50,7 @@ import Testing
         let current = try lifetime.spawn(executable: "/bin/cat", arguments: [], environment: [:], logPath: "/dev/null")
         defer { close(old.stdout); close(current.stdout) }
         lifetime.freeze()
-        ChildProcess.watch(old.pid, name: "capture-old-generation") { status in
+        lifetime.watch(old, name: "capture-old-generation") { status in
             if status >= 0 { lifetime.reaped(old) }
         }
         close(old.stdin)
@@ -46,7 +58,7 @@ import Testing
         lifetime.reaped(old)
         lifetime.reaped(old)
         #expect(await lifetime.waitUntilEmpty(timeout: .zero) == false)
-        ChildProcess.watch(current.pid, name: "capture-current-generation") { status in
+        lifetime.watch(current, name: "capture-current-generation") { status in
             if status >= 0 { lifetime.reaped(current) }
         }
         close(current.stdin)

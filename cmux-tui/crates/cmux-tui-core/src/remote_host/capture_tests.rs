@@ -147,9 +147,11 @@ impl MockHost {
                 let method = request["method"].as_str().unwrap_or("");
                 let result = match method {
                     "app_grant" => json!({"host_pid": 321, "secret": "mock-app-secret"}),
-                    "capture.prepare" | "capture.cleanup" => {
+                    "capture.prepare" | "capture.cleanup" | "capture.cleanup.unprepared" => {
                         let mut result = proof.clone();
-                        result["code"] = json!(if method == "capture.prepare" {
+                        result["code"] = json!(if method == "capture.prepare"
+                            || method == "capture.cleanup.unprepared"
+                        {
                             "no_remote_started"
                         } else {
                             "remote_exit_unverified"
@@ -511,6 +513,40 @@ fn capture_failed_ensure_leaves_a_recoverable_durable_fence() {
         assert_eq!(ensured.get(), 2);
         assert_fenced(&fixture.supervisor(), &fixture);
     }
+}
+
+#[test]
+fn capture_cleanup_recovers_after_prepare_failed_before_native_marker() {
+    let fixture = Fixture::new();
+    persist(
+        &fixture.paths.state,
+        &Lease {
+            binding: fixture.binding.clone(),
+            owner: fixture.owner,
+            phase: Phase::Preparing,
+            host: None,
+        },
+    )
+    .unwrap();
+    let supervisor = fixture.supervisor();
+    let host = MockHost::new(None);
+    let (result, ensured, drained) = run_capture(
+        &fixture,
+        &supervisor,
+        "capture.cleanup",
+        fixture.binding.clone(),
+        fixture.owner,
+        &host,
+        None,
+    );
+    let result = result.unwrap();
+    assert_eq!((ensured, drained), (1, 1));
+    assert_eq!(result["code"], "remote_cleaned");
+    assert_eq!(result["ok"], true);
+    assert_eq!(phase(&supervisor), Phase::Cleaning);
+    let requests = lock(&host.requests);
+    assert_eq!(requests[1]["method"], "capture.cleanup.unprepared");
+    assert_fenced(&supervisor, &fixture);
 }
 
 #[test]

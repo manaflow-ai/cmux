@@ -181,7 +181,7 @@ final class ScreenWorkerSupervisor: Sendable {
         }
         reader.name = "remote-screen-worker-read"
         reader.start()
-        ChildProcess.watch(child.pid, name: "remote-screen-worker-watch") { [self] status in
+        launch.lifetime.watch(child, name: "remote-screen-worker-watch") { [self] status in
             // Remove this generation before exited() can spawn its replacement (and reuse its PID).
             if status >= 0 { launch.lifetime.reaped(child) }
             exited(generation: generation, status: status, ranFor: Date().timeIntervalSince(started), channel: channel)
@@ -290,7 +290,7 @@ final class ComputerUseWorkers: Sendable {
     let launch: WorkerLaunch
     let layout: RemoteHostLayout
     let onChange: @Sendable () -> Void
-    private let state = OSAllocatedUnfairLock(initialState: [pid_t: Date]())
+    private let state = OSAllocatedUnfairLock(initialState: [UUID: (ChildProcess, Date)]())
 
     init(launch: WorkerLaunch, layout: RemoteHostLayout, onChange: @escaping @Sendable () -> Void) {
         self.launch = launch
@@ -299,7 +299,9 @@ final class ComputerUseWorkers: Sendable {
     }
 
     /// The running workers' pids and start times.
-    var running: [pid_t: Date] { state.withLock { $0 } }
+    var running: [pid_t: Date] {
+        state.withLock { $0.values.reduce(into: [:]) { $0[$1.0.pid] = $1.1 } }
+    }
 
     /// Starts a worker for `channel` and splices them; the channel first gets
     /// `{"ok":true,"result":{"pid":N}}` (or a failure and is closed).
@@ -314,7 +316,7 @@ final class ComputerUseWorkers: Sendable {
             channel.close()
             return
         }
-        state.withLock { $0[child.pid] = Date() }
+        state.withLock { $0[child.lifetimeID] = (child, Date()) }
         onChange()
         logger.notice("Computer Use worker started pid=\(child.pid, privacy: .public)")
         channel.write(RemoteWire.answer(id: id, result: ["pid": Int(child.pid)]))
@@ -340,10 +342,10 @@ final class ComputerUseWorkers: Sendable {
             _ = shutdown(channel.writeDescriptor, SHUT_WR)
             finish()
         }
-        ChildProcess.watch(child.pid, name: "remote-cu-worker-watch") { [self] status in
+        launch.lifetime.watch(child, name: "remote-cu-worker-watch") { [self] status in
             if status >= 0 { launch.lifetime.reaped(child) }
             logger.notice("Computer Use worker pid=\(child.pid, privacy: .public) exited status=\(status, privacy: .public)")
-            state.withLock { _ = $0.removeValue(forKey: child.pid) }
+            state.withLock { _ = $0.removeValue(forKey: child.lifetimeID) }
             // The app side's read ends too, so its pump finishes.
             _ = shutdown(channel.readDescriptor, SHUT_RDWR)
             onChange()
@@ -353,6 +355,7 @@ final class ComputerUseWorkers: Sendable {
 
     /// Ends every worker (their channels see EOF; the app starts them again).
     func stopAll() {
-        for pid in running.keys { kill(pid, SIGTERM) }
+        let children = state.withLock { $0.values.map { $0.0 } }
+        launch.lifetime.stopOwnedChildren(children)
     }
 }

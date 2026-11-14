@@ -73,7 +73,7 @@ import os
         let freshChildren = RemoteChildLifetime()
         let child = try freshChildren.spawn(executable: "/bin/cat", arguments: [], environment: [:], logPath: "/dev/null")
         defer { close(child.stdout) }
-        ChildProcess.watch(child.pid, name: "capture-prepared-host-restart") { status in
+        freshChildren.watch(child, name: "capture-prepared-host-restart") { status in
             if status >= 0 { freshChildren.reaped(child) }
         }
         close(child.stdin)
@@ -88,7 +88,7 @@ import os
         let children = RemoteChildLifetime()
         let probe = try children.spawn(executable: "/bin/cat", arguments: [], environment: [:], logPath: "/dev/null")
         defer { close(probe.stdout) }
-        ChildProcess.watch(probe.pid, name: "capture-prepare-probe") { status in
+        children.watch(probe, name: "capture-prepare-probe") { status in
             if status >= 0 { children.reaped(probe) }
         }
         let release = Task {
@@ -112,7 +112,7 @@ import os
         #expect(result.code == "remote_prepare_timeout" && !result.leaseBound)
         #expect(children.accepting)
         #expect(try CaptureLeaseMarker.read(stateDirectory: fixture.state) == nil)
-        ChildProcess.watch(probe.pid, name: "capture-prepare-stalled-probe") { status in
+        children.watch(probe, name: "capture-prepare-stalled-probe") { status in
             if status >= 0 { children.reaped(probe) }
         }
         close(probe.stdin)
@@ -184,6 +184,18 @@ import os
         #expect(cleaned.fields["worker_pid_exited"] as? Bool == false)
         #expect(cleaned.fields["descendants_exited"] as? Bool == false)
         #expect(try CaptureLeaseMarker.read(stateDirectory: fixture.state)?.cleaning == true)
+    }
+
+    @Test func unpreparedCleanupRequiresAnEmptyMarkerlessNamespace() async throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let lease = fixture.producer()
+        let binding = try fixture.binding
+        #expect(await lease.beginUnpreparedCleanup(binding))
+        let cleaned = await lease.cleanup(binding, writersExited: true, unprepared: true)
+        #expect(cleaned.code == "no_remote_started" && cleaned.verifiedAbsent && cleaned.quiescent)
+        let prepared = await fixture.producer().prepare(binding, children: RemoteChildLifetime(), workerAbsent: true)
+        #expect(prepared.code == "no_remote_started")
+        #expect(await fixture.producer().beginUnpreparedCleanup(binding) == false)
     }
 
     @Test func deletionFailureRetainsMarkerAndFailsClosed() async throws {
