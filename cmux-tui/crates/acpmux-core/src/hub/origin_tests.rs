@@ -944,12 +944,18 @@ async fn compaction_finishes_the_startup_hot_read_and_releases_waiters() {
 }
 
 #[tokio::test]
-async fn failed_hydration_does_not_release_the_remote_mark_drain() {
+async fn truncated_snapshot_at_hydration_asks_for_a_rebuild() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("index.snap");
     SortedSnapshot::write(&path, &SummaryIndex::new().apply(1, remote("live", 1))).unwrap();
     let (hub, mut writer) = Hub::open(directory.path(), 101, || 7).unwrap();
     fs::OpenOptions::new().write(true).open(path).unwrap().set_len(0).unwrap();
     writer.process_batch();
-    assert!(matches!(hub.wait_hydrated().await, Err(HubError::HydrationFailed)));
+    // A short read is structural damage, so hydration ends ready and the
+    // writer's next turn rebuilds; only other read errors fail hydration.
+    hub.wait_hydrated().await.unwrap();
+    assert_eq!(hub.rebuild_count(), 0);
+    writer.process_batch();
+    assert_eq!(hub.rebuild_count(), 1);
+    assert!(hub.snapshot().disk().is_none());
 }
