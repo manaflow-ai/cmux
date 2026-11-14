@@ -326,9 +326,13 @@ fn relay_preserves_explicit_message_class_and_clears_inherited_class() {
     }
     let sent = cli(&dir, &["send", "--no-wait", "far/coordinator", "unclassed"]);
     assert!(sent.status.success(), "{}", text(&sent));
+    // An agent's waiting send infers question for the direct path; that is not explicit relay metadata.
+    let waited =
+        cli(&dir, &["send", "--wait", "--from", "vm/lane", "far/coordinator", "unclassed wait"]);
+    assert!(waited.status.success(), "{}", text(&waited));
     assert_eq!(
         fs::read_to_string(dir.join("classes")).unwrap(),
-        "block\nquestion\nresult\nfyi\nblock\nresult\nunset\n"
+        "block\nquestion\nresult\nfyi\nblock\nresult\nunset\nunset\n"
     );
     let count = relayed(&dir).len();
     let bad = cli(&dir, &["send", "--no-wait", "--class", "urgent", "far/coordinator", "invalid"]);
