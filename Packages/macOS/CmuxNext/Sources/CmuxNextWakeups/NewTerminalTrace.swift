@@ -171,9 +171,22 @@ public final class NewTerminalTrace: Sendable {
         update { record, _ in
             guard record.terminal == terminal else { return }
             record.surfaces.insert(surface)
-            if record.surface == nil {
+            record.surface = surface
+            record.set(.tabAdded, now)
+            if record.terminalResourceID == nil { record.terminalResourceID = terminalResourceID }
+        }
+    }
+
+    /// The IO's target gate resolved its known tab to a daemon attachment.
+    /// This is an explicit handoff, never a guess based on surface numbering.
+    public func targetResolved(from source: UInt64, surface: UInt64, terminalResourceID: String?) {
+        guard isArmed else { return }
+        update { record, _ in
+            guard record.surfaces.contains(source) else { return }
+            if let known = record.terminalResourceID, let terminalResourceID, known != terminalResourceID { return }
+            if surface != 0 {
+                record.surfaces.insert(surface)
                 record.surface = surface
-                record.set(.tabAdded, now)
             }
             if record.terminalResourceID == nil { record.terminalResourceID = terminalResourceID }
         }
@@ -185,25 +198,22 @@ public final class NewTerminalTrace: Sendable {
         let now = Self.now()
         update { record, _ in
             let surfaceMatches = record.surfaces.contains(surface)
-            let resolvingByResource = surface == 0 && record.surface != nil
             let resourceMatches = terminalResourceID.flatMap { id in
                 record.terminalResourceID.map { $0 == id }
             } ?? false
-            // A provisional tab can race the daemon's replacement. Keep the
-            // trace attached to that one terminal while its real surface is
-            // being resolved, then retain the resolved id as another alias.
-            let provisionalReplaced = record.surface.map { $0 >= (1 << 62) && surface < (1 << 62) } ?? false
-            guard surfaceMatches || resolvingByResource || resourceMatches || provisionalReplaced else { return }
+            if let known = record.terminalResourceID, let terminalResourceID, known != terminalResourceID { return }
+            guard surfaceMatches || resourceMatches else { return }
             record.set(mark, now)
-            if surface != 0 { record.surfaces.insert(surface) }
-            if record.terminalResourceID == nil { record.terminalResourceID = terminalResourceID }
         }
     }
 
     /// The IO `io` was made for surface `surface`: a session over it is the bound terminal's view.
     public func watch(io: ObjectIdentifier, surface: UInt64) {
         guard isArmed else { return }
-        update { record, watch in if record.surfaces.contains(surface) { watch.io = io } }
+        update { record, watch in
+            guard record.surfaces.contains(surface), watch.io != io else { return }
+            watch = Watch(io: io)
+        }
     }
 
     /// A session over `io` created its surface. Marks `surface_created` and watches the

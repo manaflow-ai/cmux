@@ -29,6 +29,33 @@ struct NewTerminalTraceTests {
         #expect(record?.milliseconds(.attachEnd) != nil)
     }
 
+    @Test func gateResolutionCorrelatesBeforeStoreUpdate() {
+        let trace = NewTerminalTrace()
+        #expect(trace.begin())
+        trace.markAction()
+        trace.bind(terminal: "terminal-1")
+        trace.tabAdded(terminal: "terminal-1", surface: 1 << 62)
+        trace.targetResolved(from: 1 << 62, surface: 42, terminalResourceID: "term_1")
+        trace.mark(.attachStart, surface: 42, terminalResourceID: "term_1")
+        trace.mark(.attachEnd, surface: 0, terminalResourceID: "term_1")
+        let record = trace.finish(timedOut: false)
+        #expect(record?.surface == 42)
+        #expect(record?.milliseconds(.attachStart) != nil)
+        #expect(record?.milliseconds(.attachEnd) != nil)
+    }
+
+    @Test func unrelatedGateAndConflictingResourceAreIgnored() {
+        let trace = started()
+        trace.targetResolved(from: 99, surface: 42, terminalResourceID: "term_2")
+        trace.targetResolved(from: 1 << 62, surface: 42, terminalResourceID: "term_2")
+        trace.mark(.attachStart, surface: 42, terminalResourceID: "term_2")
+        trace.mark(.attachEnd, surface: 1 << 62, terminalResourceID: "term_2")
+        let record = trace.finish(timedOut: true)
+        #expect(record?.surface == 1 << 62)
+        #expect(record?.milliseconds(.attachStart) == nil)
+        #expect(record?.milliseconds(.attachEnd) == nil)
+    }
+
     @Test func unrelatedAttachmentsCannotCompleteTrace() {
         let trace = started()
         trace.tabAdded(terminal: "terminal-2", surface: 99, terminalResourceID: "term_2")
