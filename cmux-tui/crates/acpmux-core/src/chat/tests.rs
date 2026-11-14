@@ -132,7 +132,12 @@ fn no_op_lines_do_not_checkpoint_and_turn_end_does() {
         let before = fs::read(home.path().join("checkpoint")).ok();
         apply_line(&mut state, line.trim_end().as_bytes(), place, end, end - place).unwrap();
         let after = fs::read(home.path().join("checkpoint")).ok();
-        eprintln!("DEBUG idx{index} changed={}", before != after);
+        eprintln!(
+            "DEBUG idx{index} changed={} in_turn={} rf={}",
+            before != after,
+            state.translate.in_turn(),
+            state.raw_file
+        );
         if index == 4 {
             assert_eq!(before, after, "usage-only line writes no checkpoint");
         }
