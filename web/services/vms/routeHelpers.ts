@@ -125,6 +125,7 @@ export async function withAuthedVmApiRoute(
   attributes: MaybeAttributes,
   failureLog: string,
   handler: (context: AuthedVmRouteContext) => Promise<Response>,
+  options: { readonly requireFreshTeamMembership?: boolean } = {},
 ): Promise<Response> {
   const operation = typeof attributes["cmux.vm.operation"] === "string"
     ? attributes["cmux.vm.operation"]
@@ -190,7 +191,10 @@ export async function withAuthedVmApiRoute(
         const authStart = performance.now();
         let user: AuthedUser | null;
         try {
-          user = await verifyRequest(request, { requestedTeamId: requestedVmTeamIdFromRequest(request) });
+          user = await verifyRequest(request, {
+            requestedTeamId: requestedVmTeamIdFromRequest(request),
+            requireFreshTeamMembership: options.requireFreshTeamMembership,
+          });
         } catch (error) {
           return finalize(authProviderErrorResponse(error, `${route}.auth`));
         }
