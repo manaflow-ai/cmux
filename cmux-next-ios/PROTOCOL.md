@@ -88,6 +88,39 @@ approval keys are unchanged, so a Mac keeps its approvals: it stores keys, not s
   and would make a debug build hold the identity key phones pin for the
   release build.
 
+## Build spaces (API 0.16.0)
+
+Two dev builds of the app and Mac host (say tags `a` and `b`), signed in as the
+same person, never see or touch each other's data on the service, and never see
+nightly or stable data. Each build is in a **build space**:
+
+- A dev build sends `X-Cmux-Build-Space: dev:<slug>` on every HTTP request and
+  on the signaling WebSocket upgrade. `<slug>` is the dev tag's slug
+  (`scripts/lib/mobile-attach.sh`: lowercase letters, digits and inner dashes,
+  at most 64), so the value matches
+  `^dev:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`. `dev:default` is refused:
+  `default` is the stable instance's reserved tag.
+- Stable and nightly builds send nothing: the stable space `""`, where every
+  row and hub that predates build spaces stays.
+- A malformed value is refused with `400 build_space.invalid` before anything
+  else; it never falls back to the stable space.
+- The production Worker refuses every dev space with
+  `403 build_space.not_allowed`: production holds only stable data, so a dev
+  build pointed at it fails on its first request instead of reading or writing
+  a person's real devices. Dev builds use the dev Worker or a local one.
+
+What a space scopes: the device registry (`/v1/devices`, `/v1/me/devices`,
+`/v1/me/macs`, `/v1/teams/:teamId/macs`, bootstrap), push registrations and
+notify targets, team prefs, the reply mailbox, and the user hub. A device id
+held by another space is never found (404) and cannot be registered again in
+this one (`409 build_space.device_conflict`); each build keeps its own id. A
+dev space's hub is named `dev:<slug>|user:<owner key>`; the stable hub keeps
+`user:<owner key>`, so presence, `hello`, signaling admission and turn push
+coalescing never cross spaces. `DELETE /v1/me` from a dev build purges only its
+space; from a stable build it purges every space (the account is deleted).
+Cloud attention pushes go only to stable phones. Wire shapes do not change:
+no response carries the space.
+
 ## HTTP (base: production `https://mobile-api.cmux.dev`, dev `https://cmux-mobile-api-dev.debussy.workers.dev`)
 
 The production Worker `cmux-mobile-api-prod` accepts only the production Stack
@@ -103,7 +136,9 @@ message ends with the reason in parentheses, one of `malformed`,
 echoes the token),
 `bad_request` (400), `not_member` / `not_owner` / `wrong_team` (403), `not_found` (404),
 `rate_limited` (429, with `retry-after` seconds; 0.7.0 per-user limits: 300 requests a minute overall, 30 `GET /v1/ice`, 10 invites, 60 notifications per Mac),
-`conflict` (409, 0.14.0: a mailbox item id reused with another blob), `membership_unavailable` / `invite_failed` / `hub_unavailable` (502; `hub_unavailable` since 0.10.0 when the caller's hub refuses a signaling socket for an internal reason).
+`conflict` (409, 0.14.0: a mailbox item id reused with another blob),
+`build_space.invalid` (400), `build_space.not_allowed` (403) and
+`build_space.device_conflict` (409) ("Build spaces", 0.16.0), `membership_unavailable` / `invite_failed` / `hub_unavailable` (502; `hub_unavailable` since 0.10.0 when the caller's hub refuses a signaling socket for an internal reason).
 
 | Method + path | Body / result |
 | --- | --- |

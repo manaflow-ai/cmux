@@ -94,6 +94,7 @@ describe("APNs topics per app bundle", () => {
     const config = { keyP8: await exportPKCS8(privateKey), keyId: "KEYTOPIC2", teamId: "TEAMTOPIC" }
     const target = (tok: string, topic: string): PushRegistration => ({
       deviceId: crypto.randomUUID(),
+      space: "",
       ownerUserId: "owner",
       token: tok,
       environment: "production",
