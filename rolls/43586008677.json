@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43586008677",
+  "recorded_at": "2026-11-14T10:45:15Z",
+  "reason": "cmux-tui 303504175969 changes the image's cmux-tui (pinned 8e9d2bc0ecd2)",
+  "dry_run": false,
+  "cmux_tui": "3035041759698204880002c3c8d6ee32d4269d18",
+  "fixes": [
+    {
+      "sha": "3035041759698204880002c3c8d6ee32d4269d18",
+      "mergedAt": "2026-11-14T02:15:10-08:00",
+      "subject": "acpmux v2 3b (part one): v1's event log as a book's raw source (#42927)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-14T10:45:15Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
