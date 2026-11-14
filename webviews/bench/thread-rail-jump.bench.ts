@@ -479,12 +479,13 @@ export async function measureFirstFrame(page: Page, url: string, turns: number, 
       node.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -1 }));
     });
     const landed = async () => eventReads() > reads || (await view()).scroll > before.scroll + before.view;
+    // Nothing left to read: the pages before (and what they read ahead) hold the whole chat.
+    const whole = async () => landedPages > 0 && (await view()).whole;
     const deadline = Date.now() + 15_000;
-    while (!(await landed()) && Date.now() < deadline) await page.waitForTimeout(50);
+    while (!(await landed()) && !(await whole()) && Date.now() < deadline) await page.waitForTimeout(50);
     if (!(await landed())) {
-      // Nothing left to read: the pages before (and what they read ahead) hold the whole chat.
       await idle(page);
-      if (landedPages > 0 && (await view()).whole) break;
+      if (await whole()) break;
       throw new Error(
         `No older page landed (page ${landedPages + 1}, ${eventReads()} events reads, height ${before.scroll})`,
       );
