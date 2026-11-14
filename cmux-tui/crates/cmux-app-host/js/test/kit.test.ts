@@ -275,7 +275,7 @@ describe("the template folders (skills/cmux-customization/templates)", () => {
   })
 })
 
-describe("the widget templates (clock-weather, my-prs, design-links)", () => {
+describe("the widget templates (clock-weather, my-prs, design-links, media-player, start-page)", () => {
   const load = (name: string) => readFileSync(new URL(`../../../../../skills/cmux-customization/templates/${name}/main.js`, import.meta.url), "utf8")
   const init = { app: { id: "local/customize", version: "1.0.0" }, apiVersion: "1.0.0" }
   const ok = (value: unknown = null) => () => ({ ok: true, body: { value } })
@@ -397,6 +397,63 @@ describe("the widget templates (clock-weather, my-prs, design-links)", () => {
     await host.settle()
     const open = host.calls.find((c) => c.name === "action.run")!
     expect([open.params, open.options.gesture]).toEqual([{ id: "openBrowser", args: { url } }, "g9"])
+  })
+
+  test("media-player: the stations with their songs, play opens the stream, next walks the list, a favorite is kept", async () => {
+    const host = new FakeHost(load("media-player"), init)
+    const channel = (id: string, title: string, listeners: string, lastPlaying: string) => ({ id, title, genre: "ambient|chill", description: `${title} radio`, listeners, lastPlaying })
+    host.handlers["app.storage.get"] = ok(null)
+    host.handlers["app.storage.set"] = ok()
+    host.handlers["action.run"] = ok()
+    host.handlers["net.fetch"] = () =>
+      fetched({ channels: [channel("dronezone", "Drone Zone", "40", "Stars of the Lid - Requiem"), channel("groovesalad", "Groove Salad", "900", "Bonobo - Kerala")] })
+    expect(host.mount("m", "renderPlayer")).toBe("")
+    await host.settle(10)
+    // The most listened station first, and it is the one the player shows.
+    expect(rowTitles(host)).toEqual(["Groove Salad", "Drone Zone"])
+    expect(liveTexts(host)).toContain("Kerala")
+    expect(liveTexts(host)).toContain("Bonobo")
+    expect([...host.timers.values()]).toContainEqual({ ms: 30000, repeat: true })
+    const help = (text: string) => host.findNode("m", (n) => n.type === "Button" && n.props.help === text)!
+    host.dispatch("m", help("Next station"), "tap", { gesture: "g1" })
+    await host.settle()
+    expect(liveTexts(host)).toContain("Requiem")
+    expect(host.calls.filter((c) => c.name === "action.run")).toEqual([])
+    host.dispatch("m", host.findNode("m", (n) => n.type === "Row" && n.props.title === "Groove Salad")!, "tap", { gesture: "g2" })
+    await host.settle()
+    const play = host.calls.find((c) => c.name === "action.run")!
+    expect([play.params, play.options.gesture]).toEqual([{ id: "openBrowser", args: { url: "https://ice2.somafm.com/groovesalad-128-mp3" } }, "g2"])
+    expect(liveTexts(host)).toContain("Play again")
+    host.dispatch("m", help("Next station"), "tap", { gesture: "g3" })
+    await host.settle()
+    expect(host.calls.filter((c) => c.name === "action.run").at(-1)?.params.args.url).toBe("https://ice2.somafm.com/dronezone-128-mp3")
+    host.dispatch("m", help("Favorite"), "tap", { gesture: "g4" })
+    await host.settle()
+    expect(host.calls.filter((c) => c.name === "app.storage.set" && c.params.key === "favorites").at(-1)?.params.value).toEqual(["dronezone"])
+    expect(rowTitles(host)).toEqual(["Drone Zone", "Groove Salad"])
+  })
+
+  test("start-page: a greeting, launch buttons that run New Tab's actions, workspaces and PRs that open on a click", async () => {
+    const host = new FakeHost(load("start-page"), init)
+    host.handlers["action.run"] = ok()
+    host.handlers["workspace.focus"] = ok()
+    host.handlers["workspace.list"] = ok([{ id: "ws_1", session_id: "s", name: "cmux", index: 0, focused: true }, { id: "ws_2", session_id: "s", name: "website", index: 1, focused: false }])
+    host.handlers["integration.request"] = (p) =>
+      ({ ok: true, body: { value: { items: String(p.path).includes("review-requested") ? [{ id: 3, number: 3, title: "Review me", html_url: "https://github.com/o/r/pull/3", repository_url: "https://api.github.com/repos/o/r", draft: false, state: "open", user: { login: "x" }, updated_at: "2026-11-14T00:00:00Z" }] : [] } } })
+    expect(host.mount("m", "renderStart")).toBe("")
+    await host.settle(10)
+    expect(liveTexts(host).some((t) => /^Good (night|morning|afternoon|evening)$/.test(t))).toBe(true)
+    expect(rowTitles(host)).toEqual(["cmux", "website", "Review me"])
+    host.dispatch("m", tappableAround(host, "Terminal"), "tap", { gesture: "g1" })
+    await host.settle()
+    expect(host.calls.find((c) => c.name === "action.run")?.params).toEqual({ id: "newSurface", args: {} })
+    host.dispatch("m", host.findNode("m", (n) => n.type === "Row" && n.props.title === "website")!, "tap", { gesture: "g2" })
+    await host.settle()
+    expect(host.calls.find((c) => c.name === "workspace.focus")?.params).toEqual({ workspace: "ws_2" })
+    host.dispatch("m", host.findNode("m", (n) => n.type === "Row" && n.props.title === "Review me")!, "tap", { gesture: "g3" })
+    await host.settle()
+    expect(host.calls.filter((c) => c.name === "action.run").at(-1)?.params).toEqual({ id: "openBrowser", args: { url: "https://github.com/o/r/pull/3" } })
+    expect(host.mount("o", "renderOpener")).toBe("")
   })
 })
 

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "My views",
+  "version": "1.0.0",
+  "description": "A start page of your own: a greeting and the time, buttons that open a chat, a terminal or a browser, your workspaces and your PRs.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.pane/1": {
+      "export": "renderStart",
+      "title": "Start",
+      "symbol": "house"
+    },
+    "cmux.section/1": {
+      "export": "renderOpener",
+      "title": "Start",
+      "symbol": "house",
+      "options": { "defaultRegion": "top" }
+    }
+  },
+  "scopes": {
+    "actions:run": "Open a chat, a terminal, a browser or a PR from the page, and the page from the sidebar.",
+    "workspace:write": "Show a workspace when you click it.",
+    "net:api.github.com": "Read your PRs by your GitHub login when GitHub is not connected."
+  }
+}
