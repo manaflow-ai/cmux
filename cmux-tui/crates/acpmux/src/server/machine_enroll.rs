@@ -111,6 +111,9 @@ async fn reconcile_relay(
             return "running";
         }
         if let Some(old) = slot.take() {
+            // Its hub client goes first: no send goes out with the last join's credential while
+            // the old relay stops, or after, when the new one does not start.
+            hub.mesh.clear();
             // timeout: a relay that will not stop is dropped; the new one starts regardless.
             let _ = tokio::time::timeout(std::time::Duration::from_secs(6), old.stop()).await;
         }
@@ -119,7 +122,8 @@ async fn reconcile_relay(
 }
 
 /// Starts the mesh relay on `relay`, the join's config, into `slot` (`Hub::mesh_relay`); its
-/// client becomes the one sends go through (`Hub::mesh`), replacing a leave's cleared one.
+/// client becomes the one sends go through (`Hub::mesh`), replacing a leave's cleared one. One
+/// that does not start leaves no client: sends are refused, never sent through an earlier one.
 async fn start_relay_with(
     hub: &Arc<Hub>,
     slot: &mut Option<crate::server::mesh_relay::MeshRelay>,
@@ -131,7 +135,10 @@ async fn start_relay_with(
             *slot = Some(relay);
             "started"
         }
-        None => "off",
+        None => {
+            hub.mesh.clear();
+            "off"
+        }
     }
 }
 
@@ -177,11 +184,12 @@ async fn after_leave(hub: &Arc<Hub>, outcome: &LeaveOutcome) {
 async fn stop_joined(hub: &Arc<Hub>) {
     hub.config.write().await.mesh_relay = None;
     let relay = hub.mesh_relay.lock().await.take();
+    // Before the stop: no send goes out with the left join's credential while it stops.
+    hub.mesh.clear();
     if let Some(relay) = relay {
         // timeout: a relay that will not stop is dropped; the leave goes on regardless.
         let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
     }
-    hub.mesh.clear();
 }
 
 /// The daemon start's mesh relay. A sign-out's leave the last run did not finish is finished
@@ -261,6 +269,7 @@ pub(crate) async fn stop_at_shutdown(hub: &Arc<Hub>) {
     )
     .await;
     let relay = hub.mesh_relay.lock().await.take();
+    hub.mesh.clear();
     if let Some(relay) = relay {
         // timeout: shutdown does not wait on a relay that will not stop.
         let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
@@ -579,6 +588,40 @@ mod tests {
         assert!(hub.mesh_relay.lock().await.is_none());
         assert!(hub.mesh.get().is_none());
         assert!(hub.config.read().await.mesh_relay.is_none());
+    }
+
+    /// #38319 review F2: one account's leave finishes inside another account's enroll, and the
+    /// new join's relay does not start. The old relay's hub client, which holds the left join's
+    /// credential, is gone with it: outbox and team requests (`Hub::mesh`) are refused, and the
+    /// old hub sees no send.
+    #[tokio::test]
+    async fn a_replaced_join_whose_relay_fails_to_start_sends_nothing_with_the_old_credential() {
+        let hub = memory_hub();
+        let (old, old_seen) = recording_hub().await;
+        let mut slot = hub.mesh_relay.lock().await;
+        assert_eq!(super::start_relay_with(&hub, &mut slot, old.clone()).await, "started");
+        drop(slot);
+        send_one(&hub).await;
+        assert_eq!(sends(&old_seen), 1);
+        // The new join's config names a hub no client can be made for: its relay does not start.
+        let broken = MeshRelayConfig { url: "not a hub origin".into(), ..old };
+        let disk: Disk = Arc::new(Mutex::new(Some(broken)));
+        let joined =
+            super::enroll_transition(&hub, async { EnrollOutcome::Joined }, read(&disk)).await;
+        assert_eq!(joined, (EnrollOutcome::Joined, Some("off")));
+        assert!(!relay_runs(&hub).await);
+        assert!(hub.mesh.get().is_none(), "sends are refused, not sent through the left join's");
+        if let Some(mesh) = hub.mesh.get() {
+            let message: crate::mesh::OutMessage = serde_json::from_value(json!({
+                "to": {"teamAddress": "@user_receiver/coordinator", "sessionId": "receiver"},
+                "from": {"teamAddress": "@user_sender/coordinator"},
+                "kind": "prompt", "body": "late", "mode": "turn-end", "idempotencyKey": "k2",
+            }))
+            .unwrap();
+            let _ = mesh.send(&message).await;
+        }
+        settle().await;
+        assert_eq!(sends(&old_seen), 1, "no send went out with the old credential");
     }
 
     /// A leave clears the hub client sends go through, and a later enroll on another hub's origin
