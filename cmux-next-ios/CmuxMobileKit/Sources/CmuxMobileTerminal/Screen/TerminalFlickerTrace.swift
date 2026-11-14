@@ -23,8 +23,8 @@ import UIKit
 /// - `late`: frames where a full-screen app's grid is still not the area's
 ///   (a band above it, or its top rows under the toolbar) though the
 ///   composer has stopped for two frames.
-/// - `drift`: a shell's last row a row or more off its gap to the composer,
-///   two or more frames in a row.
+/// - `drift`: a shell's last row more than two rows off its gap to the
+///   composer, two or more frames in a row.
 /// - `band`: frames where a full-screen app's grid leaves more than a row
 ///   of background between the toolbar and its first row (informational:
 ///   the keyboard hiding over a grid the Mac has not grown yet).
@@ -185,7 +185,7 @@ final class TerminalFlickerTrace: NSObject {
             stepResizes.append("\(step):\(now.resizes - stepStartResizes)")
         }
         let busy = busyMeter.take()
-        line += String(format: " busy=%.1f span=%.1f commit=%.1f ours=%.1f", busy.busyMs, busy.longestMs, busy.commitMs, oursTotal)
+        line += String(format: " busy=%.1f span=%.1f ours=%.1f", busy.busyMs, busy.longestMs, oursTotal)
         if !ours.isEmpty {
             line += " parts=" + ours.sorted { $0.value > $1.value }.prefix(6).map { String(format: "%@:%.1f", $0.key, $0.value) }.joined(separator: ",")
         }
@@ -225,7 +225,9 @@ final class TerminalFlickerTrace: NSObject {
             count("late")
         }
         if !now.isTUI, now.cellHeight > 0 {
-            if abs(value - reference) > now.cellHeight {
+            // Streaming adds up to a row a frame ahead of the follow scroll,
+            // and the keyboard moves the composer meanwhile: two rows off.
+            if abs(value - reference) > 2 * now.cellHeight {
                 driftRun += 1
                 if driftRun == 2 { counts["drift", default: 0] += 2 } else if driftRun > 2 { count("drift") }
             } else {

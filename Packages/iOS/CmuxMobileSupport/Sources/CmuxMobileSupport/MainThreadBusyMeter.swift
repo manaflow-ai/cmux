@@ -7,16 +7,10 @@ import Foundation
 /// from the main run loop's after-waiting and before-waiting activities.
 /// The DEBUG frame traces read it once per display frame, to tell a long
 /// frame the app's main thread caused from one it did not (the render
-/// server, the simulator's keyboard). `commit` is the part spent from just
-/// before Core Animation's commit observer (order 2_000_000: layout, SwiftUI
-/// hosting updates, display) to the end of the run loop pass; the rest is
-/// events, timers and notification handlers.
+/// server, the simulator's keyboard).
 @MainActor
 public final class MainThreadBusyMeter {
     private var observer: CFRunLoopObserver?
-    private var commitObserver: CFRunLoopObserver?
-    private var commitSince: CFTimeInterval?
-    private var commit: CFTimeInterval = 0
     private var awakeSince: CFTimeInterval?
     private var busy: CFTimeInterval = 0
     /// The longest single awake span since the last `take()`.
@@ -32,14 +26,6 @@ public final class MainThreadBusyMeter {
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
         self.observer = observer
-        let commitObserver = CFRunLoopObserverCreateWithHandler(
-            kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, 1_999_999
-        ) { [weak self] _, _ in
-            // main-proof: added to the main run loop only, as above.
-            MainActor.assumeIsolated { self?.commitSince = CACurrentMediaTime() }
-        }
-        CFRunLoopAddObserver(CFRunLoopGetMain(), commitObserver, .commonModes)
-        self.commitObserver = commitObserver
         awakeSince = CACurrentMediaTime()
     }
 
@@ -47,9 +33,7 @@ public final class MainThreadBusyMeter {
     /// holds the meter weakly, so a forgotten one does nothing).
     public func stop() {
         if let observer { CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes) }
-        if let commitObserver { CFRunLoopRemoveObserver(CFRunLoopGetMain(), commitObserver, .commonModes) }
         observer = nil
-        commitObserver = nil
     }
 
     private func observe(_ activity: CFRunLoopActivity) {
@@ -57,8 +41,6 @@ public final class MainThreadBusyMeter {
         if activity.contains(.afterWaiting) {
             awakeSince = now
         } else if let since = awakeSince {
-            if let start = commitSince { commit += now - start }
-            commitSince = nil
             busy += now - since
             longest = max(longest, now - since)
             awakeSince = nil
@@ -67,7 +49,7 @@ public final class MainThreadBusyMeter {
 
     /// Milliseconds awake since the last call (the span still running
     /// included), and the longest single span.
-    public func take() -> (busyMs: Double, longestMs: Double, commitMs: Double) {
+    public func take() -> (busyMs: Double, longestMs: Double) {
         let now = CACurrentMediaTime()
         var total = busy
         var top = longest
@@ -76,11 +58,9 @@ public final class MainThreadBusyMeter {
             top = max(top, now - since)
             awakeSince = now
         }
-        let committed = commit
         busy = 0
         longest = 0
-        commit = 0
-        return (total * 1000, top * 1000, committed * 1000)
+        return (total * 1000, top * 1000)
     }
 }
 #endif
