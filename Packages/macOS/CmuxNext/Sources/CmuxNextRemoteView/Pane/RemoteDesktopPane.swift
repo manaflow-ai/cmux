@@ -253,6 +253,8 @@ public final class RemoteDesktopPane {
         view.upstreamIndicator.onStop = { [weak self] in self?.stopUpstream($0) }
         view.card.onCancel = { [weak self] in self?.stopPressed() }
         view.card.onReconnect = { [weak self] in
+            // The person asked again: a drop after this gets its own automatic tries.
+            self?.autoReconnects = 0
             self?.apply(.reconnect)
             self?.handlers.reconnect()
         }
