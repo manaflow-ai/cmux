@@ -381,9 +381,9 @@ pub use subsession_send::Delivery;
 mod drafts;
 pub(crate) mod open_delivery;
 pub(crate) mod outbox;
-mod restore_point;
 #[cfg(test)]
 mod outbox_open_tests;
+mod restore_point;
 pub mod rules;
 pub(crate) mod stop_if_idle;
 #[cfg(test)]
