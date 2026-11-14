@@ -75,7 +75,8 @@ front of the relaunched app on iPad. `scrollTo` scrolls to the end of the
 content, not a fixed number of swipes, since rows per swipe depend on the screen.
 
 It runs on every feat-cmux-next push and pull request that touches the app
-(one macOS job, about 45 minutes). When App Review rejects us anyway, add the rejection and
+(one macOS job per device, side by side, about 30 minutes; the report fails if any
+device's job left no result). When App Review rejects us anyway, add the rejection and
 its new detector to `rejection-history.json` in the fix's PR.
 
 Run the lint locally (no build needed):

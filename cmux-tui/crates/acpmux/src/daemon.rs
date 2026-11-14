@@ -643,7 +643,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     }
     hub.start_watches();
     // The team hub's relay, when config.json names one (`server/mesh_relay.rs`).
-    let mesh_relay = crate::server::mesh_relay::start_configured(&hub).await;
+    // Kept on the hub, so a sign-in enroll can start one live (`server/machine_enroll.rs`).
+    // A sign-out's leave the last run did not finish goes first: no relay for a machine that left.
+    crate::server::machine_enroll::start_relay_at_start(&hub).await;
     // The hub carrier on the same hub and credential (`hub_carrier.rs`): this machine serves its
     // relay slot, and its peers dial over it. A copied home is off, as WireGuard is.
     #[cfg(feature = "hub-carrier")]
@@ -1168,10 +1170,13 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // another daemon's now (`config::mark_home_lost` refuses its writes there).
     startup.abort();
     let _ = tokio::time::timeout_at(cleanup_deadline, startup).await;
-    // Its last heartbeat empties this daemon's rows in the hub's address book.
-    if let Some(relay) = mesh_relay {
-        let _ = tokio::time::timeout_at(cleanup_deadline, relay.stop()).await;
-    }
+    // Its last heartbeat empties this daemon's rows in the hub's address book. The start's
+    // join task ends first, so nothing starts a relay after this stops it.
+    let _ = tokio::time::timeout_at(
+        cleanup_deadline,
+        crate::server::machine_enroll::stop_at_shutdown(&hub),
+    )
+    .await;
     // SIGTERM handoff and explicit updates/restarts use 1012. Explicit ordinary RPC
     // shutdown and interactive interrupt use a normal WebSocket close.
     let restarting = hub.restart_requested.load(std::sync::atomic::Ordering::SeqCst);
