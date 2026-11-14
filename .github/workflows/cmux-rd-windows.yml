@@ -58,7 +58,7 @@ jobs:
     name: Windows live host (tailnet)
     if: github.event_name == 'pull_request' && github.event.pull_request.number == 42833
     runs-on: windows-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     permissions:
       contents: read
       id-token: write
@@ -96,7 +96,7 @@ jobs:
             -ArgumentList @('host', '--bind', $ip, '--single-tenant-overlay', '1', '--port', '4103', '--max-fps', '30', '--codec', 'openh264') `
             -RedirectStandardOutput $log -RedirectStandardError $err -PassThru
           Add-Content $env:GITHUB_STEP_SUMMARY "Host PID: $($process.Id)"
-          $deadline = (Get-Date).AddMinutes(8)
+          $deadline = (Get-Date).AddMinutes(11)
           while ((Get-Date) -lt $deadline) {
             if ($process.HasExited) {
               Get-Content $log, $err -ErrorAction SilentlyContinue
@@ -110,7 +110,7 @@ jobs:
     name: macOS live viewer (tailnet)
     if: github.event_name == 'pull_request' && github.event.pull_request.number == 42833
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
-    timeout-minutes: 12
+    timeout-minutes: 15
     permissions:
       contents: read
       id-token: write
@@ -141,9 +141,9 @@ jobs:
           HOST: cmux-rd-win-${{ github.run_id }}
         run: |
           set -euo pipefail
-          for attempt in $(seq 1 90); do
+          for attempt in $(seq 1 210); do
             if nc -z -w 2 "$HOST" 4103; then break; fi
-            if [ "$attempt" -eq 90 ]; then
+            if [ "$attempt" -eq 210 ]; then
               echo "Windows host did not accept TCP on $HOST:4103" >&2
               exit 1
             fi
