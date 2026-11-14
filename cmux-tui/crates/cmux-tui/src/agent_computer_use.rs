@@ -195,18 +195,52 @@ pub(crate) fn codex_settings(
         OsString::from(format!("mcp_servers.{name}.args={args}")),
         OsString::from(format!("mcp_servers.{name}.env={{{table}}}")),
     ];
-    if disables_cmux(existing) {
-        settings.push(OsString::from(format!("mcp_servers.{SERVER}.enabled=false")));
-    }
+    settings.extend(turn_off_cmux(existing));
     Some(settings)
 }
 
-/// Whether the `cmux` entry Codex reported is turned off for the launch: only
-/// another cmux's server ([`cmux_serve`]) that is on. Never a server of the
-/// person's own, never an entry Codex did not report.
-fn disables_cmux(existing: &CodexEntry) -> bool {
-    matches!(existing, CodexEntry::Found(entry)
-        if serves_cmux(entry) && entry["enabled"].as_bool() == Some(true))
+/// The `-c` values that turn the `cmux` entry Codex reported off for the
+/// launch: only another cmux's server ([`cmux_serve`]) that is on, never a
+/// server of the person's own, never an entry Codex did not report.
+///
+/// The switch is complete on its own: it sends the reported transport with
+/// `enabled=false` (`command` and `args` for stdio, `url` for HTTP). Where
+/// the session has that entry (user, project or plugin), the values are the
+/// ones it already has; where it does not (the launch differs from what
+/// `codex mcp get` saw: a flag the probe missed, a new worktree, no user
+/// config), they make a valid entry that is off. A bare `enabled=false`
+/// there names a server with no transport, and Codex fails to start with
+/// "invalid transport". An entry whose transport cannot be written back is
+/// left on.
+fn turn_off_cmux(existing: &CodexEntry) -> Vec<OsString> {
+    let CodexEntry::Found(entry) = existing else { return Vec::new() };
+    if !serves_cmux(entry) || entry["enabled"].as_bool() != Some(true) {
+        return Vec::new();
+    }
+    let transport = &entry["transport"];
+    let string = |value: &str| toml::Value::String(value.to_owned());
+    let mut values = match transport["type"].as_str() {
+        Some("stdio") => {
+            let Some(command) = transport["command"].as_str() else { return Vec::new() };
+            let Some(args) = transport["args"].as_array() else { return Vec::new() };
+            let Some(args) =
+                args.iter().map(|arg| arg.as_str().map(string)).collect::<Option<Vec<_>>>()
+            else {
+                return Vec::new();
+            };
+            vec![("command", string(command)), ("args", toml::Value::Array(args))]
+        }
+        Some("streamable_http") => {
+            let Some(url) = transport["url"].as_str() else { return Vec::new() };
+            vec![("url", string(url))]
+        }
+        _ => return Vec::new(),
+    };
+    values.push(("enabled", toml::Value::Boolean(false)));
+    values
+        .into_iter()
+        .map(|(key, value)| OsString::from(format!("mcp_servers.{SERVER}.{key}={value}")))
+        .collect()
 }
 
 /// What an MCP server entry runs when it runs cmux's server (`cmux mcp
@@ -566,6 +600,25 @@ mod tests {
         CodexEntry::Found(value)
     }
 
+    /// The switch for an HTTP entry sends its URL; an entry whose transport
+    /// cannot be written back is left on.
+    #[test]
+    fn the_off_switch_carries_the_reported_transport() {
+        let http = CodexEntry::Found(json!({
+            "name": "cmux", "enabled": true,
+            "transport": {"type": "streamable_http", "url": "http://127.0.0.1:1/mcp"},
+        }));
+        // An HTTP entry is no cmux CLI: not cmux's own, so left on.
+        assert!(turn_off_cmux(&http).is_empty());
+        let stdio = entry("/opt/cmux", json!({}));
+        let off = servers(&turn_off_cmux(&stdio));
+        assert_eq!(off[SERVER]["command"].as_str(), Some("/opt/cmux"));
+        assert_eq!(off[SERVER]["args"], toml::Value::try_from(["mcp", "serve"]).unwrap());
+        assert_eq!(off[SERVER]["enabled"].as_bool(), Some(false));
+        let odd = entry("/opt/cmux", json!({"transport.args": "mcp serve"}));
+        assert!(turn_off_cmux(&odd).is_empty(), "args that are no list: left on");
+    }
+
     /// This build's server is always `cmux_terminal` in Codex, sharing no key
     /// with a config entry, so nothing merges into it; the reported `cmux`
     /// entry is turned off only when it is another cmux's server and on.
@@ -593,7 +646,11 @@ mod tests {
             let placed = placed(existing.clone());
             assert_eq!(placed[CODEX_TERMINAL_SERVER]["command"].as_str(), Some("/A/cmux"));
             assert_eq!(off(&placed), Some(false), "{existing:?}");
-            assert_eq!(placed[SERVER].as_table().unwrap().len(), 1, "only `enabled`: {placed}");
+            // The switch carries the reported transport: valid even where the
+            // session has no such entry.
+            let off_entry = placed[SERVER].as_table().unwrap();
+            let keys: Vec<&str> = off_entry.keys().map(String::as_str).collect();
+            assert_eq!(keys, ["args", "command", "enabled"], "{placed}");
         }
     }
 

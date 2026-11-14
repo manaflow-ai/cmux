@@ -21,6 +21,13 @@
 #   4. Codex: which layers merge into mcp_servers.cmux: a trusted project's
 #      .codex/config.toml (root to launch folder; not when untrusted, not above
 #      the git root) and $CODEX_HOME/NAME.config.toml with --profile NAME.
+#   5. Codex: the shim's off switch (the reported command and args with
+#      enabled=false) starts a session without "invalid transport" and keeps
+#      the cmux server from starting, whether the session has that entry from
+#      the user layer, a project layer or a plugin, or has none (a new
+#      worktree, --ignore-user-config); a bare enabled=false fails there.
+#      A session runs `codex exec` against a dead endpoint: its MCP servers
+#      start first, which the fake server logs.
 # With --cmux PATH (a cmux build's bundled CLI) it also runs that build's real
 # `claude` and `codex` shims (the codex one from a trusted project with a
 # .codex layer, and with --profile) and checks what each agent gets.
@@ -157,6 +164,43 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
   e=$(perl -MTime::HiRes=time -e 'printf "%.6f", time'); perl -e "printf '%d ', ($e-$s)*1000"
 done | { read -r times; echo "codex mcp get latency (ms, 10 runs, trusted project): $times"; }
 
+# 5. The off switch
+dead=(-c 'model_provider="dead"' -c 'model_providers.dead={name="dead",base_url="http://127.0.0.1:9/v1",env_key="DEAD_KEY",wire_api="responses",request_max_retries=0,stream_max_retries=0}')
+switch=(-c "mcp_servers.cmux.command=\"$NODE\"" -c "mcp_servers.cmux.args=[\"$F\",\"X\",\"$L\"]" -c 'mcp_servers.cmux.enabled=false')
+session() { # FOLDER ARGS...: start a session, then what started ("started <label> ..." or empty) and whether Codex refused its config
+  local at=$1; shift; : > "$L"
+  (cd "$at" && DEAD_KEY=x CODEX_API_KEY=sk-test timeout 12 "$CODEX" exec --skip-git-repo-check "${dead[@]}" "$@" hi \
+     < /dev/null > "$D/session.out" 2>&1)
+  printf '%s|%s' "$(tr '\n' ' ' < "$L")" "$(grep -c 'invalid transport' "$D/session.out")"
+}
+off_case() { # NAME FOLDER LABEL ARGS...: alone the LABEL server starts; with the switch none does, no crash
+  local name=$1 at=$2 label=$3; shift 3
+  local alone with
+  alone=$(session "$at" "$@"); with=$(session "$at" "$@" "${switch[@]}")
+  { [ -z "$label" ] || [ "$alone" = "started $label |0" ]; } && [ "$with" = "|0" ]
+  check "codex off switch [$name]: alone '${alone%|*}', with the switch '${with%|*}', no invalid transport" $?
+}
+cmux_entry() { printf '[mcp_servers.cmux]\ncommand = "%s"\nargs = ["%s", "%s", "%s"]\n' "$NODE" "$F" "$1" "$L"; }
+cmux_entry user > "$CODEX_HOME/config.toml"
+off_case "user layer" "$D/work" user
+{ printf '[projects."%s"]\ntrust_level = "trusted"\n' "$P"; } > "$CODEX_HOME/config.toml"
+mkdir -p "$P/.codex"; cmux_entry project > "$P/.codex/config.toml"
+off_case "project layer" "$P/sub" project
+rm -rf "$P/.codex"
+printf '[features]\nplugins = true\nremote_plugin = false\n[plugins."cmuxp@openai-api-curated"]\nenabled = true\n' > "$CODEX_HOME/config.toml"
+PR=$CODEX_HOME/plugins/cache/openai-api-curated/cmuxp/local; mkdir -p "$PR/.codex-plugin"
+printf '{"name":"cmuxp","version":"local"}' > "$PR/.codex-plugin/plugin.json"
+printf '{"mcpServers":{"cmux":{"type":"stdio","command":"%s","args":["%s","plugin","%s"]}}}' "$NODE" "$F" "$L" > "$PR/.mcp.json"
+off_case "plugin" "$D/work" plugin
+rm -rf "$CODEX_HOME/plugins"
+: > "$CODEX_HOME/config.toml"
+off_case "no entry" "$D/work" ""
+cmux_entry user > "$CODEX_HOME/config.toml"
+off_case "--ignore-user-config, entry only in the user layer" "$D/work" "" --ignore-user-config
+bare=$(session "$D/work" -c 'mcp_servers.cmux.enabled=false' --ignore-user-config)
+[ "${bare#*|}" != 0 ]
+check "codex: a bare enabled=false where the session has no cmux entry fails with invalid transport" $?
+
 if [ -n "$CMUX" ]; then
   # 4. The build's real shims. A listening socket stands in for the daemon's.
   sock=$D/d.sock
@@ -272,6 +316,20 @@ PY
   no_turn_off "resume --last" "$sub" resume --last
   no_turn_off "exec resume --last" "$sub" exec resume --last
   no_turn_off "fork --last" "$sub" fork --last
+  no_turn_off "exec hi --worktree" "$sub" exec hi --worktree
+  no_turn_off "exec hi --ignore-user-config" "$sub" exec hi --ignore-user-config
+  # The switch the shim sends where Codex reports the entry carries its
+  # transport: from a folder where that entry is not loaded it is still valid.
+  rm -f "$D/codex-args"
+  (cd "$sub" && env "${shim_env[@]}" PATH="$D/bin:/usr/bin:/bin" "$CMUX" agent codex-wrapper >/dev/null 2>&1)
+  overrides=(); while IFS= read -r a; do [ "$a" = -c ] && { read -r v; overrides+=(-c "$v"); }; done < "$D/codex-args"
+  grep -q '^mcp_servers.cmux.command=' "$D/codex-args" && grep -q '^mcp_servers.cmux.args=' "$D/codex-args" \
+    && grep -q '^mcp_servers.cmux.enabled=false$' "$D/codex-args" \
+    && (cd "$D/work" && "$CODEX" "${overrides[@]}" mcp list --json 2>/dev/null) | python3 -c '
+import json, sys
+servers = {s["name"]: s for s in json.load(sys.stdin)}
+assert servers["cmux"]["enabled"] is False and servers["cmux_terminal"]["enabled"], servers'
+  check "codex shim: its off switch carries the reported command and args, valid where the entry is not loaded" $?
   # And the crash the turn-off would cause where the entry is not loaded:
   # enabled=false for a cmux Codex has no transport for.
   (cd "$D/work" && "$CODEX" -c 'mcp_servers.cmux.enabled=false' mcp list --json 2>&1 >/dev/null) | grep -q "invalid transport"

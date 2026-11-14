@@ -124,10 +124,14 @@ pub(crate) fn config_args(args: &[OsString]) -> ConfigArgs {
     found
 }
 
-/// Codex 0.160's options that take a value (the top level's, `exec`'s,
-/// `resume`'s and `fork`'s), so the scan below never reads a value as a
-/// subcommand.
-const VALUE_OPTIONS: [&str; 25] = [
+/// Codex's options that take a value (0.160's top level, `exec`, `resume`
+/// and `fork`, and 0.169's `--cyber-access-program`), so the scan below never
+/// reads a value as a subcommand or a skip flag. A Codex that adds one can
+/// make the scan misread a launch; that is harmless, because the off switch
+/// carries its own transport and never leaves Codex an entry it cannot
+/// start (agent_computer_use.rs `turn_off_cmux`).
+const VALUE_OPTIONS: [&str; 26] = [
+    "--cyber-access-program",
     "-c",
     "--config",
     "--enable",
@@ -171,6 +175,8 @@ const DIFFERENT_LAUNCH: [&str; 4] =
 pub(crate) fn probe_matches_launch(args: &[OsString]) -> bool {
     let mut args = args.iter();
     let mut positionals = Vec::new();
+    // Every argument up to `--`: a skip flag counts after the prompt too
+    // (`codex exec hi --worktree`), and option values are never read as one.
     while let Some(arg) = args.next() {
         let Some(arg) = arg.to_str() else { return false };
         if arg == "--" {
@@ -178,10 +184,6 @@ pub(crate) fn probe_matches_launch(args: &[OsString]) -> bool {
         }
         if !arg.starts_with('-') || arg == "-" {
             positionals.push(arg);
-            // A session's first word after `exec` decides; past that, words are the prompt.
-            if positionals.len() == 2 || !matches!(positionals[0], "exec" | "e") {
-                break;
-            }
             continue;
         }
         let flag = arg.split('=').next().unwrap_or_default();
@@ -189,8 +191,9 @@ pub(crate) fn probe_matches_launch(args: &[OsString]) -> bool {
             return false;
         }
         // `-pwork`, `-C/w`: a short option with its value attached.
-        let short_attached =
-            !arg.starts_with("--") && arg.len() > 2 && VALUE_OPTIONS.contains(&&arg[..2]);
+        let short_attached = !arg.starts_with("--")
+            && arg.chars().nth(2).is_some()
+            && arg.get(..2).is_some_and(|short| VALUE_OPTIONS.contains(&short));
         if VALUE_OPTIONS.contains(&flag) && !arg.contains('=') && !short_attached {
             args.next();
         }
@@ -312,7 +315,6 @@ pub(crate) fn resolve(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt as _;
 
     fn os(args: &[&str]) -> Vec<OsString> {
         args.iter().map(OsString::from).collect()
@@ -383,6 +385,9 @@ mod tests {
             &["review"],
             &["exec", "review", "--base", "main"],
             &["--", "resume"],
+            &["hi", "--", "--worktree"],
+            &["-c", "--worktree", "hi"],
+            &["--cyber-access-program", "--worktree", "hi"],
         ] {
             assert!(probe_matches_launch(&os(args)), "{args:?}");
         }
@@ -397,6 +402,11 @@ mod tests {
             &["--remote", "ws://h:1"],
             &["--remote=ws://h:1", "hi"],
             &["exec", "--ignore-user-config", "hi"],
+            // A skip flag after the prompt.
+            &["exec", "hi", "--worktree"],
+            &["exec", "hi", "--ignore-user-config"],
+            &["hi", "--remote", "ws://h:1"],
+            &["fix the bug", "--worktree"],
             &["cloud"],
             &["app-server"],
         ] {
@@ -409,12 +419,26 @@ mod tests {
     fn fake_codex(dir: &Path, body: &str) -> PathBuf {
         let path = dir.join("codex");
         let seen = dir.join("seen");
-        std::fs::write(
-            &path,
-            format!("#!/bin/sh\nprintf '%s\\n' \"$PWD\" \"$@\" > '{}'\n{body}\n", seen.display()),
-        )
-        .unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let script =
+            format!("#!/bin/sh\nprintf '%s\\n' \"$PWD\" \"$@\" > '{}'\n{body}\n", seen.display());
+        // Written by a child process, never through a descriptor of this one:
+        // another test's fork could inherit an open write descriptor, and
+        // running the script while it is open fails with "Text file busy".
+        // A new name each time (rename over the old one), so a script that
+        // still runs from an earlier call is never written to.
+        let fresh = dir.join(format!("codex.{}", std::process::id()));
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "cat > \"$1\" && chmod 755 \"$1\" && mv -f \"$1\" \"$2\"", "sh"])
+            .arg(&fresh)
+            .arg(&path)
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        {
+            use std::io::Write as _;
+            child.stdin.take().unwrap().write_all(script.as_bytes()).unwrap();
+        }
+        assert!(child.wait().unwrap().success());
         path
     }
 
