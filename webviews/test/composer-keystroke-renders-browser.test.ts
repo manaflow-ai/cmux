@@ -65,16 +65,32 @@ await requireBrowserLane("composer-keystroke-renders-browser.test.ts", async () 
     await prompt.waitFor({ timeout: 30_000 });
     await prompt.click();
     // The first keys load the composer's lazy parts (emoji data, the mention index).
+    const shows = (text: string) =>
+      page.waitForFunction(
+        ([selector, want]) => {
+          const text = (document.querySelector(selector!)?.textContent ?? "").trim();
+          // An empty prompt may still draw its placeholder.
+          return want === "" ? !text.includes("warm") : text === want;
+        },
+        [PROMPT, text] as const,
+      );
+    // Two frames after the last change: every render the key started has committed.
+    const settled = () =>
+      page.evaluate(
+        () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
+      );
     for (const key of "warm") await page.keyboard.press(key);
-    await page.waitForTimeout(400);
+    await shows("warm");
     for (let i = 0; i < 4; i += 1) await page.keyboard.press("Backspace");
-    await page.waitForTimeout(400);
+    await shows("");
+    await settled();
     await page.evaluate(() => (window as any).cmuxAcpmuxDebug.renders());
-    for (const key of "abcdefghijkl".slice(0, KEYS)) {
-      await page.keyboard.press(key);
-      await page.waitForTimeout(40);
+    const typed = "abcdefghijkl".slice(0, KEYS);
+    for (let i = 0; i < typed.length; i += 1) {
+      await page.keyboard.press(typed[i]!);
+      await shows(typed.slice(0, i + 1));
     }
-    await page.waitForTimeout(400);
+    await settled();
     const renders = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug.renders())) as Record<string, number>;
     await page.close();
     const counted = (prefix: string) =>

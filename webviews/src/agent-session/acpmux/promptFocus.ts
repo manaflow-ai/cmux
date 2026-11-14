@@ -21,13 +21,12 @@ export function PromptFocusProvider({ focus, children }: { focus: () => void; ch
 
 /// Focuses the prompt of the composer around the caller, as its latest render handed it; returns
 /// false when there is none (the picker on its own in the gallery), so the caller keeps its own focus.
+/// The provider's function is one for its whole life (PromptFocusProvider), so this one is too.
 export function usePromptFocus(): () => boolean {
   const focus = useContext(PromptFocus);
-  const latest = useRef(focus);
-  latest.current = focus;
   return useCallback(() => {
-    if (!latest.current) return false;
-    latest.current();
+    if (!focus) return false;
+    focus();
     return true;
-  }, []);
+  }, [focus]);
 }

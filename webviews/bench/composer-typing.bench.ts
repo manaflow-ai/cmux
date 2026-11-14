@@ -131,7 +131,7 @@ if (DEV) {
     },
   });
   releases.push(() => statics.stop(true));
-  port = statics.port;
+  port = statics.port!;
 }
 const browser = await chromium.launch({ headless: true });
 releases.push(() => browser.close());
