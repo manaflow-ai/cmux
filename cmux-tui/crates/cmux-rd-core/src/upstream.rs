@@ -284,6 +284,9 @@ impl UpstreamSender {
                     return Ok(resends);
                 }
                 if let Some(d) = datagrams.get(usize::from(i)) {
+                    if let Ok((header, _)) = DatagramHeader::decode(d) {
+                        self.cc.on_retransmitted(header.transport_seq);
+                    }
                     self.budget_bits = self.budget_bits.saturating_sub(d.len() as i64 * 8);
                     resends.push(d.clone());
                 }
