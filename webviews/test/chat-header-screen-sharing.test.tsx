@@ -95,7 +95,7 @@ test("the New chevron reaches the current chat's screen sharing action without c
   await act(async () => {
     openMenu(host.querySelector(".acpmux-header-new-more") as HTMLButtonElement);
   });
-  const row = host.querySelector('[data-value="screen-sharing"]') as HTMLElement | null;
+  const row = document.querySelector('[data-value="screen-sharing"]') as HTMLElement | null;
   expect(row).not.toBeNull();
   expect(row?.querySelector('[data-icon="remote.display"]')).not.toBeNull();
   await act(async () => row?.click());
@@ -124,5 +124,5 @@ test("the chevron has no screen sharing row when there is no chat session", asyn
   await act(async () => {
     openMenu(host.querySelector(".acpmux-header-new-more") as HTMLButtonElement);
   });
-  expect(host.querySelector('[data-value="screen-sharing"]')).toBeNull();
+  expect(document.querySelector('[data-value="screen-sharing"]')).toBeNull();
 });
