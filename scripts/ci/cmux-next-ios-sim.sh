@@ -78,6 +78,8 @@
 #           Then the upload leg: the phone streams a sparse ~150 MB file (past
 #           the old 100 MiB cap) to the Mac with its own LinkUpload, and the
 #           stored file's size and SHA-256 must match (UploadProbe.swift).
+#           Before it, the theme-file leg: ten saves of the Mac's theme file,
+#           each timed to the phone's terminal repaint (SUMMARY.md).
 #   listperf
 #           build, plus the list frame-rate rig (ListStressRig,
 #           verify/listperf/): each case launches the Demo app with
