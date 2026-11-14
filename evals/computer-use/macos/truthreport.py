@@ -128,6 +128,23 @@ def build(arms, agent_dirs, out, videos):
             line.append(" \\| ".join(cells))
         t.append(line)
     md.append(md_table(head, t))
+    # ---- routes (cmux): which route each claim came from, and how often it was true
+    md.append("\n### cmux routes: claim and truth per route\n")
+    t = []
+    import re as _re
+    for a, rs in arms.items():
+        by = defaultdict(Counter)
+        for r in rs:
+            if r["outcome"] not in KEYS:
+                continue
+            m = _re.search(r'"route":"(\w+)"', (r.get("scored_call") or {}).get("result") or "")
+            if not m:
+                continue
+            by[(m.group(1), r["claim"])][r["outcome"]] += 1
+        for (route, claim), cnt in sorted(by.items()):
+            t.append([a, route, claim, sum(cnt.values())] + [cnt[k] for k in KEYS])
+    if t:
+        md.append(md_table(["arm", "route", "claim", "n"] + list(KEYS), t))
     # ---- timing
     md.append("\n### Effect timing (ms from the tool's result; negative = before it returned)\n")
     t = []
@@ -263,6 +280,16 @@ def main():
     for spec in a.ins:
         label, path = spec.split("=", 1)
         rows = [r for r in load(path) if "outcome" in r]
+        for r in rows:  # Safari cmd+a: rows from before the threshold fix (Select All selects ~936 chars, not > 1000)
+            if r["app"] == "safari" and r["action"] == "press_key_chord_cmd_a" and r.get("truth") == "wrong":
+                import re as _re
+                m = _re.search(r"selection \S+ -> (\d+) chars", r.get("detail") or "")
+                if m and int(m.group(1)) > 500:
+                    r["truth"] = "correct"
+                    r["outcome"] = tc.confusion_cell(r["claim"], "correct")
+        for r in rows:  # a foreground cell whose target could not be made frontmost and key is not a fg cell
+            if r["scene"] == "fg" and r.get("note"):
+                r["scene"] = "fg-unarranged"
         for r in rows:  # claims are re-derived from the stored result, so a refined mapping applies to old rows
             if r.get("scored_call") and r["outcome"] not in ("unsupported",):
                 r["claim"] = tc.claim_of(r["arm"], r["scored_call"])

@@ -780,9 +780,9 @@ def safari_cells():
              read=page, done=lambda s, c: c["tag"] in str(s.get("name") or "")),
         Cell("press_key_chord_cmd_a", lambda a, w, c: (a.screenshot(w), a.press_key(w, "cmd+a"))[1],
              # the effect of cmd+a is the selection (Select All); the keydown is how the page saw it, if it did
-             lambda b, a, c: tri(int(a.get("sel") or 0) > 1000 or a["keys"] == "meta+a", a != b,
+             lambda b, a, c: tri(int(a.get("sel") or 0) > 500 or a["keys"] == "meta+a", a != b,
                                  detail=f"page keydown {a['keys']!r}, selection {b.get('sel')} -> {a.get('sel')} chars"),
-             read=page, done=lambda s, c: int(s.get("sel") or 0) > 1000 or s["keys"] == "meta+a"),
+             read=page, done=lambda s, c: int(s.get("sel") or 0) > 500 or s["keys"] == "meta+a"),
         Cell("scroll", scroll, lambda b, a, c: tri(int(a["scroll"] or 0) > int(b["scroll"] or 0), a["scroll"] != b["scroll"],
                                                    detail=f"scrollY {b['scroll']} -> {a['scroll']}"), read=page,
              done=lambda s, c: int(s["scroll"] or 0) > int(c["before"]["scroll"] or 0)),
