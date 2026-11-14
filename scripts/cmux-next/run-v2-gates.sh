@@ -41,7 +41,6 @@ run_acpmux_test() {
 # acpmux-book (release)
 book_gates() {
   run_book god_vs_small
-  run_book translate::bench::god_vs_small
   run_book kin_table_change_gate
   run_book sibling_insert_gate
   run_book family_page_gate
