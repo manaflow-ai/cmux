@@ -1167,6 +1167,9 @@
   line-height: var(--cv-line-height);
   letter-spacing: var(--cv-tracking, 0px);
   color: var(--cv-text);
+  /* A word wider than the column (a long URL, a hash, a path) breaks inside rather than running past
+     the pane, as the prompt bubble's does; code blocks and tables keep their own scroll. */
+  overflow-wrap: break-word;
   -webkit-font-smoothing: antialiased;
 }
 .cv-md > :first-child {
