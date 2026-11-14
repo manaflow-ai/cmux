@@ -34,9 +34,14 @@ class SeedClient:
         self.error = error
         self.state = state or {}
         self.create_applies = create_applies
-        self.creates = self.sends = 0
+        self.creates = self.sends = self.trusts = 0
+        self.calls = []
 
     def call(self, method, params):
+        self.calls.append((method, params))
+        if method == "acp.trust.set":
+            self.trusts += 1
+            return {"ok": True, "result": {}}
         if params["action"] == "new_chat":
             self.creates += 1
             if self.create_applies:
@@ -110,6 +115,16 @@ class Restoration(unittest.TestCase):
         self.assertEqual(client.sends, 1)
         self.assertEqual(self.fixture.expected["test"]["sessionId"], "new-session")
         self.assertEqual(len(self.fixture.expected["test"]["transcript"]), 2)
+
+    def test_seed_trusts_fixture_folder_before_creating_a_session(self):
+        client = SeedClient()
+        self.fixture.seed("test", client, 1)
+        trust = next(index for index, (method, _) in enumerate(client.calls)
+                     if method == "acp.trust.set")
+        create = next(index for index, (_, params) in enumerate(client.calls)
+                      if params.get("action") == "new_chat")
+        self.assertEqual(client.trusts, 1)
+        self.assertLess(trust, create)
 
     def test_existing_session_is_rejected_before_creating_another(self):
         client = SeedClient(state={"sessionId": "existing-session"})
