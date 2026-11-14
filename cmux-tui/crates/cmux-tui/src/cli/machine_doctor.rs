@@ -87,7 +87,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     // machine on any platform, signed in or not). A pasted secret is never handed on.
     if found.is_none()
         && plain_name(key)
-        && let Some(code) = super::run_app_action_fallback(args)
+        && let Some(code) = super::app_commands::run_app_action_fallback(args)
     {
         // Not a joined machine: the app's ssh Check Machine, as before. When the joined list
         // could not be read, say so: the checks above did not run.
