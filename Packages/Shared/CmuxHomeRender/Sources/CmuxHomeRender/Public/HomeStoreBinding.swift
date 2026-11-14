@@ -135,28 +135,6 @@ public final class HomeStoreBinding {
             }
         }
     }
-}
-
-/// The one end of `HomeStoreBinding.firstDrawable()`: the first of its two ends to finish wins.
-@MainActor
-private final class HomeFirstDrawable {
-    private(set) var finished = false
-    private var waiter: CheckedContinuation<Void, Never>?
-
-    func wait() async {
-        guard !finished else { return }
-        await withCheckedContinuation { waiter = $0 }
-    }
-
-    func finish() {
-        guard !finished else { return }
-        finished = true
-        waiter?.resume()
-        waiter = nil
-    }
-}
-
-extension HomeStoreBinding {
 
     /// Cancels my pending send `key` (an upload, a queued send or a failed
     /// one; `HomeController.cancellableSend` says when it can). The row leaves
@@ -287,5 +265,24 @@ struct HomeFetchLoader: HomeAttachmentLoader {
 
     func original(for ref: AttachmentRef) async throws -> URL {
         try await fetch(ref, .original)
+    }
+}
+
+/// The one end of `HomeStoreBinding.firstDrawable()`: the first of its two ends to finish wins.
+@MainActor
+private final class HomeFirstDrawable {
+    private(set) var finished = false
+    private var waiter: CheckedContinuation<Void, Never>?
+
+    func wait() async {
+        guard !finished else { return }
+        await withCheckedContinuation { waiter = $0 }
+    }
+
+    func finish() {
+        guard !finished else { return }
+        finished = true
+        waiter?.resume()
+        waiter = nil
     }
 }
