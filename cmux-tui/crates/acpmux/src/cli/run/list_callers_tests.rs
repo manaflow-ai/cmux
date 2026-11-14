@@ -249,8 +249,10 @@ async fn every_form_on(daemon: Daemon, peer_closed: bool) {
     };
     assert_eq!(row("c-under-closed")["spawnedBy"], "c-closed-parent");
     if peer_closed {
-        // v1's own row, stale while its peer is down.
-        assert_eq!(row("p-closed")["stale"], true);
+        // v1's own row: v1 marks no closed row stale while its peer is down
+        // (`RemoteRows::mark_peer_stale`), so neither does this.
+        assert_eq!(row("p-closed")["status"], "closed");
+        assert!(row("p-closed").get("stale").is_none_or(|stale| stale != true));
     }
     assert_eq!(row("p-live")["stale"], true);
     let exact: Value =

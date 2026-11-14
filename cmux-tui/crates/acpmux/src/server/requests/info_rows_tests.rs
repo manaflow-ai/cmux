@@ -163,6 +163,10 @@ async fn a_batch_past_its_bounds_is_refused() {
         json!({"sessionIds": many, "row": true}),
         json!({"sessionIds": [], "row": true}),
         json!({"sessionIds": [live.clone()], "sessionId": live.clone(), "row": true}),
+        // A peer's chat beside them is refused too, never forwarded to the peer.
+        json!({"sessionIds": [live.clone()], "sessionId": format!("far/{PEER_CHAT}"), "row": true}),
+        json!({"sessionIds": [live.clone()], "session": live.clone(), "row": true}),
+        json!({"sessionIds": [live.clone()], "name": "chat-0", "row": true}),
         json!({"sessionIds": [live.clone()]}),
         json!({"sessionIds": [7], "row": true}),
     ] {

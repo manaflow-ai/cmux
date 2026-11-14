@@ -276,11 +276,6 @@ fn after(summary: &Summary, row: &Value) -> bool {
 }
 
 impl Source {
-    /// The v1 client the rows are fetched on.
-    pub(crate) fn client(&self) -> &Arc<Client> {
-        &self.client
-    }
-
     /// The rows of `form`, as the v1 read of that form keeps them. Each page's candidates are
     /// fetched and judged before the next page is read. With `--limit N` the walk ends past the
     /// N-th kept row's `updatedAt` (rows updated in its millisecond may sort before it in v1's
