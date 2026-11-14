@@ -15,6 +15,9 @@ agent runs `cmux ext dev --once --json` after each edit and reads its exit code,
 errors and `scene` (an outline of what rendered). Before saying it is done, it runs
 `cmux ext shot --json` and looks at `shot.path`, a picture of the cmux window that
 shows the extension ([docs/cmux-next/extensions/dev-loop.md](../../../docs/cmux-next/extensions/dev-loop.md)).
+To share one, `cmux ext share` prints the link; `cmux ext add LINK` (or `OWNER/NAME`, a git URL,
+a folder) installs someone else's, and `cmux ext search` lists the ones tagged `cmux-extension`
+on GitHub. To find what a person wants, search before building it.
 
 ## Start from a template
 

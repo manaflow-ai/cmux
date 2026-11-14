@@ -10,7 +10,9 @@ mod daemon;
 mod dev;
 mod scaffold;
 mod scene;
+mod share;
 mod shot;
+mod source;
 #[cfg(test)]
 mod tests;
 
@@ -44,6 +46,10 @@ pub(super) mod exit {
     pub const BUILD_FAILED: i32 = 5;
     /// `ext shot`: it loaded and rendered, but no picture was taken.
     pub const SHOT_FAILED: i32 = 6;
+    /// `ext add`: the source could not be fetched; `ext search`: GitHub did not answer.
+    pub const FETCH_FAILED: i32 = 7;
+    /// `ext share`: the folder cannot be shared yet.
+    pub const NOT_SHAREABLE: i32 = 8;
     pub const INTERRUPTED: i32 = 130;
 }
 
@@ -55,6 +61,11 @@ cmux ext: make a cmux extension and watch it change as you work.
   cmux ext shot [DIR] [--out PNG] [--json]
                                one reload, then what it rendered: the view's outline and a
                                picture of the cmux window that shows it; exit 6 no picture
+  cmux ext add SOURCE [--no-install]
+                               add someone's extension: a git URL, OWNER/NAME[@REF], a GitHub
+                               /tree/REF/PATH link, URL#PATH, or a folder; again to update it
+  cmux ext share [DIR]         the link that adds yours (checks it is pushed and built)
+  cmux ext search [WORDS]      extensions people tagged cmux-extension on GitHub
   cmux ext list | remove ID    the extensions loaded this way; remove drops one
   cmux ext capabilities [--op NAME] [--json]
                                what an extension can read and do: each op's scope, risk class
@@ -89,6 +100,9 @@ pub(super) enum Request {
     },
     Dev(DevOptions),
     Shot(shot::ShotOptions),
+    Add(share::AddOptions),
+    Share { dir: Option<PathBuf> },
+    Search { query: Option<String> },
     List,
     Remove {
         app: String,
@@ -189,6 +203,34 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 options.dir = dir;
             }
             Ok(Request::Dev(options))
+        }
+        "add" => {
+            let mut source = None;
+            let mut install = true;
+            for word in rest {
+                match word.as_str() {
+                    "--no-install" => install = false,
+                    flag if flag.starts_with('-') => {
+                        return Err(usage(&format!("unknown option {flag}")));
+                    }
+                    _ if source.is_some() => return Err(usage("ext add takes one SOURCE")),
+                    _ => source = Some(word.clone()),
+                }
+            }
+            let source = source.ok_or_else(|| usage("ext add needs a SOURCE"))?;
+            Ok(Request::Add(share::AddOptions { source, install }))
+        }
+        "share" => match rest {
+            [] => Ok(Request::Share { dir: None }),
+            [dir] if !dir.starts_with('-') => Ok(Request::Share { dir: Some(PathBuf::from(dir)) }),
+            _ => Err(usage("ext share takes one DIR")),
+        },
+        "search" => {
+            if let Some(flag) = rest.iter().find(|word| word.starts_with('-')) {
+                return Err(usage(&format!("unknown option {flag}")));
+            }
+            let query = (!rest.is_empty()).then(|| rest.join(" "));
+            Ok(Request::Search { query })
         }
         "shot" => {
             // One `ext dev --once` reload with no install card, plus where the picture goes.
@@ -326,6 +368,12 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
                 dev::run_watch(global, &options, globals)
             }
         }
+        Request::Add(options) => share::run_add(global, &options, &globals, json_out),
+        Request::Share { dir } => {
+            let dir = absolute(dir.unwrap_or_else(|| PathBuf::from(".")));
+            share::run_share(&dir, json_out)
+        }
+        Request::Search { query } => share::run_search(query.as_deref(), json_out),
         Request::Shot(mut options) => {
             options.dev.dir = absolute(options.dev.dir);
             options.dev.bun = dev::find_bun();

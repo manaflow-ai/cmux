@@ -94,6 +94,49 @@ picture of the window (2880x1800): /tmp/shot.png; the extension is in the sideba
 An agent's loop is: edit, `cmux ext shot --json`, read `errors` and `scene`, look at `shot.path`,
 and repeat until both look right.
 
+## Share it, and add other people's
+
+An extension is shared as a git repository: a whole repository, or one folder of it. Anyone
+adds it with one command, from the link you send:
+
+```sh
+cmux ext share                    # in your extension's folder: prints the link
+cmux ext add https://github.com/you/widgets/tree/4f2c9e1/clock
+cmux ext add you/widgets          # a repository on GitHub, its default branch
+cmux ext add you/widgets@v1       # a branch, tag or commit
+cmux ext add https://git.example.com/team/widgets#clock   # any https git host; #PATH is the folder
+cmux ext add ./clock              # a folder on this Mac
+cmux ext search [WORDS]           # extensions people tagged on GitHub
+```
+
+- **`ext share`** checks that the folder can be added elsewhere, then prints a link pinned to the
+  commit. To pass, the manifest must be valid, the folder must be in a git repository whose
+  origin is on GitHub or an https host, the commit must be pushed, and the built main script
+  (`dist/main.js`) must be committed. Anything missing is listed, and the exit code is 8. For a
+  repository on GitHub it also reminds you to add the topic `cmux-extension`, which is what
+  `ext search` lists.
+- **`ext add SOURCE`** clones the repository into `~/.cache/cmux/extensions/HOST/OWNER/NAME`, or
+  fetches it again when it is already there, and checks out the commit the source names. It
+  then runs the reload `ext dev --once` runs: validate, copy into cmux, reload, render once.
+  Last, it asks you to install the extension on the usual consent card. Until you confirm, it
+  loads as a preview.
+  - Adding it again updates it to the source's current commit.
+  - `cmux ext remove local/NAME` removes it.
+  - `cmux ext list` shows where each extension came from.
+  - `--no-install` skips the card, and `--json` returns the `ext dev --once` fields plus `from`
+    (`url`, `ref`, `path`, `commit`, `link`).
+- **A fetched extension is never built.** Its committed `dist/main.js` loads as it is, because a
+  build would run someone else's tooling on your Mac. Like every app, it runs in cmux's sandboxed
+  app host, and it gets a scope only when you grant it.
+- **`ext search`** lists GitHub repositories with the topic `cmux-extension`, most-starred
+  first, each with the `cmux ext add` line that adds it. It sends no token unless `GH_TOKEN` or
+  `GITHUB_TOKEN` is set. With one, GitHub allows more than 10 searches a minute.
+
+| Exit | Means |
+|---|---|
+| 7 | `ext add` could not fetch the source, or `ext search` could not reach GitHub |
+| 8 | `ext share`: the folder cannot be shared yet (each reason is listed) |
+
 ## What happens on a save
 
 1. A change in the folder (dot files, `node_modules` and editor backups ignored) wakes the
