@@ -24,6 +24,13 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
         try checkFullScreenApp(try runDemo(phase: "kbtui", name: "vim"))
     }
 
+    /// A Mac a 150 ms round trip away: the redraw at fewer rows arrives while
+    /// the keyboard still rises and waits for it to stop.
+    @MainActor
+    func testFullScreenAppOnASlowLinkKeepsItsGridOnTheComposer() throws {
+        try checkFullScreenApp(try runDemo(phase: "kbtui", name: "vim-slow", defaults: ["CmuxMobileTerminalDemoMacMs": "150"]))
+    }
+
     /// htop reports the mouse; its screen redraws every 0.9 s on its own.
     @MainActor
     func testMouseReportingAppKeepsItsGridOnTheComposerAcrossToggles() throws {

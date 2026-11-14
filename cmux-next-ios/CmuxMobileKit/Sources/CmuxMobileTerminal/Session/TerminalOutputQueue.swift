@@ -50,6 +50,12 @@ public struct TerminalOutputQueue: Sendable {
     public init() {}
 
     public var isEmpty: Bool { items.isEmpty }
+
+    /// The Mac's grid change at the front, when that is the next step.
+    public var nextHostGrid: (columns: Int, rows: Int)? {
+        guard case .hostGrid(let columns, let rows)? = items.first else { return nil }
+        return (columns, rows)
+    }
     public var isOverHighWater: Bool { pendingBytes > Self.highWater }
     public var isUnderLowWater: Bool { pendingBytes < Self.lowWater }
 

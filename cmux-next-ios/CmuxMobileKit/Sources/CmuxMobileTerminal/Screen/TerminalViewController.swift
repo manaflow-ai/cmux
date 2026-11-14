@@ -233,18 +233,25 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// The keyboard is moving (will-show/will-hide until did-show/did-hide).
     private var keyboardMoving = false
     private var keyboardMovement = 0
-    /// A mirror reset arrived while `holdsReplay`: the held frame goes up when
-    /// it is fed.
+    /// The Mac's shorter grid arrived while the keyboard rose: the output
+    /// queue holds at that grid (`holdsReplay`) until the keyboard stops.
+    private var holdGridPending = false
+    /// A mirror reset arrived behind that grid: the held frame goes up when
+    /// it is fed, not while the keyboard still moves.
     private var heldReset = false
     /// The size being measured is the keyboard's end, known at will-show or
     /// will-hide: it settles in `TerminalResizeSettle.keyboardSettle`.
     private var keyboardClaim = false
     /// The Mac's redraw at fewer rows came while the keyboard was still
-    /// rising: it waits for the keyboard to stop (`keyboardStopped`). Shown
-    /// earlier, the shorter grid pinned to a composer still on its way up
-    /// left a band of background above it; the taller grid on screen stays
-    /// pinned to the composer, its top rows under the toolbar, until then.
+    /// rising: the output queue stops at its grid change, so bytes for the
+    /// old grid (an echo) still go out, and the rest waits for the keyboard
+    /// to stop (`keyboardStopped`). Shown earlier, the shorter grid pinned to
+    /// a composer still on its way up left a band of background above it;
+    /// the taller grid on screen stays pinned to the composer, its top rows
+    /// under the toolbar, until then.
     private var holdsReplay = false
+    /// When the keyboard's current movement ends (its notified duration).
+    private var keyboardMoveEnds: CFTimeInterval = 0
     #if DEBUG
     /// DEBUG frame pacing while the page is dragged or decelerates: the gap
     /// between scroll callbacks (one per displayed frame while moving) and
@@ -1299,7 +1306,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 // TerminalReadingMark); otherwise to the prompt.
                 markReadingPosition()
                 // Held for the keyboard: the frame is held when it is fed.
-                if holdsReplay { heldReset = true } else { freezeLastFrame() }
+                if holdGridPending { heldReset = true } else { freezeLastFrame() }
                 // Held already (a second reset, D4): the frame that releases
                 // it is one placed after this reset's replay.
                 placedSinceHold = false
@@ -1337,7 +1344,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // The Mac's shorter grid while the keyboard still rises: it and
             // what follows wait for the keyboard to stop (`holdsReplay`).
             if model.isTUI, keyboardMoving, let held = tuiGridHold.heldRows, rows < held, rows == tuiRows {
-                holdsReplay = true
+                holdGridPending = true
             }
             // In order with the bytes too: the mirror takes the Mac's new
             // grid right before the first byte drawn for it.
@@ -1376,6 +1383,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// not held back to the next frame); otherwise the display link feeds at
     /// the start of the next frame. Either way, at most one batch per frame.
     private func scheduleOutput() {
+        // Held for the keyboard: no display link meanwhile (`keyboardStopped`
+        // schedules again).
+        if holdsReplay { return }
         if pacer.canFeed(at: CACurrentMediaTime()) {
             pumpOutput()
         } else {
@@ -1418,22 +1428,38 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + max(0, wake - CACurrentMediaTime()), execute: item)
     }
 
+    /// The queue's next step is the Mac's shorter grid that came while the
+    /// keyboard rose, and the keyboard still moves: hold there
+    /// (`holdsReplay`), until `keyboardStopped` or the movement's end.
+    private func holdsAtGrid() -> Bool {
+        if holdsReplay { return true }
+        guard holdGridPending, keyboardMoving, output.nextHostGrid != nil else { return false }
+        holdsReplay = true
+        stopOutputLink()
+        let deadline = max(0, keyboardMoveEnds - CACurrentMediaTime()) + 0.1
+        DispatchQueue.main.asyncAfter(deadline: .now() + deadline) { [weak self] in
+            // A did-show or did-hide that never came (filtered, or a page
+            // that left): the hold ends with the movement.
+            guard let self, self.holdsReplay else { return }
+            self.keyboardStopped()
+        }
+        return true
+    }
+
     private func pumpOutput() {
         // The Mac's redraw waits for the keyboard to stop (`holdsReplay`).
-        if holdsReplay {
-            stopOutputLink()
-            return
-        }
+        if holdsReplay { return }
         guard pacer.canFeed(at: CACurrentMediaTime()) else {
             armBurstWake()
             return
         }
-        while !feedInFlight, let step = output.next(budget: TerminalOutputQueue.budget(interacting: scroll.isInteracting && !Self.legacyInteraction)) {
+        while !feedInFlight, !holdsAtGrid(), let step = output.next(budget: TerminalOutputQueue.budget(interacting: scroll.isInteracting && !Self.legacyInteraction)) {
             switch step {
             case .alternateScreen(let on):
                 model.ingest(.alternateScreen(on))
                 applyMode(tui: on)
             case .hostGrid(let columns, let rows):
+                holdGridPending = false
                 appliedHostColumns = columns
                 appliedHostRows = rows
                 // The Mac's grid changed: a resize the phone sent before is answered.
@@ -1746,10 +1772,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // keyboard stopped (the held replay's reset, step f97802b9).
         let source: UIView = model.isTUI ? tuiClip : view
         guard let snapshot = measured("hold-frame-snapshot", { source.snapshotView(afterScreenUpdates: false) }) else { return }
-        // Where the area is drawn now (it may be riding the keyboard).
-        snapshot.frame = source === view ? view.bounds : (tuiClip.layer.presentation()?.frame ?? tuiClip.frame)
         snapshot.isUserInteractionEnabled = false
-        view.insertSubview(snapshot, belowSubview: bottomBacking)
+        if source === view {
+            snapshot.frame = view.bounds
+            view.insertSubview(snapshot, belowSubview: bottomBacking)
+        } else {
+            // In the area, pinned to its bottom (the composer): it rides the
+            // keyboard with the area, at its own size.
+            snapshot.frame.origin = CGPoint(x: 0, y: tuiClip.bounds.height - snapshot.bounds.height)
+            snapshot.autoresizingMask = [.flexibleTopMargin]
+            tuiClip.addSubview(snapshot)
+        }
         freezeView = snapshot
         freezeBatches = 0
         placedSinceHold = false
@@ -1968,7 +2001,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                     settingOffset = true
                     scrollView.contentOffset.y = maxOffsetY
                     settingOffset = false
-                } else if !scrollView.isTracking, !scrollView.isDecelerating, glide == nil, cell.height > 0,
+                } else if !scrollView.isTracking, !scrollView.isDragging, !scrollView.isDecelerating, glide == nil, cell.height > 0,
                           let target = scroll.target(layout: document, rowHeight: cell.height, topInset: scrollView.contentInset.top,
                                                      bottomOffsetY: maxOffsetY) {
                     // Following: the offset moves here, in this pass, so it
@@ -1983,6 +2016,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                     settingOffset = true
                     scrollView.contentOffset.y = target
                     settingOffset = false
+                    // Ghostty draws the rows at the new offset too.
+                    updateViewport(visibleMinY: target)
                 }
             }
         }
@@ -3246,12 +3281,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // settling the stack now would lay it out against the hide.
         guard !isStale(note), !endsOnScreen(note, onScreen: true) else { return }
         dock.keyboardDidHide()
+        keyboardStopped()
         keyboardDidChange()
     }
 
     @objc private func keyboardDidShow(_ note: Notification) {
         // A show a newer hide interrupted (the keyboard key pressed twice).
         guard !isStale(note), !endsOnScreen(note, onScreen: false) else { return }
+        keyboardStopped()
         keyboardDidChange()
     }
 
@@ -3301,16 +3338,21 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// newer toggle reverts within the settle sends nothing; the newest wins.
     private func keyboardWillMove(_ note: Notification) {
         let duration = (note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0
-        keyboardMoving = duration > 0
-        if keyboardMoving {
-            keyboardMovement &+= 1
+        keyboardMovement &+= 1
+        if duration > 0 {
+            keyboardMoving = true
+            keyboardMoveEnds = CACurrentMediaTime() + duration
             let movement = keyboardMovement
             // A did-show or did-hide that never comes (a reversed transition)
             // ends the movement after its own duration.
             DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.1) { [weak self] in
-                guard let self, self.keyboardMovement == movement, self.keyboardMoving else { return }
+                guard let self, self.keyboardMovement == movement else { return }
                 self.keyboardStopped()
             }
+        } else {
+            // No animation (a hardware keyboard, an input view reload): the
+            // keyboard is at its end already.
+            keyboardStopped()
         }
         guard model.isTUI else { return }
         view.layoutIfNeeded()
@@ -3325,13 +3367,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// held back while it moved (`holdsReplay`) goes to the screen.
     private func keyboardStopped() {
         keyboardMoving = false
-        guard holdsReplay else { return }
-        holdsReplay = false
-        sizingLog.notice("keyboard stopped: the Mac's redraw at \(self.tuiRows, privacy: .public) rows goes to the screen")
+        // A reset behind the held grid gets its held frame now, whether or
+        // not the queue reached the grid while the keyboard moved.
         if heldReset {
             heldReset = false
             freezeLastFrame()
         }
+        guard holdsReplay else { return }
+        holdsReplay = false
+        sizingLog.notice("keyboard stopped: the Mac's redraw at \(self.tuiRows, privacy: .public) rows goes to the screen")
         scheduleOutput()
     }
 
@@ -3340,7 +3384,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     private func keyboardSettledLayout() {
-        keyboardStopped()
         view.setNeedsLayout()
         view.layoutIfNeeded()
         // The keyboard settled: a TUI gets the rows above the composer now,
