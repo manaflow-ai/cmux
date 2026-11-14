@@ -190,10 +190,7 @@ pub(super) fn reset_restart_throttle() {
 /// recovery has already done better.
 pub(super) fn without_person_advice(text: &str) -> String {
     const ADVICE: &str = "Do not run `cmux-cua serve`";
-    let text = match text.find(ADVICE) {
-        Some(at) => &text[..at],
-        None => text,
-    };
+    let text = text.split_once(ADVICE).map_or(text, |(before, _)| before);
     text.trim_end().trim_end_matches('.').to_owned()
 }
 
