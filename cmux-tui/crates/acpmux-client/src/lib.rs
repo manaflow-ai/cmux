@@ -2,6 +2,7 @@
 
 pub mod chat;
 pub mod ffi;
+pub mod tokio_list;
 pub mod wire;
 
 use acpmux_list_types::{OriginState, RowKey, Summary};

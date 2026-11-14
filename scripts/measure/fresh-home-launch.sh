@@ -16,7 +16,7 @@
 # It builds a tagged Debug app (scripts/reload.sh, as crash-gate.sh does) and runs
 # scripts/ci/fresh_home_launch_smoke.py --app on it in the console session: an empty HOME, no
 # defaults, Home must render and the app must stay up. The verdict is the smoke's: exit 0 passed,
-# 1 crashed or never rendered Home, 3 could not run. Prints FRESH-HOME lines.
+# 1 crashed or never rendered Home, 3 could not run, 5 the launch left files in $TMPDIR. Prints FRESH-HOME lines.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 here="$PWD"
@@ -45,6 +45,33 @@ stop_load() {
 # exit on it so the EXIT traps below stop the load (its workers are in their own process groups, so
 # the step's own group signal never reaches them) and remove the worktree.
 trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP
+# Everything a launch makes outside the step's checkout and HOME goes in the one EXIT trap below, set
+# before the first of them is made: the ref's worktree ($scratch), the private bun ($work, about
+# 100 MB per launch), the tagged app's processes ($app). A launch that leaves a new entry in $TMPDIR
+# fails (exit 5): one fresh-home A/B step took the bench Mac from 45 GiB free to 5-18 GiB.
+scratch="" work="" app=""
+tmp_root="${TMPDIR:-/tmp}"; tmp_root="${tmp_root%/}"
+tmp_before="$(ls -A "$tmp_root" 2>/dev/null | sort)"
+cleanup() {
+  local code=$?
+  stop_load
+  [ -n "$app" ] && [ -d "$app" ] && python3 "$here/scripts/cmux-next/tag_teardown.py" "$app" >/dev/null 2>&1
+  if [ -n "$scratch" ]; then
+    git -C "$here" worktree remove --force "$src" >/dev/null 2>&1
+    rm -rf "$scratch"
+  fi
+  [ -n "$work" ] && rm -rf "$work"
+  local left
+  left="$(comm -13 <(printf '%s\n' "$tmp_before") <(ls -A "$tmp_root" 2>/dev/null | sort) | sed '/^$/d')"
+  if [ -n "$left" ]; then
+    echo "FRESH-HOME leak: the launch left in $tmp_root: $(echo "$left" | head -n 20 | tr '\n' ' ')" >&2
+    [ "$code" = 0 ] && code=5
+  fi
+  echo "FRESH-HOME disk free after: $(df -h "$here" | awk 'NR==2 {print $4}')"
+  exit "$code"
+}
+trap cleanup EXIT
+echo "FRESH-HOME disk free before: $(df -h "$here" | awk 'NR==2 {print $4}')"
 out="$here/.build/fresh-home-launch"
 rm -rf "$out" && mkdir -p "$out"
 src="$here"
@@ -65,8 +92,7 @@ if [[ -n "$ref" && "$ref" != "$(git rev-parse HEAD)" ]]; then
   fi
   scratch="$(mktemp -d)"
   src="$scratch/src"
-  git worktree add --quiet --detach "$src" "$ref" || { rm -rf "$scratch"; exit 3; }
-  trap 'stop_load; git -C "$here" worktree remove --force "$src" >/dev/null 2>&1; rm -rf "$scratch"' EXIT
+  git worktree add --quiet --detach "$src" "$ref" || exit 3
 fi
 cd "$src"
 sha="$(git rev-parse HEAD)"
@@ -128,8 +154,7 @@ if [[ -z "$app" || ! -d "$app" ]]; then
   exit 3
 fi
 # The harness and the teardown come from this script's checkout, never the launched ref's (which
-# may predate them); the teardown also runs when the step is killed mid-smoke.
-trap 'stop_load; python3 "$here/scripts/cmux-next/tag_teardown.py" "$app" >/dev/null 2>&1; [ -n "${scratch:-}" ] && { git -C "$here" worktree remove --force "$src" >/dev/null 2>&1; rm -rf "$scratch"; }' EXIT
+# may predate them); the EXIT trap's teardown of "$app" also runs when the step is killed mid-smoke.
 if [ "$load" = 1 ]; then
   # The same load as qos-load-bench.sh's load_default cell, at the default priority, from this
   # script's checkout. Started after the build so the build's own time is not what it measures.
