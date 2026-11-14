@@ -43,7 +43,8 @@ public final class AppPaneViews {
 /// `<host>` is the app id with `.` for `/`) that serves only the files under the root the daemon
 /// named, with the strict page CSP (no network, no frames: an app id is never first party), in
 /// its own WebKit content process, its calls going through ``AppWebPaneProvider``. A local
-/// reload of the app's files (`apps-changed`, `local-reload`) reloads the page in place.
+/// reload of the app's files (`apps-changed`, `local-reload`) reloads the page in place. The
+/// page never leaves its origin: it opens no link, window or form target anywhere else.
 @MainActor
 final class AppWebPaneHost {
     let view: PageWebView
@@ -64,6 +65,12 @@ final class AppWebPaneHost {
         // Chromium serves only the app's own bundled pages; an extension's root stays on WebKit.
         guard let view = PageWebView(descriptor: descriptor, root: root, routes: [PageRoute(prefix: host + ".", provider: provider)],
                                      options: PageEngineOptions(requiresWebKit: .notServedByChromium)) else { return nil }
+        // The page stays on its own origin: every navigation elsewhere (a link, `window.open`, a
+        // form, a redirect, a frame) is cancelled, never opened through LinkRouter. An opened URL
+        // would carry what the page put in it (workspace data in a query) past the page bridge,
+        // the app's grant and egress checks. Its own entry document is allowed before the hook.
+        view.onNavigate = { _ in .cancel }
+        view.onOpenExternal = { _ in }
         self.view = view
         self.provider = provider
         client.observeEvents(owner: self) { [weak self] event in

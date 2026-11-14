@@ -63,6 +63,25 @@ impl Pages {
     pub(super) fn client_gone(&mut self, client: u64) {
         self.slots.retain(|(owner, _), _| *owner != client);
     }
+
+    /// The slot of page `key`, made with `grant` when it is new. At
+    /// [`MAX_PAGES`] a new page first drops the idle slots; when every slot
+    /// still has a call in flight it gets none (`None`), so the count stays
+    /// bounded.
+    fn slot(&mut self, key: &(u64, String), grant: &Grant) -> Option<&mut PageSlot> {
+        if !self.slots.contains_key(key) && self.slots.len() >= MAX_PAGES {
+            self.slots.retain(|_, slot| slot.inflight > 0);
+            if self.slots.len() >= MAX_PAGES {
+                return None;
+            }
+        }
+        Some(
+            self.slots.entry(key.clone()).or_insert_with(|| PageSlot {
+                bridge: PageBridge::new(grant.clone()),
+                inflight: 0,
+            }),
+        )
+    }
 }
 
 /// The answer the page receives for call `id`: `{id, ok: true, value}` or
@@ -129,14 +148,14 @@ impl Supervisor {
         }
         let grant = Self::page_grant_locked(inner, app);
         let key = (client, page.to_string());
-        if inner.pages.slots.len() >= MAX_PAGES && !inner.pages.slots.contains_key(&key) {
-            inner.pages.slots.retain(|_, slot| slot.inflight > 0);
-        }
-        let slot = inner
-            .pages
-            .slots
-            .entry(key.clone())
-            .or_insert_with(|| PageSlot { bridge: PageBridge::new(grant.clone()), inflight: 0 });
+        let Some(slot) = inner.pages.slot(&key, &grant) else {
+            let mut error = ApiError::new(
+                "app.limit",
+                format!("{MAX_PAGES} pages are open and every one has a call in flight"),
+            );
+            error.retryable = true;
+            return vec![Out::Respond(respond, Err(error))];
+        };
         slot.bridge.set_grant(grant.clone());
         let PageCall { id, op, mut params, class } = match slot.bridge.admit(raw, Instant::now()) {
             Ok(call) => call,
@@ -262,5 +281,30 @@ impl Supervisor {
         Self::page_done_locked(inner, &(target.client, target.page.clone()));
         let Some(respond) = inner.pages.waiters.remove(&target.waiter) else { return vec![] };
         vec![Out::Respond(respond, Ok(page_answer(&target.id, ok, body)))]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every slot busy: a new page gets none and the count stays at
+    /// `MAX_PAGES` (base red: the idle sweep removed nothing and the slot was
+    /// added anyway); an open page keeps its slot, and one idle slot makes
+    /// room.
+    #[test]
+    fn a_new_page_gets_no_slot_while_every_slot_is_busy() {
+        let grant = Grant::default();
+        let mut pages = Pages::default();
+        for n in 0..MAX_PAGES {
+            pages.slot(&(1, format!("p{n}")), &grant).expect("room").inflight = 1;
+        }
+        assert!(pages.slot(&(2, "new".into()), &grant).is_none());
+        assert_eq!(pages.slots.len(), MAX_PAGES);
+        assert!(pages.slot(&(1, "p0".into()), &grant).is_some(), "an open page keeps its slot");
+        pages.slot(&(1, "p7".into()), &grant).expect("open").inflight = 0;
+        assert!(pages.slot(&(2, "new".into()), &grant).is_some());
+        assert_eq!(pages.slots.len(), MAX_PAGES);
+        assert!(!pages.slots.contains_key(&(1, "p7".into())), "the idle slot made room");
     }
 }

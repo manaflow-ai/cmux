@@ -59,7 +59,7 @@ public extension PageDescriptor {
     /// A page an app manifest declares (third party or first-party app code outside the host
     /// table). Its id must be the app's reverse-DNS id, never a first-party id, and its namespaces
     /// must be its own; it gets no native ops and runs no registry actions. `entry` is the file
-    /// `/` serves (one name inside the root, else `index.html`).
+    /// `/` serves (a name or a nested path inside the root, else `index.html`).
     static func appPage(id: String, resource: String, namespaces: [String],
                         entry: String = "index.html") throws(PageID.Refusal) -> PageDescriptor {
         guard !PageID.isReserved(id) else { throw .reservedID(id) }

@@ -35,7 +35,8 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// another built-in page adds image sources.
     public let csp: PageCSP
     /// The file `cmux-page://<id>/` serves (default `index.html`): a page whose root is a shared
-    /// build (the diff viewer in the one webviews-app build) names its own entry html.
+    /// build (the diff viewer in the one webviews-app build) names its own entry html. A nested
+    /// entry (`ui/index.html`, an extension's) is also the page URL's path (``url(route:)``).
     public let entry: String
     /// First path components the page instance's ``PageDynamicResourceSource`` answers
     /// (`__patch`); the scheme handler never serves a static file under one.
@@ -80,8 +81,9 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         // follow-up on #38075, F2); any other id gets the strict one.
         self.csp = PageID.isFirstParty(id) ? csp
             : PageID.isReserved(id) ? PageCSP(image: csp.image, inlineScript: csp.inlineScript) : .strict
-        // One file name inside the root, never a path.
-        self.entry = entry.isEmpty || entry.contains("/") || entry.hasPrefix(".") ? "index.html" : entry
+        // A file inside the root: a name or a nested path (`ui/index.html`, an app's entry), never
+        // an empty, `.`/`..` or dot-file component, a backslash or an absolute path.
+        self.entry = Self.isEntryPath(entry) ? entry : "index.html"
         self.dynamicPrefixes = dynamicPrefixes
         self.ownsSearchField = ownsSearchField
         self.acceptsFirstMouse = acceptsFirstMouse
@@ -95,6 +97,12 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         return nativeOps.contains(op) || namespaces.contains { op.hasPrefix($0) && op.count > $0.count }
     }
 
+    /// Whether `entry` names a file inside the page's root (``entry``).
+    static func isEntryPath(_ entry: String) -> Bool {
+        let parts = entry.split(separator: "/", omittingEmptySubsequences: false)
+        return !parts.isEmpty && parts.allSatisfy { !$0.isEmpty && !$0.hasPrefix(".") && !$0.contains("\\") }
+    }
+
     /// `cmux-page://<id>`.
     public var origin: String { "\(Self.scheme)://\(id)" }
 
@@ -105,7 +113,8 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         var components = URLComponents()
         components.scheme = Self.scheme
         components.host = id
-        components.path = "/"
+        // A nested entry loads at its own path, so its relative links resolve as in its folder.
+        components.path = entry.contains("/") ? "/" + entry : "/"
         if let route, !route.isEmpty {
             let fragment = route.hasPrefix("#") ? String(route.dropFirst()) : route
             if fragment.removingPercentEncoding != nil, let encoded = fragment.addingPercentEncoding(withAllowedCharacters: Self.encodedFragmentCharacters) {
