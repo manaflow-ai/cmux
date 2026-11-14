@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43611171611",
+  "recorded_at": "2026-11-14T15:52:50Z",
+  "reason": "cmux-tui 0923a52fdf65 changes the image's cmux-tui (pinned 9a3a5d7285be)",
+  "dry_run": false,
+  "cmux_tui": "0923a52fdf650af7b453d943d61dfdb683642647",
+  "fixes": [
+    {
+      "sha": "0923a52fdf650af7b453d943d61dfdb683642647",
+      "mergedAt": "2026-11-14T07:17:09-08:00",
+      "subject": "cmux-tui: list-workspaces limit: the first screen of a god session, with total (#40455)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T15:52:50Z",
+    "snapshot_id": "sh-a6719c37f79d469e82677b05554f7ae9",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43611171611): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6a6c37f8ba5be012558cae092f8c86696880af39",
+    "image": "cloud-native-auto-0923a52f-43611171611-1",
+    "revision": "ci-43611171611-1",
+    "at": "2026-11-14T15:52:50Z"
+  },
+  "rolled_back": false
+}
