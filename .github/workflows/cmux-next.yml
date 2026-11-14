@@ -877,6 +877,7 @@ jobs:
       macos: ${{ steps.route.outputs.macos }}
       # Why: docs/ci/cmux-next-workflow-notes.md#note-91
       fast_tier: ${{ steps.route.outputs.fast_tier }}
+      ffi_repin: ${{ steps.route.outputs.ffi_repin }}
       scheme: ${{ steps.route.outputs.scheme }}
       generated: ${{ steps.route.outputs.generated }}
       swift: ${{ steps.route.outputs.swift }}
@@ -3214,7 +3215,8 @@ jobs:
           REF: ${{ github.sha }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-193
           HOME_RENDER_SUITES: MotionTokenTests,IntentMappingTests
-          CMUX_NEXT_SUITES: ModelMatrixTests,PaneZoomMotionTests,CEFProfileStorageLogTests,AgentSubagentPanesFocusTests
+          CMUX_NEXT_SUITES: ModelMatrixTests,PaneZoomMotionTests,CEFProfileStorageLogTests,AgentSubagentPanesFocusTests,HandlerCoverageTests
+          FFI_REPIN: ${{ needs.path_route.outputs.ffi_repin }}
         run: |
           set -uo pipefail
           verdict=pass
@@ -3260,12 +3262,16 @@ jobs:
               --timeout 1500 --queue-timeout 1200 > "$RUNNER_TEMP/fast-tier-fleet-$1.log" 2>&1 || status=$?
             echo "$status" > "$RUNNER_TEMP/fast-tier-fleet-$1.exit"
           }
-          submit 1 Packages/Shared/CmuxHomeRender "$HOME_RENDER_SUITES" &
-          first=$!
-          submit 2 Packages/macOS/CmuxNext "$CMUX_NEXT_SUITES" &
-          second=$!
-          wait "$first"
-          wait "$second"
+          if [[ "$FFI_REPIN" == true ]]; then
+            submit 2 Packages/macOS/CmuxNext HandlerCoverageTests
+          else
+            submit 1 Packages/Shared/CmuxHomeRender "$HOME_RENDER_SUITES" &
+            first=$!
+            submit 2 Packages/macOS/CmuxNext "$CMUX_NEXT_SUITES" &
+            second=$!
+            wait "$first"
+            wait "$second"
+          fi
           # judge N PACKAGE: print the step's log, then its verdict from its exit and the
           # controller's record of the step, which must name REF as the commit it tested.
           ref_re='"ref": *"([^"]*)"(.*)'
@@ -3325,7 +3331,7 @@ jobs:
               queued) [[ "$verdict" != pass ]] || verdict=queued ;;
             esac
           }
-          judge 1 Packages/Shared/CmuxHomeRender
+          if [[ "$FFI_REPIN" != true ]]; then judge 1 Packages/Shared/CmuxHomeRender; fi
           judge 2 Packages/macOS/CmuxNext
           finish "$verdict"
 
@@ -3532,6 +3538,7 @@ jobs:
         continue-on-error: true
         run: |
           python3 -I scripts/ci/job_input_fingerprint.py fast-tier \
+            --extra "suite_scope=${{ needs.path_route.outputs.ffi_repin == 'true' && 'handlers' || 'all' }}" \
             --extra "xcode=$(xcodebuild -version | tr '\n' ' ')" \
             --extra "macos=$(sw_vers -productVersion)" \
             --extra "macos_build=$(sw_vers -buildVersion)" \
@@ -3622,7 +3629,11 @@ jobs:
           CMUX_FAST_SWIFT_CACHE_KEY: ${{ steps.fast-cache-key.outputs.swift-key }}
           CMUX_FAST_SWIFT_CACHE_HIT: ${{ steps.fast-cache-restore.outputs.cache-hit }}
           CMUX_FAST_CACHE_MATCHED_KEY: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
-        run: python3 -I scripts/cmux-next/fast-tier.py --root "${{ steps.spm-root.outputs.root || github.workspace }}" --kind swift --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
+          FFI_REPIN: ${{ needs.path_route.outputs.ffi_repin }}
+        run: |
+          selected=()
+          if [[ "$FFI_REPIN" == true ]]; then selected=(--only "app handler coverage"); fi
+          python3 -I scripts/cmux-next/fast-tier.py --root "${{ steps.spm-root.outputs.root || github.workspace }}" --kind swift "${selected[@]}" --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-204
       - name: Stop this job's acpmux daemons and remove its home
