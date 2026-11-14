@@ -30,7 +30,7 @@
     },
     {
       "title": "Open the extension's pane: its page renders in a tab",
-      "cmux": ["action", "run", "app.open", "--app", "local/customize"],
+      "cmux": ["action", "run", "app.open", "--app", "local/customize", "--focus"],
       "wait": 4,
       "shot": true
     },
