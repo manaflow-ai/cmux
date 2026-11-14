@@ -490,6 +490,52 @@ class CarGuardsWorkflow(unittest.TestCase):
                          "a needed leg that never reported is told from one the plan did not need")
         self.assertIn("scripts/ci/focused_tests.py", on["pull_request"]["paths"], "a PR that changes the guards runs them")
 
+    @staticmethod
+    def routed(paths: list[str], path: str) -> bool:
+        """GitHub's `on.pull_request.paths` filter: `**` crosses folders, `*` does not; a `!` line excludes."""
+        import re
+        def regex(glob: str) -> str:
+            out, i = "", 0
+            while i < len(glob):
+                if glob.startswith("**", i):
+                    out, i = out + ".*", i + 2
+                elif glob[i] == "*":
+                    out, i = out + "[^/]*", i + 1
+                else:
+                    out, i = out + re.escape(glob[i]), i + 1
+            return out
+        hit = False
+        for glob in paths:
+            if re.fullmatch(regex(glob.lstrip("!")), path):
+                hit = not glob.startswith("!")
+        return hit
+
+    def test_a_pr_changing_rust_or_cmux_next_code_runs_its_own_focused_tests(self):
+        """cmux#41448 added a cmux-tui CLI test and a CmuxNextAppTests test; its PR CI ran neither
+        (swift test skips pull requests, the fast tier runs a fixed registry, same-tree cmux-tui
+        skips pull requests). Its changed paths route here, and the plan picks those tests."""
+        on = self.workflow().get("on", self.workflow().get(True))
+        paths = on["pull_request"]["paths"]
+        rust = "cmux-tui/crates/cmux-tui/src/cli/vm.rs"
+        swift = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/CloudHandlers+Results.swift"
+        routed = [rust, "cmux-tui/crates/cmux-tui/src/cli/vm/tests.rs", "cmux-tui/Cargo.lock", swift,
+                  "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudTrackedResultsTests.swift",
+                  "Packages/macOS/CmuxNext/Package.swift", "scripts/ci/car_guards.py"]
+        for path in routed:
+            with self.subTest(path=path):
+                self.assertTrue(self.routed(paths, path), f"{path} must run the PR's focused tests")
+        for path in ("docs/README.md", "web/app/page.tsx", "Packages/macOS/CmuxNextLegacy/Sources/X.swift"):
+            with self.subTest(path=path):
+                self.assertFalse(self.routed(paths, path), f"{path} has no focused Rust or CmuxNext test")
+        # And the routed change's plan holds the tests that cover it, on the real tree.
+        out = subprocess.run([sys.executable, "-I", str(FOCUSED), "--files", rust, swift, "--root", str(ROOT)],
+                             capture_output=True, text=True, check=True, cwd=ROOT).stdout
+        plan = json.loads(out)
+        self.assertTrue(plan["cargo"]["changed"])
+        self.assertIn(rust, plan["cargo"]["files"])
+        self.assertIn(("Packages/macOS/CmuxNext", "CmuxNextAppTests"),
+                      {(entry["package"], entry["filter"]) for entry in plan["swift"]})
+
     def test_it_runs_on_ci_runners_only_and_holds_no_secret(self):
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertEqual(workflow_jobs.secret_names(text), set())
