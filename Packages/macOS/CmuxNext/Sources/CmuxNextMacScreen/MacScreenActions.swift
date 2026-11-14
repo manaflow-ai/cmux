@@ -63,7 +63,7 @@ public struct MacScreenActions {
             id = selected
         }
         guard let key = providerKey(id, invocation.targetMachineID), let pane = pages.tab(key)?.pane,
-              pane.model.hub != nil else { return nil }
+              let phase = pane.model.hub?.phase, phase.isPending || phase.streamingScope != nil else { return nil }
         return pane
     }
 

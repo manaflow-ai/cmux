@@ -81,5 +81,17 @@ struct MacScreenActionRoutingTests {
         #expect(registry.perform("macScreen.stopViewing", invocation: invocation))
         #expect(firstPane.model.hub?.phase == .ended(reason: "viewer_disconnected"))
         #expect(otherPane.model.hub?.phase == .streaming(sessionID: "other", scope: .view))
+        for phase: MacScreenHubPhase in [.idle, .ended(reason: "host_stopped"), .revoked(reason: "permission_revoked"),
+                                        .declined(.view), .refused(.notSignedIn, requested: .view), .streamFailed(sessionID: "first", scope: .view)] {
+            firstPane.model.hub?.phase = phase
+            #expect(actions.viewer(invocation) == nil)
+            #expect(!registry.perform("macScreen.stopViewing", invocation: invocation))
+            #expect(firstPane.model.hub?.phase == phase)
+        }
+        for phase: MacScreenHubPhase in [.requesting(.view), .waitingForApproval(sessionID: "first", scope: .view),
+                                        .approved(sessionID: "first", scope: .view)] {
+            firstPane.model.hub?.phase = phase
+            #expect(actions.viewer(invocation) === firstPane)
+        }
     }
 }
