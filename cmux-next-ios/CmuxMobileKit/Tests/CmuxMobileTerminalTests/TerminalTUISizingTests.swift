@@ -69,10 +69,11 @@ import Testing
     /// the resting top moves.
     @Test func aTUIWithTheKeyboardDownGetsTheRestingRowsWhereverTheDockMoves() {
         var sizing = TerminalTUISizing()
-        sizing.keyboardSettled(stackTop: 800, restingStackTop: 800, isTUI: false)
+        sizing.keyboardSettled(stackTop: resting, restingStackTop: resting, isTUI: false)
         sizing.tuiStarted()
         #expect(rows(sizing) == 37)
-        #expect(sizing.rows(restingStackTop: 800, chromeTop: top, cellHeight: cell) == 45)
+        // (810 - 62) / 16.4 = 45.6: the resting rows, not 37.
+        #expect(sizing.rows(restingStackTop: 810, chromeTop: top, cellHeight: cell) == 45)
     }
 }
 
