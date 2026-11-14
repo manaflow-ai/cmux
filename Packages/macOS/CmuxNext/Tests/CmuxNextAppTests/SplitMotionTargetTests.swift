@@ -139,7 +139,9 @@ struct SplitMotionTargetTests {
                       _ change: () throws -> Void) throws -> MotionTargetTrace {
         var trace = MotionTargetTrace()
         var edges = try Self.edges(pane, rig)
-        let leftover = try Self.leftover(pane, rig)
+        // The grid's leftover in each frame: where its surface takes a new grid, its rows sit that much higher or lower
+        // against the edge the hold rides. A second split mid-motion is a third grid, so the leftover changes twice.
+        var leftovers: [CGFloat] = []
         func sample() throws {
             let now = try Self.edges(pane, rig)
             let step = max(abs(now.top - edges.top), abs(now.bottom - edges.bottom))
@@ -147,6 +149,7 @@ struct SplitMotionTargetTests {
             trace.record("\(pane) top", now.top, containerStep: nil)
             trace.record("\(pane) bottom", now.bottom, containerStep: nil)
             trace.record("\(pane) prompt", try Self.promptY(pane, rig), containerStep: step)
+            leftovers.append(try Self.leftover(pane, rig))
         }
         try sample()
         try change()
@@ -173,7 +176,9 @@ struct SplitMotionTargetTests {
         trace.settle("\(pane) top", rest.top)
         trace.settle("\(pane) bottom", rest.bottom)
         trace.settle("\(pane) prompt", try Self.promptY(pane, rig))
-        trace.allowFirstStep("\(pane) prompt", try Self.leftover(pane, rig) - leftover)
+        for frame in leftovers.indices.dropFirst() where leftovers[frame] != leftovers[frame - 1] {
+            trace.allowGridStep("\(pane) prompt", frame: frame, leftovers[frame] - leftovers[frame - 1])
+        }
         return trace
     }
 

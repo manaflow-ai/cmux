@@ -26,9 +26,10 @@ struct MotionTargetTrace {
 
     private(set) var tracks: [String: [Sample]] = [:]
     private(set) var settled: [String: CGFloat] = [:]
-    /// A first-frame step an element may take that is not motion: a terminal grid's last row sits a leftover (less than
-    /// a cell) above its surface's bottom, and that leftover differs between the start and the final grid.
-    private(set) var firstStep: [String: CGFloat] = [:]
+    /// Steps an element may take that are not motion, by frame: a terminal grid's last row sits a leftover (less than a
+    /// cell) above its surface's bottom, and that leftover changes in the frame the surface takes a new grid (the first
+    /// frame of a split, and again in a frame of a second split that retargets it).
+    private(set) var gridSteps: [String: [Int: CGFloat]] = [:]
     /// The frame by which every element shows at its rest; nil: no deadline is checked.
     private(set) var deadline: Int?
 
@@ -36,8 +37,10 @@ struct MotionTargetTrace {
         deadline = frame
     }
 
-    mutating func allowFirstStep(_ element: String, _ points: CGFloat) {
-        firstStep[element] = abs(points)
+    /// `element` may step `points` more in `frame` (1: the step from the frame before the motion to its first): its grid's
+    /// leftover changed by that much there.
+    mutating func allowGridStep(_ element: String, frame: Int, _ points: CGFloat) {
+        gridSteps[element, default: [:]][frame] = abs(points)
     }
 
     /// Where `element` shows in this frame, and how far its container's edges moved since the last frame (zero when the
@@ -66,7 +69,7 @@ struct MotionTargetTrace {
         for (element, samples) in tracks.sorted(by: { $0.key < $1.key }) {
             guard let rest = settled[element] ?? samples.last?.position else { continue }
             for (frame, (before, now)) in zip(samples, samples.dropFirst()).enumerated() {
-                let slack = frame == 0 ? firstStep[element] ?? 0 : 0
+                let slack = gridSteps[element]?[frame + 1] ?? 0
                 let away = abs(now.position - rest) - abs(before.position - rest) - slack
                 if away > Self.tolerance { found.append(Violation(element: element, frame: frame + 1, kind: .away, points: away)) }
                 let travel = abs((samples.first?.position ?? rest) - rest)
