@@ -146,7 +146,11 @@ public struct CaptureAuthPersistence: Sendable {
         var stackProjectId: String
         var facts: [Fact] = []
     }
-    private struct Reply: Decodable { var action: Action?; var result: CaptureAuthCleanupResult? }
+    private struct Reply: Decodable {
+        var preflightComplete: Bool
+        var action: Action?
+        var result: CaptureAuthCleanupResult?
+    }
 
     public func preflight(configuration: CloudConfiguration, phase: CaptureAuthCleanupPhase,
                           leaseID: String, requestedBundleIdentifier: String,
@@ -166,7 +170,10 @@ public struct CaptureAuthPersistence: Sendable {
                               storage: configuration.storage, legacy: configuration.namespacedLegacyStore,
                               stackProjectId: configuration.stackProjectID)
         while let reply = CloudStartCore().call("cloud_auth_capture_next", request, as: Reply.self) {
-            guard let action = reply.action else { return reply.result }
+            guard let action = reply.action else {
+                if let result = reply.result { return result }
+                return reply.preflightComplete ? nil : .failure(.authNotQuiescent)
+            }
             request.facts.append(perform(action))
         }
         return .failure(.authNotQuiescent)
