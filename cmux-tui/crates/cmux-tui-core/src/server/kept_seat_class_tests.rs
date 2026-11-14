@@ -49,7 +49,7 @@ fn the_class_from_a_kept_hosts_seat_ends_with_the_seat() {
     let (record_path, mut record, _lease) = record_fixture("kept-seat-class-ends");
     // A process that lives and that started before this one.
     record.host_pid = std::os::unix::process::parent_id();
-    let public_id = crate::resource::TerminalPublicId::random().unwrap();
+    let public_id = TerminalPublicId::random().unwrap();
     let (liveness, seat) = mux.kept_host(&record_path, &record, Some(&public_id));
     assert_eq!(liveness, TerminalHostLiveness::Live);
 
@@ -72,7 +72,7 @@ fn the_class_from_a_kept_hosts_seat_is_the_session_seats_after_the_adoption() {
     let mux = mux("adopted");
     let (record_path, mut record, _lease) = record_fixture("kept-seat-class-adopted");
     record.host_pid = std::os::unix::process::parent_id();
-    let public_id = crate::resource::TerminalPublicId::random().unwrap();
+    let public_id = TerminalPublicId::random().unwrap();
     let (liveness, seat) = mux.kept_host(&record_path, &record, Some(&public_id));
     assert_eq!(liveness, TerminalHostLiveness::Live);
 
@@ -104,7 +104,7 @@ fn the_class_from_a_kept_hosts_seat_ends_when_the_host_is_seated_twice() {
     let mux = mux("twice");
     let (record_path, mut record, _lease) = record_fixture("kept-seat-class-twice");
     record.host_pid = std::os::unix::process::parent_id();
-    let public_id = crate::resource::TerminalPublicId::random().unwrap();
+    let public_id = TerminalPublicId::random().unwrap();
     let (liveness, seat) = mux.kept_host(&record_path, &record, Some(&public_id));
     assert_eq!(liveness, TerminalHostLiveness::Live);
 

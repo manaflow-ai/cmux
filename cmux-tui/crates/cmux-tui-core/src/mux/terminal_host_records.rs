@@ -159,7 +159,7 @@ fn host_read_before_the_answer(
 #[must_use = "the seat ends when this value is dropped"]
 pub(crate) struct KeptHostHold {
     seat: crate::diagnostics::KeptHostSeat,
-    mux: std::sync::Weak<Mux>,
+    mux: Weak<Mux>,
 }
 
 #[cfg(any(unix, windows))]
