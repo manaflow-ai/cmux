@@ -665,6 +665,60 @@ fn a_request_with_no_known_tree_reads_each_stale_git_head_in_its_reply() {
     session.end();
 }
 
+/// A request with no `known` that finds a branch switched with no event stores the new value,
+/// so the background refresh finds no change after it and can send nothing. The request itself
+/// must tell each other client: one `tab-changed` for each tab of the directory whose branch
+/// changed (a client that takes events), and a move of the tree revision (a client that asks
+/// again with `known`). A second request with no `known` directly after it finds each value
+/// fresh and reads no HEAD.
+#[test]
+fn a_branch_that_a_request_with_no_known_tree_found_reaches_each_other_client() {
+    let session = Session::of("list-counts-no-known-tells", 3);
+    let mux = &session.mux;
+    let (moving, still) =
+        (session.repository("moving", "main"), session.repository("still", "main"));
+    // Terminals 0 and 2 are below `moving`, terminal 1 is below `still`.
+    session.give_directories(&[moving.clone(), still]);
+    let render = Arc::new(RenderService::new());
+    let app = Connection::open(mux, &render, &TAB_CAPABILITIES);
+    let known = known_of(&app.list_since(mux, &json!({})));
+    wait_until("each git HEAD refresh ended", || Mux::git_head_refreshes_running() == 0);
+    let events = mux.subscribe();
+
+    // The branch of `moving` changes with no change of a directory and no event, and a request
+    // with no `known` is the first to see it.
+    set_branch(&moving, "next");
+    assert!(mux.age_git_heads_for_test(), "this host has no instant that is 3 seconds old");
+    let reply = app.list(mux);
+    assert_eq!(reply.matches("\"git_branch\":\"next\"").count(), 2, "{}", start_of(&reply));
+    wait_until("each git HEAD refresh ended", || Mux::git_head_refreshes_running() == 0);
+    let mut told: Vec<Option<usize>> = changed_tabs(&events)
+        .iter()
+        .map(|surface| session.surfaces.iter().position(|tab| tab == surface))
+        .collect();
+    told.sort_unstable();
+
+    let before = Mux::git_head_reads_on_this_thread();
+    let again = app.list(mux);
+    let reads_again = Mux::git_head_reads_on_this_thread() - before;
+    assert_eq!(again.matches("\"git_branch\":\"next\"").count(), 2, "{}", start_of(&again));
+
+    let since = app.list_since(mux, &known);
+    let whole_tree = since.get("unchanged").is_none();
+    let with_new_branch = since.to_string().matches("\"git_branch\":\"next\"").count();
+    wait_until("each git HEAD refresh ended", || Mux::git_head_refreshes_running() == 0);
+
+    assert_eq!(
+        (told, reads_again, whole_tree, with_new_branch),
+        (vec![Some(0), Some(2)], 0, true, 2),
+        "after a request with no `known` found a new branch in the repository of terminals 0 \
+         and 2: the terminals with a `tab-changed` for a client that takes events, the git HEAD \
+         reads of a second request with no `known`, whether a request with the `known` from \
+         before the switch gets the whole tree, and the tabs with the new branch in it"
+    );
+    session.end();
+}
+
 /// A v2 reply was made from its text: the message was written, parsed, changed and written a
 /// second time (`send_control`). It is now changed as a value and written one time
 /// (`send_control_value`). Each connection gets the same bytes from the two.
