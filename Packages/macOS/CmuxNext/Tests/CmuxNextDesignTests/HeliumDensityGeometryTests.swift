@@ -76,4 +76,16 @@ import Testing
             #expect(Metrics.tabCornerRadius == corner, "tab corner \(Metrics.tabCornerRadius)")
         }
     }
+
+    /// Helium's and Chrome's tab titles are 12 pt (ChromeTypographyProvider's default, the 13 pt base less 1) and their
+    /// omnibar text 14 pt; Default draws both, and a roomier density's larger text keeps the same 2 pt step under its body.
+    @Test func tabTitlesAreHeliumsTwelvePointAtDefault() {
+        withDensity(.cozy) {
+            #expect(Typography.tabTitle.pointSize == 12, "tab title \(Typography.tabTitle.pointSize)")
+            #expect(Metrics.tokens.bodySize == 14)
+        }
+        withDensity(.spacious) {
+            #expect(Typography.tabTitle.pointSize == Metrics.tokens.bodySize - 2)
+        }
+    }
 }
