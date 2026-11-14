@@ -470,11 +470,27 @@ mod unix {
     const HOST_FORCED_DRAIN_WINDOW: Duration = Duration::from_millis(100);
     const HOST_LAUNCH_ROLLBACK_WAIT: Duration = Duration::from_secs(4);
     const HOST_LAUNCH_OWNER_TIMEOUT: Duration = Duration::from_secs(5);
+    /// How long a host may have no daemon client before ending its PTY.
+    /// A daemon keeps one authenticated stream to every adopted host, so a
+    /// dead owner app otherwise leaves the host and shell behind forever.
+    const HOST_ORPHAN_GRACE: Duration = Duration::from_secs(10 * 60);
+    const HOST_ORPHAN_GRACE_ENV: &str = "CMUX_TUI_HOST_ORPHAN_GRACE_SECS";
+    const HOST_ORPHAN_GRACE_MAX_SECS: u64 = 30 * 24 * 60 * 60;
     const HOST_CLIENT_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
     const HOST_HANDSHAKE_TRANSIENT_RETRIES: usize = 1;
     const HOST_EXIT_PERSIST_RETRY_MIN: Duration = Duration::from_millis(100);
     const HOST_EXIT_PERSIST_RETRY_MAX: Duration = Duration::from_secs(5);
     const HOST_EXIT_PERSIST_REPORT_INTERVAL: Duration = Duration::from_secs(60);
+
+    fn host_orphan_grace() -> Duration {
+        std::env::var(HOST_ORPHAN_GRACE_ENV)
+            .ok()
+            .and_then(|value| value.trim().parse::<u64>().ok())
+            .filter(|seconds| *seconds > 0)
+            .map_or(HOST_ORPHAN_GRACE, |seconds| {
+                Duration::from_secs(seconds.min(HOST_ORPHAN_GRACE_MAX_SECS))
+            })
+    }
 
     fn pty_size(cols: u16, rows: u16, cell_pixels: (u16, u16)) -> anyhow::Result<PtySize> {
         let pixel_width = cols.checked_mul(cell_pixels.0).ok_or_else(|| {
@@ -5382,6 +5398,12 @@ mod unix {
         let _ = write_frame(writer, &response);
 
         let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
+        // No client stream means the owner daemon is gone. Give a restarted
+        // app time to adopt the same host, then end the host so a dead app
+        // cannot strand its shell and PTY indefinitely.
+        let orphan_grace = host_orphan_grace();
+        let mut orphan_since: Option<Instant> = None;
+        let mut orphan_ended = false;
         loop {
             let now = Instant::now();
             if !shared.launch_owner_claimed.load(Ordering::Acquire)
@@ -5401,8 +5423,24 @@ mod unix {
             {
                 break;
             }
+            if shared.active_client_streams.load(Ordering::Acquire) == 0 {
+                let since = *orphan_since.get_or_insert(now);
+                if !orphan_ended && now.saturating_duration_since(since) >= orphan_grace {
+                    orphan_ended = true;
+                    eprintln!(
+                        "terminal-host: no client for {} s (owner daemon gone); ending the terminal",
+                        orphan_grace.as_secs()
+                    );
+                    shared.request_termination();
+                }
+            } else {
+                orphan_since = None;
+            }
             match listener.accept() {
                 Ok((stream, _)) => {
+                    // An accepted stream wins a deadline tie: the replacement
+                    // daemon has begun adoption, so keep the host alive.
+                    orphan_since = None;
                     // Accepted sockets inherit O_NONBLOCK from the listener
                     // on macOS. Client protocol threads use blocking framed
                     // reads, so normalize the accepted descriptor here.
@@ -5420,12 +5458,21 @@ mod unix {
                     // stream closed). The only timeout is the one-shot launch
                     // owner deadline, used until it passes; this loop used to
                     // wake every 20 ms for the whole life of every terminal.
-                    let timeout = if shared.launch_owner_claimed.load(Ordering::Acquire) {
-                        -1
+                    let launch_timeout = if shared.launch_owner_claimed.load(Ordering::Acquire) {
+                        None
                     } else {
-                        let remaining = launch_owner_deadline.saturating_duration_since(now);
-                        i32::try_from(remaining.as_millis().saturating_add(1)).unwrap_or(i32::MAX)
+                        Some(launch_owner_deadline.saturating_duration_since(now))
                     };
+                    let orphan_timeout = orphan_since
+                        .filter(|_| !orphan_ended)
+                        .map(|since| (since + orphan_grace).saturating_duration_since(now));
+                    let timeout = match (launch_timeout, orphan_timeout) {
+                        (Some(a), Some(b)) => Some(a.min(b)),
+                        (a, b) => a.or(b),
+                    };
+                    let timeout_ms = timeout.map_or(-1, |remaining| {
+                        i32::try_from(remaining.as_millis().saturating_add(1)).unwrap_or(i32::MAX)
+                    });
                     let mut fds = [
                         libc::pollfd { fd: listener.as_raw_fd(), events: libc::POLLIN, revents: 0 },
                         libc::pollfd {
@@ -5437,7 +5484,7 @@ mod unix {
                     // SAFETY: both descriptors stay open for this call: the
                     // listener until the accept loop exits and the waker with
                     // `shared`.
-                    if unsafe { libc::poll(fds.as_mut_ptr(), 2, timeout) } < 0 {
+                    if unsafe { libc::poll(fds.as_mut_ptr(), 2, timeout_ms) } < 0 {
                         let error = std::io::Error::last_os_error();
                         if error.kind() != std::io::ErrorKind::Interrupted {
                             return Err(error.into());

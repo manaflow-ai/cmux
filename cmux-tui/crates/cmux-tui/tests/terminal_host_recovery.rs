@@ -4174,6 +4174,49 @@ fn running_host_sigkill_detaches_exited_terminal_topology() {
     );
 }
 
+/// A dead owner app must not strand its terminal host indefinitely. The host
+/// gets a short grace here so the test exercises the same stream-loss path
+/// without waiting for the production ten-minute bound; a replacement owner
+/// may still adopt it during that window.
+#[test]
+fn owner_app_death_converges_the_terminal_host() {
+    let mut harness = RecoveryHarness::start_unstarted("owner-app-death");
+    let mut command = harness.daemon_command();
+    command.env("CMUX_TUI_HOST_ORPHAN_GRACE_SECS", "2");
+    harness.child = Some(command.spawn().unwrap());
+    wait_for_socket(&harness.socket);
+
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": ["/bin/cat"],
+            "new_workspace": true,
+            "name": "owner-app-death",
+        }),
+    );
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let host_pid = record.host_pid;
+
+    // The harness owns this daemon and its child host. Killing only the owner
+    // reproduces an app crash/quit; no unrelated machine process is touched.
+    harness.sigkill();
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while terminal_host_record_liveness(&record_path, &record).unwrap()
+        != TerminalHostLiveness::Dead
+    {
+        assert!(Instant::now() < deadline, "owner death left host {host_pid} alive");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    assert!(
+        !record_path.exists(),
+        "owner death left the terminal-host discovery record behind for {terminal_id}"
+    );
+}
+
 #[test]
 fn daemon_restart_safe_prunes_dead_host_without_rematerializing_exited_terminal() {
     let mut harness = RecoveryHarness::start("dead-host-restart");
