@@ -552,6 +552,34 @@ impl Store for ForkView {
         }
         self.inner.scan_kinds_strict(id, kinds, &mut |rec| rec.seq <= r.through_seq || visit(rec))
     }
+    /// A fork's view is read whole (it keeps no restore point): its kinds as `scan_kinds` joins
+    /// them, past `after`.
+    fn scan_kinds_after(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        let _held = self.shared();
+        if self.reference(id)?.is_none() {
+            return self.inner.scan_kinds_after(id, after, kinds, visit);
+        }
+        self.scan_kinds(id, kinds, &mut |rec| rec.seq <= after || visit(rec))
+    }
+    fn scan_kinds_after_strict(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        let _held = self.shared();
+        if self.reference(id)?.is_none() {
+            return self.inner.scan_kinds_after_strict(id, after, kinds, visit);
+        }
+        self.scan_kinds_strict(id, kinds, &mut |rec| rec.seq <= after || visit(rec))
+    }
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         let _held = self.shared();
         let Some(r) = self.reference(id)? else { return self.inner.scan_heads(id, visit) };

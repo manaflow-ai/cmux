@@ -52,9 +52,22 @@ impl Hub {
         if session.meta().fork_seq.is_some() {
             return None;
         }
-        let record = self.store.events(&session.id, point.seq - 1, 1).ok()?.into_iter().next()?;
-        (record.seq == point.seq && record.at == point.at && record.kind == point.kind)
-            .then_some(point)
+        let record = self.record_at(session, point.seq)?;
+        (record.at == point.at && record.kind == point.kind).then_some(point)
+    }
+
+    /// The record at `seq`, read from the end of the records before `seq + 1`: a page of the log,
+    /// never the segment that holds it (`Store::scan_back`). `events` from `seq - 1` parsed that
+    /// whole segment, as much as a fold of the log the point is there to skip.
+    fn record_at(&self, session: &Session, seq: u64) -> Option<EventRecord> {
+        let mut found = None;
+        self.store
+            .scan_back(&session.id, seq - 1, seq + 1, &|_, _| false, &mut |rec| {
+                found = Some(rec);
+                false
+            })
+            .ok()?;
+        found.filter(|r| r.seq == seq)
     }
 
     /// Saves `point` for `session`'s next load. A failed write leaves the last one, which is
@@ -63,15 +76,7 @@ impl Hub {
         if session.meta().fork_seq.is_some() || point.seq == 0 {
             return;
         }
-        let Some(record) = self
-            .store
-            .events(&session.id, point.seq - 1, 1)
-            .ok()
-            .and_then(|r| r.into_iter().next())
-            .filter(|r| r.seq == point.seq)
-        else {
-            return;
-        };
+        let Some(record) = self.record_at(session, point.seq) else { return };
         point.v = VERSION;
         point.at = record.at;
         point.kind = record.kind;

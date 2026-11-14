@@ -2230,6 +2230,29 @@ impl Store for LocalStore {
         self.scan_kinds_in(id, kinds, true, visit)
     }
 
+    /// Through the copies of the kinds (`store/kind_index.rs`), past `after`: a scan of the log
+    /// from the segment that holds `after + 1` parses that whole segment, for each fold of a
+    /// load, and read more than the copies do (`a_restored_chats_log_load_reads_the_copies_not_its_log`).
+    fn scan_kinds_after(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_kinds_in(id, kinds, false, &mut |rec| rec.seq <= after || visit(rec))
+    }
+
+    fn scan_kinds_after_strict(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_kinds_in(id, kinds, true, &mut |rec| rec.seq <= after || visit(rec))
+    }
+
     fn restore_point(&self, id: &str) -> Option<Vec<u8>> {
         std::fs::read(self.dir(id).join(RESTORE_POINT)).ok()
     }
@@ -2237,8 +2260,10 @@ impl Store for LocalStore {
     fn save_restore_point(&self, id: &str, bytes: &[u8]) -> Result<()> {
         let _open = self.writable()?;
         let dir = self.dir(id);
-        // A chat whose folder went away (a delete) gets no file of its own again.
-        anyhow::ensure!(dir.is_dir(), "no folder for {id}");
+        // A chat whose folder went away (a delete) gets no file of its own again. Read in the
+        // held home, never by path (#41721 review F1).
+        let folder = crate::home_fs::symlink_metadata(&dir).is_ok_and(|m| m.file_type().is_dir());
+        anyhow::ensure!(folder, "no folder for {id}");
         write_atomic(&dir.join(RESTORE_POINT), bytes)
     }
 
