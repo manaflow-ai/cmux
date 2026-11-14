@@ -578,6 +578,9 @@ impl SignalingClient {
 impl Shared {
     /// Whether `text` answers one of our application pings: `pong` (0.15.0 and later), or the
     /// session-less `bad_request` an older Worker sends back for it. Each answer settles one ping.
+    // `try_update` is the Rust 1.100 spelling of the deprecated `fetch_update` API.
+    // This workspace keeps its published MSRV at 1.91 for the iOS SDK surface.
+    #[allow(clippy::incompatible_msrv)]
     fn answers_app_ping(&self, text: &str) -> bool {
         let unanswered = &self.pings_unanswered;
         let settle = || {
