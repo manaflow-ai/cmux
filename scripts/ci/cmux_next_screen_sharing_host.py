@@ -76,6 +76,24 @@ def fetch_app(job_id, source, digest, work):
     return path, info
 
 
+def identity_service(app, bundle, env):
+    # Use the app's own resolver and launch environment, not a second Cloud
+    # environment table. DeviceHub uses auth_namespace (not auth_storage_namespace).
+    try:
+        selection = json.loads(command([str(app / "Contents/Resources/bin/cmux"),
+                                        "--json", "cloud", "env", "get"],
+                                       env={**env, "CMUX_BUNDLE_ID": bundle}, timeout=30))
+    except ValueError:
+        raise HostFailure("host_cloud_namespace_unavailable") from None
+    if (not isinstance(selection, dict) or selection.get("bundle_id") != bundle
+            or type(selection.get("legacy_storage")) is not bool
+            or not isinstance(selection.get("auth_namespace"), str)
+            or not re.fullmatch(r"[A-Za-z0-9._-]{1,200}", selection["auth_namespace"])):
+        raise HostFailure("host_cloud_namespace_unavailable")
+    suffix = "" if selection["legacy_storage"] else ".cloud." + selection["auth_namespace"]
+    return bundle + suffix + ".device-hub"
+
+
 def rpc(path, method, params=None):
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
@@ -147,12 +165,6 @@ class Host:
         if len(str(self.sock).encode()) > 100:
             raise HostFailure("host_socket_path_too_long")
         bundle = self.info["CFBundleIdentifier"]
-        # This exact capture namespace must have no prior device identity. Read
-        # attributes only, never a key's value; 44 is errSecItemNotFound.
-        found = subprocess.run(["security", "find-generic-password", "-s", bundle + ".device-hub",
-                                "-a", "device-id"], capture_output=True, timeout=20)
-        if found.returncode != 44:
-            raise HostFailure("host_namespace_not_fresh")
         processes = command(["ps", "-axo", "command="])
         if "/" + self.app.name + "/Contents/MacOS/" in processes:
             raise HostFailure("host_tag_already_running")
@@ -168,6 +180,14 @@ class Host:
         env.update(HOME=str(home), CFFIXED_USER_HOME=str(home), XDG_CONFIG_HOME=str(home / ".config"),
                    CMUX_NEXT_CONFIG_FILE=str(config), CMUX_NEXT_SOCKET_PATH=str(self.sock),
                    CMUX_NEXT_NO_ACTIVATE="1", CMUX_NEXT_SOCKET_MODE="automation")
+        # Resolve only after isolating the environment. Read attributes only,
+        # never a key's value; 44 is errSecItemNotFound. Remote's separate key
+        # scope is tied to the daemon state root beneath this private home.
+        service = identity_service(self.app, bundle, env)
+        found = subprocess.run(["security", "find-generic-password", "-s", service,
+                                "-a", "device-id"], capture_output=True, timeout=20)
+        if found.returncode != 44:
+            raise HostFailure("host_namespace_not_fresh")
         email, password = self.credentials
         self.log = (self.work / "host-private.log").open("w")
         try:
