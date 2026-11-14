@@ -18,6 +18,8 @@
 //! come inside one refresh start no second one. The worker reads the file system with no lock
 //! held; it takes the state lock only to find the tabs of a directory whose value changed.
 //!
+//! A worker that panics ends the refresh ([`RefreshEnd`]); the next reply starts a new one.
+//!
 //! A request with `known` can answer `unchanged` and read no tree, so it asks for no directory.
 //! It sends each stale directory of the cache to the same refresh
 //! ([`Mux::revalidate_git_heads`]): a branch switched with no event then moves the tree revision
@@ -61,6 +63,42 @@ struct Entry {
     refreshing: bool,
 }
 
+impl Inner {
+    /// Stores the value that a reply read for a directory that had none when the reply looked.
+    /// Whether the tree revision must move (tree_revision.rs): another reader stored another
+    /// value for the directory meanwhile, or the full cache was emptied and forgot what a
+    /// refresh could compare with.
+    fn store_read(&mut self, cwd: &str, now: Instant, head: Option<GitHead>) -> bool {
+        if let Some(entry) = self.heads.get_mut(cwd) {
+            let moved = entry.head != head;
+            entry.head = head;
+            entry.checked = entry.checked.max(now);
+            return moved;
+        }
+        let cleared = self.heads.len() >= GIT_HEAD_CACHE_LIMIT;
+        if cleared {
+            self.heads.clear();
+        }
+        self.heads.insert(cwd.to_string(), Entry { checked: now, head, refreshing: false });
+        cleared
+    }
+}
+
+/// Lives as long as the worker thread. A worker that panics would leave `worker_running` set
+/// and its directories `refreshing`, and no refresh would run again in the session: the drop
+/// ends the refresh then, so the next reply starts a new worker.
+struct RefreshEnd(Arc<GitHeadCache>);
+
+impl Drop for RefreshEnd {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            self.0.give_up_refresh();
+        }
+        #[cfg(test)]
+        git_head_probe::refresh_ended();
+    }
+}
+
 impl GitHeadCache {
     /// The worker: reads each queued directory, and tells `mux` the directories whose HEAD
     /// changed.
@@ -98,14 +136,14 @@ impl GitHeadCache {
         }
     }
 
-    /// Takes each queued directory out of the refresh, when no worker can run.
+    /// Takes each directory out of the refresh, when no worker runs (none can start, or it
+    /// panicked): a later reply can queue each stale directory again.
     fn give_up_refresh(&self) {
         let mut cache = self.inner.lock().recover_poison();
         cache.worker_running = false;
-        for cwd in std::mem::take(&mut cache.queue) {
-            if let Some(entry) = cache.heads.get_mut(&cwd) {
-                entry.refreshing = false;
-            }
+        cache.queue.clear();
+        for entry in cache.heads.values_mut() {
+            entry.refreshing = false;
         }
     }
 }
@@ -134,17 +172,8 @@ impl Mux {
             return None;
         }
         let head = read_git_head(Path::new(cwd));
-        let mut cache = self.git_heads.inner.lock().recover_poison();
-        let cleared = cache.heads.len() >= GIT_HEAD_CACHE_LIMIT;
-        if cleared {
-            cache.heads.clear();
-        }
-        cache
-            .heads
-            .insert(cwd.to_string(), Entry { checked: now, head: head.clone(), refreshing: false });
-        drop(cache);
-        if cleared {
-            // The cache forgot what a refresh could compare with (tree_revision.rs).
+        let moved = self.git_heads.inner.lock().recover_poison().store_read(cwd, now, head.clone());
+        if moved {
             self.tree_revision.bump();
         }
         head
@@ -191,9 +220,8 @@ impl Mux {
             std::thread::Builder::new()
                 .name("git-head-refresh".to_string())
                 .spawn(move || {
-                    cache.run_refresh(&mux);
-                    #[cfg(test)]
-                    git_head_probe::refresh_ended();
+                    let end = RefreshEnd(cache);
+                    end.0.run_refresh(&mux);
                 })
                 .inspect_err(|error| {
                     eprintln!("cmux-tui: could not start the git HEAD refresh worker: {error:#}");
@@ -240,3 +268,6 @@ impl Mux {
         aged
     }
 }
+
+#[cfg(test)]
+mod tests;
