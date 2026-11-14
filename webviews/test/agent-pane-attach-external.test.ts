@@ -46,9 +46,13 @@ await requireBrowserLane("agent-pane-attach-external.test.ts", async () => {
     await page.addInitScript(() => {
       const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
       const asked: { method: string; params: unknown }[] = [];
-      let held = [{ name: "Screenshot 2026-11-14.png", type: "image/png", data: png }];
+      let held: { name: string; type: string; data: string }[] = [];
       Object.assign(window, {
         asked,
+        // The app holds a screenshot for this chat.
+        holdScreenshot: () => {
+          held = [{ name: "Screenshot 2026-11-14.png", type: "image/png", data: png }];
+        },
         webkit: { messageHandlers: { agentSession: { postMessage: async () => ({ ok: true, value: null }) } } },
         cmuxAcpmuxActions: {
           ready: async () => ({ protocolVersion: 1, transport: "mock", newSession: true }),
@@ -75,7 +79,13 @@ await requireBrowserLane("agent-pane-attach-external.test.ts", async () => {
       attachments: [],
     });
 
-    await page.evaluate(() => window.cmuxAcpmuxBridge?.command?.("attachExternal"));
+    // The page asked once as it loaded, and nothing was held.
+    await page.waitForFunction(() => (window as unknown as { asked: unknown[] }).asked.length >= 1);
+    await page.evaluate(() => {
+      (window as unknown as { holdScreenshot(): void }).holdScreenshot();
+      (window as unknown as { asked: unknown[] }).asked.length = 0;
+      window.cmuxAcpmuxBridge?.command?.("attachExternal");
+    });
     await page.waitForFunction(() => window.cmuxAcpmuxBridge?.composerState?.()?.attachments[0]?.source === "Preview");
     const state = await page.evaluate(() => window.cmuxAcpmuxBridge?.composerState?.());
     expect(state?.attachments.map(({ name, mimeType, source }) => ({ name, mimeType, source }))).toEqual([

@@ -7621,6 +7621,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         setRegistry(currentRegistry());
       },
     };
+    // The host's files for this chat (composer/externalAttach.ts): on its `attachExternal` command, and
+    // once now, since a page still loading on the old host never got a command sent before it ran.
+    const takeExternal = () =>
+      void takeExternalFiles(callNative).then((files) => {
+        if (!files.length) return;
+        composerHandle.current?.attachFiles(files, "external");
+        composerHandle.current?.focus();
+      });
+    takeExternal();
     window.cmuxAcpmuxBridge = {
       toggleInspector,
       perfCapture: (options) => chatPerfCapture.capture(options),
@@ -7713,11 +7722,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         if (name === "focusComposer") composerHandle.current?.focus();
         // Files another app sent to this chat (Send to cmux Chat, an image opened with cmux): the
         // composer takes them as a drop's, an unsent draft, with the keyboard (composer/externalAttach.ts).
-        if (name === "attachExternal")
-          void takeExternalFiles(callNative).then((files) => {
-            composerHandle.current?.attachFiles(files, "external");
-            composerHandle.current?.focus();
-          });
+        if (name === "attachExternal") takeExternal();
         // Archive Chat (Ctrl-Cmd-A), as in the Codex app: the chat menu's row, so it does nothing where
         // the menu has none or the chat is archived.
         if (name === "archiveChat") archiveChatRef.current?.();

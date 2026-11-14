@@ -203,9 +203,11 @@ final class ExternalOpenController {
             let shown = target?.pane ?? pane, tabs = services.agentTabs, machine = pane.daemon.machineID
             chatAttach.attach(urls, claimed: source, target: target?.view, openChat: { made in
                 pane.openAgentTab(seed: pane.agentSeedFromSelectedTab()) { made(tabs.existingView($0, machine: machine) ?? tabs.view(for: $0, machine: machine)) }
-            }, show: { [weak shown, services] _ in
-                guard let shown, let key = shown.currentTabKey else { return }
-                _ = services.registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .user).onMachine(shown.daemon.isLocal ? nil : shown.daemon.machineID))
+            }, show: { [weak shown, services] view in
+                // The pane that shows the chat: a new one may have been placed beside the pane it opened from.
+                guard let shown, let pane = shown.workspace?.panes.values.first(where: { $0.shownChat === view }) ?? shown,
+                      let key = pane.currentTabKey else { return }
+                _ = services.registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .user).onMachine(pane.daemon.isLocal ? nil : pane.daemon.machineID))
             })
         case .deepLink, .unsupported: return
         }
