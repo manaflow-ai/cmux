@@ -201,8 +201,10 @@ class Host:
         # never a key's value; 44 is errSecItemNotFound. Remote's separate key
         # scope is tied to the daemon state root beneath this private home.
         service = identity_service(self.app, bundle, env)
-        found = subprocess.run(["security", "find-generic-password", "-s", service,
-                                "-a", "device-id"], capture_output=True, timeout=20)
+        # Any existing item makes this service pre-owned, even when a previous
+        # launch wrote a signing blob but never committed its device-id.
+        found = subprocess.run(["security", "find-generic-password", "-s", service],
+                               capture_output=True, timeout=20)
         if found.returncode != 44:
             raise HostFailure("host_namespace_not_fresh")
         email, password = self.credentials
