@@ -26,6 +26,8 @@ mod cancel;
 #[cfg(unix)]
 mod catalog;
 #[cfg(unix)]
+mod cli_commands;
+#[cfg(unix)]
 mod deploy;
 #[cfg(unix)]
 mod egress;
