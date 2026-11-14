@@ -846,10 +846,11 @@ fn a_process_that_did_not_start_before_the_daemon_is_no_kept_host() {
     ];
     for (daemon_started, start_of, why) in not_kept {
         let host = KeptHost::read_by(HOST, daemon_started, start_of);
-        assert!(host.is_none(), "{why}");
+        // The question of a child of that process: a seat names the terminal.
         let unseated = seating.seat_kept(host);
-        assert_eq!(seated_with_no_parent_read(&connections, SESSION), None, "{why}");
+        assert_eq!(connections.seated_terminal(SESSION, |_| Some(HOST)), None, "{why}");
         drop(unseated);
+        assert!(host.is_none(), "{why}");
     }
 
     // The count is live: the same process for a daemon that started later.

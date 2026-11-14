@@ -164,8 +164,19 @@ impl Mux {
             return (liveness, crate::diagnostics::KeptHostSeat::default());
         }
         let terminal = terminal.cloned().or_else(|| {
-            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-            registry.terminal_resource_id(&record.terminal_id).ok().flatten()
+            let read = {
+                let registry =
+                    self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+                registry.terminal_resource_id(&record.terminal_id)
+            };
+            // A terminal whose public id is not read has no seat: say why.
+            read.unwrap_or_else(|error| {
+                eprintln!(
+                    "cmux-tui: terminal {} has no seat before its adoption: {error:#}",
+                    record.terminal_id
+                );
+                None
+            })
         });
         let terminal = terminal.as_ref().map(TerminalPublicId::as_str);
         let seating =
