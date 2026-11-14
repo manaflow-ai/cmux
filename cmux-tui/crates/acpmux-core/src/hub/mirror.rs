@@ -59,9 +59,9 @@ pub struct Counters {
     out_of_order: AtomicU64,
     join_refused: AtomicU64,
     /// Units queued and not yet handled by the writer, per origin.
-    in_flight: std::sync::Mutex<HashMap<Arc<str>, u32>>,
+    in_flight: Mutex<HashMap<Arc<str>, u32>>,
     /// Woken after each writer turn: a unit was handled or an origin moved.
-    settled: tokio::sync::Notify,
+    settled: Notify,
 }
 
 /// One read of the mirror's counters.
