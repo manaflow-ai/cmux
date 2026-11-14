@@ -10,12 +10,15 @@ import AppKit
     static func gate(_ list: SidebarListView, _ drag: SidebarListDrag, card: CGRect, resolved: DropTarget??) -> DropTarget?? {
         guard case let .workspaces(ids) = drag.payload else { return resolved }
         // A side-by-side view is the active handoff path only while more than
-        // one workspace is on screen. Clear both the resolver's onto target
-        // and the generic group band for that frame; otherwise an unrelated
-        // row can paint as a second destination before the pane preview wins.
+        // one workspace is on screen. Suppress only the generic onto target
+        // and the group band for that frame; ordinary reorder and existing
+        // group drops must keep their resolver target.
         // The feature toggle alone is not enough: single-view grouping remains
         // available while the side-by-side feature is enabled.
-        if SidebarTunables.multiViewOn && list.model.onScreen.count > 1 { return .some(nil) }
+        if SidebarTunables.multiViewOn && list.model.onScreen.count > 1 {
+            if case .some(.ontoWorkspace) = resolved { return .some(nil) }
+            return resolved
+        }
         let hit = SidebarGroupBand.hit(y: card.midY, layout: list.displayed, hidden: drag.hiddenKeys, dragged: ids,
                                        sections: list.model.sections)
         if let anchor = drag.band.update(hit) { return .some(.ontoWorkspace(anchor)) }
