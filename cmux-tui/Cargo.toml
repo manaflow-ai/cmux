@@ -267,6 +267,10 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
 [workspace.lints.clippy]
 uninlined_format_args = "warn"
 semicolon_if_nothing_returned = "warn"
+# The build toolchain is Rust 1.100 while published crates retain a 1.91 MSRV;
+# `try_update` is stable since 1.95 and is the replacement for deprecated
+# `fetch_update`, so this compatibility lint is intentional across the workspace.
+incompatible_msrv = "allow"
 # Rust 1.100 promoted these style suggestions across existing protocol and
 # fixture code. Keep the compatibility migration focused on behavior/API
 # changes; these are intentionally allowed until their call sites are

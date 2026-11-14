@@ -14,6 +14,9 @@ unsafe_op_in_unsafe_fn = "deny"
 [workspace.lints.clippy]
 uninlined_format_args = "warn"
 semicolon_if_nothing_returned = "warn"
+# The build toolchain is Rust 1.100 while the iOS SDK keeps a 1.91 MSRV;
+# `try_update` is the intentional replacement for deprecated `fetch_update`.
+incompatible_msrv = "allow"
 redundant_clone = "warn"
 
 [workspace.dependencies]
