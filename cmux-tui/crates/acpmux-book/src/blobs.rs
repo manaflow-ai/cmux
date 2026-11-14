@@ -229,6 +229,7 @@ impl Blobs {
         max: usize,
         out: &mut Vec<u8>,
     ) -> Result<u64, Error> {
+        self.writable()?;
         out.clear();
         let Some(value) = body.fields.get(key) else {
             return Err(Error::InvalidInput("open body field is missing"));
@@ -237,7 +238,8 @@ impl Blobs {
             Value::Inline(bytes) => {
                 let len = bytes.len() as u64;
                 let start = usize::try_from(offset).unwrap_or(usize::MAX).min(bytes.len());
-                let amount = max.min(MAX_BLOB_READ).min(bytes.len().saturating_sub(start));
+                let amount = crate::log::Log::bound(max, MAX_BLOB_READ)
+                    .min(bytes.len().saturating_sub(start));
                 out.extend_from_slice(
                     bytes.get(start..start.saturating_add(amount)).unwrap_or_default(),
                 );
@@ -246,7 +248,7 @@ impl Blobs {
             Value::File(field) => {
                 let len = field.len;
                 let left = usize::try_from(len.saturating_sub(offset)).unwrap_or(usize::MAX);
-                let amount = max.min(MAX_BLOB_READ).min(left);
+                let amount = crate::log::Log::bound(max, MAX_BLOB_READ).min(left);
                 out.resize(amount, 0);
                 let path = self.open.join(field_name(body.row, key, field.generation));
                 let file = File::open(path).map_err(named_file_error)?;

@@ -60,7 +60,6 @@ use crate::fsio;
 use crate::row::MAX_ROW_TEXT;
 use checkpoint::Mark;
 use index::{Entry, RowIndex, SeqIndex};
-use std::cell::RefCell;
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -80,6 +79,14 @@ const LOCK_TRIES: u32 = 100;
 const LOCK_WAIT: std::time::Duration = std::time::Duration::from_millis(2);
 /// The most bytes one [`Log::read_blob`] returns.
 pub const MAX_BLOB_READ: usize = 256 * 1024;
+
+/// Metadata for one bounded body range.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BlobRange {
+    pub start: u64,
+    pub end: u64,
+    pub total: u64,
+}
 const UNDO_HEAD_LEN: usize = 16;
 const UNDO_ENTRY_LEN: usize = 28;
 
@@ -437,9 +444,9 @@ pub struct Log {
     tail: Tail,
     rows: RowIndex,
     seqs: SeqIndex,
-    /// Derived closed-fold ranges. The actor owns the writer; reads borrow the file briefly for
-    /// its binary search so a page never loads the index whole.
-    folds: RefCell<crate::folds::Folds>,
+    /// Path to the derived closed-fold index. The actor owns the writer; reads open a short-lived
+    /// descriptor so appends made after this log opened are visible immediately.
+    pub(crate) folds_path: PathBuf,
     /// Older segments open for reading, the most recently used first.
     readers: Vec<(u32, File)>,
     /// The record being written; at most a row text and its 44 bytes.
@@ -849,8 +856,6 @@ impl Log {
             Tail { seg: last, file, len }
         };
         let folds_path = dir.join("folds.idx");
-        let folds_len = fs::metadata(&folds_path).map_or(0, |meta| meta.len());
-        let folds = crate::folds::Folds::open(&folds_path, folds_len)?;
         stats.index_mapped_bytes = rows.mapped_bytes();
         stats.bytes_written = rewritten;
         stats.writes = rewrites;
@@ -875,7 +880,7 @@ impl Log {
             tail,
             rows,
             seqs,
-            folds: RefCell::new(folds),
+            folds_path,
             readers: Vec::new(),
             scratch: Vec::new(),
             last_seq,
@@ -1543,16 +1548,34 @@ impl Log {
         max: usize,
         out: &mut Vec<u8>,
     ) -> Result<u64, Error> {
+        Ok(self.read_blob_range(row_id, offset, max, out)?.total)
+    }
+
+    /// Reads one bounded body range and returns the exact range supplied plus the body's length.
+    pub fn read_blob_range(
+        &mut self,
+        row_id: u64,
+        offset: u64,
+        max: usize,
+        out: &mut Vec<u8>,
+    ) -> Result<BlobRange, Error> {
+        if self.broken {
+            return Err(Error::Stopped);
+        }
         out.clear();
         let file = File::open(self.blob_path(row_id))?;
         let len = file.metadata()?.len();
         let left = usize::try_from(len.saturating_sub(offset)).unwrap_or(usize::MAX);
-        out.resize(max.min(MAX_BLOB_READ).min(left), 0);
+        out.resize(Self::bound(max, MAX_BLOB_READ).min(left), 0);
         let read = fsio::read_at(&file, out, offset)?;
         out.truncate(read);
         self.stats.reads = self.stats.reads.saturating_add(1);
         self.stats.bytes_read = self.stats.bytes_read.saturating_add(read as u64);
-        Ok(len)
+        Ok(BlobRange {
+            start: offset.min(len),
+            end: offset.min(len).saturating_add(read as u64),
+            total: len,
+        })
     }
 
     /// Reads segment `seg` at `offset` into `buf`, until `buf` is full or the segment ends; the

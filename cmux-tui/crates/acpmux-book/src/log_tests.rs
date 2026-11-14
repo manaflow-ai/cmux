@@ -1,6 +1,7 @@
 use crate::log::{
-    Anchor, Edge, Error, Log, MAX_CHECKPOINT_STATE, MAX_PAGE_BYTES, Options, Patch,
-    RECORD_OVERHEAD, ROW_ENTRY_LEN, RawRange, SEQ_STRIDE, Side, StateWriter, section, sections,
+    Anchor, Edge, Error, Log, MAX_BLOB_READ, MAX_CHECKPOINT_STATE, MAX_PAGE_BYTES, MAX_ROWS,
+    Options, Patch, RECORD_OVERHEAD, ROW_ENTRY_LEN, RawRange, SEQ_STRIDE, Side, StateWriter,
+    section, sections,
 };
 use crate::row::{MAX_ROW_TEXT, Placement, Row, RowKind};
 use crate::testkit::{assert_rows, ids, open, settle, text, texts, whole_book};
@@ -268,7 +269,7 @@ fn a_window_is_bounded_in_rows_and_bytes_and_says_what_lies_beyond() {
     assert_eq!(tight.rows.last().unwrap().row_id, 1000);
     assert_eq!(log.window(Anchor::End, 400, 0).rows.len(), 1, "never empty for its size");
     assert_eq!(log.window(Anchor::End, 0, 1 << 20).rows.len(), 0);
-    assert_eq!(log.window(Anchor::End, usize::MAX, usize::MAX).rows.len(), 1000);
+    assert_eq!(log.window(Anchor::End, usize::MAX, usize::MAX).rows.len(), MAX_ROWS);
 
     let before = log.window(Anchor::Row { id: 500, side: Side::Before }, 100, 1 << 20);
     assert_eq!(ids(&before.rows), (401..=500).collect::<Vec<_>>());
@@ -479,7 +480,7 @@ fn a_large_body_goes_to_a_blob_and_is_read_by_range() {
     assert_eq!(log.read_blob(1, bytes - 4, 100, &mut read).unwrap(), bytes);
     assert_eq!(read, b"89\"}");
     log.read_blob(1, 0, usize::MAX, &mut read).unwrap();
-    assert_eq!(read.len(), 1 << 20, "one read is at most one frame");
+    assert_eq!(read.len(), MAX_BLOB_READ, "one read is at most one page");
     log.read_blob(1, bytes + 5, 100, &mut read).unwrap();
     assert!(read.is_empty());
     assert!(matches!(log.read_blob(2, 0, 1, &mut read), Err(Error::Io(_))));
@@ -517,10 +518,16 @@ fn an_index_entry_that_does_not_match_its_record_is_reported_not_served() {
 
     let (mut log, _) = open(home.path());
     let window = log.window(Anchor::End, 400, 1 << 20);
-    assert_eq!(ids(&window.rows), (1..=20).collect::<Vec<_>>(), "the ghost entry is not a row");
+    assert_eq!(
+        ids(&window.rows),
+        (1..=20).filter(|id| *id != 5).collect::<Vec<_>>(),
+        "the ghost entry is refused"
+    );
+    assert_eq!(window.refused, vec![5]);
     let (mut buf, mut at) = (Vec::new(), Vec::new());
+    let refused = log.row(5).unwrap();
     assert!(matches!(
-        log.fill(&window.rows, &mut buf, &mut at),
+        log.fill(&[refused], &mut buf, &mut at),
         Err(Error::CorruptRow { row_id: 5, .. })
     ));
     assert!(matches!(

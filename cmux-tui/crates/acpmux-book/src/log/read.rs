@@ -13,6 +13,8 @@ use super::index::Entry;
 use super::record::{Check, HEADER_LEN, HEADER_LEN_U32, HEADER_LEN_U64, Header};
 use super::{Error, Log, RawRange, SEQ_STRIDE};
 use serde_json::Value;
+use std::collections::BTreeMap;
+use std::fs;
 use std::ops::Range;
 
 /// The most rows one window, page or resume returns.
@@ -134,7 +136,7 @@ impl Span {
         Span {
             seg: row.seg,
             lo: text.saturating_sub(HEADER_LEN_U64),
-            hi: text.saturating_add(u64::from(row.len)),
+            hi: text.saturating_add(u64::from(row.len)).saturating_add(4),
         }
     }
 
@@ -159,6 +161,20 @@ struct Budget {
 }
 
 impl Log {
+    /// The single size bound used by every read entry point.
+    pub(crate) fn bound(requested: usize, cap: usize) -> usize {
+        requested.min(cap)
+    }
+
+    fn fold_entry(&self, row_id: u64) -> Result<Option<crate::folds::Entry>, Error> {
+        let len = fs::metadata(&self.folds_path).map_or(0, |meta| meta.len());
+        if len == 0 {
+            return Ok(None);
+        }
+        let mut folds = crate::folds::Folds::open(&self.folds_path, len)?;
+        folds.containing(row_id)
+    }
+
     /// Walks rowIds from `start`, up or down, collecting settled rows into `out` until the
     /// budget is spent or the book ends. Returns the last id it accounted for (taken, or not
     /// settled), `None` when it accounted for none. Index entries only.
@@ -169,19 +185,17 @@ impl Log {
         budget: &mut Budget,
         out: &mut Vec<RowRef>,
         open_folds: &[u64],
+        bounds: Option<(u64, u64)>,
+        fold_cache: &mut BTreeMap<u64, Vec<(u64, u64)>>,
     ) -> Result<Option<u64>, Error> {
+        let (lower, upper) = bounds.unwrap_or((self.min_row, self.max_row));
         let mut id = start;
         let mut edge = None;
         let mut looked = 0u32;
         let mut span: Option<Span> = None;
-        while id != 0
-            && id >= self.min_row
-            && id <= self.max_row
-            && budget.rows != 0
-            && looked < WALK_ENTRIES
-        {
+        while id != 0 && id >= lower && id <= upper && budget.rows != 0 && looked < WALK_ENTRIES {
             looked = looked.saturating_add(1);
-            if let Some((visible, jump)) = self.fold_step(id, up, open_folds)? {
+            if let Some((visible, jump)) = self.fold_step(id, up, open_folds, fold_cache)? {
                 if !visible {
                     id = jump.unwrap_or_else(|| {
                         if up { id.saturating_add(1) } else { id.saturating_sub(1) }
@@ -223,12 +237,16 @@ impl Log {
         row_id: u64,
         up: bool,
         open_folds: &[u64],
+        fold_cache: &mut BTreeMap<u64, Vec<(u64, u64)>>,
     ) -> Result<Option<(bool, Option<u64>)>, Error> {
-        let Some(fold) = self.folds.borrow_mut().containing(row_id)? else { return Ok(None) };
+        let Some(fold) = self.fold_entry(row_id)? else { return Ok(None) };
         if open_folds.contains(&fold.group) || row_id == fold.group {
             return Ok(Some((true, None)));
         }
-        let ranges = self.fold_out_ranges(fold.group)?;
+        if !fold_cache.contains_key(&fold.group) {
+            fold_cache.insert(fold.group, self.fold_out_ranges(fold.group)?);
+        }
+        let ranges = fold_cache.get(&fold.group).map(Vec::as_slice).unwrap_or(&[]);
         let visible = ranges.iter().any(|(first, last)| (*first..=*last).contains(&row_id));
         if visible {
             Ok(Some((true, None)))
@@ -258,6 +276,19 @@ impl Log {
                 (first <= last).then_some((first, last))
             })
             .collect())
+    }
+
+    fn normalize_anchor(&mut self, id: u64, open_folds: &[u64]) -> Result<u64, Error> {
+        let Some(fold) = self.fold_entry(id)? else { return Ok(id) };
+        if open_folds.contains(&fold.group) || id == fold.group {
+            return Ok(id);
+        }
+        let ranges = self.fold_out_ranges(fold.group)?;
+        Ok(ranges
+            .iter()
+            .any(|(first, last)| (*first..=*last).contains(&id))
+            .then_some(id)
+            .unwrap_or(fold.group))
     }
 
     fn read_row_bytes(&mut self, row: &RowRef) -> Result<Option<Vec<u8>>, Error> {
@@ -308,8 +339,13 @@ impl Log {
     /// The settled rows around `anchor`: at most `rows` of them ([`MAX_ROWS`] at most) and
     /// `max_bytes` of row text ([`MAX_FRAME_BYTES`] at most), always at least one when one
     /// exists. Reads index entries only: the cost is the window's, for a book of any length.
-    pub fn window(&mut self, anchor: Anchor, rows: usize, max_bytes: usize) -> Window {
-        self.read_window(anchor, rows, max_bytes, &[]).unwrap_or_default()
+    pub fn window(
+        &mut self,
+        anchor: Anchor,
+        rows: usize,
+        max_bytes: usize,
+    ) -> Result<Window, Error> {
+        self.read_window(anchor, rows, max_bytes, &[])
     }
 
     /// Checked window read. `open_folds` names folds that are open for this read; closed folds
@@ -326,31 +362,56 @@ impl Log {
             return Err(Error::Stopped);
         }
         let mut budget = Budget {
-            rows: rows.min(MAX_ROWS),
-            bytes: max_bytes.min(MAX_FRAME_BYTES) as u64,
+            rows: Self::bound(rows, MAX_ROWS),
+            bytes: Self::bound(max_bytes, MAX_FRAME_BYTES) as u64,
             first_free: true,
             one_read: false,
         };
         let mut out = Vec::with_capacity(budget.rows.min(512));
+        let mut fold_cache = BTreeMap::new();
         let mut result = match anchor {
             Anchor::End => {
-                let lo = self.walk(self.max_row, false, &mut budget, &mut out, open_folds)?;
+                let lo = self.walk(
+                    self.max_row,
+                    false,
+                    &mut budget,
+                    &mut out,
+                    open_folds,
+                    None,
+                    &mut fold_cache,
+                )?;
                 out.reverse();
                 self.window_of(out, lo.unwrap_or(self.max_row), self.max_row)
             }
             Anchor::Row { id, side: Side::Before } => {
-                let start = id.min(self.max_row);
-                let lo = self.walk(start, false, &mut budget, &mut out, open_folds)?;
+                let start = self.normalize_anchor(id.min(self.max_row), open_folds)?;
+                let lo = self.walk(
+                    start,
+                    false,
+                    &mut budget,
+                    &mut out,
+                    open_folds,
+                    None,
+                    &mut fold_cache,
+                )?;
                 out.reverse();
                 self.window_of(out, lo.unwrap_or(start), start)
             }
             Anchor::Row { id, side: Side::After } => {
-                let start = id.max(self.min_row);
-                let hi = self.walk(start, true, &mut budget, &mut out, open_folds)?;
+                let start = self.normalize_anchor(id.max(self.min_row), open_folds)?;
+                let hi = self.walk(
+                    start,
+                    true,
+                    &mut budget,
+                    &mut out,
+                    open_folds,
+                    None,
+                    &mut fold_cache,
+                )?;
                 self.window_of(out, start, hi.unwrap_or(start))
             }
             Anchor::Row { id, side: Side::Around } => {
-                let start = id.max(self.min_row);
+                let start = self.normalize_anchor(id.max(self.min_row), open_folds)?;
                 // Half from the anchor on, then everything left before it, then what the rows
                 // before it did not use goes after again.
                 let mut ahead = Budget {
@@ -364,7 +425,15 @@ impl Log {
                 };
                 let kept_rows = budget.rows / 2;
                 let mut after = Vec::new();
-                let mut hi = self.walk(start, true, &mut ahead, &mut after, open_folds)?;
+                let mut hi = self.walk(
+                    start,
+                    true,
+                    &mut ahead,
+                    &mut after,
+                    open_folds,
+                    None,
+                    &mut fold_cache,
+                )?;
                 budget = Budget {
                     rows: kept_rows.saturating_add(ahead.rows),
                     bytes: ahead.bytes,
@@ -372,12 +441,30 @@ impl Log {
                     one_read: false,
                 };
                 let below = start.saturating_sub(1).min(self.max_row);
-                let lo = self.walk(below, false, &mut budget, &mut out, open_folds)?;
+                let lo = self.walk(
+                    below,
+                    false,
+                    &mut budget,
+                    &mut out,
+                    open_folds,
+                    None,
+                    &mut fold_cache,
+                )?;
                 out.reverse();
                 if budget.rows != 0 && budget.bytes != 0 {
                     let next = hi.map_or(start, |hi| hi.saturating_add(1));
                     budget.first_free = false;
-                    hi = self.walk(next, true, &mut budget, &mut after, open_folds)?.or(hi);
+                    hi = self
+                        .walk(
+                            next,
+                            true,
+                            &mut budget,
+                            &mut after,
+                            open_folds,
+                            None,
+                            &mut fold_cache,
+                        )?
+                        .or(hi);
                 }
                 out.append(&mut after);
                 self.window_of(out, lo.unwrap_or(start), hi.unwrap_or(start))
@@ -392,8 +479,8 @@ impl Log {
     /// its rows would stop coming in one read (a segment's end, or a row whose record lies far
     /// from the others), so [`Log::fill`] of a page is always exactly one read; the caller asks
     /// for the next page from `lo` or `hi`. Reads index entries only.
-    pub fn page(&mut self, edge: Edge, max_bytes: usize) -> Window {
-        self.read_page(edge, max_bytes, None).unwrap_or_default()
+    pub fn page(&mut self, edge: Edge, max_bytes: usize) -> Result<Window, Error> {
+        self.read_page(edge, max_bytes, None)
     }
 
     /// Checked page read. When `fold` is present, the named fold is open for this read and the
@@ -412,21 +499,24 @@ impl Log {
         }
         let mut budget = Budget {
             rows: MAX_ROWS,
-            bytes: max_bytes.min(MAX_PAGE_BYTES) as u64,
+            bytes: Self::bound(max_bytes, MAX_PAGE_BYTES) as u64,
             first_free: true,
             one_read: true,
         };
         let mut out = Vec::new();
+        let mut fold_cache = BTreeMap::new();
         let mut result = match edge {
             Edge::Before(id) => {
                 let start = id.saturating_sub(1).min(self.max_row);
-                let lo = self.walk(start, false, &mut budget, &mut out, &[])?;
+                let lo =
+                    self.walk(start, false, &mut budget, &mut out, &[], None, &mut fold_cache)?;
                 out.reverse();
                 self.window_of(out, lo.unwrap_or(id.max(1)), start)
             }
             Edge::After(id) => {
                 let start = id.saturating_add(1).max(self.min_row);
-                let hi = self.walk(start, true, &mut budget, &mut out, &[])?;
+                let hi =
+                    self.walk(start, true, &mut budget, &mut out, &[], None, &mut fold_cache)?;
                 self.window_of(out, start, hi.unwrap_or(id.min(self.max_row)))
             }
         };
@@ -440,7 +530,7 @@ impl Log {
         max_bytes: usize,
         group: u64,
     ) -> Result<Window, Error> {
-        let Some(fold) = self.folds.borrow_mut().containing(group)? else {
+        let Some(fold) = self.fold_entry(group)? else {
             return Err(Error::InvalidInput("fold is not in folds.idx"));
         };
         let (start, up) = match edge {
@@ -451,13 +541,21 @@ impl Log {
         };
         let mut budget = Budget {
             rows: MAX_ROWS,
-            bytes: max_bytes.min(MAX_PAGE_BYTES) as u64,
+            bytes: Self::bound(max_bytes, MAX_PAGE_BYTES) as u64,
             first_free: true,
             one_read: true,
         };
         let mut rows = Vec::new();
-        let _ = self.walk(start, up, &mut budget, &mut rows, &[group])?;
-        rows.retain(|row| row.row_id >= fold.group && row.row_id <= fold.last);
+        let mut fold_cache = BTreeMap::new();
+        let _ = self.walk(
+            start,
+            up,
+            &mut budget,
+            &mut rows,
+            &[group],
+            Some((fold.group, fold.last)),
+            &mut fold_cache,
+        )?;
         if !up {
             rows.reverse();
         }
@@ -500,7 +598,7 @@ impl Log {
                 .ok_or(Error::Corrupt("seq.idx has no entry before the cursor"))?;
             (seg, u64::from(off))
         };
-        let mut left = max_bytes.min(MAX_FRAME_BYTES) as u64;
+        let mut left = Self::bound(max_bytes, MAX_FRAME_BYTES) as u64;
         let mut chunk = vec![0u8; RESUME_CHUNK];
         loop {
             let read = self.read_segment(seg, offset, &mut chunk).map_err(|error| match error {
@@ -526,7 +624,7 @@ impl Log {
                     Header::parse(rest).ok_or(Error::Corrupt("a segment record is damaged"))?;
                 if header.seq > cursor {
                     let len = u64::from(header.len);
-                    let full = len > left || since.rows.len() >= MAX_ROWS;
+                    let full = len > left;
                     if full && !since.rows.is_empty() {
                         since.more = true;
                         return Ok(since);
@@ -632,7 +730,13 @@ impl Log {
                 .unwrap_or(usize::MAX)
                 .saturating_add(base);
                 let header = buf.get(header_at..).and_then(Header::parse);
-                let same = header.is_some_and(|header| {
+                let record_end = header
+                    .map(|header| HEADER_LEN.saturating_add(header.len as usize).saturating_add(4))
+                    .and_then(|len| header_at.checked_add(len));
+                let checked =
+                    record_end.and_then(|end| buf.get(header_at..end)).map(super::record::check);
+                let same = checked.is_some_and(|check| {
+                    let Check::Whole(header) = check else { return false };
                     header.row_id == row.row_id && header.rev == row.rev && header.len == row.len
                 });
                 if !same {
@@ -641,7 +745,7 @@ impl Log {
                         reason: "a row index entry does not match its record",
                     });
                 }
-                if let Some(header) = header
+                if let Some(Check::Whole(header)) = checked
                     && header.raw_len != 0
                     && (header.raw_file == 0 || header.raw_file > self.raw_files)
                 {
