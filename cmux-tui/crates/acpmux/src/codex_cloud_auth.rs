@@ -17,7 +17,8 @@
 //!   login     no choice; Codex has its own sign-in (`auth.json` tokens or key, `CODEX_API_KEY`) or
 //!             the Mac broker's access file is installed;
 //!   no-team-plane    no `https://` `CMUX_CODEROUTER_URL`: team mode has nowhere to send;
-//!   team-unreachable the CodeRouter host does not resolve, so team mode could not work either.
+//!   team-unreachable the CodeRouter host does not resolve, or every address refuses the
+//!             connection, so team mode could not work either.
 //! Otherwise team. A team machine (vm-kind not `owner`) is left alone: every member is the same
 //! Unix user there, and the image's shared-machine mode owns it.
 //!
@@ -140,7 +141,8 @@ fn mode(value: &str) -> Option<&'static str> {
 }
 
 /// Own mode's reason (module docs), or None for team or a machine this rule does not cover.
-/// `resolves` answers whether the CodeRouter host resolves; it runs only when nothing else decides.
+/// `resolves` answers whether the CodeRouter host is reachable ([`host_resolves`]); it runs only
+/// when nothing else decides.
 pub async fn own_reason<F, Fut>(inputs: &Inputs<'_>, resolves: F) -> Option<&'static str>
 where
     F: FnOnce(String) -> Fut,
@@ -176,15 +178,45 @@ where
 /// answer is waited for rather than read as unreachable, which would switch Codex to own mode.
 const RESOLVE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// Whether `host` resolves (`agent-auth.sh` treats curl's exit 6 as unreachable); a resolver that
-/// gives no answer by `RESOLVE_DEADLINE` counts as unreachable.
+/// How long `host_resolves` waits for one address to accept a connection, as `agent-auth.sh`'s
+/// `curl --connect-timeout 2`.
+// timeout: a slow connect counts as reachable (curl's exit 28 is team), so this never picks own mode
+const CONNECT_BOUND: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Whether team mode could reach `host`, as `agent-auth.sh` decides it: a name that does not
+/// resolve (curl's exit 6), or whose every address refuses the connection (exit 7), is unreachable.
+/// A resolver that gives no answer by `RESOLVE_DEADLINE` counts as unreachable too; a connect still
+/// pending after `CONNECT_BOUND` counts as reachable (exit 28, which the script counts as team).
 pub async fn host_resolves(host: String) -> bool {
     let target = if host.contains(':') { host } else { format!("{host}:443") };
     let lookup = tokio::time::timeout(RESOLVE_DEADLINE, tokio::net::lookup_host(target));
-    match lookup.await {
-        Ok(Ok(mut addrs)) => addrs.next().is_some(),
-        _ => false,
+    let addrs: Vec<std::net::SocketAddr> = match lookup.await {
+        Ok(Ok(addrs)) => addrs.collect(),
+        _ => return false,
+    };
+    accepts_any(&addrs, |addr| async move {
+        tokio::time::timeout(CONNECT_BOUND, tokio::net::TcpStream::connect(addr))
+            .await
+            .map(|connected| connected.map(drop))
+    })
+    .await
+}
+
+/// Whether any of `addrs` takes a connection as `connect` tries it: one that connects, or is still
+/// trying when its bound ends (`Err(Elapsed)`), is reachable; none at all, or every one refused or
+/// failed, is not.
+async fn accepts_any<F, Fut>(addrs: &[std::net::SocketAddr], connect: F) -> bool
+where
+    F: Fn(std::net::SocketAddr) -> Fut,
+    Fut: std::future::Future<Output = Result<std::io::Result<()>, tokio::time::error::Elapsed>>,
+{
+    for addr in addrs {
+        match connect(*addr).await {
+            Ok(Ok(())) | Err(_) => return true,
+            Ok(Err(_refused)) => continue,
+        }
     }
+    false
 }
 
 /// Own mode for one codex launch (module docs): the provider override right after the program, and
@@ -341,6 +373,45 @@ mod tests {
         std::fs::write(dir.join("model-plane.env"), "export CMUX_CODEROUTER_URL='https://plane'\n")
             .unwrap();
         assert_eq!(reason(&m, &vars(&[]), false, true).await, None);
+    }
+
+    #[tokio::test]
+    async fn a_host_that_refuses_the_connection_is_unreachable() {
+        // agent-auth.sh counts curl's exit 7 (nothing accepts the connection) as unreachable, as it
+        // does exit 6 (no such name): no request through CodeRouter can succeed either way.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let open = listener.local_addr().unwrap();
+        assert!(host_resolves(open.to_string()).await, "a port that accepts is reachable");
+        let closed = {
+            let gone = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            gone.local_addr().unwrap()
+        };
+        assert!(!host_resolves(closed.to_string()).await, "a port that refuses is unreachable");
+        drop(listener);
+    }
+
+    #[tokio::test]
+    async fn a_connect_still_pending_at_its_bound_is_reachable() {
+        // curl's exit 28 (the connect timed out) is team in agent-auth.sh; a refusal (exit 7) is not.
+        let addrs: [std::net::SocketAddr; 2] =
+            ["127.0.0.1:1".parse().unwrap(), "[::1]:1".parse().unwrap()];
+        let refused = || std::io::Error::from(std::io::ErrorKind::ConnectionRefused);
+        let slow = |_| async {
+            tokio::time::timeout(
+                std::time::Duration::ZERO,
+                std::future::pending::<std::io::Result<()>>(),
+            )
+            .await
+        };
+        assert!(accepts_any(&addrs, slow).await);
+        assert!(!accepts_any(&addrs, |_| async move { Ok(Err(refused())) }).await);
+        // The second address accepts after the first refuses.
+        let second = |addr: std::net::SocketAddr| async move {
+            Ok(if addr.is_ipv6() { Ok(()) } else { Err(refused()) })
+        };
+        assert!(accepts_any(&addrs, second).await);
+        // No address at all.
+        assert!(!accepts_any(&[], |_| async { Ok(Ok(())) }).await);
     }
 
     #[tokio::test]
