@@ -538,7 +538,15 @@ runs (with an agent or not) wins over one whose terminal exited (so
 `terminal NAME resume` finds it), and two at one step return
 `selector.ambiguous` with their ids, also an agent tab and a shell tab with one
 name. Under an explicit parent (an id or a name) only that parent's scope is
-read. Before it parses a command, the CLI
+read. A name with no parents at all takes only the session rules, never the
+focused place first. `terminal … send`, `terminal … wait --until ready`,
+`agent start --pane`, `agent resume` and `terminal … resume` (also from the
+MCP terminal tools) take a full id of the session as it is and ask the daemon
+for any other word that way, with no parents: a title or tab name that two
+terminals share is `selector.ambiguous` even while the person focuses one of
+them. Their `current` (and `caller`) is the caller's terminal or pane, and
+outside a terminal `current` is refused for `send`, `wait` and `resume`
+(`agent start --pane current` then takes the focused pane). Before it parses a command, the CLI
 asks the daemon to resolve each such word (`<scope> <word> show`) and puts the
 id it answers in place of the word, so a flag that takes a full id
 (`notification create --terminal`, `agent report --terminal`) also takes a
@@ -951,8 +959,9 @@ Every `--pattern` regex (`screen wait`, `send`, `run`, and `agents wait
 `pane.move` request, which the daemon commits as one journaled change (a crash
 leaves the pane before or after the move; a retry with the same key replays
 the result). `--to-pane <q> --split right|down|left|up` puts the pane beside
-pane q, and `--to-workspace <w>` or `--new-screen` (alias `--new-tab`, the
-pane's own workspace) makes it the only pane of a new screen there, named
+pane q, and `--to-workspace <w>` (also with `--new-screen`) or `--new-screen`
+alone (alias `--new-tab`, the pane's own workspace) makes it the only pane of a
+new screen there, named
 `--name`: in these the pane keeps its id. `--to-pane <q>` without `--split`
 appends the tabs to pane q (at `--index <n>` if given), and `--to-tab <t>` puts
 them after tab t; the tabs keep their ids and the moved pane closes. With

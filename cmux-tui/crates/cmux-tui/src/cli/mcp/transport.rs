@@ -518,31 +518,22 @@ pub(super) fn is_partial_id(value: &str, prefix: &str) -> bool {
     })
 }
 
-/// The one id in `records` that starts with `prefix`. No match is
-/// `selector.not_found`; more than one is `selector.ambiguous` with the
-/// candidates, as the daemon reports for a name.
+/// The one id in `records` that starts with `prefix`, with the answer and
+/// the words of the daemon's one selector resolver (W5-P,
+/// `cmux_tui_core::resource::match_id_prefix`): `selector.not_found` with the
+/// id-shape hint, or `selector.ambiguous` with every candidate, sorted.
 fn unique_prefix(field: &str, prefix: &str, records: &Value) -> Result<String, Value> {
     let records = records.as_array().map(Vec::as_slice).unwrap_or_default();
-    let matches = records
+    let ids = records
         .iter()
         .filter_map(|record| record.get("id").and_then(Value::as_str))
-        .filter(|id| id.starts_with(prefix))
-        .collect::<Vec<_>>();
-    match matches.as_slice() {
-        [id] => Ok((*id).to_string()),
-        [] => Err(json!({
-            "code": "selector.not_found",
-            "message": format!("no {field} id starts with {prefix:?}"),
-            "details": {"field": field, "prefix": prefix},
-            "retryable": false,
-        })),
-        candidates => Err(json!({
-            "code": "selector.ambiguous",
-            "message": format!("more than one {field} id starts with {prefix:?}; use more of it"),
-            "details": {"field": field, "prefix": prefix, "candidates": candidates},
-            "retryable": false,
-        })),
-    }
+        .map(str::to_owned);
+    let kind = field.strip_suffix("_id").unwrap_or(field);
+    cmux_tui_core::resource::match_id_prefix(kind, prefix, ids).map_err(|error| {
+        serde_json::to_value(error).unwrap_or_else(
+            |_| json!({"code": "selector.not_found", "message": prefix, "retryable": false}),
+        )
+    })
 }
 
 #[cfg(test)]
@@ -565,6 +556,28 @@ mod tests {
         assert_eq!(ambiguous["details"]["candidates"].as_array().map(Vec::len), Some(2));
         let missing = unique_prefix("workspace", "ws_77", &records).unwrap_err();
         assert_eq!(missing["code"], "selector.not_found");
+    }
+
+    /// A looked-up prefix answers as the daemon's one selector resolver
+    /// (W5-P): every candidate, sorted, and the daemon's words.
+    #[test]
+    fn w5p_a_looked_up_prefix_answers_as_the_daemons_resolver() {
+        let records = json!([
+            {"id": "ws_1a2c0000000000000000000000000000"},
+            {"id": "ws_1a2b0000000000000000000000000000"},
+        ]);
+        let ambiguous = unique_prefix("workspace", "ws_1a2", &records).unwrap_err();
+        assert_eq!(ambiguous["code"], "selector.ambiguous");
+        assert_eq!(
+            ambiguous["details"]["candidates"],
+            json!(["ws_1a2b0000000000000000000000000000", "ws_1a2c0000000000000000000000000000"])
+        );
+        assert!(
+            ambiguous["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("pass more of the id")),
+            "{ambiguous}"
+        );
     }
 
     #[test]

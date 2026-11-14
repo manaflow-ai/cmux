@@ -125,11 +125,9 @@ fn ids_take_a_unique_prefix_and_a_session_qualifier() {
     let tool = v2_tools::find("workspace_get").expect("workspace_get");
     let call = tool.plan(&object(json!({"workspace": "build-box:ws_1a2b"}))).expect("plan");
     assert_eq!(call.session.as_deref(), Some("build-box"));
+    // The daemon's one selector resolver expands a selector's prefix (W5-P).
     assert_eq!(call.plan.params["workspace"], "ws_1a2b");
-    assert_eq!(
-        call.prefixes,
-        [Prefix { field: "workspace".into(), list: ResourceOperation::WorkspaceList }]
-    );
+    assert!(call.prefixes.is_empty());
     assert_eq!(call.plan.params["machine"], "current");
     assert_eq!(call.plan.params["session"], "current");
 
@@ -142,4 +140,35 @@ fn ids_take_a_unique_prefix_and_a_session_qualifier() {
     let two = tool.plan(&object(json!({"workspace": "a:ws_1", "session": "b"})));
     assert!(two.is_err(), "one call reaches one session");
     assert!(tool.plan(&object(json!({"bogus": "x"}))).is_err());
+}
+
+/// A workspace, screen, pane, tab, terminal or browser id prefix in a
+/// selector goes to the daemon as given: the daemon's one selector resolver
+/// (W5-P) expands it with the rules of every other client (at least 4 hex
+/// digits, every candidate when two match). A resource-id field the daemon
+/// reads as a whole id is still looked up first, but a prefix of fewer than
+/// 4 hex digits is refused here with the daemon's own hint, not guessed.
+#[test]
+fn w5p_a_selector_prefix_goes_to_the_daemons_resolver() {
+    let tool = v2_tools::find("workspace_get").expect("workspace_get");
+    for (given, sent) in
+        [("ws_1a2b", "ws_1a2b"), ("ws_1a", "ws_1a"), ("build-box:ws_1a2b", "ws_1a2b")]
+    {
+        let call = tool.plan(&object(json!({"workspace": given}))).expect("plan");
+        assert!(call.prefixes.is_empty(), "{given}: {:?}", call.prefixes);
+        assert_eq!(call.plan.params["workspace"], sent, "{given}");
+    }
+
+    let list = v2_tools::find("agent_list").expect("agent_list");
+    let call = list.plan(&object(json!({"terminal_id": "term_c1a0"}))).expect("plan");
+    assert_eq!(
+        call.prefixes,
+        [Prefix { field: "terminal_id".into(), list: ResourceOperation::TerminalList }]
+    );
+    let short = list.plan(&object(json!({"terminal_id": "term_c1"}))).err().expect("refused");
+    assert_eq!(short["code"], "validation.invalid");
+    assert!(
+        short["message"].as_str().is_some_and(|message| message.contains("at least 4 hex digits")),
+        "{short}"
+    );
 }

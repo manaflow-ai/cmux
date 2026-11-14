@@ -26,12 +26,19 @@
 //!
 //! An agent name (`cmux agent start alpha`) is its tab's name. Under an
 //! explicit parent (an id or a name) the scoped rule is the only rule.
+//!
+//! A pane, tab or terminal name with no parents at all (W5-P: what
+//! `terminal … send`, the MCP terminal tools, `agent start --pane` and
+//! `agent resume` ask) skips the scoped rule and takes only the rules
+//! above, so the place the person focuses never breaks a tie: two at one
+//! step stay `selector.ambiguous`. Such a request was refused before
+//! (the name needed its parents), so no earlier reply changes.
 
 use crate::model::State;
 use crate::resource::{ContentPublicId, ResourceError, Selector, resolve_name};
 use crate::{PaneId, ScreenId, SurfaceId, WorkspaceId};
 
-use super::ResourceSelectors;
+use super::{ResourceSelectors, ResourceTarget};
 
 /// Whether every structural selector above `depth` (workspace 2, screen 3,
 /// pane 4, tab 5) is `current` or absent: the CLI's implicit parents.
@@ -41,6 +48,33 @@ pub(super) fn implicit_parents(selectors: &ResourceSelectors, depth: usize) -> b
         .into_iter()
         .enumerate()
         .all(|(index, selector)| index + 2 >= depth || current(selector))
+}
+
+/// Whether `target` is named with no parents at all: every structural
+/// selector above it is absent and its own selector is a name (a pane, tab
+/// or terminal only). Such a name takes the session rules only.
+pub(super) fn placeless(selectors: &ResourceSelectors, target: ResourceTarget) -> bool {
+    let (own, parents) = match target {
+        ResourceTarget::Pane => (&selectors.pane, 2),
+        ResourceTarget::Tab => (&selectors.tab, 3),
+        ResourceTarget::Terminal => (&selectors.terminal, 4),
+        _ => return false,
+    };
+    let structural = [&selectors.workspace, &selectors.screen, &selectors.pane, &selectors.tab];
+    structural.into_iter().take(parents).all(Option::is_none)
+        && own.as_deref().is_some_and(|raw| matches!(Selector::parse(raw), Ok(Selector::Name(_))))
+}
+
+/// The error for a name the further rules do not find either: `not_found`
+/// for a name with no parents (whose scoped error only says the parents
+/// are missing), else the scoped rule's own error.
+pub(super) fn unfound(
+    placeless: bool,
+    scoped: ResourceError,
+    kind: &str,
+    raw: &str,
+) -> ResourceError {
+    if placeless { ResourceError::not_found(kind, raw) } else { scoped }
 }
 
 /// The name in `raw`, or `None` for an id or `current`.

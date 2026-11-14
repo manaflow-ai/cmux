@@ -567,7 +567,7 @@ impl Mux {
                 if let Some(runtime) = self.surface(surface) {
                     // The durable record already names the new workspace;
                     // the host copy follows it, as a tab drag's does.
-                    let _ = runtime.persist_host_workspace(&key);
+                    runtime.mirror_host_workspace(&key, "pane.move");
                 }
             }
         }

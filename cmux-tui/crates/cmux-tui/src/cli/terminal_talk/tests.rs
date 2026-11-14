@@ -581,17 +581,34 @@ fn send_refuses_an_agent_that_waits_on_a_dialog_unless_forced() {
     assert_eq!(daemon.writes().len(), 2);
 }
 
+/// A tab id and a full terminal id of the snapshot select without a lookup;
+/// a title, a prefix or a name is the daemon's to resolve (W5-P), and its
+/// refusal is the send's error.
 #[test]
-fn send_finds_terminals_by_tab_prefix_and_title() {
+fn send_finds_terminals_by_tab_and_id_and_asks_the_daemon_for_the_rest() {
+    let daemon = ResolvingDaemon {
+        inner: FakeDaemon::new(snapshot(), &[(1, "")]),
+        selects: vec![
+            ("term_c1a0", Ok("term_c1a0de00000000000000000000000001")),
+            ("Fix lag", Ok("term_c1a0de00000000000000000000000001")),
+            ("nothing", Err(json!({"code": "selector.not_found", "message": "no terminal"}))),
+        ],
+    };
     let snapshot = snapshot();
     let id = |target: &str| {
-        send::find_terminal(&snapshot, target).map(|terminal| terminal["id"].clone()).ok()
+        send::find_terminal(&daemon, None, &snapshot, target)
+            .map(|terminal| terminal["id"].clone())
+            .map_err(|failure| failure.failure.error["code"].clone())
     };
-    assert_eq!(id("tab_muse"), Some(json!("term_0005e000000000000000000000000002")));
-    assert_eq!(id("term_c1a"), Some(json!("term_c1a0de00000000000000000000000001")));
-    assert_eq!(id("Fix lag"), Some(json!("term_c1a0de00000000000000000000000001")));
-    assert_eq!(id("term_"), None, "ambiguous");
-    assert_eq!(id("nothing"), None);
+    assert_eq!(id("tab_muse"), Ok(json!("term_0005e000000000000000000000000002")));
+    assert_eq!(
+        id("term_5be11000000000000000000000000003"),
+        Ok(json!("term_5be11000000000000000000000000003"))
+    );
+    assert!(daemon.inner.sent.borrow().is_empty(), "no lookup for an id of the snapshot");
+    assert_eq!(id("term_c1a0"), Ok(json!("term_c1a0de00000000000000000000000001")));
+    assert_eq!(id("Fix lag"), Ok(json!("term_c1a0de00000000000000000000000001")));
+    assert_eq!(id("nothing"), Err(json!("selector.not_found")));
 }
 
 #[test]
@@ -1478,4 +1495,145 @@ fn w5r_send_of_bang_and_hash_input_to_a_hook_agent_is_not_stalled() {
             outcome.err().map(|failure| failure.failure.error)
         );
     }
+}
+
+/// [`FakeDaemon`] whose `terminal.get` answers each selector of `selects` as
+/// the daemon's one selector resolver (W5-P) does: the object's id, or the
+/// daemon's error. Any other request goes to `inner`.
+struct ResolvingDaemon {
+    inner: FakeDaemon,
+    selects: Vec<(&'static str, Result<&'static str, Value>)>,
+}
+
+impl Daemon for ResolvingDaemon {
+    fn request(&self, session: Option<&str>, plan: RequestPlan) -> Result<Value, CallFailure> {
+        let request = request_value(&plan).expect("a valid request");
+        let selected = self
+            .selects
+            .iter()
+            .find(|(selector, _)| {
+                request["operation"] == "terminal.get" && request["params"]["terminal"] == *selector
+            })
+            .map(|(_, answer)| answer.clone());
+        let Some(answer) = selected else { return self.inner.request(session, plan) };
+        self.inner.sent.borrow_mut().push(("terminal.get".into(), request["params"].clone()));
+        match answer {
+            Ok(id) => Ok(json!({"id": id, "lifecycle": "running", "extra": {}})),
+            Err(error) => {
+                Err(CallFailure { kind: FailureKind::Rejected, error, idempotency_key: None })
+            }
+        }
+    }
+}
+
+/// `terminal … send` selects its terminal with the daemon's one selector
+/// resolver (W5-P), as `terminal … show` does: a word only the daemon knows
+/// (`focused`) selects the terminal the daemon answers, and a word the daemon
+/// refuses (an id prefix of 2 hex digits) is refused with the daemon's own
+/// error before anything is written.
+#[test]
+fn w5p_send_selects_the_terminal_the_daemons_resolver_selects() {
+    let codex = "term_c0dec000000000000000000000000004";
+    let short = json!({
+        "code": "validation.invalid",
+        "message": "term_c0 is not an id: an id prefix needs at least 4 hex digits after term_, \
+                    and this one has 2",
+        "details": {},
+        "retryable": false,
+    });
+    let daemon = ResolvingDaemon {
+        inner: FakeDaemon::new(snapshot(), &[(1, "")]),
+        selects: vec![("focused", Ok(codex)), ("term_c0", Err(short))],
+    };
+    let focused =
+        SendRequest { target: "focused".into(), force: true, wait: Wait::None, ..quick("hi") };
+    send::run(&daemon, None, &focused).expect("focused selects the terminal the daemon answers");
+    let written: Vec<Value> = daemon
+        .inner
+        .sent
+        .borrow()
+        .iter()
+        .filter(|(operation, _)| operation == "terminal.input.write")
+        .map(|(_, params)| params["terminal"].clone())
+        .collect();
+    assert!(!written.is_empty() && written.iter().all(|terminal| terminal == codex), "{written:?}");
+
+    let before = daemon.inner.writes().len();
+    let short = SendRequest { target: "term_c0".into(), ..focused };
+    let failure = send::run(&daemon, None, &short).expect_err("the daemon refuses 2 digits");
+    assert_eq!(failure.failure.error["code"], "validation.invalid");
+    assert!(
+        failure.failure.error["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("at least 4 hex digits")),
+        "{}",
+        failure.failure.error
+    );
+    assert_eq!(daemon.inner.writes().len(), before, "nothing is written");
+}
+
+/// A daemon whose `current` parents are the place the person focuses (as
+/// the real one's are): `word` selects `focused` under any parent, and with
+/// no parents (the session rules) it is `selector.ambiguous` between
+/// `candidates`.
+struct FocusDaemon {
+    inner: FakeDaemon,
+    word: &'static str,
+    focused: &'static str,
+    candidates: [&'static str; 2],
+}
+
+impl Daemon for FocusDaemon {
+    fn request(&self, session: Option<&str>, plan: RequestPlan) -> Result<Value, CallFailure> {
+        let request = request_value(&plan).expect("a valid request");
+        let operation = request["operation"].as_str().unwrap_or_default().to_owned();
+        let params = request["params"].clone();
+        let selects = operation
+            .strip_suffix(".get")
+            .filter(|scope| params[*scope] == self.word)
+            .map(str::to_owned);
+        let Some(scope) = selects else { return self.inner.request(session, plan) };
+        self.inner.sent.borrow_mut().push((operation, params.clone()));
+        let placed = ["workspace", "screen", "pane", "tab"]
+            .iter()
+            .any(|parent| *parent != scope && params.get(*parent).is_some());
+        if placed {
+            return Ok(json!({"id": self.focused, "lifecycle": "running", "extra": {}}));
+        }
+        Err(CallFailure {
+            kind: FailureKind::Rejected,
+            error: json!({
+                "code": "selector.ambiguous",
+                "message": format!("2 terminals have the title {}", self.word),
+                "details": {"scope": scope, "selector": self.word, "candidates": self.candidates},
+                "retryable": false,
+            }),
+            idempotency_key: None,
+        })
+    }
+}
+
+/// `terminal … send` (and the MCP terminal tools) to a title two terminals
+/// share is `selector.ambiguous` with both candidates even while the person
+/// focuses one of them (W5-P): the send never takes the person's focus as a
+/// tie-break, and nothing is written.
+#[test]
+fn w5p_send_to_a_shared_title_is_ambiguous_even_when_the_person_focuses_one() {
+    let claude = "term_c1a0de00000000000000000000000001";
+    let muse = "term_0005e000000000000000000000000002";
+    let mut shared = snapshot();
+    shared["terminals"][0]["title"] = json!("build");
+    shared["terminals"][1]["title"] = json!("build");
+    let daemon = FocusDaemon {
+        inner: FakeDaemon::new(shared, &[(1, "")]),
+        word: "build",
+        focused: claude,
+        candidates: [claude, muse],
+    };
+    let request =
+        SendRequest { target: "build".into(), force: true, wait: Wait::None, ..quick("hi") };
+    let failure = send::run(&daemon, None, &request).expect_err("two terminals have the title");
+    assert_eq!(failure.failure.error["code"], "selector.ambiguous", "{}", failure.failure.error);
+    assert_eq!(failure.failure.error["details"]["candidates"], json!([claude, muse]));
+    assert!(daemon.inner.writes().is_empty(), "nothing is written");
 }
