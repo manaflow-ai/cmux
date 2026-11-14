@@ -321,7 +321,7 @@ fn raw(text: &str) -> RawJson {
 /// A settled row as the daemon stores it: its bytes are passed on as they are, escapes and all.
 fn row(id: u64, rev: u32) -> RawJson {
     raw(&format!(
-        r#"{{"id":{id},"rev":{rev},"kind":"assistant","body":{{"text":"row {id} r{rev}: café \"quoted\" ✓"}}}}"#
+        r#"{{"id":{id},"rev":{rev},"kind":"assistant","body":{{"text":"row {id} r{rev}: caf\u00e9 \"quoted\" \u2713"}}}}"#
     ))
 }
 
@@ -384,7 +384,7 @@ fn kinds(step: &Step) -> Vec<String> {
 }
 
 /// The body of open row 30, as the daemon stores it, and the two ranges of it the script reads.
-const OPEN_BODY: &str = r#"{"text":"streaming café so far"}"#;
+const OPEN_BODY: &str = r#"{"text":"streaming caf\u00e9 so far"}"#;
 
 #[test]
 fn the_chat_stream_is_recorded() {
@@ -412,7 +412,7 @@ fn the_chat_stream_is_recorded() {
     let ops = vec![
         settled(11, 11),
         ChatOp::Row { seq: 11, row: open_row(12, "the next"), body_len: None },
-        ChatOp::Text { seq: 11, row_id: 12, text: raw(r#"" turn — on""#) },
+        ChatOp::Text { seq: 11, row_id: 12, text: raw(r#"" turn \u2014 on""#) },
         ChatOp::Patch { seq: 12, row: row(4, 2) },
         ChatOp::Queue {
             seq: 12,
@@ -479,7 +479,7 @@ fn the_chat_stream_is_recorded() {
     let reply =
         rec.call(json!({"call": "chat_blob", "request": {"sid": SID, "rowId": 25, "len": 4096}}));
     let id = reply.unwrap()["id"].as_str().unwrap().to_owned();
-    let body = r#"{"text":"row 25 r1: café \"quoted\" ✓"}"#;
+    let body = r#"{"text":"row 25 r1: caf\u00e9 \"quoted\" \u2713"}"#;
     let head = BlobHead {
         id,
         start: 0,
@@ -493,7 +493,7 @@ fn the_chat_stream_is_recorded() {
     let step = rec.step("blob-settled", blob_frame(&head, body.as_bytes()).unwrap().encode());
     assert_eq!(kinds(step), ["chatBlob"]);
 
-    // The open row's body in two ranges; the first ends inside `é`, so the core gives the
+    // The open row's body in two ranges; the first ends inside `\u00e9`, so the core gives the
     // bytes before it and names where the next range starts.
     let cut = OPEN_BODY.find("\\u00e9").unwrap() + 3;
     let reply =
