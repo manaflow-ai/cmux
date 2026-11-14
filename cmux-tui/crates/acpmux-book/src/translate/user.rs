@@ -116,7 +116,7 @@ pub(super) fn sender(said: &Said<'_>, prompt: &str) -> Sender {
     {
         out.fields.push(("author", author));
     }
-    if let Some(host) = said.client.and_then(|raw| text(raw)).as_deref().and_then(cli_host) {
+    if let Some(host) = said.client.and_then(text).as_deref().and_then(cli_host) {
         out.fields.push(("viaCli", json(Value::String(host.to_owned()))));
     }
     if let Some(agent_text) = said.agent_text.and_then(agent_text) {

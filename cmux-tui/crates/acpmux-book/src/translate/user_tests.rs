@@ -319,7 +319,7 @@ fn a_claim_before_its_prompt_is_held_and_one_after_patches_the_row_with_its_bodi
     let Change::Patch(patch) = &ops[at].change else { unreachable!() };
     assert_eq!(patch.id, settled.id);
     assert_eq!(patch.rev, settled.rev + 1);
-    let mut expected = settled.fields.clone();
+    let mut expected = settled.fields;
     expected.insert("sentFrom".into(), SENT_FROM.into());
     assert_eq!(patch.fields, expected);
     // Its bodies, read again from the prompt's line, just before the patch.
