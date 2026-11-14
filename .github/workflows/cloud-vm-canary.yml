@@ -111,6 +111,9 @@ jobs:
 
       - name: Tell Slack when the state changes
         if: ${{ always() && github.event_name == 'schedule' }}
+        # The run's conclusion must be the canary's alone: a red run from this
+        # step makes the next green run post a false "recovered".
+        continue-on-error: true
         working-directory: .
         env:
           GH_TOKEN: ${{ github.token }}
@@ -125,8 +128,18 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          previous=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow cloud-vm-canary.yml --event schedule \
-            --status completed --limit 1 --json conclusion --jq '.[0].conclusion // "success"')
+          # The lookup shares the repo's installation API quota. When it is
+          # exhausted, a green run skips its "recovered" message and a red run
+          # alerts anyway: a duplicate failure alert beats a lost one.
+          if ! previous=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow cloud-vm-canary.yml --event schedule \
+            --status completed --limit 1 --json conclusion --jq '.[0].conclusion // "success"'); then
+            if [ "$OUTCOME" = "success" ]; then
+              echo "::warning::could not read the previous canary run; no message"
+              exit 0
+            fi
+            echo "::warning::could not read the previous canary run; alerting on this failure"
+            previous=success
+          fi
           # A cancelled or skipped run says nothing about production.
           [ "$previous" = "failure" ] || previous=success
           if [ "$OUTCOME" = "success" ] && [ "$previous" = "failure" ]; then
