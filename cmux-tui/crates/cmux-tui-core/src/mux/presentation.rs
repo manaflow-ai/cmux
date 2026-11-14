@@ -244,18 +244,29 @@ impl Mux {
         let presentation = self.presentation_snapshot();
         let (notifications, directories) = {
             let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-            (self.surface_notifications_in_state(&state), surface_directories_in_state(&state))
+            let lap = crate::measure_probe::now();
+            let notifications = self.surface_notifications_in_state(&state);
+            crate::measure_probe::since("lw.walk_notifications (state lock)", lap);
+            let lap = crate::measure_probe::now();
+            let directories = surface_directories_in_state(&state);
+            crate::measure_probe::since("lw.walk_directories (state lock)", lap);
+            (notifications, directories)
         };
+        let lap = crate::measure_probe::now();
         let directories = self.resolve_tab_directories(directories, true);
+        crate::measure_probe::since("lw.git_heads", lap);
+        let lap = crate::measure_probe::now();
         let pending_terminals = self.pending_terminals_snapshot();
         let terminal_ends = self.terminal_ends_snapshot();
+        let terminal_loss_causes = self.terminal_loss_causes_snapshot();
+        crate::measure_probe::since("lw.decoration_copies", lap);
         TreeDecorations {
             notifications,
             presentation,
             directories,
             pending_terminals,
             terminal_ends,
-            terminal_loss_causes: self.terminal_loss_causes_snapshot(),
+            terminal_loss_causes,
         }
     }
 

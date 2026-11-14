@@ -129,7 +129,12 @@ pub(super) fn list_workspaces_reply_text(
     mux.tree_reply_flight.read_text(
         || super::list_workspaces_tree(mux),
         projection,
-        |tree| render.serialize_tree(tree),
+        |tree| {
+            let lap = crate::measure_probe::now();
+            let text = render.serialize_tree(tree);
+            crate::measure_probe::since("lw.text", lap);
+            text
+        },
     )
 }
 

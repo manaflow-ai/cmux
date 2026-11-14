@@ -287,7 +287,9 @@ pub(super) fn handle_resource_connection_message(
             }
         }
         ResourceOperation::SessionSnapshot => {
+            let lap = crate::measure_probe::now();
             super::incognito_orphans::close_orphaned(mux, client);
+            crate::measure_probe::since("ss.close_orphaned", lap);
             let result = resource_session_snapshot(mux, client, &request.selectors);
             send_resource_response(writer, id, operation, result)
         }
