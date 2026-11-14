@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43648047941",
+  "recorded_at": "2026-11-14T22:36:35Z",
+  "reason": "cmux-tui cf7567fc7080 changes the image's cmux-tui (pinned 2540790a0d92)",
+  "dry_run": false,
+  "cmux_tui": "cf7567fc7080f0a231353a2756fa30c005970eb0",
+  "fixes": [
+    {
+      "sha": "cf7567fc7080f0a231353a2756fa30c005970eb0",
+      "mergedAt": "2026-11-14T14:04:44-08:00",
+      "subject": "acpmux: the person's steer sent as a turn starts goes into that turn, not the queue (#43279)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T22:36:35Z",
+    "snapshot_id": "sh-270eeb75dc284b0e95976058888b6886",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43648047941): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1c9fa243432f638e1ac3ef92c20f19c0491e90d8",
+    "image": "cloud-native-auto-cf7567fc-43648047941-1",
+    "revision": "ci-43648047941-1",
+    "at": "2026-11-14T22:36:35Z"
+  },
+  "rolled_back": false
+}
