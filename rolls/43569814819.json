@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43569814819",
+  "recorded_at": "2026-11-14T07:18:47Z",
+  "reason": "cmux-tui 3816b4fa56c9 changes the image's cmux-tui (pinned 31f557cdd0aa)",
+  "dry_run": false,
+  "cmux_tui": "3816b4fa56c93f07ed3cacaf35c2630d8ddc6557",
+  "fixes": [
+    {
+      "sha": "3816b4fa56c93f07ed3cacaf35c2630d8ddc6557",
+      "mergedAt": "2026-11-13T22:47:38-08:00",
+      "subject": "fix(cmux-tui): the server-stats disk section no longer copies the segments to a temp file"
+    },
+    {
+      "sha": "fb8894f13d597af2eee5441142ede9b2dae5aa3b",
+      "mergedAt": "2026-11-13T22:47:37-08:00",
+      "subject": "test(cmux-tui): the server-stats disk section must read segment sizes, not their content"
+    },
+    {
+      "sha": "11a441c5ef91b7fd960c11e6a2583c28f4ffb29f",
+      "mergedAt": "2026-11-13T22:44:16-08:00",
+      "subject": "acpmux: a million-event chat never rereads its whole log on a turn (#39975)"
+    },
+    {
+      "sha": "eb2177a933b1cdc931cf025a53f1b6918f7282a3",
+      "mergedAt": "2026-11-13T22:44:09-08:00",
+      "subject": "CMUX-383 Step B: native sidebar section customization (#42796)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T07:18:47Z",
+    "snapshot_id": "sh-804852970e294ead95ba2e951b0f9b30",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43569814819): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9ccf4c99291413d8f8bb2f21d84f93d61633ef53",
+    "image": "cloud-native-auto-3816b4fa-43569814819-1",
+    "revision": "ci-43569814819-1",
+    "at": "2026-11-14T07:18:47Z"
+  },
+  "rolled_back": false
+}
