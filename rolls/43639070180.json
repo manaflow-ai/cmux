@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43639070180",
+  "recorded_at": "2026-11-14T20:52:36Z",
+  "reason": "cmux-tui 2d0b7046c8bb changes the image's cmux-tui (pinned 2ba8b457a7b2)",
+  "dry_run": false,
+  "cmux_tui": "2d0b7046c8bbbdab0f747bd2b98fea839883b631",
+  "fixes": [
+    {
+      "sha": "2d0b7046c8bbbdab0f747bd2b98fea839883b631",
+      "mergedAt": "2026-11-14T12:21:26-08:00",
+      "subject": "cmux remote: an invitation bound to one device key enrolls it without a second approval step (#43049)"
+    },
+    {
+      "sha": "5c1606bbbb6cb0b682b53bf74ff0baf0aca32116",
+      "mergedAt": "2026-11-14T12:14:05-08:00",
+      "subject": "agent service v2: the list stream on a peer link (8 part one, wiring) (#42960)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T20:52:36Z",
+    "snapshot_id": "sh-eddf4ee5460b43cf8670222c73bf40e4",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43639070180): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a036d0ef966ceb82ebae227486692759fd6f8535",
+    "image": "cloud-native-auto-2d0b7046-43639070180-1",
+    "revision": "ci-43639070180-1",
+    "at": "2026-11-14T20:52:36Z"
+  },
+  "rolled_back": false
+}
