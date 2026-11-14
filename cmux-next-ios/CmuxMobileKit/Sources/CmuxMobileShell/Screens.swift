@@ -77,6 +77,7 @@ struct WorkspacesScreen: View {
                 reconnect: shell.live.map { live in
                     { macID in live.retry(macID: macID) }
                 },
+                lookAtCloud: shell.live.map { live in { live.lookedAtCloudMachine($0) } },
                 linking: shell.live.map { live in
                     MacLinking(link: { live.select(macID: $0) }, canLink: { live.canLink(macID: $0) },
                                isLinkTarget: { live.isLinked(macID: $0) })

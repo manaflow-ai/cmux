@@ -158,6 +158,20 @@ public final class LiveCoordinator {
     /// Failed dials in a row, by machine: each waits longer before a read may dial it again
     /// (as quick drops do), so an unreachable machine is not dialed at every read.
     @ObservationIgnored var cloudDialFailures: [String: Int] = [:]
+    /// Why each held Cloud machine's last dial failed, shown on its line until a link comes up.
+    @ObservationIgnored var cloudDialFailureReason: [String: String] = [:]
+
+    /// A failed Cloud dial's reason in the person's words (never a raw code or a vendor).
+    nonisolated static func cloudDialReason(_ error: any Error) -> String {
+        guard let error = error as? LinkError else { return "the machine didn't answer" }
+        switch error.code {
+        case "transport", "timeout": return "the machine didn't answer in time"
+        case "closed", "signaling": return "the connection to the machine closed"
+        case CloudCarrierDialer.keychainLocked: return "the phone is locked"
+        case CloudCarrierDialer.answerCode: return "the cmux service sent a reply the app can't use"
+        default: return "the machine didn't answer"
+        }
+    }
 
     /// Where the holds stand when a list read begins (pass it back with that read's answer).
     public var cloudReadStamp: Int { cloudHoldSerial }

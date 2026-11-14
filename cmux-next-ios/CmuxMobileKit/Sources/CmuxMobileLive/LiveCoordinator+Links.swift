@@ -52,8 +52,10 @@ extension LiveCoordinator {
             session.link.resumesByProbe = true
             // A failed dial waits for a read like a drop: its retries (silent, backoff, network
             // change) would otherwise ask the service again and start a machine that idle-paused.
-            session.link.onDialFailed = { [weak self, weak session] in
+            session.link.onDialFailed = { [weak self, weak session] error in
                 guard let self, let session else { return }
+                // Why, kept on its line while it waits for a read ("Can't connect: …", Retry).
+                        self.cloudDialFailureReason[session.macID] = Self.cloudDialReason(error)
                 self.holdCloudRedial(session, readNow: false)
             }
             session.link.onPermanentRefusal = { [weak self, weak session] error in
@@ -234,6 +236,7 @@ extension LiveCoordinator {
         }
         session.linkUpAt = cloudNow()
         cloudDialFailures[macID] = nil
+        cloudDialFailureReason[macID] = nil
         if let prepared = session.link.takePrepared(for: link) as? PreparedLink {
             // The dial already opened `auth` and `daemon`: serve now, in this turn.
             ConnectTimeline.shared.mark("link_served")
@@ -1025,6 +1028,14 @@ extension LiveCoordinator {
         guard !macID.isEmpty, sessions[macID] === session else { return }
         switch session.link.phase {
         case .idle:
+            // A Cloud machine whose dial failed, held until a read: its line keeps why
+            // ("Can't connect: …", Retry), not a quiet "Not connected" (live capture at e8a158c3).
+            if session.isCloud, let why = cloudDialFailureReason[macID], cloudDialHeld(macID) {
+                session.fedData = false
+                store.handleMacData(.failed(why), macID: macID)
+                store.macConnection[macID] = .failed(why)
+                break
+            }
             // The link closed (idle, or the Mac left the policy): the list on
             // screen is last-known data, quietly (no "Can't connect").
             guard session.fedData || store.macConnection[macID] != nil else { return }

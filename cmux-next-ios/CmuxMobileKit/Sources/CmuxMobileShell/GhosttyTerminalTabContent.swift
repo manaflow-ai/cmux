@@ -142,6 +142,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
 
     /// Whether the tab would get a live session now (the tree lists its surface).
     var hasLiveSession: (@MainActor (_ tabID: String, _ macID: String?) -> Bool)?
+    /// Whether a machine id is a Cloud machine (its tabs say "Machine offline", not "Mac offline").
+    var isCloudMachine: (@MainActor (String) -> Bool)?
 
     private func canGoLive(_ id: String) -> Bool {
         hasLiveSession?(id, placeholderTabs[id]?.workspace.macID) ?? false
@@ -366,7 +368,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// its reattach has lasted 400 ms or more.
     func statusSubtitle(for tab: WorkspaceTab) -> String? {
         let indicator = indicator(tab.id)
-        if indicator.isOffline { return "Mac offline" }
+        if indicator.isOffline {
+            // A Cloud machine's tab is a machine, not a Mac (live capture at e8a158c3).
+            return hostMacs[tab.id].map { isCloudMachine?($0) ?? false } == true ? "Machine offline" : "Mac offline"
+        }
         return indicator.isShown ? "Reattaching…" : nil
     }
 

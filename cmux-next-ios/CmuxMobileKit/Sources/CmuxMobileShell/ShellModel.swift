@@ -301,6 +301,7 @@ final class ShellModel {
                 self?.connectedDevices = ConnectedDevicesItem(live: session.sizing, macID: macID, surface: session.surface)
             }
             terminalTabs.hasLiveSession = { [weak live] id, macID in live?.hasLiveSession(tabID: id, macID: macID) ?? false }
+            terminalTabs.isCloudMachine = { [weak live] macID in live?.isCloud(macID: macID) ?? false }
             terminalTabs.workspaceLookup = { [weak store] id in store?.workspace(id: id) }
             // A Cloud machine's carrier serves no `file` or `upload`: no Files previews and no
             // attachments there (hidden, not refused).
@@ -359,6 +360,7 @@ final class ShellModel {
             terminalTabs.sessionProvider = nil
             terminalTabs.showConnectedDevices = nil
             terminalTabs.hasLiveSession = nil
+            terminalTabs.isCloudMachine = nil
             terminalTabs.artifactSourceProvider = nil
             terminalTabs.uploaderProvider = nil
             terminalTabs.screenTextProvider = nil

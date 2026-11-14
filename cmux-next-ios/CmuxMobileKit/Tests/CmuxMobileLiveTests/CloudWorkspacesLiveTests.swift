@@ -245,6 +245,11 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         live.cloudHoldNotBefore[vm] = ContinuousClock.now + .seconds(120)
         live.showing(macIDs: [vm])
         #expect(asks >= 1, "opening the held machine asked for no read")
+        // Live capture at e8a158c3: unfolding a machine's line (paused, maybe started elsewhere)
+        // reads the list at once.
+        let before = asks
+        live.lookedAtCloudMachine(vm)
+        #expect(asks == before + 1, "unfolding a Cloud machine asked for no read")
         #expect(live.cloudHoldNotBefore[vm] == nil, "opening the machine kept its wait")
     }
 
@@ -456,6 +461,11 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         await drain()
         #expect(cloud.dials(vm) == 1, "a failed dial was retried before a read")
         #expect(heldAsks == 1, "the poll was not asked for a read")
+        // Live capture at e8a158c3: the held machine's line said "Not connected · Connect" (the
+        // un-target posted a quiet disconnect). It keeps why, with Retry, until a dial succeeds.
+        await settle { live.sessions[vm]?.link.target == nil }
+        #expect(store.macConnection[vm] == .failed("the machine didn't answer in time"))
+        #expect(store.macDataPhase(vm) == .failed("the machine didn't answer in time"))
         // An older list (begun before the failure) keeps the hold; a read after it says it runs.
         let stale = live.cloudReadStamp - 1
         live.applyCloudMachines([machine(.running)], fromRead: true, readStamp: stale)

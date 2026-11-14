@@ -55,9 +55,11 @@ extension WorkspacesList {
             Button {
                 guard foldable else { return }
                 theme.haptics.selection()
+                let opening = !unfolded.contains(machine.id)
                 withAnimation(theme.motion.smooth.animation.unlessReduceMotion) {
-                    if unfolded.contains(machine.id) { unfolded.remove(machine.id) } else { unfolded.insert(machine.id) }
+                    if opening { unfolded.insert(machine.id) } else { unfolded.remove(machine.id) }
                 }
+                if opening { lookAtCloud?(machine.id) }
             } label: {
                 HStack(spacing: 0) {
                     Image(systemName: symbol)

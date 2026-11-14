@@ -64,7 +64,7 @@ public final class LinkController {
     @ObservationIgnored public var onPermanentRefusal: (@MainActor (LinkError) -> Void)?
     /// A dial failed (not cancelled, not a permanent refusal or a revoked session), before the
     /// failure is counted: a Cloud session holds its redial here, so no retry dials first.
-    @ObservationIgnored public var onDialFailed: (@MainActor () -> Void)?
+    @ObservationIgnored public var onDialFailed: (@MainActor (_ error: any Error) -> Void)?
     /// See ``LinkMachine/resumesByProbe``.
     public var resumesByProbe: Bool {
         get { machine.resumesByProbe }
@@ -290,7 +290,7 @@ public final class LinkController {
                         // A refused token is retried at once with a fresh one, as part of the same
                         // attempt: the service refused it before anything else (no machine starts),
                         // and a second refusal is the signed-out path.
-                        self?.onDialFailed?()
+                        self?.onDialFailed?(error)
                     }
                     self?.send(.dialFailed(generation: generation, reason: Self.reason(error)))
                 }

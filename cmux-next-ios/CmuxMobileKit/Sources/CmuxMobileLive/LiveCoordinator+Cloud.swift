@@ -149,6 +149,14 @@ extension LiveCoordinator {
         onCloudRefusal?(machineID, error.code)
     }
 
+    /// The person looked at a Cloud machine whose line is not running (unfolded it): its state may
+    /// have moved since the last read (started elsewhere), so read the list now, not at the next
+    /// idle poll (live capture at e8a158c3: a machine started elsewhere stayed "Paused" for 18 s).
+    public func lookedAtCloudMachine(_ machineID: String) {
+        guard isCloud(macID: machineID) else { return }
+        onCloudHoldsWaiting?(false)
+    }
+
     /// Whether the carrier refused this machine (Retry clears it).
     public func isCloudRefused(_ machineID: String) -> Bool { cloudRefusals[machineID] != nil }
 

@@ -28,6 +28,8 @@ public struct WorkspacesList: View {
     var accountEmail: String?
     /// Links a Mac (live only): a Mac whose list the phone does not have.
     var reconnect: ((String) -> Void)?
+    /// A Cloud machine's line was unfolded (live only): its state is read again now.
+    var lookAtCloud: ((String) -> Void)?
     /// Moves the link to a Mac (live only; nothing when it is already the
     /// link's Mac). Called whenever the list is filtered to an online Mac or
     /// one of its workspaces opens (`MacScope.macToLink`).
@@ -90,7 +92,7 @@ public struct WorkspacesList: View {
     @State private var isShown = false
 
     public init(store: AppStore, creator: WorkspaceCreator, accountEmail: String? = nil,
-                reconnect: ((String) -> Void)? = nil, linking: MacLinking? = nil,
+                reconnect: ((String) -> Void)? = nil, lookAtCloud: ((String) -> Void)? = nil, linking: MacLinking? = nil,
                 refresh: (() async -> Void)? = nil, retryLoad: (() async -> Void)? = nil,
                 switchTeam: ((String) -> Void)? = nil, openAccount: (() -> Void)? = nil,
                 filter: MacFilter = MacFilter(),
@@ -99,6 +101,7 @@ public struct WorkspacesList: View {
         self.creator = creator
         self.accountEmail = accountEmail
         self.reconnect = reconnect
+        self.lookAtCloud = lookAtCloud
         self.linking = linking
         self.refresh = refresh
         self.retryLoad = retryLoad
@@ -789,7 +792,7 @@ public struct WorkspacesList: View {
         let detail = switch fold.reason {
         case .offline: RelativeStamp(now: now).presence(isOnline: false, lastSeenAt: fold.mac.lastSeenAt)
         case .notConnected: "Not connected"
-        case .failed: "Can't connect"
+        case .failed(let why): fold.mac.isCloud ? "Can't connect: \(why)" : "Can't connect"
         // A Cloud machine's state has its own line (`cloudFoldLine`).
         case .cloudPaused, .cloudWaking, .cloudFailed, .cloudEmpty: Self.cloudFoldText(fold).detail
         }
