@@ -1566,17 +1566,31 @@ async fn authenticate_one(
     context: LinkHandshakeContext,
 ) -> Result<(Vec<Lane>, crate::crypto::SecureLink, BTreeMap<Lane, u64>), ConnectionError> {
     let primary = lanes[0];
-    let physical =
-        group.open(LinkRequest { lane: primary, generation: context.generation }).await?;
-    // Every step of a link's setup shares the attempt's deadline, the daemon's welcome and its
-    // link-ready too: a link that stalls after the Noise exchange fails this attempt (so it is
-    // retried) instead of hanging it, and cannot hand back a session the daemon dropped meanwhile
-    // as an incomplete link group. An invitation is the exception: its welcome waits on a person's
-    // approval, so only its link-ready, once the welcome is in, has the deadline.
+    // Every step of a link's setup shares the attempt's deadline: opening the carrier (a direct
+    // WebSocket's TCP, TLS and upgrade, a relay circuit), the Noise exchange, the daemon's welcome
+    // and its link-ready. The clock starts before the open, so a carrier that accepts and then
+    // never finishes opening fails this attempt (and the first connect, which has no outer
+    // deadline of its own) instead of hanging it. A link that stalls after the Noise exchange
+    // fails the attempt too (so it is retried), and cannot hand back a session the daemon dropped
+    // meanwhile as an incomplete link group. An invitation is the exception: its welcome waits on
+    // a person's approval, so only its open and its link-ready, once the welcome is in, have the
+    // deadline.
     let timeout = config.reconnect.attempt_timeout;
     let timed_out = || ConnectionError::Crypto(CryptoError::HandshakeTimeout { timeout });
     let invitation = matches!(auth, ClientAuthMode::Invitation { .. });
     let started = tokio::time::Instant::now();
+    let physical = tokio::time::timeout_at(
+        started + timeout,
+        group.open(LinkRequest { lane: primary, generation: context.generation }),
+    )
+    .await
+    .map_err(|_| {
+        ConnectionError::Provider(ProviderError::Link(LinkError::Transport(format!(
+            "opening lane {primary} on {} did not finish within {}",
+            group.description(),
+            crate::provider::DisplaySeconds(timeout)
+        ))))
+    })??;
     let setup = initiate_secure_link(
         physical,
         ClientHandshake {
