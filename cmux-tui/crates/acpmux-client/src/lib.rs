@@ -3384,12 +3384,10 @@ tail"#;
     #[test]
     #[ignore = "release gate: run once through cmux-ci with --profile gate"]
     fn v2_pr04b_mirror_v1_rows_gate() {
-        fn sample(closed_rows: usize) -> (u64, u64, u64, u64) {
+        fn sample(closed_rows: usize) -> (u64, u64) {
             use acpmux_book::index::{ReadSide, SummaryIndex};
 
             let mut timings = Vec::new();
-            let mut received_timings = Vec::new();
-            let mut next_change_timings = Vec::new();
             let mut received = 0_u64;
             for _ in 0..8 {
                 let mut client = Client::<Value>::connected_v2();
@@ -3416,7 +3414,7 @@ tail"#;
                 for row_id in 0..20 {
                     let mut row = Summary::new(format!("live-{row_id}"));
                     row.state = "idle".into();
-                    row.last_activity = (closed_rows + row_id) as u64;
+                    row.last_activity = 11_000 + row_id as u64;
                     index = index.apply((closed_rows + row_id) as u64 + 1, row);
                 }
                 let page = index
@@ -3439,34 +3437,18 @@ tail"#;
                 received = received.saturating_add(frame.len() as u64);
                 let started = std::time::Instant::now();
                 assert_eq!(client.received(&frame), frame.len());
-                let received_elapsed = started.elapsed().as_nanos() as u64;
-                let next_change_started = std::time::Instant::now();
                 assert!(matches!(client.next_change(), Some(Change::Window(_))));
-                let next_change_elapsed = next_change_started.elapsed().as_nanos() as u64;
                 timings.push(started.elapsed().as_nanos() as u64);
-                received_timings.push(received_elapsed);
-                next_change_timings.push(next_change_elapsed);
             }
             timings.sort_unstable();
-            received_timings.sort_unstable();
-            next_change_timings.sort_unstable();
-            (
-                timings[timings.len() / 2],
-                received_timings[received_timings.len() / 2],
-                next_change_timings[next_change_timings.len() / 2],
-                received,
-            )
+            (timings[timings.len() / 2], received)
         }
-        let (small, small_received, small_next_change, small_bytes) = sample(0);
-        let (god, god_received, god_next_change, god_bytes) = sample(11_000);
+        let (small, small_bytes) = sample(0);
+        let (god, god_bytes) = sample(11_000);
         let line = serde_json::json!({
             "name":"v2.pr04b.mirror_v1_rows",
             "small_p95":small,
             "god_p95":god,
-            "small_received":small_received,
-            "god_received":god_received,
-            "small_next_change":small_next_change,
-            "god_next_change":god_next_change,
             "unit":"ns",
             "small_bytes":small_bytes,
             "god_bytes":god_bytes
