@@ -140,29 +140,51 @@ import Testing
     /// Drop to the hub's reattach call, 8 drops in a row: the timing the conn-quiet table quotes
     /// (`drop_to_reattach_ms p50/p95`). Builds at base too, where every drop waited 1 s.
     @Test func dropToReattachIsUnder250MillisecondsAtP95() async throws {
-        let (service, _) = makeService()
-        let viewer = try #require(service.connect(to: mac(), scope: .full))
-        viewer.requestAnswered(.success(HubSession(id: "s9", state: .approved, scope: .full)), scope: .full)
-        service.route(.sessionTicket(ticket("s9", scope: .full)))
-        let reattach = Reattachments()
-        viewer.reattachSession = { _, id in
-            await reattach.record(id)
-            return self.ticket(id, scope: .full)
-        }
         var samples: [Double] = []
+        // One drop per viewer: each is the first drop of a stream (a stream that came up and
+        // dropped starts its backoff over; the tests' streams never come up on their own).
         for _ in 0 ..< 8 {
+            let (service, _) = makeService()
+            let viewer = try #require(service.connect(to: mac(), scope: .full))
+            viewer.requestAnswered(.success(HubSession(id: "s9", state: .approved, scope: .full)), scope: .full)
+            service.route(.sessionTicket(ticket("s9", scope: .full)))
+            let reattach = Reattachments()
+            viewer.reattachSession = { _, id in
+                await reattach.record(id)
+                return self.ticket(id, scope: .full)
+            }
             let droppedAt = ContinuousClock.now
             viewer.streamDropped("s9")
             _ = await reattach.wait()
             let elapsed = ContinuousClock.now - droppedAt
             samples.append(Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15)
-            // The ticket's accept runs right after the call returns.
-            for _ in 0 ..< 200 where viewer.phase != .streaming(sessionID: "s9", scope: .full) { await Task.yield() }
+            viewer.close(reason: .viewerDisconnected)
         }
         samples.sort()
         let p50 = samples[samples.count / 2], p95 = samples[samples.count - 1]
         print("conn-quiet drop_to_reattach_ms p50=\(Int(p50)) p95=\(Int(p95)) n=\(samples.count)")
         #expect(p95 < 250)
+    }
+
+    /// A stream that drops again before it ever came up does not ask the hub again at once,
+    /// over and over: the second drop waits the backoff's next step.
+    @Test func aStreamThatNeverComesUpBacksOffInsteadOfLooping() async throws {
+        let (service, _) = makeService()
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        viewer.requestAnswered(.success(HubSession(id: "s11", state: .approved, scope: .full)), scope: .full)
+        service.route(.sessionTicket(ticket("s11", scope: .full)))
+        let reattach = Reattachments()
+        viewer.reattachSession = { _, id in
+            await reattach.record(id)
+            return self.ticket(id, scope: .full)
+        }
+        viewer.streamDropped("s11")
+        _ = await reattach.wait()
+        for _ in 0 ..< 200 where viewer.phase != .streaming(sessionID: "s11", scope: .full) { await Task.yield() }
+        let droppedAgainAt = ContinuousClock.now
+        viewer.streamDropped("s11")
+        _ = await reattach.wait()
+        #expect(ContinuousClock.now - droppedAgainAt >= .seconds(1))
         viewer.close(reason: .viewerDisconnected)
     }
 
