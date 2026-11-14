@@ -24,6 +24,7 @@ use super::{GlobalArgs, OutputMode, UsageError};
 /// app's own error reaches it.
 const AUTH_TOKEN_TIMEOUT: Duration = Duration::from_secs(30);
 /// `auth.status` is a local read of the app's signed-in state.
+// timeout: the email is optional in `whoami`; an app that does not answer this local read leaves it null.
 const STATUS_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, PartialEq, Eq)]
