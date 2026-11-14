@@ -1,5 +1,4 @@
 import CmuxNextActions
-import CmuxNextAgentPane
 import CmuxNextWindowRules
 
 /// Shared routing and page-action plumbing for Session Info screen sharing.
@@ -10,17 +9,15 @@ public struct ScreenShareAction {
         case refused(String)
         case notRun
     }
+    public typealias Perform = (ActionID, ActionTargetRef, [String: String], String?) -> Result
 
     private let localMachineID: String
-    private let showsInApp: (String) -> Bool
 
-    public init(localMachineID: String, showsInApp: @escaping (String) -> Bool) {
+    public init(localMachineID: String) {
         self.localMachineID = localMachineID
-        self.showsInApp = showsInApp
     }
 
     public func run(
-        registry: ActionRegistry,
         session: String,
         actualSession: String,
         machineID: String,
@@ -31,6 +28,7 @@ public struct ScreenShareAction {
         registryHost: String?,
         localSummaryCurrent: Bool,
         unavailable: String,
+        perform: @escaping Perform,
     ) -> Result {
         let chat = WindowRules.ScreenShareChat(expectedSessionId: session, sessionId: actualSession, host: host, hostKind: hostKind,
                                                peer: peer, registryHost: registryHost, localSummaryCurrent: localSummaryCurrent)
@@ -44,27 +42,19 @@ public struct ScreenShareAction {
             action = "cloudOpenDesktop"; target = .init(kind: .machine, id: machine)
         default: return .refused(unavailable)
         }
-        return result(registry.runPageAction(action, invocation: .init(target: target, origin: .user), showsInApp: showsInApp))
+        return perform(action, target, [:], nil)
     }
 
     public func runPageAction(
-        registry: ActionRegistry,
         id: String,
         arguments: [String: String],
         machine: String,
         target: () -> ActionTargetRef?,
         screenShare: () -> Result,
+        perform: @escaping Perform,
     ) -> Result {
         if id == "session.screenShare" { return screenShare() }
         guard let target = target() else { return .notRun }
-        return result(registry.runPageAction(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user).onMachine(target.kind == .tab ? machine : nil), showsInApp: showsInApp))
-    }
-
-    private func result(_ run: AgentPaneActionRun) -> Result {
-        switch run {
-        case .ran: .ran
-        case .refused(let reason): .refused(reason)
-        case .notRun: .notRun
-        }
+        return perform(ActionID(rawValue: id), target, arguments, target.kind == .tab ? machine : nil)
     }
 }
