@@ -47,13 +47,15 @@ export function NewTabAppPage({ app, cwd, onUnavailable, inputToken, onInputRead
       mount.stop();
     };
   }, [mount]);
-  // The app holds the keys typed after Cmd-T until the page says it is ready. This page has no
-  // field, so it is ready as soon as it shows (cmux's own page, if it takes over, reports for itself).
+  // The app holds the keys typed after Cmd-T until the page says it is ready. The extension's field
+  // (an autofocus TextField) exists only once its first scene has committed, so the page is ready
+  // then, not while it loads; if it fails, cmux's own page takes over and reports for itself.
   const report = useEffectEvent((token: string) => onInputReady?.(token));
+  const drawn = status.state === "ready";
   useEffect(() => {
-    if (!inputToken) return;
+    if (!inputToken || !drawn) return;
     return reportInputReadyWhenFocused(globalThis.window, () => report(inputToken));
-  }, [inputToken]);
+  }, [inputToken, drawn]);
   if (failed) return null;
   return (
     <div className="nt-app-page" data-app={app} data-status={status.state} aria-busy={status.state === "loading"}>
