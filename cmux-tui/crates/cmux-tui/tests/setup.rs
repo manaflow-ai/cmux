@@ -45,6 +45,20 @@ struct World {
     /// person's global agent configs only from a shipped build, never from a
     /// cargo target folder.
     cli: PathBuf,
+    /// Where `with_cli_at` puts the CLI's links: under cargo's temporary
+    /// folder, on the test binary's file system.
+    clis: PathBuf,
+}
+
+impl Drop for World {
+    /// Removes the world and its CLI links: every test makes one, and the
+    /// builder's /tmp is shared and bounded.
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.clis);
+        if let Some(root) = self.home.parent() {
+            let _ = std::fs::remove_dir_all(root);
+        }
+    }
 }
 
 impl World {
@@ -67,6 +81,8 @@ impl World {
             fake_ssh: false,
             app: None,
             cli: PathBuf::from(env!("CARGO_BIN_EXE_cmux-tui")),
+            clis: Path::new(env!("CARGO_TARGET_TMPDIR"))
+                .join(format!("cxs-cli-{name}-{}-{stamp}-{n}", std::process::id())),
         };
         for path in [&world.home, &world.acpmux, &world.repo, &world.bin] {
             std::fs::create_dir_all(path).unwrap();
@@ -74,10 +90,12 @@ impl World {
         world
     }
 
-    /// Runs every command from a copy of the test binary at `relative` under
-    /// the world (a hard link when the file system allows one), inside an app
-    /// bundle with `bundle_id` when given: `<relative>` is then the bundle's
-    /// path and the CLI is its `Contents/Resources/bin/cmux`.
+    /// Runs every command from a hard link of the test binary at `relative`,
+    /// inside an app bundle with `bundle_id` when given: `<relative>` is then
+    /// the bundle's path and the CLI is its `Contents/Resources/bin/cmux`.
+    /// The link lives under cargo's own temporary folder (`clis`), on the
+    /// binary's file system, so no test copies a binary of a gigabyte or more
+    /// into /tmp (a full disk on the Rust builder, 2026-11-14).
     fn with_cli_at(mut self, relative: &str, bundle_id: Option<&str>) -> Self {
         self.use_cli_at(relative, bundle_id);
         self
@@ -85,7 +103,7 @@ impl World {
 
     /// [`Self::with_cli_at`] on a world in use.
     fn use_cli_at(&mut self, relative: &str, bundle_id: Option<&str>) {
-        let root = self.home.parent().unwrap().join(relative);
+        let root = self.clis.join(relative);
         let cli = match bundle_id {
             Some(id) => {
                 std::fs::create_dir_all(root.join("Contents")).unwrap();
@@ -102,9 +120,7 @@ impl World {
         };
         std::fs::create_dir_all(cli.parent().unwrap()).unwrap();
         let built = Path::new(env!("CARGO_BIN_EXE_cmux-tui"));
-        if std::fs::hard_link(built, &cli).is_err() {
-            std::fs::copy(built, &cli).unwrap();
-        }
+        std::fs::hard_link(built, &cli).expect("a hard link of the test binary");
         self.cli = cli;
     }
 
@@ -1958,7 +1974,8 @@ fn cmux_setup_mcp_leaves_an_entry_it_cannot_put_back() {
             let command = if args.len() == 4 {
                 "claude mcp remove --scope user cmux".to_owned()
             } else {
-                "claude mcp remove --scope user cmux && cmux setup mcp claude".to_owned()
+                // This cmux's own path, as `apply` writes it: a bare `cmux` can be another install's.
+                format!("claude mcp remove --scope user cmux && {} setup mcp claude", world.cli())
             };
             assert_eq!(action["command"], command, "{name}");
             assert!(!result.to_string().contains("s3cret"), "{name}: printed a secret: {result}");
@@ -2155,6 +2172,11 @@ fn cmux_setup_mcp_from_a_dev_build_removes_only_dev_entries() {
 
     let removed = run(&["setup", "mcp", "--remove"]);
     assert_eq!(removed["scope"], "terminals", "{removed}");
+    // What --remove takes out is decided by the command alone, and says so.
+    let text = removed["terminals"]["text"].as_str().unwrap();
+    let rule = text.split("--remove").nth(1).unwrap_or_default();
+    assert!(!rule.contains("settings file"), "{text}");
+    assert!(rule.contains("development build"), "{text}");
     assert_eq!(removed["clients"][0]["state"], "changed", "{removed}");
     assert_eq!(removed["clients"][1]["state"], "ok", "{removed}");
     assert!(removed["clients"][1]["kept"].is_string(), "{removed}");

@@ -663,11 +663,40 @@ mod tests {
 
     /// An agent acpmux starts reads the settings file the app runs on: the app
     /// hands `CMUX_NEXT_CONFIG_FILE` to the daemon (CmuxNext
-    /// `LaunchIdentity.terminalEnvironment`), and a local agent's launch never
-    /// takes it out of the environment it inherits, so the agent's `claude` or
-    /// `codex` and the `cmux mcp serve` it starts read that file.
+    /// `LaunchIdentity.terminalEnvironment`), and a local agent's resolved
+    /// environment has it, so the agent's `claude` or `codex` and the
+    /// `cmux mcp serve` it starts read that file. The daemon's environment is
+    /// this process's, set before it starts: the check runs in a child of this
+    /// test binary started with the variable
+    /// ([`a_local_agent_keeps_the_apps_settings_file_child`]).
     #[test]
     fn a_local_agent_keeps_the_apps_settings_file() {
+        let key = crate::user_settings::CONFIG_OVERRIDE;
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "agent::command::tests::a_local_agent_keeps_the_apps_settings_file_child",
+            ])
+            .args(["--nocapture", "--test-threads", "1"])
+            .env(key, "/Users/someone/.config/cmux/cmux-next-cu-fresh.json")
+            .env("ACPMUX_TEST_SETTINGS_FILE_CHILD", "1")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && stdout.contains("1 passed"),
+            "{stdout}{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// [`a_local_agent_keeps_the_apps_settings_file`]'s check, in a process
+    /// started with the variable; outside one it has nothing to check.
+    #[test]
+    fn a_local_agent_keeps_the_apps_settings_file_child() {
+        if std::env::var_os("ACPMUX_TEST_SETTINGS_FILE_CHILD").is_none() {
+            return;
+        }
         let profile: HarnessProfile = serde_json::from_value(serde_json::json!({
             "argv": ["/usr/bin/true"]
         }))
@@ -675,10 +704,12 @@ mod tests {
         let command =
             harness_command("local", &profile, &std::env::temp_dir(), None, None).unwrap();
         let key = crate::user_settings::CONFIG_OVERRIDE;
-        let removed = explicit_env(command.as_std())
-            .into_iter()
-            .any(|(name, value)| name == key && value.is_none());
-        assert!(!removed, "a local agent's launch removed {key}");
+        let env = command_env(&command);
+        assert_eq!(
+            env.iter().find(|(name, _)| name == key).map(|(_, value)| value.as_str()),
+            Some("/Users/someone/.config/cmux/cmux-next-cu-fresh.json"),
+            "the agent's environment lacks the app's settings file"
+        );
     }
 
     /// The env `harness_command` gives a session `id` of `profile_env`, with
