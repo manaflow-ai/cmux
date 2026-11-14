@@ -13,9 +13,10 @@ import CmuxNextWakeups
 public protocol LayoutPaneContentProvider: AnyObject {
     /// Creates the view for a pane the first time it appears.
     func makeContentView(for pane: PaneID) -> NSView
-    /// Whether this pane's live content keeps its painted size while a split or close springs.
-    /// The host clips the held page and lays it out once when the spring lands.
-    func holdsContentInMotion(for pane: PaneID) -> Bool
+    /// Whether a pane that opens on the right of this pane slides in at its final width instead of growing from a
+    /// sliver (``PaneArrival/slidingIn(target:clipMaxX:)``): the shape of the new pane's arrival beside what this pane
+    /// shows. It holds nothing: this pane's content follows its pane in every frame, as every kind of content does.
+    func slidesNewPaneInBeside(for pane: PaneID) -> Bool
     /// The pane's content goes: torn down now. Called in the update the pane left the layout, or, for a pane a
     /// springing close retired (``retainContentView(_:for:retired:)``), when that motion lands; for a pane a zoom
     /// covers, when the unzoomed layout no longer has it.
@@ -31,7 +32,7 @@ public protocol LayoutPaneContentProvider: AnyObject {
 }
 
 extension LayoutPaneContentProvider {
-    public func holdsContentInMotion(for pane: PaneID) -> Bool { false }
+    public func slidesNewPaneInBeside(for pane: PaneID) -> Bool { false }
     public func releaseContentView(_ view: NSView, for pane: PaneID) {}
     public func retainContentView(_ view: NSView, for pane: PaneID, retired: Bool) {}
     public func panePresenceDidChange(_ pane: PaneID, presence: PanePresence) {}
@@ -201,14 +202,12 @@ final class LayoutViewContext {
         // The provider handed the content made ahead: its host, parked in the window, takes the pane (no window walk now).
         if let spare = spareHost, spare.content === content {
             spareHost = nil
-            spare.adopt(pane) { [weak self] in self?.provider?.holdsContentInMotion(for: pane) ?? false }
+            spare.adopt(pane)
             spare.isHidden = false
             hosts[pane] = spare
             return spare
         }
-        let host = PaneHostView(pane: pane, content: content) { [weak self] in
-            self?.provider?.holdsContentInMotion(for: pane) ?? false
-        }
+        let host = PaneHostView(pane: pane, content: content)
         hosts[pane] = host
         return host
     }
