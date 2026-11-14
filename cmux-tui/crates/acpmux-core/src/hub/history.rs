@@ -202,7 +202,7 @@ impl History {
             Op::Summary { seq, .. } | Op::Gone { seq, .. } | Op::Origin { seq, .. } => *seq,
         };
         if self.len != 0 && self.first.checked_add(self.len as u64) != Some(seq) {
-            self.clear(self.last);
+            self.clear();
         }
         if self.len == self.entries.len() {
             self.pop().map_err(serde_json::Error::io)?;
