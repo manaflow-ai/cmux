@@ -198,7 +198,6 @@ enum Request {
     },
     Blob {
         blob: Box<Blob>,
-        person: stream::PersonId,
         reply: Reply,
     },
     #[cfg(test)]
@@ -329,8 +328,8 @@ impl ChatHandle {
     }
 
     /// A `blob`, answered through `reply`; refused, it is answered at once.
-    pub fn blob(&self, blob: Blob, person: stream::PersonId, reply: Reply) {
-        let request = Request::Blob { blob: Box::new(blob), person, reply };
+    pub fn blob(&self, blob: Blob, reply: Reply) {
+        let request = Request::Blob { blob: Box::new(blob), reply };
         if let Err((error, Request::Blob { reply, .. })) = self.send(request) {
             reply.error(error.code(), &error.to_string());
         }
@@ -1092,7 +1091,7 @@ fn handle_request(
             }
             Ok(true)
         }
-        Request::Blob { blob, person: _, reply } => {
+        Request::Blob { blob, reply } => {
             if state.ready {
                 stream::blob(state, *blob, reply);
             } else {

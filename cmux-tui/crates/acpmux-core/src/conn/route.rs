@@ -112,7 +112,7 @@ impl Source for RouteSource {
         let person = person_id(person);
         match request {
             Later::Page(page) => handle.page(page.clone(), person, reply),
-            Later::Blob(blob) => handle.blob(blob.clone(), person, reply),
+            Later::Blob(blob) => handle.blob(blob.clone(), reply),
         }
         None
     }

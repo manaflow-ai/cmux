@@ -209,6 +209,19 @@ impl Client {
         .await
     }
 
+    /// Returns once a fresh window shows `text`: the actor booked the lines that hold it.
+    async fn booked(&mut self, text: &str) {
+        loop {
+            self.sub("w", json!({})).await;
+            let window = self.window("w").await;
+            self.send(json!({"method": "unsub", "params": {"sid": "w"}})).await;
+            if window.rows.iter().any(|row| row.get().contains(text)) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
     async fn credit(&mut self, sid: &str, consumed: u64) {
         self.send(json!({"method": "credit", "params": {"sid": sid, "consumed": consumed}})).await;
     }
@@ -390,18 +403,7 @@ fn a_resume_replays_what_it_missed_then_a_state_frame_and_two_mebibytes_get_a_wi
         client.send(json!({"method": "unsub", "params": {"sid": "s"}})).await;
         let more: Vec<String> = (2..=11).flat_map(|n| turn(n, &format!("missed {n}"))).collect();
         chat.append(&more);
-        // Wait for the actor to book them: a window on another sid shows the last.
-        client.sub("w", json!({})).await;
-        loop {
-            let w = client.window("w").await;
-            if w.rows.iter().any(|row| row.get().contains("missed 11")) {
-                break;
-            }
-            client.send(json!({"method": "unsub", "params": {"sid": "w"}})).await;
-            tokio::time::sleep(Duration::from_millis(20)).await;
-            client.sub("w", json!({})).await;
-        }
-        client.send(json!({"method": "unsub", "params": {"sid": "w"}})).await;
+        client.booked("missed 11").await;
         client.sub("r", json!({"cursor": window.cursor, "edition": window.edition})).await;
         let mut rows = 0;
         let mut ended = false;
@@ -430,10 +432,12 @@ fn a_resume_replays_what_it_missed_then_a_state_frame_and_two_mebibytes_get_a_wi
         client.sub("s2", json!({})).await;
         let before = client.window("s2").await;
         client.send(json!({"method": "unsub", "params": {"sid": "s2"}})).await;
-        let big = "x".repeat(200 * 1024);
-        let lots: Vec<String> = (12..=22).flat_map(|n| turn(n, &big)).collect();
+        // A record holds at most 16 KB of a reply: 160 replies of 14 KB are 2 MiB of records.
+        let big = "x".repeat(14 * 1024);
+        let lots: Vec<String> =
+            (12..=171).flat_map(|n| turn(n, &format!("last {n} {big}"))).collect();
         chat.append(&lots);
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        client.booked("last 171 ").await;
         client.sub("s3", json!({"cursor": before.cursor, "edition": before.edition})).await;
         let frame = client
             .until(&mut Vec::new(), |frame| {
@@ -456,7 +460,7 @@ impl Source for Spy {
         &self,
         sub: &SubRequest,
         person: Option<&[u8]>,
-        sink: Arc<dyn crate::conn::OfferSink>,
+        sink: Arc<dyn OfferSink>,
     ) -> Result<(), conn::ConnError> {
         *self.metrics.lock().unwrap() = Some(sink.metrics());
         self.inner.subscribe(sub, person, sink)
@@ -664,7 +668,7 @@ fn two_keys_are_two_people_and_no_key_is_written() {
                 file.display()
             );
         }
-        let recovered = acpmux_book::log::saved_checkpoint(&chat.book()).unwrap().unwrap();
+        let recovered = log::saved_checkpoint(&chat.book()).unwrap().unwrap();
         let checkpoint = acpmux_book::checkpoint::Checkpoint::from_recovered(&recovered).unwrap();
         assert_eq!(checkpoint.people.iter().map(|p| p.id).collect::<Vec<_>>(), vec![person]);
     });
@@ -781,7 +785,7 @@ fn a_window_asked_past_the_bound_holds_the_bound() {
         client.hello(None).await;
         client.sub("s", json!({"window": 65535})).await;
         let window = client.window("s").await;
-        assert!(window.rows.len() <= acpmux_book::log::MAX_ROWS, "{}", window.rows.len());
+        assert!(window.rows.len() <= MAX_ROWS, "{}", window.rows.len());
         assert!(window.has_before);
     });
 }

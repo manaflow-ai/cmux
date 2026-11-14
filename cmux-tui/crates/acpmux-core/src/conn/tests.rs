@@ -1475,6 +1475,21 @@ async fn folders_credit_resume_uses_tail_and_expired_tail_uses_window() {
 }
 
 #[test]
+fn only_a_chat_streams_page_or_blob_waits_named_as_requests_name_streams() {
+    let class = |value: serde_json::Value| {
+        matches!(classify(&Frame::json(FrameKind::Request, &value).unwrap()), Class::Later)
+    };
+    assert!(class(json!({"method":"page","params":{"sid":"s","stream":"chat:x","before":4}})));
+    assert!(class(
+        json!({"method":"blob","params":{"id":"b","stream":"chat:x","rowId":1,"len":1}})
+    ));
+    assert!(!class(json!({"method":"page","params":{"sid":"s","stream":"list"}})));
+    assert!(!class(json!({"method":"sub","params":{"sid":"s","stream":"chat:x"}})));
+    // A stream outside the params is not the request's.
+    assert!(!class(json!({"method":"page","stream":"chat:x","params":{"sid":"s"}})));
+}
+
+#[test]
 fn a_held_reply_has_room_for_the_largest_answer_however_offers_fill_the_rest() {
     let mut state = ConnectionState::default();
     assert!(state.reserve_reply());

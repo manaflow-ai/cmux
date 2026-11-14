@@ -424,12 +424,21 @@ fn classify(frame: &Frame) -> Class {
         #[serde(borrow)]
         method: std::borrow::Cow<'a, str>,
         #[serde(borrow, default)]
+        params: Option<Params<'a>>,
+    }
+    // A request names its stream in its params, as `Request` reads it.
+    #[derive(serde::Deserialize)]
+    struct Params<'a> {
+        #[serde(borrow, default)]
         stream: Option<std::borrow::Cow<'a, str>>,
     }
     let later = frame.kind == FrameKind::Request
         && serde_json::from_slice::<Head<'_>>(frame.payload()).is_ok_and(|head| {
             matches!(head.method.as_ref(), "page" | "blob")
-                && head.stream.as_deref().is_some_and(|stream| stream.starts_with("chat:"))
+                && head
+                    .params
+                    .and_then(|params| params.stream)
+                    .is_some_and(|stream| stream.starts_with("chat:"))
         });
     if later { Class::Later } else { Class::Other }
 }

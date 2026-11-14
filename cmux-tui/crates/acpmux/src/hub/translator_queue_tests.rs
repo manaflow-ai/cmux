@@ -48,21 +48,20 @@ async fn until(what: &str, check: impl Fn() -> bool) {
     tokio::time::timeout(WAIT, wait).await.unwrap_or_else(|_| panic!("{what}"));
 }
 
-const IDS: [&str; 3] = ["p-a", "p-agent", "p-b"];
-
-fn name(hash: u64) -> String {
-    IDS.iter()
-        .find(|id| prompt_hash(id) == hash)
-        .map_or_else(|| format!("#{hash:016x}"), |id| (*id).to_owned())
-}
-
-/// The queue a translator reads from the whole log, as (id, held).
+/// The queue a translator reads from the whole log, as (id, held). The book keeps a hash of
+/// each id: it is named by the hub's ids, and by the log's own `promptId`s (a restart's
+/// continuation has an id the test did not choose).
 fn translated(hub: &Hub, id: &str) -> Vec<(String, bool)> {
     let mut state = book::State::default();
+    let mut names = std::collections::HashMap::new();
     for (place, record) in hub.events(id, 0, 1_000_000).unwrap().iter().enumerate() {
+        if let Some(prompt) = record.msg.get("promptId").and_then(Value::as_str) {
+            names.insert(prompt_hash(prompt), prompt.to_owned());
+        }
         let line = serde_json::to_vec(record).unwrap();
         let _ = book::translate(&mut state, Harness::V1, place as u64, 1, &line);
     }
+    let name = |hash: u64| names.get(&hash).cloned().unwrap_or_else(|| format!("#{hash:016x}"));
     state.queue().map(|entry| (name(entry.id_hash), entry.held())).collect()
 }
 
