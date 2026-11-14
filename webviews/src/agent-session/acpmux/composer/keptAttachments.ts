@@ -157,7 +157,7 @@ export function useKeptAttachments(
     // chat shown between. They are newer than the host's copy and stay.
     const ownChips = heldFor.current === sessionId;
     let current = true;
-    let retry: ReturnType<typeof setTimeout> | undefined;
+    const retries = new Set<ReturnType<typeof setTimeout>>();
     let tries = 0;
     const answered = (kept: unknown) => {
       if (!current) return;
@@ -188,12 +188,20 @@ export function useKeptAttachments(
         if (!tries && !(keepHeld || ownChips || !readOne.current)) setAttachments((held) => (held.length ? [] : held));
         tries += 1;
         if (tries >= KEPT_READ_TRIES) return answered([]);
-        retry = setTimeout(ask, Math.min(KEPT_READ_RETRY_MS * 2 ** (tries - 1), KEPT_READ_RETRY_MAX_MS));
+        const retry = setTimeout(
+          () => {
+            retries.delete(retry);
+            ask();
+          },
+          Math.min(KEPT_READ_RETRY_MS * 2 ** (tries - 1), KEPT_READ_RETRY_MAX_MS),
+        );
+        retries.add(retry);
       });
     ask();
     return () => {
       current = false;
-      if (retry) clearTimeout(retry);
+      for (const retry of retries) clearTimeout(retry);
+      retries.clear();
     };
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- flush only sends what rests; a chat is read once per session.
   }, [sessionId, store, setAttachments]);
@@ -210,14 +218,16 @@ export function useKeptAttachments(
     }
     if (pending.current?.sessionId === sessionId && signature(pending.current.chips) === signature(chips)) return;
     if (pending.current) clearTimeout(pending.current.timer);
+    const timer = setTimeout(() => {
+      pending.current = undefined;
+      send(sessionId, chips);
+    }, KEPT_ATTACHMENTS_SETTLE_MS);
     pending.current = {
       sessionId,
       chips,
-      timer: setTimeout(() => {
-        pending.current = undefined;
-        send(sessionId, chips);
-      }, KEPT_ATTACHMENTS_SETTLE_MS),
+      timer,
     };
+    return () => clearTimeout(timer);
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- send is this render's; the timer sends what this render held.
   }, [sessionId, store, readFor, attachments]);
 

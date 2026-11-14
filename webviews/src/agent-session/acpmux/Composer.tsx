@@ -1541,19 +1541,29 @@ function ComposerFrame({
     if (recovering.current || !keptAttachments || !sessionId) return;
     recovering.current = true;
     const chat = sessionId;
+    const finishRecovery = () => {
+      recovering.current = false;
+    };
     try {
       let kept: ComposerAttachment[] | undefined;
-      for (let tries = 0; kept === undefined && tries < LOST_READ_TRIES; tries++) {
+      for (let tries = 0; kept === undefined && tries < LOST_READ_TRIES; tries = tries + 1) {
         if (tries) await new Promise((resolve) => setTimeout(resolve, LOST_READ_RETRY_MS * 2 ** (tries - 1)));
-        if (shownChat.current !== chat) return;
+        if (shownChat.current !== chat) {
+          finishRecovery();
+          return;
+        }
         kept = await keptAttachments.read(chat).catch(() => undefined);
       }
-      if (shownChat.current !== chat) return;
+      if (shownChat.current !== chat) {
+        finishRecovery();
+        return;
+      }
       if (kept === undefined) {
         if (queuedSend.current) {
           queuedSend.current = undefined;
           setAttachError(t("composer.attachmentsUnread"));
         }
+        finishRecovery();
         return;
       }
       const found = kept.filter((chip) => ids.includes(chip.id) && !attachmentId(chip.id));
@@ -1563,12 +1573,18 @@ function ComposerFrame({
         for (const id of missing) field.current?.removeInline(id);
         setAttachError(t("composer.attachmentsLost"));
       }
-      if (!found.length) return;
+      if (!found.length) {
+        finishRecovery();
+        return;
+      }
       attachmentsRef.current = appendAttachments(attachmentsRef.current, found);
       setAttachments((current) => appendAttachments(current, found));
-    } finally {
-      recovering.current = false;
+    } catch {
+      // A failed recovery leaves the draft in place for the next attachment read.
+      finishRecovery();
+      return;
     }
+    finishRecovery();
     // A send that came while this look-up was out (it served other places) looks up its own now:
     // the places still with no chip, read from the text and the chips held right now.
     if (queuedSend.current && shownChat.current === chat) {
@@ -1586,7 +1602,7 @@ function ComposerFrame({
     // prompt stays, and the composer says to send it again.
     if (queuedSend.current) setAttachError(t("composer.attachmentsUnread"));
     queuedSend.current = undefined;
-  }, [sessionId]);
+  }, [sessionId, t, setAttachError]);
   // A draft that comes back with places whose chips the composer does not hold (a reconnect, a
   // relaunch, a Not sent prompt put back) gets them from the host's kept copy, drawn as chips.
   useEffect(() => {
@@ -1599,7 +1615,7 @@ function ComposerFrame({
     }, LOST_PLACES_SETTLE_MS);
     return () => clearTimeout(timer);
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- reads the field and the chips as they are when it settles.
-  }, [text, attachments, sessionId, keptAttachments]);
+  }, [text, attachments, sessionId, keptAttachments, t, setAttachError]);
   // The waiting send goes once every place it holds is a chip the composer drew.
   useEffect(() => {
     const again = queuedSend.current;
@@ -1642,9 +1658,11 @@ function ComposerFrame({
         dictationEnded.current = true;
         try {
           submitNow.current(force, steer, kept, route);
-        } finally {
+        } catch (error) {
           dictationEnded.current = false;
+          throw error;
         }
+        dictationEnded.current = false;
       });
       return true;
     }
@@ -2645,7 +2663,7 @@ function ComposerFrame({
   // What the send slot drew last, so Send and Stop morph into each other on a real change, never on
   // the first draw or a chat switch (composer/SendSlotGlyph.tsx). The Quick Composer can show both at
   // once, so its glyphs draw at once.
-  slotMemory.current ??= newSlotMemory(sessionId);
+  if (!slotMemory.current) slotMemory.current = newSlotMemory(sessionId);
   const morphMemory = onOpenInWindow ? undefined : slotMemory.current;
   const stopButton = running ? (
     <button
