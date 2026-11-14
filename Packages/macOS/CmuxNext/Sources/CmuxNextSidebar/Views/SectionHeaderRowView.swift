@@ -72,6 +72,9 @@ final class SectionHeaderRowView: SidebarRowView {
         // strip's, and the tooltip says it.
         default: break
         }
+        // This Mac connecting for less than the grace (a launch, a daemon restart or handoff): no spinner; one that
+        // lasts draws it (`SidebarPlaceholderGrace.holdingConnectingLabels`).
+        if machine.kind == .local, machine.holdsStatusLabel { return nil }
         return switch machine.status.linkState {
         case .connected: .success
         case .connecting: .working

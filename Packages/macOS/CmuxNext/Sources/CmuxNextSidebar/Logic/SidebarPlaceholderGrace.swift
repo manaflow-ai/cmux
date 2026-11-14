@@ -55,13 +55,14 @@ public final class SidebarPlaceholderGrace {
         ended.remove(section)
     }
 
-    /// `sections` with each other machine that has been connecting for less than this grace's wait
-    /// marked `holdsStatusLabel`: one list names "Connecting…" only on a connect that lasts (it showed
+    /// `sections` with each machine (This Mac too) that has been connecting for less than this grace's wait
+    /// marked `holdsStatusLabel`: one list names "Connecting…", and This Mac's header spins, only on a connect that lasts (it showed
     /// from the first frame of every launch). A machine that stops connecting waits again next time.
     public func holdingConnectingLabels(_ sections: [SidebarSection]) -> [SidebarSection] {
         keep(Set(sections.map(\.id)))
         return sections.map { section in
-            guard var machine = section.machine, machine.kind != .local else { return section }
+            // This Mac too: its header's spinner waits the same grace (a daemon restart or handoff answers sooner).
+            guard var machine = section.machine else { return section }
             guard machine.status == .connecting else {
                 reset(section.id)
                 return section
