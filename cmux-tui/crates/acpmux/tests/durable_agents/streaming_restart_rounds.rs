@@ -122,3 +122,41 @@ async fn bench_rounds_queued_stream_alone() {
 async fn bench_rounds_fast_stream() {
     rounds("srqf", 10, Duration::from_secs(6), 2).await;
 }
+
+/// A loaded Mac: the start's pass misses every host's hello (debug seam), so the retry adopts
+/// the streaming chat's host while the page is already attached.
+#[tokio::test]
+async fn late_hello_streaming_turn_is_live_within_seconds() {
+    let mut daemon = Daemon::new("srlh", "approve-all");
+    let session = new_session(&daemon).await;
+    let mut cli = daemon.rpc().await;
+    cli.call(
+        "_acpmux/send_queue",
+        json!({"request": {"sessionId": session, "prompt": [{"type": "text", "text": "ticking:100000:100"}],
+               "_meta": {"acpmux": {"promptId": uuid_like("srlh"), "steer": true}}}}),
+    )
+    .await;
+    drop(cli);
+    daemon.wait_event(&session, "tick5", |e| chunk(e, "tick5 "));
+    daemon.sigterm();
+    daemon.env.push(("ACPMUX_TEST_ADOPT_HELLO_BUDGET_MS".into(), "0".into()));
+    std::thread::sleep(Duration::from_secs(6));
+    let started = Instant::now();
+    daemon.start();
+    std::thread::sleep(Duration::from_millis(500));
+    let (live, _) = page_live(&daemon, &session, Duration::from_secs(30)).await;
+    let took = started.elapsed();
+    let kinds: Vec<String> = daemon
+        .events(&session)
+        .iter()
+        .filter(|e| e["dir"] == "mux")
+        .map(|e| format!("{}", e["kind"]))
+        .collect();
+    eprintln!("[srlh] {live} live by {:.1}s; mux records: {}", took.as_secs_f64(), kinds.join(","));
+    assert!(
+        live >= 20 && took < Duration::from_secs(12),
+        "[srlh] {live} live by {:.1}s",
+        took.as_secs_f64()
+    );
+    daemon.rpc().await.send("session/cancel", json!({"sessionId": session})).await;
+}
