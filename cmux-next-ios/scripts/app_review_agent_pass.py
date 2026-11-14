@@ -16,6 +16,11 @@ Findings are warnings in the gate report (an agent's judgement), except a
 crash or a step it could not get past, which it marks blocking. A pass that
 judged nothing (axe or claude missing, the agent failed or wrote no findings
 array, or it took no screenshot) is itself a blocker and exits 1.
+
+A run the API never served (the CLI's result shows a 429, 529 or 5xx status,
+a rate_limit or overloaded error, or zero API time and zero input tokens) is
+retried once after a backoff; a second such run ends red as
+agent.api-unavailable, so the red names the shared account, not the PR.
 """
 
 from __future__ import annotations
@@ -23,10 +28,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import shlex
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 # The launch the XCUITest walk makes (AppReviewGateUITests.launch, signed
@@ -44,6 +51,15 @@ FIRST_LAUNCH_ENV = {"CMUX_MOBILE_CLEAR_AUTH": "1"}
 # The code the mock account's email sign-in accepts (CmuxMobileAuthModel),
 # in place of the one a reviewer reads from the demo account's inbox.
 MOCK_EMAIL_CODE = "424242"
+
+# The agent's whole budget, a retry included.
+AGENT_BUDGET_S = 45 * 60
+# Seconds before the one retry of a run the API never served, plus up to half
+# again of jitter so the gate's parallel runs do not retry together. Tests set
+# it to 0.
+RETRY_BACKOFF_ENV = "APP_REVIEW_AGENT_RETRY_BACKOFF_S"
+DEFAULT_RETRY_BACKOFF_S = 60.0
+API_UNAVAILABLE_MESSAGE = "agent pass: API unavailable (rate limited)"
 
 PROMPT = """You are an Apple App Review reviewer testing the cmux iOS app on an iPad
 or iPhone simulator. You have no Mac and you have never seen cmux before.
@@ -120,6 +136,64 @@ def unjudged(findings: Path, rule: str, message: str, where: str = "") -> int:
     return 1
 
 
+def cli_result(stdout: str) -> dict | None:
+    """The CLI's final result object: the whole of stdout with
+    `--output-format json`, the last `"type": "result"` line of stream-json,
+    or the last such entry of a JSON array."""
+    try:
+        body = json.loads(stdout)
+    except json.JSONDecodeError:
+        body = None
+        for line in reversed(stdout.splitlines()):
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(entry, dict) and entry.get("type") == "result":
+                body = entry
+                break
+    if isinstance(body, list):
+        body = next((e for e in reversed(body) if isinstance(e, dict) and e.get("type") == "result"), None)
+    return body if isinstance(body, dict) else None
+
+
+def api_unavailable(result: dict | None) -> str | None:
+    """Which of the CLI result's own fields show the API never served the
+    run, or None. Only structured fields count: never the result text, which
+    carries whatever the agent read in the app or the reviewer notes."""
+    if result is None:
+        return None
+    error = result.get("error") if isinstance(result.get("error"), dict) else {}
+    for field, status in (("api_error_status", result.get("api_error_status")), ("error.status", error.get("status"))):
+        if isinstance(status, int) and not isinstance(status, bool) and (status in (429, 529) or 500 <= status < 600):
+            return f"{field}={status}"
+    for field, kind in (("error.type", error.get("type")), ("error", result.get("error"))):
+        if isinstance(kind, str) and kind in ("rate_limit", "rate_limit_error", "overloaded", "overloaded_error"):
+            return f"{field}={kind}"
+    usage = result.get("usage") if isinstance(result.get("usage"), dict) else {}
+    api_ms, tokens = result.get("duration_api_ms"), usage.get("input_tokens")
+    if api_ms == 0 and tokens == 0 and not isinstance(api_ms, bool) and not isinstance(tokens, bool):
+        return "duration_api_ms=0, usage.input_tokens=0"
+    return None
+
+
+def retry_backoff() -> float:
+    try:
+        base = max(0.0, float(os.environ.get(RETRY_BACKOFF_ENV, DEFAULT_RETRY_BACKOFF_S)))
+    except ValueError:
+        base = DEFAULT_RETRY_BACKOFF_S
+    return base + random.uniform(0, base / 2)
+
+
+def read_verdict(findings: Path) -> list | None:
+    try:
+        items = json.loads(findings.read_text())
+        assert isinstance(items, list)
+    except (OSError, json.JSONDecodeError, AssertionError):
+        return None
+    return items
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--udid", required=True)
@@ -149,27 +223,49 @@ def main(argv: list[str] | None = None) -> int:
     prompt = PROMPT.format(udid=args.udid, bundle_id=bid, out=out, findings=findings,
                            launch_args=shlex.join(REVIEW_LAUNCH_ARGS), code=MOCK_EMAIL_CODE,
                            setup=setup_text(Path(args.setup)))
-    # A findings file left from an earlier run is never this run's verdict.
-    findings.unlink(missing_ok=True)
-    try:
-        proc = subprocess.run(
-            ["claude", "-p", prompt,
-             "--allowedTools", "Bash(axe:*)", "Bash(xcrun simctl:*)", "Read", "Write",
-             "--max-turns", args.max_turns, "--output-format", "json"],
-            capture_output=True, text=True, timeout=45 * 60, cwd=out,
-            env=review_env,
-        )
-    except subprocess.TimeoutExpired as timeout:
-        for name, text in (("transcript.json", timeout.stdout), ("stderr.txt", timeout.stderr)):
-            (out / name).write_text(text.decode(errors="replace") if isinstance(text, bytes) else (text or ""))
-        return unjudged(findings, "agent.no-verdict", "the agent ran past 45 minutes with no verdict", str(out))
-    (out / "transcript.json").write_text(proc.stdout or "")
-    (out / "stderr.txt").write_text(proc.stderr or "")
-    try:
-        items = json.loads(findings.read_text())
-        assert isinstance(items, list)
-    except (OSError, json.JSONDecodeError, AssertionError):
-        items = None
+    deadline = time.monotonic() + AGENT_BUDGET_S
+    for attempt in (1, 2):
+        # A findings file left from an earlier run is never this run's verdict.
+        findings.unlink(missing_ok=True)
+        try:
+            proc = subprocess.run(
+                ["claude", "-p", prompt,
+                 "--allowedTools", "Bash(axe:*)", "Bash(xcrun simctl:*)", "Read", "Write",
+                 "--max-turns", args.max_turns, "--output-format", "json"],
+                capture_output=True, text=True, timeout=max(1.0, deadline - time.monotonic()), cwd=out,
+                env=review_env,
+            )
+        except subprocess.TimeoutExpired as timeout:
+            for name, text in (("transcript.json", timeout.stdout), ("stderr.txt", timeout.stderr)):
+                (out / name).write_text(text.decode(errors="replace") if isinstance(text, bytes) else (text or ""))
+            return unjudged(findings, "agent.no-verdict", "the agent ran past 45 minutes with no verdict", str(out))
+        (out / "transcript.json").write_text(proc.stdout or "")
+        (out / "stderr.txt").write_text(proc.stderr or "")
+        items = read_verdict(findings)
+        # Read from the CLI's result only, and only when nothing was judged:
+        # a verdict on either attempt counts as it always has.
+        unserved = api_unavailable(cli_result(proc.stdout or "")) if items is None else None
+        if unserved is None:
+            break
+        if attempt == 1:
+            # Gate run 43621274696 (job 132527403700): about 2 s, no API time,
+            # no tokens, the shared account rate limited.
+            backoff = retry_backoff()
+            for name in ("transcript.json", "stderr.txt"):
+                (out / name).replace(out / f"attempt-1-{name}")
+            if time.monotonic() + backoff >= deadline:
+                break
+            print(f"::warning::agent reviewer pass: the API did not serve the run ({unserved}); "
+                  f"retrying once in {backoff:.0f} s", file=sys.stderr)
+            time.sleep(backoff)
+            continue
+        return unjudged(findings, "agent.api-unavailable",
+                        f"{API_UNAVAILABLE_MESSAGE}: the CLI result showed {unserved} on both attempts;"
+                        " nothing was judged, so rerun the gate once the account recovers", str(out))
+    if unserved is not None:
+        return unjudged(findings, "agent.api-unavailable",
+                        f"{API_UNAVAILABLE_MESSAGE}: the CLI result showed {unserved}, with no time left to retry;"
+                        " nothing was judged, so rerun the gate once the account recovers", str(out))
     detail = (proc.stderr or proc.stdout or "").strip().splitlines()[-1:] or ["no output"]
     if items is None:
         return unjudged(findings, "agent.no-verdict",
