@@ -134,6 +134,22 @@ struct ChatTailCacheTests {
     static let context = PageCallContext(page: PageDescriptor.agent.id)
 
     /// A page tail of `count` records, as the page's own shape.
+    /// #36650: a subagent's pane request carries the chat's tail (`handOver`); the host holds it
+    /// once the request is in, before its open looks, and never from a page of an earlier sign-in.
+    @Test func aSubagentPaneRequestsHandOverIsKeptBeforeTheOpen() {
+        Self.resetCache()
+        defer { Self.resetCache() }
+        let generation = AgentPaneTailCache.shared.generation
+        let params: [String: Any] = ["subagent": "a1", "focus": true, "handOver": ["sessionId": "s-1", "tail": Self.tail(3)]]
+        AgentPaneTailCache.keepHandOver(of: "chat.subagentPane", params: params, pageGeneration: generation &+ 1)
+        #expect(AgentPaneTailCache.shared.tail(for: "s-1") == nil, "a page of an earlier sign-in handed a tail over")
+        AgentPaneTailCache.keepHandOver(of: "chat.openTab", params: params, pageGeneration: generation)
+        #expect(AgentPaneTailCache.shared.tail(for: "s-1") == nil, "another request's params were read as a hand-over")
+        AgentPaneTailCache.keepHandOver(of: "chat.subagentPane", params: params, pageGeneration: generation)
+        #expect(Self.seqs(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-1"]))) == [1, 2, 3],
+                "the pane's request carried the chat's tail and the host did not keep it")
+    }
+
     static func tail(_ count: Int, exhausted: Bool = false, mark: String = "a") -> [String: Any] {
         [
             "events": (1...max(1, count)).map { ["seq": $0, "kind": "user_message", "msg": ["text": "\(mark)\($0)"]] },

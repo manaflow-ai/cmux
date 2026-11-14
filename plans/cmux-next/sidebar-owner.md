@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-14 (CMUX-383): Leo asked for “Sidebar customization (look at BB and Herder)”.
+  The first customization slices keep the document as placement owner while allowing
+  bounded cmux-next.json section/workspace hide, order and same-section grouping.
+  Rust validates the projection and the native sidebar reapplies it on every settings
+  watcher update; gallery variants cover default, hidden/reordered sections and a moved
+  workspace. The native view remains in the existing sidebar surface and density tokens.
+
 - 2026-11-13 (a590): no line under Home. Lawrence (msg 31467), verbatim: "get rid of line under "home"". Minimal Mode
   draws the Lines look, whose pinned block joined under Home's block took a leading separator; a band drew a line (or,
   under `appearance.borders` none, a tonal step) after Home's section, and the band hairline under a band ending in

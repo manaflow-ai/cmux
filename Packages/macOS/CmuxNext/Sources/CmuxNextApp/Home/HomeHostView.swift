@@ -326,7 +326,7 @@ final class HomeHostView: NSView {
                 // A cloud Chief (no local import) or an owner not connected yet keeps the first-run intro.
                 if kind == .welcome, service.chiefWelcome.play(in: id, source: service.homeSource,
                                                                connection: service.isCloudConversation(id) ? nil : service.chief.connection,
-                                                               intro: intro, text: ChiefWelcome.text(services.registry)) { return }
+                                                               intro: intro, text: ChiefWelcome.text(services.registry, anyAppOn: services.settings?.snapshot.startAgentGlobalHotKey ?? false)) { return }
                 self.transcript.welcomesInChat = false
                 intro.markShown(kind, for: id)
                 self.transcript.showFirstRunIntro(kind)
