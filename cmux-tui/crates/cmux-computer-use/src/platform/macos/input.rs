@@ -1,12 +1,19 @@
 //! Synthetic input as CGEvents. Background delivery posts to the target
 //! process (`CGEventPostToPid`), so the window gets the event without
-//! activation and the person's pointer never moves. A mouse event posted to a
+//! activation and the person's pointer never moves. A scroll posted to a
 //! process reaches one of its windows only when it names the window (field
 //! 51, the window number AppKit reads) and carries its location inside that
 //! window (`CGEventSetWindowLocation`): with only the window-under-pointer
-//! fields (91, 92) AppKit and WebKit drop it (measured on macOS 26.6 with
-//! TextEdit, Calculator, Safari and Finder; every click, scroll and drag was
-//! lost, and each landed once both were set). Foreground delivery posts at the HID tap, except key
+//! fields (91, 92) AppKit and WebKit drop it (macOS 26.6: TextEdit, Safari,
+//! Finder and System Settings scrolled once both were set).
+//!
+//! Mouse buttons are not addressed that way on purpose. A press that lands
+//! in an AppKit window of a background app makes the app order that window
+//! front (TextEdit, Notes: the focus guard saw the window above the
+//! person's and lowered it again), so a press is posted with the
+//! window-under-pointer fields only, as before. Clicks on controls and list
+//! rows go through accessibility instead (`actions::ax_click_at`), which
+//! raises nothing. Foreground delivery posts at the HID tap, except key
 //! chords while an app is denied, which go to the raised target's process
 //! (so no other app's global hotkey fires).
 //!
@@ -184,7 +191,9 @@ pub fn click(
     gap: std::time::Duration,
 ) -> DResult<()> {
     let src = source()?;
-    let aim = Aim::of(route);
+    // Presses are not window-addressed (see the module notes).
+    let aim = None;
+    let paced = matches!(route, Route::Pid { .. });
     let (down, up, _) = button_events(button);
     post_mouse(route, aim, &mouse_event(&src, MOUSE_MOVED, at, Button::Left, flags)?, at);
     for n in 1..=count.max(1) {
@@ -198,7 +207,7 @@ pub fn click(
             post_mouse(route, aim, &e, at);
             // A control's mouse-down starts a tracking loop that waits for
             // the up; one posted in the same instant can be missed.
-            if ty == down && aim.is_some() {
+            if ty == down && paced {
                 std::thread::sleep(PRESS_GAP);
             }
         }
@@ -208,7 +217,8 @@ pub fn click(
 
 pub fn drag(route: Route, from: Point, to: Point, button: Button) -> DResult<()> {
     let src = source()?;
-    let aim = Aim::of(route);
+    // Presses are not window-addressed (see the module notes).
+    let aim = None;
     let (down, up, dragged) = button_events(button);
     post_mouse(route, aim, &mouse_event(&src, MOUSE_MOVED, from, Button::Left, 0)?, from);
     let press = |ty, at| -> DResult<Cf> {
@@ -220,7 +230,7 @@ pub fn drag(route: Route, from: Point, to: Point, button: Button) -> DResult<()>
     post_mouse(route, aim, &press(down, from)?, from);
     // Pacing: AppKit and WebKit coalesce a burst of drag events into one
     // jump, and a slider or a text selection then sees no movement.
-    let paced = aim.is_some();
+    let paced = matches!(route, Route::Pid { .. });
     if paced {
         std::thread::sleep(PRESS_GAP);
     }

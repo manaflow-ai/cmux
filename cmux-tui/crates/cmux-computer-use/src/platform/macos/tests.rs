@@ -6,10 +6,10 @@ use super::*;
 use crate::desktop::{Button, MenuGuard, Point, Rect};
 use crate::keys::{Key, KeyCombo, Modifier};
 
-/// A pid-routed mouse event names its window and carries the point inside
-/// it: global (72, 174) in a window at (60, 80) is (12, 94) there. Before the
-/// fix only fields 91/92 were set and AppKit dropped every click, scroll and
-/// drag posted to a background window.
+/// A pid-routed scroll names its window and carries the point inside it:
+/// global (72, 174) in a window at (60, 80) is (12, 94) there. Before the
+/// fix only fields 91/92 were set and AppKit dropped every scroll posted to a
+/// background window.
 #[test]
 fn pid_mouse_events_name_the_window_and_its_local_point() {
     let stamp =

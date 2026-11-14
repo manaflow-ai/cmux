@@ -6,10 +6,10 @@
 //! accessibility does nothing. Measured in a macOS 26.6 guest: all four read
 //! `AXEnabled` 0 while their app was behind the person's.
 //!
-//! The same scope carries background input that only a key window takes: a
-//! mouse press in TextEdit's text view (an inactive app's window answers it
-//! by asking to activate and drops it) and a key chord, which AppKit then
-//! routes as in the foreground (the window's views, then the menus).
+//! The same scope carries a background key chord, which AppKit then routes
+//! as in the foreground (the window's views, then the menus). It is not used
+//! for mouse presses: a press that lands in the window makes AppKit order it
+//! above the person's.
 //!
 //! The window server tells an app it became active, and which of its windows
 //! is key, with event records it posts to the app's process. Posting the

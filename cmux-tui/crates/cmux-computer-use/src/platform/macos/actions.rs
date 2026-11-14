@@ -452,7 +452,6 @@ fn click_point(
         return Ok(out);
     }
     let route = d.pointer_route(t, spec.delivery)?;
-    let _key = key_for_pointer(d, t, route);
     input::click(route, at, spec.button, spec.count, keymap::flags(&spec.modifiers), spec.gap)?;
     Ok(ActionOutcome::delivered(route.name()).at(at))
 }
@@ -542,24 +541,6 @@ fn enable_menu_item(
 
 /// How long the app gets to take its window as key before the events.
 const KEY_SETTLE: std::time::Duration = std::time::Duration::from_millis(50);
-
-/// Background mouse buttons reach most views only in their app's key
-/// window: a background app has none, and AppKit answers a press in an
-/// inactive app's window by asking to activate the app and dropping the
-/// press (TextEdit's text view; the focus guard then put the person's app
-/// back, and the caret never moved). The target window is made its app's key
-/// window to that app only ([`super::activation`]) for the gesture. Not for
-/// the person's own app (it is active) or the HID route (raised).
-fn key_for_pointer(
-    d: &MacDesktop,
-    t: &Target,
-    route: Route,
-) -> Option<super::activation::KeyInApp> {
-    if !matches!(route, Route::Pid { .. }) || d.is_persons_app(t) {
-        return None;
-    }
-    key_in_app(t)
-}
 
 /// `t`'s window as its app's key window (to the app only), settled.
 fn key_in_app(t: &Target) -> Option<super::activation::KeyInApp> {
@@ -1049,7 +1030,6 @@ pub(super) fn drag(
         }
     }
     let route = d.pointer_route(&t, delivery)?;
-    let _key = key_for_pointer(d, &t, route);
     input::drag(route, from, to, button)?;
     Ok(ActionOutcome::delivered(route.name()).at(to))
 }
