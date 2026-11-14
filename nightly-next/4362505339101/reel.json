@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "build": "4362505339101",
+  "notes": "notes/4362505339101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43173,
+      "title": "cmux-codecs build.rs: libvpx builds from a path with spaces, and checks its tarball on macOS",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43150,
+      "title": "acpmux idle pass: one ps per burst and 16 exits at a time, so 1,000 idle agents hibernate (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43178,
+      "title": "cmux-next-ios energy: a 15 s Time Profiler recording of each busy case's first rep",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43183,
+      "title": "ci(ios picker): the kit lane takes glaeda's sim-first runner when the pool is full",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43094,
+      "title": "cmux NEXT Home: the welcome's \"turn it on\" link for Start Agent from Any App is clickable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43127,
+      "title": "acpmux: v2 3b follow-ups: a failed import and the tee, joined slots, the gate's sample flag",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42880,
+      "title": "NEXT keeps its Cloud and SSH state under cmux-next/<bundle id>, moved once from classic's folder",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43165,
+      "title": "webviews: four base reds fixed forward (pane.toast in the bridge contract, the toolbar test without its \"…\", two DOM teardowns through domTeardown)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43130,
+      "title": "v2 client: chat subs in acpmux-client and its C ABI (row 6a)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
