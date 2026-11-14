@@ -113,7 +113,7 @@ PINNED: dict[str, tuple[str, set[str]]] = {
     'signing-keychain-macos.yml': ('signing keychain import: an ephemeral label the signing rule checks literally',
      {'real-import'}),
     'test-feed-reply-providers.yml': ('not yet on a pool; moves in its own PR',
-     {'full-text', 'verify'}),
+     {'verify'}),
     'tui-publish-npm.yml': ('GitHub OIDC provenance: moves to fromJSON(vars.RUNNER_POOLS).provenance',
      {'publish'}),
 }

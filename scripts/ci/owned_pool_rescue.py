@@ -510,11 +510,16 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/app-platform.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-base-autofix.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-batch.yml",  # feat-cmux-next only
+    # Main's Cua Driver SDK, dev helper and remote browser host publishers: their unsigned build
+    # takes the side label on attempt 1 of the dispatch (run 43645667029 sat on a Blacksmith queue).
+    ".github/workflows/cmux-next-cua-driver-sdk-publish.yml",
+    ".github/workflows/cmux-next-cua-helper-dev-sign.yml",
     # feat-cmux-next only; its Computer Use helper check takes the side label on attempt 1.
     ".github/workflows/cmux-next-cua-helper-identity.yml",
     ".github/workflows/cmux-next-frame-pacing.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-media.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-pr-autofix.yml",  # feat-cmux-next only
+    ".github/workflows/cmux-next-remote-browser-host-publish.yml",
     # feat-cmux-next only; its zsh git HEAD watcher job takes the side label on attempt 1.
     ".github/workflows/cmux-next-shell-integration.yml",
     ".github/workflows/cmux-next-terminal.yml",  # feat-cmux-next only
@@ -540,7 +545,8 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/reload-build.yml",
     ".github/workflows/remote-daemon.yml",
     ".github/workflows/terminal-hang-diagnostics.yml",
-    ".github/workflows/test-feed-reply-providers.yml",  # feat-cmux-next only
+    # Its full-text job takes the side label on attempt 1 (on both branches).
+    ".github/workflows/test-feed-reply-providers.yml",
 })
 # Side workflows whose Mac jobs take an owned label on every attempt (feat-cmux-next only), so no
 # re-run moves them off the minis (bot_rerun_leaves_owned()). This includes workflows whose
