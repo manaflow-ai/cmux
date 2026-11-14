@@ -141,7 +141,8 @@ struct AgentCursorTail {
         phases = tuning.waveFrequencies.map { _ in random.unit() * 2 * .pi }
         // ±4% per session, so cursors that start together drift apart.
         rates = tuning.waveFrequencies.map { $0 * (0.96 + 0.08 * random.unit()) }
-        untilFlick = 1.5 + random.unit() * 3.5
+        // The first flick comes sooner than the rest (about 1.5 to 5 s with the default gap).
+        untilFlick = tuning.flickGap.lowerBound * (0.55 + 1.25 * random.unit())
         flickSide = random.unit() < 0.5 ? 1 : -1
         self.random = random
         scratchPoints = Array(repeating: .zero, count: Self.segmentCount + 1)
