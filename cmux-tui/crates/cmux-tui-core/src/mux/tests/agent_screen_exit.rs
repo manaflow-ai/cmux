@@ -237,3 +237,602 @@ fn a_hook_after_the_replay_reconciles_check_keeps_its_public_row() {
     assert_eq!(agents[0]["source"], "hook", "the hook's row survives the reconcile: {agents:?}");
     assert_eq!(agents[0]["state"], "working", "{agents:?}");
 }
+
+/// #39096 follow-up F1: a direct hook report commits its projection and
+/// releases the hook projector's lock before it appends its journal echo, the
+/// record the roster folds. A replay reconcile in between saw no newer agent
+/// record and put the replay's older plugin state over the report's row, and
+/// the echo then moved only the roster. The reconcile leaves a row newer than
+/// the roster's entry.
+#[test]
+fn a_direct_report_before_its_echo_keeps_its_row_through_the_replays_reconcile() {
+    let mux = test_mux();
+    put_plugin_manifest(&mux);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    let t0 = crate::workspace_registry::unix_epoch_ms().unwrap();
+    screen(&mux, &terminal_id, "working", t0);
+    assert_eq!(public_agents(&mux)[0]["source"], "plugin");
+
+    // A replay from zero, held at its first slice's gate.
+    let (entered_tx, entered) = std::sync::mpsc::sync_channel(0);
+    let (release, release_rx) = std::sync::mpsc::sync_channel(0);
+    mux.restart_agent_roster_replay_for_test(1, (entered_tx, release_rx));
+    entered.recv_timeout(Duration::from_secs(30)).expect("the replay waits at its gate");
+
+    // A direct hook report that commits, then waits before its echo.
+    let (committed_tx, committed) = std::sync::mpsc::channel();
+    let (echo_tx, echo) = std::sync::mpsc::channel::<()>();
+    *mux.agent_roster_worker.report_echo_seam.lock().unwrap() = Some(Box::new(move || {
+        let _ = committed_tx.send(());
+        let _ = echo.recv_timeout(Duration::from_secs(30));
+    }));
+    tick();
+    let reporter = {
+        let mux = Arc::clone(&mux);
+        let surface = surface.id;
+        std::thread::spawn(move || {
+            mux.report_agent(surface, AgentState::Idle, AgentSource::Hook, None).unwrap();
+        })
+    };
+    committed.recv_timeout(Duration::from_secs(30)).expect("the report committed");
+    // The gate opens: the replay ends, and its reconcile gets its chance
+    // while the echo waits.
+    drop(release);
+    drop(entered);
+    for _ in 0..5 {
+        assert!(mux.settle_agent_roster_for_test());
+    }
+    drop(echo_tx);
+    reporter.join().unwrap();
+    settle_the_replay(&mux);
+    let agents = public_agents(&mux);
+    assert_eq!(agents.len(), 1, "{agents:?}");
+    assert_eq!(agents[0]["source"], "hook", "the report's row survives the reconcile: {agents:?}");
+    assert_eq!(agents[0]["state"], "idle", "{agents:?}");
+}
+
+/// #39096 follow-up: the start's own reconcile (`reconcile_agent_roster_projections`)
+/// waited for the background replay, but not for the reconcile the replay
+/// owes once it is done. In that window the roster can still hold an older
+/// plugin entry than a row written since, and the start's reconcile put the
+/// entry over it. It waits for both now (`agent_roster_settling`).
+#[test]
+fn the_starts_reconcile_waits_for_the_reconcile_the_replay_owes() {
+    let mux = test_mux();
+    put_plugin_manifest(&mux);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    let t0 = crate::workspace_registry::unix_epoch_ms().unwrap();
+    screen(&mux, &terminal_id, "working", t0);
+    assert_eq!(public_agents(&mux)[0]["source"], "plugin");
+
+    // A newer row whose echo the roster has not folded yet.
+    let (committed_tx, committed) = std::sync::mpsc::channel();
+    let (echo_tx, echo) = std::sync::mpsc::channel::<()>();
+    *mux.agent_roster_worker.report_echo_seam.lock().unwrap() = Some(Box::new(move || {
+        let _ = committed_tx.send(());
+        let _ = echo.recv_timeout(Duration::from_secs(30));
+    }));
+    tick();
+    let reporter = {
+        let mux = Arc::clone(&mux);
+        let surface = surface.id;
+        std::thread::spawn(move || {
+            mux.report_agent(surface, AgentState::Idle, AgentSource::Hook, None).unwrap();
+        })
+    };
+    committed.recv_timeout(Duration::from_secs(30)).expect("the report committed");
+    // The replay is done and its reconcile not yet run.
+    mux.agent_roster_worker.reconcile_pending.store(true, Ordering::Release);
+    mux.reconcile_agent_roster_projections();
+    let row = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .public_agent_projections(Some(&terminal_id), None)
+        .unwrap();
+    assert_eq!(row[0].source, "hook", "the start's reconcile left the newer row: {row:?}");
+    drop(echo_tx);
+    reporter.join().unwrap();
+    let agents = public_agents(&mux);
+    assert_eq!(agents[0]["source"], "hook", "{agents:?}");
+}
+
+/// #39096 follow-up F1 (router-review): the reconcile a background replay
+/// owes cleared its pending flag before its projection writes, so a guarded
+/// `send` (`expect_agent`) saw the roster settled while the writes were still
+/// to come, and could type into an agent a hook had just made busy. The flag
+/// is cleared after the writes, under the same lock.
+#[test]
+fn a_guarded_send_waits_for_the_replays_reconcile_writes() {
+    let mux = test_mux();
+    put_plugin_manifest(&mux);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    screen(&mux, &terminal_id, "working", crate::workspace_registry::unix_epoch_ms().unwrap());
+    let settling = Arc::new(Mutex::new(None));
+    let (seam_mux, seen) = (Arc::clone(&mux), Arc::clone(&settling));
+    *mux.agent_roster_worker.reconcile_seam.lock().unwrap() = Some(Box::new(move || {
+        *seen.lock().unwrap() = Some(seam_mux.agent_roster_settling());
+    }));
+    let (entered_tx, entered) = std::sync::mpsc::sync_channel(0);
+    let (release, release_rx) = std::sync::mpsc::sync_channel(0);
+    drop((entered, release));
+    mux.restart_agent_roster_replay_for_test(1, (entered_tx, release_rx));
+    for _ in 0..100 {
+        if settling.lock().unwrap().is_some() {
+            break;
+        }
+        assert!(mux.settle_agent_roster_for_test());
+    }
+    assert_eq!(
+        *settling.lock().unwrap(),
+        Some(true),
+        "a guarded send saw the roster settled before the reconcile's writes"
+    );
+    assert!(mux.settle_agent_roster_for_test());
+    assert!(!mux.agent_roster_settling(), "the reconcile finished");
+}
+
+/// #39096 follow-up F3 (router-review): a journal read that failed in the
+/// reconcile a background replay owes returned with no retry, so the
+/// reconcile stayed pending and guarded sends stayed refused until an
+/// unrelated request. It is retried after the roster's read backoff.
+#[test]
+fn a_failed_reconcile_read_is_retried_without_another_request() {
+    use crate::mux::agent_roster_fold::rebuild_faults;
+    let mux = test_mux();
+    put_plugin_manifest(&mux);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    screen(&mux, &terminal_id, "working", crate::workspace_registry::unix_epoch_ms().unwrap());
+    rebuild_faults::fail_reconcile_reads(&mux.session, 1);
+    let (entered_tx, entered) = std::sync::mpsc::sync_channel(0);
+    let (release, release_rx) = std::sync::mpsc::sync_channel(0);
+    drop((entered, release));
+    mux.restart_agent_roster_replay_for_test(1, (entered_tx, release_rx));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while mux.agent_roster_settling() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let settled = !mux.agent_roster_settling();
+    rebuild_faults::fail_reconcile_reads(&mux.session, 0);
+    assert!(settled, "the reconcile stayed pending after its failed read");
+}
+
+/// Settles the roster until its replay and the reconcile it owes are done.
+fn settle_the_replay(mux: &Mux) {
+    for _ in 0..100 {
+        assert!(mux.settle_agent_roster_for_test());
+        if !mux.agent_roster_settling() {
+            break;
+        }
+    }
+    assert!(!mux.agent_roster_settling(), "the replay reconciled");
+}
+
+/// Sets the stored projection's `updated_at_ms`, in the type it is stored in.
+fn set_projection_updated_at(mux: &Mux, terminal_id: &TerminalPublicId, at_ms: u64) {
+    mux.workspace_registry.lock().unwrap().edit_agent_projection_for_test(terminal_id, |row| {
+        let stamp = &mut row["updated_at_ms"];
+        *stamp = if stamp.is_string() { Value::String(at_ms.to_string()) } else { at_ms.into() };
+    });
+}
+
+/// A replay from zero held at its gate, and a direct report of `state` from
+/// `source` that commits during it. `after_commit` runs right after the report's
+/// projection commit; its journal echo waits until the replay ended and its
+/// reconcile had its chance. Then everything settles.
+fn direct_report_during_a_replay(
+    mux: &Arc<Mux>,
+    surface: SurfaceId,
+    source: AgentSource,
+    state: AgentState,
+    after_commit: impl FnOnce() + Send + 'static,
+) {
+    let (entered_tx, entered) = std::sync::mpsc::sync_channel(0);
+    let (release, release_rx) = std::sync::mpsc::sync_channel(0);
+    mux.restart_agent_roster_replay_for_test(1, (entered_tx, release_rx));
+    entered.recv_timeout(Duration::from_secs(30)).expect("the replay waits at its gate");
+    let (committed_tx, committed) = std::sync::mpsc::channel();
+    let (echo_tx, echo) = std::sync::mpsc::channel::<()>();
+    mux.hold_agent_report_echo_for_test(Box::new(move || {
+        after_commit();
+        let _ = committed_tx.send(());
+        let _ = echo.recv_timeout(Duration::from_secs(30));
+    }));
+    tick();
+    let reporter = {
+        let mux = Arc::clone(mux);
+        std::thread::spawn(move || {
+            mux.report_agent(surface, state, source, None).unwrap();
+        })
+    };
+    committed.recv_timeout(Duration::from_secs(30)).expect("the report committed");
+    drop(release);
+    drop(entered);
+    for _ in 0..5 {
+        assert!(mux.settle_agent_roster_for_test());
+    }
+    drop(echo_tx);
+    reporter.join().unwrap();
+    settle_the_replay(mux);
+}
+
+/// #39830 review (next-review F1): the replay's reconcile skipped a row whose
+/// wall-clock stamp was newer than the roster's entry. Projections are
+/// stamped when written and plugin entries keep their observation time, so a
+/// stale row (here an `idle` written after the `working` observation whose
+/// own write went missing) outranked the entry, and the repair the reconcile
+/// owed never happened. Only a direct report during the replay keeps its row.
+#[test]
+fn the_replays_reconcile_repairs_a_stale_projection_stamped_later() {
+    let mux = test_mux();
+    put_plugin_manifest(&mux);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    let t0 = crate::workspace_registry::unix_epoch_ms().unwrap();
+    screen(&mux, &terminal_id, "working", t0);
+    assert_eq!(public_agents(&mux)[0]["state"], "working");
+    mux.workspace_registry
+        .lock()
+        .unwrap()
+        .edit_agent_projection_for_test(&terminal_id, |row| row["state"] = "idle".into());
+    set_projection_updated_at(&mux, &terminal_id, t0 + 3_600_000);
+    let (entered_tx, entered) = std::sync::mpsc::sync_channel(0);
+    let (release, release_rx) = std::sync::mpsc::sync_channel(0);
+    drop((entered, release));
+    mux.restart_agent_roster_replay_for_test(1, (entered_tx, release_rx));
+    settle_the_replay(&mux);
+    let agents = public_agents(&mux);
+    assert_eq!(agents.len(), 1, "{agents:?}");
+    assert_eq!(agents[0]["source"], "plugin", "{agents:?}");
+    assert_eq!(agents[0]["state"], "working", "the reconcile repaired the stale row: {agents:?}");
+}
+
+/// #39830 review (router F1): a direct report stamped in the same
+/// millisecond as the roster's entry, or before it after a clock step, lost
+/// its row to the reconcile's strict `>`. Its row is kept because it was
+/// written during the replay, whatever its stamp.
+#[test]
+fn a_direct_report_stamped_before_the_entry_keeps_its_row_through_the_reconcile() {
+    let mux = test_mux();
+    put_plugin_manifest(&mux);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    screen(&mux, &terminal_id, "working", crate::workspace_registry::unix_epoch_ms().unwrap());
+    let (stamp_mux, stamp_terminal) = (Arc::clone(&mux), terminal_id);
+    direct_report_during_a_replay(
+        &mux,
+        surface.id,
+        AgentSource::Hook,
+        AgentState::Idle,
+        move || {
+            set_projection_updated_at(&stamp_mux, &stamp_terminal, 1);
+        },
+    );
+    let agents = public_agents(&mux);
+    assert_eq!(agents.len(), 1, "{agents:?}");
+    assert_eq!(agents[0]["source"], "hook", "the report's row survives the reconcile: {agents:?}");
+    assert_eq!(agents[0]["state"], "idle", "{agents:?}");
+}
+
+/// #39830 review (router F2), and round 3: a direct completion during the
+/// replay. The reconcile read the filtered public projection, where a hook's
+/// `done` row is absent, and a fence that kept the report's row whatever the
+/// roster folded hid what the reducer made of it. The public row now is the
+/// roster's verdict on the completion's echo, as a reconcile with no replay
+/// would leave it: never a state the roster does not hold.
+#[test]
+fn a_direct_completion_during_the_replay_leaves_the_row_the_roster_folded() {
+    let mux = test_mux();
+    put_plugin_manifest(&mux);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    screen(&mux, &terminal_id, "working", crate::workspace_registry::unix_epoch_ms().unwrap());
+    direct_report_during_a_replay(&mux, surface.id, AgentSource::Hook, AgentState::Done, || {});
+    let public = public_agents(&mux)
+        .iter()
+        .map(|agent| {
+            (
+                agent["state"].as_str().unwrap().to_owned(),
+                agent["source"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let roster = mux
+        .list_agents(None, None)
+        .into_iter()
+        .filter(|agent| agent.state != AgentState::Done)
+        .map(|agent| (agent.state.as_str().to_owned(), agent.source.as_str().to_owned()))
+        .collect::<Vec<_>>();
+    assert_eq!(public, roster, "the public row is what the roster folded");
+}
+
+/// A direct report during the replay whose journal echo failed: the echo is
+/// appended again, and the roster folds it before the reconcile, so the
+/// report's row stays, stamp or no stamp.
+#[test]
+fn a_direct_report_whose_echo_failed_keeps_its_row_through_the_reconcile() {
+    use crate::mux::agent_roster_fold::rebuild_faults;
+    let mux = test_mux();
+    put_plugin_manifest(&mux);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    screen(&mux, &terminal_id, "working", crate::workspace_registry::unix_epoch_ms().unwrap());
+    rebuild_faults::fail_report_echoes(&mux.session, 1);
+    let (stamp_mux, stamp_terminal) = (Arc::clone(&mux), terminal_id);
+    direct_report_during_a_replay(
+        &mux,
+        surface.id,
+        AgentSource::Hook,
+        AgentState::Idle,
+        move || {
+            set_projection_updated_at(&stamp_mux, &stamp_terminal, 1);
+        },
+    );
+    rebuild_faults::fail_report_echoes(&mux.session, 0);
+    let agents = public_agents(&mux);
+    assert_eq!(agents.len(), 1, "{agents:?}");
+    assert_eq!(agents[0]["source"], "hook", "the report's row survives the reconcile: {agents:?}");
+}
+
+/// #39830 review round 3 (router F1): a stop left a plugin journal event with
+/// no projection, so during the replay a weaker socket `idle` report commits
+/// (neither the cache nor the projection holds the plugin row). The roster's
+/// reducer refuses its echo and keeps the plugin `working`, but a fence kept
+/// the socket row whatever the reducer folded. The reconcile now repairs the
+/// row to what the roster folded, as it did before the fence.
+#[test]
+fn a_weaker_direct_report_during_the_replay_gets_the_replayed_plugin_row_back() {
+    let mux = test_mux();
+    put_plugin_manifest(&mux);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    screen(&mux, &terminal_id, "working", crate::workspace_registry::unix_epoch_ms().unwrap());
+    assert_eq!(public_agents(&mux)[0]["source"], "plugin");
+    mux.workspace_registry.lock().unwrap().delete_agent_projection_for_test(&terminal_id).unwrap();
+    mux.agent_records.lock().unwrap().remove(&terminal_id);
+    direct_report_during_a_replay(&mux, surface.id, AgentSource::Socket, AgentState::Idle, || {});
+    assert_eq!(
+        mux.agent_roster_state_now_for_test(terminal_id.as_str()).as_deref(),
+        Some("working")
+    );
+    let agents = public_agents(&mux);
+    assert_eq!(agents.len(), 1, "{agents:?}");
+    assert_eq!(agents[0]["source"], "plugin", "the reconcile repaired the socket row: {agents:?}");
+    assert_eq!(agents[0]["state"], "working", "{agents:?}");
+}
+
+/// #39830 review round 4 (item 2): a respawn's or an adoption's reconcile of
+/// one terminal ran between a direct report's echo append and its fold. The
+/// echo counted as written once appended, so the reconcile put the roster's
+/// older plugin row over the report's newer one, and the echo's fold then
+/// moved only the roster. It waits for the fold.
+#[test]
+fn a_terminals_reconcile_between_an_echo_and_its_fold_keeps_the_reports_row() {
+    let mux = test_mux();
+    put_plugin_manifest(&mux);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    screen(&mux, &terminal_id, "working", crate::workspace_registry::unix_epoch_ms().unwrap());
+    assert!(mux.settle_agent_roster_for_test());
+    assert_eq!(public_agents(&mux)[0]["source"], "plugin");
+    let (entered_tx, entered) = std::sync::mpsc::sync_channel(0);
+    let (release, release_rx) = std::sync::mpsc::sync_channel(0);
+    mux.pause_agent_roster_fold_after_head_for_test(entered_tx, release_rx);
+    tick();
+    mux.report_agent(surface.id, AgentState::Idle, AgentSource::Hook, None).unwrap();
+    entered.recv_timeout(Duration::from_secs(30)).expect("the owner holds before the echo's fold");
+    mux.reconcile_agent_roster_projections_for_terminal(&terminal_id);
+    let row = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .public_agent_projections(Some(&terminal_id), None)
+        .unwrap();
+    drop(release);
+    assert_eq!(row[0].source, "hook", "the reconcile kept the report's row: {row:?}");
+    assert!(mux.settle_agent_roster_for_test());
+    assert!(mux.settle_agent_roster_for_test());
+    let agents = public_agents(&mux);
+    assert_eq!(agents.len(), 1, "{agents:?}");
+    assert_eq!(agents[0]["source"], "hook", "{agents:?}");
+    assert_eq!(agents[0]["state"], "idle", "{agents:?}");
+}
+
+/// The public row of `terminal_id` as (state, source), if any.
+fn public_row(mux: &Mux, terminal_id: &TerminalPublicId) -> Option<(String, String)> {
+    let rows = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .public_agent_projections(Some(terminal_id), None)
+        .unwrap();
+    rows.into_iter().next().map(|row| (row.state, row.source))
+}
+
+fn row(state: &str, source: &str) -> Option<(String, String)> {
+    Some((state.to_owned(), source.to_owned()))
+}
+
+/// #39830 round 5 (F1): the owner's deferred reconcile checked only direct reports' echoes. A
+/// normal hook that projected after the echo was folded, and before the reconcile took the hook
+/// projector's lock, had its newer row overwritten by the roster's older plugin entry, and the
+/// hook's own fold applies no projection. The reconcile waits for every projected record of the
+/// terminal, hooks included.
+#[test]
+fn a_hook_between_an_echos_fold_and_its_deferred_reconcile_keeps_its_row() {
+    let mux = test_mux();
+    put_plugin_manifest(&mux);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    screen(&mux, &terminal_id, "working", crate::workspace_registry::unix_epoch_ms().unwrap());
+    assert!(mux.settle_agent_roster_for_test());
+    let (entered_tx, entered) = std::sync::mpsc::sync_channel(0);
+    let (release, release_rx) = std::sync::mpsc::sync_channel(0);
+    mux.pause_agent_roster_fold_after_head_for_test(entered_tx, release_rx);
+    tick();
+    // The reducer keeps the plugin entry over this completion, so the
+    // reconcile owes the terminal a repair once the echo is folded.
+    mux.report_agent(surface.id, AgentState::Done, AgentSource::Hook, None).unwrap();
+    entered.recv_timeout(Duration::from_secs(30)).expect("the owner holds before the echo's fold");
+    mux.reconcile_agent_roster_projections_for_terminal(&terminal_id);
+    let (hook_mux, hook_terminal) = (Arc::clone(&mux), terminal_id.clone());
+    mux.hold_deferred_reconcile_for_test(Box::new(move || {
+        let now = crate::workspace_registry::unix_epoch_ms().unwrap();
+        hook(&hook_mux, &hook_terminal, "late-hook", "SessionStart", now);
+        hook(&hook_mux, &hook_terminal, "late-hook", "UserPromptSubmit", now + 1);
+    }));
+    drop(release);
+    for _ in 0..4 {
+        assert!(mux.settle_agent_roster_for_test());
+    }
+    assert_eq!(
+        mux.agent_roster_state_now_for_test(terminal_id.as_str()).as_deref(),
+        Some("working")
+    );
+    assert_eq!(
+        public_row(&mux, &terminal_id),
+        row("working", "hook"),
+        "the hook's row survives the deferred reconcile"
+    );
+}
+
+/// #39830 round 5 (F2): an echo whose terminal had a later report was not appended, so the
+/// reducer folded only the later one. From a plugin `working`, a direct hook `working` then a
+/// direct hook `done`, both committed before the first echo: the reducer refused the lone
+/// completion (the plugin still owned the entry), where with both echoes it ends the agent.
+#[test]
+fn overlapping_direct_reports_are_all_folded_in_commit_order() {
+    let mux = test_mux();
+    put_plugin_manifest(&mux);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    screen(&mux, &terminal_id, "working", crate::workspace_registry::unix_epoch_ms().unwrap());
+    assert!(mux.settle_agent_roster_for_test());
+    let (committed_tx, committed) = std::sync::mpsc::channel();
+    let (echo_tx, echo) = std::sync::mpsc::channel::<()>();
+    mux.hold_agent_report_echo_for_test(Box::new(move || {
+        let _ = committed_tx.send(());
+        let _ = echo.recv_timeout(Duration::from_secs(30));
+    }));
+    tick();
+    let reporter = {
+        let mux = Arc::clone(&mux);
+        let surface = surface.id;
+        std::thread::spawn(move || {
+            mux.report_agent(surface, AgentState::Working, AgentSource::Hook, None).unwrap();
+        })
+    };
+    committed.recv_timeout(Duration::from_secs(30)).expect("the first report committed");
+    tick();
+    mux.report_agent(surface.id, AgentState::Done, AgentSource::Hook, None).unwrap();
+    drop(echo_tx);
+    reporter.join().unwrap();
+    for _ in 0..3 {
+        assert!(mux.settle_agent_roster_for_test());
+    }
+    assert_eq!(
+        mux.agent_roster_state_now_for_test(terminal_id.as_str()),
+        None,
+        "the roster folded the working report, then the completion that ended it"
+    );
+    assert!(
+        public_agents(&mux).is_empty(),
+        "no public row once the agent ended: {:?}",
+        public_agents(&mux)
+    );
+}
+
+/// #39830 round 5 (P2 of round 4's review): a lost echo's guard cleared on any change of the
+/// terminal's roster entry, also one a replay slice folded from a record older than the lost
+/// echo. It holds until the roster passed the journal head of the give-up, and a change after
+/// that.
+#[test]
+fn a_lost_echos_guard_outlasts_the_older_records_a_replay_folds() {
+    let mux = test_mux();
+    put_plugin_manifest(&mux);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    for index in 0..12 {
+        tick();
+        let state = if index % 2 == 0 { "working" } else { "idle" };
+        screen(&mux, &terminal_id, state, crate::workspace_registry::unix_epoch_ms().unwrap());
+    }
+    assert!(mux.settle_agent_roster_for_test());
+    let (entered_tx, entered) = std::sync::mpsc::sync_channel(0);
+    let (release, release_rx) = std::sync::mpsc::sync_channel(0);
+    mux.restart_agent_roster_replay_for_test(1, (entered_tx, release_rx));
+    entered.recv_timeout(Duration::from_secs(30)).expect("the replay waits at its gate");
+    mux.fail_agent_report_echoes_for_test(1_000_000);
+    mux.report_agent(surface.id, AgentState::Working, AgentSource::Hook, None).unwrap();
+    let mut slices_after_give_up = 0;
+    loop {
+        std::thread::sleep(Duration::from_millis(30));
+        if 1_000_000 - mux.agent_report_echo_failures_left_for_test() >= 3 {
+            slices_after_give_up += 1;
+        }
+        release.send(()).unwrap();
+        if entered.recv_timeout(Duration::from_secs(2)).is_err() {
+            break;
+        }
+    }
+    drop(release);
+    for _ in 0..3 {
+        assert!(mux.settle_agent_roster_for_test());
+    }
+    let unsettled = mux.agent_report_unsettled(&terminal_id);
+    mux.fail_agent_report_echoes_for_test(0);
+    assert!(slices_after_give_up >= 3, "the replay folded slices after the give-up");
+    assert!(unsettled, "older records the replay folded cleared the lost echo's guard");
+    // A record after the give-up does clear it.
+    tick();
+    screen(&mux, &terminal_id, "idle", crate::workspace_registry::unix_epoch_ms().unwrap());
+    for _ in 0..3 {
+        assert!(mux.settle_agent_roster_for_test());
+    }
+    assert!(!mux.agent_report_unsettled(&terminal_id), "a newer record cleared the guard");
+}
+
+/// #39830 round 5 (every write path): a plugin record folded while a direct report's echo was
+/// not, applied its projection over the report's newer row, and the echo's fold then moved only
+/// the roster. The fold's projection waits for the terminal's unfolded records like a reconcile.
+#[test]
+fn a_plugin_fold_before_a_direct_reports_echo_keeps_the_reports_row() {
+    let mux = test_mux();
+    put_plugin_manifest(&mux);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    screen(&mux, &terminal_id, "working", crate::workspace_registry::unix_epoch_ms().unwrap());
+    assert!(mux.settle_agent_roster_for_test());
+    let (committed_tx, committed) = std::sync::mpsc::channel();
+    let (echo_tx, echo) = std::sync::mpsc::channel::<()>();
+    mux.hold_agent_report_echo_for_test(Box::new(move || {
+        let _ = committed_tx.send(());
+        let _ = echo.recv_timeout(Duration::from_secs(30));
+    }));
+    tick();
+    let reporter = {
+        let mux = Arc::clone(&mux);
+        let surface = surface.id;
+        std::thread::spawn(move || {
+            mux.report_agent(surface, AgentState::Working, AgentSource::Hook, None).unwrap();
+        })
+    };
+    committed.recv_timeout(Duration::from_secs(30)).expect("the report committed");
+    tick();
+    screen(&mux, &terminal_id, "idle", crate::workspace_registry::unix_epoch_ms().unwrap());
+    assert!(mux.settle_agent_roster_for_test());
+    drop(echo_tx);
+    reporter.join().unwrap();
+    for _ in 0..3 {
+        assert!(mux.settle_agent_roster_for_test());
+    }
+    assert_eq!(
+        mux.agent_roster_state_now_for_test(terminal_id.as_str()).as_deref(),
+        Some("working")
+    );
+    assert_eq!(public_row(&mux, &terminal_id), row("working", "hook"), "the report's row stays");
+}

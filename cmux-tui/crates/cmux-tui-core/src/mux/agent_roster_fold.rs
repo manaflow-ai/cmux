@@ -6,6 +6,10 @@ use super::*;
 #[path = "agent_roster_worker.rs"]
 mod agent_roster_worker;
 pub(super) use agent_roster_worker::AgentRosterWorker;
+// Direct reports' journal echoes, until the roster folded them.
+#[path = "agent_report_echoes.rs"]
+mod agent_report_echoes;
+pub(super) use agent_report_echoes::{EchoAppends, ReportEcho, ReportEchoes};
 // A stale roster's background rebuild, on that owner.
 #[path = "agent_roster_rebuild.rs"]
 mod agent_roster_rebuild;
@@ -427,6 +431,8 @@ impl Mux {
     /// is taken only to apply each page that was read.
     fn run_roster_pass(&self, pass: agent_roster_worker::RosterPass) -> Vec<String> {
         use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, RosterEvent};
+        // Before the fold, so a retried echo is folded in this pass.
+        self.retry_failed_report_echoes();
         let mut fold = self.agent_roster_worker.fold.lock().unwrap_or_else(PoisonError::into_inner);
         // The start's unfinished replay comes first, a slice per pass: its
         // records are older than any a request asks for, and they apply no
@@ -667,11 +673,15 @@ impl Mux {
         // An agent record past the roster's cursor holds the reconcile for
         // another pass; a journal that cannot be read holds it for the next
         // request or maintenance tick.
-        if reconciled == Some(Some(false)) {
-            self.continue_agent_roster_replay_later();
+        if let Some(reconciled) = reconciled {
+            self.finish_replay_reconcile(reconciled);
         }
+        // The fold's own projection writes keep the invariant too
+        // (`agent_report_echoes.rs`): one of a terminal with a projected
+        // record past the cursor is owed until that record is folded.
+        let cursor = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner).cursor;
         for (delta, kind) in deltas {
-            self.apply_roster_delta(delta, &kind);
+            self.apply_folded_roster_delta(delta, &kind, cursor);
         }
         // The live agent count reads the roster; an activity event sent
         // between the request and this pass read the old count. The end of a
@@ -686,14 +696,38 @@ impl Mux {
         left
     }
 
+    /// After the reconcile a replay or rebuild owes: an agent record past
+    /// the roster's cursor holds it for another pass; a journal that cannot
+    /// be read for a retry after the
+    /// roster's read backoff, with no request needed. Until then guarded
+    /// sends stay refused.
+    pub(super) fn finish_replay_reconcile(&self, reconciled: ReplayReconcile) {
+        match reconciled {
+            ReplayReconcile::Behind => self.continue_agent_roster_replay_later(),
+            ReplayReconcile::Failed => {
+                let worker = &self.agent_roster_worker;
+                let failed = worker.replay_failed_reads.fetch_add(1, Ordering::AcqRel) + 1;
+                self.retry_agent_roster_replay_after(
+                    agent_roster_rebuild::roster_read_retry_delay(failed),
+                );
+            }
+            ReplayReconcile::Done => {
+                self.agent_roster_worker.replay_failed_reads.store(0, Ordering::Release);
+            }
+        }
+    }
+
     /// Repair public projections whose plugin or program-status roster event
     /// was folded before the daemon stopped. The roster is the canonical live view; the
     /// projection is a separately committed compatibility view for clients.
     /// Compare durable values first so a healthy restart emits no mutations.
     pub(super) fn reconcile_agent_roster_projections(&self) {
         // A roster still replaying is behind the journal: its entries are
-        // older than the projections. The replay reconciles when it is done.
-        if self.agent_roster_replaying() {
+        // older than the projections. The replay reconciles when it is done,
+        // under the hook projector's lock (`reconcile_after_replay`); until
+        // then the roster can still hold an entry older than a row written
+        // since, so this one waits for that too.
+        if self.agent_roster_settling() {
             return;
         }
         // A stale roster (a reducer bump) can disagree with projections the
@@ -701,25 +735,34 @@ impl Mux {
         if self.agent_roster_stale() {
             return;
         }
-        let entries = self
-            .agent_roster
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .roster
-            .entries
-            .iter()
-            .filter(|(_, entry)| reducer_owned(entry))
-            .map(|(terminal_id, entry)| (terminal_id.clone(), entry.clone()))
-            .collect::<Vec<_>>();
+        let (cursor, entries) = {
+            let host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
+            let entries = host
+                .roster
+                .entries
+                .iter()
+                .filter(|(_, entry)| reducer_owned(entry))
+                .map(|(terminal_id, entry)| (terminal_id.clone(), entry.clone()))
+                .collect::<Vec<_>>();
+            (host.cursor, entries)
+        };
+        // Under the hook projector's lock, so no direct report commits
+        // between a terminal's check and its write.
+        let fences = self.agent_hook_fences.lock().unwrap_or_else(PoisonError::into_inner);
         for (terminal_id, entry) in entries {
             let Ok(terminal_id) = TerminalPublicId::parse(&terminal_id) else { continue };
-            self.reconcile_agent_roster_projection_for_entry(&terminal_id, entry);
+            if self.reconcile_may_write(&fences, &terminal_id, cursor) {
+                self.reconcile_agent_roster_projection_with(&terminal_id, entry, true);
+            }
         }
+        drop(fences);
     }
 
     /// The projection reconcile a background replay owes, once the roster
-    /// has folded every agent record: `Some(false)` when the journal holds
-    /// one past the roster's cursor, `None` when it cannot be read.
+    /// has folded every agent record: `Behind` when the journal holds
+    /// one past the roster's cursor, `Failed` when the journal cannot be
+    /// read. A terminal whose direct report's echo the roster has not folded
+    /// is left to the owner (`agent_report_echoes.rs`).
     ///
     /// The check and the writes hold the hook projector's lock
     /// (`agent_hook_fences`), which a hook's projection holds from its fence
@@ -730,15 +773,15 @@ impl Mux {
     /// the one that stays. Without the lock, a hook between the two had its
     /// row overwritten by the replay's older plugin state, and its fold
     /// applies no delta.
-    fn reconcile_after_replay(
+    pub(super) fn reconcile_after_replay(
         &self,
         reader: Option<&crate::workspace_registry::SessionJournalReader>,
-    ) -> Option<bool> {
+    ) -> ReplayReconcile {
         // A stale roster (a reducer bump) is not reconciled from: its
         // rebuild reconciles when it replaces the roster.
         if self.agent_roster_stale() {
             self.agent_roster_worker.reconcile_pending.store(false, Ordering::Release);
-            return Some(true);
+            return ReplayReconcile::Done;
         }
         // Only the owner moves the roster, and this is the owner: its cursor
         // and entries stay as read. Read before the fences lock, as the fold
@@ -756,7 +799,12 @@ impl Mux {
         };
         let fences = self.agent_hook_fences.lock().unwrap_or_else(PoisonError::into_inner);
         let kinds = crate::journal_reducers::AgentRoster::folds_kind;
+        #[cfg(test)]
+        let injected = rebuild_faults::take_failing_reconcile_read(&self.session);
+        #[cfg(not(test))]
+        let injected = false;
         let newer = match reader {
+            _ if injected => Err(anyhow::anyhow!("an injected reconcile read failure")),
             Some(reader) => reader
                 .head()
                 .and_then(|head| reader.kinds_after(cursor, head.max(cursor), kinds, 1)),
@@ -766,15 +814,14 @@ impl Mux {
         };
         match newer {
             Ok((records, _)) if records.is_empty() => {}
-            Ok(_) => return Some(false),
+            Ok(_) => return ReplayReconcile::Behind,
             Err(error) => {
                 eprintln!(
                     "cmux-tui: the agent roster reconcile could not read the journal: {error}"
                 );
-                return None;
+                return ReplayReconcile::Failed;
             }
         }
-        self.agent_roster_worker.reconcile_pending.store(false, Ordering::Release);
         #[cfg(test)]
         if let Some(seam) = self
             .agent_roster_worker
@@ -787,10 +834,20 @@ impl Mux {
         }
         for (terminal_id, entry) in entries {
             let Ok(terminal_id) = TerminalPublicId::parse(&terminal_id) else { continue };
-            self.reconcile_agent_roster_projection_with(&terminal_id, entry, true);
+            // A report commits under this lock, so none commits now. A
+            // terminal whose echo the roster has not folded is left to the
+            // owner, which writes the reducer's verdict on it once folded;
+            // the other terminals' guarded sends do not wait for it.
+            if self.reconcile_may_write(&fences, &terminal_id, cursor) {
+                self.reconcile_agent_roster_projection_with(&terminal_id, entry, true);
+            }
         }
+        // Only now, with the writes committed and the lock still held: a
+        // guarded send (`expect_agent`) that sees the roster settled must see
+        // the reconciled rows, never the ones about to be rewritten.
+        self.agent_roster_worker.reconcile_pending.store(false, Ordering::Release);
         drop(fences);
-        Some(true)
+        ReplayReconcile::Done
     }
 
     pub(super) fn reconcile_agent_roster_projections_for_terminal(
@@ -802,29 +859,38 @@ impl Mux {
         if self.agent_roster_settling() || self.agent_roster_stale() {
             return;
         }
-        let entry = self
-            .agent_roster
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .roster
-            .entries
-            .get(terminal_id.as_str())
-            .filter(|entry| reducer_owned(entry))
-            .cloned();
-        if let Some(entry) = entry {
-            self.reconcile_agent_roster_projection_for_entry(terminal_id, entry);
+        let (cursor, entry) = {
+            let host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
+            let entry = host
+                .roster
+                .entries
+                .get(terminal_id.as_str())
+                .filter(|entry| reducer_owned(entry))
+                .cloned();
+            (host.cursor, entry)
+        };
+        let Some(entry) = entry else { return };
+        // A direct report of this terminal whose echo the roster has not
+        // folded: the owner reconciles it once it is (`agent_report_echoes.rs`).
+        // Under the hook projector's lock, so none commits between.
+        let fences = self.agent_hook_fences.lock().unwrap_or_else(PoisonError::into_inner);
+        if self.reconcile_may_write(&fences, terminal_id, cursor) {
+            self.reconcile_agent_roster_projection_with(terminal_id, entry, true);
         }
+        drop(fences);
     }
 
-    pub(super) fn reconcile_agent_roster_projection_for_entry(
+    /// [`Self::reconcile_agent_roster_projection_with`] for a caller that
+    /// holds the hook projector's lock (`agent_hook_fences`).
+    pub(super) fn reconcile_agent_roster_projection_held(
         &self,
         terminal_id: &TerminalPublicId,
         entry: crate::journal_reducers::RosterEntry,
     ) {
-        self.reconcile_agent_roster_projection_with(terminal_id, entry, false);
+        self.reconcile_agent_roster_projection_with(terminal_id, entry, true);
     }
 
-    /// [`Self::reconcile_agent_roster_projection_for_entry`]; with
+    /// Write `entry` over `terminal_id`'s projection when they differ; with
     /// `sequence_lock_held`, the caller holds `agent_hook_fences`.
     fn reconcile_agent_roster_projection_with(
         &self,
@@ -868,6 +934,30 @@ impl Mux {
             "startup-reconcile",
             sequence_lock_held,
         );
+    }
+
+    /// A delta the fold through `cursor` made: an upsert or removal is
+    /// applied under the hook projector's lock once the invariant allows it,
+    /// and owed otherwise; a hook session's end checks its own fence.
+    fn apply_folded_roster_delta(
+        &self,
+        delta: crate::journal_reducers::RosterDelta,
+        kind: &str,
+        cursor: u64,
+    ) {
+        use crate::journal_reducers::RosterDelta;
+        let terminal_id = match &delta {
+            RosterDelta::Upsert { terminal_id, .. } | RosterDelta::Remove { terminal_id, .. } => {
+                terminal_id
+            }
+            RosterDelta::EndHookSession { .. } => return self.apply_roster_delta(delta, kind),
+        };
+        let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) else { return };
+        let fences = self.agent_hook_fences.lock().unwrap_or_else(PoisonError::into_inner);
+        if self.reconcile_may_write(&fences, &terminal_id, cursor) {
+            self.apply_roster_delta_with(delta, kind, true);
+        }
+        drop(fences);
     }
 
     /// Apply one roster delta's side effects: the durable agent projection
@@ -1013,14 +1103,10 @@ impl Mux {
     /// The event wears the agent-hook payload shape with a dedicated
     /// adapter, and the fold recognizes that adapter as an echo whose
     /// projection commit already happened.
-    pub(super) fn append_agent_report_echo(
-        &self,
-        terminal_id: &TerminalPublicId,
-        state: AgentState,
-        source: AgentSource,
-        session: Option<&str>,
-        updated_at_ms: u64,
-    ) {
+    /// The echo's journal sequence, or `None` when it could not be appended.
+    pub(super) fn append_agent_report_echo(&self, echo: &ReportEcho) -> Option<u64> {
+        let ReportEcho { terminal_id, state, source, session, updated_at_ms, idempotency_key } =
+            echo;
         use crate::journal_reducers::{SOCKET_REPORT_ADAPTER, SOCKET_REPORT_NATIVE_EVENT};
         let ingress = crate::JournalIngress {
             producer_id: crate::agent_hooks::AGENT_HOOK_PRODUCER_ID.into(),
@@ -1040,7 +1126,7 @@ impl Mux {
                 "normalized": {
                     "state": state.as_str(),
                     "source": source.as_str(),
-                    "source_session": session,
+                    "source_session": session.as_deref(),
                     // The direct commit's timestamp, so the roster mirrors
                     // the projection exactly instead of stamping fold time.
                     "updated_at_ms": updated_at_ms.to_string(),
@@ -1050,13 +1136,29 @@ impl Mux {
             causation_id: None,
             correlation_id: None,
         };
-        let idempotency_key =
-            format!("agent-report-echo-{}", crate::workspace_registry::new_uuid_v4());
-        if let Err(error) = self.append_journal_ingress(&ingress, "agent-report", &idempotency_key)
-        {
-            eprintln!("cmux-tui: journaling an agent report for {terminal_id} failed: {error}");
+        #[cfg(test)]
+        if rebuild_faults::take_failing_report_echo(&self.session) {
+            eprintln!("cmux-tui: journaling an agent report for {terminal_id} failed: injected");
+            return None;
+        }
+        match self.append_journal_ingress(&ingress, "agent-report", idempotency_key) {
+            Ok(commit) => Some(commit.sequence),
+            Err(error) => {
+                eprintln!("cmux-tui: journaling an agent report for {terminal_id} failed: {error}");
+                None
+            }
         }
     }
+}
+
+/// How the reconcile a background replay owes ended (`reconcile_after_replay`).
+pub(super) enum ReplayReconcile {
+    /// Done, or not owed (a stale roster's rebuild reconciles).
+    Done,
+    /// The journal holds an agent record past the roster's cursor.
+    Behind,
+    /// The journal could not be read.
+    Failed,
 }
 
 /// Whether the roster pass, not the hook projector, commits `entry`'s public

@@ -490,6 +490,13 @@ impl Mux {
         if let Some(from_version) = agent_roster_unmarked_from {
             mux.agent_roster_worker.unmarked_from.store(from_version, Ordering::Release);
         }
+        // A migrated roster is stale before its owner takes any of its work:
+        // the replay of its tail below reconciles projections only from a
+        // roster that is not, and a short replay can finish before the
+        // rebuild starts.
+        if agent_roster_rebuild {
+            mux.agent_roster_worker.stale.store(true, Ordering::Release);
+        }
         // The agent roster's one owner: every fold and snapshot save runs there.
         mux.start_agent_roster_worker()?;
         // A long tail (a lost snapshot, a start long after the last save)
@@ -506,6 +513,12 @@ impl Mux {
                         .with(|gate| gate.borrow_mut().take());
             }
             mux.continue_agent_roster_replay(replay);
+            #[cfg(test)]
+            if let Some(seam) = agent_roster_restore::AFTER_REPLAY_SCHEDULED_FOR_TEST
+                .with(|seam| seam.borrow_mut().take())
+            {
+                seam(&mux);
+            }
         }
         // A stale roster (a reducer version bump) is served now and rebuilt
         // from the whole journal in the owner while the daemon serves.
