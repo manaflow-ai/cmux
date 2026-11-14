@@ -6,7 +6,7 @@
 
 Unknown prefixed keys are swallowed. Unprefixed keys go to the active surface unless they match a configured modeless Alt or Command/Super chord, or an explicitly configured Control-modified clear-history chord.
 
-Pressing the prefix overlays the panes' bottom border for one keypress, leaving the clickable screen status bar visible. Each resolved suffix uses a distinct accent font color without changing the bar background. `Ctrl-b ?` opens a shortcut modal built from the same action catalog, with shortcut keys in a bright neutral font color. The terminal-style scrollbar appears only when the shortcut rows overflow. Use Up/Down, PageUp/PageDown, Home, End, the mouse wheel, or the scrollbar to scroll. Click its invisible track to jump, drag its thumb, then use Esc, `?`, or the visible `[Esc close]` button to close the modal.
+Pressing the prefix overlays the panes' bottom border for one keypress, leaving the clickable screen status bar visible. Each resolved suffix uses a distinct accent font color without changing the bar background. `Ctrl-b ?` opens a shortcut modal built from the same action catalog, with shortcut keys in a bright neutral font color. The terminal-style scrollbar appears only when the shortcut rows overflow. Use Up/Down, PageUp/PageDown, Home, End, the mouse wheel, or the scrollbar to scroll. Click its invisible track to jump, drag its thumb, then use Esc, `?`, or the visible `[Esc close]` button to close the modal. Outside the TUI, `cmux help keys` prints the same list as text (your config's bindings, labels in your language).
 
 ## Default Bindings
 

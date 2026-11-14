@@ -401,6 +401,7 @@ fn run_response(
                 }
                 let result = response.result.expect("validated result");
                 if !plan.stream {
+                    let result = plan.view.project(result);
                     if global.output == OutputMode::Human
                         && plan.view == ResponseView::ScreenText
                         && let Some(text) = result.get("text").and_then(Value::as_str)
