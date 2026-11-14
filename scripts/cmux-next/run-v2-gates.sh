@@ -85,6 +85,9 @@ acpmux_lib_gates() {
   run_acpmux_lib hub_row_submit_gate
   run_acpmux_lib v2_pr08_reconnect_30
   run_acpmux_lib v2_pr08_fanout_30
+  run_acpmux_lib v2_pr03b_tee_append_added
+  run_acpmux_lib v2_pr03b_append_on_off
+  run_acpmux_lib v2_pr03b_catchup_ack
 }
 run_group acpmux-lib acpmux_lib_gates
 

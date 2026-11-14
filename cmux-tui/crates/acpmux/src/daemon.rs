@@ -367,13 +367,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // published index is filled by the list tee in the follow-up lane; startup
     // never waits on this handle or on a chat book.
     let mut v2_tasks = tokio::task::JoinSet::new();
-    let v2 = if config.acpmux_v2.is_empty() {
-        None
-    } else {
-        let (hub, writer) = acpmux_core::hub::Hub::new(acpmux_book::index::SummaryIndex::new());
-        let surfaces = config.acpmux_v2.enabled().into_iter().map(str::to_owned).collect();
-        Some(std::sync::Arc::new(acpmux_core::life::V2::with_surfaces(hub, writer, surfaces)))
-    };
+    let v2 = v2_handle(&config);
     if let Some(v2) = v2.as_ref()
         && let Some(writer) = v2.take_writer()
     {
@@ -606,6 +600,12 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             hub.clone(),
         )));
         v2_tasks.spawn(task);
+        // The book tee (`hub/book_tee.rs`): its drain and background pass, never awaited here.
+        if let Some(registry) = v2.registry() {
+            let (tee, task) = crate::hub::book_tee::start_book_tee(hub.clone(), registry.clone());
+            hub.install_book_tee(tee);
+            v2_tasks.spawn(task);
+        }
     }
     // A copied machine's first start settles what the logs left open as stopped
     // (`hub/clone_boot.rs`); read before any log is.
@@ -2097,6 +2097,22 @@ pub(crate) fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
         _ if shared_home => SHARED,
         _ => ANY,
     }
+}
+
+/// v2's handle for `config`: none while `acpmux.v2` is empty. It holds a chat registry only when
+/// the daemon writes books: `books` in the set and a store on disk (a store in memory makes no
+/// registry and no books).
+pub(crate) fn v2_handle(config: &Config) -> Option<std::sync::Arc<acpmux_core::life::V2>> {
+    if config.acpmux_v2.is_empty() {
+        return None;
+    }
+    let (hub, writer) = acpmux_core::hub::Hub::new(acpmux_book::index::SummaryIndex::new());
+    let surfaces: std::collections::HashSet<String> =
+        config.acpmux_v2.enabled().into_iter().map(str::to_owned).collect();
+    let books = surfaces.contains("books") && config.store.mode != crate::config::StoreMode::Memory;
+    let v2 = acpmux_core::life::V2::with_surfaces(hub, writer, surfaces);
+    let v2 = if books { v2.with_registry(acpmux_core::registry::Registry::new()) } else { v2 };
+    Some(std::sync::Arc::new(v2))
 }
 
 /// Whether a stop keeps this daemon's chats: agents under agent hosts (as the hub runs them,
