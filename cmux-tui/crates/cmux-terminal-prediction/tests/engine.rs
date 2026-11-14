@@ -1738,3 +1738,20 @@ fn a_full_screen_program_never_arms_at_a_known_prompt() {
     session.type_key("j");
     assert_eq!(session.drawn(), "");
 }
+
+#[test]
+fn return_typed_behind_a_barrier_still_arms_at_the_prompt_it_brings_back() {
+    // A glyph in flight, Left (a barrier), then Return behind it: the remote
+    // reads them in order, so the prompt after Return answers all three.
+    let mut session = session_at_prompt("\r\n$ ");
+    session.type_key("x");
+    assert_eq!(session.drawn(), "x");
+    session.type_key("\x1b[D");
+    session.type_key("\r");
+    session.remote("x");
+    session.remote("\x08");
+    session.remote("\r\nx: command not found\r\n$ ");
+    session.advance(ms(400));
+    session.type_key("g");
+    assert_eq!(session.drawn(), "g");
+}

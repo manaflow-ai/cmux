@@ -457,10 +457,9 @@ impl TerminalPredictionEngine {
             return false;
         }
         let expired = self.expire(now);
-        // A key typed behind a barrier is answered after the barrier's own
-        // answer, so a prompt in that answer does not answer it.
-        self.newest_key_is_unmodelled =
-            !self.has_barrier() && byte.is_none_or(|byte| !(0x20..=0x7E).contains(&byte));
+        // Return behind a barrier too: the remote reads keys in order, so a
+        // prompt printed for the newest key answers every key before it.
+        self.newest_key_is_unmodelled = byte.is_none_or(|byte| !(0x20..=0x7E).contains(&byte));
         // Behind a barrier the remote's state is unknown, so nothing typed now
         // can be placed. Its echo arrives after the barrier resolves, which
         // starts the untracked window that covers it.
