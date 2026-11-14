@@ -44,16 +44,18 @@ extension LiveCoordinator {
     /// began) limits that to the holds placed before the read; nil lifts every hold.
     public func applyCloudMachines(_ machines: [MacDevice], fromRead: Bool = false, readStamp: Int? = nil) {
         let machines = machines.filter(\.isCloud)
-        var lifted: [String] = []
+        // A set: a machine can hold both kinds (stale from a background, drop from a failed probe on
+        // the way back); one read lifting both signals it once, never a second, cancelling dial.
+        var lifted: Set<String> = []
         if fromRead {
             let stamp = readStamp ?? Int.max
             let now = cloudNow()
             // A quick-drop wait still running keeps its hold through the read.
             let keptDrops = cloudDropHolds.filter { $0.value > stamp || (cloudHoldNotBefore[$0.key].map { $0 > now } ?? false) }
-            lifted = cloudDropHolds.keys.filter { keptDrops[$0] == nil }
+            lifted = Set(cloudDropHolds.keys.filter { keptDrops[$0] == nil })
             cloudDropHolds = keptDrops
             cloudHoldNotBefore = cloudHoldNotBefore.filter { cloudDropHolds[$0.key] != nil }
-            lifted += cloudStaleHolds.filter { $0.value <= stamp }.map(\.key)
+            lifted.formUnion(cloudStaleHolds.filter { $0.value <= stamp }.keys)
             cloudStaleHolds = cloudStaleHolds.filter { $0.value > stamp }
         }
         // A held machine still targeted when this read lifts its hold skipped its dial and waits in

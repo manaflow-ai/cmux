@@ -480,13 +480,48 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         live.showing(macIDs: nil)
         live.applyCloudMachines([machine(.running)])
         await settle { store.macDataPhase(vm) == .live }
+        // The read answers before the drop's deferred un-target: the drop hook runs before that task
+        // is made, so a job it queues runs first, every time.
+        var targetedAtRead: Bool?
+        live.onCloudLinkDropped = { _ in
+            Task { @MainActor in
+                targetedAtRead = live.sessions[vm]?.link.target != nil
+                live.applyCloudMachines([machine(.running)], fromRead: true)
+            }
+        }
         cloud.lastCarrier(vm)?.drop()
-        // The read answers in the same turn the hold is seen, before the deferred un-target runs.
-        await settle { live.cloudDropHolds[vm] != nil }
-        #expect(live.sessions[vm]?.link.target != nil, "the un-target already ran: this test needs it pending")
-        live.applyCloudMachines([machine(.running)], fromRead: true)
+        await settle { targetedAtRead != nil }
+        try #require(targetedAtRead == true, "the un-target ran before the read: the order this test drives did not happen")
         await settle { cloud.dials(vm) == 2 && store.macDataPhase(vm) == .live }
         #expect(cloud.dials(vm) == 2, "the link stayed in connecting after its hold lifted")
+    }
+
+    /// Delta review of cb608096: a machine held both ways (stale from a background, drop from a
+    /// failed probe on the way back) was signalled twice by the one read that lifted both, and the
+    /// second signal cancelled the first dial after it may have asked for a carrier.
+    @Test(.timeLimit(.minutes(1))) func aReadLiftingBothHoldsOfOneMachineDialsItOnce() async throws {
+        let store = emptyStore()
+        let cloud = RecordingCloudDialer()
+        let live = coordinator(store: store, cloud: cloud)
+        defer { live.stop() }
+        await settle { store.macConnection["m1"] == .connected }
+        live.showing(macIDs: nil)
+        live.applyCloudMachines([machine(.running)])
+        await settle { store.macDataPhase(vm) == .live }
+        live.holdCloudListStale([vm])
+        var targetedAtRead: Bool?
+        live.onCloudLinkDropped = { _ in
+            Task { @MainActor in
+                targetedAtRead = live.sessions[vm]?.link.target != nil
+                live.applyCloudMachines([machine(.running)], fromRead: true)
+            }
+        }
+        cloud.lastCarrier(vm)?.drop()
+        await settle { targetedAtRead != nil }
+        try #require(targetedAtRead == true)
+        await settle { cloud.dials(vm) >= 2 && store.macDataPhase(vm) == .live }
+        await drain()
+        #expect(cloud.dials(vm) == 2, "one read lifting both holds dialed more than once")
     }
 
     /// Closing a Cloud link releases its terminals' sizes first (while the link is still up),
