@@ -2679,7 +2679,7 @@ jobs:
       # of this attempt's jobs; a read error carries on. NIGHTLY_PUBLISH_PEERS
       # is derived from the needs graph by tests/test_nightly_stop_if_publish_doomed.py.
       - name: Stop when the run can no longer publish (before the compile)
-        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
+        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
