@@ -57,19 +57,22 @@ package protocol HiddenChatPagesHost: AnyObject {
 /// something isn't drawn/is completely proven idle then dont bother taking memory... but if it's working
 /// then you can try to optimize but thats it"; "archived chats (ok well THOSE should defo release ram)").
 /// Always on, with no setting (Lawrence, #38022: a perf change lands on, the switch deleted):
-/// - an archived chat's hidden page, or one whose workspace hibernates, goes at once;
-/// - the warm set, the ``warmHidden`` most recently hidden idle chats, keeps its pages ``idleRelease`` seconds
-///   (``idleReleaseUnderWarning`` under warning pressure, less when `browser.hibernation` says so), so a look at
-///   another tab and back stays warm; every other hidden idle chat's page goes after ``minimumHidden``, so open
-///   chats cost the drawn pages plus that set (Leo, 2026-11-16: "the dream is infinite chats of infinite length
-///   with flat or no growth in cpu/memory/even disk"). The least recently seen goes first.
+/// - an archived chat's hidden page goes at once;
+/// - another hidden chat's page goes once it has been hidden ``idleRelease`` seconds (``idleReleaseUnderWarning``
+///   under warning memory pressure, ``minimumHidden`` under critical), or sooner when `browser.hibernation`
+///   lets chats go sooner, or when its workspace hibernates; the least recently seen first.
 ///
-/// Proven idle: the turn watch is up, the turn neither runs nor waits on the person, and no subagent or
-/// background command of it runs (``HiddenChatPagesHost/pageTurnBusy(_:)``). A working chat, a pinned tab
-/// (unless `browser.hibernation` includes them) and what the App keeps (``HiddenChatPagesHost/pageMayRelease(_:onScreen:)``)
-/// keep their page; one holding an unsaved send or edit stays and is asked again. Draft, chips, shell text and scroll
-/// place return when the chat shows. No page goes before ``minimumHidden`` (the composer's last keys reach acpmux);
-/// events only, one deadline. Untouched New Tabs past the shared cap go after it and follow `browser.hibernation`.
+/// Proven idle: the turn watch is up and the chat's turn neither runs nor waits on the person, and no
+/// subagent or background command of it runs (``HiddenChatPagesHost/pageTurnBusy(_:)``). A working chat
+/// keeps its page; so do a pinned tab (unless `browser.hibernation` includes pinned tabs) and what the App
+/// keeps (``HiddenChatPagesHost/pageMayRelease(_:onScreen:)``). A page that says it holds what it cannot hand
+/// back (an unsaved send or edit, prompts for a trust answer) stays and is asked again. The draft, chips,
+/// shell text and scroll place are handed back to the page built when the chat shows again.
+/// A page waits at least ``minimumHidden`` even under critical pressure, so the composer's last keystrokes
+/// reach acpmux. Events only, no polling: a page hides or shows, a turn or the archive tag changes, the
+/// setting or the pressure changes, and one deadline for the next page to come due. Untouched local New
+/// Tabs beyond the shared warm-page cap go after `minimumHidden` seconds and follow `browser.hibernation`
+/// alone, as browser tabs do.
 ///
 /// Before that, a hidden chat's Chromium page freezes after `browser.freezeHiddenTabs` seconds (30 by default),
 /// as a hidden browser tab does (2026-10-28 self-audit: chat renderers at 23-50 % CPU and 647 MB while the person
@@ -88,16 +91,6 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
     package static var idleRelease: Double { 60 }
     /// The same under warning memory pressure.
     package static var idleReleaseUnderWarning: Double { 30 }
-    /// How many hidden idle chats, the most recently hidden, wait ``idleRelease`` (the class doc's warm set).
-    package static var warmHidden: Int { 2 }
-    /// This planner's idle wait at normal pressure, ``idleRelease`` (tests of the freeze alone set it past their clock).
-    package var idleWait: Double = HiddenChatPages<Host>.idleRelease
-    /// Tab `key` is the chat face of a session whose terminal face its pane draws now (Toggle Terminal and Chat): its
-    /// page neither freezes nor goes, so the swap back shows it at once (Leo, 2026-11-12: two live views of one
-    /// session, instant both ways). The App sets it; at most one page per pane that draws such a terminal.
-    package var pairedFace: (String) -> Bool = { _ in false }
-    /// Hidden chats that were the chat face of a drawn terminal at the last plan.
-    private var pairedFaces: Set<String> = []
 
     /// The App's side; it owns this planner (weak: no cycle).
     private weak var host: Host?
@@ -220,8 +213,8 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
     /// pressure, at once under critical (floored at ``minimumHidden`` by the caller).
     private var idleThreshold: Double {
         switch pressure {
-        case .normal: return idleWait
-        case .warning: return min(idleWait, Self.idleReleaseUnderWarning)
+        case .normal: return Self.idleRelease
+        case .warning: return Self.idleReleaseUnderWarning
         case .critical: return 0
         }
     }
@@ -322,7 +315,7 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
                 retryAt[key] = nil
             }
             let newTab = excessNewTabs.contains(key) && host.pageIsUntouchedNewTab(key)
-            let threshold = newTab || !warm.contains(key) ? Self.minimumHidden : chatThreshold
+            let threshold = newTab ? Self.minimumHidden : chatThreshold
             // Its workspace hibernates, or the chat is archived: due now.
             let dueNow = workspaceDue.contains(key) || (!newTab && host.pageArchived(key))
             let remaining = dueNow ? 0 : threshold - (current - at).seconds

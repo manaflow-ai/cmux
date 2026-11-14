@@ -77,27 +77,14 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
     public var subagentsRunning = 0
     public var subagentNames: [String] = []
     public var commandsRunning = 0
-    /// The chat's latest subagents, oldest first (at most 8, acpmux `recentSubagents`), and how many it started in
-    /// all (`subagentsSeen`): the sidebar lists them under the chat's row. Empty and 0 from an older acpmux.
-    public var subagents: [Subagent] = []
-    public var subagentsSeen = 0
     /// The chat carries acpmux's `archived` tag (one not past its `expires_at`): a hidden page of it
     /// gives back its memory at once (HiddenChatPages).
     public var archived = false
-    /// When the chat was archived (Unix ms), from the `archived` tag's value (`_acpmux/archive` writes
-    /// the time); nil when it is not archived or the tag holds no time (`"1"`, `"true"`).
-    public var archivedAtMs: UInt64?
-    /// Where the chat stands and its next action, as acpmux keeps them after each turn a person
-    /// started (`rollingSummary.text`, `rollingSummary.next`, acpmux `hub/rolling_summary.rs`);
-    /// nil before the first, and from an older acpmux.
-    public var summary: String?
-    public var nextAction: String?
 
     public init(model: String? = nil, turnStartedAtMs: UInt64? = nil, prompt: String? = nil,
                 laneState: String? = nil, laneSinceMs: UInt64? = nil, cwd: String? = nil,
                 contextTokens: Int? = nil, contextWindow: Int? = nil, costUsd24h: Double? = nil, promptIsNotice: Bool = false,
-                subagentsRunning: Int = 0, subagentNames: [String] = [], commandsRunning: Int = 0, archived: Bool = false,
-                summary: String? = nil, nextAction: String? = nil) {
+                subagentsRunning: Int = 0, subagentNames: [String] = [], commandsRunning: Int = 0, archived: Bool = false) {
         self.model = model
         self.turnStartedAtMs = turnStartedAtMs
         self.prompt = prompt
@@ -112,33 +99,6 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
         self.subagentNames = subagentNames
         self.commandsRunning = commandsRunning
         self.archived = archived
-        self.summary = summary
-        self.nextAction = nextAction
-    }
-
-    /// One of the chat's latest subagents (acpmux `recentSubagents[]`).
-    public struct Subagent: Hashable, Sendable {
-        public var id: String
-        /// The subagent that started it; nil for one the chat started.
-        public var parent: String?
-        /// Its name, else its task, as acpmux masked and cut it.
-        public var title: String?
-        /// `running`, `done`, `failed` or `stopped`.
-        public var state: String
-
-        public init(id: String, parent: String? = nil, title: String? = nil, state: String) {
-            (self.id, self.parent, self.title, self.state) = (id, parent, title, state)
-        }
-    }
-
-    /// A summary's `recentSubagents`: each entry with an id and a state; others are skipped.
-    static func subagents(_ value: Any?) -> [Subagent] {
-        (value as? [Any] ?? []).compactMap { item in
-            guard let item = item as? [String: Any], let id = item["id"] as? String, !id.isEmpty,
-                  let state = item["state"] as? String, !state.isEmpty else { return nil }
-            let text = { (key: String) in (item[key] as? String).flatMap { $0.isEmpty ? nil : $0 } }
-            return Subagent(id: id, parent: text("parent"), title: text("title"), state: state)
-        }
     }
 
     /// Whether a summary's `tags` hold an `archived` tag in force: a value (`"1"`, `"true"`), or a tag
@@ -153,19 +113,6 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
             return expires > nowMs
         default: return false
         }
-    }
-
-    /// The time a summary's `archived` tag holds (Unix ms) while the tag is in force and its value is a
-    /// time (`_acpmux/archive` writes `now_ms`); nil otherwise.
-    public static func archivedAtMs(_ summary: [String: Any], nowMs: Double = Date().timeIntervalSince1970 * 1000) -> UInt64? {
-        guard archived(summary, nowMs: nowMs) else { return nil }
-        let raw = (summary["tags"] as? [String: Any])?["archived"]
-        let value = (raw as? [String: Any])?["value"] ?? raw
-        if let text = value as? String, let ms = UInt64(text), ms > 1 { return ms }
-        if let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue > 1 {
-            return number.uint64Value
-        }
-        return nil
     }
 
     /// A summary's detail; nil when it names none of them.
@@ -196,11 +143,7 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
                                      subagentsRunning: count(summary["subagentsRunning"]),
                                      subagentNames: (summary["subagentNames"] as? [Any] ?? []).compactMap(text),
                                      commandsRunning: count(summary["commandsRunning"]),
-                                     archived: archived(summary),
-                                     summary: text(rolling?["text"]), nextAction: text(rolling?["next"]))
-        if detail.archived { detail.archivedAtMs = archivedAtMs(summary) }
-        detail.subagents = subagents(summary["recentSubagents"])
-        detail.subagentsSeen = count(summary["subagentsSeen"])
+                                     archived: archived(summary))
         return detail == AgentChatDetail() ? nil : detail
     }
 
