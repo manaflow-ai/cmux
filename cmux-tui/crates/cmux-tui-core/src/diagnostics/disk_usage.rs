@@ -480,6 +480,15 @@ fn directory_size(directory: &Path, budget: &mut u64) -> (u64, u64, bool) {
     (bytes, files, false)
 }
 
+/// Test seam: the segment sums of a first request, on the test's own
+/// connection, so the test can count what the read costs it.
+#[cfg(test)]
+pub(crate) fn read_segments_for_test(
+    connection: &Connection,
+) -> anyhow::Result<SegmentDiskSnapshot> {
+    read_segments(connection, None, &mut DiskUsageCache::default())
+}
+
 /// Every live journal kind's rows and bytes, by a full scan: for tests and
 /// offline tools only, never a request.
 #[cfg(test)]
