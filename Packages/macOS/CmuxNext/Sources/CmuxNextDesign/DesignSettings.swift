@@ -65,7 +65,8 @@ public final class DesignSettings {
     public var interfaceScaleEnabled: Bool { ChromeTunables.interfaceSize.override ?? false }
     /// Sets the chrome multiplier and the effective page zoom used by web column sizing. The latter
     /// is passed explicitly by page hosts so Agent Chat Zoom is included without making generic pages
-    /// depend on the agent setting; a change event lets chat row measurement follow CSS immediately.
+    /// depend on the agent setting (a page drawn as the Chief chat passes Agent Chat Zoom in place of
+    /// `uiScale`); a change event lets chat row measurement follow CSS immediately.
     public func interfaceScaleScript(pageZoom: Double? = nil) -> String {
         let effectivePageZoom = max(pageZoom ?? Double(uiScale), 0.01)
         return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(Typography.pageScale)');"

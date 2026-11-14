@@ -136,8 +136,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         didSet { if followsUIScale != oldValue { applyUIScale() } }
     }
     /// True for a page that belongs to the Chief chat (``PageDescriptor/followsChatZoom``: Bring your
-    /// history, shown over Home at first launch): Agent Chat Zoom (`agentPane.zoom`) scales it too, as it scales an agent chat and the
-    /// Chief chat, so it keeps their size and Cmd-= / Cmd-- / Cmd-0 on it (`home.zoomIn`) zoom it live.
+    /// history, shown over Home at first launch): it is scaled as the native Chief chat is, by Agent Chat
+    /// Zoom (`agentPane.zoom`) and the interface scale and not by `app.uiScale`, so it keeps the size of
+    /// the chat and the chrome around it, and Cmd-= / Cmd-- / Cmd-0 on it (`home.zoomIn`) zoom it live.
     public var followsChatZoom = false {
         didSet {
             guard followsChatZoom != oldValue else { return }
@@ -551,8 +552,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
     }
 
-    /// Page zoom follows `uiScale` times this page's additional zoom (and Agent Chat Zoom for a page that
-    /// ``followsChatZoom``); the chrome multiplier remains
+    /// Page zoom follows `uiScale` (Agent Chat Zoom for a page that ``followsChatZoom``) times this page's
+    /// additional zoom; the chrome multiplier remains
     /// a separate `--cmux-interface-scale` token.
     func applyUIScale() {
         let rendererScale = chromiumSession == nil ? "" : chromiumZoomScript

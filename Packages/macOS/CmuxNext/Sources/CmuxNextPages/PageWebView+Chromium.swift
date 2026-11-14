@@ -94,11 +94,13 @@ extension PageWebView {
     /// The Chromium page that shows the page now; nil on WebKit.
     public var chromiumPage: (any PageChromiumPage)? { chromiumSession?.page }
 
-    /// The page zoom both engines show: `uiScale` (unless ``followsUIScale`` is off) times
-    /// ``additionalZoom``, times Agent Chat Zoom for a page that ``followsChatZoom``.
+    /// The page zoom both engines show: ``additionalZoom`` times `uiScale` (unless ``followsUIScale`` is
+    /// off), or, for a page that ``followsChatZoom``, times Agent Chat Zoom instead of `uiScale`: it is
+    /// drawn at the size of the native Chief chat it covers, which `uiScale` does not scale either.
     public var pageZoom: Double {
-        (followsUIScale ? Double(DesignSettings.shared.uiScale) : 1) * additionalZoom
-            * (followsChatZoom ? Double(DesignSettings.shared.agentPaneZoom) : 1)
+        let design = DesignSettings.shared
+        let scale = followsChatZoom ? Double(design.agentPaneZoom) : followsUIScale ? Double(design.uiScale) : 1
+        return scale * additionalZoom
     }
 
     // MARK: Engine-neutral document calls
