@@ -140,8 +140,10 @@ struct ChiefLiveStatusLine: View {
         Button(action: toggle) {
             HStack(spacing: 8) {
                 ChiefTypingDots()
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    ChiefShimmerText(text: ChiefLiveBubble.activityLine(ChiefLiveBubble.statusText(live), since: live.since, now: context.date))
+                if let schedule = Self.redrawSchedule(since: live.since, now: .now) {
+                    TimelineView(schedule) { context in
+                        ChiefShimmerText(text: ChiefLiveBubble.activityLine(ChiefLiveBubble.statusText(live), since: live.since, now: context.date))
+                    }
                 }
                 if canExpand {
                     Image(systemName: expanded ? "chevron.up" : "chevron.down")
@@ -157,6 +159,11 @@ struct ChiefLiveStatusLine: View {
         .accessibilityLabel(Text(ChiefLiveBubble.statusText(live)))
         .accessibilityHint(canExpand ? Text(expanded ? "Hides the details" : "Shows the details") : Text(""))
         .accessibilityIdentifier("chief.live.status")
+    }
+
+    /// When the line redraws for its elapsed time: once a second from `now`.
+    static func redrawSchedule(since: Date?, now: Date) -> PeriodicTimelineSchedule? {
+        .periodic(from: now, by: 1)
     }
 }
 

@@ -21,10 +21,9 @@ public struct WorkingLabel: View {
                 Text(text).font(font)
             }
             if let since {
-                TimelineView(.periodic(from: since, by: 1)) { context in
-                    let elapsed = Int(context.date.timeIntervalSince(since))
-                    if elapsed >= 5 {
-                        Text("· \(elapsed < 60 ? "\(elapsed)s" : "\(elapsed / 60)m \(elapsed % 60)s")")
+                TimelineView(Self.elapsedSchedule(since: since)) { context in
+                    if let elapsed = Self.elapsedText(since: since, at: context.date) {
+                        Text(elapsed)
                             .font(.footnote.monospacedDigit())
                             .foregroundStyle(.tertiary)
                             .contentTransition(.numericText())
@@ -33,6 +32,18 @@ public struct WorkingLabel: View {
             }
         }
         .accessibilityElement(children: .combine)
+    }
+
+    /// The time after the label at `date`: nothing for the first 5 s, then "· 12s", "· 1m 5s".
+    static func elapsedText(since: Date, at date: Date) -> String? {
+        let elapsed = Int(date.timeIntervalSince(since))
+        guard elapsed >= 5 else { return nil }
+        return "· \(elapsed < 60 ? "\(elapsed)s" : "\(elapsed / 60)m \(elapsed % 60)s")"
+    }
+
+    /// When the elapsed time redraws.
+    static func elapsedSchedule(since: Date) -> PeriodicTimelineSchedule {
+        .periodic(from: since, by: 1)
     }
 }
 
