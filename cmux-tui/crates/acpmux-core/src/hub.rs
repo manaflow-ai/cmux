@@ -355,7 +355,11 @@ impl ListReceiver {
         let span = if let Some(peer_history) = self.peer_history.as_ref() {
             let history = peer_history.lock().ok()?;
             let Some(history) = history.as_ref() else { return Some(RawRead::Lagged) };
-            let last = history.last_seq().max(self.published.load().seq());
+            // A wake can come before the writer appends the op it names: the
+            // index is published first. Read only what the peer history has
+            // committed, or an empty span would carry the cursor past an op
+            // appended a moment later.
+            let last = history.last_seq();
             let target = through.unwrap_or(cursor.saturating_add(1)).min(last);
             if cursor >= target {
                 return None;
