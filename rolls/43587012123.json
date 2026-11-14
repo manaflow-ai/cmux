@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43587012123",
+  "recorded_at": "2026-11-14T10:55:44Z",
+  "reason": "cmux-tui 57ec9f10dfe5 changes the image's cmux-tui (pinned 8e9d2bc0ecd2)",
+  "dry_run": false,
+  "cmux_tui": "57ec9f10dfe5813f4868d491ee9c5ef452d5bf38",
+  "fixes": [
+    {
+      "sha": "57ec9f10dfe5813f4868d491ee9c5ef452d5bf38",
+      "mergedAt": "2026-11-14T02:19:33-08:00",
+      "subject": "CMUX-572: keep repair wait out of screen-share congestion estimates (#42966)"
+    },
+    {
+      "sha": "3035041759698204880002c3c8d6ee32d4269d18",
+      "mergedAt": "2026-11-14T02:15:10-08:00",
+      "subject": "acpmux v2 3b (part one): v1's event log as a book's raw source (#42927)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T10:55:44Z",
+    "snapshot_id": "sh-42d5b15fcc354cf98524080db8057d69",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43587012123): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "de545a2cc1661c0a1ca916d535387e15ce3a0e12",
+    "image": "cloud-native-auto-57ec9f10-43587012123-1",
+    "revision": "ci-43587012123-1",
+    "at": "2026-11-14T10:55:44Z"
+  },
+  "rolled_back": false
+}
