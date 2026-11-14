@@ -563,8 +563,19 @@ def slope(xs, ys):
     return sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / den if den else 0.0
 
 
-def perf_row(name, value, unit):
-    print("PERF_ROW " + json.dumps({"name": name, "p50": round(value, 4), "p95": round(value, 4), "unit": unit}), flush=True)
+ROWS = []  # every PERF_ROW, printed again at the end as one {"rows": [...]} report (perf-cron's Linux part reads it)
+
+
+def perf_row(name, value, unit, floor=None):
+    row = {"name": name, "p50": round(value, 4), "p95": round(value, 4), "unit": unit}
+    if floor is not None:
+        row["floor"] = floor
+    ROWS.append(row)
+    print("PERF_ROW " + json.dumps(row), flush=True)
+
+
+# A ratio's denominator is at least its noise floor: an empty pair at 0.00 % CPU or 0 wakeups is no division by 0.
+CPU_FLOOR_PCT, WAKEUPS_FLOOR = 0.1, 1.0
 
 
 def settle(args):
@@ -616,7 +627,7 @@ def report(results):
         e, d0, last = r["empty"]["total"], r["samples"][0], r["samples"][-1]
         n = r["count"]
         t = last["total"]
-        ratio = lambda a, b: a / b if b else float("inf")  # noqa: E731
+        ratio = lambda a, b, floor=0.01: a / max(b, floor)  # noqa: E731
         days = [s["day"] for s in r["samples"]]
         mb_day = slope(days, [s["total"]["pss_mb"] for s in r["samples"]])
         disk_day = slope(days, [s["total"]["disk_mb"] for s in r["samples"]])
@@ -626,8 +637,8 @@ def report(results):
             per_role[role] = (v["pss_mb"] - base) / n
         steep = max(per_role.items(), key=lambda kv: kv[1]) if per_role else ("-", 0)
         print(f"INFINITE {n} | {t['pss_mb']:.1f} | {ratio(t['pss_mb'], e['pss_mb']):.2f}x | "
-              f"{(t['pss_mb'] - e['pss_mb']) / n:.3f} | {t['cpu_pct']:.2f} | {ratio(t['cpu_pct'], e['cpu_pct']):.2f}x | "
-              f"{t['wakeups_per_s']:.1f} | {ratio(t['wakeups_per_s'], e['wakeups_per_s']):.2f}x | {t['fds']} | "
+              f"{(t['pss_mb'] - e['pss_mb']) / n:.3f} | {t['cpu_pct']:.2f} | {ratio(t['cpu_pct'], e['cpu_pct'], CPU_FLOOR_PCT):.2f}x | "
+              f"{t['wakeups_per_s']:.1f} | {ratio(t['wakeups_per_s'], e['wakeups_per_s'], WAKEUPS_FLOOR):.2f}x | {t['fds']} | "
               f"{t['disk_mb']:.2f} | {mb_day:+.2f} | {disk_day:+.3f} | {steep[0]} {steep[1]:.3f}", flush=True)
         print(f"INFINITE-EMPTY {n} {json.dumps(e)}", flush=True)
         for s in r["samples"]:
@@ -636,13 +647,15 @@ def report(results):
             print(f"INFINITE-DAY {n} day={s['day']} {json.dumps(s['total'])} disk={json.dumps(s['disk'])} roles={json.dumps(roles)}", flush=True)
         if r.get("errors"):
             print(f"INFINITE-ERRORS {n} {json.dumps(r['errors'])}", flush=True)
-        perf_row(f"infinite_items.n{n}.memory_vs_empty", ratio(t["pss_mb"], e["pss_mb"]), "ratio")
-        perf_row(f"infinite_items.n{n}.mb_per_item", (t["pss_mb"] - e["pss_mb"]) / n, "MB")
-        perf_row(f"infinite_items.n{n}.cpu_idle_pct", t["cpu_pct"], "pct")
-        perf_row(f"infinite_items.n{n}.cpu_idle_vs_empty", ratio(t["cpu_pct"], e["cpu_pct"]), "ratio")
-        perf_row(f"infinite_items.n{n}.wakeups_per_s", t["wakeups_per_s"], "count")
-        perf_row(f"infinite_items.n{n}.mb_per_day", mb_day, "MB")
-        perf_row(f"infinite_items.n{n}.disk_mb_per_day", disk_day, "MB")
+        # A row is never negative (perf-cron and NOW read a negative number as none): a shrinking day is 0 growth.
+        perf_row(f"infinite_items.n{n}.memory_vs_empty", ratio(t["pss_mb"], e["pss_mb"]), "x", floor=0.1)
+        perf_row(f"infinite_items.n{n}.mb_per_item", max(0.0, (t["pss_mb"] - e["pss_mb"]) / n), "MB", floor=0.1)
+        perf_row(f"infinite_items.n{n}.cpu_idle_pct", t["cpu_pct"], "pct", floor=CPU_FLOOR_PCT)
+        perf_row(f"infinite_items.n{n}.cpu_idle_vs_empty", ratio(t["cpu_pct"], e["cpu_pct"], CPU_FLOOR_PCT), "x", floor=0.5)
+        perf_row(f"infinite_items.n{n}.wakeups_per_s", t["wakeups_per_s"], "count", floor=WAKEUPS_FLOOR)
+        perf_row(f"infinite_items.n{n}.mb_per_day", max(0.0, mb_day), "MB", floor=1.0)
+        perf_row(f"infinite_items.n{n}.disk_mb_per_day", max(0.0, disk_day), "MB", floor=0.1)
+    print(json.dumps({"rows": ROWS}), flush=True)
 
 
 def main():

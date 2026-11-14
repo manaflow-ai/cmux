@@ -20,6 +20,9 @@ for arg in "$@"; do
   esac
 done
 root="$(git rev-parse --show-toplevel)"
+cd "$root"
+# cmux-tui's terminal engine builds from the ghostty-next submodule, which a fast-checks snapshot leaves empty.
+[ -f ghostty-next/build.zig ] || [ -n "${CMUX_GHOSTTY_SRC:-}" ] || git submodule update --init --depth 1 ghostty-next
 cd "$root/cmux-tui"
 cargo build --locked --release -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui 2>&1 | tail -n 3
 target="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
