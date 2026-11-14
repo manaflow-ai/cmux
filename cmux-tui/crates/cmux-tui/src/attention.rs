@@ -1,15 +1,18 @@
 //! The attention queue: which tabs need the person, in the order one key
 //! (`next-attention`, `Ctrl-b a`) and `cmux attention next` visit them.
 //!
-//! Three tiers, each oldest first:
+//! Four tiers, each oldest first:
 //!
 //! 0. The person must act: an agent the roster shows `blocked` (approval,
 //!    question, plan review).
 //! 1. An unread `error` or `warning` notification.
-//! 2. Any other unread notification (a finished turn, `cmux notify`).
+//! 2. An agent's finished turn nobody has viewed (`done`: an idle agent
+//!    whose tab has an unread notification).
+//! 3. Any other unread notification (`cmux notify`, a bell).
 //!
-//! A tab with several reasons takes its strongest. "Next" is the entry after
-//! the focused tab, wrapping to the first, so repeated presses cycle through
+//! A tab with several reasons takes its strongest. The key's "next" is the
+//! entry after the focused tab, wrapping to the first (`cmux attention next`
+//! does so only with `--focus`), so repeated presses cycle through
 //! blocked agents (viewing does not clear a block) and unread tabs until
 //! their notifications are cleared.
 //!
@@ -21,6 +24,8 @@
 pub(crate) enum AttentionKind {
     /// The tab's agent waits on the person (approval, question, review).
     Blocked,
+    /// An agent finished a turn nobody has viewed (`done`).
+    Done,
     /// An unread notification.
     Unread,
 }
@@ -30,6 +35,7 @@ impl AttentionKind {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Blocked => "blocked",
+            Self::Done => "done",
             Self::Unread => "unread",
         }
     }
@@ -63,6 +69,17 @@ impl AttentionLevel {
     }
 }
 
+/// Whether an unread notification on a terminal whose agent reports
+/// `agent_state` is that agent's finished turn nobody viewed (`done`). The
+/// rule is the shared agent status (`AgentStatus`, the word `agent list` and
+/// the sidebar show), with the unread marker as "unseen".
+pub(crate) fn is_finished_turn(agent_state: &str) -> bool {
+    matches!(
+        cmux_tui_core::AgentStatus::from_state_str(agent_state, true),
+        Some(cmux_tui_core::AgentStatus::Done)
+    )
+}
+
 /// One reason a tab needs the person. `key` names the tab (a TUI surface id,
 /// a CLI `tab_…` id); `age` orders entries of one tier, smaller first (Unix ms,
 /// or the daemon's notification number for unread entries in the TUI);
@@ -77,12 +94,17 @@ pub(crate) struct AttentionCandidate<K> {
 }
 
 impl<K> AttentionCandidate<K> {
-    /// 0 (the person must act), 1 (an unread error or warning), 2 (unread).
+    /// 0 (the person must act), 1 (an unread error or warning), 2 (a
+    /// finished agent turn), 3 (unread).
     pub(crate) fn tier(&self) -> u8 {
         match (self.kind, self.level) {
             (AttentionKind::Blocked, _) => 0,
-            (AttentionKind::Unread, AttentionLevel::Error | AttentionLevel::Warning) => 1,
-            (AttentionKind::Unread, AttentionLevel::Info) => 2,
+            (
+                AttentionKind::Unread | AttentionKind::Done,
+                AttentionLevel::Error | AttentionLevel::Warning,
+            ) => 1,
+            (AttentionKind::Done, AttentionLevel::Info) => 2,
+            (AttentionKind::Unread, AttentionLevel::Info) => 3,
         }
     }
 
@@ -171,6 +193,21 @@ mod tests {
         later.position = 0;
         let earlier = candidate(3, AttentionKind::Blocked, AttentionLevel::Warning, 10);
         assert_eq!(keys(&attention_queue([earlier, later])), vec![9, 3]);
+    }
+
+    /// W5-Q port (feat #39039): blocked, then a finished agent turn nobody
+    /// has viewed, then any other unread notification (a bell), each tier
+    /// oldest first.
+    #[test]
+    fn w5q_attention_queue_puts_a_finished_turn_before_other_unread() {
+        let queue = attention_queue([
+            candidate(1, AttentionKind::Unread, AttentionLevel::Info, 5),
+            candidate(2, AttentionKind::Done, AttentionLevel::Info, 50),
+            candidate(3, AttentionKind::Blocked, AttentionLevel::Warning, 900),
+            candidate(4, AttentionKind::Done, AttentionLevel::Info, 40),
+        ]);
+        assert_eq!(keys(&queue), vec![3, 4, 2, 1]);
+        assert_eq!(AttentionKind::Done.as_str(), "done");
     }
 
     #[test]

@@ -73,7 +73,7 @@ These defaults come from `Keys::default`.
 
 Press `Ctrl-b`, release it, then press the suffix. `N` is uppercase and `+` is the plus character (Shift-Equal on a US keyboard). Lowercase `Ctrl-b n` still selects the next screen. Every default Alt action also has a prefix binding, including when `keys.alt_shortcuts` is `false`.
 
-`Ctrl-b a` visits the tabs in the order `cmux attention next` answers: tabs whose agent waits on you (`blocked`) first, then tabs with an unread `error` or `warning` notification, then other unread tabs, each oldest first. A blocked tab stays in the queue after you look at it, so repeated presses cycle through all of them. An unread tab stays in the queue until its notification is cleared. When nothing needs you, a toast says so. See [Notifications](configuration.md#notifications).
+`Ctrl-b a` visits the tabs in the order `cmux attention next` answers: tabs whose agent waits on you (`blocked`) first, then tabs with an unread `error` or `warning` notification, then tabs where an agent finished its turn and you have not looked (`done`), then other unread tabs, each oldest first. A blocked tab stays in the queue after you look at it, so repeated presses cycle through all of them. An unread tab stays in the queue until its notification is cleared. When nothing needs you, a toast says so. See [Notifications](configuration.md#notifications).
 
 Directional focus follows Zellij's pane memory: when several panes share the requested edge, cmux-tui returns to the pane focused most recently.
 

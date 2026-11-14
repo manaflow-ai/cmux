@@ -910,9 +910,11 @@ USAGE
 
 next answers the tab the person should go to next, as JSON {target,
 queue_length, focused}: tabs whose agent waits on them (blocked) first, then
-unread error and warning notifications, then other unread ones, each oldest
-first. target is the entry after the focused tab (or after --after), wrapping
-to the first, or null. It moves focus only with --focus. list answers the
+unread error and warning notifications, then finished agent turns nobody
+viewed (done), then other unread ones, each oldest first. target is the most
+urgent entry, or the entry after --after (with --focus alone, after the
+focused tab, so the key cycles), wrapping to the first, or null. It moves
+focus only with --focus. list answers the
 whole queue as {queue}. The TUI key `Ctrl-b a` (next-attention) visits the
 same order; `Ctrl-b A` lists it.
 ";

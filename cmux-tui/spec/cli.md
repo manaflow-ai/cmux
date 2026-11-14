@@ -547,13 +547,21 @@ eviction is complete.
 `attention next` and `attention list` read one `session.snapshot` and answer
 the tabs that need the person, in the order the TUI's `next-attention` key
 (`Ctrl-b a`) visits them: tabs whose agent is `blocked` first, then tabs with
-an unread `error` or `warning` notification, then other unread tabs, each
-oldest first. A queue entry is `{tab, terminal, workspace_id, workspace,
-title, kind, reason, level, since_ms}`; `kind` is `blocked` or `unread`, and
-`reason` is the notification title. `list` answers `{queue}`. `next` answers
-`{target, queue_length, focused}`: `target` is the entry after the focused tab
-(or after `--after <tab_…>`), wrapping, else the first, or null when the queue
-is empty. Focus moves only with `--focus`, which sends `tab <tab> focus`.
+an unread `error` or `warning` notification, then tabs with a finished agent
+turn nobody viewed (`done`), then other unread tabs, each oldest first. A
+queue entry is `{tab, terminal, workspace_id, workspace, title, kind, reason,
+level, since_ms}`; `kind` is `blocked`, `done` or `unread`. A `done` entry is
+an unread notification of a terminal whose agent is `idle`. For `unread` and
+`done`, `reason` is the notification title; for `blocked`, it is the body of
+the terminal's newest unread notification (a hook's "needs your
+permission"), else its title, else null. `list` answers `{queue}`. `next`
+answers `{target, queue_length, focused}`: `target` is the first (most
+urgent) entry, or with `--after <tab_…>` the entry after that tab, wrapping,
+or null when the queue is empty. `--focus` without `--after` starts after the
+focused tab, so a repeated `next --focus` cycles the queue like `Ctrl-b a`.
+Focus moves only with `--focus`, which sends `tab <tab> focus`. (Before, a
+plain `next` also started after the focused tab; it now answers the most
+urgent entry wherever the person looks.)
 An entry names the tab of its terminal's `tab_id`; a terminal projected into
 several tabs is listed once, for that tab.
 
