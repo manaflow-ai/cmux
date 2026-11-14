@@ -783,17 +783,6 @@ export function ModelPicker(props: ModelPickerProps) {
       ),
     [modelText, quick, open, close],
   );
-  // The footer's harness item opens this menu: its rail is the composer's harness switcher.
-  const opener = props.opener;
-  const compact = quick !== undefined;
-  useEffect(() => {
-    if (!opener) return;
-    const openMenu = () => (compact ? (open ? close() : setQuickOpen(true)) : showRef.current());
-    opener.current = openMenu;
-    return () => {
-      if (opener.current === openMenu) opener.current = undefined;
-    };
-  }, [opener, compact, open, close]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       // Cmd-Ctrl-M opens the picker (Lawrence 2026-10-08); typing then searches every harness.
