@@ -64,6 +64,8 @@ import CmuxHomeCoreTestSupport
         var offline = MockHomeSource.Options.immediate
         offline.startsOnline = false
         let relaunched = HomeStore(source: MockHomeSource(options: offline), cache: cache, cacheWriteDelay: .zero)
+        #expect(relaunched.launchChief == nil, "nothing before the cache is read")
+        relaunched.primeFromCache()  // what the Home list does before its first frame
         #expect(relaunched.launchChief == Self.austin, "drawn before the owner answers")
         #expect(!relaunched.isOnline)
         relaunched.rememberChief(nil)
