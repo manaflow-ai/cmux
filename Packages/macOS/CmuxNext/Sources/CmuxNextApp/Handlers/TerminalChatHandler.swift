@@ -40,6 +40,7 @@ enum TerminalChatHandler {
         case .notAgentTab?, nil: throw ActionFailure(message: MiscHandlerStrings.terminalChatNotAgentTab)
         case .noSession?: throw ActionFailure(message: terminal ? MiscHandlerStrings.terminalChatNoSession : MiscHandlerStrings.terminalChatNoTerminal)
         case .unsupportedHarness?: throw ActionFailure(message: MiscHandlerStrings.terminalChatHarness)
+        // No longer answered (a chat mid-turn resumes in a terminal that waits for the turn); kept for decoding.
         case .busy?: throw ActionFailure(message: MiscHandlerStrings.terminalChatBusy)
         case .handingOff(let made)?:
             // An earlier Toggle is resuming the session: its terminal shows, and nothing resumes it twice.
@@ -88,8 +89,12 @@ enum TerminalChatHandler {
     static func facts(_ tab: TabModel, services: AppServices, membership: Bool = false)
         -> (facts: WindowRules.ToggleFacts, key: String?, terminals: [String]) {
         let tabs = services.agentTabs, terminal = tab.kind == .pty
-        // A terminal's session is its agent's report (a hook's `agent_session_id`); a chat's, the outside session it adopted.
-        let adopted = terminal ? nil : tabs.adoption(of: tab.id), key = adopted.map { "\($0.harness):\($0.agentSessionId)" }
+        // A terminal's session is its agent's report (a hook's `agent_session_id`); a chat's, the outside session it adopted,
+        // else (a chat started here) its own acpmux run under its harness: `acpmux resume-here` finds the conversation from it.
+        let own = terminal ? nil : tab.agentSession.flatMap { ref in
+            ref.harness.flatMap { harness in tabs.session(of: tab.id).map { AgentPaneAdopt(harness: harness, agentSessionId: $0) } }
+        }
+        let adopted = terminal ? nil : tabs.adoption(of: tab.id) ?? own, key = adopted.map { "\($0.harness):\($0.agentSessionId)" }
         var facts = WindowRules.ToggleFacts(terminal: terminal, chat: !terminal && tabs.isAgentTab(tab.id),
                                             agent: terminal ? tab.agent?.agent : adopted?.harness,
                                             session: terminal ? tab.agent?.harnessSessionID : adopted?.agentSessionId)
@@ -126,69 +131,41 @@ enum TerminalChatHandler {
         return store.state(for: ref) == .needsInput || store.isWorking(ref, isChatMachine: { _ in false })
     }
 
-    /// A chat no terminal runs: its acpmux run stops (the transcript kept), the harness's resume
-    /// command opens the session in a new terminal beside it, and the stopped chat gives way to a
-    /// View Only chat of the session the terminal now runs (``watchChat``), so the pair stays and
-    /// Toggle goes back and forth both ways (Leo, 2026-11-12: "that's the whole joy of the thing").
+    /// A chat no terminal runs, mid-turn or not: a new terminal beside it shows at once and runs
+    /// `acpmux resume-here <run>` (cmux-tui `acpmux/src/cli/resume_here.rs`). That command shows the
+    /// running turn, waits for it to end (never cut off), then acpmux turns this same chat into a View
+    /// Only watch of the conversation (`_acpmux/release_to_watch`) and the terminal runs the harness's
+    /// resume command. The chat tab stays where it is, with its history and scroll: no tab is replaced
+    /// and nothing reloads (Leo, 2026-11-12: two live views of one session, instant both ways, mid-turn).
     private static func resume(harness: String, session: String, chat: (pane: PaneController, id: StripTabID), tab: TabModel,
                                services: AppServices) throws -> ActionEffect {
         let tabs = services.agentTabs, key = "\(harness):\(session)"
-        guard let command = AgentResume.command(provider: harness, sessionID: session), let acpmux = QuitAgents.environment(services),
-              let run = tabs.session(of: tab.id) else { throw ActionFailure(message: MiscHandlerStrings.terminalChatStopFailed) }
+        guard let acpmux = QuitAgents.environment(services), let run = tabs.session(of: tab.id) else {
+            throw ActionFailure(message: MiscHandlerStrings.terminalChatStopFailed)
+        }
         let cwd = tabs.existingView(tab.id)?.model.transport.sessions.folder(of: run) ?? tab.cwd
-        let workspace = chat.pane.daemon.store.workspace(containing: chat.pane.pane.handle)?.id
+        let target = chat.pane
         // Until the terminal's hooks report the session, a second Toggle shows it instead of resuming again.
         tabs.terminalHandOffs[key] = WindowRules.HandOff(deadline: Date().timeIntervalSince1970 + 60)
-        // action-wait-allow: acpmux must end the chat's run before the harness resumes its session; nothing can show first
-        return .waiting(.externalProcess) {
-            @MainActor func fail(_ reason: String) -> ActionWorkFailure {
-                tabs.terminalHandOffs[key] = nil
-                return ActionWorkFailure(refusal: .unavailable, reason: reason)
-            }
-            // A prompt sent since the click is a turn too: it is never cut off.
-            if tab.agentSession.map(turnOpen) == true { return fail(MiscHandlerStrings.terminalChatBusy) }
-            do { try await acpmux.stopSession(id: run) } catch { return fail(MiscHandlerStrings.terminalChatStopFailed) }
-            // The chat's pane, else its workspace's focused one when the pane closed meanwhile.
-            guard let target = services.paneController(for: chat.pane.pane)
-                ?? workspace.flatMap({ services.windows.reveal(workspaceID: $0)?.focusedPane }) else { return fail(MiscHandlerStrings.terminalChatNoPane) }
-            let work = services.registry.capturingWork {
-                // A `then` replaces Home's dock placement, so it places the tab too.
-                target.newTerminalTab(cwd: cwd, typing: command + "\r", placementOwner: HomeDockOpens.opensBeside(target.pane, services: services),
-                                      then: HomeDockOpens.placing(target.pane, services: services, focus: true, then: { surface in
-                    // The terminal stands for the session now; the stopped chat closes and no longer resumes it.
-                    let made = target.daemon.store.tab(surface: surface)
-                    if let made { tabs.terminalHandOffs[key]?.tab = made.id }
-                    tabs.adoptions[key] = nil
-                    services.paneController(for: chat.pane.pane)?.close([chat.id])
-                    watchChat(harness: harness, session: session, cwd: cwd, in: target, after: made, services: services)
-                }))
-            }
-            for task in work { if let failure = await task.value { tabs.terminalHandOffs[key] = nil; return failure } }
-            return work.isEmpty ? fail(MiscHandlerStrings.terminalChatNoPane) : nil
+        let work = services.registry.capturingWork {
+            // A `then` replaces Home's dock placement, so it places the tab too.
+            target.newTerminalTab(cwd: cwd, typing: resumeHere(acpmux, run: run) + "\r",
+                                  placementOwner: HomeDockOpens.opensBeside(target.pane, services: services),
+                                  then: HomeDockOpens.placing(target.pane, services: services, focus: true, then: { surface in
+                if let made = target.daemon.store.tab(surface: surface) { tabs.terminalHandOffs[key]?.tab = made.id }
+            }))
         }
+        if work.isEmpty { tabs.terminalHandOffs[key] = nil; throw ActionFailure(message: MiscHandlerStrings.terminalChatNoPane) }
+        return .applied(result: {
+            for task in work { if let failure = await task.value { tabs.terminalHandOffs[key] = nil; return .failure(failure) } }
+            return .success([:])
+        })
     }
 
-    /// The chat half of the pair once a hand-off's terminal exists: a View Only chat (acpmux `watch`) of the
-    /// session it runs, right after it in its pane, left unselected (the terminal shows). acpmux's run of
-    /// the old chat stopped, so a page cannot take it back in place: this one tab loads the transcript once,
-    /// and every swap after it is a selection of the two parked views.
-    private static func watchChat(harness: String, session: String, cwd: String?, in pane: PaneController, after terminal: TabModel?,
-                                  services: AppServices) {
-        let adopt = AgentPaneAdopt(harness: harness, agentSessionId: session, watch: true)
-        let place = NewTabSlot.placing(after: terminal, services: services, then: Optional<@MainActor (String) -> Void>.none)
-        let pending: AgentTabPending
-        do {
-            pending = try services.agentTabs.open(in: pane.pane.handle, of: pane.daemon,
-                                                  seed: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd, adopt: adopt)), adopt: adopt)
-        } catch {
-            // The terminal runs the session either way; a later Toggle from it opens the chat.
-            services.registry.refuse((error as? AgentTabRefusal)?.message ?? String(describing: error))
-            return
-        }
-        services.registry.trackOrRefuse(Task { @MainActor in
-            do { place?(try await pending.value().key); return nil } catch is CancellationError {
-                return nil // the person closed the tab first
-            } catch { return ActionWorkFailure("open terminal as chat", error) }
-        })
+    /// The line the hand-off's terminal runs: this app's acpmux, on this app's daemon, resuming chat `run` here.
+    static func resumeHere(_ acpmux: AcpmuxEnvironment, run: String) -> String {
+        let quote = AgentResume.shellQuoted
+        let env = ["ACPMUX_HOME": acpmux.home.path, "ACPMUX_SOCKET": acpmux.socketPath].map { "\($0.key)=\(quote($0.value))" }.sorted()
+        return (env + [quote(acpmux.executable.path), "resume-here", quote(run)]).joined(separator: " ")
     }
 }
