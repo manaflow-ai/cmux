@@ -32,9 +32,10 @@ pub fn link_open_side(url: String) -> LinkOpenSide {
 }
 
 /// Name suffixes that resolve only on the Mac's own network: mDNS, MagicDNS,
-/// and the private-use names routers and companies hand out.
-const MAC_NETWORK_SUFFIXES: [&str; 6] =
-    [".localhost", ".local", ".ts.net", ".lan", ".home.arpa", ".internal"];
+/// the private-use names routers and companies hand out, and `.test` (RFC
+/// 6761: never on the public internet, only in the Mac's own resolver).
+const MAC_NETWORK_SUFFIXES: [&str; 7] =
+    [".localhost", ".local", ".ts.net", ".lan", ".home.arpa", ".internal", ".test"];
 
 pub(crate) fn classify(text: &str) -> LinkOpenSide {
     let text = text.trim();
@@ -122,6 +123,15 @@ mod tests {
             ("https://100.128.0.1/", Phone),
             ("https://172.32.0.1/", Phone),
             ("https://my.local.example.com/", Phone),
+            // The cases of #43061's WebLinkPlaceTests (the Swift classifier this replaces).
+            ("https://github.com/manaflow-ai/cmux/pull/1", Phone),
+            ("https://github.com", Phone),
+            ("http://example.com:8080/x", Phone),
+            ("https://docs.swift.org/", Phone),
+            ("https://[2606:4700::1111]/", Phone),
+            ("https://localhost.example.com/", Phone),
+            ("https://GitHub.com./login", Phone),
+            ("https://example.test.com/", Phone),
             // The Mac's loopback: a dev server.
             ("http://localhost:3000/", Mac),
             ("http://LOCALHOST:3000", Mac),
@@ -155,6 +165,22 @@ mod tests {
             ("http://router.lan/", Mac),
             ("http://nas.home.arpa/", Mac),
             ("http://db.internal/", Mac),
+            ("http://app.test:3000/", Mac),
+            // The cases of #43061's WebLinkPlaceTests.
+            ("http://LOCALHOST:5173", Mac),
+            ("http://127.0.0.1:8000/api", Mac),
+            ("http://0.0.0.0:3000", Mac),
+            ("http://172.16.4.2/", Mac),
+            ("http://169.254.1.1/", Mac),
+            ("http://100.101.102.103:3000", Mac),
+            ("http://my-mac.local:3000", Mac),
+            ("https://box.tail1234.ts.net/", Mac),
+            ("http://[fd7a:115c:a1e0::1]:3000/", Mac),
+            ("http://router.home.arpa/", Mac),
+            ("http://svc.internal/", Mac),
+            ("http://[::ffff:127.0.0.1]:3000/", Mac),
+            // Broadcast: no page on the internet answers it (WebLinkPlace said phone).
+            ("http://255.255.255.255/", Mac),
             // A bare host name, IDN included.
             ("http://devbox:8080/", Mac),
             ("http://devbox./", Mac),

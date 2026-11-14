@@ -118,6 +118,10 @@ pub enum PeerCmd {
         /// The platform user id of the account signing out.
         #[arg(long)]
         user_id: String,
+        /// When the app saw the sign-out (Unix ms; default: now). An intent from before that
+        /// account's last sign-in here is stale and not recorded.
+        #[arg(long)]
+        signed_out_at: Option<u64>,
     },
     /// Enroll this machine on the hub as the signed-in person, the way signing in to the cmux
     /// app does: mints a single-use join token with the person's cmux access token, read from
