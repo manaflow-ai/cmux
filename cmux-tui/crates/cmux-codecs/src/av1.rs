@@ -35,7 +35,8 @@ impl Av1Encoder {
         enc.low_latency = true;
         enc.error_resilient = false;
         enc.min_key_frame_interval = 0;
-        enc.max_key_frame_interval = u64::from(u32::MAX);
+        // rav1e caps the interval at i32::MAX / 3 frames (about two years at 30 fps).
+        enc.max_key_frame_interval = i32::MAX as u64 / 3;
         enc.bitrate = (cfg.kbps.max(100) * 1000) as i32;
         enc.tune = Tune::Psnr;
         enc.speed_settings.rdo_lookahead_frames = 1;

@@ -13,8 +13,11 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "vp9")]
 use std::process::Command;
 
+#[cfg(feature = "vp9")]
 const LIBVPX_VERSION: &str = "1.16.0";
+#[cfg(feature = "vp9")]
 const LIBVPX_URL: &str = "https://github.com/webmproject/libvpx/archive/refs/tags/v1.16.0.tar.gz";
+#[cfg(feature = "vp9")]
 const LIBVPX_SHA256: &str = "7a479a3c66b9f5d5542a4c6a1b7d3768a983b1e5c14c60a9396edc9b649e015c";
 
 fn main() {
