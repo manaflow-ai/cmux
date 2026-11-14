@@ -6,7 +6,13 @@
 //! one access unit out), no B-frames, a GOP of an hour, IDR on request; Annex-B out, with
 //! SPS/PPS before every IDR. [`hardware_or`] is a host's choice: a hardware MFT when one is
 //! registered, else the caller's fallback (OpenH264).
+//!
+//! mfplat.dll is bound at run time, as the Windows host's probe does: Windows N editions and
+//! Server without the Media Foundation feature have none, and a binary that imported it at
+//! load time would not start there, fallback or not.
 
+use std::collections::VecDeque;
+use std::ffi::c_void;
 use std::mem::ManuallyDrop;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
@@ -14,8 +20,9 @@ use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{VARIANT_FALSE, VARIANT_TRUE};
 use windows::Win32::Media::MediaFoundation::*;
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoTaskMemFree};
+use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 use windows::Win32::System::Variant::{VARIANT, VT_BOOL, VT_UI4};
-use windows::core::{GUID, Interface, PWSTR};
+use windows::core::{GUID, HRESULT, Interface, PWSTR, s, w};
 
 use crate::{Codec, EncCfg, H264Encoder, I420, Res};
 
@@ -28,11 +35,155 @@ pub enum MftKind {
     Software,
 }
 
-/// An async hardware MFT that has not produced the access unit for a picture by this long
-/// after it was given counts the frame as held; its output comes out on a later call.
-const ASYNC_OUTPUT_WAIT: Duration = Duration::from_millis(100);
+/// How long an async hardware MFT may take to ask for a picture or to return its access
+/// unit. Past it the picture is dropped or its output comes on a later call, as a skipped
+/// frame would; the media loop never waits longer.
+const ASYNC_WAIT: Duration = Duration::from_millis(100);
+
+/// Pictures in a row an async MFT may refuse before the encoder counts it dead.
+const MAX_REFUSED: u32 = 30;
+
+/// The mfplat.dll entry points in use, bound once per process.
+struct MfPlat {
+    startup: unsafe extern "system" fn(u32, u32) -> HRESULT,
+    enum_ex: unsafe extern "system" fn(
+        GUID,
+        u32,
+        *const MFT_REGISTER_TYPE_INFO,
+        *const MFT_REGISTER_TYPE_INFO,
+        *mut *mut *mut c_void,
+        *mut u32,
+    ) -> HRESULT,
+    create_media_type: unsafe extern "system" fn(*mut *mut c_void) -> HRESULT,
+    create_sample: unsafe extern "system" fn(*mut *mut c_void) -> HRESULT,
+    create_memory_buffer: unsafe extern "system" fn(u32, *mut *mut c_void) -> HRESULT,
+}
+
+/// mfplat.dll's entry points, with Media Foundation started (never shut down: encoders may
+/// outlive any owner).
+fn mfplat() -> Res<&'static MfPlat> {
+    static PLAT: OnceLock<Result<MfPlat, String>> = OnceLock::new();
+    com_init();
+    PLAT.get_or_init(|| {
+        // SAFETY: loading a system DLL by name and reading exports whose documented
+        // signatures the fn types above declare; the module stays loaded for the process.
+        unsafe {
+            let module = LoadLibraryW(w!("mfplat.dll"))
+                .map_err(|e| format!("mfplat.dll (no Media Foundation on this Windows): {e}"))?;
+            macro_rules! bind {
+                ($name:literal) => {
+                    std::mem::transmute(
+                        GetProcAddress(module, s!($name))
+                            .ok_or(concat!("mfplat.dll has no ", $name))?,
+                    )
+                };
+            }
+            let plat = MfPlat {
+                startup: bind!("MFStartup"),
+                enum_ex: bind!("MFTEnumEx"),
+                create_media_type: bind!("MFCreateMediaType"),
+                create_sample: bind!("MFCreateSample"),
+                create_memory_buffer: bind!("MFCreateMemoryBuffer"),
+            };
+            (plat.startup)(MF_VERSION, MFSTARTUP_LITE)
+                .ok()
+                .map_err(|e| format!("MFStartup: {e}"))?;
+            Ok(plat)
+        }
+    })
+    .as_ref()
+    .map_err(|e| e.clone().into())
+}
+
+/// An interface from a creator that returns one through an out pointer.
+///
+/// # Safety
+/// `f` must write an owned `T` (or null on failure) through its argument.
+unsafe fn created<T: Interface>(f: impl FnOnce(*mut *mut c_void) -> HRESULT) -> Res<T> {
+    let mut raw = std::ptr::null_mut();
+    f(&mut raw).ok()?;
+    if raw.is_null() {
+        return Err("media foundation: a creator returned null".into());
+    }
+    // SAFETY: per the contract, `raw` is an owned reference to a `T`.
+    Ok(unsafe { T::from_raw(raw) })
+}
+
+impl MfPlat {
+    fn media_type(&self) -> Res<IMFMediaType> {
+        // SAFETY: MFCreateMediaType writes an owned IMFMediaType.
+        unsafe { created(|p| (self.create_media_type)(p)) }
+    }
+
+    fn sample(&self) -> Res<IMFSample> {
+        // SAFETY: MFCreateSample writes an owned IMFSample.
+        unsafe { created(|p| (self.create_sample)(p)) }
+    }
+
+    fn buffer(&self, len: u32) -> Res<IMFMediaBuffer> {
+        // SAFETY: MFCreateMemoryBuffer writes an owned IMFMediaBuffer.
+        unsafe { created(|p| (self.create_memory_buffer)(len, p)) }
+    }
+
+    /// The H.264 encoder MFTs of `kind`, best first (Media Foundation's sort, which puts the
+    /// adapter's own hardware encoder first).
+    fn encoders(&self, kind: MftKind) -> Res<Vec<IMFActivate>> {
+        let output = MFT_REGISTER_TYPE_INFO {
+            guidMajorType: MFMediaType_Video,
+            guidSubtype: MFVideoFormat_H264,
+        };
+        let flags = match kind {
+            MftKind::Hardware => MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER,
+            MftKind::Software => MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_SORTANDFILTER,
+        };
+        let mut list: *mut *mut c_void = std::ptr::null_mut();
+        let mut n = 0u32;
+        // SAFETY: MFTEnumEx fills `list` with `n` owned IMFActivate pointers in a
+        // CoTaskMemAlloc'd array; each is taken exactly once, then the array is freed.
+        unsafe {
+            (self.enum_ex)(
+                MFT_CATEGORY_VIDEO_ENCODER,
+                flags.0 as u32,
+                std::ptr::null(),
+                &output,
+                &mut list,
+                &mut n,
+            )
+            .ok()?;
+            let mut out = Vec::new();
+            if !list.is_null() {
+                for i in 0..n as usize {
+                    let raw = *list.add(i);
+                    if !raw.is_null() {
+                        out.push(IMFActivate::from_raw(raw));
+                    }
+                }
+                CoTaskMemFree(Some(list.cast_const().cast()));
+            }
+            Ok(out)
+        }
+    }
+
+    fn video_type(&self, subtype: &GUID, cfg: &EncCfg) -> Res<IMFMediaType> {
+        let t = self.media_type()?;
+        // SAFETY: attribute setters on a fresh media type, with valid GUID pointers.
+        unsafe {
+            t.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
+            t.SetGUID(&MF_MT_SUBTYPE, subtype)?;
+            t.SetUINT64(&MF_MT_FRAME_SIZE, (u64::from(cfg.width) << 32) | u64::from(cfg.height))?;
+            t.SetUINT64(&MF_MT_FRAME_RATE, (u64::from(cfg.fps.max(1)) << 32) | 1)?;
+            t.SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, (1u64 << 32) | 1)?;
+            t.SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)?;
+        }
+        Ok(t)
+    }
+}
+
+/// An access unit and the capture time of the picture it carries.
+type Unit = (Vec<u8>, Option<i64>);
 
 pub struct MediaFoundation {
+    plat: &'static MfPlat,
     activate: IMFActivate,
     mft: IMFTransform,
     /// Set for an asynchronous MFT, which signals input and output readiness as events.
@@ -42,6 +193,11 @@ pub struct MediaFoundation {
     input_credit: u32,
     /// METransformHaveOutput events not yet answered with ProcessOutput (async MFTs).
     output_ready: u32,
+    /// Pictures in a row the async MFT gave no input credit for.
+    refused: u32,
+    /// Access units taken from the MFT but not yet returned: [`H264Encoder::encode`]
+    /// returns one per call.
+    pending: VecDeque<Unit>,
     width: usize,
     height: usize,
     frame_hns: i64,
@@ -71,25 +227,13 @@ fn com_init() {
     JOINED.with(|_| ());
 }
 
-/// Starts Media Foundation once per process (never shut down: encoders may outlive any owner).
-fn mf_startup() -> Res<()> {
-    static STARTED: OnceLock<Result<(), String>> = OnceLock::new();
-    com_init();
-    STARTED
-        .get_or_init(|| {
-            // SAFETY: MFStartup with the SDK version this crate's bindings declare.
-            unsafe { MFStartup(MF_VERSION, MFSTARTUP_LITE) }.map_err(|e| format!("MFStartup: {e}"))
-        })
-        .clone()
-        .map_err(Into::into)
-}
-
 fn variant_u32(v: u32) -> VARIANT {
     let mut var = VARIANT::default();
-    // SAFETY: writing the tag and the matching union member of a fresh VARIANT.
+    // SAFETY: writing the tag and the matching member of a fresh VARIANT; the
+    // ManuallyDrop wraps plain data.
     unsafe {
-        var.Anonymous.Anonymous.vt = VT_UI4;
-        var.Anonymous.Anonymous.Anonymous.ulVal = v;
+        (*var.Anonymous.Anonymous).vt = VT_UI4;
+        (*var.Anonymous.Anonymous).Anonymous.ulVal = v;
     }
     var
 }
@@ -98,41 +242,10 @@ fn variant_bool(v: bool) -> VARIANT {
     let mut var = VARIANT::default();
     // SAFETY: as above, for VT_BOOL.
     unsafe {
-        var.Anonymous.Anonymous.vt = VT_BOOL;
-        var.Anonymous.Anonymous.Anonymous.boolVal = if v { VARIANT_TRUE } else { VARIANT_FALSE };
+        (*var.Anonymous.Anonymous).vt = VT_BOOL;
+        (*var.Anonymous.Anonymous).Anonymous.boolVal = if v { VARIANT_TRUE } else { VARIANT_FALSE };
     }
     var
-}
-
-/// The H.264 encoder MFTs of `kind`, best first (Media Foundation's sort, which puts the
-/// adapter's own hardware encoder first).
-fn enum_mfts(kind: MftKind) -> Res<Vec<IMFActivate>> {
-    let output = MFT_REGISTER_TYPE_INFO {
-        guidMajorType: MFMediaType_Video,
-        guidSubtype: MFVideoFormat_H264,
-    };
-    let flags = match kind {
-        MftKind::Hardware => MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER,
-        MftKind::Software => MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_SORTANDFILTER,
-    };
-    let mut list: *mut Option<IMFActivate> = std::ptr::null_mut();
-    let mut n = 0u32;
-    // SAFETY: MFTEnumEx fills `list` with `n` activation objects in a CoTaskMemAlloc'd array.
-    unsafe {
-        MFTEnumEx(MFT_CATEGORY_VIDEO_ENCODER, flags, None, Some(&output), &mut list, &mut n)
-    }?;
-    let mut out = Vec::new();
-    if !list.is_null() {
-        for i in 0..n as usize {
-            // SAFETY: each of the `n` entries is an owned reference, moved out exactly once.
-            if let Some(a) = unsafe { std::ptr::read(list.add(i)) } {
-                out.push(a);
-            }
-        }
-        // SAFETY: the array itself was allocated by MFTEnumEx with CoTaskMemAlloc.
-        unsafe { CoTaskMemFree(Some(list.cast_const().cast())) };
-    }
-    Ok(out)
 }
 
 fn friendly_name(a: &IMFActivate) -> String {
@@ -149,20 +262,6 @@ fn friendly_name(a: &IMFActivate) -> String {
     // SAFETY: freeing the string GetAllocatedString allocated.
     unsafe { CoTaskMemFree(Some(s.0.cast_const().cast())) };
     name
-}
-
-fn video_type(subtype: &GUID, cfg: &EncCfg) -> Res<IMFMediaType> {
-    // SAFETY: attribute setters on a fresh media type, with valid GUID pointers.
-    unsafe {
-        let t = MFCreateMediaType()?;
-        t.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
-        t.SetGUID(&MF_MT_SUBTYPE, subtype)?;
-        t.SetUINT64(&MF_MT_FRAME_SIZE, (u64::from(cfg.width) << 32) | u64::from(cfg.height))?;
-        t.SetUINT64(&MF_MT_FRAME_RATE, (u64::from(cfg.fps.max(1)) << 32) | 1)?;
-        t.SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, (1u64 << 32) | 1)?;
-        t.SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)?;
-        Ok(t)
-    }
 }
 
 /// The output type's SPS/PPS (MF_MT_MPEG_SEQUENCE_HEADER), when it is Annex-B.
@@ -183,6 +282,19 @@ fn sequence_header(mft: &IMFTransform) -> Vec<u8> {
     }
 }
 
+/// Shuts an activated MFT down unless defused: a candidate that refused the settings must
+/// not keep its hardware encoder session until the process exits.
+struct ShutdownGuard<'a>(Option<&'a IMFActivate>);
+
+impl Drop for ShutdownGuard<'_> {
+    fn drop(&mut self) {
+        if let Some(a) = self.0 {
+            // SAFETY: shutting down an object this function activated.
+            let _ = unsafe { a.ShutdownObject() };
+        }
+    }
+}
+
 impl MediaFoundation {
     /// An encoder on the best MFT of `kind` that accepts the settings.
     pub fn new(cfg: &EncCfg, kind: MftKind) -> Res<Self> {
@@ -193,15 +305,15 @@ impl MediaFoundation {
             )
             .into());
         }
-        mf_startup()?;
-        let candidates = enum_mfts(kind)?;
+        let plat = mfplat()?;
+        let candidates = plat.encoders(kind)?;
         if candidates.is_empty() {
             return Err(format!("media foundation: no {kind:?} H.264 encoder MFT").into());
         }
         let mut errors = Vec::new();
         for activate in candidates {
             let name = friendly_name(&activate);
-            match Self::open(activate, cfg, kind, &name) {
+            match Self::open(plat, activate, cfg, kind, &name) {
                 Ok(enc) => return Ok(enc),
                 Err(e) => errors.push(format!("{name}: {e}")),
             }
@@ -210,11 +322,19 @@ impl MediaFoundation {
             .into())
     }
 
-    fn open(activate: IMFActivate, cfg: &EncCfg, kind: MftKind, mft_name: &str) -> Res<Self> {
+    fn open(
+        plat: &'static MfPlat,
+        activate: IMFActivate,
+        cfg: &EncCfg,
+        kind: MftKind,
+        mft_name: &str,
+    ) -> Res<Self> {
         let kbps = cfg.kbps.max(100);
         // SAFETY: COM calls on objects this function owns, with valid arguments.
-        unsafe {
-            let mft: IMFTransform = activate.ActivateObject()?;
+        let mft: IMFTransform = unsafe { activate.ActivateObject() }?;
+        let mut guard = ShutdownGuard(Some(&activate));
+        // SAFETY: as above.
+        let (events, codec_api, settings, is_async) = unsafe {
             let attrs = mft.GetAttributes().ok();
             let is_async =
                 attrs.as_ref().and_then(|a| a.GetUINT32(&MF_TRANSFORM_ASYNC).ok()).unwrap_or(0)
@@ -246,38 +366,44 @@ impl MediaFoundation {
                     }
                 }
             }
-            let out = video_type(&MFVideoFormat_H264, cfg)?;
+            let out = plat.video_type(&MFVideoFormat_H264, cfg)?;
             out.SetUINT32(&MF_MT_AVG_BITRATE, kbps * 1000)?;
             out.SetUINT32(&MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_Base.0 as u32)?;
             mft.SetOutputType(0, &out, 0)?;
-            mft.SetInputType(0, &video_type(&MFVideoFormat_NV12, cfg)?, 0)?;
+            mft.SetInputType(0, &plat.video_type(&MFVideoFormat_NV12, cfg)?, 0)?;
             mft.ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0)?;
             mft.ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0)?;
-            let name = format!(
-                "media foundation {} ({}{}) baseline {}",
-                mft_name,
-                if kind == MftKind::Hardware { "hardware" } else { "software" },
-                if is_async { ", async" } else { "" },
-                settings.join(" ")
-            );
-            let (w, h) = (cfg.width as usize, cfg.height as usize);
-            Ok(Self {
-                sequence_header: sequence_header(&mft),
-                activate,
-                mft,
-                events,
-                codec_api,
-                input_credit: 0,
-                output_ready: 0,
-                width: w,
-                height: h,
-                frame_hns: 10_000_000 / i64::from(cfg.fps.max(1)),
-                kbps,
-                nv12: vec![0; w * h * 3 / 2],
-                out_pts: None,
-                name,
-            })
-        }
+            (events, codec_api, settings, is_async)
+        };
+        guard.0 = None;
+        drop(guard);
+        let name = format!(
+            "media foundation {} ({}{}) baseline {}",
+            mft_name,
+            if kind == MftKind::Hardware { "hardware" } else { "software" },
+            if is_async { ", async" } else { "" },
+            settings.join(" ")
+        );
+        let (w, h) = (cfg.width as usize, cfg.height as usize);
+        Ok(Self {
+            plat,
+            sequence_header: sequence_header(&mft),
+            activate,
+            mft,
+            events,
+            codec_api,
+            input_credit: 0,
+            output_ready: 0,
+            refused: 0,
+            pending: VecDeque::new(),
+            width: w,
+            height: h,
+            frame_hns: 10_000_000 / i64::from(cfg.fps.max(1)),
+            kbps,
+            nv12: vec![0; w * h * 3 / 2],
+            out_pts: None,
+            name,
+        })
     }
 
     fn input_sample(&mut self, pic: &I420, pts: i64) -> Res<IMFSample> {
@@ -291,25 +417,25 @@ impl MediaFoundation {
             pair[0] = u;
             pair[1] = v;
         }
-        // SAFETY: a new buffer of the NV12 size, locked while it is filled; then a new sample.
+        let buf = self.plat.buffer(self.nv12.len() as u32)?;
+        let sample = self.plat.sample()?;
+        // SAFETY: the new buffer holds the NV12 size and is locked while it is filled.
         unsafe {
-            let buf = MFCreateMemoryBuffer(self.nv12.len() as u32)?;
             let mut dst = std::ptr::null_mut();
             buf.Lock(&mut dst, None, None)?;
             std::ptr::copy_nonoverlapping(self.nv12.as_ptr(), dst, self.nv12.len());
             buf.Unlock()?;
             buf.SetCurrentLength(self.nv12.len() as u32)?;
-            let sample = MFCreateSample()?;
             sample.AddBuffer(&buf)?;
             sample.SetSampleTime(pts.max(0) * 10)?;
             sample.SetSampleDuration(self.frame_hns)?;
-            Ok(sample)
         }
+        Ok(sample)
     }
 
-    /// One ProcessOutput call: appends an access unit to `out` and returns true, or
-    /// returns false when the MFT needs more input first.
-    fn take_output(&mut self, out: &mut Vec<u8>) -> Res<bool> {
+    /// One ProcessOutput call: an access unit, or `None` when the MFT has none ready (it
+    /// needs more input, or, async, it changed its output type and will signal again).
+    fn take_output(&mut self) -> Res<Option<Unit>> {
         loop {
             // SAFETY: ProcessOutput with one output buffer whose sample we own (or the MFT
             // provides); both ManuallyDrop fields are taken back exactly once after the call.
@@ -319,9 +445,10 @@ impl MediaFoundation {
                 let sample = if provides {
                     None
                 } else {
-                    let s = MFCreateSample()?;
-                    let size = info.cbSize.max((self.width * self.height) as u32);
-                    s.AddBuffer(&MFCreateMemoryBuffer(size)?)?;
+                    let s = self.plat.sample()?;
+                    // An IDR with SPS/PPS fits in a raw picture's size with room to spare.
+                    let size = info.cbSize.max((self.width * self.height * 3 / 2 + 1024) as u32);
+                    s.AddBuffer(&self.plat.buffer(size)?)?;
                     Some(s)
                 };
                 let mut db = MFT_OUTPUT_DATA_BUFFER {
@@ -331,13 +458,13 @@ impl MediaFoundation {
                     pEvents: ManuallyDrop::new(None),
                 };
                 let mut status = 0u32;
-                let r = self.mft.ProcessOutput(0, 1, &mut db, &mut status);
+                let r = self.mft.ProcessOutput(0, std::slice::from_mut(&mut db), &mut status);
                 drop(ManuallyDrop::into_inner(db.pEvents));
                 (r, ManuallyDrop::into_inner(db.pSample))
             };
             match result {
                 Ok(()) => {}
-                Err(e) if e.code() == MF_E_TRANSFORM_NEED_MORE_INPUT => return Ok(false),
+                Err(e) if e.code() == MF_E_TRANSFORM_NEED_MORE_INPUT => return Ok(None),
                 Err(e) if e.code() == MF_E_TRANSFORM_STREAM_CHANGE => {
                     // SAFETY: renegotiating the output type the MFT now offers.
                     unsafe {
@@ -345,42 +472,51 @@ impl MediaFoundation {
                         self.mft.SetOutputType(0, &t, 0)?;
                     }
                     self.sequence_header = sequence_header(&self.mft);
+                    // An async MFT signals METransformHaveOutput again for the unit.
+                    if self.events.is_some() {
+                        return Ok(None);
+                    }
                     continue;
                 }
                 Err(e) => return Err(format!("media foundation ProcessOutput: {e}").into()),
             }
             let sample = sample.ok_or("media foundation: ProcessOutput returned no sample")?;
-            let start = out.len();
+            let mut au = Vec::new();
             // SAFETY: reading the sample's bytes while its contiguous buffer is locked.
-            unsafe {
+            let pts = unsafe {
                 let buf = sample.ConvertToContiguousBuffer()?;
                 let mut src = std::ptr::null_mut();
                 let mut len = 0u32;
                 buf.Lock(&mut src, None, Some(&mut len))?;
-                out.extend_from_slice(std::slice::from_raw_parts(src, len as usize));
+                au.extend_from_slice(std::slice::from_raw_parts(src, len as usize));
                 buf.Unlock()?;
-                self.out_pts = sample.GetSampleTime().ok().map(|t| t / 10);
-            }
-            let au = &out[start..];
-            if Codec::H264.is_keyframe(au)
-                && !crate::annexb_nals(au).any(|n| n.first().is_some_and(|b| b & 0x1f == 7))
+                sample.GetSampleTime().ok().map(|t| t / 10)
+            };
+            if Codec::H264.is_keyframe(&au)
+                && !crate::annexb_nals(&au).any(|n| n.first().is_some_and(|b| b & 0x1f == 7))
                 && !self.sequence_header.is_empty()
             {
-                out.splice(start..start, self.sequence_header.iter().copied());
+                au.splice(0..0, self.sequence_header.iter().copied());
             }
-            return Ok(true);
+            return Ok(Some((au, pts)));
         }
     }
 
-    /// Takes the next event of an async MFT, waiting until `deadline` (None: don't wait).
+    /// Reads the next event of an async MFT, waiting until `deadline` (None: don't wait).
+    /// Returns false when none came.
     fn next_event(&mut self, deadline: Option<Instant>) -> Res<bool> {
         let Some(events) = &self.events else { return Ok(false) };
         loop {
             // SAFETY: a non-blocking event read on the MFT's own event generator.
             match unsafe { events.GetEvent(MF_EVENT_FLAG_NO_WAIT) } {
                 Ok(ev) => {
-                    // SAFETY: reading the type of an event we own.
-                    let t = unsafe { ev.GetType() }?;
+                    // SAFETY: reading the type and status of an event we own.
+                    let (t, status) = unsafe { (ev.GetType()?, ev.GetStatus()?) };
+                    if t == MEError.0 as u32 || status.is_err() {
+                        return Err(
+                            format!("media foundation: hardware MFT failed: {status:?}").into()
+                        );
+                    }
                     if t == METransformNeedInput.0 as u32 {
                         self.input_credit += 1;
                     } else if t == METransformHaveOutput.0 as u32 {
@@ -401,46 +537,64 @@ impl MediaFoundation {
         }
     }
 
-    fn encode_async(&mut self, sample: &IMFSample, out: &mut Vec<u8>) -> Res<()> {
-        let deadline = Instant::now() + ASYNC_OUTPUT_WAIT;
-        // Output still owed from earlier pictures goes first.
-        while self.next_event(None)? {}
+    /// Takes every access unit the async MFT has signalled into `pending`.
+    fn drain_async(&mut self) -> Res<()> {
         while self.output_ready > 0 {
             self.output_ready -= 1;
-            self.take_output(out)?;
-        }
-        while self.input_credit == 0 {
-            if !self.next_event(Some(deadline))? {
-                return Err("media foundation: hardware MFT asked for no input".into());
-            }
-        }
-        self.input_credit -= 1;
-        // SAFETY: handing the MFT a sample it asked for (METransformNeedInput).
-        unsafe { self.mft.ProcessInput(0, sample, 0) }?;
-        let start = out.len();
-        while out.len() == start {
-            if self.output_ready > 0 {
-                self.output_ready -= 1;
-                self.take_output(out)?;
-            } else if !self.next_event(Some(deadline))? {
-                break;
+            if let Some(unit) = self.take_output()? {
+                self.pending.push_back(unit);
             }
         }
         Ok(())
     }
 
-    fn encode_sync(&mut self, sample: &IMFSample, out: &mut Vec<u8>) -> Res<()> {
+    fn encode_async(&mut self, sample: &IMFSample) -> Res<()> {
+        let deadline = Instant::now() + ASYNC_WAIT;
+        while self.next_event(None)? {}
+        self.drain_async()?;
+        while self.input_credit == 0 {
+            if !self.next_event(Some(deadline))? {
+                // Busy encoder: drop this picture as a skipped frame; a dead one fails.
+                self.refused += 1;
+                if self.refused >= MAX_REFUSED {
+                    return Err(format!(
+                        "media foundation: hardware MFT asked for no input in {MAX_REFUSED} frames"
+                    )
+                    .into());
+                }
+                return Ok(());
+            }
+            self.drain_async()?;
+        }
+        self.refused = 0;
+        self.input_credit -= 1;
+        // SAFETY: handing the MFT a sample it asked for (METransformNeedInput).
+        unsafe { self.mft.ProcessInput(0, sample, 0) }?;
+        while self.pending.is_empty() {
+            if self.output_ready == 0 && !self.next_event(Some(deadline))? {
+                break;
+            }
+            self.drain_async()?;
+        }
+        Ok(())
+    }
+
+    fn encode_sync(&mut self, sample: &IMFSample) -> Res<()> {
         // SAFETY: ProcessInput on a synchronous MFT; MF_E_NOTACCEPTING means drain first.
         match unsafe { self.mft.ProcessInput(0, sample, 0) } {
             Ok(()) => {}
             Err(e) if e.code() == MF_E_NOTACCEPTING => {
-                while self.take_output(out)? {}
+                while let Some(unit) = self.take_output()? {
+                    self.pending.push_back(unit);
+                }
                 // SAFETY: as above, after the MFT's pending output was taken.
                 unsafe { self.mft.ProcessInput(0, sample, 0) }?;
             }
             Err(e) => return Err(format!("media foundation ProcessInput: {e}").into()),
         }
-        while self.take_output(out)? {}
+        while let Some(unit) = self.take_output()? {
+            self.pending.push_back(unit);
+        }
         Ok(())
     }
 }
@@ -456,9 +610,14 @@ impl H264Encoder for MediaFoundation {
         }
         let sample = self.input_sample(pic, pts)?;
         if self.events.is_some() {
-            self.encode_async(&sample, out)?;
+            self.encode_async(&sample)?;
         } else {
-            self.encode_sync(&sample, out)?;
+            self.encode_sync(&sample)?;
+        }
+        // One access unit per call; a backlog (an async MFT's late output) drains one by one.
+        if let Some((au, au_pts)) = self.pending.pop_front() {
+            *out = au;
+            self.out_pts = au_pts;
         }
         Ok(Codec::H264.is_keyframe(out))
     }
@@ -470,7 +629,8 @@ impl H264Encoder for MediaFoundation {
         }
         if let Some(api) = &self.codec_api
             // SAFETY: the mean bitrate is a dynamic property on encoders that take CBR.
-            && unsafe { api.SetValue(&CODECAPI_AVEncCommonMeanBitRate, &variant_u32(kbps * 1000)) }.is_ok()
+            && unsafe { api.SetValue(&CODECAPI_AVEncCommonMeanBitRate, &variant_u32(kbps * 1000)) }
+                .is_ok()
         {
             self.kbps = kbps;
         }

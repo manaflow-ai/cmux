@@ -39,7 +39,18 @@ jobs:
         working-directory: cmux-tui/crates/cmux-codecs
         run: cargo build --release --locked --no-default-features --bin codec-bench
 
-      - name: Encoder MFTs on this machine
+      # Windows Server ships Media Foundation (and its software H.264 MFT) as an optional
+      # feature; client Windows has it built in. Without it the h264-mf rows say so.
+      - name: Media Foundation feature (Windows Server)
+        continue-on-error: true
+        run: |
+          if (Get-Command Get-WindowsFeature -ErrorAction SilentlyContinue) {
+            $f = Get-WindowsFeature Server-Media-Foundation
+            if ($f -and -not $f.Installed) { Install-WindowsFeature Server-Media-Foundation | Format-List }
+            Get-WindowsFeature Server-Media-Foundation | Format-Table -AutoSize
+          }
+
+      - name: GPUs on this machine
         run: |
           Get-CimInstance Win32_VideoController | Select-Object Name, DriverVersion | Format-Table -AutoSize | Out-String | Tee-Object -Variable gpus
           Add-Content $env:GITHUB_STEP_SUMMARY "GPU: $gpus"

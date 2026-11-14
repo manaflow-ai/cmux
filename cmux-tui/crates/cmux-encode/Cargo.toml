@@ -37,11 +37,13 @@ bzip2 = { version = "0.6", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 # Media Foundation's H.264 encoder MFTs (module `mediafoundation`) are COM interfaces, so the
-# `windows` crate rather than windows-sys. The codec comes with Windows; nothing is linked.
+# `windows` crate rather than windows-sys. The codec comes with Windows; nothing is linked,
+# and mfplat.dll is loaded at run time (LibraryLoader).
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Media_MediaFoundation",
     "Win32_System_Com",
+    "Win32_System_LibraryLoader",
     "Win32_System_Ole",
     "Win32_System_Variant",
 ] }
