@@ -13,6 +13,7 @@
     "CmuxHomeCore": "Packages/Shared/CmuxHomeCore",
     "CmuxHomeRender": "Packages/Shared/CmuxHomeRender",
     "CmuxInstallAuthCore": "Packages/Shared/CmuxInstallAuthCore",
+    "CmuxIrxTransport": "Packages/Shared/CmuxIrxTransport",
     "CmuxMessagesLab": "Packages/Shared/CmuxMessagesLab",
     "CmuxMobileRPC": "Packages/iOS/CmuxMobileRPC",
     "CmuxMobileSSH": "Packages/iOS/CmuxMobileSSH",
@@ -1603,7 +1604,8 @@
         "CmuxNextWakeups"
       ],
       "packages": [
-        "CMUXMobileCore"
+        "CMUXMobileCore",
+        "CmuxIrxTransport"
       ]
     },
     "CmuxNextMobileHost": {
@@ -1784,8 +1786,10 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess",
       "targets": [
         "CmuxNextCompat",
+        "CmuxNextControl",
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
+        "CmuxNextKeepAwake",
         "CmuxNextMobile",
         "CmuxNextSettings"
       ],
