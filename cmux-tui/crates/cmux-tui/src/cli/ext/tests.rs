@@ -761,3 +761,67 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
     let (_, code) = shot::report(&broken, &dir, None, false);
     assert_eq!(code, exit::LOAD_FAILED);
 }
+
+/// Row 18: every kind `ext new` makes is a project on the public SDK as this
+/// cmux ships it (no registry, the same `API_VERSION`), and `ext dev --once
+/// --json` loads it as written: exit 0.
+#[test]
+fn every_kind_is_made_on_the_shipped_sdk_and_passes_ext_dev_once() {
+    let api_version = cmux_app_manifest::capabilities::Capabilities::get().api_version.clone();
+    for kind in ["section", "pane", "command"] {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join(format!("hi-{kind}"));
+        let new = format!("new hi-{kind} --kind {kind} --dir {}", dir.display());
+        let Ok(Request::New { name, kind: parsed, dir: Some(target) }) = parse(&words(&new)) else {
+            panic!("ext {new} does not parse")
+        };
+        scaffold::scaffold(&target, &name, &parsed).unwrap_or_else(|e| panic!("{kind}: {e}"));
+
+        // The code imports the SDK, and the SDK is the copy in the folder.
+        let source = std::fs::read_to_string(dir.join("src/main.ts")).unwrap();
+        assert!(source.contains("from \"cmux-extension-sdk\""), "{kind}: {source}");
+        let tsconfig: Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("tsconfig.json")).unwrap())
+                .unwrap();
+        let sdk = tsconfig["compilerOptions"]["paths"]["cmux-extension-sdk"][0].as_str().unwrap();
+        let index = std::fs::read_to_string(dir.join(sdk)).unwrap();
+        assert!(index.contains("export function section("), "{kind}: the SDK's own source");
+        assert!(!index.contains("cmux-app-host"), "{kind}: no path back into the cmux repository");
+        let scopes: Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("sdk/tables/scopes.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(scopes["apiVersion"], json!(api_version), "{kind}: SDK API_VERSION");
+        let package: Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("package.json")).unwrap())
+                .unwrap();
+        assert_eq!(package["dependencies"]["cmux-extension-sdk"], "file:./sdk", "{kind}");
+
+        // `ext dev --once --json` against a daemon: exit 0, ok.
+        let Ok(Request::Dev(mut options)) =
+            parse(&words(&format!("dev {} --once --json", dir.display())))
+        else {
+            panic!("dev --once --json")
+        };
+        options.bun = None;
+        let fake = FakeDaemon::start(
+            &root.path().join("state/apps/local"),
+            &format!("local/hi-{kind}"),
+            false,
+        );
+        let outcome = dev::once(&global(&fake.socket), &options, false);
+        assert_eq!(outcome.exit_code(), exit::OK, "{kind}: {:?}", outcome.errors);
+        assert_eq!(outcome.to_json(&dir)["ok"], true, "{kind}");
+        let files = dev::package_files(&dev::load_package(&dir).unwrap()).unwrap();
+        assert!(files.contains(&PathBuf::from("dist/main.js")), "{kind}: {files:?}");
+        assert!(!files.iter().any(|f| f.starts_with("sdk")), "{kind}: the SDK copy stays home");
+    }
+}
+
+#[test]
+fn a_command_extension_needs_a_name_cmux_does_not_use() {
+    let root = tempfile::tempdir().unwrap();
+    let error = scaffold::scaffold(&root.path().join("apps"), "apps", "command").unwrap_err();
+    assert!(error.contains("is a cmux command"), "{error}");
+    assert!(scaffold::scaffold(&root.path().join("apps"), "apps", "section").is_ok());
+}
