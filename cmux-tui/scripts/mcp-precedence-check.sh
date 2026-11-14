@@ -169,12 +169,13 @@ dead=(-c 'model_provider="dead"' -c 'model_providers.dead={name="dead",base_url=
 switch=(-c "mcp_servers.cmux.command=\"$NODE\"" -c "mcp_servers.cmux.args=[\"$F\",\"X\",\"$L\"]" -c 'mcp_servers.cmux.enabled=false')
 session() { # FOLDER ARGS...: start a session; print "<what started>|<config refused: 0/1>|<reached the model request: 0/1>"
   local at=$1; shift; : > "$L"
-  (cd "$at" && DEAD_KEY=x CODEX_API_KEY=sk-test timeout 12 "$CODEX" exec --skip-git-repo-check "${dead[@]}" "$@" "say hi" \
+  (cd "$at" && DEAD_KEY=x CODEX_API_KEY=sk-test timeout 12 "$CODEX" exec --json --skip-git-repo-check "${dead[@]}" "$@" "say hi" \
      < /dev/null > "$D/session.out" 2>&1)
   local refused=0 reached=0
   grep -qiE 'invalid transport|failed to load' "$D/session.out" && refused=1
-  # `codex exec` prints the prompt as the session starts, then asks the (dead) model.
-  grep -qx 'say hi' "$D/session.out" && grep -qiE 'reconnecting|stream|error sending|connection refused|network' "$D/session.out" && reached=1
+  # `codex exec --json` reports each event as a line (exec_events.rs, 0.160.1
+  # and 0.169.0): the turn starts, which asks the (dead) model, then fails.
+  grep -q '"type":"turn.started"' "$D/session.out" && grep -qE '"type":"(turn.failed|error)"' "$D/session.out" && reached=1
   printf '%s|%s|%s' "$(tr '\n' ' ' < "$L")" "$refused" "$reached"
 }
 off_case() { # NAME FOLDER LABEL ARGS...: alone the LABEL server starts; with the switch none does, the config loads, the session reaches the model request
@@ -304,6 +305,12 @@ PY
   no_turn_off "trusted project whose config names cmux" "$sub"
   no_turn_off "-C into it" "$D/work" -C "$sub"
   shim_case "-C out of it" "$sub" no -- -C "$D/work"
+  # Codex walks -C as written (`..` removed lexically, symlinks kept): a link
+  # in the project to a folder outside it is still under the project's config.
+  ln -s "$D/work" "$P/link"
+  no_turn_off "-C through a symlink in it" "$D/work" -C "$P/link"
+  no_turn_off "-C ../link/.. (lexically the project)" "$sub" -C ../link/..
+  rm "$P/link"
   printf '[mcp_servers\n' > "$P/.codex/config.toml"
   no_turn_off "a project config that is not TOML" "$sub"
   # A project config without cmux: the probe answers, trusted or not.
@@ -361,6 +368,12 @@ PY
   (cd "$sub" && env "${shim_env[@]}" PATH="$shim_path" "$CMUX" agent codex-wrapper queue >/dev/null 2>"$D/shim.err")
   ! grep -q 'mcp_servers' "$D/codex-args" && ! grep -qi 'codex' "$D/shim.err"
   check "codex shim [queue]: a command that starts no session gets no cmux server and no line" $?
+  # `agents` (the command center, a full session that can switch to recorded
+  # ones) gets the server and turns nothing off; `review` (exec review, a new
+  # session here) gets it and is asked like any session.
+  rm -rf "$P/.codex"; user_plain
+  no_turn_off "agents" "$D/work" agents
+  shim_case "review" "$D/work" no -- review --uncommitted
   # The switch the shim sends where Codex reports the entry carries its
   # transport: where that entry is not loaded (no profile) it is still valid.
   rm -rf "$P/.codex"; printf 'model = "x"\n' > "$CODEX_HOME/config.toml"

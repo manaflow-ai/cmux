@@ -153,8 +153,9 @@ fn mcp_settings(
     // nothing off, quietly. A line is said only when Codex was asked and could
     // not answer.
     let config = crate::codex_mcp_entry::config_args(launch.args);
+    let home = getenv("HOME").map(PathBuf::from);
     let folder =
-        config.cd.as_ref().map_or_else(|| launch.cwd.to_path_buf(), |cd| launch.cwd.join(cd));
+        crate::codex_mcp_entry::launch_folder(launch.cwd, config.cd.as_deref(), home.as_deref());
     let probed = crate::codex_mcp_entry::probe_matches_launch(launch.args)
         && !crate::codex_mcp_entry::project_config_names_cmux(&folder, getenv);
     let existing = if probed {
@@ -316,7 +317,6 @@ mod launch_classification {
     const INFORMATIONAL: &[&str] = &["--help", "-h", "--version", "-V"];
     const MANAGEMENT: &[&str] = &[
         "a",
-        "agents",
         "apply",
         "app",
         "app-server",
@@ -341,7 +341,6 @@ mod launch_classification {
         "queue",
         "remote-control",
         "responses-api-proxy",
-        "review",
         "sandbox",
         "stdio-to-uds",
         "tcp-tunnel",

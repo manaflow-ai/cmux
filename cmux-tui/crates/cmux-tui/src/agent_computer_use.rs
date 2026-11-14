@@ -41,7 +41,7 @@
 //!   only named `cmux` stays on, and so does an entry Codex could not report.
 //!   Codex is asked only for a launch its answer describes, and nothing is
 //!   turned off otherwise: a launch that is no new session in the launch
-//!   folder (`--worktree`, `resume`, `fork`, `--remote`,
+//!   folder (`--worktree`, `resume`, `fork`, `agents`, `--remote`,
 //!   `--ignore-user-config`, `--trust`, a subcommand: codex_mcp_entry.rs
 //!   `probe_matches_launch`), or one where a project config could define
 //!   `cmux` (`project_config_names_cmux`: a `.codex/config.toml` in the

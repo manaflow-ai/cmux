@@ -172,10 +172,10 @@ const DIFFERENT_LAUNCH: [&str; 5] =
 /// session forms (`codex`, `codex PROMPT`, `review`, `exec`/`e`, `exec
 /// review`, `exec PROMPT`), without [`DIFFERENT_LAUNCH`] options. Anything
 /// else is not probed: a resumed or forked session (`resume`, `fork`, `exec
-/// resume`) keeps the folder and config it was recorded with, and any other
-/// word that could name a subcommand (a single lowercase word, such as
-/// `execpolicy`, `cloud-tasks` or one a later Codex adds) may be no session at
-/// all. A one-word prompt (`codex hi`) reads as such a word too and is not
+/// resume`) keeps the folder and config it was recorded with, as can one the
+/// agent command center (`agents`) switches to, and any other word that could
+/// name a subcommand (a single lowercase word, such as `execpolicy`,
+/// `cloud-tasks` or one a later Codex adds) may be no session at all. A one-word prompt (`codex hi`) reads as such a word too and is not
 /// probed either: that only costs the turn-off, never a launch.
 pub(crate) fn probe_matches_launch(args: &[OsString]) -> bool {
     let mut args = args.iter();
@@ -219,10 +219,43 @@ fn could_be_subcommand(word: &str) -> bool {
         && word.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
+/// The folder a launch's session runs in, as Codex computes it: the launch
+/// folder joined with `-C`'s (a leading `~` expanded with `home`), `.` and
+/// `..` removed lexically, symlinks kept (codex-utils-absolute-path
+/// `relative_to_current_dir`, Codex 0.160.1 and 0.169.0).
+pub(crate) fn launch_folder(cwd: &Path, cd: Option<&Path>, home: Option<&Path>) -> PathBuf {
+    let cd = cd.map(|cd| match (cd.strip_prefix("~"), home) {
+        (Ok(rest), Some(home)) => home.join(rest),
+        _ => cd.to_path_buf(),
+    });
+    lexical(&cd.map_or_else(|| cwd.to_path_buf(), |cd| cwd.join(cd)))
+}
+
+/// `path` with `.` and `..` removed lexically, as Codex does (a `..` past
+/// `/` stays at `/`).
+fn lexical(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut clean = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                clean.pop();
+            }
+            other => clean.push(other.as_os_str()),
+        }
+    }
+    clean
+}
+
 /// Whether a project config could define a `cmux` MCP server for a launch
-/// in `folder` (`-C` applied): any `.codex/config.toml` in `folder` or a
-/// folder above it, up to `/`, that has an `mcp_servers.cmux` table, or that
-/// is there but cannot be read as TOML (not UTF-8, unreadable, not TOML). `$CODEX_HOME` (`~/.codex` without it), Codex's own
+/// in `folder` (`-C` applied): any `.codex/config.toml` in a folder above it,
+/// itself included, up to `/`, that has an `mcp_servers.cmux` table, or that
+/// is there but cannot be read as TOML (not UTF-8, unreadable, not TOML).
+/// Both chains are walked: the folder as Codex's session sees it (lexical,
+/// symlinks kept: [`launch_folder`]) and the resolved one `codex mcp get`
+/// sees through its working directory. A `.codex` that is no folder holds no
+/// config, as for Codex. `$CODEX_HOME` (`~/.codex` without it), Codex's own
 /// user config folder, is not a project and is left out (canonical paths).
 ///
 /// No trust is modelled: if no project file defines `cmux`, nothing can merge
@@ -235,11 +268,12 @@ pub(crate) fn project_config_names_cmux(
     getenv: &dyn Fn(&str) -> Option<OsString>,
 ) -> bool {
     let canonical = |path: &Path| path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    let folder = canonical(folder);
+    let written = lexical(folder);
+    let resolved = canonical(&written);
     let dir = |key: &str| getenv(key).filter(|v| !v.is_empty()).map(PathBuf::from);
     let codex_home = dir("CODEX_HOME").or_else(|| dir("HOME").map(|home| home.join(".codex")));
     let codex_home = codex_home.as_deref().map(canonical);
-    folder.ancestors().any(|ancestor| {
+    written.ancestors().chain(resolved.ancestors()).any(|ancestor| {
         let config_dir = canonical(&ancestor.join(".codex"));
         if codex_home.as_ref() == Some(&config_dir) {
             return false;
@@ -247,7 +281,10 @@ pub(crate) fn project_config_names_cmux(
         let file = config_dir.join("config.toml");
         let text = match std::fs::read_to_string(&file) {
             Ok(text) => text,
-            Err(error) => return error.kind() != std::io::ErrorKind::NotFound,
+            Err(error) => {
+                use std::io::ErrorKind::{NotADirectory, NotFound};
+                return !matches!(error.kind(), NotFound | NotADirectory);
+            }
         };
         match text.parse::<toml::Table>() {
             Ok(config) => config
@@ -260,8 +297,8 @@ pub(crate) fn project_config_names_cmux(
 }
 
 /// Asks the Codex at `codex` for its `cmux` entry: `codex <config args> mcp
-/// get cmux --json` in `cwd` (joined with `-C`'s folder), with `PATH` set to
-/// `path`, bounded by `timeout`.
+/// get cmux --json` in `cwd` (joined with `-C`'s folder: [`launch_folder`]),
+/// with `PATH` set to `path`, bounded by `timeout`.
 pub(crate) fn resolve(
     codex: &Path,
     path: &OsStr,
@@ -273,7 +310,8 @@ pub(crate) fn resolve(
     if config.unreadable {
         return CodexEntry::Unknown;
     }
-    let folder = config.cd.as_ref().map_or_else(|| cwd.to_path_buf(), |cd| cwd.join(cd));
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let folder = launch_folder(cwd, config.cd.as_deref(), home.as_deref());
     // Its own process group, so a timeout ends Codex and anything it started.
     let child = Command::new(codex)
         .process_group(0)
@@ -517,6 +555,13 @@ mod tests {
         std::fs::write(b.join(".codex/config.toml"), cmux).unwrap();
         assert!(project_config_names_cmux(&a.join("link"), &getenv));
         std::fs::remove_dir_all(b.join(".codex")).unwrap();
+        // The folder Codex computes: `..` lexical, `~` from HOME.
+        let w = Path::new("/w/a");
+        assert_eq!(launch_folder(w, Some(Path::new("../b/./c")), None), Path::new("/w/b/c"));
+        assert_eq!(launch_folder(w, None, None), w);
+        let home = Some(Path::new("/h"));
+        assert_eq!(launch_folder(w, Some(Path::new("~/x")), home), Path::new("/h/x"));
+        assert_eq!(launch_folder(w, Some(Path::new("/../x")), home), Path::new("/x"));
         // A `.codex` that is a regular file: nothing there, still probed.
         std::fs::write(b.join("target/.codex"), "not a folder").unwrap();
         assert!(!project_config_names_cmux(&b.join("target"), &getenv));
