@@ -76,6 +76,25 @@ struct CmuxToastStyleTests {
         for style in CmuxToastStyle.allCases { #expect(!style.summary.isEmpty) }
     }
 
+    // MARK: The playground
+
+    /// The playground shows every style, or one alone (Debug Settings > Toasts > Playground shows), each with
+    /// every kind in a light and a dark sheet; its choices follow the styles.
+    @Test func thePlaygroundShowsEveryStyleOrOne() {
+        #expect(CmuxToastPlaygroundFocus.allCases.count == CmuxToastStyle.allCases.count + 1)
+        #expect(CmuxToastPlaygroundFocus(rawValue: "removed-style") == nil)
+        let center = CmuxToastCenter(clock: ContinuousClock(), styles: CmuxToastStyleStore(defaults: Self.defaults()))
+        let themes = CmuxToastPlaygroundThemes(colors: [:])
+        let every = CmuxToastPlaygroundView(center: center, themes: themes) { _ in }
+        #expect(every.rows.map(\.style) == CmuxToastStyle.allCases)
+        for row in every.rows {
+            #expect(row.sheets.map(\.isDark) == [false, true])
+            for sheet in row.sheets { #expect(sheet.toasts.map(\.toast.id) == CmuxToastPlaygroundSamples.kinds.map(\.id)) }
+        }
+        let one = CmuxToastPlaygroundView(center: center, themes: themes, focus: .only(.progressRing)) { _ in }
+        #expect(one.rows.map(\.style) == [.progressRing])
+    }
+
     // MARK: Every kind takes it
 
     /// Picking a style restyles every toast already showing, of every kind, in every window, and the next

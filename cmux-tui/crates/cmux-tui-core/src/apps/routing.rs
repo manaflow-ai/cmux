@@ -42,6 +42,9 @@ impl OpRouter for MuxRouter {
             .mux
             .upgrade()
             .ok_or_else(|| error("operation.failed", "the daemon is shutting down"))?;
+        if op == AGENT_CHAT_LIST {
+            return agent_chat_list(&mux, &params);
+        }
         // An app's call has origin app (request-origin.md): gate A2 refuses
         // the operations that need the user.
         crate::request_origin::require_origin(op, crate::request_origin::RequestOrigin::App)
@@ -87,7 +90,7 @@ impl OpRouter for MuxRouter {
     }
 
     fn owns(&self, op: &str) -> bool {
-        is_daemon_op(op)
+        is_daemon_op(op) || op == AGENT_CHAT_LIST
     }
 
     fn start_events(&self, publish: Box<dyn Fn(&str) + Send + Sync>) {
@@ -125,11 +128,42 @@ impl OpRouter for MuxRouter {
     }
 }
 
+/// The first App Store chat read (scope `agent_chat:read`), kept for the apps and templates
+/// that call it: the daemon answers it from the same chat index as `chat.list`
+/// (`mux/chat_index.rs`), in its first shape `{chats}` with times as numbers.
+const AGENT_CHAT_LIST: &str = "agent_chat.list";
+
+fn agent_chat_list(mux: &Mux, params: &Value) -> Result<Value, Value> {
+    if !(params.is_null() || params.as_object().is_some_and(serde_json::Map::is_empty)) {
+        return Err(error("validation.invalid", "agent_chat.list takes no params"));
+    }
+    let chats = mux
+        .chat_rows()
+        .into_iter()
+        .map(|mut row| {
+            if let Some(fields) = row.as_object_mut() {
+                for name in ["since_ms", "updated_ms", "created_ms"] {
+                    let number = fields
+                        .get(name)
+                        .and_then(Value::as_str)
+                        .and_then(|ms| ms.parse::<u64>().ok())
+                        .map_or(Value::Null, Value::from);
+                    fields.insert(name.into(), number);
+                }
+            }
+            row
+        })
+        .collect::<Vec<_>>();
+    Ok(json!({ "value": { "chats": chats } }))
+}
+
 /// The streams a change to the workspace tree invalidates.
 const TREE_STREAMS: &[&str] =
     &["workspace.changed", "screen.changed", "pane.changed", "tab.changed", "terminal.changed"];
 /// The stream an agent state change invalidates.
 const AGENT_STREAMS: &[&str] = &["agent.changed"];
+/// The streams a change to the chat index (`mux/chat_index.rs`) invalidates.
+const CHAT_STREAMS: &[&str] = &["chat.changed", "agent_chat.changed"];
 
 /// The app streams a daemon event invalidates (`cmux.live` re-reads on them). Every one is
 /// declared in `cmux-app-host/schema/v2/events.json`, the table the extension SDKs are made from.
@@ -140,6 +174,7 @@ fn streams(event: &MuxEvent) -> &'static [&'static str] {
         | MuxEvent::WorkspacePresentationChanged(_)
         | MuxEvent::TreeDelta(_) => TREE_STREAMS,
         MuxEvent::AgentChanged { .. } => AGENT_STREAMS,
+        MuxEvent::ChatsChanged { .. } => CHAT_STREAMS,
         _ => &[],
     }
 }
@@ -155,7 +190,7 @@ mod tests {
                 .unwrap();
         let declared = table["events"].as_object().unwrap();
         assert_eq!(streams(&MuxEvent::TreeChanged), TREE_STREAMS);
-        for stream in TREE_STREAMS.iter().chain(AGENT_STREAMS) {
+        for stream in TREE_STREAMS.iter().chain(AGENT_STREAMS).chain(CHAT_STREAMS) {
             assert!(
                 declared.contains_key(*stream),
                 "{stream} is published to apps but not declared in schema/v2/events.json"
@@ -194,5 +229,44 @@ mod tests {
         );
         let err = answer("tab.focus", json!({ "ok": false, "error": { "code": "selector.not_found", "message": "no tab", "retryable": false } })).unwrap_err();
         assert_eq!(err["code"], "selector.not_found");
+    }
+
+    /// `chat.list` and its older name `agent_chat.list` answer the same chats from the daemon's
+    /// chat index (no Mac provider), and a chat change invalidates both app streams.
+    #[test]
+    fn chat_list_and_agent_chat_list_answer_the_same_chats() {
+        let mux = Mux::new_for_test("apps-chat-list", crate::SurfaceOptions::default());
+        mux.change_chats(|chats| {
+            chats.page(&[json!({
+                "sessionId": "s1", "name": "fix", "harness": "codex", "status": "idle",
+                "cwd": "/src/cmux", "unread": true, "unreadTurns": 1, "tags": {"pinned": "true"},
+                "updatedAt": 2_000, "createdAt": 1_000, "pullRequests": [],
+                "lane": {"state": "idle", "title": "Fix upload", "since": 1_500},
+            })])
+        });
+        let router = MuxRouter::new(&mux);
+        assert!(router.owns("chat.list") && router.owns("agent_chat.list"));
+        let list = router.route("a/b", "chat.list", json!({}), None, Origin::Script).unwrap();
+        let row = &list["value"][0];
+        assert_eq!(
+            (row["id"].clone(), row["pinned"].clone(), row["since_ms"].clone()),
+            (json!("s1"), json!(true), json!("1500"))
+        );
+        let old = router.route("a/b", "agent_chat.list", json!({}), None, Origin::Script).unwrap();
+        let chat = &old["value"]["chats"][0];
+        assert_eq!(
+            (chat["id"].clone(), chat["unread"].clone(), chat["since_ms"].clone()),
+            (json!("s1"), json!(true), json!(1500))
+        );
+        assert_eq!(
+            router
+                .route("a/b", "agent_chat.list", json!({"x": 1}), None, Origin::Script)
+                .unwrap_err()["code"],
+            "validation.invalid"
+        );
+        assert_eq!(
+            streams(&MuxEvent::ChatsChanged { revision: 1 }),
+            ["chat.changed", "agent_chat.changed"]
+        );
     }
 }
