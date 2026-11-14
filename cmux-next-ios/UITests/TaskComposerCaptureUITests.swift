@@ -371,9 +371,17 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "large-agents-empty", args: Self.list + large + ["-cmux-mobile-task-catalog", "empty"]) { app in
                 C.steps([{ Self.openedAtLaunch(app) }, { Self.openAgents(app) }])
             },
-            Scene(group: g, id: "large-drafts", args: Self.list + large) { app in
-                C.steps([{ Self.openedAtLaunch(app) }, { Self.type(app, "Update the docs") }, { Self.leaveSavingDraft(app) },
-                         { Self.openComposer(app) }, { C.tap(C.any(app, "taskComposer.drafts"), "Drafts") }])
+            Scene(group: g, id: "large-drafts", args: Self.list + large, env: ["CMUX_MOBILE_TASK_DRAFTS": "4"]) { app in
+                C.steps([{ Self.openedAtLaunch(app) }, { C.tap(C.any(app, "taskComposer.drafts"), "Drafts") },
+                         { Self.check(app.buttons.matching(identifier: "taskComposer.draftRow").count >= 1, "no drafts listed") }])
+            },
+            Scene(group: g, id: "drafts-many", args: Self.list, env: ["CMUX_MOBILE_TASK_DRAFTS": "4"]) { app in
+                C.steps([{ Self.openComposer(app) }, { C.tap(C.any(app, "taskComposer.drafts"), "Drafts") },
+                         { Self.check(app.buttons.matching(identifier: "taskComposer.draftRow").count == 4, "not four drafts") }])
+            },
+            Scene(group: g, id: "drafts-swipe-delete", args: Self.list, env: ["CMUX_MOBILE_TASK_DRAFTS": "4"]) { app in
+                C.steps([{ Self.openComposer(app) }, { C.tap(C.any(app, "taskComposer.drafts"), "Drafts") },
+                         { C.swipeLeft(app.buttons["taskComposer.draftRow"].firstMatch, "the first draft") }])
             },
         ])
     }

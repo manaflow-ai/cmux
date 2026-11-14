@@ -96,9 +96,10 @@ struct TaskComposerScreen: View {
         .task(id: mac?.id) { await reload() }
         .task { await creator.taskDrafts.load() }
         .onAppear { promptFocused = true }
-        // Back from Task Options or Drafts: the keyboard comes back (never while a menu is open).
-        .onChange(of: showsOptions) { _, open in if !open { promptFocused = true } }
-        .onChange(of: showsDrafts) { _, open in if !open { promptFocused = true } }
+        // A sheet takes the keyboard away (it would cover the sheet's rows); closing it brings
+        // the keyboard back. Classic kept the keyboard up over its sheets and menus.
+        .onChange(of: showsOptions) { _, open in promptFocused = !open }
+        .onChange(of: showsDrafts) { _, open in promptFocused = !open }
         // Leaving the app saves the draft (the app may not come back): Drafts has it.
         .onChange(of: scenePhase) { _, now in if now != .active, sent == nil { creator.saveTaskDraft() } }
         .onChange(of: photoItems) { _, items in

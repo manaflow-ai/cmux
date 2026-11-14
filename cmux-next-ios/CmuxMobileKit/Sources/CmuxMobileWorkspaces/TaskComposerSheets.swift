@@ -289,7 +289,7 @@ struct TaskComposerDraftRow: View {
     }
 
     private var subtitle: String {
-        var parts = draft.picks.map { $0.name ?? WorkspaceCreator.agentTitle($0.harness) }
+        var parts = draft.picks.isEmpty ? ["Default agent"] : draft.picks.map { $0.name ?? WorkspaceCreator.agentTitle($0.harness) }
         if let directory = draft.directory, !directory.isEmpty { parts.append(NewWorkspaceButton.folderName(directory)) }
         return parts.joined(separator: " · ")
     }

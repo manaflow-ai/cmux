@@ -311,9 +311,16 @@ extension WorkspaceCreator {
 
     // MARK: Drafts
 
-    /// The draft the composer holds, saved to the drafts list (an empty one is not kept).
+    /// The draft the composer holds, saved to the drafts list (an empty one is not kept). Its
+    /// Mac and folder are kept as they are now (the most recent folder would change by the
+    /// time it is resumed).
     public func saveTaskDraft() {
-        taskDrafts.save(taskDraft)
+        var draft = taskDraft
+        if let mac = taskMac(for: draft) {
+            draft.macID = draft.macID ?? mac.id
+            draft.directory = draft.directory ?? taskFolder(for: draft, on: mac.id)
+        }
+        taskDrafts.save(draft)
     }
 
     /// Whether leaving the composer now would lose something: it holds a task that the drafts
@@ -321,7 +328,13 @@ extension WorkspaceCreator {
     public var taskDraftNeedsSaving: Bool {
         guard !taskDraft.isEmpty else { return false }
         guard let saved = taskDrafts.entry(taskDraft.id) else { return true }
-        return !saved.sameContent(as: SavedTaskDraft(taskDraft, updatedAt: saved.updatedAt))
+        var draft = taskDraft
+        // Compared as it would be saved (its Mac and folder filled in).
+        if let mac = taskMac(for: draft) {
+            draft.macID = draft.macID ?? mac.id
+            draft.directory = draft.directory ?? taskFolder(for: draft, on: mac.id)
+        }
+        return !saved.sameContent(as: SavedTaskDraft(draft, updatedAt: saved.updatedAt))
     }
 
     /// Leaves the composer: `keep` saves its draft to the drafts list, else deletes it there.

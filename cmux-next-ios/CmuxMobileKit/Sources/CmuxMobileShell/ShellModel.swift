@@ -236,6 +236,21 @@ final class ShellModel {
         if let count = ProcessInfo.processInfo.environment["CMUX_MOBILE_TASK_DRAFT_IMAGES"].flatMap(Int.init), count > 0 {
             creator.taskDraft.images = (0..<min(count, TaskDraft.imageLimit)).map { Self.demoTaskImage($0) }
         }
+        // `CMUX_MOBILE_TASK_DRAFTS=N`: N saved New Task drafts (Drafts' captures).
+        if let count = ProcessInfo.processInfo.environment["CMUX_MOBILE_TASK_DRAFTS"].flatMap(Int.init), count > 0 {
+            let samples: [(String, [TaskAgentPick], String, Int)] = [
+                ("Add a dark mode toggle to settings", [TaskAgentPick(harness: "claude", name: "Claude Code")], "~/Development/cmux", 0),
+                ("Match this design", [TaskAgentPick(harness: "claude", name: "Claude Code"),
+                                       TaskAgentPick(harness: "codex", name: "Codex")], "~/Development/web", 2),
+                ("Profile the list scroll and fix any hitch over 8 ms", [], "~/Development/cmux/cmux-next-ios", 0),
+                ("", [], "~/fleet", 1),
+            ]
+            for (index, sample) in samples.prefix(count).enumerated() {
+                let draft = TaskDraft(prompt: sample.0, images: (0..<sample.3).map { Self.demoTaskImage(index + $0) }, picks: sample.1,
+                                      macID: "mac-studio", directory: sample.2, name: sample.0.isEmpty ? "fleet cleanup" : "")
+                creator.taskDrafts.save(draft, now: Date().addingTimeInterval(Double(-600 * (index + 1))))
+            }
+        }
         #endif
         creator.onFailure = { [weak self] placeholder, message in
             self?.workspaceCreationFailed(placeholder, message: message)
