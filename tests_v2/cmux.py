@@ -149,7 +149,7 @@ class cmux:
     def __init__(self, socket_path: str = None):
         self.socket_path = socket_path or self.DEFAULT_SOCKET_PATH
         self._socket: Optional[socket.socket] = None
-        self._recv_buffer: str = ""
+        self._recv_buffer: bytes = b""
         self._next_id: int = 1
 
     # ---------------------------------------------------------------------
@@ -210,10 +210,10 @@ class cmux:
         if self._socket is None:
             raise cmuxError("Not connected")
 
-        if "\n" in self._recv_buffer:
-            line, rest = self._recv_buffer.split("\n", 1)
+        if b"\n" in self._recv_buffer:
+            line, rest = self._recv_buffer.split(b"\n", 1)
             self._recv_buffer = rest
-            return line
+            return line.decode("utf-8", errors="replace")
 
         deadline = time.time() + timeout_s
         while time.time() < deadline:
@@ -225,12 +225,12 @@ class cmux:
             chunk = self._socket.recv(8192)
             if not chunk:
                 raise cmuxError("Socket closed")
-            self._recv_buffer += chunk.decode("utf-8", errors="replace")
+            self._recv_buffer += chunk
 
-            if "\n" in self._recv_buffer:
-                line, rest = self._recv_buffer.split("\n", 1)
+            if b"\n" in self._recv_buffer:
+                line, rest = self._recv_buffer.split(b"\n", 1)
                 self._recv_buffer = rest
-                return line
+                return line.decode("utf-8", errors="replace")
 
         raise cmuxError("Timed out waiting for response")
 
