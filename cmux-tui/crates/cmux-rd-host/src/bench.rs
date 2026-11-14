@@ -830,7 +830,7 @@ pub fn run(opts: &Opts) -> Res<()> {
 fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> Res<()> {
     let duration_ns = opts.num_or("duration-s", 30u64)? * 1_000_000_000;
     let start = now_ns();
-    while v.frames == 0 {
+    while v.decoded_frames == 0 {
         v.pump(5_000_000)?;
         if let Some(e) = &v.ended {
             return Err(format!("ended before the first frame: {e}").into());
