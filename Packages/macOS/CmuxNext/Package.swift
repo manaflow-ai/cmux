@@ -2607,6 +2607,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextSessionTransfer",
                 "CmuxNextSettings",
                 "CmuxNextSidebar",
+                "CmuxNextSidebarActions",
                 "CmuxNextSignposts",
                 "CmuxNextStash",
                 "CmuxNextTabs",
