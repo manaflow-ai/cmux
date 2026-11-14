@@ -168,5 +168,51 @@ class DefaultDenyTests(unittest.TestCase):
         self.assertEqual(outcome({"password": "hunter2"})[0], "other")
 
 
+class AccountIsolationTests(unittest.TestCase):
+    def test_a_foreign_team_with_the_target_in_its_url_is_not_published(self):
+        foreign = event({"msg": "team selection unreachable", "team": "team_foreign"},
+                        url="https://api.cmux.dev/v1/auth/" + TEAM)
+        # The original public API accepts no identity scope and leaks this row via its URL hash.
+        head, rows = logs.publish([foreign], [TEAM])
+        self.assertEqual(rows, [])
+        self.assertEqual(head["events_in_window"], 0)
+
+    def test_scope_is_checked_before_counts_and_projection(self):
+        good = event({"msg": "team selection unreachable", "team": TEAM})
+        bad = event({"msg": "private text", "team": "team_foreign"})
+        conflict = event({"msg": "team selection unreachable", "team": TEAM, "account": "team_foreign"})
+        missing = event({"msg": "team selection unreachable"})
+        head, rows = logs.publish([good, bad, conflict, missing], [], account=TEAM)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(head["events_in_window"], 1)
+        self.assertNotIn("logs_dropped_unlisted", head)
+        self.assertEqual(rows[0]["log"]["team"], logs.tag(TEAM))
+
+    def test_foreign_url_match_is_rejected_with_an_explicit_account(self):
+        foreign = event({"msg": "team selection unreachable", "team": "team_foreign"},
+                        url="https://api.cmux.dev/v1/auth/" + TEAM)
+        head, rows = logs.publish([foreign], [TEAM], account=TEAM)
+        self.assertEqual(rows, [])
+        self.assertEqual(head["events_in_window"], 0)
+
+    def test_conflicting_parsed_sources_and_invalid_identities_fail_closed(self):
+        for value in (None, [], 42, TEAM + "-suffix"):
+            with self.subTest(value=value):
+                candidate = event({"msg": "team selection unreachable", "team": value})
+                self.assertEqual(logs.publish([candidate], [], account=TEAM)[1], [])
+        candidate = event({"msg": "team selection unreachable", "team": TEAM})
+        candidate["source"] = {"msg": "team selection unreachable", "team": "team_foreign"}
+        self.assertEqual(logs.publish([candidate], [], account=TEAM)[1], [])
+
+    def test_account_field_and_refining_needles_keep_only_the_scoped_row(self):
+        own = event({"msg": "team selection unreachable", "account": TEAM},
+                    url="https://api.cmux.dev/v1/auth/token")
+        other = event({"msg": "team selection unreachable", "account": "team_other"},
+                      url="https://api.cmux.dev/v1/auth/token")
+        head, rows = logs.publish([own, other], ["/auth/"], account=TEAM)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(head["events_in_window"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
