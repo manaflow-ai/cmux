@@ -21,6 +21,10 @@ final class LinkTestClock: Clock, @unchecked Sendable {
     private var stopped = false
     var now: Instant { lock.withLock { instant } }
     var minimumResolution: Duration { .zero }
+    /// The earliest deadline a sleeper waits for, if any.
+    var nextDeadline: Instant? {
+        lock.withLock { sleepers.map(\.deadline).min() }
+    }
     func isSleeping(until deadline: Instant) -> Bool {
         lock.withLock { sleepers.contains { $0.deadline == deadline } }
     }

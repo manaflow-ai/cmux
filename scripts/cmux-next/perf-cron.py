@@ -171,6 +171,11 @@ PARTS = [
     # acpmux test agent): the rows behind goals ram-baseline and memory-per-chat in cmuxterm-hq's NOW (CMUX-571).
     {"name": "memory-agents", "args": [*MEASURE, "--suite=memory-agents", "--agents=10"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents", "run_seconds": 1500},
+    # Terminal throughput (scripts/cmux-next/terminal-throughput-bench.py): a 200 MB burst through a NEXT terminal and
+    # through standalone Ghostty on the same host, MB/s each and NEXT/Ghostty. Reporting only (REPORT_ONLY_ROW_RE): the
+    # CMUX-571 goal terminal-throughput reads terminal.throughput.ratio. One step runs both terminals.
+    {"name": "throughput", "args": [*MEASURE, "--suite=terminal-throughput"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput"},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -194,10 +199,14 @@ ROW_PARTS = [
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
     (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.", "launch"),
+    (r"^terminal\.throughput\.", "throughput"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
     (r"^webui\.(god_ratio\.|[a-z0-9_]+\.god\.)", "web-ui-god"), (r"^webui\.", "web-ui"),
 ]
+# Rows that are stored and shown but never judged: higher is better there (MB/s, a ratio to Ghostty), and every rule
+# here reads a higher p95 as worse.
+REPORT_ONLY_ROW_RE = re.compile(r"^terminal\.throughput\.")
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
                 "diff.stream.p95": 250.0}
@@ -833,7 +842,7 @@ def find_regressions(rows, base_rows, refresh_ms, base_refresh_ms, budgets_mod):
     over its target, with base None and why NO_REFERENCE: it has no culprit range, but it is not a silent pass."""
     skipped = (set(refresh_skipped(rows, base_rows, refresh_ms, base_refresh_ms)) | set(os_changed(rows, base_rows))
                | set(version_changed(rows, base_rows)))
-    rows = {n: r for n, r in rows.items() if n not in skipped}
+    rows = {n: r for n, r in rows.items() if n not in skipped and not REPORT_ONLY_ROW_RE.match(base_row(n))}
     listed = [{"name": n, "p95": r["p95"], "floor": row_floor(n, r)} for n, r in rows.items()]
     worse = {r["name"]: r for r in budgets_mod.compare(listed, {n: b["p95"] for n, b in base_rows.items() if b.get("p95") is not None})}
     out = []
@@ -1608,6 +1617,10 @@ def supported_parts_at(sha):
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{GOD_FIXTURE}"], capture_output=True).returncode == 0
         elif need == "web-ui-growth":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{STATE_GROWTH_BENCH}"], capture_output=True).returncode == 0
+        elif need == "terminal-throughput":
+            text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
+                                  capture_output=True, text=True).stdout
+            ok = "--suite=terminal-throughput" in text
         elif need in ("perf-gate", "launch", "memory-agents"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
