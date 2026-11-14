@@ -476,9 +476,11 @@ fn the_chat_stream_is_recorded() {
     assert_eq!(kinds(step), ["chatError"]);
 
     // A settled row's body, whole in one range.
-    let reply =
-        rec.call(json!({"call": "chat_blob", "request": {"sid": SID, "rowId": 25, "len": 4096}}));
+    let reply = rec.call(json!({"call": "chat_blob", "request": {
+        "sid": SID, "id": "blob.1", "rowId": 25, "len": 4096,
+    }}));
     let id = reply.unwrap()["id"].as_str().unwrap().to_owned();
+    assert_eq!(id, "blob.1", "the core takes the page's blob id as it is");
     let body = r#"{"text":"row 25 r1: caf\u00e9 \"quoted\" \u2713"}"#;
     let head = BlobHead {
         id,
@@ -496,8 +498,9 @@ fn the_chat_stream_is_recorded() {
     // The open row's body in two ranges; the first ends inside `\u00e9`, so the core gives the
     // bytes before it and names where the next range starts.
     let cut = OPEN_BODY.find("\\u00e9").unwrap() + 3;
-    let reply =
-        rec.call(json!({"call": "chat_blob", "request": {"sid": SID, "rowId": 30, "len": cut}}));
+    let reply = rec.call(json!({"call": "chat_blob", "request": {
+        "sid": SID, "id": "blob.2", "rowId": 30, "len": cut,
+    }}));
     let id = reply.unwrap()["id"].as_str().unwrap().to_owned();
     let open_head = |id: String, start: usize, len: usize| BlobHead {
         id,
@@ -516,7 +519,7 @@ fn the_chat_stream_is_recorded() {
     assert!(step.changes[0].contains(&format!(r#""nextStart":{next_start}"#)));
     let rest = OPEN_BODY.len() - next_start;
     let reply = rec.call(json!({"call": "chat_blob", "request": {
-        "sid": SID, "rowId": 30, "start": next_start, "len": rest,
+        "sid": SID, "id": "blob.3", "rowId": 30, "start": next_start, "len": rest,
     }}));
     let id = reply.unwrap()["id"].as_str().unwrap().to_owned();
     let second =
@@ -551,11 +554,13 @@ fn the_chat_stream_is_recorded() {
 }
 
 /// A daemon whose upgrade is a v1 request it does not know: the client gives one fallback
-/// change and reads no more.
+/// change and reads no more. Before it, each open chat sub ends with its own `surface_off`, in
+/// order of its sid, which the page takes as "run v1 for this chat".
 fn fallback_stream() -> Recorder {
     let surfaces = json!(["chat"]);
     let mut rec = Recorder::new(surfaces);
     rec.call(json!({"call": "subscribe_chat", "request": {"sid": SID, "chat": CHAT}}));
+    rec.call(json!({"call": "subscribe_chat", "request": {"sid": "rows.2", "chat": "chat-b"}}));
     rec.call(json!({"call": "connected"}));
     let reply = json!({"jsonrpc": "2.0", "id": rec.upgrade_id(), "error": {
         "code": -32601, "message": "Method not found",
@@ -563,7 +568,8 @@ fn fallback_stream() -> Recorder {
     // The reply alone: the fallback change carries what came after it in the same read, which
     // depends on the piece size.
     let step = rec.step("upgrade", format!("{reply}\n").into_bytes());
-    assert_eq!(kinds(step), ["fallback"]);
+    assert_eq!(kinds(step), ["chatError", "chatError", "fallback"]);
+    assert!(step.changes[..2].iter().all(|change| change.contains(r#""code":"surface_off""#)));
     for chunk in [usize::MAX, 7, 1] {
         rec.replay(chunk);
     }
