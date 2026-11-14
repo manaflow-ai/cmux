@@ -111,8 +111,6 @@ fn a_press_that_may_have_run_is_not_clicked_again() {
     assert!(!roles::press_error_falls_back(-25200)); // failure
 }
 
-
-
 /// Review 1: the key-in-app scope runs only on a verified macOS major
 /// (26) and never with CMUX_CU_BG_ACTIVATE=0; macOS 27 was not verified.
 #[test]
@@ -124,7 +122,6 @@ fn the_key_in_app_scope_is_gated() {
     assert!(!activation::gate("15.7", None));
     assert!(!activation::gate("", None));
 }
-
 
 /// Review 2 (B, 3): inside a scope an item is pressed only while the scope
 /// is live and focus is on the target window, and never a Services item.
@@ -286,7 +283,10 @@ fn the_hand_back_names_a_window_that_still_exists() {
     let key = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("entered");
     os.windows.borrow_mut().retain(|w| w.0 != 10);
     assert_eq!(key.end(), activation::Ended::Fine);
-    assert_eq!(os.posts.borrow().last(), Some(&(activation::RECORD_FOCUS, 12, activation::FOCUS_OUT)));
+    assert_eq!(
+        os.posts.borrow().last(),
+        Some(&(activation::RECORD_FOCUS, 12, activation::FOCUS_OUT))
+    );
     let key = activation::KeyInApp::enter_with(&os, &reg, 12, 5).expect("entered");
     os.windows.borrow_mut().clear();
     assert_eq!(key.end(), activation::Ended::HandBackFailed);

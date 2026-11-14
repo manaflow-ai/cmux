@@ -1512,9 +1512,8 @@ impl Engine {
             mode == SettleMode::Adaptive
                 && captures >= 2
                 && shot.body["unchanged"] == json!(true)
-                && windows_before.is_some_and(|b| {
-                    self.app_window_ids(window_id).as_deref() == Some(b)
-                }),
+                && windows_before
+                    .is_some_and(|b| self.app_window_ids(window_id).as_deref() == Some(b)),
             elapsed.as_millis() as u64,
         );
         let mut state = shot.body.clone();

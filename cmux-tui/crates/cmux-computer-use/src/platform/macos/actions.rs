@@ -1044,7 +1044,9 @@ fn item_is_service(item: &Ax) -> bool {
     for _ in 0..8 {
         let Some(n) = node else { return false };
         match n.string("AXRole").as_deref() {
-            Some("AXMenuItem") if n.string("AXTitle").as_deref() == Some("Services") => return true,
+            Some("AXMenuItem") if n.string("AXTitle").as_deref() == Some("Services") => {
+                return true;
+            }
             Some("AXMenuBar") | Some("AXApplication") | None => return false,
             _ => {}
         }

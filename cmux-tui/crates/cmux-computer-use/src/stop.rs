@@ -32,16 +32,16 @@ pub const STOPPED_CAPTION: &str = "Stopped";
 
 /// The stopped sessions. `is_stopped` is one relaxed load while nothing is
 /// stopped, so the checkpoints cost nothing in the common case.
-#[derive(Default)]
 /// Counts the person's Stops, process-wide: platform code that waits inside
 /// one call (the macOS key-in-app scope) ends its wait when it changes.
 static STOP_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// The current stop epoch ([`STOP_EPOCH`]).
 pub fn epoch() -> u64 {
-    STOP_EPOCH.load(std::sync::atomic::Ordering::Acquire)
+    STOP_EPOCH.load(Ordering::Acquire)
 }
 
+#[derive(Default)]
 pub struct Stops {
     any: AtomicBool,
     sessions: RwLock<HashSet<String>>,

@@ -298,7 +298,11 @@ pub fn press_error_falls_back(code: i32) -> bool {
 /// person did not switch to the app), the app still reports the target as
 /// its focused window, and the item is not a Services item (a Service runs
 /// in another process against whatever the app hands it).
-pub fn primed_press(live: bool, focus_on_target: bool, item_is_service: bool) -> Result<(), &'static str> {
+pub fn primed_press(
+    live: bool,
+    focus_on_target: bool,
+    item_is_service: bool,
+) -> Result<(), &'static str> {
     if !live {
         return Err("the target app came to the front, the call was stopped or the app did not answer in time while its menu item was being made available, so nothing was pressed");
     }
