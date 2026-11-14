@@ -59,7 +59,7 @@ enum TerminalChatHandler {
             tabs.terminalHandOffs["\(harness):\(session)"] = nil // the terminal reports the session
             let adopt = AgentPaneAdopt(harness: harness, agentSessionId: session, watch: watches ? true : nil)
             // A tab that already resumes this session is shown instead of a duplicate.
-            if let existing = services.agentTabs.tab(resuming: adopt) {
+            if let existing = services.agentTabs.tab(resuming: adopt) ?? chat(running: session, services: services) {
                 if invocation.allowsViewChange { _ = services.revealTab(existing) }
                 return .done
             }
@@ -90,9 +90,12 @@ enum TerminalChatHandler {
         -> (facts: WindowRules.ToggleFacts, key: String?, terminals: [String]) {
         let tabs = services.agentTabs, terminal = tab.kind == .pty
         // A terminal's session is its agent's report (a hook's `agent_session_id`); a chat's, the outside session it adopted,
-        // else (a chat started here) its own acpmux run under its harness: `acpmux resume-here` finds the conversation from it.
+        // else (a chat started here) the conversation its acpmux run holds (its lane's `agentSessionId`, which a terminal
+        // running it reports too, so that terminal is found), or the run itself before the harness named one.
         let own = terminal ? nil : tab.agentSession.flatMap { ref in
-            ref.harness.flatMap { harness in tabs.session(of: tab.id).map { AgentPaneAdopt(harness: harness, agentSessionId: $0) } }
+            ref.harness.flatMap { harness in tabs.session(of: tab.id).map {
+                AgentPaneAdopt(harness: harness, agentSessionId: services.agentLanes.lane($0)?.agentSession ?? $0)
+            } }
         }
         let adopted = terminal ? nil : tabs.adoption(of: tab.id) ?? own, key = adopted.map { "\($0.harness):\($0.agentSessionId)" }
         var facts = WindowRules.ToggleFacts(terminal: terminal, chat: !terminal && tabs.isAgentTab(tab.id),
@@ -123,6 +126,14 @@ enum TerminalChatHandler {
         case .notAgentTab?, .noSession?, .unsupportedHarness?, nil: false
         case .toChat?, .toTerminal?, .resumeInTerminal?, .handingOff?, .busy?: true
         }
+    }
+
+    /// The chat tab started in cmux whose acpmux run holds harness session `session` (its lane's `agentSessionId`):
+    /// such a chat adopted nothing, so ``AgentTabs/tab(resuming:)`` misses it, and a Toggle from the terminal its
+    /// hand-off made would open a second chat of the same session instead of showing it.
+    private static func chat(running session: String, services: AppServices) -> String? {
+        services.agentLanes.lanes.values.lazy.filter { $0.agentSession == session }
+            .compactMap { services.agentTabs.tab(showing: $0.id) }.first
     }
 
     /// Whether chat `ref` has a turn open: working, or waiting on a permission or a question.
