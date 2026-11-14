@@ -698,10 +698,16 @@ def resize_leg(rpc, simctl, udid, bundle_id, phone_env, out, note, phone_log=Non
         results["mac_alone"] = g
         mark("phone opens the terminal")
         env = dict(phone_env, SIMCTL_CHILD_CMUX_MOBILE_OPEN_LINK=f"cmux://tab/{tab}")
-        subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
-        subprocess.run(simctl + ["launch", udid, bundle_id], env=env, check=True, capture_output=True)
         since = len(phone_log.lines) if phone_log else 0
-        took, g = until(lambda g: g[0] is not None and g[0] < 120, 90)
+        # The link can arrive before the phone lists the new workspace ("names nothing this phone
+        # lists"); relaunch with it until the phone opens the tab. Each try is timed on its own.
+        took, g, tries = None, grid(), 0
+        while took is None and tries < 5:
+            tries += 1
+            subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
+            subprocess.run(simctl + ["launch", udid, bundle_id], env=env, check=True, capture_output=True)
+            took, g = until(lambda g: g[0] is not None and g[0] < 120, 25)
+        results["open_tries"] = tries
         results["phone_open"] = {"seconds": took, "grid": g}
         if phone_shot:
             note(f"- resize: phone after opening the link: {phone_shot('resize-opened')}")
