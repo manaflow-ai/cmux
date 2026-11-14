@@ -5,7 +5,7 @@
 
 use super::{HubSource, run};
 use crate::hub::{Hub, HubWriter, RawRead};
-use crate::wire::{DeltaFrame, DeltaOp, Frame, FrameKind, MAX_REPLAY_FRAME_BYTES};
+use crate::wire::{DeltaFrame, DeltaOp, Frame, FrameKind, MAX_REPLAY_FRAME_BYTES, Sub};
 use acpmux_book::index::{Summary, SummaryIndex};
 use serde_json::json;
 use std::fs::OpenOptions;
@@ -255,6 +255,37 @@ async fn append_replay_round() -> (Vec<u128>, Vec<usize>) {
     (samples, copies)
 }
 
+async fn replay_open_round(verbose: bool) -> Vec<u128> {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    let target = fill_ring(&hub, &mut writer, verbose);
+    let hub = Arc::new(hub);
+    let mut samples = Vec::with_capacity(SAMPLES);
+    for offset in 0..SAMPLES {
+        let (permit, waiting) = hub.history_snapshot_control();
+        permit.store(false, Ordering::Release);
+        waiting.store(false, Ordering::Release);
+        let open_hub = hub.clone();
+        let open_task = tokio::task::spawn_blocking(move || {
+            open_hub.subscribe_replay(&Sub::new("open", "list"), 0).unwrap()
+        });
+        timeout(Duration::from_secs(20), async {
+            while !waiting.load(Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("replay open did not enter the snapshot copy");
+        let started = Instant::now();
+        permit.store(true, Ordering::Release);
+        writer
+            .apply(summary(format!("open-{offset}"), target + offset as u64 + 1, verbose))
+            .unwrap();
+        samples.push(started.elapsed().as_nanos().max(1));
+        drop(open_task.await.unwrap());
+    }
+    samples
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "release gate; run with --release --ignored --nocapture"]
 async fn replay_frame_gate() {
@@ -269,12 +300,10 @@ async fn replay_frame_gate() {
 #[ignore = "release gate; run with --release --ignored --nocapture"]
 async fn replay_append_gate() {
     let mut baseline = Vec::with_capacity(ROUNDS);
-    for _ in 0..ROUNDS {
-        baseline.push(append_round());
-    }
     let mut during = Vec::with_capacity(ROUNDS);
     let mut copy_counts = Vec::with_capacity(ROUNDS);
     for _ in 0..ROUNDS {
+        baseline.push(append_round());
         let (samples, copies) = append_replay_round().await;
         during.push(samples);
         copy_counts.push(copies);
@@ -305,6 +334,18 @@ async fn replay_append_gate() {
         all <= small.saturating_mul(2),
         "replay append all-sample p95 exceeded 2x: {small}ns vs {all}ns"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "release gate; run with --profile gate --ignored --nocapture"]
+async fn replay_open_hold_gate() {
+    let small_rounds = [replay_open_round(false).await];
+    let god_rounds = [replay_open_round(true).await];
+    let small = best_p95(&small_rounds);
+    let god = best_p95(&god_rounds);
+    let all = p95(&god_rounds[0]);
+    emit("v2.pr05c.replay_open_hold", small, god, all, "ns");
+    assert!(god <= 1_000_000, "replay open hold exceeded 1ms p95: {god}ns");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

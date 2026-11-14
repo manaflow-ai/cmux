@@ -401,6 +401,15 @@ pub const GATE_ROWS: &[GateRow] = &[
     },
     GateRow {
         pr: "5c",
+        name: "v2.pr05c.replay_open_hold",
+        done_when: "An append overlapping the open copy of a full ring replay stays under 1 ms p95.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: Some(1_000_000.0),
+    },
+    GateRow {
+        pr: "5c",
         name: "v2.pr05c.single_encode",
         done_when: "A change sent to 100 list subscribers is encoded once, with no subscriber-side deep clone or re-encode.",
         measured: true,

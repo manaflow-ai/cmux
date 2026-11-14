@@ -36,6 +36,10 @@ pub(super) struct History {
     raw_copy_permit: Arc<AtomicBool>,
     #[cfg(test)]
     raw_copy_waiting: Arc<AtomicBool>,
+    #[cfg(test)]
+    snapshot_open_permit: Arc<AtomicBool>,
+    #[cfg(test)]
+    snapshot_open_waiting: Arc<AtomicBool>,
 }
 
 /// A comma-separated span of the already encoded operations in the ring.
@@ -87,6 +91,23 @@ pub(super) struct HistorySnapshot {
 }
 
 impl HistorySnapshot {
+    fn empty(first: u64, history: &History) -> Self {
+        Self {
+            bytes: Box::new([]),
+            entries: Box::new([]),
+            head: 0,
+            len: 0,
+            first,
+            used: 0,
+            #[cfg(test)]
+            raw_copies: history.raw_copies.clone(),
+            #[cfg(test)]
+            raw_copy_permit: history.raw_copy_permit.clone(),
+            #[cfg(test)]
+            raw_copy_waiting: history.raw_copy_waiting.clone(),
+        }
+    }
+
     pub(super) fn first_seq(&self) -> Option<u64> {
         (self.len != 0).then_some(self.first)
     }
@@ -180,6 +201,10 @@ impl History {
             raw_copy_permit: Arc::new(AtomicBool::new(true)),
             #[cfg(test)]
             raw_copy_waiting: Arc::new(AtomicBool::new(false)),
+            #[cfg(test)]
+            snapshot_open_permit: Arc::new(AtomicBool::new(true)),
+            #[cfg(test)]
+            snapshot_open_waiting: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -208,14 +233,48 @@ impl History {
         (self.raw_copy_permit.clone(), self.raw_copy_waiting.clone())
     }
 
-    pub(super) fn snapshot(&self) -> HistorySnapshot {
+    #[cfg(test)]
+    pub(super) fn snapshot_open_control(&self) -> (Arc<AtomicBool>, Arc<AtomicBool>) {
+        (self.snapshot_open_permit.clone(), self.snapshot_open_waiting.clone())
+    }
+
+    /// Copy only the retained operations after `cursor`. The copy is made once
+    /// while the history lock is held, then replay frames read the compact
+    /// immutable suffix without sharing that lock with the writer.
+    pub(super) fn snapshot_after(&self, cursor: u64) -> HistorySnapshot {
+        #[cfg(test)]
+        let _snapshot_permit =
+            SnapshotOpenPermit::new(&self.snapshot_open_permit, &self.snapshot_open_waiting);
+        let Some(last) = self.last_seq() else {
+            return HistorySnapshot::empty(cursor.saturating_add(1), self);
+        };
+        let first = cursor.saturating_add(1).max(self.first);
+        if first > last {
+            return HistorySnapshot::empty(first, self);
+        }
+        let offset = usize::try_from(first.saturating_sub(self.first)).unwrap_or(self.len);
+        let count = self.len.saturating_sub(offset);
+        let mut bytes = Vec::with_capacity(self.used.min(self.bytes.len()));
+        let mut entries = Vec::with_capacity(count);
+        for index in 0..count {
+            let Some(entry) = self.entries.get((self.head + offset + index) % self.entries.len())
+            else {
+                return HistorySnapshot::empty(first, self);
+            };
+            let start = bytes.len();
+            if !copy_entry_into(&self.bytes, *entry, &mut bytes) {
+                return HistorySnapshot::empty(first, self);
+            }
+            entries.push(Entry { start, len: entry.len, checksum: entry.checksum });
+        }
+        let used = bytes.len();
         HistorySnapshot {
-            bytes: self.bytes.clone(),
-            entries: self.entries.clone(),
-            head: self.head,
-            len: self.len,
-            first: self.first,
-            used: self.used,
+            bytes: bytes.into_boxed_slice(),
+            entries: entries.into_boxed_slice(),
+            head: 0,
+            len: count,
+            first,
+            used,
             #[cfg(test)]
             raw_copies: self.raw_copies.clone(),
             #[cfg(test)]
@@ -401,6 +460,29 @@ fn copy_entry_into(bytes: &[u8], entry: Entry, out: &mut Vec<u8>) -> bool {
 #[cfg(test)]
 struct RawCopyPermit<'a> {
     waiting: &'a AtomicBool,
+}
+
+#[cfg(test)]
+struct SnapshotOpenPermit<'a> {
+    waiting: &'a AtomicBool,
+}
+
+#[cfg(test)]
+impl<'a> SnapshotOpenPermit<'a> {
+    fn new(permit: &'a AtomicBool, waiting: &'a AtomicBool) -> Self {
+        waiting.store(true, Ordering::Release);
+        while !permit.load(Ordering::Acquire) {
+            std::thread::yield_now();
+        }
+        Self { waiting }
+    }
+}
+
+#[cfg(test)]
+impl Drop for SnapshotOpenPermit<'_> {
+    fn drop(&mut self) {
+        self.waiting.store(false, Ordering::Release);
+    }
 }
 
 #[cfg(test)]

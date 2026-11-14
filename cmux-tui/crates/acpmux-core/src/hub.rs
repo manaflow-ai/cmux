@@ -245,6 +245,10 @@ impl Drop for ListReceiver {
 }
 
 impl ListReceiver {
+    pub(crate) fn clear_replay_snapshot(&mut self) {
+        self.replay_snapshot = None;
+    }
+
     pub fn advance_to(&self, cursor: u64) {
         if let Ok(mut state) = self.subscriber.state.lock() {
             state.cursor = state.cursor.max(cursor);
@@ -819,6 +823,14 @@ impl Hub {
         )
     }
 
+    #[cfg(test)]
+    pub(crate) fn history_snapshot_control(&self) -> (Arc<AtomicBool>, Arc<AtomicBool>) {
+        self.history.lock().map_or_else(
+            |_| (Arc::new(AtomicBool::new(true)), Arc::new(AtomicBool::new(false))),
+            |history| history.snapshot_open_control(),
+        )
+    }
+
     pub fn set_page_provider(&self, provider: Arc<dyn PageProvider>) {
         if let Ok(mut slot) = self.page_provider.lock() {
             *slot = Some(provider);
@@ -898,7 +910,8 @@ impl Hub {
         if folders::is_folders(sub.view) {
             return Err(HubError::InvalidParams("folders always starts with a window".into()));
         }
-        let snapshot = self.history.lock().map_err(|_| HubError::WriterGone)?.snapshot();
+        let snapshot =
+            self.history.lock().map_err(|_| HubError::WriterGone)?.snapshot_after(cursor);
         let subscriber = Arc::new(Subscriber::new(cursor));
         self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());
         Ok(ListReceiver {
