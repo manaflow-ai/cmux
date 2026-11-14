@@ -11,12 +11,17 @@
 //! The work tree is HEAD's tree plus the listed entries, so a file that
 //! `git status` does not list is covered by HEAD's id.
 //!
+//! The digits are of one process: each digest starts from random bytes that
+//! the process makes one time (`process_bytes`). A caller compares two
+//! answers of one running session host and stores none.
+//!
 //! A listed path is looked at and read only through the real folders of the
 //! work tree (`work_tree_entry`): a link in a folder's place leads nowhere,
 //! in a work tree that was made so and when the link comes after git's
 //! listing.
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use cmux_git::diff::ScopeError;
 use cmux_git::run::{self, GitFailure};
@@ -30,8 +35,10 @@ use crate::resource::ResourceError;
 mod content;
 
 const OPERATION: &str = "git.fingerprint";
-/// git output read from the listing run. Entries past it are not seen, as
-/// `git.diff` sees no file past its own listing bound.
+/// git output read from the listing run. Entries past it are not seen, and
+/// the digits say that the listing was cut. (`git.diff` fails when its
+/// listing of tracked files is cut, and sees no untracked file past its
+/// own bound.)
 const MAX_LISTING_BYTES: usize = 8 * 1024 * 1024;
 /// Submodules whose HEAD one read asks for; each is one git run.
 const MAX_SUBMODULE_READS: usize = 8;
@@ -77,13 +84,13 @@ impl Scope {
 
 pub(super) fn read(directory: &Path, fields: &Map<String, Value>) -> Result<Value, ResourceError> {
     let scope = Scope::named(fields.get("scope").and_then(Value::as_str).unwrap_or("uncommitted"))?;
+    let mut digest = Digest::new(process_bytes()?);
     // The settings that can change a patch of the same files (the `core`,
     // `diff` and `filter` sections of every config file) come from the run
     // that the open makes for the filter drivers.
     let (repository, settings) = Repository::open_with_diff_settings(directory)
         .map_err(|error| open_failed(OPERATION, directory, error))?;
     let repository = &repository;
-    let mut digest = Digest::new();
     digest.put(b"cmux git.fingerprint 1");
     digest.put(scope.name().as_bytes());
     if scope == Scope::Branch {
@@ -140,7 +147,9 @@ fn entry(
         }
         // `1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>`, and for a rename
         // `2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <score> <path>` with the
-        // original path in the next record.
+        // original path in the next record. The listing run has
+        // `--no-renames`, so git prints no `2` record: that form is read
+        // only so that a record of it would not be read as another kind.
         Some(b'1' | b'2') => {
             let fields: Vec<&[u8]> = record
                 .splitn(if kind == Some(b'2') { 10 } else { 9 }, |byte| *byte == b' ')
@@ -314,23 +323,53 @@ fn merge_base(repository: &Repository) -> Result<String, ResourceError> {
     })
 }
 
+/// 32 random bytes of this process, made at its first read. Each digest
+/// starts from them, so the digits of one work tree are equal only between
+/// answers of one process.
+fn process_bytes() -> Result<&'static [u8; 32], ResourceError> {
+    static BYTES: OnceLock<[u8; 32]> = OnceLock::new();
+    if let Some(bytes) = BYTES.get() {
+        return Ok(bytes);
+    }
+    let mut bytes = [0_u8; 32];
+    getrandom::fill(&mut bytes).map_err(|_| {
+        ResourceError::operation_failed(
+            OPERATION,
+            "the system gave no random bytes",
+            json!({"code":"random_unavailable"}),
+        )
+    })?;
+    // Two first reads at one time: the bytes of the one that set them.
+    Ok(BYTES.get_or_init(|| bytes))
+}
+
 /// SHA-256 over length-prefixed parts, so that two lists of parts never give
-/// the same bytes.
-struct Digest(Sha256);
+/// the same bytes. The process's bytes are the first part, and the digits
+/// are the SHA-256 of those bytes and of the hash of all parts: the bytes
+/// stand on each side of what a read puts in.
+struct Digest {
+    process: &'static [u8; 32],
+    parts: Sha256,
+}
 
 impl Digest {
-    fn new() -> Self {
-        Self(Sha256::new())
+    fn new(process: &'static [u8; 32]) -> Self {
+        let mut digest = Self { process, parts: Sha256::new() };
+        digest.put(process);
+        digest
     }
 
     fn put(&mut self, part: &[u8]) {
         let length = u64::try_from(part.len()).unwrap_or(u64::MAX);
-        self.0.update(length.to_le_bytes());
-        self.0.update(part);
+        self.parts.update(length.to_le_bytes());
+        self.parts.update(part);
     }
 
     fn hex(self) -> String {
-        self.0.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
+        let mut digits = Sha256::new();
+        digits.update(self.process);
+        digits.update(self.parts.finalize());
+        digits.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
     }
 }
 
@@ -355,7 +394,9 @@ mod tests {
     /// are not the hash of the parts alone.
     #[test]
     fn git_fingerprint_digits_hold_the_random_bytes_of_the_process() {
-        let mut digest = Digest::new();
+        let process = process_bytes().ok();
+        assert!(process.is_some_and(|bytes| *bytes != [0; 32]), "the process has no random bytes");
+        let mut digest = Digest::new(process.unwrap_or(&[0; 32]));
         digest.put(b"part");
         let mut parts = Sha256::new();
         parts.update(4_u64.to_le_bytes());

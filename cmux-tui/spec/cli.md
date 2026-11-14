@@ -1065,7 +1065,8 @@ entry, so a work tree at rest costs no file read (`files_read` and
 `bytes_read` say what one read cost), and a file whose time stamp alone moved
 gives the same digits. One read hashes at most 8192 files and 256 MiB and no
 file above 64 MiB; a file past a bound counts by its stat entry. Compare two
-replies of one session host; the digits are not stable across versions.
+replies of one running session host: the digits hold random bytes of its
+process, and are not equal across a restart or a version.
 `git branches` (`git.branches`, capability `git-branches-v1`) lists at most
 `--limit` (200, up to 1000) branches: local ones, then remote-tracking ones,
 each by newest tip commit. Each carries its full ref, commit and whether HEAD

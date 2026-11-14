@@ -28150,8 +28150,9 @@
         "The digits come from HEAD's commit, the merge base with the base branch (the branch scope), the core, diff and filter settings of every config file, and for each file git status lists (changed, staged, unmerged or untracked and not ignored) its path, modes, blob ids and a hash of its work tree content. No run makes a patch, and the reply carries no path and no content.",
         "A file whose time stamp alone moved gives the same digits; a changed byte gives new ones, also when the size and the modification time stay. A file's hash is kept by its stat entry (size, modification and change time, inode, device, mode) and made again when the entry moved or the hash is younger than 2 s after the file's last change.",
         "One read hashes at most 8192 files and 256 MiB, in the order of the listing, and no file above 64 MiB; a file past a bound counts by its stat entry, so that a time stamp of such a file moves the digits. A changed submodule counts by the commit it is on, for at most 8 submodules a read.",
-        "The digits are not stable across versions of the session host: a caller compares two of them and stores none.",
-        "operation.failed details.extra.code is the machine reason: not_a_repository, no_working_directory, target_not_found, no_base_branch, no_merge_base or git_failed."
+        "A listed path counts as not there when a part of it is a link where a folder must be, when more than 128 folders are above it, or when the session host cannot open a folder above it. A later change of such a file does not move the digits.",
+        "The digits hold random bytes that the session host's process makes one time: they are equal only between two answers of one running session host, and not across a restart or a version. A caller compares two of them and stores none.",
+        "operation.failed details.extra.code is the machine reason: not_a_repository, no_working_directory, target_not_found, no_base_branch, no_merge_base, work_tree_unreadable, random_unavailable or git_failed."
       ]
     },
     "git.push": {
