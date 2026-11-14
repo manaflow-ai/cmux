@@ -1,6 +1,7 @@
 import CmuxCloud
 import CmuxAuthRuntime
 import CmuxPhonePush
+import CmuxSettings
 import Foundation
 import Observation
 import OSLog
@@ -34,6 +35,27 @@ struct PhonePushConfiguration: Equatable, Sendable {
             return true
         }
         return defaults.bool(forKey: PhonePushSettings.forwardEnabledKey)
+    }
+}
+
+/// Selects notifications that remain useful if they become actionable while
+/// the user is away from the Mac, and computes when their presence gate should
+/// be checked again.
+struct PhonePushAwayEscalation {
+    static func shouldSchedule(for notification: TerminalNotification) -> Bool {
+        notification.isAgentEvent
+            && !notification.isRead
+            && notification.agentCategory == AgentNotifyCategory.needsPermission.rawValue
+    }
+
+    static func retryDelay(
+        for presence: MacPresenceMonitor.Decision
+    ) -> TimeInterval? {
+        guard case .active(let idle) = presence.verdict else { return nil }
+        return max(
+            0.1,
+            MacPresenceMonitor.recentHardwareInputThreshold - max(0, idle)
+        )
     }
 }
 
@@ -89,6 +111,8 @@ final class PhonePushClient {
     private var auth: AuthCoordinator?
     var presenceMonitor: MacPresenceMonitor = .live()
     private var presenceCache = MacPresenceDecisionCache()
+    private var pendingAwayEscalationTasks: [UUID: Task<Void, Never>] = [:]
+    private var pendingAwayEscalationNotifications: [UUID: TerminalNotification] = [:]
     private var authLifecycleTask: Task<Void, Never>?
     private var pushRecipients: [PhonePushRecipient] = []
     /// Active queue payloads retained only in memory so a recipient-key
@@ -183,6 +207,8 @@ final class PhonePushClient {
         configurationState.configuration = configuration
         if !configuration.forwardingEnabled {
             cancelPendingDeliveries()
+        } else if configuration.mode == .always {
+            flushPendingAwayEscalations()
         }
         NotificationCenter.default.post(
             name: Self.settingsDidChangeNotification,
@@ -228,6 +254,8 @@ final class PhonePushClient {
         }
         if !configuration.forwardingEnabled {
             cancelPendingDeliveries()
+        } else if configuration.mode == .always {
+            flushPendingAwayEscalations()
         }
         publishStatusChanged()
         return configuration
@@ -273,7 +301,13 @@ final class PhonePushClient {
         badgeCount: Int
     ) -> PhonePushForwardAdmission {
         let gate = forwardingAdmission()
-        guard gate == .queued else { return gate }
+        guard gate == .queued else {
+            if gate == .presenceSuppressed {
+                scheduleAwayEscalation(for: notification)
+            }
+            return gate
+        }
+        cancelAwayEscalation(for: notification.id)
         let payload = PhonePushPayload(
             notification: notification,
             macDeviceId: MobileHostIdentity.deviceID(),
@@ -361,6 +395,7 @@ final class PhonePushClient {
     }
     @discardableResult
     func forwardDismissed(ids: [String], badgeCount: Int) -> PhonePushForwardAdmission {
+        cancelAwayEscalations(for: ids)
         guard PhonePushConfiguration.forwardingEnabled(in: defaults) else {
             return .disabled
         }
@@ -785,11 +820,73 @@ final class PhonePushClient {
         }
     }
     private func cancelInMemoryQueue() {
+        cancelAllAwayEscalations()
         suppressQueuePersistence = true
         deliveryQueue.cancelAll()
         suppressQueuePersistence = false
         pendingPayloadsByCorrelationID.removeAll()
         pendingRecipientPayloads.removeAll()
+    }
+
+    private func scheduleAwayEscalation(for notification: TerminalNotification) {
+        guard PhonePushAwayEscalation.shouldSchedule(for: notification),
+              pendingAwayEscalationTasks[notification.id] == nil else { return }
+
+        pendingAwayEscalationNotifications[notification.id] = notification
+        let currentPresence = presenceCache.decision(from: presenceMonitor)
+        let delay = PhonePushAwayEscalation.retryDelay(for: currentPresence) ?? 1
+        let nanoseconds = UInt64(max(0, delay) * 1_000_000_000)
+        pendingAwayEscalationTasks[notification.id] = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: nanoseconds)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            self?.attemptAwayEscalation(for: notification.id)
+        }
+    }
+
+    private func attemptAwayEscalation(for notificationID: UUID) {
+        pendingAwayEscalationTasks.removeValue(forKey: notificationID)
+        guard let notification = pendingAwayEscalationNotifications.removeValue(forKey: notificationID),
+              TerminalNotificationStore.shared.notifications.contains(where: {
+                  $0.id == notificationID && !$0.isRead
+              }) else { return }
+        _ = forward(
+            notification,
+            badgeCount: TerminalNotificationStore.shared.unreadNotificationCount
+        )
+    }
+
+    private func flushPendingAwayEscalations() {
+        let pending = Array(pendingAwayEscalationNotifications.values)
+        for notification in pending {
+            cancelAwayEscalation(for: notification.id)
+            _ = forward(
+                notification,
+                badgeCount: TerminalNotificationStore.shared.unreadNotificationCount
+            )
+        }
+    }
+
+    private func cancelAwayEscalation(for notificationID: UUID) {
+        pendingAwayEscalationTasks.removeValue(forKey: notificationID)?.cancel()
+        pendingAwayEscalationNotifications.removeValue(forKey: notificationID)
+    }
+
+    private func cancelAwayEscalations(for ids: [String]) {
+        for id in ids.compactMap(UUID.init(uuidString:)) {
+            cancelAwayEscalation(for: id)
+        }
+    }
+
+    private func cancelAllAwayEscalations() {
+        for task in pendingAwayEscalationTasks.values {
+            task.cancel()
+        }
+        pendingAwayEscalationTasks.removeAll()
+        pendingAwayEscalationNotifications.removeAll()
     }
     private func drainPersistence() async {
         while let snapshot = pendingPersistenceSnapshot {
