@@ -33,7 +33,8 @@ const CLIENT_WORDS: [&str; 15] = [
 ];
 
 /// A short ASCII word that passed one of the grammars below: the only text a record holds.
-#[derive(Clone, Copy)]
+/// Two labels are equal when their words are: the bytes after `len` are always 0.
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Label {
     len: u8,
     bytes: [u8; LABEL_BYTES],

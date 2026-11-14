@@ -50,6 +50,21 @@ const STABLE_RUNTIME: Duration = Duration::from_secs(30);
 
 pub(crate) type JournalPluginExitHandler = Arc<dyn Fn(&str, u64) + Send + Sync + 'static>;
 
+/// One restart that the supervisor scheduled after a child exit or a failed launch. Numbers
+/// only: no plugin id and no exit text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct JournalPluginRestart {
+    /// The restarts since the daemon started. Nothing resets it.
+    pub(crate) restarts: u64,
+    /// The failures in a row: 1 again after a child that lived for [`STABLE_RUNTIME`].
+    pub(crate) failures: u32,
+    /// The wait before the next launch.
+    pub(crate) delay: Duration,
+}
+
+pub(crate) type JournalPluginRestartHandler =
+    Arc<dyn Fn(JournalPluginRestart) + Send + Sync + 'static>;
+
 /// A plugin child plus the OS-owned boundary used to stop its descendants.
 /// The supervisor must own the whole process tree: a plugin helper that keeps
 /// running after the leader exits can otherwise continue to append events
@@ -293,6 +308,7 @@ struct SupervisorState {
     generation: u64,
     child_generation: Option<u64>,
     exit_handler: Option<JournalPluginExitHandler>,
+    restart_handler: Option<JournalPluginRestartHandler>,
     /// The running child has no exit-waiter thread (it could not start), so
     /// the supervisor falls back to a timed `try_wait` for that child.
     exit_waiter_missing: bool,
@@ -363,6 +379,13 @@ impl JournalPluginRuntime {
     pub(crate) fn set_exit_handler(&self, handler: Option<JournalPluginExitHandler>) {
         let (lock, _) = &*self.state;
         lock.lock().unwrap_or_else(|error| error.into_inner()).exit_handler = handler;
+    }
+
+    /// Install the callback that gets each restart the supervisor schedules (a child exit or a
+    /// failed launch). The callback runs without the supervisor mutex held.
+    pub(crate) fn set_restart_handler(&self, handler: Option<JournalPluginRestartHandler>) {
+        let (lock, _) = &*self.state;
+        lock.lock().unwrap_or_else(|error| error.into_inner()).restart_handler = handler;
     }
 
     /// The running child's process group (the child leads its own), or
@@ -708,17 +731,22 @@ fn mark_child_exit(
 /// Account for a failed launch or child exit. A child that lived through the
 /// stability window resets the accumulated crash-loop budget; a short-lived
 /// child advances it. Keeping this policy in the generic supervisor avoids
-/// embedding agent-specific assumptions in the host.
+/// embedding agent-specific assumptions in the host. Returns the restart it
+/// scheduled, for the restart handler.
 fn note_child_failure(
     state: &mut SupervisorState,
     now: Instant,
     child_started_at: Option<Instant>,
-) {
+) -> JournalPluginRestart {
     if child_started_at.is_some_and(|started_at| now.duration_since(started_at) >= STABLE_RUNTIME) {
         state.failures = 0;
     }
     state.failures = state.failures.saturating_add(1);
-    state.restart_at = Some(now + restart_delay(state.failures));
+    let delay = restart_delay(state.failures);
+    state.restart_at = Some(now + delay);
+    // The total of the restarts is not counted yet, and the supervisor does not call the
+    // restart handler yet.
+    JournalPluginRestart { restarts: 0, failures: state.failures, delay }
 }
 
 fn restart_delay(failures: u32) -> Duration {
@@ -827,6 +855,59 @@ mod tests {
 
         assert_eq!(state.failures, 1);
         assert_eq!(state.restart_at, Some(started + STABLE_RUNTIME + Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn the_restart_total_for_the_request_log_goes_on_after_a_stable_child() {
+        let started = Instant::now();
+        let mut state = SupervisorState::default();
+
+        let first = note_child_failure(&mut state, started, None);
+        assert_eq!(
+            first,
+            JournalPluginRestart { restarts: 1, failures: 1, delay: Duration::from_secs(1) }
+        );
+        let second = note_child_failure(&mut state, started, Some(started));
+        assert_eq!(
+            second,
+            JournalPluginRestart { restarts: 2, failures: 2, delay: Duration::from_secs(2) }
+        );
+        // A child that lived for the stable time: the failures in a row start again, the total
+        // of restarts goes on.
+        let third = note_child_failure(&mut state, started + STABLE_RUNTIME, Some(started));
+        assert_eq!(
+            third,
+            JournalPluginRestart { restarts: 3, failures: 1, delay: Duration::from_secs(1) }
+        );
+    }
+
+    #[test]
+    fn a_launch_that_fails_gives_the_request_log_handler_its_first_restart() {
+        let runtime = JournalPluginRuntime::default();
+        runtime.configure(Some(JournalPluginOptions {
+            id: "screen_detector".into(),
+            command: vec!["/tmp/cmux-tui-test-no-such-journal-plugin".into()],
+            cwd: None,
+            revision: None,
+        }));
+        let (restarts, seen) = std::sync::mpsc::channel();
+        runtime.set_restart_handler(Some(Arc::new(move |restart| {
+            let _ = restarts.send(restart);
+        })));
+
+        runtime.start_with_generation_seed(
+            PathBuf::from("/tmp/cmux-tui-test.sock"),
+            "main".into(),
+            17,
+        );
+        // The supervisor's thread calls the handler when the launch fails: the test waits for
+        // that call, with a bound for a supervisor that never makes it.
+        let first = seen.recv_timeout(Duration::from_secs(20));
+        runtime.shutdown();
+        assert_eq!(
+            first,
+            Ok(JournalPluginRestart { restarts: 1, failures: 1, delay: Duration::from_secs(1) })
+        );
     }
 
     #[test]

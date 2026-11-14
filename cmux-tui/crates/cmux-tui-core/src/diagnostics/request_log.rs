@@ -39,16 +39,18 @@ use std::io::Write as _;
 use std::panic::Location;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 mod fields;
+mod repeats;
 #[cfg(test)]
 mod tests;
 
 pub(crate) use fields::Label;
 use fields::{Allowed, ID_KEYS, allowed_fields};
+use repeats::{Key, Offered, Repeats};
 
 /// A request slower than this, arrival to reply written, gets a record.
 pub(crate) const SLOW_REQUEST_THRESHOLD: Duration = Duration::from_millis(100);
@@ -377,6 +379,7 @@ impl RequestLog {
         let writer = Writer {
             ring: Ring::new(directory),
             dropped: dropped.clone(),
+            repeats: Repeats::default(),
             #[cfg(test)]
             written: written.clone(),
             #[cfg(test)]
@@ -500,6 +503,13 @@ impl RequestLog {
     pub(crate) fn started(&self, info: StartInfo) {
         self.submit(Entry::Start(crate::startup_timings::unix_now_ms(), info));
     }
+
+    /// The line of a restart of the session's journal plugin that its supervisor scheduled:
+    /// the `restarts` since the daemon's start, the `failures` in a row and the `delay` before
+    /// the next launch. Numbers only.
+    pub(crate) fn plugin_restart(&self, _restarts: u64, _failures: u32, _delay: Duration) {
+        // Not written yet.
+    }
 }
 
 /// The two files of the log.
@@ -562,6 +572,8 @@ impl Ring {
 struct Writer {
     ring: Ring,
     dropped: Arc<AtomicU64>,
+    /// The runs of equal failed requests. Only the writer's thread has it: no lock.
+    repeats: Repeats<Box<Data>>,
     #[cfg(test)]
     written: Arc<AtomicU64>,
     #[cfg(test)]
@@ -571,63 +583,114 @@ struct Writer {
 impl Writer {
     fn run(mut self, receiver: &Receiver<Entry>) {
         let mut line = String::with_capacity(512);
-        while let Ok(entry) = receiver.recv() {
+        while let Some(entry) = self.next_entry(receiver, &mut line) {
             #[cfg(test)]
             let gate = self.gate.clone();
             #[cfg(test)]
             let _gate = gate.lock().unwrap_or_else(PoisonError::into_inner);
-            let dropped = self.dropped.swap(0, Ordering::Relaxed);
-            if dropped > 0 {
-                line.clear();
-                open_line(&mut line, "dropped", crate::startup_timings::unix_now_ms());
-                let _ = writeln!(line, ",\"queue_full\":{dropped}}}");
-                self.write(&line);
-            }
-            line.clear();
-            match entry {
-                Entry::Request(data) => request_line(&mut line, &data),
-                Entry::Lock { at_ms, lock, site, thread, request, client, held, waited } => {
-                    open_line(&mut line, "lock", at_ms);
-                    let holder = format!("{}:{}", site.file(), site.line());
-                    let _ = write!(line, ",\"lock\":\"{lock}\",\"holder\":{}", json_text(&holder));
-                    push_label(&mut line, "thread", thread);
-                    push_label(&mut line, "request", request);
-                    if let Some(client) = client {
-                        let _ = write!(line, ",\"client\":{client}");
-                    }
-                    push_ms(&mut line, "held_ms", held);
-                    push_ms(&mut line, "wait_ms", waited);
-                    line.push_str("}\n");
-                }
-                Entry::Start(at_ms, info) => {
-                    open_line(&mut line, "start", at_ms);
-                    let _ = write!(
-                        line,
-                        ",\"pid\":{},\"version\":{}",
-                        std::process::id(),
-                        json_text(crate::release::distribution_version())
-                    );
-                    push_label(&mut line, "session_hash", info.session_hash);
-                    let _ = writeln!(
-                        line,
-                        ",\"workspaces\":{},\"surfaces\":{},\"clients\":{},\"registry_bytes\":{},\
-                         \"registry_wal_bytes\":{},\"slow_ms\":{},\"file_bytes\":{FILE_BYTES}}}",
-                        info.workspaces,
-                        info.surfaces,
-                        info.clients,
-                        info.registry_bytes,
-                        info.registry_wal_bytes,
-                        SLOW_REQUEST_THRESHOLD.as_millis(),
-                    );
-                }
-                #[cfg(test)]
-                Entry::Flush(done) => {
-                    let _ = done.send(());
-                    continue;
-                }
-            }
-            self.write(&line);
+            self.take(entry, &mut line);
         }
+    }
+
+    /// The next entry; none when the log is gone. With no count of repeats the wait has no
+    /// time-out, so a daemon at rest never wakes here. While a count waits, the wait ends at the
+    /// end of that run's window and the count is written.
+    fn next_entry(&mut self, receiver: &Receiver<Entry>, line: &mut String) -> Option<Entry> {
+        loop {
+            if !self.repeats.waits() {
+                return receiver.recv().ok();
+            }
+            let now_ms = crate::startup_timings::unix_now_ms();
+            let Some(wait) = self.due_wait(now_ms, line) else { continue };
+            match receiver.recv_timeout(wait) {
+                Ok(entry) => return Some(entry),
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => return None,
+            }
+        }
+    }
+
+    /// Writes each count whose window ended at `now_ms`. Returns the time to the end of the next
+    /// window with a count that waits: none when no count waits.
+    fn due_wait(&mut self, now_ms: u64, line: &mut String) -> Option<Duration> {
+        while let Some((record, stands_for)) = self.repeats.take_due(now_ms) {
+            line.clear();
+            request_line(line, &record, stands_for);
+            self.write(line);
+        }
+        self.repeats.wait_ms(now_ms).map(Duration::from_millis)
+    }
+
+    /// Writes the line of `entry`, or counts it as a repeat of its run.
+    fn take(&mut self, entry: Entry, line: &mut String) {
+        let dropped = self.dropped.swap(0, Ordering::Relaxed);
+        if dropped > 0 {
+            line.clear();
+            open_line(line, "dropped", crate::startup_timings::unix_now_ms());
+            let _ = writeln!(line, ",\"queue_full\":{dropped}}}");
+            self.write(line);
+        }
+        line.clear();
+        match entry {
+            Entry::Request(data) => {
+                // Only a failed request can be a repeat: a slow request with no error keeps its
+                // line. The time is the record's own (its arrival): no clock is read here.
+                let offered = match data.error {
+                    Some(error) => {
+                        let key = Key { name: data.name, error, client_kind: data.client_kind };
+                        self.repeats.offer(key, data.at_ms, data)
+                    }
+                    None => Offered::Write { ended: None, record: data, stands_for: 1 },
+                };
+                let Offered::Write { ended, record, stands_for } = offered else { return };
+                if let Some((ended, count)) = ended {
+                    request_line(line, &ended, count);
+                    self.write(line);
+                    line.clear();
+                }
+                request_line(line, &record, stands_for);
+            }
+            Entry::Lock { at_ms, lock, site, thread, request, client, held, waited } => {
+                open_line(line, "lock", at_ms);
+                let holder = format!("{}:{}", site.file(), site.line());
+                let _ = write!(line, ",\"lock\":\"{lock}\",\"holder\":{}", json_text(&holder));
+                push_label(line, "thread", thread);
+                push_label(line, "request", request);
+                if let Some(client) = client {
+                    let _ = write!(line, ",\"client\":{client}");
+                }
+                push_ms(line, "held_ms", held);
+                push_ms(line, "wait_ms", waited);
+                line.push_str("}\n");
+            }
+            Entry::Start(at_ms, info) => {
+                open_line(line, "start", at_ms);
+                let _ = write!(
+                    line,
+                    ",\"pid\":{},\"version\":{}",
+                    std::process::id(),
+                    json_text(crate::release::distribution_version())
+                );
+                push_label(line, "session_hash", info.session_hash);
+                let _ = writeln!(
+                    line,
+                    ",\"workspaces\":{},\"surfaces\":{},\"clients\":{},\"registry_bytes\":{},\
+                     \"registry_wal_bytes\":{},\"slow_ms\":{},\"file_bytes\":{FILE_BYTES}}}",
+                    info.workspaces,
+                    info.surfaces,
+                    info.clients,
+                    info.registry_bytes,
+                    info.registry_wal_bytes,
+                    SLOW_REQUEST_THRESHOLD.as_millis(),
+                );
+            }
+            #[cfg(test)]
+            Entry::Flush(done) => {
+                let _ = done.send(());
+                return;
+            }
+        }
+        self.write(line);
     }
 
     fn write(&mut self, line: &str) {
@@ -658,7 +721,9 @@ fn push_label(line: &mut String, key: &str, label: Option<Label>) {
     }
 }
 
-fn request_line(line: &mut String, data: &Data) {
+/// The line of one request. `stands_for` is how many equal records the line stands for: more
+/// than one for the newest record of a run of repeats.
+fn request_line(line: &mut String, data: &Data, stands_for: u64) {
     open_line(line, "request", data.at_ms);
     let name = data.name.as_ref().map_or("other", Label::as_str);
     let _ = write!(line, ",\"name\":\"{name}\",\"client\":{}", data.client);
@@ -687,5 +752,8 @@ fn request_line(line: &mut String, data: &Data) {
     }
     let _ = write!(line, ",\"outcome\":\"{}\"", data.outcome);
     push_label(line, "error", data.error);
+    if stands_for > 1 {
+        let _ = write!(line, ",\"repeats\":{stands_for}");
+    }
     line.push_str("}\n");
 }
