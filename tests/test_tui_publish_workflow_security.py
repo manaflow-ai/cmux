@@ -2570,6 +2570,23 @@ def test_adopted_commit_manifest_is_the_commits_own_with_the_trees_bytes():
         assert hashlib.sha256((out / name).read_bytes()).hexdigest() == digest
 
 
+def test_adopted_manifest_check_requires_what_publish_requires():
+    # The adopted prefix must hold everything a published one does: adopt-commit-manifest's check names the same
+    # required and forbidden artifacts as publish's "Verify Unix manifests before upload", so the two cannot drift
+    # (32964a1a's check named none, and tests/test_ci_cmux_tui_latest_acpmux.py went red on it).
+    artifacts = workflow("cmux-tui-artifacts.yml")
+
+    def artifact_args(text: str, step: str) -> list[str]:
+        body = text.split(f"- name: {step}", 1)[1].split("\n      - ", 1)[0]
+        call = body.split("--manifest-file assets/cmux-tui/manifest.json", 1)[1].split("--artifact-directory", 1)[0]
+        return re.findall(r"--(?:require|forbid)-artifact [\w.-]+", call)
+
+    published = artifact_args(workflow_job(artifacts, "publish"), "Verify Unix manifests before upload")
+    adopted = artifact_args(workflow_job(artifacts, "adopt-commit-manifest"), "Verify the prepared manifest")
+    assert len(published) > 20
+    assert adopted == published
+
+
 def test_owner_not_finished_writes_no_manifest_pointing_at_missing_objects():
     # The owner is still publishing: no completion.json yet, or a binary the publisher's manifest names
     # still answers 404. Nothing is written, and above all no manifest.json.
@@ -2616,7 +2633,8 @@ def test_cdn_gate_skips_only_a_pending_deferral_or_a_superseded_push():
     skips = re.findall(r'if \[\[ "\$([A-Z_]+)" == ([a-z]+) \]\]; then', script)
     assert skips == [("STALE", "true"), ("ADOPT_STATE", "pending")]
     for state, checked in (("pending", False), ("missing", True), ("adopted", True), ("present", True), ("", True)):
-        result = subprocess.run(["bash", "-c", script.replace("python3 scripts/ci/verify_cmux_tui_publication.py", "echo CHECKED")],
+        # An unpublished tree: the pending branch's completion.json read answers nothing.
+        result = subprocess.run(["bash", "-c", "curl() { return 22; }; " + script.replace("python3 scripts/ci/verify_cmux_tui_publication.py", "echo CHECKED")],
                                 env={**os.environ, "ADOPT_STATE": state, "STALE": "false", "TREE_KEY": "k", "GITHUB_SHA": "s"},
                                 capture_output=True, text=True, check=True)
         assert ("CHECKED" in result.stdout) == checked, state
@@ -2655,6 +2673,89 @@ def test_python_cdn_reads_send_a_user_agent_the_cdn_accepts():
         with unittest.mock.patch.object(deadline_http, "request", fake_request):
             module.fetch_url("https://files.cmux.com/cmux-tui/x/manifest.json")
         assert seen == [deadline_http.USER_AGENT], module.__name__
+
+
+def cdn_gate_script() -> str:
+    detector = workflow_job(workflow("cmux-tui-artifacts.yml"), "verify-cdn-publication")
+    step = detector.split("name: Verify commit and tree metadata through the CDN", 1)[1]
+    return step.split("run: |", 1)[1].replace("python3 scripts/ci/verify_cmux_tui_publication.py", "echo CHECKED")
+
+
+def test_pending_deferral_is_red_once_its_tree_is_published():
+    # Review of #42580, F1: a deferring run read the tree before its owner published and ended pending; the
+    # owner found it still in progress and could not re-run it. pending must not stay green once the tree's
+    # completion.json answers for this key.
+    key = "e" * 40
+    for completion, code in ((json.dumps({"key": key, "binaries": {}}), 1), ("", 0), (json.dumps({"key": "f" * 40}), 0)):
+        fake = f"curl() {{ printf '%s' '{completion}'; [[ -n '{completion}' ]]; }}; "
+        result = subprocess.run(["bash", "-c", fake + cdn_gate_script()],
+                                env={**os.environ, "ADOPT_STATE": "pending", "STALE": "false", "TREE_KEY": key,
+                                     "GITHUB_SHA": "s", "GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1"},
+                                capture_output=True, text=True)
+        assert result.returncode == code, (completion, result.stdout, result.stderr)
+        assert "CHECKED" not in result.stdout
+        if code:
+            assert "::error title=commit manifest missing::" in result.stdout
+
+
+def test_pending_red_names_the_word_base_red_watch_skips():
+    # cmuxterm-hq's base_red_watch (hq#10455) keeps a red out of feat-cmux-next's base reds only while every
+    # ##[error] line it printed has this word, split on whitespace: the sweep re-runs that run, so no lane takes
+    # it. Only the pending-turned-red says it; any other error is a base red.
+    word = "cmux-tui-manifest-rerun-pending"
+    key = "e" * 40
+    fake = f"curl() {{ printf '%s' '{json.dumps({'key': key})}'; }}; "
+    result = subprocess.run(["bash", "-c", fake + cdn_gate_script()],
+                            env={**os.environ, "ADOPT_STATE": "pending", "STALE": "false", "TREE_KEY": key,
+                                 "GITHUB_SHA": "s", "GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1"},
+                            capture_output=True, text=True)
+    assert result.returncode == 1, (result.stdout, result.stderr)
+    # GitHub logs `::error title=T::message` as `##[error]message`.
+    logged = [line.split("::", 2)[2] for line in result.stdout.splitlines() if line.startswith("::error")]
+    assert logged and all(word in line.split() for line in logged), logged
+    others = [line for line in workflow("cmux-tui-artifacts.yml").splitlines()
+              if "::error" in line and "was published after this run deferred" not in line]
+    assert others and not any(word in line for line in others)
+
+
+def sweep_world(run_status: str, *, adopts: bool = True, manifest: int = 404, attempt: int = 1):
+    import cmux_tui_manifest_sweep as sweeper
+
+    rev = "a" * 40
+    reruns: list[int] = []
+    statuses = {f"{sweeper.BASE}/tree-commits/{rev}.json": 200, f"{sweeper.BASE}/{rev}/manifest.json": manifest}
+    result = sweeper.sweep(
+        [rev], adopts=lambda r: adopts, status=lambda url: statuses.get(url, 404),
+        find_run=lambda r: {"id": 77, "status": run_status, "run_attempt": attempt},
+        rerun=lambda run_id: reruns.append(run_id) or True)
+    return result, reruns
+
+
+def test_sweep_reruns_a_deferred_run_that_was_in_progress_at_publish():
+    # The owner's hand-off skipped the live run; the first sweep sees it still live and leaves it (no wait),
+    # and a later push's sweep, after it ended, re-runs it so it writes its manifest.
+    (rerun_commits, problems), reruns = sweep_world("in_progress")
+    assert (rerun_commits, problems, reruns) == ([], [], [])
+    (rerun_commits, problems), reruns = sweep_world("completed", attempt=3)
+    assert rerun_commits == ["a" * 40] and problems == [] and reruns == [77]
+    # Never: a commit that has its manifest, one whose workflow predates the adopt job, a capped run.
+    for kwargs in ({"manifest": 200}, {"adopts": False}, {"attempt": 5}):
+        (rerun_commits, _), reruns = sweep_world("completed", **kwargs)
+        assert rerun_commits == [] and reruns == [], kwargs
+
+
+def test_sweep_runs_after_the_markers_on_every_feat_push_without_waiting():
+    artifacts = workflow("cmux-tui-artifacts.yml")
+    job = workflow_job(artifacts, "sweep-commit-manifests")
+    assert "needs: [tree-preflight, mark-tree-commits]" in job
+    assert "needs.mark-tree-commits.result == 'success'" in job
+    assert "cmux_tui_manifest_sweep.py" in job and "actions: write" in job
+    assert "fetch-depth: 41" in job
+    script = (ROOT / "scripts/ci/cmux_tui_manifest_sweep.py").read_text()
+    assert "sleep" not in script and "time.sleep" not in script
+    # The re-run's own workflow must carry the adopt job the sweep looks for.
+    assert "\n  adopt-commit-manifest:\n" in artifacts
+
 
 # Keep this the last statement of the file: unittest.main() ends the process, so a
 # test defined after it never runs in `python3 tests/test_tui_publish_workflow_security.py`.

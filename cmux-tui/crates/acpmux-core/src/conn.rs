@@ -2,6 +2,8 @@
 
 use crate::hub::HubError;
 mod list;
+#[cfg(test)]
+mod replay_gates;
 use crate::wire::{Cursor, Frame, FrameError, FrameKind, Hello, HelloReply, Limits, Page, Sub};
 pub use list::HubSource;
 use std::collections::VecDeque;
@@ -10,6 +12,12 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
 pub const MAX_SUBSCRIPTIONS: usize = crate::wire::MAX_SUBSCRIPTIONS;
 pub use crate::wire::Request;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Role {
+    Local,
+    Peer,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Offer {
@@ -58,7 +66,8 @@ pub trait OfferSink: Send + Sync {
 }
 
 /// A source owns its delivery tasks and the order of its frames. `subscribe`
-/// queues its first frame through the handle before returning. `NotFed` consumes
+/// offers its first frame before any of its deltas; readiness may be awaited in
+/// the sid's task after subscribe returns. `NotFed` consumes
 /// the offered frame: the source retains only its last taken cursor until resume.
 pub type CloseFuture<'a> = std::pin::Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 
@@ -154,6 +163,7 @@ pub async fn run<R, W>(
     source: Arc<dyn Source>,
     daemon_id: impl Into<String>,
     surfaces: &[String],
+    role: Role,
 ) -> Result<(), ConnError>
 where
     R: AsyncRead + Unpin,
@@ -162,7 +172,8 @@ where
     let state = Arc::new(std::sync::Mutex::new(ConnectionState::default()));
     let cleanup = Cleanup { state: state.clone(), source: source.clone() };
     let result =
-        run_connection(reader, writer, source.clone(), daemon_id.into(), surfaces, state).await;
+        run_connection(reader, writer, source.clone(), daemon_id.into(), surfaces, role, state)
+            .await;
     drop(cleanup);
     source.close().await;
     result
@@ -174,6 +185,7 @@ async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     source: Arc<dyn Source>,
     daemon_id: String,
     surfaces: &[String],
+    role: Role,
     state: Arc<std::sync::Mutex<ConnectionState>>,
 ) -> Result<(), ConnError> {
     let wake = state.lock().map_err(|_| poisoned())?.wake.clone();
@@ -237,7 +249,15 @@ async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
                     }
                     continue;
                 }
-                let result = process_frame(&state, source.clone(), &frame, &mut hello_seen, surfaces, &daemon_id);
+                let result = process_frame(
+                    &state,
+                    source.clone(),
+                    &frame,
+                    &mut hello_seen,
+                    surfaces,
+                    &daemon_id,
+                    role,
+                );
                 if let Err(error) = result {
                     let reply = error_frame(&frame, &error)?;
                     state.lock().map_err(|_| poisoned())?.offer_reply(reply)?;
@@ -285,6 +305,7 @@ fn process_frame(
     hello_seen: &mut bool,
     surfaces: &[String],
     daemon_id: &str,
+    role: Role,
 ) -> Result<(), ConnError> {
     if frame.kind != FrameKind::Request {
         return Err(ConnError::InvalidRequest("unknown request kind".into()));
@@ -292,8 +313,16 @@ fn process_frame(
     let value: serde_json::Value = frame.decode_json()?;
     validate_identifiers(&value)?;
     let request: Request = frame.decode_json()?;
+    if role == Role::Peer {
+        validate_peer_request(&request)?;
+    }
     if !*hello_seen && !matches!(request, Request::Hello(_)) {
         return Err(ConnError::InvalidRequest("hello must be first".into()));
+    }
+    match &request {
+        Request::Sub(sub) => require_surface(&sub.stream, surfaces)?,
+        Request::Page(page) => require_surface(&page.stream, surfaces)?,
+        _ => {}
     }
     match request {
         Request::Hello(hello) => {
@@ -310,7 +339,11 @@ fn process_frame(
             state.offer_reply(reply)?;
             *hello_seen = true;
         }
-        Request::Sub(sub) => {
+        Request::Sub(mut sub) => {
+            if sub.view == Some(crate::wire::ListView::Folders) {
+                sub.cursor = None;
+                sub.edition = None;
+            }
             require_surface(&sub.stream, surfaces)?;
             let (identity, control, ended) = {
                 let mut state = state.lock().map_err(|_| poisoned())?;
@@ -352,6 +385,36 @@ fn process_frame(
     Ok(())
 }
 
+pub fn validate_peer_request(request: &Request) -> Result<(), ConnError> {
+    match request {
+        Request::Hello(_) | Request::Credit(_) | Request::Unsub(_) => Ok(()),
+        Request::Sub(sub) => {
+            if sub.stream.as_str() != "list"
+                || sub.view != Some(crate::wire::ListView::Live)
+                || sub.filter.is_some()
+                || sub.anchor.is_some()
+            {
+                return Err(ConnError::InvalidRequest(
+                    "request is not allowed on a peer link".into(),
+                ));
+            }
+            Ok(())
+        }
+        Request::Page(page) => {
+            if page.stream.as_str() != "list"
+                || page.view != Some(crate::wire::ListView::Live)
+                || page.filter.is_some()
+                || page.keys.is_some()
+            {
+                return Err(ConnError::InvalidRequest(
+                    "request is not allowed on a peer link".into(),
+                ));
+            }
+            Ok(())
+        }
+    }
+}
+
 fn validate_identifiers(value: &serde_json::Value) -> Result<(), ConnError> {
     for id in [value.pointer("/params/sid"), value.pointer("/params/id"), value.get("id")]
         .into_iter()
@@ -377,6 +440,10 @@ fn error_frame(request: &Frame, error: &ConnError) -> Result<Frame, ConnError> {
         ConnError::DuplicateSubscription(_) => "duplicate_sid",
         ConnError::TooManySubscriptions => "subscription_limit",
         ConnError::Frame(_) => "invalid_request",
+        ConnError::Hub(HubError::CursorGone) => "cursor_gone",
+        ConnError::Hub(
+            HubError::InvalidParams(_) | HubError::InvalidPage | HubError::InvalidWindow,
+        ) => "invalid_params",
         _ => "request_failed",
     };
     let mut fields = serde_json::Map::new();

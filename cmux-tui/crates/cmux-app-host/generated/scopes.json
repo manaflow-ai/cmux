@@ -237,6 +237,18 @@
       "scope": "channel:write",
       "class": "mutation"
     },
+    "chat.list": {
+      "scope": "chat:read",
+      "class": "read"
+    },
+    "chat.mark_read": {
+      "scope": "chat:write",
+      "class": "mutation"
+    },
+    "chat.pin": {
+      "scope": "chat:write",
+      "class": "mutation"
+    },
     "chief.continue": {
       "scope": "chief:write",
       "class": "mutation"
@@ -1849,6 +1861,18 @@
       "scope": "terminal:read",
       "class": "read"
     },
+    "theme.scheme.convert": {
+      "scope": "theme:read",
+      "class": "read"
+    },
+    "theme.scheme.export": {
+      "scope": "theme:read",
+      "class": "read"
+    },
+    "theme.scheme.from_image": {
+      "scope": "theme:read",
+      "class": "read"
+    },
     "thread.update": {
       "scope": "thread:write",
       "class": "mutation"
@@ -2167,6 +2191,7 @@
     "session.open",
     "session.reload_config",
     "session.shutdown",
+    "settings.edit",
     "settings.reset",
     "settings.reset_all",
     "settings.set",

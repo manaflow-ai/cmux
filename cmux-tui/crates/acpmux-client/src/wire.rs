@@ -9,6 +9,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use std::fmt;
 use std::mem::size_of;
 
+pub use acpmux_list_types::folders::FolderRow;
+pub use acpmux_list_types::{ListFilter, OriginState};
+
 /// The inclusive encoded-frame limit from the v2 protocol.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 pub const MAX_PAGE_BYTES: usize = 256 * 1024;
@@ -102,13 +105,55 @@ pub enum Anchor {
 pub struct ListKey {
     pub last_activity: u64,
     pub chat_id: String,
+    pub origin: String,
 }
+
+/// Stable position key for the folders view.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderPosition {
+    pub at: u64,
+    pub origin: String,
+    pub folder: String,
+}
+
+/// Identity used by keyed folder pages. Activity time is intentionally absent:
+/// a lookup is by `(origin, folder)` and the supplied cursor time must never
+/// become part of identity.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderIdentity {
+    pub origin: String,
+    pub folder: String,
+}
+
+pub type FolderKey = FolderIdentity;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Position {
     Row(u64),
     List(ListKey),
+    Folder(FolderPosition),
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PageKey {
+    Summary(ListKey),
+    Folder(FolderIdentity),
+}
+
+impl From<ListKey> for PageKey {
+    fn from(value: ListKey) -> Self {
+        Self::Summary(value)
+    }
+}
+
+impl From<FolderIdentity> for PageKey {
+    fn from(value: FolderIdentity) -> Self {
+        Self::Folder(value)
+    }
 }
 
 impl Serialize for Anchor {
@@ -184,6 +229,10 @@ pub struct Sub {
     pub window: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub view: Option<ListView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rows: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<ListFilter>,
 }
 
 /// Descriptive aliases used by clients that model requests explicitly.
@@ -203,6 +252,8 @@ impl Sub {
             anchor: None,
             window: default_window(),
             view: None,
+            rows: None,
+            filter: None,
         }
     }
 
@@ -232,6 +283,15 @@ impl Sub {
 pub enum ListView {
     All,
     Live,
+    Folders,
+}
+
+/// Folders are bounded windows, never whole-view mirrors.
+pub fn validate_mirror_view(view: Option<ListView>) -> Result<(), FrameError> {
+    if matches!(view, Some(ListView::Folders)) {
+        return Err(FrameError::MirrorUnsupported);
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -310,15 +370,6 @@ pub struct Origin {
     pub extra: Option<serde_json::Value>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum OriginState {
-    Connected,
-    Down,
-    Stale,
-    Removed,
-}
-
 /// Which side of a row a page reads.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -338,8 +389,14 @@ pub struct Page {
     pub before: Option<Position>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after: Option<Position>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keys: Option<Vec<PageKey>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view: Option<ListView>,
     #[serde(default = "default_page_bytes")]
     pub max_bytes: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<ListFilter>,
 }
 
 /// Descriptive alias used by request routers.
@@ -361,7 +418,10 @@ impl Page {
             stream: stream.into(),
             before: (side == PageSide::Before).then_some(Position::Row(row_id)),
             after: (side == PageSide::After).then_some(Position::Row(row_id)),
+            keys: None,
+            view: None,
             max_bytes: default_page_bytes(),
+            filter: None,
         }
     }
 
@@ -383,7 +443,28 @@ impl Page {
             stream: stream.into(),
             before: (side == PageSide::Before).then_some(Position::List(key.clone())),
             after: (side == PageSide::After).then_some(Position::List(key)),
+            keys: None,
+            view: None,
             max_bytes: default_page_bytes(),
+            filter: None,
+        }
+    }
+
+    pub fn new_folder(
+        sid: impl Into<String>,
+        stream: impl Into<Stream>,
+        side: PageSide,
+        key: FolderPosition,
+    ) -> Self {
+        Self {
+            sid: sid.into(),
+            stream: stream.into(),
+            before: (side == PageSide::Before).then_some(Position::Folder(key.clone())),
+            after: (side == PageSide::After).then_some(Position::Folder(key)),
+            keys: None,
+            view: Some(ListView::Folders),
+            max_bytes: default_page_bytes(),
+            filter: None,
         }
     }
 
@@ -397,7 +478,7 @@ impl Page {
 }
 
 /// A generic bounded window shared by list and chat streams.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Window<T> {
     pub sid: String,
@@ -409,6 +490,72 @@ pub struct Window<T> {
     pub edition: u32,
     #[serde(default)]
     pub origins: Vec<Origin>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before_key: Option<ListKey>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_key: Option<ListKey>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PageResult<T> {
+    pub sid: String,
+    pub rows: Vec<T>,
+    pub has_before: bool,
+    pub has_after: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cold_unread: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deeper: Vec<ListKey>,
+    #[serde(default)]
+    pub before_key: Option<ListKey>,
+    #[serde(default)]
+    pub after_key: Option<ListKey>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing: Vec<ListKey>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unknown: Vec<ListKey>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rest: Vec<ListKey>,
+}
+
+/// A bounded window on the folders view. It is separate from `Window<T>` so
+/// older clients can continue decoding summary list windows unchanged.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderWindow {
+    pub sid: String,
+    pub cursor: u64,
+    pub rows: Vec<FolderRow>,
+    pub has_before: bool,
+    pub has_after: bool,
+    #[serde(default)]
+    pub edition: u32,
+    #[serde(default)]
+    pub origins: Vec<Origin>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before_key: Option<FolderPosition>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_key: Option<FolderPosition>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderPageResult {
+    pub sid: String,
+    pub rows: Vec<FolderRow>,
+    pub has_before: bool,
+    pub has_after: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cold_unread: bool,
+    #[serde(default)]
+    pub before_key: Option<FolderPosition>,
+    #[serde(default)]
+    pub after_key: Option<FolderPosition>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing: Vec<FolderIdentity>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rest: Vec<FolderIdentity>,
 }
 
 /// One bounded delta frame. Resume frames carry at most 256 KiB of operations;
@@ -431,6 +578,7 @@ pub enum DeltaOp<T> {
     },
     Gone {
         seq: u64,
+        origin: String,
         chat_id: String,
     },
     Queue {
@@ -441,6 +589,17 @@ pub enum DeltaOp<T> {
         seq: u64,
         #[serde(flatten)]
         origin: Origin,
+    },
+    #[serde(rename = "folder")]
+    Folder {
+        seq: u64,
+        row: FolderRow,
+    },
+    #[serde(rename = "folderGone")]
+    FolderGone {
+        seq: u64,
+        origin: String,
+        folder: String,
     },
 }
 
@@ -456,11 +615,14 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for DeltaOp<T> {
             seq: u64,
             summary: Option<T>,
             chat_id: Option<String>,
+            origin: Option<String>,
             bytes: Option<u64>,
             id: Option<String>,
             state: Option<OriginState>,
             since: Option<u64>,
             extra: Option<serde_json::Value>,
+            row: Option<FolderRow>,
+            folder: Option<String>,
         }
         let fields = Fields::<T>::deserialize(deserializer)?;
         match fields.op.as_str() {
@@ -470,6 +632,7 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for DeltaOp<T> {
             }),
             "gone" => Ok(Self::Gone {
                 seq: fields.seq,
+                origin: fields.origin.ok_or_else(|| D::Error::missing_field("origin"))?,
                 chat_id: fields.chat_id.ok_or_else(|| D::Error::missing_field("chatId"))?,
             }),
             "queue" => Ok(Self::Queue {
@@ -485,7 +648,19 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for DeltaOp<T> {
                     extra: fields.extra,
                 },
             }),
-            other => Err(D::Error::unknown_variant(other, &["summary", "gone", "queue", "origin"])),
+            "folder" => Ok(Self::Folder {
+                seq: fields.seq,
+                row: fields.row.ok_or_else(|| D::Error::missing_field("row"))?,
+            }),
+            "folderGone" => Ok(Self::FolderGone {
+                seq: fields.seq,
+                origin: fields.origin.ok_or_else(|| D::Error::missing_field("origin"))?,
+                folder: fields.folder.ok_or_else(|| D::Error::missing_field("folder"))?,
+            }),
+            other => Err(D::Error::unknown_variant(
+                other,
+                &["summary", "gone", "queue", "origin", "folder", "folderGone"],
+            )),
         }
     }
 }
@@ -671,6 +846,8 @@ pub enum FrameError {
     TrailingBytes,
     Encode(serde_json::Error),
     Decode(serde_json::Error),
+    RequestInFlight,
+    MirrorUnsupported,
 }
 
 impl fmt::Display for FrameError {
@@ -685,6 +862,8 @@ impl fmt::Display for FrameError {
             Self::TrailingBytes => f.write_str("more than one frame in input"),
             Self::Encode(error) => write!(f, "frame payload encode failed: {error}"),
             Self::Decode(error) => write!(f, "frame payload decode failed: {error}"),
+            Self::RequestInFlight => f.write_str("a page request is already in flight"),
+            Self::MirrorUnsupported => f.write_str("folders view cannot be mirrored"),
         }
     }
 }
@@ -720,6 +899,14 @@ mod tests {
     }
 
     #[test]
+    fn old_page_results_default_cold_unread_and_false_stays_off_wire() {
+        let old = serde_json::json!({"sid":"s","rows":[],"hasBefore":false,"hasAfter":false});
+        let page: PageResult<serde_json::Value> = serde_json::from_value(old).unwrap();
+        assert!(!page.cold_unread);
+        assert!(serde_json::to_value(page).unwrap().get("coldUnread").is_none());
+    }
+
+    #[test]
     fn decoder_handles_chunks_and_rejects_oversized_frames() {
         let frame = Frame::json(FrameKind::Window, &serde_json::json!({"seq": 7})).unwrap();
         let encoded = frame.encode();
@@ -736,7 +923,7 @@ mod tests {
 #[cfg(test)]
 mod raw_delta_tests {
     use super::*;
-    use acpmux_book::index::Summary;
+    use acpmux_list_types::Summary;
 
     #[test]
     fn summary_delta_preserves_opaque_json_bytes() {
@@ -760,10 +947,17 @@ mod raw_delta_tests {
 #[cfg(test)]
 mod other_delta_tests {
     use super::*;
+    use acpmux_list_types::RowKey;
+    use acpmux_list_types::folders::FolderRow;
+
     #[test]
     fn every_delta_op_has_one_round_tripping_shape() {
         let ops = vec![
-            DeltaOp::<serde_json::Value>::Gone { seq: 1, chat_id: "gone".into() },
+            DeltaOp::<serde_json::Value>::Gone {
+                seq: 1,
+                origin: "local".into(),
+                chat_id: "gone".into(),
+            },
             DeltaOp::Queue { seq: 2, bytes: 3 },
             DeltaOp::Origin {
                 seq: 3,
@@ -783,5 +977,57 @@ mod other_delta_tests {
         .unwrap();
         let decoded: DeltaFrame<serde_json::Value> = frame.decode_json().unwrap();
         assert_eq!(decoded.ops, ops);
+    }
+
+    #[test]
+    fn folders_view_and_deltas_round_trip() {
+        let row = FolderRow {
+            origin: "local".into(),
+            folder: "/work".into(),
+            newest: RowKey::new("local", "chat-7"),
+            at: 19,
+            count: 3,
+        };
+        let request = Sub { view: Some(ListView::Folders), ..Sub::new("s", "list") };
+        let value = serde_json::to_value(&request).unwrap();
+        assert_eq!(value.get("view"), Some(&serde_json::json!("folders")));
+        assert!(validate_mirror_view(Some(ListView::Folders)).is_err());
+
+        let ops = vec![
+            DeltaOp::<serde_json::Value>::Folder { seq: 4, row },
+            DeltaOp::FolderGone { seq: 5, origin: "local".into(), folder: "/work".into() },
+        ];
+        let frame = delta_frame(&DeltaFrame {
+            sid: "s".into(),
+            replay: Some(ReplayMark::End),
+            ops: ops.clone(),
+        })
+        .unwrap();
+        let decoded: DeltaFrame<serde_json::Value> = frame.decode_json().unwrap();
+        assert_eq!(decoded.ops, ops);
+    }
+
+    #[test]
+    fn folder_position_keeps_a_full_bound_sized_name() {
+        let key = FolderPosition { at: 7, origin: "o".into(), folder: "x".repeat(1024) };
+        let value = serde_json::to_value(&key).unwrap();
+        let decoded: FolderPosition = serde_json::from_value(value).unwrap();
+        assert_eq!(decoded, key);
+    }
+
+    #[test]
+    fn keyed_summary_pages_keep_the_old_json_shape() {
+        let page = serde_json::json!({
+            "sid":"s", "stream":"list", "keys":[{"lastActivity":4,"chatId":"c","origin":"local"}]
+        });
+        let decoded: Page = serde_json::from_value(page).unwrap();
+        assert!(matches!(decoded.keys.as_deref(), Some([PageKey::Summary(_)])));
+        let legacy =
+            vec![ListKey { last_activity: 4, chat_id: "c".into(), origin: "local".into() }];
+        assert_eq!(
+            serde_json::to_vec(decoded.keys.as_ref().unwrap()).unwrap(),
+            serde_json::to_vec(&legacy).unwrap(),
+            "summary keys retain their pre-folders wire bytes"
+        );
     }
 }

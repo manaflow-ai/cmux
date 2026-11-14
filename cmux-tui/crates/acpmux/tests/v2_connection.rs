@@ -121,7 +121,7 @@ impl View {
                             self.cursor = seq;
                             self.rows.insert(summary.chat_id, summary.last_activity);
                         }
-                        DeltaOp::Gone { seq, chat_id } => {
+                        DeltaOp::Gone { seq, chat_id, .. } => {
                             assert_eq!(seq, self.cursor + 1);
                             self.cursor = seq;
                             self.rows.remove(&chat_id);
@@ -146,7 +146,7 @@ fn pair(
     let driver = source.clone();
     let task = tokio::spawn(async move {
         let (rd, wr) = server.into_split();
-        conn::run(rd, wr, driver, "pr4-gate", &["list".into()]).await
+        conn::run(rd, wr, driver, "pr4-gate", &["list".into()], conn::Role::Local).await
     });
     (client, source, task)
 }
@@ -475,7 +475,7 @@ async fn resume_marks(shape: acpmux::god_fixture::Shape) -> usize {
     let final_seq = writer.apply(summary(0, 2_000_000)).unwrap().seq;
     let mut view = View { cursor, replaying: true, ..View::default() };
     view.apply(&first);
-    let mut saw_end = false;
+    let mut saw_end = first_delta.replay == Some(ReplayMark::End);
     while view.cursor < final_seq || !saw_end {
         let frame = receive(&mut client).await;
         if frame.kind == FrameKind::Delta {

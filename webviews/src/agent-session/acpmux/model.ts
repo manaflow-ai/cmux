@@ -712,9 +712,13 @@ export type AcpmuxRow = {
   liveState?: "subagents" | "writing" | "compacting";
   liveAgents?: number;
   liveCompaction?: AcpmuxCompaction;
-  /// With the line reading "Thinking" past the first step: how long the turn's thoughts streamed,
-  /// summed (conversation/turns.ts `thoughtTime`), the time it shows beside the word.
-  thoughtMs?: number;
+  /// With the line reading "Thinking" past the first step (conversation/turns.ts `liveClock`, this
+  /// computer's clock): when this stretch of thinking began, the time beside the word ticking from
+  /// it, and when the turn last heard anything, after which a silence of SILENT_MS reads "Waiting".
+  /// `heardKey` changes with every event the turn's rows take (Thinking.tsx `useChangedAt`).
+  phaseAt?: number;
+  heardAt?: number;
+  heardKey?: string;
   /// The live line's clock is the turn's whole time, past its first step: it reads "4m" beside the label, or "2s · 4m" after a step's own time, so
   /// the time never reads as what the line names (conversation/Thinking.tsx).
   turnTotal?: boolean;
@@ -865,6 +869,10 @@ export type AcpmuxActivity = {
     title: string;
     kind?: string;
     status: string;
+    /// A result whose call this view has not read (an older page holds it) and that shows
+    /// nothing on its own: kept so paging can join it to its call, and drawn and counted as
+    /// nothing until then (hiddenTools.ts `isCompletedPlumbingTool`).
+    awaitingCall?: true;
     inputSummary?: string;
     output?: string;
     /// A shell call's command line (`rawInput.command`), for its Shell block.
@@ -1548,8 +1556,9 @@ export type ConversationLayout = {
 /// text font, its line and the code sizes follow the user's chat look (chatDisplay.ts), 14px
 /// system-ui on 22.75px lines and 12px code on 20px lines by default.
 const metrics = () => currentChatMetrics();
-/// Codex's user bubble keeps 10px padding on each side at every reading size.
-const userBubblePadding = () => 5 * gridLength("base") * chromeScale;
+/// Codex's user bubble keeps 10px padding on each side, at the chat's density text scale (`.cv-user__bubble`:
+/// the grid's Interface Size scale times the bubble's own, which together are the text scale).
+const userBubblePadding = () => 5 * gridLength("base") * chatDensityTextScale();
 /// The status line under a queued prompt (`.cv-user__status`: 4px above a 16px line).
 const USER_STATUS_HEIGHT = 20;
 /// The transcript's rhythm (`--cv-meta-gap`, `--cv-meta-row`, `--cv-message-gap` and `--cv-turn-gap`
@@ -1858,7 +1867,7 @@ const chromeHeight = (row: AcpmuxRow, _actions: boolean) =>
     : 0; // Reply controls overlay the container gap.
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
 const USER_BUBBLE_SHARE = 0.7;
-const userBubbleSides = () => 2 * BUBBLE.paddingInline * chromeScale;
+const userBubbleSides = () => 2 * BUBBLE.paddingInline * chatDensityTextScale();
 /// Space between a row's markdown blocks, the list indent and the quote's bar and padding.
 const blockGap = () => TRANSCRIPT_INNER_GAP * chromeScale;
 const LIST_INDENT = 28;
@@ -1887,13 +1896,12 @@ const FALLBACK_CHAR_WIDTH = 8;
 /// column's right (the computer use live preview, `--cv-inset-end`): the column's end moves in to
 /// leave it, its start stays.
 const PAGE_EDGE = gridLength("icon-box");
-/// The column's own width (`--cv-column`), before its inset rounds to a whole pixel.
+/// The column's own width (`--cv-column`), before the page edge limits it.
 export const transcriptColumnSpan = (paneWidth: number, { min, max }: ChatColumn = chatColumn()) =>
   Math.min(max, Math.max(min, paneWidth));
 export function transcriptColumn(paneWidth: number, chat: ChatColumn = chatColumn(), endReserve = 0) {
   const column = transcriptColumnSpan(paneWidth, chat);
-  // A whole pixel, as `round(nearest, ..., 1px)` in conversation.css.
-  const inset = Math.max(PAGE_EDGE * gridScale(), Math.round((paneWidth - column) / 2));
+  const inset = Math.max(PAGE_EDGE * gridScale(), (paneWidth - column) / 2);
   const insetEnd = Math.max(inset, endReserve);
   return { inset, insetEnd, width: paneWidth - inset - insetEnd };
 }
@@ -3622,7 +3630,7 @@ import { recapHeight } from "./conversation/recapPoints";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { chatColumn, type ChatColumn } from "./chatWidth";
-import { currentChatMetrics, promptCoachEnabled } from "./chatDisplay";
+import { chatDensityTextScale, currentChatMetrics, promptCoachEnabled } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
 import { inboxThreadKey } from "./conversation/inboxNotice";
 import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";

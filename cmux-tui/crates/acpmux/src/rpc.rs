@@ -444,6 +444,8 @@ pub mod method {
     pub const MUX_ATTACH: &str = "_acpmux/attach";
     pub const MUX_VIEW: &str = "_acpmux/view";
     pub const MUX_MARK_UNREAD: &str = "_acpmux/markUnread";
+    /// The person marks a chat read without showing it (`hub/seen.rs`, cmux's `chat.mark_read`).
+    pub const MUX_MARK_READ: &str = "_acpmux/markRead";
     /// The person saw a chat through a log seq (`hub/seen.rs` `read_through`): moves their seen
     /// cursor forward only.
     pub const MUX_SEEN: &str = "_acpmux/seen";
@@ -866,6 +868,17 @@ pub mod method {
     pub const MUX_MACHINE_CONSENT_SET: &str = "_acpmux/machine_consent_set";
     pub const MUX_MACHINE_CONSENT_REFUSED: &str = "_acpmux/machine_consent_refused";
     pub const MUX_MACHINE_CONSENT_GET: &str = "_acpmux/machine_consent_get";
+    /// Signing in enrolls this machine (`server/machine_enroll.rs`): `{accessToken, hub?, userId?,
+    /// buildTag?}` -> `{outcome, relay?}`. Local socket only.
+    pub const MUX_MACHINE_ENROLL: &str = "_acpmux/machine_enroll";
+    /// Signing out leaves the hub only when signing in joined this machine for the account signing
+    /// out: `{userId?}` -> `{left, kept?, hub?}`. Local socket only.
+    pub const MUX_MACHINE_LEAVE_IF_AUTO: &str = "_acpmux/machine_leave_if_auto";
+    /// The app's signed-in person changed (`server/sign_in_follow.rs`): `{userId|null, previous?,
+    /// accessToken?, hub?, buildTag?}` -> `{accepted, recorded?, leave, enroll}`. acpmux records the
+    /// account signing out, leaves its sign-in join and enrolls the next person, with its retry.
+    /// Local socket only.
+    pub const MUX_MACHINE_SIGNED_IN: &str = "_acpmux/machine_signed_in";
     // This Mac's Cloud tunnel on the team mesh (`crate::machine_tunnel`,
     // `server/machine_tunnel.rs`): the app's person-proved connection only, with the person's
     // cmux access token in `token`. `attach|detach {token, networkId?}` -> the platform's
@@ -904,6 +917,10 @@ pub mod method {
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";
+    /// To a peer daemon's link, for a record of an attached session it is not sent live (an
+    /// agent request or answer, `server/mod.rs` `deliver`): `{sessionId, seq}`, so the owner's
+    /// copy (`hub/peer_snapshot.rs`) continues past that seq instead of stopping there.
+    pub const MUX_UNSENT: &str = "_acpmux/unsent";
     /// To the connection whose `session/cancel` notification was refused, which has no answer to
     /// read: `{sessionId, message, reason?, peer?}` (`server/requests/cancel_refused.rs`).
     pub const MUX_CANCEL_REFUSED: &str = "_acpmux/cancel_refused";

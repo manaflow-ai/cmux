@@ -1,13 +1,15 @@
 # Port note: CmuxNextBrowserImport readers to cmux-browser-import
 
-The Swift readers that were in
-`Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Parsers/`, moved into Rust
+The Swift readers in
+`Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Parsers/`, ported to Rust
 (`plans/cmux-next/language-layers.md`, rule 7). The daemon serves them as one
 operation, `browser_import.read` (`browser-import-v1`,
 `cmux-tui-core/src/resource_router/browser_import.rs`); its `reader` field is
-the "Op" column below. The app calls it through `BrowserDataReader`
+the "Op" column below. The port lands in two steps (`docs/ci/app-ffi-release.md`):
+this crate and the op first, while the app keeps its Swift readers; then, after
+the app FFI re-pin, the app calls the op through `BrowserDataReader`
 (`CmuxNextBrowserImport/Import/BrowserDataReader.swift`) and
-`BrowserImportClient`. Line counts are
+`BrowserImportClient`, and the Swift readers are deleted. Line counts are
 `scripts/cmux-next/swift-logic-lines.py`'s `swift_logic_lines` at
 feat-cmux-next 5ab993d99cca.
 
@@ -60,7 +62,7 @@ profile by asking the daemon, and no copy of one is left for it to find.
 
 All of `Parsers/`: 888 logic lines.
 
-### What was deleted
+### What the Swift step deletes
 
 - **777 lines**: every file above except `SQLiteSnapshot.swift` (86) and
   `BrowserTime.swift`'s `BrowserTime` (25). Those two stay until the cookie

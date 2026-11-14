@@ -190,7 +190,8 @@ pub async fn start_configured(hub: &Arc<Hub>) -> Option<MeshRelay> {
             return None;
         }
     };
-    let _ = hub.mesh.set(client.clone());
+    // Replaces a client a leave left, if one did: a re-enroll may name another hub.
+    hub.mesh.set(client.clone());
     // The origin only (no user, password or query is accepted in the URL).
     let shown = config.shown();
     tracing::info!("mesh relay: on, through {shown}");
@@ -965,7 +966,7 @@ pub async fn deliver(
         }
         // No such session here is the lease's to bring back too, as before (`Next::NoSession`
         // settles only an outbox delivery).
-        Err((why, Next::Retry | Next::Unsent | Next::NoSession)) => {
+        Err((why, Next::Retry | Next::Unsent | Next::NoSession | Next::Stale)) => {
             tracing::info!(
                 "mesh relay: {prompt_id} not delivered yet ({why}); its lease brings it back"
             );

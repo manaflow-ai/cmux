@@ -156,6 +156,12 @@ const GROUPS: &[Group] = &[
                 "マシンのデスクトップを新しいワークスペースに表示",
             ),
             verb(
+                "setup-desktop",
+                "{target}",
+                "Set up the machine's desktop, then show it",
+                "マシンのデスクトップを設定して表示",
+            ),
+            verb(
                 "setup-github",
                 "{target} [--focus]",
                 "Set up git and GitHub on the machine",
@@ -568,8 +574,9 @@ older name; both run the same start.
                      used longest ago is archived and deleted) and start again
 
 Answers machine_id, machine_name, session_id, workspace_id and tab_id,
-plus reply with --wait, or sent: false and ready_ms with no prompt, and
-new_machine: true when this run made the machine.
+plus reply with --wait, or sent: false, ready_ms and daemon_tab (the
+chat tab's number on the machine's daemon, when start-session names one)
+with no prompt, and new_machine: true when this run made the machine.
 
 EXAMPLES
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json

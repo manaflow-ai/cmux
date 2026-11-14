@@ -1,5 +1,66 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-14 (CMUX-383 Step B): Sidebar-Look: Leo asked for “Sidebar customization (look at BB and Herder)”. The existing sidebar surface and density now read the pinned Rust projection through Swift, applying section hide/order, same-section workspace grouping/order, and atomic cmux-next.json hot reload. Gallery variants cover default, hidden/reordered sections, and workspace grouping; the watcher test covers an editor-style atomic replace.
+
+- 2026-11-14 (ask-0a91bcfdb0, carved from #42277): a machine header has a screen button beside its +. Leo, verbatim:
+  "for screensharing, jf theres no easy path to use it then theres no point even if its the most performant thing in
+  the world". This Mac's header (the sole machine's "Projects" header too) shows Share (`action.share`), a Cloud
+  machine's View screen (`remote.display`); SSH and server machines show none yet. From the trailing edge: +, the
+  screen button, the chevron, each on the shared pitch and visible at rest. View screen runs `cloudOpenDesktop` on
+  the machine; Share runs `macScreen.shareThisMac` where cmux Remote runs, else `macScreen.open`
+  (`SidebarIntentActions`). The one-list sidebar (the default) draws no This Mac header: it shows View screen on
+  Cloud headers but has no Share entry yet. Regression: `SidebarScreenEntryTests`.
+- 2026-11-14 (CMUX-383): Leo asked for “Sidebar customization (look at BB and Herder)”.
+  The first customization slices keep the document as placement owner while allowing
+  bounded cmux-next.json section/workspace hide, order and same-section grouping.
+  Rust validates the projection and the native sidebar reapplies it on every settings
+  watcher update; gallery variants cover default, hidden/reordered sections and a moved
+  workspace. The native view remains in the existing sidebar surface and density tokens.
+
+- 2026-11-14 (a590): a pinned group's pin draws on Home's line. Its header placed the pin on the icon column's middle,
+  1 pt right of the line Home's house and the pinned workspace rows' pins share (the glyph square is 1 to 2 pt under
+  the column). It now uses `SidebarStyle.rowGlyphOptics` from the column's edge, at the rows' ink size. Base reds
+  `PinnedRowsShareHomeColumnTests` (square = column, stale) and `HomePinnedRowAlignmentTests` (half-point tolerance on
+  a 1x screen) were red before fce106a2 too; they now ask the square to fit in the column and allow one device pixel.
+  Regression: `PinnedRowsShareHomeColumnTests.aPinnedGroupsPinCentersUnderHomes`.
+- 2026-11-13 (a590): no line under Home. Lawrence (msg 31467), verbatim: "get rid of line under "home"". Minimal Mode
+  draws the Lines look, whose pinned block joined under Home's block took a leading separator; a band drew a line (or,
+  under `appearance.borders` none, a tonal step) after Home's section, and the band hairline under a band ending in
+  Home. None of those draw under Home now; Home keeps the Lines look's `sectionGap`, so it still reads apart from the
+  rows under it. Lines between other sections stay. Regression: `HomeHasNoLineUnderItTests` (every app x sidebar density).
+- 2026-11-14 (New Tab rounder, #42717): a sidebar row's fill reads its corner on every layout, not once when the row
+  is made, so it is the tab's corner at the density now. Lucas, verbatim: "the left sidebar tab becoems too circular.
+  however the tabs at the top are fine. so match the sidebar item roundness to the tab roundness". A row made at a
+  roomier density had kept that density's corner after a switch (about 10 pt on Compact's 20 pt row beside 5 pt tabs).
+  `SidebarRowView.layout()`; `SidebarRowCornerFollowsDensityTests`.
+- 2026-11-13 (density targets, round 2): every row fill and top control rounds at a tab's ratio on its own height
+  (8 on 30) at every density. Lucas, verbatim: "need more roudness here (match tabs)" (Spacious's selected row),
+  "i think biggest take away is to match SAME ROUNDNESS (proportionally) to the different densiite.s" and "this also
+  applies to buttons like + icon, : icon, <- icon -> icon". `Metrics.tabCornerRadius` keeps Chrome's ratio whenever the
+  Chrome corner applies (it fell back to the card's nested corner at a large density), and the sidebar's icon buttons
+  take the ratio on their side. Row glyphs and favicons are drawn at 4/3 of the optical size and scaled down, never
+  up ("home icon does not look even"); the optical size grows with the sidebar's text size and density from the tab's
+  icon box. A title beside a bare glyph (Home, a pin) drops 0.04 em ("on spacious home is still a bit too high up and
+  not vertically aligned"). Regression: `SidebarIconColumnTests`, `PinnedSummaryDensityTests`,
+  `SidebarRowGlyphOpticalSizeTests`.
+- 2026-11-13 (density targets): a workspace row's leading glyph is the tab's icon box at every density
+  (`SidebarStyle.rowGlyphOpticalSide` = `Metrics.iconSize`: 14 Compact, 16 Default, 20 Comfortable). Lucas, verbatim:
+  "we proabably also want to change things such as icon size? on the sidebar?", then with Helium's tab as the
+  reference: "i thik icons need to be a bit bigger..heres an example of font to icon size proportion" (Helium: a
+  16 pt favicon beside 12 pt text). Rows are 20 pt at Compact and 30 at Default with 14 pt text (the ChatGPT app's).
+  The Settings page's nav rows take the sidebar's title size and `space1` row gap with the height, corner and inset
+  (`SidebarRowTokens.rowCSSVariables`).
+- 2026-11-13 (ask-9b1dc32713): a dragged workspace stays shown; the group rail's top is the katana; the rail enrolls
+  a held row. Leo, verbatim (2026-11-08): "When I click and drag a workspace, it does this really weird shifting of
+  focus situation ... I'm testing it in Chrome and I'm testing it in Edge. The second you click, it focuses. So we might
+  as well make the thing be better." "that group enrollment animation is really nice." "I don't know why you guys
+  didn't do the cut ... that top tip area, it looks like a knife. You know what? I'll just call it the katana. It's
+  good. We need to add it." A press still switches on mouse-down; its drag no longer puts the old workspace back
+  (`restorePressSelection` is gone), so one gesture switches once. `SidebarGroupLineShape`: square left edge up to the
+  tip, a convex cut on the right twice the bar's width long, the round bottom cap kept (Lawrence msg 19775). While a
+  held row's slot joins a group, the group's rail (nested ancestors' too, and a no-color block) reaches over the slot
+  on the rows' spring (`SidebarGroupLine.lines(enrolling:)`). Regressions: `SidebarPressDoesNotFocusTests`,
+  `SidebarDragKeepsViewportTests`, `SidebarGroupRailKatanaTests`, `SidebarGroupEnrollmentRailTests`.
 - 2026-11-13 (ask-b931ea5095): a cmux page draws its own icon, never the site globe. Leo, verbatim (2026-11-12, on
   the Cloud machine row `chat-800dd580cab0487c`, whose focused tab is the machine's desktop): "and it's using the old
   crummy icon". `cmux://remote-view?...` parsed as a site with host "remote-view" and no favicon, so the row and its
@@ -242,6 +303,13 @@
   Regression: `SidebarListPatchCopyTests` (a real `SidebarListView` attached, elements copied per patch).
   dcb21bf3e42 (review F1 of #39638: write into the cached section only when the same node sits at that place) has no
   visual change; it reached the branch without its `Sidebar-Look:` trailer.
+- 2026-11-11: the account menu at the sidebar's bottom-left opens on cmux's own glass (`GlassMenu`), not
+  AppKit's menu material. Leo, verbatim: "Well, that's the whole point, right? Like that's what we wanted to do
+  anyways. have better design (systems too)". Same rows, actions, shortcuts, checks, subtitles and submenus; the
+  menu glass level with the one 40% veil, 8 pt corner, 28 pt rows on the menu grid. The control keeps its
+  selected fill while the menu is open and a second click closes it. The group editor's card moves onto the same
+  surface (`Glass.makeMenuPanel`): its veil is the only change. Gallery `ui.native-menu-material`;
+  tests `GlassMenuTests`.
 - 2026-11-09: a multi-selection drags as one stack of its rows, as a browser's vertical tabs do. Leo,
   verbatim (2026-11-08, ask-2ba1bed2e4, screen recordings of ours beside a browser's): "ours vs edge's group moving i
   think we need to make ours more like edge and chrome". The card carried only the pressed row and a count badge
@@ -1157,10 +1225,10 @@ A workspace close removes only the workspace. The daemon close path and remote-c
 | Workspace hover card | One grid: the header's icon, every tab row's icon and the Show details chevron center on one icon column; the name, each tab's title and detail line and "Show details" start on one text column; tab rows keep one pitch (the list scrolls as the row above says). Each tab row is two lines: its icon (favicon, agent mark or kind), its title, and one muted detail line, the folder or page host · the status word (none when idle) · the time since its last activity, its kind when it has none (a blank page reads "New Tab"); only the place shortens, from its middle, keeping its last path component or host, never the status or the time; its spinner, needs-you or error mark, or unread dot on the trailing column. The card sizes to its rows up to 320 pt, or the sidebar's width plus 120 when less, and no narrower than 180 pt. The card lays a frosted veil (the theme's window background at 0.55) over its glass, so it reads over a busy terminal and stays glass (Leo 2026-10-21's overlay rule caps a body tint under 0.6). Variants V1..V12: `AAWorkspaceHoverCardVariantsGalleryTests` (V1 is this). | Lawrence msg 19245 ("alignment here looks bad. design not very good either, not showing enough details per each. make many variations and show me") |
 | Row close (X) | The original close: a small x at the row's trailing end, shown on hover, in its rounded box. Not the top-right "dog-ear" fold. | Lawrence 11405 ("revert styling back to original, for the X button") |
 | Group rail | The rail's left edge is the group header pill's left edge, at every depth, every density, light and dark. | Lawrence 11240, 11371, 11405 |
-| Group rail shape | Chrome's line on that edge: 2 pt, one capsule (see Left bar), the header bar's own color, a 6 pt cut below the header, down to the last member's bottom. Debug `sidebar.groupLineLayout`: `edge` (default, the row above), `joined` (no cut, the bar's bottom-left corner square: one L, band header only), `inside` (the header reaches the corner inset further left, 4 pt compact and 5 pt comfortable, capped at the list's edge: the line under its corner). Members never move. | Leo 2026-10-23 ("WTF HAPPENED TO FOLLOWING CHROME"; asks ask-5b16be6ee9, ask-40133bf821, ask-7e10ebd553), #24513 |
+| Group rail shape | Chrome's line on that edge: 2 pt, the katana on top and a round cap below (see Left bar), the header bar's own color, a 6 pt cut below the header, down to the last member's bottom. Debug `sidebar.groupLineLayout`: `edge` (default, the row above), `joined` (no cut, the bar's bottom-left corner square: one L, band header only), `inside` (the header reaches the corner inset further left, 4 pt compact and 5 pt comfortable, capped at the list's edge: the line under its corner). Members never move. | Leo 2026-10-23 ("WTF HAPPENED TO FOLLOWING CHROME"; asks ask-5b16be6ee9, ask-40133bf821, ask-7e10ebd553), #24513 |
 | Group header | The `group` surface role: its veil tinted by the group's color (chroma x1.3, 44% dark / 34% light) and its rim; the name in the theme's ink at the rows' title size, regular weight (Lawrence 2026-11-05: "group fonts should not be bold"). Debug `sidebar.groupGlass`: `vivid` (default), `glass`, `frost`, `solid`. | Leo 2026-11-05 ("just make it glassier"; "Why does it not have any sort of rim at all?") |
 | Group with no color | The `group` surface role untinted behind the header and its members (its veil and rim), the header's width, no hue and no indent; rows' hover and selection draw over it. Debug `sidebar.noColorGroup`: `glass` (default), `tray`, `lit`, `plain`. | Leo 2026-11-05 ("a grouped up thing"; "we're not necessarily into that indentation thing") |
-| Left bar: capsule, equal top/bottom rounding | The group rail beside member rows (`GroupLineView`, every place it draws: the list's lines and a lifted group's card) is one capsule: the layer's corner clip rounds all four corners by half the bar's width (`SidebarGroupLineShape`), so the top and bottom caps match, in light and dark, at every density and text size, in the line look and the connected (Chrome-Style Groups) look. Neither cap is clipped by the row, the scroll edge or a neighbour row. | Lawrence msg 19775 ("roundness of left bar needs to be better, like rounded on both top and bottom"); SidebarGroupRailCapsuleTests |
+| Left bar: the katana on top, a round cap below | The group rail beside member rows (`GroupLineView`, every place it draws: the list's lines and a lifted group's card): its top is the katana, the left edge square up to the tip and a convex cut on the right twice the bar's width long, drawn in the body's path; its bottom is a round cap, the layer's corner clip (half the bar's width), so it follows the rows' spring. In light and dark, at every density and text size, in the line look and the connected (Chrome-Style Groups) look. Neither end is clipped by the row, the scroll edge or a neighbour row. | Leo 2026-11-08 ("I'll just call it the katana ... We need to add it", ask-9b1dc32713); Lawrence msg 19775 (the bottom cap); SidebarGroupRailKatanaTests |
 | Row text | As far left as it originally was. A row with no icon starts its title at the row inset; no empty icon slot pushes it right. A top-level group's rows keep the ungrouped rows' left edge. Only nested groups step in. | Lawrence 11405 ("text needs to be as left as possible (how it originally was)"); #23975 |
 | Row title ink | Every workspace row's title draws in the sidebar title ink (`Palette.sidebarTitle`), named or not: "workspace-1", "workspace-2" and a shell at "~" read like a named row, idle or busy. Takes back the secondary ink #22840 gave idle unnamed rows. | Lucas 2026-11-12 ("we also need to make "workspace-1" "workspace-2" (unnamed workspaces) be white colour text on the left sidebar"); SidebarUnnamedRowInkTests |
 | Home unread | A blue dot, the same dot as other unread rows. No count badge. | Lawrence 11384 |
@@ -2126,6 +2194,42 @@ multi-selection; a row's buttons; group headers; item rows; pinned tiles; the pr
 to the list (they did so before only until the switch's focus change, which came in the same turn).
 Sidebar-Look: no visual change. Tests: `SidebarSwitchPressKeepsPageKeyTests`, `SidebarSwitchPressFocusTests`.
 
+## A group's rail fades with its rows (2026-11-08)
+
+- Leo 2026-11-08: "there's the sidebar where when things maybe open or shift a bit, there's like still a bit of a
+  flicker on that, like individual top group".
+- Cause: a new or leaving group line faded on AppKit's animator, which started one refresh after the rows' render-server
+  fade, so a new group's rail and its header were at different opacities for a frame; a new line also started at its
+  rows' model frames (already at the move's end) instead of where they were drawn, a rail's colour change faded on its
+  own, and on an expand the rail showed below members the fold had not uncovered yet.
+- Now group lines fade through the rows' own render-server fade (`RowMotion.fade`, same spring, same begin time), a new
+  line starts at its rows' drawn (presentation) frames, the rail's fill colour changes with no implicit fade, and on an
+  expand the line takes the same fold mask as its new members.
+- Test: `SidebarGroupFlickerTests` (rail alpha equals header alpha in every frame; event g, a new group opening at the
+  top), red commit first.
+
+## A selected row passing over others covers them itself (2026-11-08)
+
+- Leo 2026-11-08: "there's the sidebar where when things maybe open or shift a bit, there's like still a bit of a
+  flicker on that, like individual top group".
+- Cause: when the selected row moved past other rows (a re-sort put it above the top group), every row it crossed hid
+  at once and faded back near the spring's settle (`cmux.passOver`, cx-ai79), so the group's header and members sat
+  at opacity 0 for two frames and blinked back.
+- Now crossed rows no longer hide: they stay at full opacity the whole move. The moving selected row draws above them
+  and covers them itself: until the move has settled (within 0.2% of its target) its background shows its selection fill over the
+  sidebar's opaque ground (the theme's sidebar background under the sidebar's own surface fill), then fades to its own
+  fill (`passOverCover`, one render-server keyframe that removes itself), so no crossed title shows through a
+  translucent fill. Over the plain sidebar the row looks the same either way.
+- In a see-through window (translucent, frosted, glass, a picture) no opaque color matches what is behind the rows,
+  so there the crossed rows still hide and fade back as before. "Opaque" is the scope's backdrop as a terminal's
+  ground reads it (its picture and tint too), so a picture under a full tint counts as opaque; the cover runs only
+  where the window's moves animate (`animatesMovement(in:)`), as the hide it replaces does (2026-11-13 port).
+  A cover belongs to one move: the next update takes it off every row before it adds one to a row that passes again,
+  so a later status or layout change never keeps an old cover on a row that stayed put. A floating sidebar's card is
+  overlay glass, a color the ground walk cannot read, so there too the crossed rows hide instead (review of #42516).
+- Test: `SidebarGroupFlickerTests` event i (no top group piece below opacity 1 in any frame; the moving row above the
+  group and opaque), red commit first.
+
 ## Reviewed behavior-only commits
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:
@@ -2179,6 +2283,13 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   Gallery: `AARestartToUpdateGalleryTests` (each layout, ready and installing, dark and light). 09f49ddeb6f keeps
   `height(for:)` a one-argument function for its callers: no visual change. Sidebar-Look: Leo 2026-11-10, "the
   nightly automatically downloads and installs/unpacks and you simply click and it restarts with the new version".
+- 2026-11-11 (fix/space-color-swatches, for a590): the space dot's menu opens with the space's name field and one row of
+  real color swatches (`MenuIdentityHeader`, as the group menu), in place of Rename Space… and the Color submenu whose
+  nine rows all drew as the same template dot. Set Space Theme and Reset Space Theme leave that submenu for rows of
+  their own. A colored space's dot draws its swatch color at full strength, no longer mixed toward the strip or dimmed
+  to 70% when not current (the current one has its chip). Gallery: `AASpaceColorMenuGalleryTests` (three header
+  variants, dots before/after dark and light).
+  Sidebar-Look: Leo 2026-11-11, "this colour selection for spaces is wack".
 - 2026-11-11 (a1074, Lawrence 8:04 PM "spacing here is not consistent anymore either"): Home to the first pin and pin
   to pin step at the workspace rows' pitch at every density. Sidebar-Look: Home, pinned rows and the Workspaces heading keep one row pitch.
 - 2026-11-12 (carries #41640 for the two-tone polish): the sidebar's full-height edge line and its hover and drag glow

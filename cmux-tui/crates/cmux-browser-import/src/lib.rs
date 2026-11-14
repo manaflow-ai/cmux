@@ -2,9 +2,10 @@
 //! `browser_import.read` (`browser-import-v1`, cmux-tui-core's `resource_router/browser_import.rs`),
 //! which only the verified app connection may send.
 //!
-//! It replaces the Swift readers that were in
+//! It ports the Swift readers in
 //! `Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Parsers/`, rule for rule
-//! (`PORT.md` maps each Swift file to its function here):
+//! (`PORT.md` maps each Swift file to its function here); the app switches to it, and those are
+//! deleted, in a later step:
 //!
 //! - [`chromium`]: `Bookmarks`, `History`, the open tabs of a session file (an SNSS command log
 //!   of [`pickle`] payloads), the default search engine and the Web Store extensions;

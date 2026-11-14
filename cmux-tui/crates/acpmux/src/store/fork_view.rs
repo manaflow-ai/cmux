@@ -253,6 +253,12 @@ impl ForkView {
         if let Some(e) = failed {
             return Err(e);
         }
+        // From the commit on, the fork's history is its own segment `000000`, each record written
+        // again: a line may read differently than the chat's line did. Its count (its own plus
+        // its chat's, `log_stamp`) goes past what it was before the write: no read under `dropping`
+        // sees it in between, and after the drop it reads its own count alone.
+        let shown = self.log_stamp(&reference.session)?;
+        self.inner.bump_log_stamp(id, shown.saturating_add(1))?;
         writer.commit()?;
         // The meta first: if its save fails, the reference stands on disk and here, and the next
         // write replaces segment `000000` whole (review of #37020: a failed save left the
@@ -365,6 +371,81 @@ impl Store for ForkView {
     }
     fn flush_session(&self, id: &str) -> Result<()> {
         self.inner.flush_session(id)
+    }
+    /// A journal restore's cut of `id`'s own records past `after` (`hub/journal_restore.rs`):
+    /// the forks that show them get them first, as a retention commit does. The trait's own
+    /// default stages through this view, which stages nothing for a store with no segments (the
+    /// memory store), and the cut never happened.
+    fn truncate_after(&self, id: &str, after: u64) -> Result<bool> {
+        let _dropping = self.exclusive();
+        for fork in self.forks_of(id)? {
+            self.materialize_locked(&fork)?;
+        }
+        self.inner.truncate_after(id, after)
+    }
+    /// What a chat keeps while a journal restore holds it (`hub/restore_writer.rs`): the
+    /// store's own, beside its log. The trait's default keeps nothing across a restart.
+    fn keep_parked(&self, id: &str, kept: Option<&[u8]>) -> Result<()> {
+        self.inner.keep_parked(id, kept)
+    }
+    fn kept_parked(&self, id: &str) -> Result<Option<Vec<u8>>> {
+        self.inner.kept_parked(id)
+    }
+    /// A fork's lines are its chat's history lines through the seq it was forked through, then
+    /// its own, as `scan` shows them. A chunk ends where the history does.
+    fn read_log(
+        &self,
+        id: &str,
+        from: u64,
+        filter: LogFilter<'_>,
+        stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogChunk> {
+        let _held = self.shared();
+        let Some(r) = self.reference(id)? else {
+            return self.inner.read_log(id, from, filter, stamp, marks, out);
+        };
+        let mut read = 0;
+        if from <= r.through_seq {
+            let history = LogFilter {
+                through: filter.through.min(r.through_seq),
+                kinds: Some(HISTORY_KINDS),
+            };
+            let chunk = self.read_log(&r.session, from, history, stamp, marks, out)?;
+            if !out.is_empty() || !chunk.at_end || filter.through <= r.through_seq {
+                return Ok(LogChunk {
+                    at_end: chunk.at_end && filter.through <= r.through_seq,
+                    ..chunk
+                });
+            }
+            read = chunk.read;
+        }
+        let from = from.max(r.through_seq.saturating_add(1));
+        let chunk = self.inner.read_log(id, from, filter, stamp, marks, out)?;
+        Ok(LogChunk { read: chunk.read + read, ..chunk })
+    }
+    /// A fork by reference reads its own count plus its chat's: a change to either log's lines
+    /// changes what the fork shows.
+    fn log_stamp(&self, id: &str) -> Result<u64> {
+        let _held = self.shared();
+        let own = self.inner.log_stamp(id)?;
+        match self.reference(id)? {
+            Some(r) => Ok(own.saturating_add(self.log_stamp(&r.session)?)),
+            None => Ok(own),
+        }
+    }
+    fn bump_log_stamp(&self, id: &str, by: u64) -> Result<()> {
+        self.inner.bump_log_stamp(id, by)
+    }
+    fn sync_log_through(&self, id: &str, seq: u64) -> Result<()> {
+        let _held = self.shared();
+        if let Some(r) = self.reference(id)?
+            && seq <= r.through_seq.saturating_add(1)
+        {
+            return self.sync_log_through(&r.session, seq);
+        }
+        self.inner.sync_log_through(id, seq)
     }
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         let _held = self.shared();

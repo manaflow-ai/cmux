@@ -26,14 +26,15 @@ RUNNER_DEADLINE_SECONDS = 180
 
 
 def run_runner(
-    package: pathlib.Path, env: dict[str, str], default_direct: str | None = "0"
+    package: pathlib.Path, env: dict[str, str], default_direct: str | None = "0",
+    extra_args: tuple[str, ...] = (),
 ) -> subprocess.CompletedProcess[str]:
     # The swift-test-per-suite tests below pin the fallback path
     # (CMUX_SWIFT_TEST_DIRECT=0); the direct tests set 1; None keeps the default.
     if default_direct is not None and "CMUX_SWIFT_TEST_DIRECT" not in env:
         env = {**env, "CMUX_SWIFT_TEST_DIRECT": default_direct}
     process = subprocess.Popen(
-        [str(RUNNER), str(package)],
+        [str(RUNNER), str(package), *extra_args],
         cwd=ROOT,
         env=env,
         text=True,
@@ -905,6 +906,63 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
                 self.assertEqual(completed.returncode, 2, completed.stdout)
                 self.assertIn("CMUX_SWIFT_TEST_SUITE_JOBS", completed.stdout)
                 self.assertFalse((temp / "calls.txt").exists())
+
+    def _admission_run(self, repetitions: str, failure: str = ""):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir)
+            self._write_fake_swift(temp,
+                "import pathlib\n"
+                "with open(os.environ['ADMISSION_PIDS'], 'a') as pids:\n"
+                "    pids.write(str(os.getpid()) + '\\n')\n"
+                "count = len(pathlib.Path(os.environ['ADMISSION_PIDS']).read_text().splitlines())\n"
+                "if count == 3:\n"
+                "    failure = os.environ.get('ADMISSION_FAILURE', '')\n"
+                "    if failure == 'timeout': raise SystemExit(124)\n"
+                "    if failure == 'fail': raise SystemExit(7)\n"
+                "    if failure == 'empty': raise SystemExit(0)\n"
+                "    if failure == 'locked':\n"
+                "        print('unable to attach DB: database is locked')\n"
+                "        raise SystemExit(1)\n"
+                "print('Test run with 1 test passed after 0.001 seconds.')\n")
+            package = temp / "ExampleTests"
+            package.mkdir()
+            env = self._jobs_env(temp, ["Alpha"], "1")
+            env.update(ADMISSION_PIDS=str(temp / "pids"), ADMISSION_FAILURE=failure)
+            completed = run_runner(package, env, extra_args=("--repeat", repetitions))
+            calls = temp / "calls.txt"
+            pids = temp / "pids"
+            return (completed, calls.read_text().splitlines() if calls.exists() else [],
+                    pids.read_text().splitlines() if pids.exists() else [])
+
+    def test_admission_builds_once_and_runs_twenty_fresh_processes(self) -> None:
+        completed, calls, pids = self._admission_run("20")
+        self.assertEqual(completed.returncode, 0, completed.stdout)
+        self.assertEqual(len(calls), 21, calls)
+        self.assertIn("test list", calls[0])
+        self.assertTrue(all("--skip-build" in call for call in calls[1:]), calls)
+        self.assertEqual(len(set(pids)), 20, pids)
+        self.assertIn("20/20 passed (no retries)", completed.stdout)
+        self.assertEqual(completed.stdout.count("ci-repeat "), 20)
+
+    def test_admission_keeps_the_first_failed_repetition(self) -> None:
+        for failure, status in (("fail", 7), ("timeout", 124), ("locked", 1), ("empty", 1)):
+            with self.subTest(failure=failure):
+                completed, calls, pids = self._admission_run("20", failure)
+                self.assertEqual(completed.returncode, status, completed.stdout)
+                self.assertEqual(len(calls), 4, calls)
+                self.assertEqual(len(pids), 3, pids)
+                self.assertIn("2/20 passed (no retries)", completed.stdout)
+                self.assertNotIn("retrying", completed.stdout)
+                self.assertNotIn("20/20 passed", completed.stdout)
+
+    def test_invalid_admission_count_is_refused_before_building(self) -> None:
+        for count in ("0", "-1", "two", "10000", "99999999999999999999"):
+            with self.subTest(count=count):
+                completed, calls, pids = self._admission_run(count)
+                self.assertEqual(completed.returncode, 2, completed.stdout)
+                self.assertIn("--repeat", completed.stdout)
+                self.assertEqual(calls, [])
+                self.assertEqual(pids, [])
 
     def _shard_run(self, shard: str, suites: list[str]) -> tuple[subprocess.CompletedProcess[str], list[str]]:
         with tempfile.TemporaryDirectory() as temp_dir:

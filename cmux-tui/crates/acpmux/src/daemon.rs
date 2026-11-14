@@ -177,6 +177,10 @@ fn is_test_panic_thread(thread: &str) -> bool {
     }
 }
 
+/// How often a WireGuard transport that holds the key lock asks whether the cmux link now
+/// serves the node key (`Transport::yield_to_link`): a few file reads.
+const LINK_HANDOFF_EVERY: Duration = Duration::from_secs(2);
+
 /// How long SIGTERM or `_acpmux/shutdown` may take before the daemon exits
 /// anyway.
 /// The complete handoff budget after the daemon has announced shutdown. Remote links and
@@ -563,6 +567,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         Err(e) => {
             // The copied node key could not be replaced: keep this box off WireGuard for this
             // run rather than answer with the original's identity.
+            // Includes a node key recorded as copied (a leave removed the record).
             let copied = crate::cli::cloud_join::copied_from_another_box();
             tracing::warn!(copied, "machine clone check failed: {e:#}");
             copied
@@ -582,8 +587,24 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     } else {
         None
     };
+    // Started before the cmux link was set up here, the transport holds this machine's key
+    // lock: it hands it to the link once one serves this home's node key (`cmux link ensure`
+    // waits for it, `key_lock.rs`).
+    if let Some(transport) = wireguard.clone() {
+        tokio::spawn(async move {
+            transport.yield_to_link(&home(), LINK_HANDOFF_EVERY, SHUTDOWN_BUDGET).await;
+        });
+    }
     // Serve before reading session metadata or logs. Exact-id chat reads load on demand.
     let hub = Hub::new_loading_with_wireguard(config, store, mailbox, wireguard.clone());
+    if let Some(v2) = v2.as_ref() {
+        let (tee, task) = crate::hub::list_tee::start_v2_tee(hub.clone(), v2.clone());
+        hub.install_v2_tee(tee);
+        v2.hub.set_page_provider(std::sync::Arc::new(crate::hub::list_tee::V1PageProvider::new(
+            hub.clone(),
+        )));
+        v2_tasks.spawn(task);
+    }
     // A copied machine's first start settles what the logs left open as stopped
     // (`hub/clone_boot.rs`); read before any log is.
     let cloned = hub.take_clone_marker(&home()).is_some();
@@ -622,7 +643,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     }
     hub.start_watches();
     // The team hub's relay, when config.json names one (`server/mesh_relay.rs`).
-    let mesh_relay = crate::server::mesh_relay::start_configured(&hub).await;
+    // Kept on the hub, so a sign-in enroll can start one live (`server/machine_enroll.rs`).
+    // A sign-out's leave the last run did not finish goes first: no relay for a machine that left.
+    crate::server::machine_enroll::start_relay_at_start(&hub).await;
     // The hub carrier on the same hub and credential (`hub_carrier.rs`): this machine serves its
     // relay slot, and its peers dial over it. A copied home is off, as WireGuard is.
     #[cfg(feature = "hub-carrier")]
@@ -1147,10 +1170,13 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // another daemon's now (`config::mark_home_lost` refuses its writes there).
     startup.abort();
     let _ = tokio::time::timeout_at(cleanup_deadline, startup).await;
-    // Its last heartbeat empties this daemon's rows in the hub's address book.
-    if let Some(relay) = mesh_relay {
-        let _ = tokio::time::timeout_at(cleanup_deadline, relay.stop()).await;
-    }
+    // Its last heartbeat empties this daemon's rows in the hub's address book. The start's
+    // join task ends first, so nothing starts a relay after this stops it.
+    let _ = tokio::time::timeout_at(
+        cleanup_deadline,
+        crate::server::machine_enroll::stop_at_shutdown(&hub),
+    )
+    .await;
     // SIGTERM handoff and explicit updates/restarts use 1012. Explicit ordinary RPC
     // shutdown and interactive interrupt use a normal WebSocket close.
     let restarting = hub.restart_requested.load(std::sync::atomic::Ordering::SeqCst);

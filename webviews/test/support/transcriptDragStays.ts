@@ -21,8 +21,9 @@
 //
 // Each case prints what it read (px), so a run gives the size of a move, not only pass or fail.
 //
-// Real Chromium and WebKit from Playwright: WebKit is the engine the app shows its chat in (a
-// WKWebView), Chromium the one the resize bench measures. CI fails the file when its engine cannot
+// Real Chromium and WebKit from Playwright: Chromium is the engine the Mac app shows its chat in
+// by default (and the one the resize bench measures), WebKit the one it shows it in when a person
+// picks WebKit in Settings or Chromium is not available. CI fails the file when its engine cannot
 // launch (each part waits on requireBrowserLane and passes the engine, so the runner puts it in its
 // browser pool). One file for each engine and shape (transcript-drag-stays-{fits,crossing,reader,
 // follows}-browser.test.ts in Chromium, transcript-drag-stays-webkit-* in WebKit): each has its own
@@ -30,6 +31,7 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import type { Browser, BrowserType, Page } from "playwright";
+import { type DragClockWindow, installDragClock } from "./dragClock";
 import { probeEngineOrSkip } from "./requireBrowserLane";
 import { warmViteServer } from "./warmDevServer";
 
@@ -53,8 +55,21 @@ const WIDE = 800;
 const NARROW = 380;
 /** Width steps in a drag, one each frame. */
 const STEPS = 24;
+/** What the page's clock gains in each frame of a drag: one frame at 60 Hz. */
+const CLOCK_STEP_MS = 16;
+/** Frames the drag's clock runs on after the last width: 192 ms, past the 120 ms after which the
+ *  transcript ends a live resize. */
+const HOLD_FRAMES = 12;
 
-type DragArgs = { from: number; to: number; steps: number; toEnd: boolean; track: boolean };
+type DragArgs = {
+  from: number;
+  to: number;
+  steps: number;
+  toEnd: boolean;
+  track: boolean;
+  clockStep: number;
+  holdFrames: number;
+};
 /** One read of the transcript, in px: `top` from the view's top edge down to the highest row's top,
  *  `foot` from the lowest row's bottom down to the view's bottom edge, `at` the tracked row's top. */
 type Shot = { top: number; foot: number; at: number | null };
@@ -71,8 +86,8 @@ type DragRun = {
   tracked: string | null;
   /** The place in the chat (1 = its first row) of the highest row mounted before the drag. */
   firstRow: number;
-  /** The longest time between two width steps, ms. The transcript reads steps as one live resize
-   *  while they come inside 120 ms of each other; a slower run did not drive a drag. */
+  /** The longest time between two width steps on the runner's own clock, ms. Printed, never
+   *  checked: the page reads the drag's clock (`dragInPage`), so a slow runner drives the same drag. */
   gap: number;
   /** The frames read while the rows sat in flow (0 on a transcript that places each frame's rows).
    *  Printed, never checked: what a person sees is the same claim on both. */
@@ -81,7 +96,12 @@ type DragRun = {
 
 /// Runs in the page. Sets the pane `from` wide and waits for rest, then gives it one new width each
 /// frame to `to`, reading the rows once each frame rendered, and reads them again at rest.
-async function dragInPage({ from, to, steps, toEnd, track }: DragArgs): Promise<DragRun> {
+///
+/// The drag's clock is the test's (support/dragClock.ts says why): from the first width step until
+/// the drag's own timers ran, the page's clock gains `clockStep` ms a frame, so each width is one
+/// 60 Hz frame after the one before on any runner, and the live resize ends when the test's clock
+/// says so.
+async function dragInPage({ from, to, steps, toEnd, track, clockStep, holdFrames }: DragArgs): Promise<DragRun> {
   const root = document.getElementById("root")!;
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
   const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
@@ -118,6 +138,13 @@ async function dragInPage({ from, to, steps, toEnd, track }: DragArgs): Promise<
     }
     if (same < 20) throw new Error("the transcript did not come to rest in 900 frames");
   };
+  // The drag's clock (above; support/dragClock.ts, which `open` put on the page).
+  const {
+    pageNow,
+    start: startClock,
+    advance: advanceClock,
+    end: endClock,
+  } = (window as unknown as DragClockWindow).dragClock!(clockStep);
   root.style.width = `${from}px`;
   await rest();
   if (toEnd) {
@@ -143,33 +170,51 @@ async function dragInPage({ from, to, steps, toEnd, track }: DragArgs): Promise<
   let gap = 0;
   let stepped = 0;
   let flowed = 0;
-  await new Promise<void>((done) => {
-    let index = 0;
-    const tick = () => {
-      if (index >= widths.length) {
-        done();
-        return;
-      }
-      root.style.width = `${widths[index]}px`;
-      const now = performance.now();
-      if (index > 0) gap = Math.max(gap, now - stepped);
-      stepped = now;
-      index += 1;
-      // A task posted from the frame's callback runs once that frame's rendering step finished.
-      const channel = new MessageChannel();
-      channel.port1.onmessage = () => {
-        try {
-          frames.push(shot());
-          if (document.querySelector(".acpmux-thread--flow")) flowed += 1;
-        } catch (error) {
-          failed = error;
+  startClock();
+  try {
+    await new Promise<void>((done) => {
+      let index = 0;
+      const tick = () => {
+        if (index >= widths.length) {
+          done();
+          return;
         }
+        root.style.width = `${widths[index]}px`;
+        const now = pageNow();
+        if (index > 0) gap = Math.max(gap, now - stepped);
+        stepped = now;
+        index += 1;
+        // A task posted from the frame's callback runs once that frame's rendering step finished.
+        const channel = new MessageChannel();
+        channel.port1.onmessage = () => {
+          try {
+            frames.push(shot());
+            if (document.querySelector(".acpmux-thread--flow")) flowed += 1;
+          } catch (error) {
+            failed = error;
+          }
+          advanceClock();
+          requestAnimationFrame(tick);
+        };
+        channel.port2.postMessage(0);
       };
-      channel.port2.postMessage(0);
       requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-  });
+    });
+    // The width holds: the drag's clock goes on until the live resize's own timer ran. Each step is
+    // a task after a frame's rendering, where the browser runs a timer too.
+    for (let count = 0; count < holdFrames; count += 1) {
+      await new Promise<void>((rendered) => {
+        requestAnimationFrame(() => {
+          const channel = new MessageChannel();
+          channel.port1.onmessage = () => rendered();
+          channel.port2.postMessage(0);
+        });
+      });
+      advanceClock();
+    }
+  } finally {
+    await endClock();
+  }
   await rest();
   if (failed !== undefined) throw failed;
   if (frames.length !== steps) throw new Error(`${frames.length} of ${steps} frames were read`);
@@ -238,6 +283,7 @@ export async function dragStays({ file, shape, engine, engineName, configFile }:
     const page = await browser!.newPage({ viewport: { width: 1000, height } });
     await page.goto(`http://127.0.0.1:${port}${pagePath}`);
     await page.waitForFunction(() => "__debug" in window);
+    await page.evaluate(installDragClock);
     await page.evaluate((px) => {
       document.getElementById("root")!.style.width = `${px}px`;
     }, width);
@@ -251,6 +297,8 @@ export async function dragStays({ file, shape, engine, engineName, configFile }:
       steps: STEPS,
       toEnd: options.toEnd ?? false,
       track: options.track ?? false,
+      clockStep: CLOCK_STEP_MS,
+      holdFrames: HOLD_FRAMES,
     });
   const report = (name: string, run: DragRun, more: Record<string, unknown>) =>
     console.log(

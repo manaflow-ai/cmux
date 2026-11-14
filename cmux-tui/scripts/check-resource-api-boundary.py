@@ -1166,6 +1166,7 @@ def _validate_catalog_type(
                 # Settings values are data the settings schema describes, not
                 # the catalog (plans/cmux-next/settings-react.md section 2).
                 "operations.settings.set.params.fields.value",
+                "types.SettingsEdit.fields.value",
                 "operations.settings.schema.result",
                 "operations.settings.list.result.items",
                 "operations.settings.get.result",

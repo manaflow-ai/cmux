@@ -31,6 +31,10 @@ pub use fork_view::{
     ForkView, HISTORY_KINDS, HistoryFence, HistoryRef, HistoryWriter, fence_history,
     folder_to_replace,
 };
+mod log_bytes;
+pub use log_bytes::{
+    LogChunk, LogFilter, LogMark, LogMarks, STAMP as LOG_STAMP, line_seq as log_line_seq,
+};
 mod meta_parts;
 pub use meta_parts::PARTS_FILE;
 mod shared_value;
@@ -152,6 +156,24 @@ pub struct LastReturn {
     pub turns: u64,
 }
 
+/// The chat's current away recap (`hub/away_recap.rs`): the record that shows it, the facts it
+/// names, the turn count it covers and whether the person dismissed it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AwayRecap {
+    /// Seq of its `recap` record.
+    pub seq: u64,
+    /// Hash of `facts`, sent on the record so a client can tell one recap's facts from another's.
+    pub digest: String,
+    /// What it names (`away_recap::facts`): a recap whose facts are all here says nothing new.
+    pub facts: Vec<String>,
+    /// The turn count it covers; the next recap waits `TURNS_BETWEEN` more.
+    pub turns: u64,
+    /// The person pressed its ×: a recap with no new fact stays unwritten.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dismissed: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
@@ -222,6 +244,14 @@ pub struct SessionMeta {
     /// that, since one bump past the value it read is all a client asks of it.
     #[serde(default)]
     pub transcript_seq: u64,
+    /// Where the records this machine's own recovery wrote at the end of the journal begin (the
+    /// seq before the first of them, `hub/restore_writer.rs` `is_recovery`), while they end it:
+    /// any other record appended after them clears it, as does a restore that takes them back.
+    /// The summary's `recoveredAfter`, so the owner restores from there a copy that ends at or
+    /// before `last_seq` (review of #37284 at 8b5f3063, F2). Saved with the meta, so a machine
+    /// that restarts again before its owner reconnects still says it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovered_after: Option<u64>,
     #[serde(default)]
     pub parent_id: Option<String>,
     #[serde(default)]
@@ -367,6 +397,11 @@ pub struct SessionMeta {
     /// its list read race. Cleared when the last client showing it stops.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_return: Option<LastReturn>,
+    /// The chat's one "While you were away" recap (`hub/away_recap.rs`): a newer recap replaces it,
+    /// one that says nothing new is never written, and its dismissal stays across restarts.
+    /// None until the first recap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub away_recap: Option<AwayRecap>,
     /// Each person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they had on
     /// screen while they attended the chat, keyed by person id (`_meta.acpmux.author` id,
     /// [`crate::hub::seen::OWNER_READER`] for the owner). Only `_acpmux/seen` moves it forward; a
@@ -1057,6 +1092,69 @@ pub trait Store: Send + Sync {
     fn flush_session(&self, _id: &str) -> Result<()> {
         self.flush()
     }
+    /// v2's raw source (`hub/v1_source.rs`, `store/log_bytes.rs`): chat `id`'s lines from seq
+    /// `from` that `filter` keeps, whole and as written, at most one chunk of them (or one line
+    /// when a line is larger), into `out`, read under count `stamp` with `marks`. A store that
+    /// holds parsed records writes each as its line.
+    fn read_log(
+        &self,
+        id: &str,
+        from: u64,
+        filter: LogFilter<'_>,
+        _stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogChunk> {
+        use acpmux_core::chat::source::CHUNK_BYTES;
+        out.clear();
+        marks.clear();
+        let mut chunk = LogChunk { next: from, at_end: true, read: 0 };
+        let mut failed = None;
+        self.scan(id, from.saturating_sub(1), &mut |record| {
+            if record.seq < from {
+                return true;
+            }
+            if record.seq > filter.through {
+                return false;
+            }
+            if filter.kinds.is_some_and(|kinds| !kinds.contains(&record.kind.as_str())) {
+                return true;
+            }
+            let line = match serde_json::to_vec(&record) {
+                Ok(line) => line,
+                Err(e) => {
+                    failed = Some(e);
+                    return false;
+                }
+            };
+            if !out.is_empty() && out.len() + line.len() + 1 > CHUNK_BYTES {
+                chunk.at_end = false;
+                return false;
+            }
+            out.extend_from_slice(&line);
+            out.push(b'\n');
+            chunk.next = record.seq.saturating_add(1);
+            true
+        })?;
+        if let Some(e) = failed {
+            return Err(e.into());
+        }
+        chunk.read = out.len() as u64;
+        Ok(chunk)
+    }
+    /// Chat `id`'s count of changes to lines already written (`store/log_bytes.rs`): 0 for a
+    /// store whose lines never change.
+    fn log_stamp(&self, _id: &str) -> Result<u64> {
+        Ok(0)
+    }
+    /// Adds `by` to chat `id`'s count: its lines read differently from now.
+    fn bump_log_stamp(&self, _id: &str, _by: u64) -> Result<()> {
+        Ok(())
+    }
+    /// Chat `id`'s log durable through `seq`: v2's book is never ahead of its raw.
+    fn sync_log_through(&self, id: &str, _seq: u64) -> Result<()> {
+        self.flush_session(id)
+    }
     /// Events with `seq > after`, at most `limit`.
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>>;
     /// Visit records with `seq > after` in order until `visit` returns false.
@@ -1247,6 +1345,27 @@ pub trait Store: Send + Sync {
     fn commit_compaction(&self, _id: &str, _staged: Staged) -> Result<bool> {
         Ok(false)
     }
+    /// Leaves out every record of chat `id` past `after`, in place (`CompactMode::Truncate`):
+    /// false when the log changed meanwhile, or the store cannot. Its caller holds the chat's
+    /// append lock. A journal restore's only (`hub/journal_restore.rs`).
+    fn truncate_after(&self, id: &str, after: u64) -> Result<bool> {
+        match self.stage_compaction(id, CompactMode::Truncate { after })? {
+            Some(staged) => self.commit_compaction(id, staged),
+            None => Ok(false),
+        }
+    }
+    /// Keeps `kept`, the records chat `id` keeps while a journal restore holds it
+    /// (`hub/restore_writer.rs`), whole and durably beside its log, in place of what it kept
+    /// before; None removes them. They take no seq: the restore needs the seqs past the log's
+    /// end. Done only when it answers Ok. A store that keeps nothing across a restart keeps
+    /// nothing here.
+    fn keep_parked(&self, _id: &str, _kept: Option<&[u8]>) -> Result<()> {
+        Ok(())
+    }
+    /// What [`Store::keep_parked`] last kept for chat `id`.
+    fn kept_parked(&self, _id: &str) -> Result<Option<Vec<u8>>> {
+        Ok(None)
+    }
     /// Writes a cold archive of `id`'s log beside it and checks it (`store/cold.rs`); None
     /// without a log to archive, or for a store that keeps none.
     fn stage_cold(&self, _id: &str) -> Result<Option<StagedCold>> {
@@ -1417,7 +1536,13 @@ struct Writers {
     open: HashMap<String, SegmentWriter>,
     /// Counts appends; a writer's `used` is the count at its last one.
     clock: u64,
+    /// Each chat's count of changes to lines already written, once read (`store/log_bytes.rs`):
+    /// read and bumped only under this lock.
+    stamps: HashMap<String, u64>,
 }
+
+/// What a chat keeps while a journal restore holds it (`Store::keep_parked`), beside its log.
+const PARKED: &str = "parked.json";
 
 struct SegmentWriter {
     index: u32,
@@ -1475,38 +1600,65 @@ impl LocalStore {
         self.root.join(id)
     }
 
+    /// The log's segments, in order. A cut a crash or a failure left halfway
+    /// (`store/compact.rs` `finish_cut_locked`) is finished first: no reader ever sees a log
+    /// whose segments were cut to different ends (review of #37284 at b7496c3f, F2).
     /// The log's segments, oldest first. A cold-archived chat's log is rehydrated first
     /// (`store/cold.rs`): only a chat with no segment pays for the look, one `lstat` and a second
     /// listing. The listing is taken again whatever `rehydrate` answers: another thread's
     /// rehydrate may have put the log back since the first, and this one then answers false
     /// (review of #39141: an append went on in `000001` of a log that ran on past it).
     fn segments(&self, id: &str) -> Result<Vec<(u32, PathBuf)>> {
-        let segments = self.segment_files(id)?;
-        if segments.is_empty() {
-            self.rehydrate(id)?;
-            return self.segment_files(id);
+        let (segments, cut_pending) = self.list_segments(id)?;
+        if !cut_pending {
+            return Ok(segments);
         }
-        Ok(segments)
+        // A sealed store writes nothing: the next daemon finishes it.
+        let Ok(_open) = self.writable() else { return Ok(segments) };
+        let mut writers = self.writers.lock_or_recover();
+        self.finish_cut_locked(id, &mut writers)?;
+        drop(writers);
+        Ok(self.list_segments(id)?.0)
+    }
+
+    /// The log's segments, in order, as the folder lists them, and whether a cut's intent
+    /// (`store/compact.rs` `CUT`) is beside them: read in the same listing, so it costs nothing.
+    /// A cold archive's log is rehydrated first (`store/cold.rs`).
+    fn list_segments(&self, id: &str) -> Result<(Vec<(u32, PathBuf)>, bool)> {
+        let listed = self.listed_files(id)?;
+        if listed.0.is_empty() {
+            self.rehydrate(id)?;
+            return self.listed_files(id);
+        }
+        Ok(listed)
     }
 
     /// The segments on the disk now, never rehydrated.
     fn segment_files(&self, id: &str) -> Result<Vec<(u32, PathBuf)>> {
+        Ok(self.listed_files(id)?.0)
+    }
+
+    /// [`Self::segment_files`], and whether a cut's intent is beside them.
+    fn listed_files(&self, id: &str) -> Result<(Vec<(u32, PathBuf)>, bool)> {
         let dir = self.dir(id).join("events");
         let mut out = Vec::new();
+        let mut cut_pending = false;
         let Ok(rd) = std::fs::read_dir(&dir) else {
-            return Ok(out);
+            return Ok((out, false));
         };
         for entry in rd {
             let entry = entry?;
             let name = entry.file_name().to_string_lossy().into_owned();
-            if let Some(stem) = name.strip_suffix(".ndjson")
+            if name == compact::CUT {
+                cut_pending = true;
+            } else if let Some(stem) = name.strip_suffix(".ndjson")
                 && let Ok(idx) = stem.parse::<u32>()
             {
                 out.push((idx, entry.path()));
             }
         }
         out.sort();
-        Ok(out)
+        Ok((out, cut_pending))
     }
 
     fn list_entry(
@@ -1615,7 +1767,8 @@ impl LocalStore {
         let dir = self.dir(id).join("events");
         crate::config::private_state_dir(&self.dir(id))?;
         crate::config::private_state_dir(&dir)?;
-        let segs = self.segments(id)?;
+        // Under the writers' lock (`append_line`), which finished any cut left halfway first.
+        let (segs, _) = self.list_segments(id)?;
         // Never segment `000000`: it holds only a fork's history, written whole and renamed in
         // place (`history_writer`), which would replace a record appended to it (review of
         // #37020). A log whose only segment it is goes on in `000001`.
@@ -1685,6 +1838,8 @@ impl LocalStore {
             w.close(&oldest, &self.sync_failed);
         }
         if !writers.open.contains_key(id) {
+            // A cut left halfway is finished before anything is appended past it.
+            self.finish_cut_locked(id, &mut writers)?;
             let writer = self.open_writer(id)?;
             writers.open.insert(id.to_owned(), writer);
         }
@@ -1982,6 +2137,26 @@ impl Store for LocalStore {
         self.append_line(id, line.as_bytes())
     }
 
+    fn read_log(
+        &self,
+        id: &str,
+        from: u64,
+        filter: LogFilter<'_>,
+        stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogChunk> {
+        self.read_log_bytes(id, from, filter, stamp, marks, out)
+    }
+
+    fn log_stamp(&self, id: &str) -> Result<u64> {
+        self.read_stamp(id)
+    }
+
+    fn bump_log_stamp(&self, id: &str, by: u64) -> Result<()> {
+        self.bump_stamp(id, by)
+    }
+
     fn writes_history(&self) -> bool {
         true
     }
@@ -2209,6 +2384,38 @@ impl Store for LocalStore {
         *self.sealed.write().unwrap_or_else(std::sync::PoisonError::into_inner) = true;
     }
 
+    /// `<id>/parked.json`, beside the chat's `events/`: written whole by a rename, its file and
+    /// folder synced before it answers. Never makes the chat's folder: a purged chat keeps none.
+    fn keep_parked(&self, id: &str, kept: Option<&[u8]>) -> Result<()> {
+        let _open = self.writable()?;
+        let path = self.dir(id).join(PARKED);
+        match kept {
+            Some(bytes) => compact::write_durably(&path, bytes),
+            None => match crate::home_fs::remove_file(&path) {
+                Ok(()) => sync_directory(&self.dir(id)),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(e) => Err(e).with_context(|| format!("remove {}", path.display())),
+            },
+        }
+    }
+
+    fn kept_parked(&self, id: &str) -> Result<Option<Vec<u8>>> {
+        #[cfg(test)]
+        if fails_kept_read(id) {
+            anyhow::bail!("a test failed this read of {id}'s kept records");
+        }
+        let path = self.dir(id).join(PARKED);
+        match crate::config::private_state_file(&path) {
+            Ok(file) => {
+                let mut bytes = Vec::new();
+                BufReader::new(file).read_to_end(&mut bytes)?;
+                Ok(Some(bytes))
+            }
+            Err(_) if crate::home_fs::symlink_metadata(&path).is_err() => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
     fn delete(&self, id: &str) -> Result<()> {
         let _open = self.writable()?;
         self.writers.lock_or_recover().open.remove(id);
@@ -2403,3 +2610,75 @@ impl LocalStore {
 #[cfg(all(test, unix))]
 #[path = "store/startup_tests.rs"]
 mod startup_tests;
+
+/// Tests only: the chat whose next commit (`compact.rs` `commit_compaction`) fails once its
+/// segments are in place, before its record says it is complete, as a failed write of that
+/// record does: the log is the shorter one already, and the call fails (review of #37284 at
+/// fd33a65b, F2).
+#[cfg(test)]
+static FAIL_BEFORE_MARKER: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Tests only: arms [`FAIL_BEFORE_MARKER`] for chat `id`, once.
+#[cfg(test)]
+pub(crate) fn fail_before_marker_once(id: &str) {
+    FAIL_BEFORE_MARKER.lock().unwrap_or_else(|e| e.into_inner()).push(id.to_owned());
+}
+
+/// Tests only: what runs once a commit of chat `id`'s staged log (`compact.rs`
+/// `commit_compaction`) replaced its first segment, before its second: a crash there, as a test
+/// copies what the disk holds then (review of #37284 at b7496c3f, F2).
+#[cfg(test)]
+type Crash = Box<dyn FnOnce() + Send>;
+
+// test-hook-allow: armed per chat id, and only that chat's run takes it
+#[cfg(test)]
+static BETWEEN_SEGMENTS: std::sync::Mutex<Vec<(String, Crash)>> = std::sync::Mutex::new(Vec::new());
+
+/// Tests only: arms [`BETWEEN_SEGMENTS`] for chat `id`, once.
+#[cfg(test)]
+pub(crate) fn between_segments_once(id: &str, crash: Crash) {
+    BETWEEN_SEGMENTS.lock().unwrap_or_else(|e| e.into_inner()).push((id.to_owned(), crash));
+}
+
+/// Runs [`between_segments_once`]'s crash of chat `id`, on the committing thread.
+#[cfg(test)]
+fn between_segments(id: &str) {
+    let crash = {
+        let mut armed = BETWEEN_SEGMENTS.lock().unwrap_or_else(|e| e.into_inner());
+        let at = armed.iter().position(|(at, _)| at == id);
+        at.map(|at| armed.swap_remove(at).1)
+    };
+    if let Some(crash) = crash {
+        crash();
+    }
+}
+
+/// Tests only: the chats whose reads of their kept records (`parked.json`, `Store::kept_parked`)
+/// fail, as a transient read error does, until [`kept_reads_again`] (review of #37284 at
+/// 23e76b07, F2). Per chat: tests run at once.
+#[cfg(test)]
+static FAIL_KEPT_READ: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Tests only: every read of chat `id`'s kept records fails from now ([`FAIL_KEPT_READ`]).
+#[cfg(test)]
+pub(crate) fn fail_kept_reads(id: &str) {
+    FAIL_KEPT_READ.lock().unwrap_or_else(|e| e.into_inner()).push(id.to_owned());
+}
+
+/// Tests only: chat `id`'s kept records read again.
+#[cfg(test)]
+pub(crate) fn kept_reads_again(id: &str) {
+    FAIL_KEPT_READ.lock().unwrap_or_else(|e| e.into_inner()).retain(|a| a != id);
+}
+
+#[cfg(test)]
+fn fails_kept_read(id: &str) -> bool {
+    FAIL_KEPT_READ.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|a| a == id)
+}
+
+#[cfg(test)]
+fn fails_before_marker(id: &str) -> bool {
+    let mut armed = FAIL_BEFORE_MARKER.lock().unwrap_or_else(|e| e.into_inner());
+    let at = armed.iter().position(|a| a == id);
+    at.map(|at| armed.swap_remove(at)).is_some()
+}

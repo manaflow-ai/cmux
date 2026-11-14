@@ -97,14 +97,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         super.init()
     }
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
+    func applicationDidFinishLaunching(_ notification: Notification) { DebugTimings.markLaunch("app.did_finish_launching_entry")
         // task-owner: cloudBootstrap; awaits the CLI read `main` started (its cancel kills that CLI) before services, then the cache refresh after the first frame, cancelled at termination.
         cloudBootstrap = Task { [weak self, cloudEnvironment] in
             guard let self else { return }
-            let snapshot = await launchSnapshot?.value ?? nil; launchSnapshot = nil  // suspends for the read; the daemon's start reads no file
+            let snapshot = await launchSnapshot?.value ?? nil; launchSnapshot = nil; DebugTimings.markLaunch("app.launch_snapshot_awaited")  // suspends for the read; the daemon's start reads no file
             do {
                 let (selection, refresh) = try await withTaskCancellationHandler { try await cloudEnvironment.value } onCancel: { cloudEnvironment.cancel() }
-                try Task.checkCancellation()
+                try Task.checkCancellation(); DebugTimings.markLaunch("cloud_env.awaited")
                 environment.cloudConfiguration = CloudConfiguration.from(selection: selection, isDebugBuild: ControlService.isDebugBuild)
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_RUNTIME"] = "1"
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_ENV"] = selection.name
@@ -362,7 +362,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.start(announcingDiagnostics: true, rotatingFavoriteThemes: true)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, isFirstLaunch: OnboardingWindowPresenter.isFirstLaunch(), firstWindow: { [firstFrame] in await firstFrame.opened() })
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store, menuBar: services.menuBarExtra)
-        services.mobile.follow(settings, launch: services.environment.launch, configureAdmission: services.iphone.followPhoneAccess)
         let acpmux = QuitAgents.environment(services)
         AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
         AgentPageChats.wireSandbox(services.agentTabs, services: services)
@@ -392,6 +391,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.configActions.start(settings: settings)
         services.personInput.start()
         services.joinConsent.follow(settings: settings)
+        if !environment.noActivate { services.signInEnroll.follow() } // an agent-launched build enrolls no machine
         // Agent-launched builds never take system-wide keys from the person's app.
         if !environment.noActivate { services.globalHotKeys.start() }
         // Nor a menu bar item: a tagged build an agent launches leaves the person's menu bar alone.
@@ -426,7 +426,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerAccountsMethods(services)
                 control.registerBillingMethods(services)
                 control.registerRemoteMethods(services)
-                control.registerMobileMethods(services)
                 control.registerUpdateMethods(services.updater, services: services)
                 control.registerInputMethods(services)
                 control.registerSettingsDebugMethods(services)
@@ -571,7 +570,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.configActions.stop()
         services?.globalHotKeys.stop()
         settings?.stop()
-        services?.mobile.stop()
         services?.iphone.stop()
         services?.dockMenu.stop()
         services?.daemon.shutdownConnection()

@@ -2,6 +2,7 @@
 
 use super::{Limits, read_lines, v2_upgrade, write_lines};
 use acpmux_book::index::SummaryIndex;
+use acpmux_client::{Change, Client};
 use acpmux_core::life::V2;
 use serde_json::json;
 use std::time::Duration;
@@ -483,4 +484,81 @@ async fn hello_run_id_matches_status_on_a_second_connection() {
     })
     .await
     .unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn client_falls_back_when_v2_is_disabled_on_the_daemon() {
+    use serde_json::Value;
+    use tokio::io::AsyncBufReadExt;
+
+    let mut config = crate::config::Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = crate::hub::Hub::new(config, store);
+    let (mut socket, server) = tokio::net::UnixStream::pair().unwrap();
+    let task = tokio::spawn(super::serve_stream(
+        hub,
+        server,
+        None,
+        false,
+        crate::sender_harness::SocketPeer::Unknown,
+        None,
+    ));
+
+    let mut client = Client::<Value>::new(["list"]);
+    client.connected();
+    socket.write_all(&client.take_send().unwrap()).await.unwrap();
+    let mut socket = tokio::io::BufReader::new(socket);
+    let mut line = String::new();
+    tokio::time::timeout(WAIT, socket.read_line(&mut line)).await.unwrap().unwrap();
+    assert_eq!(client.received(line.as_bytes()), line.len());
+    assert!(matches!(client.next_change(), Some(Change::Fallback(bytes)) if bytes.is_empty()));
+
+    drop(socket);
+    task.await.unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn client_rejects_a_daemon_result_that_is_not_an_upgrade() {
+    use serde_json::Value;
+    use tokio::io::AsyncBufReadExt;
+
+    let mut config = crate::config::Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = crate::hub::Hub::new(config, store);
+    let (mut socket, server) = tokio::net::UnixStream::pair().unwrap();
+    let task = tokio::spawn(super::serve_stream(
+        hub,
+        server,
+        None,
+        false,
+        crate::sender_harness::SocketPeer::Unknown,
+        None,
+    ));
+
+    let mut client = Client::<Value>::new(["list"]);
+    client.connected();
+    // Keep the daemon in its normal v1 path and ask for a valid response whose
+    // result has no `upgrade` marker.
+    socket
+        .write_all(
+            crate::rpc::Message::request(1, crate::rpc::method::MUX_STATUS, json!({}))
+                .to_line()
+                .as_bytes(),
+        )
+        .await
+        .unwrap();
+    let mut socket = tokio::io::BufReader::new(socket);
+    let mut line = String::new();
+    tokio::time::timeout(WAIT, socket.read_line(&mut line)).await.unwrap().unwrap();
+    assert_eq!(client.received(line.as_bytes()), line.len());
+    assert!(
+        matches!(client.next_change(), Some(Change::Error { method, code, .. }) if method == "frame" && code == "invalid upgrade reply")
+    );
+
+    drop(socket);
+    task.await.unwrap();
 }
