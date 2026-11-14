@@ -50,6 +50,30 @@ function blurActiveComposer(): void {
   if (active?.closest(".acpmux-composer-box")) (active as HTMLElement).blur();
 }
 
+/// The pane's toolbar chrome: the header tools of the embedded and floating chat headers. Like a
+/// native toolbar button, it never keeps the keyboard across a leave.
+const PANE_CHROME = ".acpmux-header-tool";
+
+/// Whether `active` gives up the page's focus when the pane loses the keyboard: a header tool a click
+/// (or a menu's close) left focused. Kept focused, the browser hands focus back to it each time the
+/// pane gets the keyboard again (the workspace shown again, the window raised), its `:focus-visible`
+/// ring draws around the pane's top-right tools, and the composer's activation claim sees a focused
+/// page and stands down (https://github.com/manaflow-ai/cmux/issues/38193). Released, the return finds
+/// the page idle and the keyboard lands in the prompt. A tool whose own popup is open keeps its focus,
+/// and so does every control in the page's content (a field, the New Tab page's buttons): the page
+/// gives those back as they were (new-tab-field-reclaims-keyboard.test.ts).
+function releasesFocusOnLeave(active: Element | null): boolean {
+  if (!active?.matches(PANE_CHROME)) return false;
+  return !active.matches('[aria-expanded="true"], [data-popup-open]');
+}
+
+/// The pane lost the keyboard: the composer and a click-focused header tool give up the page's focus.
+function releaseFocusOnLeave(): void {
+  blurActiveComposer();
+  const active = document.activeElement;
+  if (releasesFocusOnLeave(active)) (active as HTMLElement).blur();
+}
+
 export type KeyLike = {
   key: string;
   metaKey: boolean;
@@ -134,11 +158,20 @@ export function useComposerKeyboard(focusComposer: () => boolean, page: PageClie
     };
     // A live transcript preview is a nested browsing context: its pointer press does not bubble
     // to this document. The browser blurs the editor when that frame takes focus; keep the same
-    // boundary explicit for hosts that only report the outer window blur.
+    // boundary explicit for hosts that only report the outer window blur. A header tool a click
+    // left focused lets go too (`releasesFocusOnLeave`), so no ring greets the return.
     const onWindowBlur = () => {
-      blurActiveComposer();
+      releaseFocusOnLeave();
       clearTimeout(settling);
       settling = undefined;
+    };
+    // Focus that lands on a header tool while the page lacks the keyboard is never the
+    // person's: a menu the pane left open closes after the window's blur and hands focus back to
+    // its trigger, which then rang on the return just as a clicked tool did. It lets go at once.
+    const onFocusIn = (event: FocusEvent) => {
+      const node = event.target as Node | null;
+      const target = node?.nodeType === 1 ? (node as Element) : null;
+      if (!document.hasFocus() && releasesFocusOnLeave(target)) (target as HTMLElement).blur();
     };
     /// The pane became active (window focus, the host's focusContent): claim unless a click did it.
     /// A claim whose pane gave the keyboard away while it settled is dropped (onWindowBlur): it
@@ -171,6 +204,7 @@ export function useComposerKeyboard(focusComposer: () => boolean, page: PageClie
     const first = requestAnimationFrame(claimIfIdle);
     window.addEventListener("focus", claimOnActivation);
     window.addEventListener("blur", onWindowBlur);
+    document.addEventListener("focusin", onFocusIn);
     window.addEventListener(COMPOSER_READY_EVENT, claimIfIdle);
     document.addEventListener("keydown", onKey);
     document.addEventListener("pointerdown", onPress, true);
@@ -194,6 +228,7 @@ export function useComposerKeyboard(focusComposer: () => boolean, page: PageClie
       clearTimeout(settling);
       window.removeEventListener("focus", claimOnActivation);
       window.removeEventListener("blur", onWindowBlur);
+      document.removeEventListener("focusin", onFocusIn);
       window.removeEventListener(COMPOSER_READY_EVENT, claimIfIdle);
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("pointerdown", onPress, true);
