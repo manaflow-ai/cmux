@@ -104,4 +104,56 @@ import Testing
         #expect(throws: GhosttyThemeFiles.Refusal.shippedName) { try folders.importTheme("background = #000000\n", named: "Rose Pine") }
         #expect(throws: GhosttyThemeFiles.Refusal.exists) { try folders.importTheme("background = #000000\n", named: "Night Owl") }
     }
+
+    /// Leo, 2026-11-04: "Linux ricing and the whole dot file situation". A base16 scheme (the format
+    /// most rices share) imports as a Ghostty theme with base16-shell's terminal mapping.
+    @Test func aBase16SchemeImportsAsAGhosttyTheme() throws {
+        let folders = try Folders()
+        defer { try? FileManager.default.removeItem(at: folders.root) }
+        let name = try folders.importTheme("""
+        scheme: "Tomorrow Night"
+        author: "Chris Kempson"
+        base00: "1d1f21"
+        base01: "282a2e"
+        base02: "373b41"
+        base03: "969896"
+        base04: "b4b7b4"
+        base05: "c5c8c6"
+        base06: "e0e0e0"
+        base07: "ffffff"
+        base08: "cc6666"
+        base09: "de935f"
+        base0A: "f0c674"
+        base0B: "b5bd68"
+        base0C: "8abeb7"
+        base0D: "81a2be"
+        base0E: "b294bb"
+        base0F: "a3685a"
+        """, named: "tomorrow-night.yaml")
+        #expect(name == "tomorrow-night")
+        let text = try String(contentsOf: folders.user.appending(path: "tomorrow-night"), encoding: .utf8)
+        for line in ["background = #1d1f21", "foreground = #c5c8c6", "cursor-color = #c5c8c6",
+                     "selection-background = #373b41", "palette = 0=#1d1f21", "palette = 1=#cc6666",
+                     "palette = 4=#81a2be", "palette = 8=#969896", "palette = 15=#ffffff"] {
+            #expect(text.contains(line), "missing \(line)")
+        }
+        #expect(!text.contains("author"))
+        #expect(folders.catalog().colors["tomorrow-night"]?.background == ThemeRGB(hex: 0x1d1f21))
+
+        // The newer tinted-theming layout nests the colors under `palette:` with a `#`.
+        let nested = try folders.importTheme("""
+        system: "base16"
+        name: "Nested"
+        palette:
+          base00: "#101010"
+          base05: "#e0e0e0"
+          base08: "#ff5555"
+        """, named: "nested.yml")
+        let nestedText = try String(contentsOf: folders.user.appending(path: nested), encoding: .utf8)
+        #expect(nested == "nested")
+        #expect(nestedText.contains("background = #101010") && nestedText.contains("palette = 1=#ff5555"))
+        #expect(throws: GhosttyThemeFiles.Refusal.notATheme) {
+            try folders.importTheme("scheme: \"Empty\"\nauthor: \"me\"\n", named: "empty.yaml")
+        }
+    }
 }

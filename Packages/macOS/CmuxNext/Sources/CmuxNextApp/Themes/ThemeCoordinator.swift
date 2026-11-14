@@ -78,6 +78,7 @@ final class ThemeCoordinator {
     private var chromeObservation: Task<Void, Never>?
     private var accentObservation: Task<Void, Never>?
     private var artAccentObservation: Task<Void, Never>?
+    private var artObservation: Task<Void, Never>?
     private var machineColorsObservation: Task<Void, Never>?
 
     /// Follows `appearance.appTheme`: the theme the native chrome (window, sidebar, tab strips, light/dark)
@@ -93,6 +94,21 @@ final class ThemeCoordinator {
         artAccentObservation = Task { [weak self] in
             for await follows in ObservationStream({ AccentSetting.followsArt(settings.applied.root) }) {
                 guard store.setAccentFollowsArt(follows) else { continue }
+                self?.applyChromeTheme()
+            }
+        }
+        // Art Color: another picture (a pick, a shuffle or rotation step, a preview) is another hue,
+        // and pages' `--cmux-app-*` accent comes from the app theme made here, so make it again. The
+        // native scopes re-derive on their own (ThemeScope.repaintBackdropArt).
+        // The revision applied now, read before the task starts: a picture change between here and
+        // the task's first read would otherwise count as already shown and never re-derive.
+        let appliedRevision = store.backdropRevision.value
+        artObservation = Task { [weak self] in
+            var shown = appliedRevision
+            for await revision in ObservationStream({ store.backdropRevision.value }) {
+                guard revision != shown else { continue }
+                shown = revision
+                guard store.accentFollowsArt else { continue }
                 self?.applyChromeTheme()
             }
         }
