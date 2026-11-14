@@ -1784,7 +1784,7 @@ button.cv-subagent > :last-child {
 .cv-tool.cv-subagent-done-row[data-look="grid"] {
   display: grid;
   /* words | Retry | refusal note | ⋯ | time | chevron. Retry and the time have a floor that lines
-     them up from row to row and grow for a longer label ("Ask parent to retry", a translation) or a
+     them up from row to row and grow for a longer label (a translation) or a
      duration past an hour, so neither spills into its neighbour. Every row has the same tracks, so
      an empty note or ⋯ track moves every row alike. */
   grid-template-columns:
@@ -2288,7 +2288,9 @@ button.cv-subagent > :last-child {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: color-mix(in srgb, var(--agent-status-success) 70%, var(--agent-muted));
+  /* The line's own muted ink: a line that ended is no success state (Leo, 2026-11-14, on Worked for
+     turning green once done; conversation/finishedInk.test.ts). */
+  color: var(--agent-muted);
 }
 /* In the hat, the time and its check stand one tray gap apart, the gap between a line's time and its
    Stop column (Leo, 2026-11-08, on "47s ✓": "it just feels iffy how it's close the the number"). */

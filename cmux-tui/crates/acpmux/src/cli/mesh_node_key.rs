@@ -52,6 +52,13 @@ pub fn load_or_create_at(state_dir: &Path) -> Result<NodeKeypair> {
     Ok(NodeKeypair::of(&private))
 }
 
+/// The node key in `state_dir` for a session, read only (never created): only with this
+/// machine's WireGuard key lock (`holder`) held. The cmux link's Cloud tunnel reads the joined
+/// machine's key with it, under the lock the link holds for its whole life.
+pub fn read_held(state_dir: &Path, holder: &KeyHolder) -> Result<Zeroizing<[u8; 32]>> {
+    holder.open(KeyFile::Node, state_dir, read_key)
+}
+
 /// The node key in `state_dir` for a session, created on first use: only
 /// with this machine's WireGuard key lock (`holder`) held.
 pub fn load_or_create_held(
