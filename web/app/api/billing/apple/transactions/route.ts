@@ -33,9 +33,16 @@ export async function POST(request: Request): Promise<Response> {
   }
 }
 
+/** 403 for another account's purchase, 409 for a Family Sharing copy, else 400. All are permanent for the app. */
+function rejectionStatus(reason: AppleTransactionRejectedError["reason"]): number {
+  if (reason === "account_mismatch") return 403;
+  if (reason === "family_shared") return 409;
+  return 400;
+}
+
 function transactionErrorResponse(error: unknown, stackUserId: string): Response {
   if (error instanceof AppleTransactionRejectedError) {
-    return jsonResponse({ error: error.reason }, error.reason === "account_mismatch" ? 403 : 400, NO_STORE);
+    return jsonResponse({ error: error.reason }, rejectionStatus(error.reason), NO_STORE);
   }
   if (error instanceof AppleVerificationError) {
     if (error.reason === "retryable") {

@@ -106,6 +106,40 @@ export type AppleServerApiCredentials = {
   readonly privateKey: string;
 };
 
+const SERVER_API_ENV_NAMES = ["APPLE_IAP_KEY_ID", "APPLE_IAP_ISSUER_ID", "APPLE_IAP_PRIVATE_KEY"] as const;
+
+/** Server API env names this deployment is missing (empty when the key is configured). */
+export function missingAppleServerApiEnv(env: Env = process.env): readonly string[] {
+  return SERVER_API_ENV_NAMES.filter((name) => trimmed(env[name]) === null);
+}
+
+/**
+ * Production must have the App Store Server API key: without it the client's
+ * own transaction is trusted, missed renewals cannot be re-checked, and lost
+ * notifications cannot be backfilled. The cron reports a missing key loudly.
+ */
+export function appleServerApiRequired(env: Env = process.env): boolean {
+  return env.VERCEL_ENV === "production";
+}
+
+export type AppleServerApiStatus = {
+  readonly appleServerApi: "configured" | "missing";
+  /** Whether this deployment must have it (production). */
+  readonly required: boolean;
+  /** Names of the missing env values, never their contents. */
+  readonly missingEnv: readonly string[];
+};
+
+/** The key's presence as server start and the admin analytics endpoint report it. */
+export function appleServerApiStatus(env: Env = process.env): AppleServerApiStatus {
+  const missingEnv = missingAppleServerApiEnv(env);
+  return {
+    appleServerApi: missingEnv.length === 0 ? "configured" : "missing",
+    required: appleServerApiRequired(env),
+    missingEnv,
+  };
+}
+
 /** App Store Server API key, or null when this deployment has none. */
 export function appleServerApiCredentials(env: Env = process.env): AppleServerApiCredentials | null {
   const keyId = trimmed(env.APPLE_IAP_KEY_ID);
@@ -158,6 +192,41 @@ export function appleEnvironmentGrantsEntitlement(
   if (input.bundleId !== APP_STORE_BUNDLE_ID) return false;
   const email = input.accountEmail?.trim().toLowerCase();
   return email ? appleSandboxAccountEmails(env).includes(email) : false;
+}
+
+/**
+ * Whether any account's Sandbox purchase of `bundleId` can grant a plan in
+ * this deployment (the account allowlist aside): appleEnvironmentGrantsEntitlement
+ * without the email check. The notification backfill reads Sandbox history
+ * only for these bundles.
+ */
+export function appleSandboxMayGrant(bundleId: string, env: Env = process.env): boolean {
+  const override = trimmed(env.APPLE_IAP_SANDBOX_ENTITLEMENTS);
+  if (override === "all") return true;
+  if (override === "none") return false;
+  if (override) return list(override)?.includes(bundleId) ?? false;
+  if (env.VERCEL_ENV !== "production") return true;
+  return bundleId === APP_STORE_BUNDLE_ID;
+}
+
+/** One App Store Server Notifications history to backfill from. */
+export type AppleNotificationHistorySource = {
+  readonly bundleId: string;
+  readonly environment: SignedAppleEnvironment;
+};
+
+/**
+ * Histories this deployment backfills: Production for every accepted bundle,
+ * and Sandbox for the bundles whose Sandbox purchases can grant here (in
+ * production, `com.cmux.app` only: App Review and allowlisted testers).
+ */
+export function appleNotificationHistorySources(env: Env = process.env): readonly AppleNotificationHistorySource[] {
+  const sources: AppleNotificationHistorySource[] = [];
+  for (const bundleId of appleBundleIds(env)) {
+    sources.push({ bundleId, environment: "Production" });
+    if (appleSandboxMayGrant(bundleId, env)) sources.push({ bundleId, environment: "Sandbox" });
+  }
+  return sources;
 }
 
 /** `<bundleId>.<plan>.<monthly|yearly>`, the product ID for one plan and period in one app. */

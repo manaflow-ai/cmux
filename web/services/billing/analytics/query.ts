@@ -189,7 +189,11 @@ async function loadApple(db: Db, query: AnalyticsQuery) {
       revocationReason: sql<number | null>`nullif(${appleTransactions.payload}->>'revocationReason', '')::int`,
     })
     .from(appleTransactions)
-    .where(appleEnvironmentFilter(appleTransactions.environment, query.environment));
+    .where(and(
+      appleEnvironmentFilter(appleTransactions.environment, query.environment),
+      // A Family Sharing copy is not revenue; it is kept for audit only.
+      sql`${appleTransactions.payload}->>'inAppOwnershipType' is distinct from 'FAMILY_SHARED'`,
+    ));
   return { subscriptions, transactions };
 }
 

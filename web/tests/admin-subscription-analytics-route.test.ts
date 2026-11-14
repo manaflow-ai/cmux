@@ -88,6 +88,25 @@ describe("GET /api/admin/subscriptions/analytics", () => {
     expect(now).toBe(NOW);
   });
 
+  test("reports whether the App Store Server API key is configured", async () => {
+    currentUser = { id: "admin", primaryEmail: "ops@manaflow.ai", primaryEmailVerified: true, isAnonymous: false };
+    const missing = createSubscriptionAnalyticsHandlers({ load, now: () => NOW, env: { VERCEL_ENV: "production" } });
+    const body = await (await missing.GET(request("?source=apple"))).json() as { marker: string; billingHealth?: unknown };
+    expect(body.marker).toBe("report");
+    expect(body.billingHealth).toEqual({
+      appleServerApi: "missing",
+      required: true,
+      missingEnv: ["APPLE_IAP_KEY_ID", "APPLE_IAP_ISSUER_ID", "APPLE_IAP_PRIVATE_KEY"],
+    });
+    const configured = createSubscriptionAnalyticsHandlers({
+      load,
+      now: () => NOW,
+      env: { VERCEL_ENV: "production", APPLE_IAP_KEY_ID: "K", APPLE_IAP_ISSUER_ID: "I", APPLE_IAP_PRIVATE_KEY: "P" },
+    });
+    expect((await (await configured.GET(request())).json() as { billingHealth?: unknown }).billingHealth)
+      .toEqual({ appleServerApi: "configured", required: true, missingEnv: [] });
+  });
+
   test("400 for an invalid filter from an admin", async () => {
     currentUser = { id: "admin", primaryEmail: "ops@cmux.com", primaryEmailVerified: true, isAnonymous: false };
     expect((await GET(request("?environment=staging"))).status).toBe(400);

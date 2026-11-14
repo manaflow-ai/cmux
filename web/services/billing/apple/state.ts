@@ -178,6 +178,16 @@ export type AppleTransactionRow = {
   readonly payload: Record<string, unknown>;
 };
 
+/**
+ * A Family Sharing copy of someone else's purchase. Only the purchaser gets
+ * the plan: such a transaction never grants, claims or changes a
+ * subscription (Family Sharing must stay off in App Store Connect; this is
+ * the server's guard if it is ever turned on).
+ */
+export function isFamilySharedAppleTransaction(transaction: Pick<JWSTransactionDecodedPayload, "inAppOwnershipType">): boolean {
+  return String(transaction.inAppOwnershipType ?? "") === "FAMILY_SHARED";
+}
+
 /** `type` is Apple's `transactionReason` (`PURCHASE` or `RENEWAL`). */
 export function appleTransactionRowFrom(
   transaction: JWSTransactionDecodedPayload,
