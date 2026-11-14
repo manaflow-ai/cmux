@@ -520,7 +520,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private(set) var store: AgentChatStore
     private let surface: AgentChatSurface
     var context: ChatRowContext { lookup.context }
-    private var builder: ChatTranscriptBuilder
+    private(set) var builder: ChatTranscriptBuilder
     private let dataSource: UICollectionViewDiffableDataSource<Int, String>
     /// The rows by id and their environment, for the cells.
     private let lookup: ChatRowLookup
@@ -545,6 +545,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         var generation: Int
         var ids: [String]
         var items: [ChatTranscriptLayout.Item]
+        /// The rows the items were weighed for.
+        var rows: [ChatRow]
     }
     /// Rows that arrived live (after the replayed history): they fade in when first shown.
     private var fadeIn: Set<String> = []
@@ -562,6 +564,11 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// scroll-up bench measures as its before.
     var readsAhead = true
     private(set) var lastReconfigured = 0
+    /// Rows a reload weighed in full: compared, estimated, given a layout item (tests: a token
+    /// weighs the rows it changed, not every row of its turn).
+    private(set) var rowsWeighed = 0
+    /// Rows offered to the warm-up (tests: once each, not every row on every reload).
+    private(set) var warmUpOffers = 0
 
     init(store: AgentChatStore, surface: AgentChatSurface) {
         self.store = store
@@ -861,6 +868,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         var ids: [String] = []
         var seen: Set<String> = []
         var changed: [String] = []
+        // Rows weighed in full this reload (new, changed or re-laid out): the warm-up's offers.
+        var weighed: [String] = []
         var items: [ChatTranscriptLayout.Item] = []
         ids.reserveCapacity(shownIDs.count + 4)
         items.reserveCapacity(shownIDs.count + 4)
@@ -902,7 +911,14 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             }
             var turnIDs: [String] = []
             var turnItems: [ChatTranscriptLayout.Item] = []
-            for var row in turn.rows {
+            var turnRows: [ChatRow] = []
+            turnIDs.reserveCapacity(turn.rows.count)
+            turnItems.reserveCapacity(turn.rows.count)
+            turnRows.reserveCapacity(turn.rows.count)
+            // The turn as last shown: a row at the same place with the same content keeps its
+            // layout item (a streamed token changes the answer's last block, not the ones above it).
+            let previous = shownTurns[turn.turnID]
+            for (position, var row) in turn.rows.enumerated() {
                 // Ids are unique by construction; a repeat from a misbehaving source still
                 // must not reach the snapshot (a duplicate identifier traps).
                 if !seen.insert(row.id).inserted {
@@ -911,6 +927,15 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                     row.id = "\(row.id)~\(n)"
                     seen.insert(row.id)
                 }
+                if let previous, position < previous.rows.count, previous.ids[position] == row.id, previous.rows[position] == row,
+                   rows[row.id] == row, !forced.contains(row.id), !prime.contains(row.id) {
+                    turnIDs.append(row.id)
+                    turnItems.append(previous.items[position])
+                    turnRows.append(row)
+                    continue
+                }
+                rowsWeighed += 1
+                weighed.append(row.id)
                 if rows[row.id] != row {
                     let isNew = rows[row.id] == nil
                     if !isNew { changed.append(row.id) }
@@ -939,6 +964,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                 turnIDs.append(row.id)
                 turnItems.append(.init(id: row.id, revision: revision, gap: row.gap, estimate: estimate, exact: exact,
                                        fold: lookup.fold(row)))
+                turnRows.append(row)
             }
             if holdable.contains(turn.turnID) {
                 let unlaid = turnIDs.filter { id in
@@ -951,7 +977,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                     continue
                 }
             }
-            shownTurns[turn.turnID] = ShownTurn(generation: turn.generation, ids: turnIDs, items: turnItems)
+            shownTurns[turn.turnID] = ShownTurn(generation: turn.generation, ids: turnIDs, items: turnItems, rows: turnRows)
             ids += turnIDs
             items += turnItems
         }
@@ -1015,7 +1041,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         loaded = true
         if !heldMissing.isEmpty { prepare(heldMissing, urgent: true) }
         if !missing.isEmpty { prepare(missing, urgent: false) }
-        queueWarmUp(ids)
+        queueWarmUp(weighed)
         spillIfResting()
         // After the layout pass that places what this reload put in.
         if store.hasEarlierHistory, !store.isLoadingEarlier {
@@ -1152,6 +1178,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     }
 
     private func queueWarmUp(_ ids: [String]) {
+        warmUpOffers += ids.count
         for id in ids where lookup.isNativeCandidate(id) {
             guard let key = lookup.rows[id]?.nativeReuseKey, warmedKinds.insert(key).inserted else { continue }
             warmQueue.append(id)
