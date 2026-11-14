@@ -114,16 +114,6 @@ public final class MacScreenPages {
         approval.hub = { [weak self] in self?.hub }
     }
 
-    /// Opens an already-resolved screen device UUID. Machine routes, joined IDs and names are
-    /// not device identities. A person's View action supplies its scope for one-click connection.
-    public func record(forDevice device: String, requesting scope: SessionScope? = nil) -> MacScreenRecord {
-        guard let id = MacScreenRecord.normalizedDeviceID(device) else {
-            return MacScreenRecord(macID: nil)
-        }
-        if let scope { pendingScopes[id] = scope }
-        return MacScreenRecord(deviceID: id)
-    }
-
     /// cmux Remote serves this Mac (docs/cmux-remote.md): its Screen Sharing worker shows the
     /// approval banner and serves host sessions, also with this app quit; this app is a viewer.
     public var remoteHosted = false {
@@ -249,6 +239,17 @@ public final class MacScreenPages {
     func openDeviceInNewTab(_ id: String, scope: SessionScope?, from key: String) {
         if let scope { pendingScopes[id] = scope }
         events.openInNewTab(MacScreenRecord(deviceID: id), key)
+    }
+
+    /// Makes a record for an already-resolved screen-device UUID. Machine routes,
+    /// joined IDs and display names are not screen identities; callers that have
+    /// a person-requested scope can carry it into the first connection.
+    public func record(forDevice device: String, requesting scope: SessionScope? = nil) -> MacScreenRecord {
+        guard let id = MacScreenRecord.normalizedDeviceID(device) else {
+            return MacScreenRecord(macID: nil)
+        }
+        if let scope { pendingScopes[id] = scope }
+        return MacScreenRecord(deviceID: id)
     }
 
     /// At launch: the shortcut tap, the permissions, and the saved device names

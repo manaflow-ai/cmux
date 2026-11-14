@@ -965,6 +965,11 @@ const COUNT_SLEEP_S = 0.2;
 /** The counting turn's prompt marker; the stub's turn script matches it, and its group is the turn's tag. */
 export const countMarker = (tag: string) => `[chaos-count ${tag}]`;
 
+/** The felt chat's warm-up and reply prompts: a text-only turn so measuring felt time cannot wait on a tool round. */
+export function feltTurnScript(): { match: string; steps: Array<Record<string, string>> } {
+  return { match: "\\[chaos-felt \\S+\\]", steps: [{ text: "Felt reply {{prompt}}." }] };
+}
+
 /**
  * The model stub's turn script for the counting turn (model_stub.py "turns"): steps 1..n each run one shell call that
  * prints `chaos-<tag>-K` (printf joins it, so the call's own command text never carries it and only its result

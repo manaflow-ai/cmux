@@ -160,6 +160,7 @@ public final class MacScreenPane {
         }
         actions.toggleStats = { session.preferences.showStats.toggle() }
         actions.refresh = { session.refresh() }
+        actions.fullScreen = { [weak self] in self?.view.window?.toggleFullScreen(nil) }
         actions.sendKeys = { [weak self] shortcut in
             // A View Only session sends no input (the host would ignore it anyway).
             guard self?.model.viewOnly != true else { return }
@@ -308,7 +309,7 @@ public final class MacScreenPaneView: NSView {
     var capture: NSView { input.view }
     let chrome: MacScreenChromeHost
     private let model: MacScreenPaneModel
-    static let toolbarHeight: CGFloat = 34
+    var toolbarHeight: CGFloat { chrome.toolbar.height(for: bounds.width) }
 
     init(model: MacScreenPaneModel) {
         self.model = model
@@ -334,7 +335,7 @@ public final class MacScreenPaneView: NSView {
 
     /// The screen area: everything under the toolbar.
     var screenRect: CGRect {
-        CGRect(x: 0, y: Self.toolbarHeight, width: bounds.width, height: max(0, bounds.height - Self.toolbarHeight))
+        CGRect(x: 0, y: toolbarHeight, width: bounds.width, height: max(0, bounds.height - toolbarHeight))
     }
 
     /// Where the streamed display sits (aspect fit), for the input surface.
@@ -345,7 +346,7 @@ public final class MacScreenPaneView: NSView {
 
     public override func layout() {
         super.layout()
-        chrome.toolbar.frame = CGRect(x: 0, y: 0, width: bounds.width, height: Self.toolbarHeight)
+        chrome.toolbar.frame = CGRect(x: 0, y: 0, width: bounds.width, height: toolbarHeight)
         capture.frame = screenRect
         // Auto streams at the pane's size; the next session (Connect, a quality change) reads it.
         let pixels = Int((screenRect.width * (window?.backingScaleFactor ?? 2)).rounded(.up))

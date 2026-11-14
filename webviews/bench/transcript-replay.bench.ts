@@ -31,7 +31,8 @@
 // suite (web-ui-suite.ts) runs it without --strict: the perf cron's advisory issue is where a regression shows.
 // Every sampler stops when its page closes; finally closes the servers, the browser and the build directory.
 // PROFILE=1 builds the pane unminified, takes a CPU profile of every burst and prints, per kind, the functions whose self
-// time per record grew most from the first checkpoint to the last: where the O(rows) work is.
+// time per record grew most from the first checkpoint to the last: where the O(rows) work is; then the same for each
+// function's total time, its callees' included: which caller a native function's self time belongs to.
 // --log FILE (repeatable) plays a recorded acpmux log too: JSON lines of SessionEvents or {events: [...]}, seq-keyed.
 // FIXTURE=god plays the god session (bench/godFixture.ts) in the long log's place, alone: its rows are the long log's
 // with `god` after the prefix (transcript_replay.god.long.token_ms pairs with transcript_replay.long.token_ms).
@@ -360,12 +361,31 @@ async function openRound(ctx: Ctx, log: ReplayLog): Promise<Open> {
   }
 }
 
-type BurstResult = { kind: string; rows: number; msPerRecord: number; selfMs?: Map<string, number> };
+type BurstResult = {
+  kind: string;
+  rows: number;
+  msPerRecord: number;
+  selfMs?: Map<string, number>;
+  /// Each function's total time per record, its callees' included (PROFILE=1): which caller the native self time
+  /// (`getBoundingClientRect`, `getAnimations`) belongs to.
+  totalMs?: Map<string, number>;
+  /// What the page held when the burst ended: its elements, the transcript rows mounted and the animations running.
+  dom?: { elements: number; mounted: number; animations: number };
+};
+/// The page's size as a burst leaves it: a per-update cost that grows with the transcript while these stay flat is
+/// script work over every row; one that grows with them is the page's own (style, layout).
+const domSize = (page: Page) =>
+  page.evaluate(() => ({
+    elements: document.getElementsByTagName("*").length,
+    mounted: document.querySelectorAll("[data-row-id]").length,
+    animations: document.getAnimations().length,
+  }));
 type CpuProfile = {
   nodes: {
     id: number;
     callFrame: { functionName: string; url: string; lineNumber: number };
     positionTicks?: { line: number; ticks: number }[];
+    children?: number[];
   }[];
   samples: number[];
   timeDeltas: number[];
@@ -394,6 +414,38 @@ export function selfTimes(profile: CpuProfile, records: number, lines = false): 
     else for (const tick of ticks) add(`${key}@${tick.line}`, (ms * tick.ticks) / total);
   }
   return self;
+}
+/// Total time per function (ms) in a profile, its callees' included, each divided by `records` (pure): a sample counts
+/// once for every distinct function on its stack.
+export function totalTimes(profile: CpuProfile, records: number): Map<string, number> {
+  const parent = new Map<number, number>();
+  for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
+  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const keyOf = (id: number) => {
+    const frame = byId.get(id)?.callFrame;
+    if (
+      !frame ||
+      frame.functionName === "(root)" ||
+      frame.functionName === "(idle)" ||
+      frame.functionName === "(program)"
+    )
+      return undefined;
+    const file = frame.url.split("/").pop() ?? "";
+    return `${frame.functionName || "(anon)"}${file ? ` ${file}:${frame.lineNumber + 1}` : ""}`;
+  };
+  const total = new Map<string, number>();
+  profile.samples.forEach((id, index) => {
+    const ms = (profile.timeDeltas[index] ?? 0) / 1000 / records;
+    const seen = new Set<string>();
+    for (let at: number | undefined = id; at !== undefined; at = parent.get(at)) {
+      const key = keyOf(at);
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        total.set(key, (total.get(key) ?? 0) + ms);
+      }
+    }
+  });
+  return total;
 }
 /// The functions whose self time per record grew most from `first` to `last` (pure).
 export function grew(first: Map<string, number>, last: Map<string, number>, top = 12): [string, number, number][] {
@@ -450,11 +502,18 @@ async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promis
         const records = burst.toSeq - burst.fromSeq + 1;
         const profiled = PROFILE ? ((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile : undefined;
         burstWindows.push([windowStart, await page.evaluate(() => performance.now())]);
+        const dom = await domSize(page);
         bursts.push({
+          dom,
           kind: burst.kind,
           rows: burst.rows,
           msPerRecord: Math.round((taskMs / records) * 1000) / 1000,
-          ...(profiled ? { selfMs: selfTimes(profiled, records, process.env.PROFILE_LINES === "1") } : {}),
+          ...(profiled
+            ? {
+                selfMs: selfTimes(profiled, records, process.env.PROFILE_LINES === "1"),
+                totalMs: totalTimes(profiled, records),
+              }
+            : {}),
         });
         continue;
       }
@@ -694,7 +753,12 @@ if (import.meta.main) {
     });
     releases.push(() => daemon.stop(true));
     const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "transcript-replay-bench-"));
-    releases.push(() => fs.rmSync(out, { recursive: true, force: true }));
+    // PROFILE_BUILD=DIR keeps the pane's build there: a profile's `file:line` read against it names an anonymous function.
+    releases.push(() =>
+      process.env.PROFILE_BUILD
+        ? fs.renameSync(out, process.env.PROFILE_BUILD)
+        : fs.rmSync(out, { recursive: true, force: true }),
+    );
     const builtAt = performance.now();
     const { build } = await import("vite");
     await build({
@@ -750,7 +814,28 @@ if (import.meta.main) {
         ])
           if (!note.includes(" 0.0000 ")) console.log(`  ${note}`);
         for (const burst of live?.bursts ?? [])
-          console.log(`  ${burst.kind} at ${burst.rows} rows: ${burst.msPerRecord} ms per record`);
+          console.log(
+            `  ${burst.kind} at ${burst.rows} rows: ${burst.msPerRecord} ms per record` +
+              (burst.dom
+                ? ` (${burst.dom.elements} elements, ${burst.dom.mounted} rows mounted, ${burst.dom.animations} animations)`
+                : ""),
+          );
+        // PROFILE_JSON=FILE writes every profiled burst's self and total times, for comparing two runs.
+        if (process.env.PROFILE_JSON && live)
+          fs.writeFileSync(
+            process.env.PROFILE_JSON,
+            JSON.stringify(
+              live.bursts
+                .filter((burst) => burst.selfMs)
+                .map((burst) => ({
+                  kind: burst.kind,
+                  rows: burst.rows,
+                  msPerRecord: burst.msPerRecord,
+                  self: Object.fromEntries(burst.selfMs!),
+                  total: Object.fromEntries(burst.totalMs ?? []),
+                })),
+            ),
+          );
         for (const kind of BURST_KINDS) {
           const profiled = (live?.bursts ?? []).filter((burst) => burst.kind === kind && burst.selfMs);
           if (profiled.length < 2) continue;
@@ -765,6 +850,9 @@ if (import.meta.main) {
             for (const [fn, ms] of [...at.selfMs!.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15))
               console.log(`    ${ms.toFixed(3)}  ${fn}`);
           }
+          console.log(`  ${kind}: total ms per record that grew from ${first.rows} rows to ${last.rows} rows`);
+          for (const [fn, before, after] of grew(first.totalMs!, last.totalMs!, 25))
+            console.log(`    ${before.toFixed(3)} -> ${after.toFixed(3)}  ${fn}`);
         }
       } catch (error) {
         failed += 1;

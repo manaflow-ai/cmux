@@ -38,6 +38,7 @@ mod create_entity_cost;
 mod creation_burst;
 mod diagnostics;
 mod disk_budget;
+mod disk_usage_read_cost;
 mod divider_visibility;
 mod dock_columns;
 mod exit_snapshot_cost;
