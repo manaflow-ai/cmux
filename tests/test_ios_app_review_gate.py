@@ -117,6 +117,22 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertIn("metadata.missing", self.rules(lint))
         self.assertTrue(any("cmux-next-ios/AppStoreReview/metadata" in f.message for f in lint.findings))
 
+    def test_a_raw_error_dump_in_user_text_warns_but_a_log_line_does_not(self) -> None:
+        rel = "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/Failing.swift"
+        write(self.root, rel,
+              'log.error("failed: \\(String(describing: error), privacy: .public)")\n'
+              'let shown = UserFacingError.message(error)\n'
+              '// was: (error as? LocalizedError)?.errorDescription ?? String(describing: error)\n')
+        lint = self.run_lint()
+        self.assertEqual([f for f in lint.findings if f.rule == "ux.raw-error"], [])
+        write(self.root, rel, 'failure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)\n')
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/FailingTests.swift",
+              'let text = x ?? String(describing: error)\n')
+        lint = self.run_lint()
+        raw = [f for f in lint.findings if f.rule == "ux.raw-error"]
+        self.assertEqual([(f.severity, f.where) for f in raw], [("warning", f"{rel}:1")])
+        self.assertNotIn("ux.raw-error", self.rules(lint))
+
     def test_google_and_github_without_apple_block(self) -> None:
         write(self.root, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileOnboarding/Welcome.swift",
               'let g = "Continue with Google"; let h = "Continue with GitHub"\n')
@@ -455,6 +471,86 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(text.count("XCUITest cannot fold the simulator"), 1)
 
+    def ratchet_inputs(self, failed: list[str]) -> tuple[Path, Path]:
+        suite = self.root / "iphone.json"
+        cases = [{"nodeType": "Test Case", "name": name, "result": "Failed",
+                  "children": [{"nodeType": "Failure Message", "name": f"AppReviewGateUITests.swift:{i}: on screen: {i}"}]}
+                 for i, name in enumerate(failed, 1)] or [{"nodeType": "Test Case", "name": "testA()", "result": "Passed"}]
+        suite.write_text(json.dumps({"testNodes": [{"nodeType": "Unit test bundle", "name": "AppReviewGateUITests", "children": cases}]}))
+        known = self.root / "known-blockers.json"
+        known.write_text(json.dumps({"blockers": [{"key": "uitest.failed|iphone|AppReviewGateUITests/testOld()"}]}))
+        return suite, known
+
+    def test_a_known_blocker_alone_passes_a_change_and_still_shows(self) -> None:
+        suite, known = self.ratchet_inputs(["testOld()"])
+        out = self.root / "report.md"
+        code = gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite),
+                          "--known-blockers", str(known), "--out", str(out)])
+        text = out.read_text()
+        self.assertEqual(code, 0)
+        self.assertIn("**NO**: 1 blocking", text)
+        self.assertIn("No new blocker", text)
+        # A submission reads no baseline: the same result refuses it.
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite), "--out", str(out)]), 1)
+
+    def test_a_new_blocker_fails_the_change_that_brought_it(self) -> None:
+        suite, known = self.ratchet_inputs(["testOld()", "testNew()"])
+        out = self.root / "report.md"
+        code = gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite),
+                          "--known-blockers", str(known), "--out", str(out)])
+        text = out.read_text()
+        self.assertEqual(code, 1)
+        self.assertIn("**1 new blocking**", text)
+        self.assertIn("uitest.failed|iphone|AppReviewGateUITests/testNew()", text)
+        self.assertNotIn("`uitest.failed|iphone|AppReviewGateUITests/testOld()`: ", text)
+
+    def test_a_fixed_blocker_is_named_for_removal(self) -> None:
+        suite, known = self.ratchet_inputs([])
+        out = self.root / "report.md"
+        code = gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite),
+                          "--known-blockers", str(known), "--out", str(out)])
+        self.assertEqual(code, 0)
+        self.assertIn("remove from", out.read_text())
+
+    def test_a_change_cannot_pin_its_own_regression(self) -> None:
+        suite, known = self.ratchet_inputs(["testOld()", "testNew()"])
+        proposed = self.root / "proposed.json"
+        proposed.write_text(json.dumps({"blockers": [{"key": "uitest.failed|iphone|AppReviewGateUITests/testOld()"},
+                                                     {"key": "uitest.failed|iphone|AppReviewGateUITests/testNew()"}]}))
+        out = self.root / "report.md"
+        # Its own list alone would pass it; judged on the base's, it fails twice over.
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite),
+                                    "--known-blockers", str(proposed), "--out", str(out)]), 0)
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite), "--known-blockers",
+                                    str(known), "--proposed-known-blockers", str(proposed), "--out", str(out)]), 1)
+        self.assertIn("known-blockers.added", out.read_text())
+        # Removing a fixed entry is fine.
+        suite, known = self.ratchet_inputs([])
+        proposed.write_text(json.dumps({"blockers": []}))
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite), "--known-blockers",
+                                    str(known), "--proposed-known-blockers", str(proposed), "--out", str(out)]), 0)
+
+    def test_the_key_ignores_line_numbers_and_screen_dumps(self) -> None:
+        a = {"rule": "uitest.failed", "where": "ipad", "message": "AppReviewGateUITests/testX(): T.swift:120: on screen: a"}
+        b = {"rule": "uitest.failed", "where": "ipad", "message": "AppReviewGateUITests/testX(): T.swift:131: on screen: b"}
+        self.assertEqual(gate.blocker_key(a), gate.blocker_key(b))
+        self.assertEqual(gate.blocker_key({"rule": "r", "where": "a/B.swift:90"}),
+                         gate.blocker_key({"rule": "r", "where": "a/B.swift:91"}))
+
+    def test_missing_results_and_the_agent_pass_are_judged_apart_from_the_baseline(self) -> None:
+        # Fail closed: a suite that never reported is new, whatever is known.
+        _, known = self.ratchet_inputs([])
+        agent = self.root / "agent-findings.json"
+        agent.write_text(json.dumps([{"rule": "agent", "guideline": "2.1(a)", "severity": "blocker",
+                                      "source": "agent reviewer pass", "message": "m", "where": "s.png"}]))
+        out = self.root / "report.md"
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--extra", str(agent),
+                                    "--known-blockers", str(known), "--out", str(out)]), 0)
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--expect-device", "ipad",
+                                    "--known-blockers", str(known), "--out", str(out)]), 1)
+        known.write_text("not json")
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--known-blockers", str(known), "--out", str(out)]), 1)
+
 
 class RealTreeTests(unittest.TestCase):
     """The checked-in history, the NEXT app's UI tests and the gate agree."""
@@ -487,6 +583,26 @@ class RealTreeTests(unittest.TestCase):
                              ("-scheme CmuxMobileApp ", workflow)):
             self.assertTrue(needle in text, needle)
         self.assertFalse("Billing" in tests or "StoreKit" in tests)
+
+    def test_every_known_blocker_names_something_that_still_exists(self) -> None:
+        # A renamed or deleted test would leave a pin nothing can match.
+        known = json.loads((ROOT / gate.KNOWN_BLOCKERS_FILE).read_text())
+        tests = (ROOT / "cmux-next-ios/UITests/AppReviewGateUITests.swift").read_text()
+        for entry in known["blockers"]:
+            rule, where, *rest = entry["key"].split("|")
+            if rule == "uitest.failed":
+                self.assertIn(where, ("iphone", "ipad", "duo"), entry["key"])
+                name = rest[0].split("/")[-1].removesuffix("()")
+                self.assertIn(f"func {name}(", tests, entry["key"])
+            self.assertNotIn("agent", rule, "the agent pass is never pinned")
+
+    def test_pushes_and_pull_requests_fail_on_a_new_blocker(self) -> None:
+        workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
+        self.assertIn('--known-blockers "base/$known" --proposed-known-blockers "$known"', workflow)
+        self.assertIn("ref: ${{ github.event.pull_request.base.sha }}", workflow)
+        self.assertNotIn("ADVISORY", workflow)
+        pull_request = workflow.split("  pull_request:", 1)[1].split("  workflow_dispatch:", 1)[0]
+        self.assertIn('"cmux-next-ios/**"', pull_request)
 
 
 if __name__ == "__main__":

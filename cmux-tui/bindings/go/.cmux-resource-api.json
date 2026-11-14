@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "65ea7fd632b7b238cc6737d3195b6d310dda7efa462b12e9a97853e2e80f4e1a",
+  "catalog_sha256": "47a22221950420d74276eb623f4a6aef32828f4a508749f641b620b3d746375c",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -96,6 +96,15 @@
     },
     "browser_import.read": {
       "class": "read"
+    },
+    "chat.list": {
+      "class": "read"
+    },
+    "chat.mark_read": {
+      "class": "mutation"
+    },
+    "chat.pin": {
+      "class": "mutation"
     },
     "chief.continue": {
       "class": "mutation"

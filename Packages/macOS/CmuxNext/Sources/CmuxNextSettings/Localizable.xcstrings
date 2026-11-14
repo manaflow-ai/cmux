@@ -121437,7 +121437,7 @@
     }
   },
     "settings.tabs.toolbarButtons.splitRight": {
-      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
+      "comment": "Settings: an action tabs.toolbarButtons can pin at the tab bar's trailing end.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -121569,7 +121569,7 @@
       }
     },
     "settings.tabs.toolbarButtons.splitDown": {
-      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
+      "comment": "Settings: an action tabs.toolbarButtons can pin at the tab bar's trailing end.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -121701,7 +121701,7 @@
       }
     },
     "settings.tabs.toolbarButtons.diffViewer": {
-      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
+      "comment": "Settings: an action tabs.toolbarButtons can pin at the tab bar's trailing end.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -121833,7 +121833,7 @@
       }
     },
     "settings.tabs.toolbarButtons.openFile": {
-      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
+      "comment": "Settings: an action tabs.toolbarButtons can pin at the tab bar's trailing end.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -121965,7 +121965,7 @@
       }
     },
     "settings.tabs.toolbarButtons.searchChats": {
-      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
+      "comment": "Settings: an action tabs.toolbarButtons can pin at the tab bar's trailing end.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -122097,7 +122097,7 @@
       }
     },
     "settings.tabs.toolbarButtons.paneZoom": {
-      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
+      "comment": "Settings: an action tabs.toolbarButtons can pin at the tab bar's trailing end.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -122361,133 +122361,133 @@
       }
     },
     "settings.tabs.toolbarButtons.help": {
-      "comment": "Settings: tabs.toolbarButtons, the actions pinned as buttons next to a pane's tab bar More button.",
+      "comment": "Settings: tabs.toolbarButtons, the actions pinned as buttons at a pane's tab bar trailing end.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back."
+            "value": "Actions shown as buttons at the tab bar's trailing end. Pin or unpin one from Show in Tab Bar in the tab bar's right-click menu."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الإجراءات المعروضة كأزرار بجوار زر «المزيد» في شريط علامات التبويب. البقية في قائمة «المزيد»، حيث يثبّتها «إظهار في شريط علامات التبويب» مجددًا."
+            "value": "الإجراءات المعروضة كأزرار في نهاية شريط علامات التبويب. ثبّت أيًّا منها أو ألغِ تثبيته من «إظهار في شريط علامات التبويب» في قائمة النقر بزر الماوس الأيمن على شريط علامات التبويب."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Akcije prikazane kao dugmad pored dugmeta Više na traci kartica. Ostale su u meniju Više, gdje ih Prikaži na traci kartica ponovo prikačuje."
+            "value": "Akcije prikazane kao dugmad na kraju trake kartica. Prikačite ili otkačite neku iz stavke Prikaži na traci kartica u meniju desnog klika na traci kartica."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Handlinger vist som knapper ved siden af fanelinjens Mere-knap. Resten er i menuen Mere, hvor Vis på fanelinjen fastgør dem igen."
+            "value": "Handlinger vist som knapper i slutningen af fanelinjen. Fastgør eller frigør en fra Vis på fanelinjen i fanelinjens højreklikmenu."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aktionen, die als Tasten neben der Mehr-Taste der Tableiste erscheinen. Die übrigen stehen im Menü „Mehr“, wo „In der Tableiste anzeigen“ sie wieder anheftet."
+            "value": "Aktionen, die als Tasten am Ende der Tableiste erscheinen. Über „In der Tableiste anzeigen“ im Kontextmenü der Tableiste heftest du eine an oder löst sie."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Acciones que se muestran como botones junto al botón Más de la barra de pestañas. El resto está en el menú Más, donde Mostrar en la barra de pestañas vuelve a fijarlas."
+            "value": "Acciones que se muestran como botones al final de la barra de pestañas. Fija o quita una desde Mostrar en la barra de pestañas, en el menú contextual de la barra de pestañas."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Actions affichées comme boutons à côté du bouton Plus de la barre d’onglets. Les autres sont dans le menu Plus, où Afficher dans la barre d’onglets les épingle à nouveau."
+            "value": "Actions affichées comme boutons au bout de la barre d’onglets. Épinglez-en une ou retirez-la depuis Afficher dans la barre d’onglets, dans le menu contextuel de la barre d’onglets."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Azioni mostrate come pulsanti accanto al pulsante Altro della barra dei pannelli. Le altre sono nel menu Altro, dove Mostra nella barra dei pannelli le fissa di nuovo."
+            "value": "Azioni mostrate come pulsanti alla fine della barra dei pannelli. Fissane o rimuovine una da Mostra nella barra dei pannelli, nel menu contestuale della barra dei pannelli."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タブバーの「その他」ボタンの横にボタンとして表示するアクション。それ以外は「その他」メニューにあり、「タブバーに表示」で再び固定できます。"
+            "value": "タブバーの末尾にボタンとして表示するアクション。タブバーの右クリックメニューの「タブバーに表示」で固定または固定解除できます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "សកម្មភាពដែលបង្ហាញជាប៊ូតុងនៅជាប់ប៊ូតុង ច្រើនទៀត របស់របារផ្ទាំង។ សកម្មភាពផ្សេងទៀតនៅក្នុងម៉ឺនុយ ច្រើនទៀត ដែល បង្ហាញក្នុងរបារផ្ទាំង ខ្ទាស់វាវិញ។"
+            "value": "សកម្មភាពដែលបង្ហាញជាប៊ូតុងនៅចុងរបារផ្ទាំង។ ខ្ទាស់ ឬដោះខ្ទាស់មួយពី បង្ហាញក្នុងរបារផ្ទាំង ក្នុងម៉ឺនុយចុចខាងស្ដាំរបស់របារផ្ទាំង។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "탭 막대의 더 보기 버튼 옆에 버튼으로 표시할 동작입니다. 나머지는 더 보기 메뉴에 있으며, 탭 막대에 표시로 다시 고정할 수 있습니다."
+            "value": "탭 막대 끝에 버튼으로 표시할 동작입니다. 탭 막대의 오른쪽 클릭 메뉴에 있는 탭 막대에 표시에서 고정하거나 고정 해제할 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Handlinger som vises som knapper ved siden av fanelinjens Mer-knapp. Resten er i Mer-menyen, der Vis i fanelinjen fester dem igjen."
+            "value": "Handlinger som vises som knapper på slutten av fanelinjen. Fest eller løsne en fra Vis i fanelinjen i fanelinjens høyreklikkmeny."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Akcje wyświetlane jako przyciski obok przycisku Więcej na pasku kart. Pozostałe są w menu Więcej, gdzie Pokaż na pasku kart przypina je z powrotem."
+            "value": "Akcje wyświetlane jako przyciski na końcu paska kart. Przypnij lub odepnij akcję w pozycji Pokaż na pasku kart w menu kontekstowym paska kart."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ações mostradas como botões ao lado do botão Mais da barra de abas. As demais ficam no menu Mais, onde Mostrar na barra de abas as fixa de novo."
+            "value": "Ações mostradas como botões no fim da barra de abas. Fixe ou desafixe uma em Mostrar na barra de abas, no menu de clique direito da barra de abas."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Действия, показанные кнопками рядом с кнопкой «Ещё» на панели вкладок. Остальные — в меню «Ещё», где пункт «Показывать на панели вкладок» снова закрепляет их."
+            "value": "Действия, показанные кнопками в конце панели вкладок. Закрепите или открепите действие пунктом «Показывать на панели вкладок» в контекстном меню панели вкладок."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การทำงานที่แสดงเป็นปุ่มข้างปุ่ม เพิ่มเติม ของแถบแท็บ ส่วนที่เหลืออยู่ในเมนู เพิ่มเติม ซึ่ง แสดงในแถบแท็บ จะปักหมุดกลับมา"
+            "value": "การทำงานที่แสดงเป็นปุ่มที่ท้ายแถบแท็บ ปักหมุดหรือเลิกปักหมุดได้จาก แสดงในแถบแท็บ ในเมนูคลิกขวาของแถบแท็บ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sekme çubuğunun Daha Fazla düğmesinin yanında düğme olarak gösterilen eylemler. Diğerleri Daha Fazla menüsündedir; Sekme Çubuğunda Göster onları yeniden sabitler."
+            "value": "Sekme çubuğunun sonunda düğme olarak gösterilen eylemler. Sekme çubuğunun sağ tık menüsündeki Sekme Çubuğunda Göster ile birini sabitleyin veya sabitlemesini kaldırın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Дії, показані кнопками поруч із кнопкою «Більше» на панелі вкладок. Решта — в меню «Більше», де пункт «Показувати на панелі вкладок» знову закріплює їх."
+            "value": "Дії, показані кнопками в кінці панелі вкладок. Закріпіть або відкріпіть дію пунктом «Показувати на панелі вкладок» у контекстному меню панелі вкладок."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Các hành động hiển thị thành nút cạnh nút Thêm của thanh tab. Phần còn lại nằm trong menu Thêm, nơi Hiển thị trên thanh tab ghim lại chúng."
+            "value": "Các hành động hiển thị thành nút ở cuối thanh tab. Ghim hoặc bỏ ghim từ Hiển thị trên thanh tab trong menu chuột phải của thanh tab."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在标签栏“更多”按钮旁显示为按钮的操作。其余操作位于“更多”菜单中，可通过“在标签栏中显示”重新固定。"
+            "value": "在标签栏末尾显示为按钮的操作。可在标签栏右键菜单的“在标签栏中显示”中固定或取消固定。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在標籤列「更多」按鈕旁顯示為按鈕的動作。其餘動作位於「更多」選單中，可透過「在標籤列中顯示」重新固定。"
+            "value": "在標籤列末端顯示為按鈕的動作。可在標籤列右鍵選單的「在標籤列中顯示」中固定或取消固定。"
           }
         }
       }
