@@ -25,7 +25,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts/ci"
-WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
+WORKFLOWS = ROOT / ".github/workflows"
+WORKFLOW = WORKFLOWS / "cmux-next.yml"
 LARGE, SMALL, HOSTED = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26", "macos-26"
 MACOS_15 = "blacksmith-6vcpu-macos-15"
 SIDE = "glaeda-side-light-xcode-26.6"
@@ -2493,23 +2494,30 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
         labels = resolve_labels(text, variables={"CI_BLACKSMITH_MACOS": switch})
         return {label for label in labels if isinstance(label, str) and self.BLACKSMITH_MACOS.match(label)}
 
-    def routes(self) -> dict[str, str]:
-        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+    def routes(self, path: Path = WORKFLOW) -> dict[str, str]:
+        jobs = yaml.safe_load(path.read_text())["jobs"]
         out = {}
         for name, job in jobs.items():
             for index, cell in enumerate(workflow_jobs.resolve(job).runs_on_cells or ()):
-                out[f"{name}: runs-on[{index}]"] = cell
+                out[f"{path.name} {name}: runs-on[{index}]"] = cell
             runner = (job.get("env") or {}).get("CMUX_NEXT_RUNNER")
             if runner:
-                out[f"{name}: CMUX_NEXT_RUNNER"] = runner
-        place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
-        out["macos-placement: GUI_LAST_RESORT"] = place["env"]["GUI_LAST_RESORT"]
+                out[f"{path.name} {name}: CMUX_NEXT_RUNNER"] = runner
+        if "macos-placement" in jobs:
+            place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
+            if "GUI_LAST_RESORT" in (place.get("env") or {}):
+                out[f"{path.name} macos-placement: GUI_LAST_RESORT"] = place["env"]["GUI_LAST_RESORT"]
         return out
 
     def test_every_blacksmith_macos_job_is_behind_the_off_switch(self):
-        routes = self.routes()
+        routes = {}
+        for path in sorted(WORKFLOWS.glob("*.yml")):
+            try:
+                routes.update(self.routes(path))
+            except (KeyError, TypeError, ValueError) as error:
+                self.fail(f"could not inspect {path.name}: {error}")
         offenders = {where: sorted(found) for where, expression in routes.items()
-                     if where.split(":")[0] not in self.NOT_A_PR_JOB
+                     if where.rsplit(" ", 2)[1] not in self.NOT_A_PR_JOB
                      and (found := self.blacksmith_labels(expression, ()))}
         self.assertEqual(offenders, {}, "with vars.CI_BLACKSMITH_MACOS unset these routes can still name a "
                          "Blacksmith macOS label: wrap the read as (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || "
