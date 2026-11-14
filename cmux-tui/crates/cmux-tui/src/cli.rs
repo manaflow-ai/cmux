@@ -135,10 +135,11 @@ mod vm_words;
 #[cfg(unix)]
 mod vnc;
 #[cfg(unix)]
+pub(crate) use auth_token::{AppToken, app_token};
+#[cfg(unix)]
 pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
 #[cfg(unix)]
 pub(crate) use cloud_client_session::secure_origin as secure_cloud_origin;
-#[cfg(unix)]
 #[cfg(unix)]
 pub(crate) use host_mount::early_unix_scope;
 
