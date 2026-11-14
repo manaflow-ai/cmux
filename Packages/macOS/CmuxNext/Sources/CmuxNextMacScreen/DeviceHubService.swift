@@ -34,6 +34,10 @@ public final class DeviceHubService {
         }
     }
 
+    /// Platform identity loader; injected so callers can supply their own key store.
+    public typealias AppHubFactory = @MainActor (URL, String, String, DeviceHubAccountToken, LoginKeychain) async throws -> DeviceHub
+    private let makeAppHub: AppHubFactory
+    private let retryClock: any Clock<Duration>
     private let pages: MacScreenPages
     private let account: Account
     private let bundleIdentifier: String
@@ -64,7 +68,13 @@ public final class DeviceHubService {
     /// The running hub, its account and address after every change (the App anchors cmux Remote).
     public var hubChanged: (@MainActor (DeviceHub?, String?, URL?) -> Void)?
 
-    public init(pages: MacScreenPages, account: Account, bundleIdentifier: String?, loginKeychain: LoginKeychain, selectedBaseURL: URL? = nil) {
+    public init(pages: MacScreenPages, account: Account, bundleIdentifier: String?, loginKeychain: LoginKeychain, selectedBaseURL: URL? = nil,
+                retryClock: any Clock<Duration> = ContinuousClock(), makeAppHub: AppHubFactory? = nil) {
+        self.retryClock = retryClock
+        self.makeAppHub = makeAppHub ?? { url, bundle, name, tokens, keychain in
+            try await DeviceHub.forApp(baseURL: url, bundleIdentifier: bundle, deviceName: name,
+                                      tokens: tokens, loginKeychain: keychain)
+        }
         self.selectedBaseURL = selectedBaseURL
         self.pages = pages
         self.account = account
@@ -127,15 +137,14 @@ public final class DeviceHubService {
         let name = pages.store.hubDeviceName ?? MacScreenShareHost.computerName
         loadingFor = (url, user)
         // task-owner: DeviceHubService.loading: one identity load; stopHub cancels it
-        let makeRemoteHub = makeRemoteHub
+        let makeRemoteHub = makeRemoteHub, makeAppHub = makeAppHub
         loading = Task { [weak self] in
             let made: DeviceHub?
             if let remote = await makeRemoteHub?(url, user) {
                 made = remote
             } else {
                 do {
-                    made = try await DeviceHub.forApp(baseURL: url, bundleIdentifier: bundleIdentifier, deviceName: name,
-                                                      tokens: DeviceHubAccountToken(token), loginKeychain: loginKeychain)
+                    made = try await makeAppHub(url, bundleIdentifier, name, DeviceHubAccountToken(token), loginKeychain)
                 } catch {
                     self?.logger.error("device hub identity unavailable: \(String(describing: error), privacy: .public)")
                     made = nil
