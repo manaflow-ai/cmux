@@ -29,8 +29,10 @@ pub use cmux_rd_core::loss::LossMeter;
 pub const HISTORY_FRAMES: usize = 16;
 /// Datagrams resent per feedback, so a hostile feedback cannot amplify.
 pub const MAX_RESENDS_PER_FEEDBACK: usize = 64;
-/// Shortest time between two forced keyframes.
-pub const MIN_FORCED_IDR_INTERVAL_US: u64 = 250_000;
+/// Shortest time between two forced keyframes. The viewer asks for recovery
+/// on its 50 ms feedback cadence; retrying on that cadence avoids leaving the
+/// one-frame gate closed for a quarter second after a lost motion frame.
+pub const MIN_FORCED_IDR_INTERVAL_US: u64 = 50_000;
 /// How long a stream's newest frame may go unacknowledged before the host
 /// resends it (a tail-loss probe). On a datagram path a frame whose every
 /// datagram was lost leaves the viewer nothing to NACK and the gate nothing

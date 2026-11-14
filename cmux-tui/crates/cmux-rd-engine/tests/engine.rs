@@ -114,7 +114,7 @@ fn nacked_shards_are_resent_from_history() {
 }
 
 #[test]
-fn a_recovery_request_forces_a_keyframe_at_most_every_250_ms() {
+fn a_recovery_request_retries_on_the_feedback_cadence() {
     let mut e = engine();
     let first = e.start(0).expect("first");
     send(&mut e, &first, true, 500, 0);
@@ -129,8 +129,16 @@ fn a_recovery_request_forces_a_keyframe_at_most_every_250_ms() {
     send(&mut e, &idr, true, 500, 300_000);
     let again =
         feedback(&Feedback { acked_frame: idr.frame, need_recovery: true, ..Feedback::default() });
-    let out = e.on_datagram(&again, true, 400_000);
-    assert!(out.encode.is_none_or(|r| !r.force_idr), "a second forced keyframe within 250 ms");
+    let out = e.on_datagram(&again, true, 350_000);
+    assert!(
+        out.encode.is_some_and(|r| r.force_idr),
+        "recovery retries after one feedback interval"
+    );
+
+    // A duplicate recovery feedback at the same timestamp must not enqueue a
+    // second encode request; the caller can only service one encode at a time.
+    let duplicate = e.on_datagram(&again, true, 350_000);
+    assert!(duplicate.encode.is_none(), "same-tick recovery feedback is coalesced");
 }
 
 #[test]
