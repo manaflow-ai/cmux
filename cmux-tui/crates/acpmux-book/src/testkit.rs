@@ -44,17 +44,25 @@ pub(crate) fn open(dir: &Path) -> (Log, Recovered) {
 /// A settled book whose last turn is represented by one closed fold. The group
 /// and visible rows are identical at both gate sizes, so the reply has the same
 /// bytes while the hidden turn grows from 10 to 100,000 rows.
-pub(crate) fn folded_book(path: &Path, rows: u64) -> Log {
+pub(crate) fn folded_book(path: &Path, rows: u64) -> (Log, crate::folds::Folds) {
     let (mut log, _) = Log::open(path, Options::default()).expect("the folded book opens");
+    let raw_file = log.append_raw_file(b"fixture/folded-turn.ndjson").expect("fixture raw source");
     for id in 2..=rows {
-        log.append_settled(id, 1, RawRange::NONE, b"{}").expect("the folded row appends");
+        log.append_settled(id, 1, RawRange { file: raw_file, off: id, len: 1 }, b"{}")
+            .expect("the folded row appends");
     }
-    log.append_settled(1, 1, RawRange::NONE, br#"{"body":{"out":[[2,3]]}}"#)
-        .expect("the fold group appends");
+    log.append_settled(
+        1,
+        1,
+        RawRange { file: raw_file, off: rows.saturating_add(1), len: 1 },
+        br#"{"body":{"out":[[2,3]]}}"#,
+    )
+    .expect("the fold group appends");
+    log.sync().expect("the folded rows sync");
     let mut folds = crate::folds::Folds::open(&path.join("folds.idx"), 0).expect("fold index");
     folds.append(1, rows).expect("the fold boundary appends");
     folds.sync().expect("the fold boundary syncs");
-    log
+    (log, folds)
 }
 
 pub(crate) struct BlobFixture {
@@ -66,12 +74,19 @@ pub(crate) struct BlobFixture {
 
 /// Builds both settled and open large bodies before a gate's timed rounds.
 pub(crate) fn blob_fixture(path: &Path, bytes: usize) -> BlobFixture {
-    let (mut log, _) = open(path);
-    log.write_blob(1, &vec![b'x'; bytes]).expect("the settled body writes");
+    let (log, _) = open(path);
     let mut blobs = Blobs::open(path).expect("the open body store opens");
-    let mut body = Body::new(2).expect("the open body row");
-    let value = format!("\"{}\"", "x".repeat(bytes));
+    let mut body = Body::new(1).expect("the open body row");
+    // The requested size includes {"text":""}. Build only one large allocation;
+    // settling streams the same JSON while retaining the open field's file.
+    let text_bytes = bytes.checked_sub(br#"{"text":""}"#.len()).expect("body size");
+    let mut value = String::with_capacity(text_bytes.saturating_add(2));
+    value.push('"');
+    value.extend(std::iter::repeat_n('x', text_bytes));
+    value.push('"');
     blobs.set(&mut body, "text", &value, false).expect("the open body writes");
+    assert_eq!(body.len(), bytes as u64);
+    assert!(blobs.settle(&body).expect("the settled body streams").is_none());
     BlobFixture { log, blobs, body, offset: bytes.saturating_sub(MAX_BLOB_READ) as u64 }
 }
 

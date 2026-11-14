@@ -15,58 +15,8 @@ pub struct Folds {
     file: File,
     len: u64,
     last_group: u64,
+    last_row: u64,
     stopped: bool,
-}
-
-/// Read-only view of the derived fold boundaries. Unlike [`Folds`], opening this
-/// view never truncates or writes the index, so a chat read can keep one handle
-/// for all candidates in a window.
-pub(crate) struct Reader {
-    file: File,
-    len: u64,
-}
-
-impl Reader {
-    pub(crate) fn open(path: &Path) -> Result<Option<Self>, Error> {
-        let file = match File::open(path) {
-            Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(Error::Io(error)),
-        };
-        let len = file.metadata()?.len();
-        if !len.is_multiple_of(ENTRY_BYTES) {
-            return Err(Error::Corrupt("fold index is not an entry boundary"));
-        }
-        Ok((len != 0).then_some(Self { file, len }))
-    }
-
-    fn refresh(&mut self) -> Result<(), Error> {
-        let len = self.file.metadata()?.len();
-        if !len.is_multiple_of(ENTRY_BYTES) {
-            return Err(Error::Corrupt("fold index is not an entry boundary"));
-        }
-        self.len = len;
-        Ok(())
-    }
-
-    pub(crate) fn containing(&mut self, row_id: u64) -> Result<Option<Entry>, Error> {
-        self.refresh()?;
-        let count = self.len / ENTRY_BYTES;
-        let mut lo = 0u64;
-        let mut hi = count;
-        while lo < hi {
-            let mid = lo + (hi - lo) / 2;
-            let (group, last) = read_entry_at(&self.file, mid.saturating_mul(ENTRY_BYTES))?;
-            if row_id < group {
-                hi = mid;
-            } else if row_id > last {
-                lo = mid.saturating_add(1);
-            } else {
-                return Ok(Some(Entry { group, last }));
-            }
-        }
-        Ok(None)
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -87,22 +37,22 @@ impl Folds {
         if actual < checkpoint_len {
             return Err(Error::Corrupt("folds.idx is shorter than its checkpoint"));
         }
-        let last_group = if checkpoint_len == 0 {
-            0
+        let (last_group, last_row) = if checkpoint_len == 0 {
+            (0, 0)
         } else {
             file.seek(SeekFrom::Start(checkpoint_len - ENTRY_BYTES))?;
             let (group, last) = read_entry(&mut file)?;
             if group == 0 || group > last {
                 return Err(Error::Corrupt("invalid fold boundary"));
             }
-            group
+            (group, last)
         };
         if actual != checkpoint_len {
             file.set_len(checkpoint_len)?;
             fsio::sync(&file)?;
         }
         file.seek(SeekFrom::Start(checkpoint_len))?;
-        Ok(Self { file, len: checkpoint_len, last_group, stopped: false })
+        Ok(Self { file, len: checkpoint_len, last_group, last_row, stopped: false })
     }
 
     pub fn len(&self) -> u64 {
@@ -118,8 +68,8 @@ impl Folds {
         if self.stopped {
             return Err(Error::Stopped);
         }
-        if group <= self.last_group || group > last {
-            return Err(Error::InvalidInput("fold groups must rise and not exceed their last row"));
+        if group <= self.last_group || group <= self.last_row || group > last {
+            return Err(Error::InvalidInput("fold ranges must rise without overlapping"));
         }
         let len =
             self.len.checked_add(ENTRY_BYTES).ok_or(Error::InvalidInput("fold index overflow"))?;
@@ -128,6 +78,7 @@ impl Folds {
         self.file.write_all(&last.to_le_bytes())?;
         self.len = len;
         self.last_group = group;
+        self.last_row = last;
         self.stopped = false;
         Ok(())
     }
@@ -144,7 +95,10 @@ impl Folds {
     }
 
     /// Returns the closed fold containing a row, when one exists.
-    pub fn containing(&mut self, row_id: u64) -> Result<Option<Entry>, Error> {
+    pub fn containing(&self, row_id: u64) -> Result<Option<Entry>, Error> {
+        if self.stopped {
+            return Err(Error::Stopped);
+        }
         if row_id == 0 {
             return Ok(None);
         }
@@ -153,8 +107,7 @@ impl Folds {
         let mut hi = count;
         while lo < hi {
             let mid = lo + (hi - lo) / 2;
-            self.file.seek(SeekFrom::Start(mid.saturating_mul(ENTRY_BYTES)))?;
-            let (group, last) = read_entry(&mut self.file)?;
+            let (group, last) = read_entry_at(&self.file, mid.saturating_mul(ENTRY_BYTES))?;
             if row_id < group {
                 hi = mid;
             } else if row_id > last {
@@ -207,8 +160,13 @@ mod tests {
         folds.sync()?;
         drop(folds);
         // A read-only descriptor makes the write fail without a filesystem-wide fault.
-        let mut stopped =
-            Folds { file: File::open(&path)?, len: ENTRY_BYTES, last_group: 2, stopped: false };
+        let mut stopped = Folds {
+            file: File::open(&path)?,
+            len: ENTRY_BYTES,
+            last_group: 2,
+            last_row: 8,
+            stopped: false,
+        };
         assert!(matches!(stopped.append(10, 20), Err(Error::Io(_))));
         assert_eq!(stopped.len(), ENTRY_BYTES);
         assert!(matches!(stopped.append(10, 20), Err(Error::Stopped)));
@@ -256,6 +214,30 @@ mod tests {
         folds.append(2, 8)?;
         assert!(matches!(folds.append(2, 8), Err(Error::InvalidInput(_))));
         assert!(matches!(folds.append(10, 9), Err(Error::InvalidInput(_))));
+        Ok(())
+    }
+
+    #[test]
+    fn overlapping_and_nested_ranges_are_refused_before_and_after_reopen()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("folds.idx");
+        let mut folds = Folds::open(&path, 0)?;
+        folds.append(2, 8)?;
+        for (group, last) in [(3, 4), (7, 10), (8, 9)] {
+            assert!(matches!(folds.append(group, last), Err(Error::InvalidInput(_))));
+            assert_eq!(folds.len(), ENTRY_BYTES);
+        }
+        folds.sync()?;
+        drop(folds);
+        let mut folds = Folds::open(&path, ENTRY_BYTES)?;
+        assert!(matches!(folds.append(8, 20), Err(Error::InvalidInput(_))));
+        folds.append(9, 9)?;
+        folds.append(10, 20)?;
+        assert_eq!(folds.containing(8)?, Some(Entry { group: 2, last: 8 }));
+        assert_eq!(folds.containing(9)?, Some(Entry { group: 9, last: 9 }));
+        assert_eq!(folds.containing(10)?, Some(Entry { group: 10, last: 20 }));
+        assert_eq!(folds.len(), 3 * ENTRY_BYTES);
         Ok(())
     }
 }

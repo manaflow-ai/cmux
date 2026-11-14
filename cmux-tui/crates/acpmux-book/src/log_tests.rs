@@ -553,10 +553,10 @@ fn closed_folds_skip_hidden_rows_and_open_fold_pages_are_bounded() {
     let mut folds = crate::folds::Folds::open(&home.path().join("folds.idx"), 0).unwrap();
     folds.append(1, 10).unwrap();
     folds.sync().unwrap();
-    let closed = log.read_window(Anchor::End, 400, MAX_FRAME_BYTES, &[]).unwrap();
+    let closed = log.read_window(Anchor::End, 400, MAX_FRAME_BYTES, Some(&folds), &[]).unwrap();
     assert_eq!(ids(&closed.rows), vec![1, 2, 3, 5]);
-    let open = log.read_page(Edge::After(1), MAX_PAGE_BYTES, Some(1)).unwrap();
-    assert_eq!(ids(&open.rows), (1..=10).collect::<Vec<_>>());
+    let open = log.read_page(Edge::After(1), MAX_PAGE_BYTES, Some(1), Some(&folds), &[]).unwrap();
+    assert_eq!(ids(&open.rows), (2..=10).collect::<Vec<_>>());
     assert!(!open.has_before && !open.has_after);
 }
 
@@ -572,6 +572,14 @@ fn stopped_log_rejects_every_bounded_read() {
     assert!(matches!(log.window(Anchor::End, 1, 1024), Err(Error::Stopped)));
     assert!(matches!(log.page(Edge::After(0), 1024), Err(Error::Stopped)));
     assert!(matches!(log.since(0, 1024), Err(Error::Stopped)));
+    assert!(matches!(log.resume_size(0, 1024), Err(Error::Stopped)));
+    assert!(matches!(log.read_window(Anchor::End, 1, 1024, None, &[]), Err(Error::Stopped)));
+    assert!(matches!(log.read_page(Edge::After(0), 1024, None, None, &[]), Err(Error::Stopped)));
+    assert!(matches!(
+        log.fill_checked(&[], &mut Vec::new(), &mut Vec::new(), &mut Vec::new()),
+        Err(Error::Stopped)
+    ));
+
     let mut out = Vec::new();
     assert!(matches!(log.read_blob(1, 0, 1, &mut out), Err(Error::Stopped)));
 }

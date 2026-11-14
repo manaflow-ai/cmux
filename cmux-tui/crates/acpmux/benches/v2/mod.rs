@@ -126,7 +126,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         done_when: "A window at the end of a chat whose last turn folded 100,000 rows stays within 1.2x of one folded 10 rows, with the same reply size.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
+        ratio_all: Some(2.0),
         god_max: None,
     },
     GateRow {
@@ -135,7 +135,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         done_when: "A bounded 256 KB range of a 100 MB body stays within 1.2x of one from a 300 KB body, for settled and open bodies.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
+        ratio_all: Some(2.0),
         god_max: None,
     },
     GateRow {

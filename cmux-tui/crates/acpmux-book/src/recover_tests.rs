@@ -778,7 +778,7 @@ fn resume_missing_segment_is_damage_not_retryable_io() {
     log.append_settled(1, 1, RawRange::NONE, &[b'x'; 50]).unwrap();
     log.append_settled(2, 1, RawRange::NONE, &[b'y'; 50]).unwrap();
     fs::remove_file(segment(home.path())).unwrap();
-    assert!(matches!(log.since(0, 1024), Err(Error::Corrupt(_))));
+    assert!(log.since(0, 1024).unwrap().stopped_on_refusal);
 }
 
 #[test]
@@ -803,12 +803,14 @@ fn lost_undo_head_or_entry_never_exposes_a_cut_patch_in_either_segment() {
     for later_segment in [false, true] {
         for corrupt_head in [false, true] {
             let home = tempfile::tempdir().unwrap();
-            let options = Options { segment_bytes: if later_segment { 100 } else { 10_000 } };
+            // One header plus one 50-byte record fits; the patch rolls to segment two.
+            let options = Options { segment_bytes: if later_segment { 102 } else { 10_000 } };
             let (mut log, _) = Log::open(home.path(), options).unwrap();
             log.append_settled(1, 1, RawRange::NONE, &[b'a'; 50]).unwrap();
             log.write_checkpoint(&[], &[]).unwrap();
             let mark = fs::metadata(segment(home.path())).unwrap().len();
             log.patch(1, 2, RawRange::NONE, &[b'b'; 50]).unwrap();
+            assert_eq!(log.row(1).unwrap().seg, if later_segment { 2 } else { 1 });
             drop(log);
             let undo = home.path().join("rows.undo");
             let mut bytes = fs::read(&undo).unwrap();
