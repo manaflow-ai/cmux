@@ -179,6 +179,48 @@ fn a_bound_machine_answers_its_ticket_in_one_request_after_the_bearer_minted_at_
     drop(server);
 }
 
+/// The bind answer's ticket for the session host's first Register.
+fn bind_ticket(ticket: &str, life_s: u64) -> Value {
+    json!({ "ok": true, "relay": "relay+do://relay.example", "slot": "slot_0123456789abcdefghijkl", "ticket": ticket, "expires_at": T0 / 1000 + life_s })
+}
+
+#[test]
+fn a_ticket_from_the_bind_goes_to_the_first_register_with_no_ticket_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, path) = serve(&dir);
+    let fake = Fake::default();
+    server.bound_with_ticket(client(&fake), true, Some(bind_ticket("bind-ticket-0123", 300)));
+    let reply = ask(&path, r#"{"carrier_ticket": {}}"#);
+    assert_eq!((&reply["ok"], &reply["ticket"]), (&json!(true), &json!("bind-ticket-0123")));
+    // Dropping the server joins its request threads: the bind's request minted
+    // the bearer (for later tickets) and asked for no ticket.
+    drop(server);
+    assert_eq!(fake.urls(), [format!("{DEV}/v1/auth/challenge"), format!("{DEV}/v1/auth/token")]);
+    let logged = LOGGED.lock().unwrap().clone();
+    assert!(logged.iter().any(|l| l == "carrier ticket: kept from the bind"), "{logged:?}");
+    assert!(logged.iter().all(|l| !l.contains("bind-ticket-0123")), "{logged:?}");
+}
+
+#[test]
+fn a_bind_ticket_too_close_to_expiry_or_on_a_machine_without_a_carrier_is_not_kept() {
+    // Too close to its expiry to keep: the bind asks for a ticket as before.
+    let dir = tempfile::tempdir().unwrap();
+    let (server, path) = serve(&dir);
+    let fake = Fake::default();
+    server.bound_with_ticket(client(&fake), true, Some(bind_ticket("short-lived-0123", 30)));
+    let reply = ask(&path, r#"{"carrier_ticket": {}}"#);
+    assert_eq!(reply["ticket"], TICKET);
+    drop(server);
+    assert!(fake.urls().contains(&format!("{DEV}/v1/cloud/machines/{MACHINE}/carrier")));
+    // No carrier: nothing is kept, and nothing is asked ahead.
+    let dir = tempfile::tempdir().unwrap();
+    let (server, _path) = serve(&dir);
+    let fake = Fake::default();
+    server.bound_with_ticket(client(&fake), false, Some(bind_ticket("no-carrier-0123", 300)));
+    drop(server);
+    assert!(fake.urls().iter().all(|u| !u.ends_with("/carrier")), "{:?}", fake.urls());
+}
+
 #[test]
 fn an_ask_before_the_bind_is_answered_once_the_bind_lands() {
     let dir = tempfile::tempdir().unwrap();

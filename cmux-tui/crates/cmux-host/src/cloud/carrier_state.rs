@@ -278,12 +278,23 @@ impl<B, C> Core<B, C> {
         self.waiting_resume = None;
     }
 
-    /// The machine is bound (again): the bind's generation starts now, not
-    /// when the fetch thread takes it.
+    /// The machine is bound (again) with no ticket of its own (the seeded
+    /// sweep's binds): [`Core::bind_with`].
+    #[cfg(test)]
     pub(super) fn bind(&mut self, next: B) {
+        self.bind_with(next, None);
+    }
+
+    /// The machine is bound (again): the bind's generation starts now, not
+    /// when the fetch thread takes it. A bind that already holds its first
+    /// ticket (the bind answer's) keeps it as the generation's kept ticket in
+    /// this same transition, so an ask right after it takes it with no
+    /// request.
+    pub(super) fn bind_with(&mut self, next: B, warm: Option<Warm>) {
         self.new_generation();
         self.bound_at = self.generation;
         self.next = Some(next);
+        self.warm = warm;
     }
 
     /// The machine resumed: the kept ticket and anything on its way from
