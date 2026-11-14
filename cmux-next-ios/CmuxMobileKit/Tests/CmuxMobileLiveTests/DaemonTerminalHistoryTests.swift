@@ -166,6 +166,78 @@ import Testing
         #expect(session.historyRowsOmitted == 5_000)
     }
 
+    // MARK: The Mac keeps the scrollback (attach-replay-history-window-v1)
+
+    /// Leo, 2026-11-14: "is there a way to do it and like maintain expected
+    /// behavior while not needing to f***ing stream the literal f***ing Mac
+    /// screen on the f***ing phone?" A reader who scrolls a 100,000-row
+    /// history all the way back reaches line 1, and no replay on the way
+    /// holds more than 10,000 rows: the phone holds a window of the Mac's
+    /// history, never all of it. Before, each fetch asked for 2,000 more
+    /// rows, and the last ones asked for the whole history.
+    @Test func scrollingAHundredThousandRowHistoryToLineOneHoldsABoundedWindow() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.tailReplay = true
+        daemon.windowReplay = true
+        daemon.historyRows = 100_000
+        daemon.afterAttach = nil
+        let session = session(daemon, ChannelLog())
+        defer { session.stop() }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        #expect(attaches(daemon).first?["replay_history_rows"] as? Int == 0, "the attach is the screen alone")
+
+        var fetches = 0
+        while session.historyRowsOmitted > 0, fetches < 200 {
+            // Each fetch waits for the one before it (one at a time).
+            try await waitUntil { session.historyRowsOmitted == 0 || session.loadOlderHistory() }
+            fetches += 1
+        }
+        try await waitUntil { session.historyRowsOmitted == 0 }
+        #expect(session.historyRowsOmitted == 0, "line 1 is reached")
+        let held = daemon.replayedHistoryRows
+        #expect(held.max() ?? 0 <= 10_000, "a replay held \(held.max() ?? 0) of the Mac's 100,000 history rows")
+        #expect(attaches(daemon).allSatisfy { $0["replay_history_rows"] != nil }, "no fetch asked for the whole history")
+        #expect(fetches <= 80, "\(fetches) fetches to line 1")
+        #expect(attaches(daemon).last?["replay_history_start"] as? Int == 0)
+        #expect(text(events).hasSuffix("\u{1B}c[rows 0..<4000]hello\r\n$ "), "the mirror starts at line 1")
+        #expect(!events.contains { if case .connection(let state) = $0 { !state.isAttached } else { false } })
+    }
+
+    /// The phone tells the Mac it reads the rows a `resized` replay leaves out.
+    @Test func theAttachDeclaresTheHistoryWindow() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.tailReplay = true
+        daemon.windowReplay = true
+        let session = session(daemon, ChannelLog())
+        defer { session.stop() }
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        let info = daemon.recorded.first { $0["cmd"] as? String == "set-client-info" }
+        #expect((info?["capabilities"] as? [String])?.contains("attach-replay-history-window-v1") == true)
+    }
+
+    /// A `resized` replay of the Mac's history window (a resize, the phone's
+    /// keyboard, the Mac's own window) keeps only the newest rows: the rows it
+    /// names as left out are still the Mac's to send, not lost.
+    @Test func aWindowedResizedReplayKeepsTheOlderRowsFetchable() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.tailReplay = true
+        daemon.windowReplay = true
+        daemon.historyRows = 100_000
+        daemon.afterAttach = nil
+        let session = session(daemon, ChannelLog())
+        defer { session.stop() }
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        session.handle(FakeTerminalDaemon.line(["event": "resized", "surface": 7, "cols": 60, "rows": 20,
+                                                "replay": Data("screen".utf8).base64EncodedString(),
+                                                "history_rows_omitted": 101_000]))
+        #expect(session.historyRowsOmitted == 101_000)
+        #expect(session.loadOlderHistory(), "older rows are fetched after the resize")
+    }
+
     private func waitUntil(attempts: Int = 300, _ condition: @MainActor () -> Bool) async throws {
         for _ in 0..<attempts where !condition() {
             try await Task.sleep(for: .milliseconds(10))

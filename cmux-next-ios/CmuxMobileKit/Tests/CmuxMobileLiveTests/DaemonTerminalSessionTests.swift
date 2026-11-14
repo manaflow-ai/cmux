@@ -50,6 +50,14 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var historyRows = 0
     /// The lane refuses `replay_history_rows` (a Mac app older than its daemon).
     var laneRefusesHistoryRows = false
+    /// `identify` advertises attach-replay-history-window-v1: an attach with
+    /// `replay_history_start` gets that window of `historyRows` and the
+    /// screen, as cmux-tui's `HistoryWindow::plan` sends it (at most 10,000
+    /// rows; a gap shorter than the window is sent as rows down to the screen).
+    var windowReplay = false
+    /// History rows each attach's replay held (tail or window), in order.
+    private var heldRows: [Int] = []
+    var replayedHistoryRows: [Int] { lock.withLock { heldRows } }
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
 
@@ -71,7 +79,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         case "identify" where initialSize || sizeLease || sharedSizing || tailReplay:
             return [reply(["capabilities": (initialSize ? ["attach-initial-size"] : []) + (sizeLease ? ["size-lease-v1"] : [])
                     + (sharedSizing ? ["shared-sizing-v1", "host-size-policy-v1"] : [])
-                    + (tailReplay ? ["attach-replay-history-rows-v1"] : [])])]
+                    + (tailReplay ? ["attach-replay-history-rows-v1"] : [])
+                    + (lock.withLock { windowReplay } ? ["attach-replay-history-window-v1"] : [])])]
         case "attach-surface" where object["replay_history_rows"] != nil && lock.withLock({ laneRefusesHistoryRows }):
             return [Self.line(["id": id, "ok": false, "error": "attach-surface does not take replay_history_rows from a phone"])]
         case "get-host-size-policy":
@@ -132,11 +141,29 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             }
             var state: [String: Any] = ["event": "vt-state", "surface": live, "cols": 80, "rows": 24,
                                         "data": Data(replay.utf8).base64EncodedString()]
-            if let allowance = object["replay_history_rows"] as? Int, lock.withLock({ tailReplay }) {
-                let history = lock.withLock { historyRows }
+            let history = lock.withLock { historyRows }
+            if let allowance = object["replay_history_rows"] as? Int, let asked = object["replay_history_start"] as? Int,
+               lock.withLock({ tailReplay && windowReplay }) {
+                let rows = min(max(allowance, 1), 10_000)
+                let start = min(asked, history)
+                let skipped = max(0, history - (start + rows))
+                if skipped < rows {
+                    state["history_rows_omitted"] = start
+                    state["data"] = Data("[rows \(start)..<\(history)]\(replay)".utf8).base64EncodedString()
+                    lock.withLock { heldRows.append(history - start) }
+                } else {
+                    state["history_rows_omitted"] = start
+                    state["history_rows_skipped"] = skipped
+                    state["data"] = Data("[rows \(start)..<\(start + rows)]\(replay)".utf8).base64EncodedString()
+                    lock.withLock { heldRows.append(rows) }
+                }
+            } else if let allowance = object["replay_history_rows"] as? Int, lock.withLock({ tailReplay }) {
                 let kept = min(history, allowance)
                 state["history_rows_omitted"] = history - kept
                 state["data"] = Data("[\(kept) rows]\(replay)".utf8).base64EncodedString()
+                lock.withLock { heldRows.append(kept) }
+            } else {
+                lock.withLock { heldRows.append(history) }
             }
             return [
                 Self.line(state),
