@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde";
+pub const ir_sha256 = "3d5aa4510bf553d836056175a290c24a6ac1d16e5a486e3ad6f71712aa8a902a";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1398,6 +1398,15 @@ pub const ListTerminalsResult = struct {
     registry_id: []const u8,
     terminal_revision: u64,
     terminals: []const TerminalRecord,
+};
+
+pub const ListWorkspacesKnown = struct {
+    generation: wire.Field([]const u8) = .absent,
+    pane_revision: wire.Field(u64) = .absent,
+    registry_id: wire.Field([]const u8) = .absent,
+    terminal_revision: wire.Field(u64) = .absent,
+    tree_revision: wire.Field([]const u8) = .absent,
+    workspace_revision: wire.Field(u64) = .absent,
 };
 
 pub const LivePane = struct {
@@ -3481,6 +3490,9 @@ pub const Tree = struct {
     pane_revision: ?u64 = null,
     registry_id: ?[]const u8 = null,
     terminal_revision: ?u64 = null,
+    total: ?u64 = null,
+    tree_revision: ?[]const u8 = null,
+    unchanged: ?bool = null,
     workspace_revision: ?u64 = null,
     workspaces: []const Workspace,
 
@@ -3489,6 +3501,9 @@ pub const Tree = struct {
         "pane_revision",
         "registry_id",
         "terminal_revision",
+        "total",
+        "tree_revision",
+        "unchanged",
         "workspace_revision",
     };
 };
@@ -7055,7 +7070,10 @@ pub fn listWorkspaceGroups(client: anytype, request: ListWorkspaceGroupsRequest)
     );
 }
 
-pub const ListWorkspacesRequest = struct {};
+pub const ListWorkspacesRequest = struct {
+    known: wire.Field(ListWorkspacesKnown) = .absent,
+    limit: wire.Field(u64) = .absent,
+};
 
 pub const ListWorkspacesResult = Tree;
 
@@ -7067,6 +7085,10 @@ pub fn listWorkspaces(client: anytype, request: ListWorkspacesRequest) !wire.Dec
             .authority = "control",
             .since = 5,
             .capability = null,
+            .fields = &.{
+                .{ .name = "known", .since = 12, .capability = "list-workspaces-known-v1" },
+                .{ .name = "limit", .since = 12, .capability = "list-workspaces-limit-v1" },
+            },
         },
         request,
     );

@@ -24,6 +24,7 @@
 // Inline `translate` and `clip-path` only: no layout, so the virtualizer's heights and the scroll
 // offset stay exact. O(1) a frame: the live row and the row over it, kept from the pass. Reduce Motion
 // and motion off never move the chase (x stays 0), so this draws nothing.
+import { motionMode } from "../../../ui/motion/motionMode";
 import { LIVE_THINKING } from "./turns";
 
 export const PIN_LIVE_ATTR = "data-pin-live";
@@ -301,7 +302,8 @@ export function pinLiveLine(thread: HTMLElement | null, pin: boolean, hold = fal
   return { id: LIVE_THINKING, y: held, used: false };
 }
 
-/// Plays a line let go and not taken by a glide home from where it was held, on `step`.
+/// Plays a line let go and not taken by a glide home from where it was held, on `step`. With Reduce
+/// Motion (or motion off) the line stays at its layout place, where the glide would have ended.
 export function finishCarry(
   thread: HTMLElement | null,
   carry: PinCarry | undefined,
@@ -310,6 +312,7 @@ export function finishCarry(
   if (!thread || !carry || carry.used) return;
   const row = thread.querySelector<HTMLElement>(`:scope > .acpmux-row[data-row-id="${carry.id}"]`);
   if (!row || typeof row.animate !== "function") return;
+  if (motionMode(thread.ownerDocument, row) !== "full") return;
   const { ms, easing } = step(carry.y);
   if (!(ms > 0)) return;
   const timed = { duration: ms, easing };

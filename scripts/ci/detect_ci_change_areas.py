@@ -321,7 +321,8 @@ def is_unowned_ci_helper(path: str) -> bool:
 
 
 # Script sources ci_helper_areas() can trace through the tree by name.
-_WALKABLE_SCRIPT_SUFFIXES = (".py", ".sh", ".bash", ".zsh", ".js", ".mjs", ".ts")
+# .ps1: a Windows job's PowerShell script (#42833 added .github/scripts/cmux-rd-motion.ps1 unplaced).
+_WALKABLE_SCRIPT_SUFFIXES = (".py", ".sh", ".bash", ".zsh", ".js", ".mjs", ".ts", ".ps1")
 
 
 def is_walkable_script(path: str) -> bool:
