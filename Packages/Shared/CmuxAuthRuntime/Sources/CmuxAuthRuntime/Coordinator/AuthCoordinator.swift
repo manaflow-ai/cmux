@@ -318,15 +318,22 @@ public final class AuthCoordinator {
 
     // MARK: - Sign-in flows
 
-    /// Send a sign-in code to `email`, or run the debug `42` shortcut.
+    /// Send a sign-in code to `email`, or run the debug `42` shortcut (dev account from the launch environment).
     public func sendCode(to email: String) async throws {
         try await requireOnline()
         isLoading = true
         defer { isLoading = false }
 
+        // The DEBUG dev account comes from the launch environment
+        // (`CMUX_UITEST_STACK_EMAIL` / `CMUX_UITEST_STACK_PASSWORD`), never from
+        // the source: with neither set, `42` is an ordinary email.
         if launch.includesDevAuth,
-           email.trimmingCharacters(in: .whitespacesAndNewlines) == "42" {
-            let creds = CMUXAuthAutoLoginCredentials(email: "l@l.com", password: "abc123")
+           email.trimmingCharacters(in: .whitespacesAndNewlines) == "42",
+           let creds = CMUXAuthAutoLoginCredentials(
+               environment: launch.environment,
+               clearAuth: false,
+               mockDataEnabled: false
+           ) {
             try await signInWithPassword(email: creds.email, password: creds.password, setLoading: false)
             debugCredentials = creds
             return

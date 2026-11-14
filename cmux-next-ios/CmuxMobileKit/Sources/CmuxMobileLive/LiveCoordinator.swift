@@ -107,6 +107,9 @@ public final class LiveCoordinator {
     @ObservationIgnored let clock: any Clock<Duration>
     @ObservationIgnored private var presence: PresenceListener?
     @ObservationIgnored private var isBackgrounded = false
+    /// Major connectivity incidents of a cmux team account, for the team's Slack (PROTOCOL.md
+    /// "Connectivity incidents"); idle for everyone else.
+    @ObservationIgnored let incidents: ConnectivityIncidentReporter
     @ObservationIgnored private var teamTask: Task<Void, Never>?
     @ObservationIgnored var bannerTask: Task<Void, Never>?
     @ObservationIgnored var everConnected = false
@@ -196,7 +199,8 @@ public final class LiveCoordinator {
         readMarks: FeedReadMarks? = nil,
         pins: MacPins? = nil,
         push: PushKeys? = nil,
-        clock: any Clock<Duration> = ContinuousClock()
+        clock: any Clock<Duration> = ContinuousClock(),
+        watchesConnectivity: Bool = true
     ) {
         self.secrets = secrets
         ConnectTimeline.shared.mark("coordinator_start")
@@ -214,6 +218,17 @@ public final class LiveCoordinator {
         self.relayOnly = relayOnly
         self.blockUDP = blockUDP
         self.dialer = dialer
+        let apiForIncidents = api
+        // A headless coordinator (a notification reply on a cold background launch) never watches: its
+        // reporter has no file, so it neither sends nor recovers the app's own open incidents.
+        incidents = ConnectivityIncidentReporter(
+            file: watchesConnectivity ? ConnectivityIncidentReporter.file(account: userID) : nil, clock: clock,
+            watches: watchesConnectivity,
+            check: ConnectivityIncidentReporter.liveCheck(serviceBase: api.baseURL),
+            send: { incident, simulations, app in
+                try await apiForIncidents.reportConnectivityIncident(incident, simulations: simulations, app: app)
+            })
+        incidents.simulations = Self.simulations(relayOnly: relayOnly, blockUDP: blockUDP)
         self.feedStore = feedStore
         let apiForLink = api
         idleSession = MacSession(
@@ -330,11 +345,13 @@ public final class LiveCoordinator {
         switch event {
         case .lost:
             log.info("network lost")
+            incidents.network(nil)
             ConnectTimeline.shared.mark("network_lost")
             // The offline banner and the Workspaces page's offline wording (CMUX-49).
             if !store.isOffline { store.isOffline = true }
         case .changed(let path):
             log.info("network changed: \(path, privacy: .public)")
+            incidents.network(Self.networkKind(path))
             if store.isOffline { store.isOffline = false }
             presence?.kick()
             guard let teamID = registeredTeamID else { return }
@@ -942,6 +959,7 @@ public final class LiveCoordinator {
         transcriptCache = nil
         keptSessionIDs = [:]
         ChiefSources.shared.stop()
+        incidents.stop()
         networkTask?.cancel()
         networkTask = nil
         discoveryTask?.cancel()
@@ -990,24 +1008,39 @@ public final class LiveCoordinator {
     /// Debug relay-only mode (Settings → Developer); a change redials.
     public func setRelayOnly(_ relayOnly: Bool) {
         self.relayOnly = relayOnly
+        incidents.simulations = Self.simulations(relayOnly: relayOnly, blockUDP: blockUDP)
         for session in sessions.values { session.link.send(.relayOnly(relayOnly)) }
     }
 
     /// Debug UDP-blocked mode (Settings → Developer); a change redials.
     public func setBlockUDP(_ blockUDP: Bool) {
         self.blockUDP = blockUDP
+        incidents.simulations = Self.simulations(relayOnly: relayOnly, blockUDP: blockUDP)
         for session in sessions.values { session.link.send(.blockUDP(blockUDP)) }
     }
 
     /// Keep background work usable, but do not trust these links after suspension.
     public func background() {
         isBackgrounded = true
+        incidents.appActive(false)
         for session in sessions.values { session.link.send(.background) }
+    }
+
+    /// The app's process (not a test): the connectivity incident watch follows UIKit's app state,
+    /// seeded with it now (a sign-in made in front has no scene change to start it).
+    public func followApplicationState() {
+        incidents.followApplicationState()
+    }
+
+    /// Before sign-out, while the token works: open connectivity incidents end and are sent.
+    public func endIncidentsBeforeSignOut() async {
+        await incidents.signOut()
     }
 
     /// App foreground: immediately replace stale links and refresh presence.
     public func foreground() {
         isBackgrounded = false
+        incidents.appActive(true)
         log.info("foreground: \(String(describing: self.link.phase), privacy: .public)")
         // The first activation is the launch itself, already being measured.
         if ConnectTimeline.shared.sinceProcessStart > 5 { ConnectTimeline.shared.begin("foreground") }

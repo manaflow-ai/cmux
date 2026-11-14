@@ -68,7 +68,9 @@ async fn interrupted_write_preserves_frame_bytes_and_completed_cursor() {
 }
 
 use crate::hub::Hub;
-use crate::wire::{CREDIT_WINDOW_BYTES, Credit, DeltaFrame, MAX_FRAME_BYTES, ReplayMark, Window};
+use crate::wire::{
+    CREDIT_WINDOW_BYTES, Credit, DeltaFrame, DeltaOp, MAX_FRAME_BYTES, ReplayMark, Window,
+};
 use acpmux_book::index::{Summary, SummaryIndex};
 use std::time::Duration;
 use tokio::io::{AsyncWriteExt, DuplexStream};
@@ -131,6 +133,70 @@ async fn a_live_offer_wakes_the_connection_and_first_window_precedes_it() {
     let delta: DeltaFrame<Summary> = frame.decode_json().unwrap();
     assert_eq!(delta.replay, None);
     assert_eq!(delta.ops.len(), 1);
+    drop(client);
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn origin_transitions_cross_the_connection_and_resume_at_the_advanced_cursor() {
+    use crate::wire::DeltaOp;
+    use acpmux_book::index::OriginState;
+
+    let (mut client, task, hub, mut writer, _source) = list_pair();
+    hello(&mut client).await;
+    let first = subscribe(&mut client, "origins").await;
+    assert_eq!(first.kind, FrameKind::Window);
+    let window: Window<Summary> = first.decode_json().unwrap();
+    let mut cursor = window.cursor;
+    for (state, since) in
+        [(OriginState::Down, 10), (OriginState::Stale, 20), (OriginState::Connected, 30)]
+    {
+        writer.origin("peer", state, since).unwrap();
+        let frame = receive(&mut client).await;
+        assert_eq!(frame.kind, FrameKind::Delta);
+        let delta: DeltaFrame<Summary> = frame.decode_json().unwrap();
+        assert_eq!(delta.sid, "origins");
+        assert_eq!(delta.replay, None);
+        assert_eq!(delta.ops.len(), 1);
+        let DeltaOp::Origin { seq, origin } = delta.ops.into_iter().next().unwrap() else {
+            panic!("origin transition was not an origin operation");
+        };
+        assert_eq!(seq, cursor + 1);
+        assert_eq!(origin.id, "peer");
+        assert_eq!(origin.state, state);
+        assert_eq!(origin.since, since);
+        cursor = seq;
+    }
+    assert_eq!(cursor, hub.snapshot().seq());
+    assert_eq!(cursor, window.cursor + 3);
+
+    // Resubscribe at the cursor learned from the three decoded operations.
+    // A caught-up replay is empty; the following row must still arrive live.
+    send(&mut client, json!({"method":"unsub","params":{"sid":"origins"}})).await;
+    send(
+        &mut client,
+        json!({"method":"sub","params":{
+            "sid":"origins","stream":"list","cursor":cursor,"edition":window.edition
+        }}),
+    )
+    .await;
+    let caught_up = receive(&mut client).await;
+    assert_eq!(caught_up.kind, FrameKind::Delta);
+    let caught_up: DeltaFrame<Summary> = caught_up.decode_json().unwrap();
+    assert_eq!(caught_up.sid, "origins");
+    assert_eq!(caught_up.replay, Some(ReplayMark::End));
+    assert!(caught_up.ops.is_empty());
+    writer.apply(summary(40)).unwrap();
+    let frame = receive(&mut client).await;
+    assert_eq!(frame.kind, FrameKind::Delta);
+    let delta: DeltaFrame<Summary> = frame.decode_json().unwrap();
+    assert_eq!(delta.sid, "origins");
+    assert_eq!(delta.replay, None);
+    assert_eq!(delta.ops.len(), 1);
+    assert!(matches!(
+        delta.ops.into_iter().next().unwrap(),
+        DeltaOp::Summary { seq, .. } if seq == cursor + 1
+    ));
     drop(client);
     task.await.unwrap().unwrap();
 }
@@ -274,6 +340,32 @@ async fn missed_history_returns_window_and_caught_up_resume_has_empty_end() {
         assert_eq!(delta.replay, None);
         assert_eq!(delta.ops.len(), 1);
     }
+    drop(client);
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn retained_resume_is_one_raw_frame_at_operation_boundaries() {
+    let (mut client, task, _hub, mut writer, _source) = list_pair();
+    writer.apply(summary(1)).unwrap();
+    writer.apply(summary(2)).unwrap();
+    hello(&mut client).await;
+    send(
+        &mut client,
+        json!({"method":"sub","params":{"sid":"s","stream":"list","cursor":0,"edition":0}}),
+    )
+    .await;
+    let frame = receive(&mut client).await;
+    assert_eq!(frame.kind, FrameKind::Delta);
+    let delta: DeltaFrame<Summary> = frame.decode_json().unwrap();
+    assert_eq!(delta.replay, Some(ReplayMark::End));
+    assert_eq!(delta.ops.len(), 2);
+    assert!(matches!(delta.ops.first(), Some(DeltaOp::Summary { seq: 1, .. })));
+    assert!(matches!(delta.ops.get(1), Some(DeltaOp::Summary { seq: 2, .. })));
+    writer.apply(summary(3)).unwrap();
+    let live: DeltaFrame<Summary> = receive(&mut client).await.decode_json().unwrap();
+    assert_eq!(live.replay, None);
+    assert_eq!(live.ops.len(), 1);
     drop(client);
     task.await.unwrap().unwrap();
 }
@@ -524,7 +616,7 @@ async fn source_window_is_exact_when_a_summary_changes_after_first_offer() {
     .unwrap();
     let delta: DeltaFrame<Summary> =
         Frame::from_encoded(&next.bytes).unwrap().decode_json().unwrap();
-    assert!(matches!(delta.ops.as_slice(), [crate::wire::DeltaOp::Summary { seq: 2, .. }]));
+    assert!(matches!(delta.ops.as_slice(), [DeltaOp::Summary { seq: 2, .. }]));
     source.end("s");
     source.close().await;
 }
@@ -970,6 +1062,100 @@ async fn expired_list_resume_and_live_lag_open_the_head() {
     task.await.unwrap().unwrap();
     assert_eq!(source.task_count(), 0);
     assert_eq!(hub.subscriber_count(), 0);
+}
+
+#[tokio::test]
+async fn keyed_pages_reach_the_hub_through_the_connection() {
+    struct Provider;
+    impl crate::hub::PageProvider for Provider {
+        fn row(&self, key: &acpmux_book::index::RowKey) -> std::io::Result<Option<Arc<Summary>>> {
+            if key.origin.as_ref() == "local" && key.chat_id.as_ref() == "cold" {
+                let mut row = Summary::new("cold");
+                row.state = "closed".into();
+                Ok(Some(Arc::new(row)))
+            } else {
+                Ok(None)
+            }
+        }
+    }
+    let (mut client, task, hub, mut writer, _) = list_pair();
+    writer.apply(summary(1)).unwrap();
+    hub.set_page_provider(Arc::new(Provider));
+    hello(&mut client).await;
+    send(
+        &mut client,
+        json!({"method":"sub","params":{
+            "sid":"keys","stream":"list","view":"live"
+        }}),
+    )
+    .await;
+    assert_eq!(receive(&mut client).await.kind, FrameKind::Window);
+    send(
+        &mut client,
+        json!({"method":"page","params":{
+            "sid":"keys","stream":"list","view":"live","keys":[
+                {"origin":"local","chatId":"chat","lastActivity":0},
+                {"origin":"local","chatId":"cold","lastActivity":0},
+                {"origin":"local","chatId":"missing","lastActivity":0},
+                {"origin":"peer","chatId":"unknown","lastActivity":0}
+            ]
+        }}),
+    )
+    .await;
+    let frame = receive(&mut client).await;
+    assert_eq!(frame.kind, FrameKind::Page);
+    let page: crate::wire::PageResult<Summary> = frame.decode_json().unwrap();
+    assert_eq!(
+        page.rows.iter().map(|row| row.chat_id.as_str()).collect::<Vec<_>>(),
+        ["chat", "cold"]
+    );
+    assert_eq!(
+        page.missing.iter().map(|key| key.chat_id.as_str()).collect::<Vec<_>>(),
+        ["missing"]
+    );
+    assert_eq!(
+        page.unknown.iter().map(|key| key.chat_id.as_str()).collect::<Vec<_>>(),
+        ["unknown"]
+    );
+    drop(client);
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn a_key_provider_read_error_is_not_a_missing_chat() {
+    struct Unreadable;
+    impl crate::hub::PageProvider for Unreadable {
+        fn row(&self, _: &acpmux_book::index::RowKey) -> std::io::Result<Option<Arc<Summary>>> {
+            Err(std::io::Error::other("checkpoint read failed"))
+        }
+    }
+    let (mut client, task, hub, _writer, _) = list_pair();
+    hub.set_page_provider(Arc::new(Unreadable));
+    hello(&mut client).await;
+    send(
+        &mut client,
+        json!({"method":"sub","params":{
+            "sid":"keys","stream":"list","view":"all"
+        }}),
+    )
+    .await;
+    assert_eq!(receive(&mut client).await.kind, FrameKind::Window);
+    send(
+        &mut client,
+        json!({"method":"page","params":{
+            "sid":"keys","stream":"list","keys":[
+                {"origin":"local","chatId":"unreadable","lastActivity":0}
+            ]
+        }}),
+    )
+    .await;
+    let frame = receive(&mut client).await;
+    assert_eq!(frame.kind, FrameKind::Error);
+    let error: serde_json::Value = frame.decode_json().unwrap();
+    assert_eq!(error["code"], "request_failed");
+    assert!(error.get("missing").is_none());
+    drop(client);
+    task.await.unwrap().unwrap();
 }
 
 #[test]

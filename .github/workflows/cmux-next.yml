@@ -58,6 +58,7 @@ on:
       - Packages/iOS/**
       - vendor/stack-auth-swift-sdk-prerelease/**
       - scripts/cmux-next/build-layout-reducer-ffi.sh
+      - scripts/ghostty-zig-version.sh
       - scripts/cmux-next/build-app-ffi.sh
       - scripts/select-ci-xcode.sh
       - scripts/ci/xcode-pins.txt
@@ -379,6 +380,7 @@ on:
       # paths above already name.
       - scripts/ghosttykit-checksums.txt
       - scripts/cmux-next/cmux-tui-tree-inputs.txt
+      - scripts/ghostty-zig-version.sh
       - scripts/cmux-next/cef-license/LICENSE.txt
       - scripts/ci/macho_minos.py
       - scripts/ci/cmux_tui_tree_key.py
@@ -1642,17 +1644,53 @@ jobs:
       - name: Prepare check Python (PyYAML) and timeout
         run: |
           set -euo pipefail
+          bin="$RUNNER_TEMP/checks-venv/bin"
           python3 -m venv "$RUNNER_TEMP/checks-venv"
-          "$RUNNER_TEMP/checks-venv/bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
-          if ! command -v timeout >/dev/null && command -v gtimeout >/dev/null; then
-            ln -s "$(command -v gtimeout)" "$RUNNER_TEMP/checks-venv/bin/timeout"
+          "$bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
+          # timeout: GNU timeout, else Homebrew's gtimeout, else scripts/ci/timeout.sh's perl watchdog.
+          if ! command -v timeout >/dev/null; then
+            if command -v gtimeout >/dev/null; then
+              ln -s "$(command -v gtimeout)" "$bin/timeout"
+            elif command -v perl >/dev/null; then
+              # Absolute bash, perl's folder on PATH: a test may run it under a PATH of a few symlinks.
+              printf '#!%s\nPATH="${PATH:+$PATH:}%s" exec %q %q "$@"\n' "$(command -v bash)" "$(dirname "$(command -v perl)")" \
+                "$(command -v bash)" "$GITHUB_WORKSPACE/scripts/ci/timeout.sh" > "$bin/timeout"
+              chmod +x "$bin/timeout"
+            fi
           fi
-          echo "$RUNNER_TEMP/checks-venv/bin" >> "$GITHUB_PATH"
+          # node: a mini has none; the web jobs' pinned one, from the tool cache or nodejs.org (checksummed).
+          command -v node >/dev/null || scripts/ci/ensure-setup-node.sh 24.22.1 \
+            || echo "::warning title=checks preflight::ensure-setup-node.sh could not install node 24.22.1"
+          echo "$bin" >> "$GITHUB_PATH"
+          # Preflight, on the PATH the next steps get: name each missing tool and stop here, not 10 minutes in.
+          PATH="$(awk '{ line[NR] = $0 } END { for (i = NR; i > 0; i--) printf "%s:", line[i] }' "$GITHUB_PATH")$PATH"
+          missing=""
+          node --version >/dev/null 2>&1 || missing="$missing node,"
+          timeout 10 true >/dev/null 2>&1 || missing="$missing timeout (no GNU timeout, gtimeout or perl),"
+          python3 -c 'import yaml' >/dev/null 2>&1 || missing="$missing python3 with PyYAML,"
+          if [ -n "$missing" ]; then
+            echo "::error title=checks preflight::${RUNNER_NAME:-this runner} lacks${missing%,}"
+            exit 1
+          fi
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-27
       - name: Start the slow checks in the background
+        env:
+          # The job's own cap (the same expression as its timeout-minutes; tests/test_run_checks_concurrently.py).
+          JOB_TIMEOUT_MINUTES: ${{ github.repository_owner == 'manaflow-ai' && needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && !contains(needs.portable-placement.outputs.linux_jobs, ' checks ') && contains(needs.portable-placement.outputs.mini_jobs, ' checks ') && needs.portable-placement.outputs.mini_runner != '' && 35 || 15 }}
         run: |
-          scripts/ci/run-checks-concurrently.sh --start "$RUNNER_TEMP/background-checks" --jobs "$(getconf _NPROCESSORS_ONLN)" <<'CHECKS'
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-27c
+          # A check still running POOL_TAIL_SECONDS before the cap stops with its name, so the job ends in a verdict.
+          # The job clock starts when the runner writes the event file (Set up job), before the runner hook's wait.
+          POOL_TAIL_SECONDS=300
+          job_start="$(python3 -c 'import os, sys; print(int(os.path.getmtime(sys.argv[1])))' "$GITHUB_EVENT_PATH" 2>/dev/null \
+            || date +%s)"
+          now="$(date +%s)"
+          # A stale or future event file (not this job's) is no clock: count from now.
+          (( job_start <= now && now - job_start < JOB_TIMEOUT_MINUTES * 60 )) || job_start="$now"
+          deadline=$(( job_start + JOB_TIMEOUT_MINUTES * 60 - POOL_TAIL_SECONDS ))
+          scripts/ci/run-checks-concurrently.sh --start "$RUNNER_TEMP/background-checks" --jobs "$(getconf _NPROCESSORS_ONLN)" \
+            --deadline-at "$deadline" <<'CHECKS'
             [no-process-scan]
             python3 -I scripts/cmux-next/check-no-process-scan.py "$GITHUB_WORKSPACE"
             [state-roots]
