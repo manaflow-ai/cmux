@@ -3256,6 +3256,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "desktop-lease"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "cmux-process",
+ "cmux-scope",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "dhat"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
