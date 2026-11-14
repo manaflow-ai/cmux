@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43654038894",
+  "recorded_at": "2026-11-14T23:44:54Z",
+  "reason": "cmux-tui be3f21d9aa0e changes the image's cmux-tui (pinned 0dca5f17692b)",
+  "dry_run": false,
+  "cmux_tui": "be3f21d9aa0e8d4195d1968aef72cefc11b00e75",
+  "fixes": [
+    {
+      "sha": "be3f21d9aa0e8d4195d1968aef72cefc11b00e75",
+      "mergedAt": "2026-11-14T15:14:54-08:00",
+      "subject": "cmux-tui: a dev server a terminal shows appears as its workspace's ports (#43322)"
+    },
+    {
+      "sha": "eb92e1cecc72305100c5fe36a61481eee12fbc60",
+      "mergedAt": "2026-11-14T15:13:28-08:00",
+      "subject": "CMUX-572: adapt the screen-share send window to current RTT (#43204)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T23:44:54Z",
+    "snapshot_id": "sh-714ed37f9dd247439c8259dbc1cfc74e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43654038894): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "460556643cdbbbce514910d00be5f84fee21e105",
+    "image": "cloud-native-auto-be3f21d9-43654038894-1",
+    "revision": "ci-43654038894-1",
+    "at": "2026-11-14T23:44:54Z"
+  },
+  "rolled_back": false
+}
