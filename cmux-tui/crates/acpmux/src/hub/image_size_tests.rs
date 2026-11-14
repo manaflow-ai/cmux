@@ -102,7 +102,7 @@ fn an_old_record_is_sent_with_its_kept_images_size() {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(&path, &bytes).unwrap();
     let missing = "0".repeat(64);
-    let mut old = json!({
+    let written = json!({
         "turnId": "t1",
         "text": "what even is this?",
         "images": [{"id": id, "mimeType": "image/png", "name": "image.png"},
@@ -110,6 +110,23 @@ fn an_old_record_is_sent_with_its_kept_images_size() {
         "inlineParts": [{"kind": "image", "id": id, "mimeType": "image/png"},
                         {"kind": "text", "text": "what even is this?"}],
     });
+    // As every events page, live event and session open sends it.
+    let record = crate::store::EventRecord {
+        seq: 7,
+        at: 1,
+        dir: "mux".into(),
+        kind: "user_message".into(),
+        msg: written.clone(),
+        host_seq: None,
+    };
+    for sent in [
+        crate::server::event_value("s", &record),
+        crate::server::into_event_value("s", record.clone()),
+    ] {
+        assert_eq!(sent["msg"]["images"][0]["width"], json!(1280));
+        assert_eq!(sent["msg"]["inlineParts"][0]["height"], json!(229));
+    }
+    let mut old = written;
     fill_record_sizes("user_message", &mut old);
     assert_eq!(old["images"][0]["width"], json!(1280));
     assert_eq!(old["images"][0]["height"], json!(229));
