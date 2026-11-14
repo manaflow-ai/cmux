@@ -1342,26 +1342,26 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
 # THE RULE. A run that passed, of a launch that no caller prepares or drives (AFTER_RENDER, PREPARE_HOME and READY
 # are all None), fails (exit 1) when a home's log has 1 record or more of a client of kind `plugin` with the error
 # `validation.invalid`: the daemon refused a request of the plugin. One record is the whole rule, never a count:
-# the daemon writes the first refusal at once and counts its repeats into a line a minute later, which a launch of
-# 30 s does not live to write. So a repeat line is the same fault, not a second one. The rule reads the record's
+# the daemon writes the first refusal at once and counts its repeats into one line a minute later, which a short
+# launch does not live to write. So a repeat line is the same fault, not a second one. The rule reads the record's
 # `error`, not its `outcome`: a refused request whose client had gone has the outcome `client_gone` and the code.
 #
 # WHAT THE RULE STANDS ON. `client_kind` is a word that a client declares of itself; the daemon does not prove
 # it, and the file has the same word for the plugin that the daemon started. In a home that this tool made, only
 # the app's own plugin declares it. A client that declares it there is judged as the plugin, and the failure says
-# the name that the client declared.
+# the client's name when the record has one (the daemon writes a name only when it is one of its own fixed words).
 #
 # NEVER A FAILURE: each other error record of a client of kind `plugin`, and a plugin_restart line (findings, in
 # report.json and the log); such a record in a launch with a caller hook or in a run that did not pass (a finding;
 # the run's own verdict and report stand); a home with no log (NOT_JUDGED); a fault of this read (main).
 def request_log(home: Path) -> dict | None:
-    # What the request log under HOME holds, None when HOME has none: its files (at most 8; regular files only, no
-    # link; 2 MiB of each, which is more than the daemon keeps in one), its records (lines that are a JSON object),
-    # those with an error code, and of a client of kind `plugin` the lines of each "operation / code[ / client name]".
+    # What the request log under HOME holds, None when HOME has none: its files (each file under HOME whose name
+    # starts with the log's; regular files only, no link; the first 8; 2 MiB of each, which is more than the daemon
+    # keeps in one), its records (lines that are a JSON object), those with an error code, and of a client of kind
+    # `plugin` the lines of each "operation / code[ / client name]" (32 of them by name, the rest as "other").
     seen: dict = {"files": 0, "records": 0, "errors": 0, "plugin": {}, "plugin_restarts": 0}
-    for path in sorted(home.rglob(REQUEST_LOG + "*"))[:8]:
-        if path.is_symlink() or not path.is_file():
-            continue
+    paths = [p for p in sorted(home.rglob(REQUEST_LOG + "*")) if not p.is_symlink() and p.is_file()]
+    for path in paths[:8]:
         seen["files"] += 1
         with open(path, "rb") as handle:
             lines = handle.read(2 << 20).split(b"\n")
@@ -1381,6 +1381,8 @@ def request_log(home: Path) -> dict | None:
                 names = [record.get(key) for key in ("name", "error", "client_name")
                          if key != "client_name" or key in record]
                 what = " / ".join(n if isinstance(n, str) and PLAIN_NAME.fullmatch(n) else "other" for n in names)
+                if what not in seen["plugin"] and len(seen["plugin"]) >= 32:  # the app under test wrote the file
+                    what = "other / " + ("validation.invalid" if names[1] == "validation.invalid" else "other")
                 seen["plugin"][what] = seen["plugin"].get(what, 0) + 1
     return seen if seen["files"] else None
 

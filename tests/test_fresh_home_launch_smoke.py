@@ -24,8 +24,11 @@ its start); and a few fixed sleeps of single tests that give another process its
 """
 from __future__ import annotations
 
+import argparse
+import contextlib
 from datetime import datetime, timezone
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -336,7 +339,8 @@ def request_line(name: str = "session.journal.subscribe", error: str = "validati
                  **more) -> str:
     """A request line of the daemon's request log, with the keys that cmux-tui's request_log.rs writes
     (request_line): `client_kind` only for a connection that has a kind, `error` only for a request that failed,
-    `client_name` and `repeats` (in MORE) only when the daemon has them."""
+    `client_name` and `repeats` (in MORE) only when the daemon has them; a key of MORE that is None is left out (a
+    request whose client had gone has no `reply_ms`)."""
     record = {"kind": "request", "side": "daemon", "at": "2026-11-14T19:30:00.000Z", "at_ms": 1794684600000,
               "name": name, "client": 7}
     if kind:
@@ -346,12 +350,14 @@ def request_line(name: str = "session.journal.subscribe", error: str = "validati
     if error:
         record["error"] = error
     record.update(more)
-    return json.dumps(record)
+    return json.dumps({key: value for key, value in record.items() if value is not None})
 
 
 # The line that the daemon writes when it starts, before any request.
 START_LINE = json.dumps({"kind": "start", "side": "daemon", "at": "2026-11-14T19:29:59.000Z", "at_ms": 1794684599000,
-                         "pid": 4242, "version": "0.0.0", "workspaces": 1, "surfaces": 1, "clients": 0})
+                         "pid": 4242, "version": "0.0.0", "session_hash": "0123456789abcdef", "workspaces": 1,
+                         "surfaces": 1, "clients": 0, "registry_bytes": 4096, "registry_wal_bytes": 0, "slow_ms": 100,
+                         "file_bytes": 1048576})
 # What the smoke says of a refused request of the plugin (a failure, or a finding where it is no failure).
 REFUSED = ("request log: the daemon refused a request of a client of kind plugin: "
            "session.journal.subscribe / validation.invalid")
@@ -1873,7 +1879,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.request_log = {"empty": {
             "slow-requests.jsonl.1": [START_LINE, request_line()],
             "slow-requests.jsonl": [request_line(repeats=41, client=9),
-                                    request_line(repeats=57, client=12, outcome="client_gone")]}}
+                                    request_line(repeats=57, client=12, outcome="client_gone", reply_ms=None)]}}
         status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10")
         self.assertEqual(status, smoke.FAIL, output)
         self.assertEqual(report["failures"], [REFUSED])
@@ -1887,40 +1893,48 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         # `client_kind` is the daemon's word for the plugin that it started, and it is also what any client says
         # of itself (set-client-info): the file has the same word for both. In a home that the smoke made only the
         # app's own plugin declares it. So the rule's answer for a client that declares it there is the same
-        # failure, and the name that the client declared is said with it.
-        self.request_log = {"empty": {"slow-requests.jsonl": [
-            START_LINE, request_line(name="workspace.list", client_name="my-tool")]}}
-        status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10")
-        failure = ("request log: the daemon refused a request of a client of kind plugin: "
-                   "workspace.list / validation.invalid / my-tool")
-        self.assertEqual(status, smoke.FAIL, output)
-        self.assertEqual(report["failures"], [failure])
-        self.assertIn(f"\nFAIL: {failure}\n", output)
-        self.assertEqual(report["request_log"]["empty"]["plugin"], {"workspace.list / validation.invalid / my-tool": 1})
+        # failure. The daemon writes a client's name only when it is one of its own fixed words (`script` is one):
+        # that name is said with the failure, and a client with another name has none in the record.
+        refused = "request log: the daemon refused a request of a client of kind plugin: "
+        for name, what in (({"client_name": "script"}, "workspace.list / validation.invalid / script"),
+                           ({}, "workspace.list / validation.invalid")):
+            with self.subTest(what=what):
+                self.request_log = {"empty": {"slow-requests.jsonl": [
+                    START_LINE, request_line(name="workspace.list", **name)]}}
+                status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10")
+                self.assertEqual(status, smoke.FAIL, output)
+                self.assertEqual(report["failures"], [refused + what])
+                self.assertIn(f"\nFAIL: {refused}{what}\n", output)
+                self.assertEqual(report["request_log"]["empty"]["plugin"], {what: 1})
+                self.assert_cleaned_up(report)
         self.assert_cleaned_up(report)
 
     def test_each_other_record_is_a_finding_or_nothing_and_never_a_failure(self):
         self.request_log = {"empty": {"slow-requests.jsonl": [
             START_LINE,
             request_line(error="internal.failed"),            # the plugin, another error code: a finding
+            request_line(error="validation.invalid_params"),  # the plugin, a code that starts the same: a finding
             request_line(kind=""),                            # the same refusal, of a client with no kind: nothing
-            request_line(kind="cli", client_name="cmux"),     # the same refusal, of a client of another kind: nothing
+            request_line(kind="mcp", client_name="mcp"),      # the same refusal, of a client of another kind: nothing
+            request_line(kind="Plugin"),                      # a kind that is not the daemon's word: nothing
             request_line(error="", outcome="client_gone"),    # the plugin's request with no error code: nothing
             request_line(error=""),                           # the plugin's request that ended well: nothing
-            json.dumps({"kind": "plugin_restart", "side": "daemon", "at_ms": 1794684601000, "restarts": 1,
-                        "failures": 1, "delay_ms": 500}),     # the plugin was started again: a finding
+            json.dumps({"kind": "plugin_restart", "side": "daemon", "at": "2026-11-14T19:30:01.000Z",
+                        "at_ms": 1794684601000, "restarts": 1, "failures": 1, "delay_ms": 500}),  # a finding
             json.dumps({"kind": "lock", "side": "daemon", "at_ms": 1794684602000})]}}
         status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10")
         self.assertEqual(status, smoke.PASS, output)
         self.assertEqual(report["verdict"], "pass")
         self.assertNotIn("failures", report)
         self.assertNotIn("FAIL", output)
-        findings = ["request log: an error record of a client of kind plugin: session.journal.subscribe / internal.failed",
+        other = "request log: an error record of a client of kind plugin: session.journal.subscribe / "
+        findings = [other + "internal.failed", other + "validation.invalid_params",
                     "request log: the plugin was started again"]
         self.assertEqual(report["request_log"], {
             "counted": False, "refused": [], "findings": findings,
-            "empty": {"files": 1, "records": 8, "errors": 3, "plugin_restarts": 1,
-                      "plugin": {"session.journal.subscribe / internal.failed": 1}}})
+            "empty": {"files": 1, "records": 10, "errors": 5, "plugin_restarts": 1,
+                      "plugin": {"session.journal.subscribe / internal.failed": 1,
+                                 "session.journal.subscribe / validation.invalid_params": 1}}})
         for finding in findings:
             self.assertIn(f"\nfinding, no failure: {finding}\n", output)
         self.assertEqual(gate_verdicts().attempt_result(0, report, True), gate_verdicts().PASS)
@@ -1977,6 +1991,22 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertNotIn(f"FAIL: {REFUSED}", output)
         self.assertEqual(verdicts.attempt_result(1, report), verdicts.CRASH)
         self.assert_cleaned_up(report)
+        # A run that could not run is not a run that passed: the judge leaves its exit code and its report as they
+        # are. The same home fails a run that passed.
+        home = self.dir / "root" / "h" / "Library" / "tui" / "s-0123456789abcdef"
+        home.mkdir(parents=True)
+        (home / "slow-requests.jsonl").write_text(START_LINE + "\n" + request_line() + "\n")
+        args = argparse.Namespace(arms=("empty",))
+        with contextlib.redirect_stdout(io.StringIO()):
+            report = {"verdict": "cannot-run", "reason": "no display"}
+            self.assertEqual(smoke.judge_request_log(args, self.dir / "root", report, smoke.CANNOT_RUN),
+                             smoke.CANNOT_RUN)
+            self.assertEqual((report["verdict"], report["reason"]), ("cannot-run", "no display"))
+            self.assertNotIn("failures", report)
+            self.assertEqual((report["request_log"]["counted"], report["request_log"]["refused"]), (False, [REFUSED]))
+            report = {"verdict": "pass"}
+            self.assertEqual(smoke.judge_request_log(args, self.dir / "root", report, smoke.PASS), smoke.FAIL)
+            self.assertEqual((report["verdict"], report["failures"]), ("fail", [REFUSED]))
 
     def test_a_refused_request_in_the_seeded_home_fails_the_run_and_each_launch_keeps_its_pass(self):
         # The log is read after both launches, so a refusal never takes the seeded home's launch away: both homes
@@ -2025,12 +2055,14 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         (session / "slow-requests.jsonl").write_text("\n".join([
             "not json", "[1, 2]", "[" * 100_000,
             request_line(name="x\n::error::held", client_name="a b: c"),
+            request_line(name="workspace.list\n"),
             request_line(error="::warning::x"),
             request_line(repeats=True), request_line(repeats=-4), request_line(repeats="9"),
             request_line()[:-20]]))
         seen = smoke.request_log(home)
-        self.assertEqual(seen, {"files": 1, "records": 5, "errors": 5, "plugin_restarts": 0, "plugin": {
+        self.assertEqual(seen, {"files": 1, "records": 6, "errors": 6, "plugin_restarts": 0, "plugin": {
             "other / validation.invalid / other": 1,
+            "other / validation.invalid": 1,
             "session.journal.subscribe / other": 1,
             "session.journal.subscribe / validation.invalid": 3}})
         self.assertNotIn("::", json.dumps(seen))
@@ -2039,8 +2071,33 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertGreater((session / "slow-requests.jsonl.1").stat().st_size, 2 << 20)
         seen = smoke.request_log(home)
         self.assertEqual(seen["files"], 2)
-        self.assertGreater(seen["records"], 5 + 4000)
-        self.assertLess(seen["records"], 5 + 8000)
+        self.assertGreater(seen["records"], 6 + 4000)
+        self.assertLess(seen["records"], 6 + 8000)
+        # Names that are no regular file do not take the place of one: 9 links and a folder with the log's name,
+        # in a folder that is read before the session's, and the 2 files of the session are still read.
+        before = session.parent / "a"
+        (before / "slow-requests.jsonl.d").mkdir(parents=True)
+        for index in range(9):
+            os.symlink(elsewhere, before / f"slow-requests.jsonl.{index}")
+        self.assertEqual(smoke.request_log(home)["files"], 2)
+        # At most 8 files are read: 9 regular files that are read before the session's.
+        for index in range(9):
+            (before / f"slow-requests.jsonl.r{index}").write_text(START_LINE + "\n")
+        self.assertEqual(smoke.request_log(home), {"files": 8, "records": 8, "errors": 0, "plugin_restarts": 0,
+                                                   "plugin": {}})
+        # The names of 32 different records are kept. Each record after them is counted with no name, and a
+        # refusal among them stays a refusal.
+        many = self.dir / "many"
+        many.mkdir()
+        (many / "slow-requests.jsonl").write_text("\n".join(
+            [request_line(name=f"op.n{index}", error="internal.failed") for index in range(32)]
+            + [request_line(name=f"op.m{index}") for index in range(5)]
+            + [request_line(name=f"op.k{index}", error="internal.failed") for index in range(3)]
+            + [request_line(name="op.n0", error="internal.failed")]))
+        seen = smoke.request_log(many)
+        self.assertEqual(len(seen["plugin"]), 34)
+        self.assertEqual((seen["plugin"]["other / validation.invalid"], seen["plugin"]["other / other"],
+                          seen["plugin"]["op.n0 / internal.failed"]), (5, 3, 2))
 
 
 if __name__ == "__main__":
