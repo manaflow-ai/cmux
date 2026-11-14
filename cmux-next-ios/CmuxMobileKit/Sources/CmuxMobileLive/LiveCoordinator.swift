@@ -104,6 +104,9 @@ public final class LiveCoordinator {
     /// `restart`: cancel a read in flight and start again (the network changed: a read out on the
     /// old path may never answer); false keeps a read in flight that will lift the holds.
     @ObservationIgnored public var onCloudHoldsWaiting: ((_ restart: Bool) -> Void)?
+    /// A Cloud machine's dial failed and is held for a read: the next read comes soon, never at once
+    /// (a machine that stays unreachable is not retried as fast as reads answer).
+    @ObservationIgnored public var onCloudDialHeld: (() -> Void)?
 
     /// Holds a Cloud machine out of dialing until a list read that begins after now succeeds.
     func holdCloudDial(_ machineID: String) {

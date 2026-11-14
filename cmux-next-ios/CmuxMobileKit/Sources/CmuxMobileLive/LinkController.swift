@@ -62,6 +62,9 @@ public final class LinkController {
     /// machine paused or gone, its daemon not the pinned one). The owner stops targeting it;
     /// until then the usual backoff applies.
     @ObservationIgnored public var onPermanentRefusal: (@MainActor (LinkError) -> Void)?
+    /// A dial failed (not cancelled, not a permanent refusal or a revoked session), before the
+    /// failure is counted: a Cloud session holds its redial here, so no retry dials first.
+    @ObservationIgnored public var onDialFailed: (@MainActor () -> Void)?
     /// See ``LinkMachine/resumesByProbe``.
     public var resumesByProbe: Bool {
         get { machine.resumesByProbe }
@@ -283,6 +286,8 @@ public final class LinkController {
                     // so the failure below never starts the machine's immediate silent retry.
                     if current, CloudCarrierDialer.isPermanent(error), let refusal = error as? LinkError {
                         self?.onPermanentRefusal?(refusal)
+                    } else if current {
+                        self?.onDialFailed?()
                     }
                     self?.send(.dialFailed(generation: generation, reason: Self.reason(error)))
                 }

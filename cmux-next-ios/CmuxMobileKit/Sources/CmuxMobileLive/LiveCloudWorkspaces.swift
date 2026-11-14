@@ -61,6 +61,8 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
             guard let self else { return }
             if restart || !self.readWillLiftHolds { self.refreshSoon() }
         }
+        // A dial failed and waits for a read: read within the busy interval, not at once.
+        coordinator.onCloudDialHeld = { [weak self] in self?.readWithinBusyPoll() }
         // The Cloud Machines page changed the shared list (a delete, a start): the Workspaces list follows now.
         model.onMachinesChanged = { [weak self] in self?.publish() }
     }
@@ -69,17 +71,38 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
     public func isAttached(to coordinator: LiveCoordinator) -> Bool { self.coordinator === coordinator }
 
     /// Signed in: reads the list now and keeps it current.
-    public func start() {
+    public func start() { startPoll(firstDelay: nil) }
+
+    private func startPoll(firstDelay: Duration?) {
         guard pollTask == nil else { return }
         stopped = false
         let clock = clock
         pollTask = Task { [weak self] in
+            if let firstDelay {
+                self?.sleepingFor = firstDelay
+                do { try await clock.sleep(for: firstDelay) } catch { return }
+            }
             while !Task.isCancelled {
+                self?.sleepingFor = nil
                 // Held only for the read: a model nobody keeps ends the loop.
                 guard let interval = await self?.refreshed() else { return }
+                self?.sleepingFor = interval
                 do { try await clock.sleep(for: interval) } catch { return }
             }
         }
+    }
+
+    /// How long the poll sleeps before its next read (nil while a read is out).
+    @ObservationIgnored private var sleepingFor: Duration?
+
+    /// A Cloud dial failed and its machine is held for a read: the next read comes within
+    /// `busyPoll`. A poll already reading, or sleeping no longer than that, is left alone; reading
+    /// at once on every failure would retry a machine that stays unreachable as fast as reads answer.
+    func readWithinBusyPoll() {
+        guard pollTask != nil, let sleeping = sleepingFor, sleeping > busyPoll else { return }
+        pollTask?.cancel()
+        pollTask = nil
+        startPoll(firstDelay: busyPoll)
     }
 
     /// Signed out: nothing more is read, and no Cloud machine is listed.

@@ -420,6 +420,36 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         #expect(await live.terminalScreenText(tabID: "s1", macID: vm) == vm)
     }
 
+    /// Review round 14: a failed Cloud dial was retried on the link's own schedule (at once, then
+    /// backoff), and every retry asks the service for a carrier, which starts a machine that
+    /// idle-paused meanwhile. A failure holds the machine like a drop: no dial until a read begun
+    /// after it says the machine still runs.
+    @Test func aFailedDialWaitsForAReadBeforeItsRetry() async throws {
+        let store = emptyStore()
+        let cloud = RecordingCloudDialer()
+        cloud.refuse(vm, LinkError(code: "timeout", message: "the relay did not answer"))
+        let live = coordinator(store: store, cloud: cloud)
+        defer { live.stop() }
+        var heldAsks = 0
+        live.onCloudDialHeld = { heldAsks += 1 }
+        await settle { store.macConnection["m1"] == .connected }
+        live.showing(macIDs: nil)
+        live.applyCloudMachines([machine(.running)])
+        await settle { live.cloudDropHolds[vm] != nil }
+        await drain()
+        #expect(cloud.dials(vm) == 1, "a failed dial was retried before a read")
+        #expect(heldAsks == 1, "the poll was not asked for a read")
+        // An older list (begun before the failure) keeps the hold; a read after it says it runs.
+        let stale = live.cloudReadStamp - 1
+        live.applyCloudMachines([machine(.running)], fromRead: true, readStamp: stale)
+        await drain()
+        #expect(cloud.dials(vm) == 1, "a read begun before the failure lifted its hold")
+        cloud.refuse(vm, nil)
+        live.applyCloudMachines([machine(.running)], fromRead: true)
+        await settle { store.macDataPhase(vm) == .live }
+        #expect(cloud.dials(vm) == 2)
+    }
+
     /// Closing a Cloud link releases its terminals' sizes first (while the link is still up),
     /// one close at a time; a re-target while it releases keeps the link (no late close, no redial).
     @Test func closeLinkReleasesFirstAndARetargetWins() async throws {

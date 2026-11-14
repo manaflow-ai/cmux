@@ -101,8 +101,10 @@ public final class CloudCarrierLink: MacLink, @unchecked Sendable { // crash-all
         return 0
     }
 
+    /// Alive without a round trip (nil: the link keeps its last measured one, never a 0 ms).
     public func probe(timeout: Duration) async throws -> UInt32? {
-        try await ping()
+        _ = try await ping()
+        return nil
     }
 
     public func close() async {

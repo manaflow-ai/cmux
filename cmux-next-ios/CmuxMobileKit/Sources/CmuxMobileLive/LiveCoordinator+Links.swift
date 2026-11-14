@@ -53,6 +53,12 @@ extension LiveCoordinator {
         }
         if session.isCloud {
             session.link.resumesByProbe = true
+            // A failed dial waits for a read like a drop: its retries (silent, backoff, network
+            // change) would otherwise ask the service again and start a machine that idle-paused.
+            session.link.onDialFailed = { [weak self, weak session] in
+                guard let self, let session else { return }
+                self.holdCloudRedial(session, readNow: false)
+            }
             session.link.onPermanentRefusal = { [weak self, weak session] error in
                 guard let self, let session, self.sessions[session.macID] === session else { return }
                 self.cloudRefused(session.macID, error)
@@ -156,6 +162,27 @@ extension LiveCoordinator {
 
     // MARK: Link
 
+    /// A Cloud machine's carrier dropped or its dial failed under a link still wanted (not a close
+    /// we made): no dial until a list read begun after now says it still runs, or the person opens
+    /// it. Every carrier ask starts a machine cmux paused by itself, so a dial on an older list (a
+    /// retry, a redial, a resume) could undo an idle pause. Only the session that still holds the
+    /// machine: a replaced one's drop never holds its successor.
+    func holdCloudRedial(_ session: MacSession, readNow: Bool = true) {
+        let macID = session.macID
+        guard session.isCloud, session.link.target != nil, sessions[macID] === session else { return }
+        holdCloudDial(macID)
+        if readNow { onCloudLinkDropped?(macID) } else { onCloudDialHeld?() }
+        Task { @MainActor [weak self, weak session] in
+            guard let self, let session, self.sessions[macID] === session else { return }
+            // Its link closes now (not only when the team's links are next applied); the read that
+            // lifts the hold targets it again.
+            if self.cloudDropHolds[macID] != nil {
+                session.link.send(.target(nil))
+                self.applyLinks()
+            }
+        }
+    }
+
     func linkChanged(_ session: MacSession, _ link: (any MacLink)?) {
         for relay in session.cloudChats.values { relay.disconnect() }
         #if DEBUG
@@ -181,19 +208,8 @@ extension LiveCoordinator {
             // its redial until the list, read again now, says it still runs. The service wakes a
             // paused machine for a person's dial, so a blind redial would undo an idle pause.
             // Only the session that still holds the machine: a replaced one's drop never holds its successor.
-            if session.isCloud, session.link.target != nil, session.fedData, sessions[macID] === session {
-                holdCloudDial(macID)
-                onCloudLinkDropped?(macID)
-                Task { @MainActor [weak self, weak session] in
-                    guard let self, let session, self.sessions[macID] === session else { return }
-                    // Its link closes now (not only when the team's links are next applied); the
-                    // read that lifts the hold targets it again.
-                    if self.cloudDropHolds[macID] != nil {
-                        session.link.send(.target(nil))
-                        self.applyLinks()
-                    }
-                }
-            }
+            // Before its first tree too: any carrier that ends without our close is a drop.
+            holdCloudRedial(session)
             Task {
                 await session.workspaces.bind(nil, macID: "")
                 await session.acpmux.bind(nil)

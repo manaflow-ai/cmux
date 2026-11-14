@@ -221,18 +221,23 @@ impl Platform {
             None => json!({}),
         };
         let body = body.to_string();
-        match self.ask(&body, false).await {
-            Err(CarrierError::Unauthorized) => self.ask(&body, true).await,
+        // A token source that refuses (signed out) fails here, with no refresh: only the
+        // platform's 401 for a token it was sent asks for a fresh one, once.
+        let token = self.tokens.access_token(false).await?;
+        match self.ask(&body, token.as_str()).await {
+            Err(CarrierError::Unauthorized) => {
+                let token = self.tokens.access_token(true).await?;
+                self.ask(&body, token.as_str()).await
+            }
             other => other,
         }
     }
 
-    async fn ask(&self, body: &str, force_refresh: bool) -> Result<RelayAnswer, CarrierError> {
-        let token = self.tokens.access_token(force_refresh).await?;
+    async fn ask(&self, body: &str, token: &str) -> Result<RelayAnswer, CarrierError> {
         let mut request = self
             .http
             .post(self.url()?)
-            .bearer_auth(token.as_str())
+            .bearer_auth(token)
             .header("content-type", "application/json")
             .body(body.to_owned());
         if let Some(team) = &self.team {

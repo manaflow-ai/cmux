@@ -168,9 +168,10 @@ extension LiveCoordinator {
             await releases.value
             if session.releasing == releases { session.releasing = nil }
             guard session.pendingClose == token else {
-                // Called off by a touch: what is on screen claims its size again, but only if the link
-                // really stays (no later close is pending, and it is still wanted and up).
-                if session.pendingClose == nil, session.link.target != nil, session.link.phase.isConnected {
+                // Called off by a touch: what is on screen claims its size again while the link is still
+                // wanted and no later close is pending, up or between a probe and a redial (a link that
+                // comes back without a reattach must not leave a shown terminal claiming nothing).
+                if session.pendingClose == nil, session.link.target != nil {
                     for terminal in session.terminals.compactMap(\.session) { terminal.reclaimSizeAfterKeptLink() }
                 }
                 return

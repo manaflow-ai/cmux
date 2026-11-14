@@ -99,10 +99,11 @@ public struct LinkMachine: Sendable {
     public private(set) var blockUDP: Bool
     public private(set) var generation = 0
     public private(set) var isBackgrounded = false
-    /// A live link is probed on resume instead of replaced (a Cloud machine's carrier): the
-    /// carrier resumes by itself, and a replacing dial asks the service for a carrier, which
-    /// starts a machine that idle-paused while the app was away. A dead one fails the probe and
-    /// takes the drop path.
+    /// A resume never dials (a Cloud machine's carrier): a live link is probed instead of
+    /// replaced, since the carrier resumes by itself and a replacing dial asks the service for a
+    /// carrier, which starts a machine that idle-paused while the app was away. A dead one fails
+    /// the probe and takes the drop path; a dial in flight goes on, and a waiting one dials when
+    /// its owner says (after a fresh list read).
     public var resumesByProbe = false
     /// The current link's WebRTC media session (browser video), `off` between links.
     public private(set) var media: VideoMediaState = .off
@@ -136,7 +137,10 @@ public struct LinkMachine: Sendable {
             let wasBackgrounded = isBackgrounded
             isBackgrounded = false
             if wasBackgrounded, isActive {
-                if resumesByProbe, case .connected = phase { return [.quickProbe(generation: generation)] }
+                if resumesByProbe {
+                    if case .connected = phase { return [.quickProbe(generation: generation)] }
+                    return []
+                }
                 return dial(attempt: 1, closing: true)
             }
             return handle(.foreground)
