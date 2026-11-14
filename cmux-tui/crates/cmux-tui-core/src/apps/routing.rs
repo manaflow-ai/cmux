@@ -165,6 +165,29 @@ const AGENT_STREAMS: &[&str] = &["agent.changed"];
 /// The streams a change to the chat index (`mux/chat_index.rs`) invalidates.
 const CHAT_STREAMS: &[&str] = &["chat.changed", "agent_chat.changed"];
 
+/// The stream every settings change invalidates (`settings-v1`; `mux/settings.rs`).
+const SETTINGS_STREAMS: &[&str] = &["settings.changed"];
+/// The streams a settings change that touches the theme invalidates.
+const SETTINGS_AND_THEME_STREAMS: &[&str] = &["settings.changed", "theme.changed"];
+/// The settings the theme is made from: a change to one of these keys (or a key under one, such as
+/// `appearance.themeEdits.dark.background`) is a theme change.
+const THEME_KEYS: &[&str] = &[
+    "appearance.theme",
+    "appearance.appTheme",
+    "appearance.themeFile",
+    "appearance.themeEdits",
+    "appearance.accent",
+    "appearance.hue",
+    "appearance.saturation",
+    "appearance.highlightColor",
+];
+
+fn is_theme_key(key: &str) -> bool {
+    THEME_KEYS.iter().any(|theme| {
+        key.strip_prefix(theme).is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
+    })
+}
+
 /// The app streams a daemon event invalidates (`cmux.live` re-reads on them). Every one is
 /// declared in `cmux-app-host/schema/v2/events.json`, the table the extension SDKs are made from.
 fn streams(event: &MuxEvent) -> &'static [&'static str] {
@@ -175,6 +198,10 @@ fn streams(event: &MuxEvent) -> &'static [&'static str] {
         | MuxEvent::TreeDelta(_) => TREE_STREAMS,
         MuxEvent::AgentChanged { .. } => AGENT_STREAMS,
         MuxEvent::ChatsChanged { .. } => CHAT_STREAMS,
+        MuxEvent::SettingsChanged(change) if change.keys.iter().any(|key| is_theme_key(key)) => {
+            SETTINGS_AND_THEME_STREAMS
+        }
+        MuxEvent::SettingsChanged(_) => SETTINGS_STREAMS,
         _ => &[],
     }
 }
