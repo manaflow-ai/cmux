@@ -1825,6 +1825,15 @@ fn warm_seeded_deps(folder: &Path) {
 /// Windows with the `windows-thin-exe` feature the thin `cmux-tui.exe` calls
 /// it through [`cmux_tui_dll_main`] in `cmux_tui.dll`.
 pub fn main() -> std::process::ExitCode {
+    // The browser host and the app host are this binary under their own names
+    // (links beside bin/cmux). They run before anything else here: the app
+    // host sandboxes itself while it is the only thread, and neither takes
+    // the CLI's environment, stamps or test-owner setup.
+    #[cfg(unix)]
+    if let Some(code) = run_folded_host() {
+        // As the standalone host binaries end.
+        std::process::exit(code);
+    }
     cmux_tui_core::startup_timings::process_mark("process.start");
     // SAFETY: the first statements of main: no other thread runs yet (G4).
     unsafe { startup_env::take_link_token_from_env() };
@@ -1860,6 +1869,20 @@ pub fn main() -> std::process::ExitCode {
     // so the last queued records reach the client log on every platform.
     client_log::flush_for_exit();
     std::process::ExitCode::SUCCESS
+}
+
+/// Runs the host argv[0]'s file name names (`cmux-browser-host`,
+/// `cmux-app-host`) and returns its exit code, or `None` when it names none.
+#[cfg(unix)]
+fn run_folded_host() -> Option<i32> {
+    let argv0 = std::env::args_os().next()?;
+    let name = Path::new(&argv0).file_name()?.to_str()?;
+    let args = || std::env::args().skip(1).collect::<Vec<_>>();
+    match name {
+        "cmux-browser-host" => Some(cmux_browser_host::cli::run(args())),
+        "cmux-app-host" => Some(cmux_app_host::entry::run(&args())),
+        _ => None,
+    }
 }
 
 /// The `cmux_tui.dll` entry point (cx-w0uha) that the thin Windows
