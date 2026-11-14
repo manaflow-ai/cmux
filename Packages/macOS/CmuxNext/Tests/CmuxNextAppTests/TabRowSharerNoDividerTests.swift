@@ -41,7 +41,7 @@ import Testing
         let items = (0..<2).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") }
         let pane = PaneContentView(stripModel: TabStripModel(tabs: items), reveal: LaunchReveal(deadline: .zero))
         let registry = ActionRegistry.standard()
-        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil })
+        let toolbar = PaneToolbar(registry: { registry })
         toolbar.update(target: "t0", kind: nil, paneKinds: [])
         pane.toolbar = toolbar
         pane.frame = NSRect(x: 0, y: 0, width: 900, height: 400)

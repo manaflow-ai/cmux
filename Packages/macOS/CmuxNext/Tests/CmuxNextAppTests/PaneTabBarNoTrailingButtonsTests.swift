@@ -13,9 +13,7 @@ struct PaneTabBarNoTrailingButtonsTests {
         _ = NSApplication.shared
         let registry = ActionRegistry.standard()
         registry.context = ActionContext(rawValue: .max)
-        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: {
-            registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: "p1"))
-        })
+        let toolbar = PaneToolbar(registry: { registry })
         toolbar.view.frame = NSRect(x: 0, y: 0, width: 400, height: 32)
         return toolbar
     }
