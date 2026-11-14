@@ -149,7 +149,7 @@ import Testing
         let divider = CornerFlushChrome.dividerLine(card: card, radius: 12, squareLeading: false)
         let line = try #require(view.layer?.sublayers?.compactMap { $0 as? CAShapeLayer }.last)
         try withContrast(0.5) {
-            view.update(card: card, radius: 12, alpha: 0.14, folders: [folder], divider: divider)
+            view.update(card: card, radius: 12, alpha: 0.14, folders: [folder], dividers: [divider])
             guard Metrics.tabRowDividerStrength > 0 else { return }
             let path = try #require(line.path, "no divider at contrast 0.5")
             #expect(path.contains(CGPoint(x: 300, y: 250.2), using: .evenOdd), "no divider under the unselected tabs")
@@ -157,7 +157,7 @@ import Testing
         }
         withContrast(2) {
             guard Metrics.tabRowDividerStrength == 0 else { return }
-            view.update(card: card, radius: 12, alpha: 0.28, folders: [folder], divider: divider.offsetBy(dx: 1, dy: 0))
+            view.update(card: card, radius: 12, alpha: 0.28, folders: [folder], dividers: [divider.offsetBy(dx: 1, dy: 0)])
             #expect(line.path == nil, "the full older shade drew a divider")
         }
     }

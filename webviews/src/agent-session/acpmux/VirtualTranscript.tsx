@@ -54,13 +54,7 @@ import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
 import { animateScroll, MOTION_SCROLL_EVENT, scrollRunning, stopScroll } from "./threadMinimap/scrollMotion";
 import { holdMomentum, installMomentumHold } from "./threadMinimap/momentumHold";
-import {
-  JUMP_CURVE,
-  jumpDuration,
-  jumpGlideStart,
-  railBottomShadowReach,
-  transcriptFadeReach,
-} from "./threadMinimap/model";
+import { JUMP_CURVE, jumpDuration, jumpGlideStart, transcriptFadeReach } from "./threadMinimap/model";
 import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
 import { minimapReserve } from "./chatMinimap/paint";
@@ -86,7 +80,7 @@ import {
   type FollowChase,
   sendMotionMs,
 } from "./conversation/followChase";
-import { shareFrameBudget, type FrameBudget } from "./conversation/frameBudget";
+import { shareFrameBudget, type FrameBudget, rowsMoved } from "./conversation/frameBudget";
 import { followMotion } from "./conversation/followMotion.experiment";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
@@ -234,6 +228,11 @@ import {
 /// every 8 to 17 ms; a window's or a strip's one-off change never has a second within it), and how
 /// long a width holds before the whole chat is measured at it.
 const LIVE_RESIZE_MS = 120;
+/// How long the rows hold still before a chat held whole saves its prompts' places (`keepPromptTops`): a
+/// stream changes them every frame, and the save reads every row.
+const PROMPT_TOPS_QUIET_MS = 1000;
+/// Entries the prepared-text cache may hold past twice the rows before it drops those of rows that left.
+const MEASURED_SLACK = 512;
 /// The rows past each end of the mounted ones a live resize's frame still measures at the new width.
 const LIVE_RESIZE_ROWS = 40;
 /// The live width steps before the rows flow (`FLOW_CLASS`).
@@ -1830,9 +1829,13 @@ function TranscriptView({
       if (frameBudget.current === budget) frameBudget.current = undefined;
     };
   }, []);
-  // Every commit of the rows is the chat doing work: its frames are read for a moment after.
+  // A commit that moves the rows is the chat doing work: its frames are read for a moment after.
+  // Fresh row objects that change no row are no work (frameBudget.ts `rowsMoved`).
+  const pokedRows = useRef<readonly AcpmuxRow[]>([]);
   useEffect(() => {
-    frameBudget.current?.poke();
+    const before = pokedRows.current;
+    pokedRows.current = rows;
+    if (rowsMoved(before, rows)) frameBudget.current?.poke();
   }, [rows]);
   useEffect(() => {
     transcriptMounted.current = true;
@@ -3581,6 +3584,13 @@ function TranscriptView({
       resizing,
     );
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId, partial };
+    // Prepared text is kept by row id for every row measured. Rows that left (a chat that let go of its
+    // oldest records, direct.ts `shedOlderHeld`) take theirs with them, so the cache holds what the
+    // transcript holds: one pass over the rows, only once it holds a good many more entries than rows.
+    if (cache.size > rows.length * 2 + MEASURED_SLACK) {
+      const held = new Set(rows.map((row) => row.id));
+      for (const id of cache.keys()) if (!held.has(id)) cache.delete(id);
+    }
     return { layout, partial, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [rows, registry, sessionId, chatLook, attachmentView, scaledRowWidth, resizeSettled]);
   // A row that draws moves only the rows below it: place them again, measuring none.
@@ -3733,8 +3743,10 @@ function TranscriptView({
     draggedHeight,
   ]);
   // A chat held whole keeps each prompt's measured place (transcriptHeights.ts), so the next open on
-  // its tail holds exactly the older history's room. In idle time, once the rows stop changing: one
-  // pass over the rows per placement that settles, never per frame.
+  // its tail holds exactly the older history's room. In idle time, once the rows stop changing for
+  // PROMPT_TOPS_QUIET_MS: one pass over the rows per placement that settles, never per frame. Each
+  // pass reads every prompt's top (O(rows)); armed on every placement, it ran between the frames of
+  // a stream, about 3 ms of each token in a 35,000-row chat (bench/transcript-replay.bench.ts, god).
   useEffect(() => {
     if (canLoadOlder || !sessionId || rows.length === 0) return;
     const placed = measured.layout;
@@ -3747,12 +3759,15 @@ function TranscriptView({
           prompts.push({ id: rows[index]!.id, top: placed.geometry.topAt(index) - origin });
       keepPromptTops(sessionId, width, prompts);
     };
-    if (typeof requestIdleCallback === "function") {
-      const handle = requestIdleCallback(keep, { timeout: 2000 });
-      return () => cancelIdleCallback(handle);
-    }
-    const timer = setTimeout(keep, 500);
-    return () => clearTimeout(timer);
+    let idle: number | undefined;
+    const quiet = setTimeout(() => {
+      if (typeof requestIdleCallback === "function") idle = requestIdleCallback(keep, { timeout: 2000 });
+      else keep();
+    }, PROMPT_TOPS_QUIET_MS);
+    return () => {
+      clearTimeout(quiet);
+      if (idle !== undefined) cancelIdleCallback(idle);
+    };
   }, [canLoadOlder, sessionId, rows, measured, scaledRowWidth]);
   // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
   // alone placed the latest row's bottom that far under the view.
@@ -6536,7 +6551,6 @@ function TranscriptView({
               layout={layout}
               scroller={ref}
               scrollTop={renderScroll.top - origin}
-              latestShadowReach={railBottomShadowReach(renderFollowing ? 0 : below - FOLLOW_BOTTOM_DEADBAND_PX)}
               // Above the room under the last row, so a composer that grows while the reader is scrolled
               // up leaves the map as it was, as it does the scrollbar.
               viewportHeight={height - room}

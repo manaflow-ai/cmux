@@ -1414,6 +1414,13 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
     func probe(timeoutMs: UInt32) async throws  -> UInt32?
     
     /**
+     * Milliseconds since the link last received any frame from the Mac.
+     * Any frame proves the link alive as a probe's pong would, so the app's
+     * heartbeat probes only a link quiet for a whole beat.
+     */
+    func receivedAgoMs()  -> UInt64
+    
+    /**
      * The latest WireGuard roam of this link (`network_changed`,
      * `roam_reasserted`, `roam_first_packet`, `roam_direct` or `roam_turn`,
      * ...), in milliseconds since the network changed; empty before any.
@@ -1710,6 +1717,19 @@ open func probe(timeoutMs: UInt32)async throws  -> UInt32?  {
             liftFunc: FfiConverterOptionUInt32.lift,
             errorHandler: FfiConverterTypeCmuxMobileError_lift
         )
+}
+    
+    /**
+     * Milliseconds since the link last received any frame from the Mac.
+     * Any frame proves the link alive as a probe's pong would, so the app's
+     * heartbeat probes only a link quiet for a whole beat.
+     */
+open func receivedAgoMs() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_received_ago_ms(
+            self.uniffiCloneHandle(),$0
+    )
+})
 }
     
     /**
@@ -4340,6 +4360,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_probe() != 33821) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_received_ago_ms() != 55134) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_roam_timings() != 26202) {
