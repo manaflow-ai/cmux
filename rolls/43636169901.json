@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43636169901",
+  "recorded_at": "2026-11-14T20:20:08Z",
+  "reason": "cmux-tui 3ebe6831175f changes the image's cmux-tui (pinned 304822ef8bd2)",
+  "dry_run": false,
+  "cmux_tui": "3ebe6831175f15469d01ca75a2815c5868ad4bb0",
+  "fixes": [
+    {
+      "sha": "3ebe6831175f15469d01ca75a2815c5868ad4bb0",
+      "mergedAt": "2026-11-14T11:50:14-08:00",
+      "subject": "acpmux v2 3c (part three): the daemon serves a chat's stream (#43125)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T20:20:08Z",
+    "snapshot_id": "sh-851039d3e04d4b1da29fbc99b9f4ade8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43636169901): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6bbb146b48a9ff8788fc68ee40705cc65d39cb55",
+    "image": "cloud-native-auto-3ebe6831-43636169901-1",
+    "revision": "ci-43636169901-1",
+    "at": "2026-11-14T20:20:08Z"
+  },
+  "rolled_back": false
+}
