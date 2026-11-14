@@ -1,6 +1,7 @@
 import CmuxConnectivityTelemetry
 import class CmuxMobileModel.ConnectTimeline
 import enum CmuxMobileModel.DeveloperOptions
+import enum CmuxMobileModel.UserFacingError
 import CmuxMobileTransport
 import Foundation
 import Observation
@@ -442,20 +443,11 @@ public final class LinkController {
     }
 
     /// A short, display-safe reason for a dial or link error.
+    /// The mapping lives with ``LinkError`` (`displayReason`); never a code or a type name.
     nonisolated static func reason(_ error: any Error) -> String {
-        if let error = error as? LinkError {
-            switch error.code {
-            case "timeout": return "the Mac didn't answer in time"
-            case "not_admitted": return "the Mac refused this phone"
-            case "offline": return "the Mac is offline"
-            case LinkError.unauthorized: return "the cmux service refused the request"
-            default:
-                let message = error.message.trimmingCharacters(in: .whitespacesAndNewlines)
-                return message.isEmpty ? error.code : String(message.prefix(80))
-            }
-        }
+        if let error = error as? LinkError { return error.displayReason }
         if error is LiveAPI.Failure { return "the cmux service refused the request" }
-        return String(error.localizedDescription.prefix(80))
+        return String(UserFacingError.message(error, fallback: "the connection to the Mac failed").prefix(80))
     }
 }
 

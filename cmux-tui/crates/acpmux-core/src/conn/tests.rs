@@ -33,6 +33,72 @@ fn request_shape_is_tagged() {
     assert_eq!(value, json!({"method":"credit","params":{"sid":"s","consumed":4}}));
 }
 
+#[test]
+fn peer_request_allowlist_names_every_refused_shape() {
+    use crate::wire::{Anchor, AnchorSide, ListKey, ListView, Page, PageKey, PageSide, Sub};
+    use acpmux_book::index::{FolderKey, ListFilter, RowKey};
+
+    let mut live_sub = Sub::new("s", "list");
+    live_sub.view = Some(ListView::Live);
+    assert!(validate_peer_request(&Request::Sub(Sub::new("s", "chat:session"))).is_err());
+
+    for view in [ListView::All, ListView::Folders] {
+        let mut refused = live_sub.clone();
+        refused.view = Some(view);
+        assert!(validate_peer_request(&Request::Sub(refused)).is_err());
+    }
+
+    let filters = [
+        ListFilter { workspace: Some("workspace".into()), ..ListFilter::default() },
+        ListFilter { origin: Some("origin".into()), ..ListFilter::default() },
+        ListFilter { state: Some("state".into()), ..ListFilter::default() },
+        ListFilter { family: Some(RowKey::new("local", "root")), ..ListFilter::default() },
+        ListFilter { folder: Some(FolderKey::new("local", "/folder")), ..ListFilter::default() },
+        ListFilter { forks: Some(RowKey::new("local", "root")), ..ListFilter::default() },
+        ListFilter { cold: true, ..ListFilter::default() },
+    ];
+    for filter in &filters {
+        let mut refused = live_sub.clone();
+        refused.filter = Some(filter.clone());
+        assert!(validate_peer_request(&Request::Sub(refused)).is_err());
+    }
+
+    let mut anchored = live_sub;
+    anchored.anchor = Some(Anchor::List {
+        key: ListKey { last_activity: 1, chat_id: "chat".into(), origin: "local".into() },
+        side: AnchorSide::After,
+    });
+    assert!(validate_peer_request(&Request::Sub(anchored)).is_err());
+
+    let mut keyed = Page::new("s", "list", PageSide::After, 0);
+    keyed.view = Some(ListView::Live);
+    keyed.keys = Some(vec![PageKey::Summary(ListKey {
+        last_activity: 1,
+        chat_id: "chat".into(),
+        origin: "local".into(),
+    })]);
+    assert!(validate_peer_request(&Request::Page(keyed.clone())).is_err());
+    assert!(
+        validate_peer_request(&Request::Page(Page {
+            stream: "chat:session".into(),
+            ..keyed.clone()
+        }))
+        .is_err()
+    );
+    for view in [ListView::All, ListView::Folders] {
+        let mut refused = keyed.clone();
+        refused.keys = None;
+        refused.view = Some(view);
+        assert!(validate_peer_request(&Request::Page(refused)).is_err());
+    }
+    for filter in &filters {
+        let mut refused = keyed.clone();
+        refused.keys = None;
+        refused.filter = Some(filter.clone());
+        assert!(validate_peer_request(&Request::Page(refused)).is_err());
+    }
+}
+
 #[tokio::test]
 async fn interrupted_write_preserves_frame_bytes_and_completed_cursor() {
     let (mut writer, mut reader) = tokio::io::duplex(7);
@@ -105,7 +171,10 @@ fn list_pair() -> ListPair {
     let (client, server) = tokio::io::duplex(4096);
     let (rd, wr) = tokio::io::split(server);
     let serving = source.clone();
-    let task = tokio::spawn(async move { run(rd, wr, serving, "test", &["list".into()]).await });
+    let task =
+        tokio::spawn(
+            async move { run(rd, wr, serving, "test", &["list".into()], Role::Local).await },
+        );
     (client, task, hub, writer, source)
 }
 
@@ -132,8 +201,9 @@ async fn folder_hydration_does_not_block_other_sids_or_credit() {
     let (mut client, server) = tokio::io::duplex(4096);
     let (rd, wr) = tokio::io::split(server);
     let task_source = source.clone();
-    let task =
-        tokio::spawn(async move { run(rd, wr, task_source, "test", &["list".into()]).await });
+    let task = tokio::spawn(async move {
+        run(rd, wr, task_source, "test", &["list".into()], Role::Local).await
+    });
 
     hello(&mut client).await;
     send(
@@ -694,10 +764,9 @@ impl Source for PageSource {
 async fn sixty_pipelined_page_replies_are_all_written_in_order() {
     let (mut client, server) = tokio::io::duplex(1024);
     let (rd, wr) = tokio::io::split(server);
-    let connection =
-        tokio::spawn(
-            async move { run(rd, wr, Arc::new(PageSource), "test", &["list".into()]).await },
-        );
+    let connection = tokio::spawn(async move {
+        run(rd, wr, Arc::new(PageSource), "test", &["list".into()], Role::Local).await
+    });
     hello(&mut client).await;
     let (mut rd, mut wr) = tokio::io::split(client);
     let requests = async {
@@ -823,6 +892,7 @@ async fn read_and_write_errors_release_every_source_subscriber() {
         source.clone(),
         "test",
         &["list".into()],
+        Role::Local,
     )
     .await;
     assert!(matches!(result, Err(ConnError::Io(_))));
@@ -832,7 +902,9 @@ async fn read_and_write_errors_release_every_source_subscriber() {
     // After these requests the reader stays pending, so only the writer can end it.
     let (mut client, server) = tokio::io::duplex(4096);
     client.write_all(&input).await.unwrap();
-    let result = run(server, WriteThenFail(false), source.clone(), "test", &["list".into()]).await;
+    let result =
+        run(server, WriteThenFail(false), source.clone(), "test", &["list".into()], Role::Local)
+            .await;
     assert!(matches!(result, Err(ConnError::Io(_))));
     assert_eq!(source.task_count(), 0);
     assert_eq!(hub.subscriber_count(), 0);
@@ -902,7 +974,10 @@ async fn the_source_decides_editions_and_may_resume_with_a_window() {
     let (mut client, server) = tokio::io::duplex(4096);
     let (rd, wr) = tokio::io::split(server);
     let driver = source.clone();
-    let task = tokio::spawn(async move { run(rd, wr, driver, "test", &["chat".into()]).await });
+    let task =
+        tokio::spawn(
+            async move { run(rd, wr, driver, "test", &["chat".into()], Role::Local).await },
+        );
     hello(&mut client).await;
     send(
         &mut client,
@@ -991,7 +1066,10 @@ async fn not_ready_then_window_uses_the_same_subscription_until_unsub() {
     let driver = source.clone();
     let (mut client, server) = tokio::io::duplex(4096);
     let (rd, wr) = tokio::io::split(server);
-    let task = tokio::spawn(async move { run(rd, wr, driver, "test", &["chat".into()]).await });
+    let task =
+        tokio::spawn(
+            async move { run(rd, wr, driver, "test", &["chat".into()], Role::Local).await },
+        );
     hello(&mut client).await;
     send(&mut client, json!({"method":"sub","params":{"sid":"s","stream":"chat:x"}})).await;
     let reply = receive(&mut client).await;
@@ -1094,7 +1172,10 @@ async fn source_failure_after_first_frame_ends_only_its_generation() {
     let driver = source.clone();
     let (mut client, server) = tokio::io::duplex(4096);
     let (rd, wr) = tokio::io::split(server);
-    let task = tokio::spawn(async move { run(rd, wr, driver, "test", &["chat".into()]).await });
+    let task =
+        tokio::spawn(
+            async move { run(rd, wr, driver, "test", &["chat".into()], Role::Local).await },
+        );
     hello(&mut client).await;
     let request = json!({"method":"sub","params":{"sid":"s","stream":"chat:x"}});
     send(&mut client, request.clone()).await;
@@ -1391,4 +1472,54 @@ async fn folders_credit_resume_uses_tail_and_expired_tail_uses_window() {
     let window: crate::wire::FolderWindow = frame.decode_json().unwrap();
     assert_eq!(window.rows.first().unwrap().at, 1101);
     source.close().await;
+}
+
+#[test]
+fn only_a_chat_streams_page_or_blob_waits_named_as_requests_name_streams() {
+    let class = |value: serde_json::Value| {
+        matches!(classify(&Frame::json(FrameKind::Request, &value).unwrap()), Class::Later)
+    };
+    assert!(class(json!({"method":"page","params":{"sid":"s","stream":"chat:x","before":4}})));
+    assert!(class(
+        json!({"method":"blob","params":{"id":"b","stream":"chat:x","rowId":1,"len":1}})
+    ));
+    assert!(!class(json!({"method":"page","params":{"sid":"s","stream":"list"}})));
+    assert!(!class(json!({"method":"sub","params":{"sid":"s","stream":"chat:x"}})));
+    // A stream outside the params is not the request's.
+    assert!(!class(json!({"method":"page","stream":"chat:x","params":{"sid":"s"}})));
+}
+
+#[test]
+fn a_held_reply_has_room_for_the_largest_answer_however_offers_fill_the_rest() {
+    let mut state = ConnectionState::default();
+    assert!(state.reserve_reply());
+    state.hold_reply();
+    state.release_reply();
+    // Offers from many subscriptions, small and large, fill all the room but the held reply's.
+    for i in 0..8 {
+        let sid = format!("fill-{i}");
+        state.subscribe(&sid, Cursor(0)).unwrap();
+        let size = if i % 2 == 0 { 60 * 1024 } else { MAX_FRAME_BYTES - 5 };
+        for seq in 1.. {
+            if state.offer(&sid, frame(size), Cursor(seq)) != Offer::Taken {
+                break;
+            }
+        }
+    }
+    assert!(state.queued_bytes() > crate::wire::CONNECTION_BUDGET_BYTES - 2 * MAX_FRAME_BYTES);
+    let largest = Frame::new(FrameKind::Blob, vec![0; MAX_FRAME_BYTES - 5]).unwrap();
+    state.answer_held(largest).unwrap();
+    assert!(!state.broken());
+    assert_eq!(state.metrics.failed_replies(), 0);
+    assert_eq!(state.metrics.unanswered(), 0);
+}
+
+#[test]
+fn a_later_reply_past_the_budget_is_counted_and_ends_the_connection() {
+    let mut state = ConnectionState::new(128);
+    state.hold_reply();
+    assert!(matches!(state.answer_held(frame(200)), Err(ConnError::ReplyBudget)));
+    assert!(state.broken());
+    assert_eq!(state.metrics.failed_replies(), 1);
+    assert_eq!(state.queued_bytes(), 0);
 }

@@ -1349,4 +1349,19 @@ int32_t cmux_sidebar_project_rows(uint32_t count, const CmuxSidebarActive *activ
 int32_t cmux_sidebar_needs_you(const CmuxSidebarActive *rows, size_t rows_len, uint8_t include_working, uint32_t limit,
                                uint32_t *out, size_t out_capacity, size_t *out_len, uint32_t *more);
 
+/* The app's calls into its own Keychain items, each bounded by Rust's deadline (cmux-cloud-config
+ * keychain::DEADLINE). request is JSON {service, account}: the generic password the call reads or writes.
+ * work(context) runs on a thread of Rust's and makes the Security call, keeping its result in context;
+ * done(context, answered, refusal, refusal_len) runs once, on another thread: answered 1 when work returned
+ * within the deadline, else 0 with refusal (refusal_len bytes of JSON {code, message, retryable, details},
+ * naming the item; valid during the call only). release(context) runs once both returned; a call that never
+ * returns never reaches it. Returns CMUX_LAYOUT_REDUCER_OK at once, never waiting on the call; any other code
+ * means no callback ran and the caller still owns context. context and the callbacks must be usable from any
+ * thread. */
+typedef void (*CmuxKeychainWork)(void *context);
+typedef void (*CmuxKeychainDone)(void *context, uint8_t answered, const uint8_t *refusal, size_t refusal_len);
+typedef void (*CmuxKeychainRelease)(void *context);
+int32_t cmux_keychain_bounded(const uint8_t *request, size_t request_len, void *context, CmuxKeychainWork work,
+                              CmuxKeychainDone done, CmuxKeychainRelease release);
+
 #endif

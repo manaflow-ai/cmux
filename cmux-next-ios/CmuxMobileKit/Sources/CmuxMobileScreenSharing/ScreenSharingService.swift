@@ -1,5 +1,6 @@
 #if os(iOS)
 public import CmuxDeviceHub
+import enum CmuxMobileModel.UserFacingError
 public import Foundation
 public import Observation
 
@@ -197,7 +198,7 @@ public final class ScreenSharingService {
                                                  deviceName: configuration.deviceName, platform: .ios, tokens: configuration.tokens)
             } catch {
                 guard !Task.isCancelled else { return }
-                self?.loadStatus = .failed(String(describing: error))
+                self?.loadStatus = .failed(UserFacingError.message(error, fallback: "Screen sharing couldn't start. Try again."))
                 return
             }
             guard let self, !Task.isCancelled else { return }

@@ -1037,8 +1037,9 @@
    age's hover box and its tooltip never move (Leo, 2026-11-08: "sometimes the just now and whatever,
    it becomes a bit weird ... Sometimes that one, like, flashes or flickers a bit"). Before, the box
    grew by a word's width when "just now" turned into "1 minute ago", and the tooltip over it jumped.
-   The width it keeps is its first hour's widest words ("59 minutes ago", MessageTime's
-   data-age-widest) laid out in the row's own font as a hidden zero-height line, never a guessed
+   The width it keeps is its first hour's widest words (every wording that hour writes, one per line
+   in MessageTime's data-age-widest: "59 minutes ago" in English, "22 minuty temu" in Polish) laid
+   out in the row's own font as a hidden zero-height block, never a guessed
    em count: a fixed 8em fit one machine's font and was 2.75 short on another's, so the box still
    grew at "59 minutes ago". A longer age (a day's, another language's) still takes its own width. */
 .cv-user__actions .cv-message-footer-row > .cv-user__time {
@@ -1053,6 +1054,7 @@
   overflow: hidden;
   height: 0;
   visibility: hidden;
+  white-space: pre;
   content: attr(data-age-widest);
 }
 /* At the end of another agent's message line its age comes straight before Copy. */
@@ -3405,9 +3407,15 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
     transition: transform var(--cv-fold-duration) var(--cv-fold-ease, var(--agent-ease-out, ease-out));
   }
 }
-/* The host's Reduce Motion or animation off (a move duration of 0, theme.ts) snaps it too, as the
-   fold's body does (fold.ts foldMotion.duration). */
-:root:is([data-agent-move="instant"], [data-agent-motion="off"]) .cv-rotor {
+/* The host's Reduce Motion or animation off (a move duration of 0, theme.ts) and the app's motion
+   gate (`data-cmux-motion`, ui/motion/motionMode.ts) snap it too, as the fold's body does (fold.ts). */
+:root:is(
+    [data-agent-move="instant"],
+    [data-agent-motion="off"],
+    [data-cmux-motion="off"],
+    [data-cmux-motion="reduced"]
+  )
+  .cv-rotor {
   transition: none;
 }
 /* A collapsible's body (fold.ts sizes it while it opens or closes): its own block, so the body's
@@ -7677,9 +7685,15 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   z-index: var(--layer-dropdown);
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 28px;
-  padding-inline: 8px 12px;
+  /* Its frame follows Text Size as its label (--text-control) does (--ui-px, ui/popupSurface.css):
+     a 28 px pill at 16 pt clipped the label's descenders (Leo 2026-11-12: "it doesn't follow"). */
+  gap: calc(4 * var(--ui-px, 1px));
+  height: calc(28 * var(--ui-px, 1px));
+  /* Bounded to the window (fixed: 100% is the viewport), with an 8-px-per-side margin at the Text Size. */
+  max-width: calc(100% - 16 * var(--ui-px));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-inline: calc(8 * var(--ui-px, 1px)) calc(12 * var(--ui-px, 1px));
   border: var(--cmux-hairline, 0.5px) solid color-mix(in srgb, var(--agent-text) 18%, transparent);
   border-radius: 8px;
   background: color-mix(in srgb, var(--glass-surface) var(--cv-selection-reply-veil), transparent);
@@ -7689,13 +7703,13 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   color: var(--agent-text);
   font-family: var(--cv-font);
   font-size: var(--text-control);
-  line-height: 20px;
+  line-height: calc(20 * var(--ui-px, 1px));
   white-space: nowrap;
   cursor: default;
   user-select: none;
 }
 .cv-selection-reply[data-look="icon"] {
-  width: 28px;
+  width: calc(28 * var(--ui-px, 1px));
   padding: 0;
   justify-content: center;
 }

@@ -13,6 +13,7 @@
 // 4. A held pick of another harness's model belongs to one chat and goes when the pane leaves it.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "./support/domTeardown";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxPermission, AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
@@ -82,7 +83,7 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  for (let turn = 0; turn < 3; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+  await settleReact();
   dom.window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;

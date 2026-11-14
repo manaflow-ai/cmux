@@ -351,7 +351,29 @@ pub fn render_paused(
     now: u64,
     pauses: &BTreeMap<String, String>,
 ) -> String {
+    render_counted(sessions, 0, peers, view, filtered, now, pauses)
+}
+
+/// [`render_paused`] of the live rows `sessions` read with `closed` closed rows beside them
+/// that were counted, not read (`_acpmux/status` `closedListed`, agent service v2 row 7b): the
+/// compact view hides and counts them as it does the closed rows it is sent.
+pub fn render_counted(
+    sessions: &[Value],
+    closed: usize,
+    peers: Option<&[Value]>,
+    view: View,
+    filtered: bool,
+    now: u64,
+    pauses: &BTreeMap<String, String>,
+) -> String {
     let mut hidden_counts = [0usize; HIDDEN_ORDER.len()];
+    // `Hidden::Closed` is first.
+    if !view.all
+        && !filtered
+        && let Some(count) = hidden_counts.first_mut()
+    {
+        *count = closed;
+    }
     // The daemon's order (newest first) in every view: `--limit`, `--since` and `--tag` read it.
     let shown: Vec<&Value> = sessions
         .iter()
@@ -370,7 +392,7 @@ pub fn render_paused(
     if shown.is_empty() {
         out.push_str(if filtered {
             "no sessions match these filters\n"
-        } else if sessions.is_empty() {
+        } else if sessions.is_empty() && closed == 0 {
             "no sessions (create one: acpmux new -m codex -n my-task)\n"
         } else {
             "no live named sessions\n"

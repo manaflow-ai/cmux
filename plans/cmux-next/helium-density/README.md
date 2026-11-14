@@ -55,3 +55,11 @@ page, favicon ink 14 inside the pill: all equal. The one difference: cmux's pill
 edge, Helium's 6, because cmux centers the tab row on its traffic lights (21 pt; Helium's sit at 17 pt). That is the
 window's titlebar layout, not the browser pane's, and stays. Colors differ by theme only (the light sheets use the
 Catppuccin Latte theme, as cmux's shots do).
+
+## The docked Home's line (msg 31502), proved on cmux-lawrence-2
+
+| Sheet | What |
+| --- | --- |
+| [sheet-docked-home-line-dark.png](sheets/sheet-docked-home-line-dark.png), [-light](sheets/sheet-docked-home-line-light.png) | The Home pane with a second tab (its tab strip shows and shares the row with Home's tools), the user's look (Monokai Classic, the laurence-mckinley background at 0.85, 31 pt titlebar), Default density. Before: a 2 px line at y 78-79 (2x) across the pane, light and dark. After: none (measured: no hairline row in x 480-1300). |
+
+`tools/home-tabs-shots.sh APP SOCK OUT` takes them (`dockshots.py` sets and restores the look; `rpc.py` is the socket call).

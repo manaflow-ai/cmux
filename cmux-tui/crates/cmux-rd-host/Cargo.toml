@@ -31,6 +31,8 @@ cmux-encode = { path = "../cmux-encode" }
 cmux-rd-link = { path = "../cmux-rd-link", features = ["net"], optional = true }
 # The bench decoder only (OpenH264 from source never ships in the host).
 openh264 = { version = "0.9", default-features = false, features = ["source"], optional = true }
+# VP9 and AV1 for measurement (features `vp9`, `av1`).
+cmux-codecs = { path = "../cmux-codecs", default-features = false, optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 x11rb = { version = "0.14", features = ["shm", "damage", "xtest", "xinput"] }
@@ -64,6 +66,11 @@ x264 = []
 # The bench client (decodes with openh264) and the OpenH264 source build for tests and
 # the bench only (plans/cmux-next/remote-desktop-c7.md section 4).
 bench = ["dep:openh264", "cmux-encode/openh264-source"]
+# Royalty-free codecs for measurement only (`--codec vp9|av1` on the host, `--decoder vp9|av1`
+# on the bench viewer), through cmux-codecs: VP9 builds libvpx from source, AV1 is rav1e and
+# rav1d. Never in a release build until the codec table in their pull request says so.
+vp9 = ["bench", "dep:cmux-codecs", "cmux-codecs/vp9"]
+av1 = ["bench", "dep:cmux-codecs", "cmux-codecs/av1"]
 
 [profile.release]
 opt-level = 3

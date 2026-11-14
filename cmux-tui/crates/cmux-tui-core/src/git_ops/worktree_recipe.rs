@@ -218,6 +218,9 @@ mod tests {
         getrandom::fill(&mut bytes).unwrap();
         let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
         let root = std::env::temp_dir().join(format!("cmux-recipe-{hex}"));
+        std::fs::create_dir_all(&root).unwrap();
+        // The path of a main checkout, as git gives it, has real folders only.
+        let root = std::fs::canonicalize(root).unwrap();
         std::fs::create_dir_all(root.join(PROJECT_FILE).parent().unwrap()).unwrap();
         std::fs::write(root.join(".worktreeinclude"), ".env\n").unwrap();
         std::fs::write(

@@ -358,6 +358,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     isolated deinit {
         outputLink?.invalidate()
+        hiddenFeed?.cancel()
         followFallback?.invalidate()
         if outputPaused { model.session.setOutputPaused(false) }
     }
@@ -667,12 +668,18 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             guard let self else { return }
             // A refusal comes back as `.inputNotSent` from inside `send`.
             inputRefused = false
-            // Ghostty's own replies to terminal queries are no keys the
-            // person typed: they never make the "not sent" notice.
-            if surface.isPerformingInput {
+            // Only what the person typed, pressed or pasted is a key (Leo,
+            // 2026-11-14: "all I did was navigate away and then it showed
+            // this, but I didn't type anything"). A scroll's wheel reports, a
+            // tap's click report, a key release and Ghostty's replies to
+            // terminal queries go only while attached and never make the
+            // "Keys typed while your Mac was unreachable" notice.
+            if surface.isEncodingUserInput {
                 model.session.send(data)
             } else {
                 model.session.sendReply(data)
+                // A scroll or a tap is still the person's: this phone is the active device.
+                if surface.isPerformingInput { model.session.noteInteraction() }
             }
         }
         // Held for a reattach (or a first attach still coming) is not sent:
@@ -691,6 +698,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             self.revealCursorForInput()
         }
         surface.onEvent = { [weak self] event in self?.surfaceEvent(event) }
+        surface.onShownChange = { [weak self] shown in self?.pageShownChanged(shown) }
         surface.onPresent = { [weak self] in
             guard let self else { return }
             self.measured("present") { self.surfacePresented() }
@@ -841,6 +849,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // The composer rests 8 pt above the toolbar capsule, like a tab
         // accessory; the 8 pt below the (hidden) key bar are inside the stack.
         stackRestingLimit.constant = -(insets.bottom - 8)
+        view.setNeedsLayout()
+        // The resting top moved: a keyboard up now lifts the stack another
+        // distance above it (a TUI's rows follow, R1-1).
+        guard view.window != nil else { return }
+        view.layoutIfNeeded()
+        settleKeyboardLift()
         view.setNeedsLayout()
     }
 
@@ -1132,7 +1146,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// DEBUG diagnostics for the demo timeline.
     var debugState: String {
         let grid = surface.grid
-        return "sb=\(scrollbar.total)/\(scrollbar.offset)/\(scrollbar.visible) doc=\(originRow)+\(documentRows) top=\(viewportTop) rows=\(surfaceRows) tui=\(tuiRows) grid=\(grid.columns)x\(grid.rows) cell=\(cell) off=\(Int(scrollView.contentOffset.y)) size=\(Int(scrollView.contentSize.height)) inset=\(Int(scrollView.contentInset.top)),\(Int(scrollView.contentInset.bottom)) follow=\(following) cursor=\(surface.cursorViewportRow.map(String.init) ?? "-") draws=\(surface.draws) presents=\(surface.presents) presented=\(presentedTop) pacing(frames/hitches/longestMs/stepMs)=\(FlingAnimator.pacing.frames)/\(FlingAnimator.pacing.hitches)/\(String(format: "%.1f", FlingAnimator.pacing.longestMs))/\(String(format: "%.2f", FlingAnimator.pacing.stepMs)) kbguide=\(Int(keyboardDock.guide.layoutFrame.minY)) stack=\(Int(bottomStack.frame.minY))-\(Int(bottomStack.frame.maxY)) keybar=\(Int(keyBarClip.frame.minY))-\(Int(keyBarClip.frame.maxY)) view=\(Int(view.bounds.height)) safe=\(Int(view.safeAreaInsets.top)),\(Int(view.safeAreaInsets.bottom))"
+        return "sb=\(scrollbar.total)/\(scrollbar.offset)/\(scrollbar.visible) doc=\(originRow)+\(documentRows) top=\(viewportTop) rows=\(surfaceRows) tui=\(tuiRows) grid=\(grid.columns)x\(grid.rows) cell=\(cell) off=\(Int(scrollView.contentOffset.y)) size=\(Int(scrollView.contentSize.height)) inset=\(Int(scrollView.contentInset.top)),\(Int(scrollView.contentInset.bottom)) follow=\(following) cursor=\(surface.cursorViewportRow.map(String.init) ?? "-") draws=\(surface.draws) presents=\(surface.presents) presented=\(presentedTop) pacing(frames/hitches/longestMs/stepMs)=\(FlingAnimator.pacing.frames)/\(FlingAnimator.pacing.hitches)/\(String(format: "%.1f", FlingAnimator.pacing.longestMs))/\(String(format: "%.2f", FlingAnimator.pacing.stepMs)) kbguide=\(Int(keyboardDock.guide.layoutFrame.minY)) stack=\(Int(bottomStack.frame.minY))-\(Int(bottomStack.frame.maxY)) keybar=\(Int(keyBarClip.frame.minY))-\(Int(keyBarClip.frame.maxY)) view=\(Int(view.bounds.height)) safe=\(Int(view.safeAreaInsets.top)),\(Int(view.safeAreaInsets.bottom)) tuiclip=\(Int(tuiClip.frame.minY))-\(Int(tuiClip.frame.maxY)) tuihost=\(Int(tuiClip.frame.minY + tuiHost.frame.minY))+\(Int(tuiHost.frame.height)) surface.y=\(Int(surface.frame.minY)) shift=\(tuiRowShift) lift=\(tuiSizing.keyboardLift.map { "\(Int($0))" } ?? "-")"
     }
     #endif
 
@@ -1153,6 +1167,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var outputPaused = false
     /// The row shift's state; used only on the surface's output queue, in feed order.
     private let rowShift = RowShiftBox()
+    /// What the output pump did: display frames it ran on, pump calls and
+    /// batches handed to Ghostty. For tests and benches.
+    private(set) var outputCounts = TerminalOutputPumpCounts()
+    /// Session bytes queued and not yet handed to Ghostty.
+    var outputPendingBytes: Int { output.pendingBytes }
+    /// How often a page nobody can see hands its queued output to Ghostty.
+    static let hiddenFeedInterval: TimeInterval = 1
 
     private func sessionEvent(_ event: TerminalSessionEvent) {
         switch event {
@@ -1163,7 +1184,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 holdAwaitsReset = false
                 // The rows being read are rebuilt from the replay: a reader
                 // goes back to their rows once it is in (V2-3,
-                // TerminalReadingMark); otherwise to the prompt.
+                // TerminalReadingMark); otherwise to the prompt. A place
+                // waiting for older rows is placed by this reset's replay.
+                olderRowsAsked = false
                 markReadingPosition()
                 freezeLastFrame()
                 // Held already (a second reset, D4): the frame that releases
@@ -1236,7 +1259,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Feeds at once when nothing was fed in this display frame (an echo is
     /// not held back to the next frame); otherwise the display link feeds at
     /// the start of the next frame. Either way, at most one batch per frame.
+    /// A page nobody can see feeds on `hiddenFeedInterval` instead (`feedsHidden`).
     private func scheduleOutput() {
+        if feedsHidden { return armHiddenFeed() }
         if pacer.canFeed(at: CACurrentMediaTime()) {
             pumpOutput()
         } else {
@@ -1245,6 +1270,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard outputLink == nil, !output.isEmpty || feedInFlight else { return }
         let link = CADisplayLink(target: DisplayLinkProxy(owner: self) { [weak self] in
             // A new frame: one more batch may go.
+            self?.outputCounts.frameTicks += 1
             self?.pacer.newFrame()
             self?.pumpOutput()
         }, selector: #selector(DisplayLinkProxy.step(_:)))
@@ -1279,12 +1305,20 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + max(0, wake - CACurrentMediaTime()), execute: item)
     }
 
-    private func pumpOutput() {
-        guard pacer.canFeed(at: CACurrentMediaTime()) else {
+    /// Hands Ghostty the next batch. `catchUp` (a hidden page's turn, or the
+    /// page shown again) takes up to `hiddenFeedBudget` bytes in one batch,
+    /// with no wait for a display frame or a burst's end: nothing is drawn
+    /// until the page is seen, and once it is, what it shows is current.
+    private func pumpOutput(catchUp: Bool = false) {
+        outputCounts.pumps += 1
+        if !catchUp, !pacer.canFeed(at: CACurrentMediaTime()) {
             armBurstWake()
             return
         }
-        while !feedInFlight, let step = output.next(budget: TerminalOutputQueue.budget(interacting: scroll.isInteracting && !Self.legacyInteraction)) {
+        let budget = catchUp
+            ? Self.hiddenFeedBudget
+            : TerminalOutputQueue.budget(interacting: scroll.isInteracting && !Self.legacyInteraction)
+        while !feedInFlight, let step = output.next(budget: budget) {
             switch step {
             case .alternateScreen(let on):
                 model.ingest(.alternateScreen(on))
@@ -1299,6 +1333,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 hostGridOwner = name
             case .bytes(let data):
                 syncHostGrid()
+                outputCounts.batches += 1
                 pacer.started(frameEnd: outputLink?.targetTimestamp ?? CACurrentMediaTime() + frameInterval,
                               queueEmpty: output.isEmpty)
                 model.scanOutput(data)
@@ -1333,6 +1368,84 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func stopOutputLink() {
         outputLink?.invalidate()
         outputLink = nil
+    }
+
+    // MARK: Output of a page nobody can see
+
+    /// The page cannot be seen (out of its window: a warm tab behind
+    /// another; or the app in the background): its output reaches Ghostty
+    /// with no display link, in one batch per `hiddenFeedInterval` (Chrome's
+    /// background-tab timer throttling: work nobody can see runs at most once
+    /// a second). The mirror stays exact (every byte is parsed, in order, and
+    /// backpressure still pauses the Mac), and shown again the page catches up
+    /// at once (`pageShownChanged`). A reset's replay is fed as when shown:
+    /// the replay gate's deadline counts from the reset.
+    private var feedsHidden: Bool {
+        surface.surface != nil && !surface.isShown && !replayGate.isReplaying
+    }
+    /// The hidden page's next turn; nil when none is due (one at a time,
+    /// armed only while output waits).
+    private var hiddenFeed: DispatchWorkItem?
+    /// The most a hidden page hands Ghostty in one batch. A backlog of a
+    /// full batch or more (a flood) goes on as soon as Ghostty parsed the
+    /// last one, so the queue drains and backpressure lifts; Ghostty holds
+    /// its terminal lock for a batch, so it stays short enough for the page
+    /// shown in the middle of one.
+    static let hiddenFeedBudget = 1 << 20
+
+    /// Output waits on a hidden page: its next turn comes at most
+    /// `hiddenFeedInterval` from now. Stops the display link and a burst
+    /// wake; arms nothing when the queue is empty or a batch is in flight
+    /// (the batch's end looks again, `continueAfterBatch`).
+    private func armHiddenFeed() {
+        stopOutputLink()
+        burstWake?.cancel()
+        burstWake = nil
+        guard hiddenFeed == nil, !output.isEmpty, !feedInFlight else { return }
+        let item = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.hiddenFeed = nil
+                self.pumpOutput(catchUp: true)
+            }
+        }
+        hiddenFeed = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.hiddenFeedInterval, execute: item)
+    }
+
+    /// A batch was parsed: on a hidden page, a full batch's backlog goes on
+    /// now and a smaller rest waits for the next turn; on a shown one, the
+    /// display link goes on while output waits.
+    private func continueAfterBatch() {
+        if feedsHidden {
+            if output.pendingBytes >= Self.hiddenFeedBudget {
+                pumpOutput(catchUp: true)
+            } else {
+                armHiddenFeed()
+            }
+        } else if output.isEmpty {
+            stopOutputLink()
+        } else if outputLink == nil {
+            // Shown while a hidden batch was in flight: the rest goes per frame.
+            scheduleOutput()
+        }
+    }
+
+    /// The surface's page came into view or left it (`TerminalSurfaceView.onShownChange`).
+    private func pageShownChanged(_ shown: Bool) {
+        guard shown else {
+            // Hidden: the display link stops and output waits for the hidden turn.
+            if feedsHidden { armHiddenFeed() }
+            return
+        }
+        hiddenFeed?.cancel()
+        hiddenFeed = nil
+        guard !output.isEmpty || feedInFlight else { return }
+        // Shown: what waited goes to Ghostty now, before the first frame,
+        // and the rest (a flood's backlog) per display frame after it.
+        pacer.newFrame()
+        if !feedInFlight { pumpOutput(catchUp: true) }
+        scheduleOutput()
     }
 
     /// Ghostty pruned `rows` of its oldest rows (`TerminalHistoryPrune`):
@@ -1382,13 +1495,28 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var readingMark: TerminalReadingMark?
     /// The replay is parsed; the mark is placed at the next scrollbar report.
     private var readingMarkAwaitsReport = false
+    /// A reader's place still to be put back across resets: one handed over
+    /// from the tab's previous host (``restoreScrollPlace(_:)``), or one above
+    /// the rows a replay held, waiting for the older rows it asked for
+    /// (`TerminalScrollRestore`). The next replay places it.
+    private var pendingRestore: TerminalScrollRestore?
+    /// Older rows were asked for and their reset has not come yet: the replay
+    /// deadline and the held frame's cap leave the pending place alone until
+    /// it does (a restore then would find the rows still missing).
+    private var olderRowsAsked = false
+    /// A place is waiting to be put back (the held frame stays for it).
+    private var restorePending: Bool { readingMark != nil || pendingRestore != nil }
+    /// A place is waiting and the replay that places it is in (or overdue).
+    private var restoreDue: Bool { readingMark != nil || (pendingRestore != nil && !olderRowsAsked) }
 
     /// The reset's replay is parsed: put a reader back on their rows.
     private func restoreReadingMark() {
-        guard let mark = readingMark else { return }
+        let pending = pendingRestore ?? readingMark.map { TerminalScrollRestore(mark: $0, fromEnd: false) }
         readingMark = nil
+        pendingRestore = nil
+        olderRowsAsked = false
         readingMarkAwaitsReport = false
-        guard !model.isTUI, !scrollView.isTracking, !scrollView.isDecelerating else { return }
+        guard var restore = pending, !model.isTUI, !scrollView.isTracking, !scrollView.isDecelerating else { return }
         let total = scrollbar.total
         let reader = rowReader
         // Every row of the replay, read once (the whole-screen read is not
@@ -1396,13 +1524,66 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // by their text too, so output during the drop cannot push the reader
         // down (T-LIFE-09/15). Rows past the read's trimmed end use the reader.
         let screen = surface.screenRows()
-        guard let anchor = mark.locate(totalRows: total, rowText: { row in
+        let session = model.session
+        guard let anchor = restore.replayed(totalRows: total, rowText: { row in
             if let screen, row < screen.count { return screen.rows[row] }
             return reader.text(TerminalAbsoluteRow(row))
-        }) else { return }
-        sizingLog.notice("reading mark restored row \(mark.row, privacy: .public) -> \(anchor.row, privacy: .public) of \(total, privacy: .public)")
+        }, loadOlder: { session.loadOlderHistory() }) else {
+            // The reader is above the rows replayed: the older rows' replay
+            // (a reset) comes back here.
+            pendingRestore = restore
+            olderRowsAsked = true
+            let fromEnd = restore.mark.rowsFromEnd
+            let loads = restore.olderLoads
+            sizingLog.notice("reading mark \(fromEnd, privacy: .public) rows from the end, above the \(total, privacy: .public) replayed: older rows asked (\(loads, privacy: .public))")
+            return
+        }
+        let placed = restore.mark
+        sizingLog.notice("reading mark restored row \(placed.row, privacy: .public) -> \(anchor.row, privacy: .public) of \(total, privacy: .public)")
         scroll.restoreReading(anchor)
-        restoredMark = (mark, anchor)
+        restoredMark = (placed, anchor)
+    }
+
+    /// Where the reader is, for the tab's next host when the warm set cools
+    /// this one: nil while following the prompt (the next host follows too)
+    /// and in a full-screen app, which has no scrollback.
+    func scrollPlace() -> TerminalScrollPlace? {
+        if let pendingRestore { return pendingRestore.place }
+        if let readingMark { return TerminalScrollPlace(mark: readingMark) }
+        guard !model.isTUI, cell.height > 0, let anchor = readingAnchor() else { return nil }
+        let reader = rowReader
+        return TerminalReadingMark(anchor: anchor, totalRows: scrollbar.total) { reader.text(TerminalAbsoluteRow($0)) }
+            .map { TerminalScrollPlace(mark: $0) }
+    }
+
+    /// The tab's previous host kept the reader's place: the first replay puts
+    /// them back (asking for older rows when it holds too few).
+    func restoreScrollPlace(_ place: TerminalScrollPlace) {
+        pendingRestore = TerminalScrollRestore(place: place)
+    }
+
+    /// The person took the page (a drag, typing, Jump to bottom): a place
+    /// still waiting for its replay is dropped.
+    private func dropPendingRestore() {
+        guard pendingRestore != nil else { return }
+        pendingRestore = nil
+        olderRowsAsked = false
+        sizingLog.notice("reading mark dropped: the person moved the page")
+    }
+
+    /// The rows at the top of the page while the reader is away from the
+    /// prompt, whatever the scroll state; nil while following (or within
+    /// `followSlackRows` of the bottom mid-gesture).
+    private func readingAnchor() -> TerminalScrollModel.Anchor? {
+        switch scroll.state {
+        case .following:
+            return nil
+        case .reading(let reading):
+            return reading
+        case .interacting:
+            guard let document, scrollView.contentOffset.y < maxOffsetY - TerminalScrollModel.followSlackRows * cell.height else { return nil }
+            return TerminalScrollModel.anchor(offsetY: scrollView.contentOffset.y, layout: document, rowHeight: cell.height)
+        }
     }
 
     /// The last mark restored and where it put the reader; reused when another
@@ -1415,7 +1596,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// fling lost the place, since only a settled reader was marked); a fling
     /// stops so the restore can land. Near the bottom, nothing: follow.
     private func markReadingPosition() {
-        guard !model.isTUI, readingMark == nil, cell.height > 0 else { return }
+        // A place still waiting for its replay (handed over, or older rows
+        // asked for) is the reader's: this replay places it.
+        guard !model.isTUI, readingMark == nil, pendingRestore == nil, cell.height > 0 else { return }
         // Mid Jump to bottom: the reader asked for the bottom, not the row
         // the glide was passing.
         if glide != nil {
@@ -1423,20 +1606,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             restoredMark = nil
             return
         }
-        let anchor: TerminalScrollModel.Anchor?
-        switch scroll.state {
-        case .following:
-            anchor = nil
-        case .reading(let reading):
-            anchor = reading
-        case .interacting:
-            if let document, scrollView.contentOffset.y < maxOffsetY - TerminalScrollModel.followSlackRows * cell.height {
-                anchor = TerminalScrollModel.anchor(offsetY: scrollView.contentOffset.y, layout: document, rowHeight: cell.height)
-            } else {
-                anchor = nil
-            }
-        }
-        guard let anchor else {
+        guard let anchor = readingAnchor() else {
             restoredMark = nil
             return
         }
@@ -1469,12 +1639,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             self.model.mirrorPlaced()
             self.outputSinceProbe = true
             self.updateDocument()
-            if self.readingMark != nil {
+            if self.restoreDue {
                 self.restoreReadingMark()
                 self.updateDocument()
             }
             self.applyScroll()
-            if let held = self.freezeView, self.readingMark == nil { self.releaseHeldFrameAtCap(ObjectIdentifier(held), recover: true) }
+            if let held = self.freezeView, !self.restorePending { self.releaseHeldFrameAtCap(ObjectIdentifier(held), recover: true) }
         }
     }
 
@@ -1510,7 +1680,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             }
             outputSinceProbe = true
             // Ghostty's next scrollbar report has the replay's row count.
-            if readingMark != nil { readingMarkAwaitsReport = true }
+            if restoreDue { readingMarkAwaitsReport = true }
             updateDocument()
             // The mirror was reset and replayed: an open find searches the new rows.
             finder.rowsReplaced()
@@ -1534,7 +1704,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         if scrollbar.total == 0 { scrollbar = (surface.grid.rows, 0, surface.grid.rows) }
         updateDocument()
-        if output.isEmpty { stopOutputLink() }
+        continueAfterBatch()
     }
 
     private func surfaceEvent(_ event: TerminalSurfaceEvent) {
@@ -1612,7 +1782,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 self.outputSinceProbe = true
                 self.updateDocument()
             }
-            if self.readingMark != nil {
+            if self.restoreDue {
                 self.restoreReadingMark()
                 self.updateDocument()
                 self.applyScroll()
@@ -1673,9 +1843,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The app left (false) or is coming back to (true) the foreground.
     ///
-    /// Leo, 2026-11-12: "when i load in it show me uncompact then squish". The
-    /// background releases the phone's size at once, so the Mac's grid grows;
-    /// the mirror follows it, and coming back would show the Mac's wide grid
+    /// Leo, 2026-11-12: "when i load in it show me uncompact then squish". A
+    /// background longer than the 45 s grace releases the phone's size, so the
+    /// Mac's grid grows; the mirror follows it, and coming back would show the Mac's wide grid
     /// until the reclaim's resize reset the mirror at the phone's size. The page as it was when
     /// the app left (the phone's own grid) now stays up until that reset's
     /// replay is drawn: one steady frame at phone width.
@@ -1920,6 +2090,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         fling?.stop()
         fling = nil
         stopGlide()
+        dropPendingRestore()
         scroll.input()
         applyScroll()
     }
@@ -2060,7 +2231,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard !holdAwaitsReset else { return false }
         guard model.isTUI || (placedSinceHold && document != nil && cell.height > 0) else { return false }
         let visible = model.isTUI ? 0..<0 : visibleRowRange
-        return TerminalHeldFrame.releasesOnPresent(isAlternate: model.isTUI, replayDrawn: freezeBatches > 0, markPending: readingMark != nil,
+        return TerminalHeldFrame.releasesOnPresent(isAlternate: model.isTUI, replayDrawn: freezeBatches > 0, markPending: restorePending,
                                                    cover: TerminalFrameCover(presentedTop: presentedTop, surfaceRows: surfaceRows),
                                                    visibleTop: visible.lowerBound, visibleBottom: visible.upperBound,
                                                    documentRows: (document?.originRow ?? 0)..<(document?.endRow ?? 0))
@@ -2416,6 +2587,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // A finger owns the offset until it lifts (or the deceleration ends).
         scroll.began()
         restoredMark = nil
+        dropPendingRestore()
         placesFromReport = false
         // A finger owns the page: a move waiting for its frame is dropped
         // (the next one measures its own wait).
@@ -2508,6 +2680,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// nothing, since UIKit's deceleration kept the offset). The deceleration
     /// stops and a drag in progress is cancelled, so nothing else owns the page.
     func scrollToBottom(animated: Bool) {
+        dropPendingRestore()
         fling?.stop()
         fling = nil
         stopGlide()
@@ -2618,8 +2791,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         terminalTapped()
     }
 
-    /// A tap on the shell's rows: a web link opens in a browser tab beside the terminal
-    /// (the Mac's Cmd-click); anywhere else the terminal takes the keyboard.
+    /// A tap on the shell's rows: a web link opens where it can be reached (a public page on
+    /// this iPhone, a dev server on the Mac); anywhere else the terminal takes the keyboard.
     @objc private func shellTapped(_ tap: UITapGestureRecognizer) {
         if !tapStoppedScroll, selection.selection == nil, tuiSelection.selection == nil, !model.isTUI,
            let url = shellLink(at: tap.location(in: scrollView)) {
@@ -2948,7 +3121,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return TerminalLinkFinder(rows: rows, firstRow: first, columns: max(1, surface.grid.columns))
                 .link(row: cell.row, column: cell.column)?.url
         }
-        selection.openLink = { [weak self] url, external in self?.model.openLink(url, external: external) }
+        selection.openLink = { [weak self] url, action in self?.model.openLink(url, action: action) }
+        selection.otherLinkDevice = { [weak self] url in self?.model.otherLinkDevice(url) }
         selection.install(in: scrollView)
         if let press = selection.longPress {
             press.addTarget(self, action: #selector(selectionPressChanged(_:)))
@@ -2989,7 +3163,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return TerminalLinkFinder(rows: rows, firstRow: first, columns: max(1, surface.grid.columns))
                 .link(row: cell.row, column: cell.column)?.url
         }
-        tuiSelection.openLink = { [weak self] url, external in self?.model.openLink(url, external: external) }
+        tuiSelection.openLink = { [weak self] url, action in self?.model.openLink(url, action: action) }
+        tuiSelection.otherLinkDevice = { [weak self] url in self?.model.otherLinkDevice(url) }
         tuiSelection.install(in: tuiHost)
     }
 
@@ -3107,7 +3282,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// rotation with a hardware keyboard posts no keyboard notification.
     private func settleKeyboardLift() {
         guard view.window != nil else { return }
-        tuiSizing.keyboardSettled(stackTop: bottomStack.frame.minY + composerGrowth + jumpRowHeight, restingStackTop: restingStackTop, isTUI: model.isTUI)
+        tuiSizing.keyboardSettled(stackTop: bottomStack.frame.minY + composerGrowth + jumpRowHeight, restingStackTop: restingStackTop,
+                                  keyboardShown: dock.softKeyboard == .shown, isTUI: model.isTUI)
     }
 
     @objc private func keyboardDidChange() {
@@ -3197,6 +3373,16 @@ final class RowShiftBox: @unchecked Sendable {
     func filter(_ data: Data, offset: Int, remoteRows: Int) -> Data {
         shift.filter(data, offset: offset, remoteRows: remoteRows)
     }
+}
+
+/// The output pump's work since the screen was made (`outputCounts`).
+struct TerminalOutputPumpCounts: Equatable {
+    /// Display frames the output link ran on.
+    var frameTicks = 0
+    /// Calls into the pump (frames, burst wakes, arrivals).
+    var pumps = 0
+    /// Batches handed to Ghostty.
+    var batches = 0
 }
 
 /// A display link target that does not retain the controller. Once its

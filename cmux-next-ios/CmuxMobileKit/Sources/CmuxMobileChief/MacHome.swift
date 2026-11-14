@@ -1,4 +1,5 @@
 import CmuxConversationCore
+import enum CmuxMobileModel.UserFacingError
 import CmuxMobileTransport
 import Foundation
 import Observation
@@ -1085,8 +1086,8 @@ public final class MacHomeFeed {
     }
 
     nonisolated static func reason(_ error: any Error) -> String {
-        if let error = error as? LinkError, !error.message.isEmpty { return String(error.message.prefix(80)) }
-        return error.localizedDescription
+        // LinkError's own copy (LocalizedError): never its code or a type name.
+        String(UserFacingError.message(error).prefix(120))
     }
 
     /// One command's `data`, or the owner's refusal.

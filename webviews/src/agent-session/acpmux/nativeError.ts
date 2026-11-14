@@ -34,3 +34,12 @@ export class NativeError extends Error {
     this.origin = reply?.origin === "native" || reply?.origin === "session_host" ? reply.origin : undefined;
   }
 }
+
+/// The rejection of a native call that got no answer within `timeoutMs`.
+export function nativeTimedOut(method: string, timeoutMs: number): NativeError {
+  return new NativeError(
+    { code: "native.timed_out", origin: "native", retryable: true, details: { wait: method, timeoutMs } },
+    // l10n-allow: the wait it names is for the log; the sentence before it is localized.
+    `${translate("error.timedOut")} (${method}: no answer in ${timeoutMs} ms)`,
+  );
+}

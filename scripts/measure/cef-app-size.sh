@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # CMUX-570: a paired installed-app measurement using an exact published nightly.
-# Replaces its CEF binary and optionally compares two pinned CLI artifacts.
+# Replaces its CEF binary with matching V8 snapshots and optionally compares two pinned CLI artifacts.
 # This is a local packaging experiment, not a release/pin change.
 # cmux-ci run --class exclusive --display --label measure --script scripts/measure/cef-app-size.sh \
 #   --ref SHA --cef sha256:CEF --artifact artifacts/cef-app-size.tgz \
@@ -146,6 +146,16 @@ data = {'baseline': {'source': sys.argv[2], 'sha256': sys.argv[3]},
 PY
 fi
 
+# Generated V8 snapshots are part of the engine build, even when the Chromium
+# version is unchanged. A binary-only swap leaves the previous build's snapshots.
+for arm in "${arms[@]}"; do
+  [[ "$arm" != baseline ]] || continue
+  python3 "$root/scripts/measure/cef-snapshot-resources.py" \
+    "$(dirname "$candidate")/Resources" \
+    "$work/$arm/cmux NIGHTLY.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Resources" \
+    "$out/$arm/snapshots.json"
+done
+
 # Record the installed payload before signing. This is the authoritative size
 # comparison even when an ad-hoc signature or launch smoke fails later: signing
 # changes only code-signature metadata, while the CEF payload bytes are already
@@ -161,8 +171,22 @@ done
 
 signing_status=0
 smoke_status=0
+signature_report() {
+  local app="$1" item
+  for item in "$app" \
+    "$app/Contents/Frameworks/Chromium Embedded Framework.framework" \
+    "$app/Contents/Frameworks/"*" Helper.app" \
+    "$app/Contents/Frameworks/"*" Helper ("*").app"; do
+    [[ -d "$item" ]] || continue
+    printf '\n--- %s\n' "${item#"$app"}"
+    codesign -dvvv "$item" 2>&1 || true
+    codesign -d -r- "$item" 2>&1 || true
+    codesign --verify --strict "$item" 2>&1 || true
+  done
+}
 for arm in "${arms[@]}"; do
   app="$work/$arm/cmux NIGHTLY.app"
+  signature_report "$app" > "$out/$arm/signatures-before.txt"
   # Ad-hoc signing is only for the launch smoke. Do not preserve the DMG's
   # provisioning metadata: it is invalid for an ad-hoc identity and can make
   # launchd kill the copied app before it starts.
@@ -176,6 +200,7 @@ for arm in "${arms[@]}"; do
     signing_status=1
     continue
   fi
+  signature_report "$app" > "$out/$arm/signatures-after.txt"
   if ! codesign --verify --deep --strict "$app" > "$out/$arm/sign-verify.log" 2>&1; then
     printf 'signing_%s=verify-failed\n' "$arm" | tee -a "$out/signing.txt"
     signing_status=1
@@ -206,14 +231,14 @@ out = pathlib.Path(sys.argv[1])
 before = json.loads((out / 'baseline/size.json').read_text())
 after = json.loads((out / 'candidate/size.json').read_text())
 signing = (out / 'signing.txt').read_text() if (out / 'signing.txt').exists() else ''
-report = {'kind': 'paired-nightly-binary-substitution', 'nightly': sys.argv[2],
+report = {'kind': 'paired-nightly-binary-and-snapshot-substitution', 'nightly': sys.argv[2],
           'dmg_sha256': sys.argv[3], 'cef_source': sys.argv[4],
           'baseline_app_bytes': before['app_bytes'], 'candidate_app_bytes': after['app_bytes'],
           'saved_app_bytes': before['app_bytes'] - after['app_bytes'],
           'pre_sign_du_tsv': 'pre-sign-du.tsv',
           'launch_and_browser_smoke_passed': 'smoke_baseline=passed' in signing and 'smoke_candidate=passed' in signing,
           'signing': signing.strip().splitlines(),
-          'scope': 'CEF binary only; release packaging and pin adoption remain separate'}
+          'scope': 'CEF binary and matching V8 snapshots; release packaging and pin adoption remain separate'}
 report['cli_help_smoke_passed'] = all(f'cli_{arm}=passed' in signing for arm in ('baseline', 'candidate'))
 if (out / 'cli-inputs.json').exists():
     cef_only = json.loads((out / 'cef-only/size.json').read_text())

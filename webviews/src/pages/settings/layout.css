@@ -147,7 +147,6 @@
   margin: 0 0 var(--ds-space-5);
   padding: var(--jump-bar-inset);
   overflow-x: auto;
-  scrollbar-width: none;
   border-radius: var(--jump-bar-radius);
   background: var(--surface-glass);
   backdrop-filter: var(--surface-blur);
@@ -278,10 +277,6 @@
     black calc(100% - var(--ds-space-6)),
     transparent
   );
-}
-
-.jump-bar::-webkit-scrollbar {
-  display: none;
 }
 
 .jump-bar .jump-link {

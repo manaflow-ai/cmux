@@ -763,6 +763,35 @@ async fn a_killed_route_fails_its_links_and_the_reconnect_goes_on_without_it() {
     assert!(routes.connect(1, ssh_request(&route), AuthKind::Grant).await.is_err());
 }
 
+/// The relay failing while the first mux stream opens: the session's reconnect moves it to ssh before the first
+/// dial gets to name its route, and the first dial's relay never overwrites that, so the drill labels each record
+/// by the carrier it came on and kills the route in use. With no failover the first dial names its own route.
+#[tokio::test]
+async fn a_failover_during_the_first_open_keeps_the_reconnect_s_route() {
+    let dir = tempfile::tempdir().unwrap();
+    let (full, _hub) = setup(dir.path(), true);
+    let with_ssh = answer(Some(candidate()));
+    let source = endpoints("10.20.0.7", super::now_unix() + 900);
+    let route =
+        ssh_route(&full, &with_ssh, MACHINE, source, far(), &SshRefusal::default()).unwrap();
+    let session = |current: &Arc<CurrentRoute>| {
+        let set = carrier_routes(&with_ssh, relay(), Some(route.clone()));
+        let relay_group = CachedGroup::killable(Arc::new(QuietGroup), true);
+        CarrierRoutes::new(set, 0, relay_group, SessionId([7; 16]), current.clone())
+    };
+
+    let current = Arc::new(CurrentRoute::default());
+    let routes = session(&current);
+    // The reconnect inside the first open, then the first dial's mux stream opens.
+    routes.connect(1, ssh_request(&route), AuthKind::Grant).await.unwrap();
+    routes.first_route("relay:0");
+    assert_eq!(current.get(), "ssh:0", "the session is on ssh, not the relay it first dialed");
+
+    let current = Arc::new(CurrentRoute::default());
+    session(&current).first_route("relay:0");
+    assert_eq!(current.get(), "relay:0", "no failover: the first dial's route");
+}
+
 /// A dial that is not a drill's has no kill switch (`CachedGroup::new`: its links are the route's own, with no
 /// wrapper on any send or receive), and a kill does nothing to it.
 #[tokio::test]

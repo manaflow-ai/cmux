@@ -43,6 +43,8 @@ mod retry_restore;
 mod stalled_turn;
 #[path = "durable_agents/stop_if_idle_unadopted.rs"]
 mod stop_if_idle_unadopted;
+#[path = "durable_agents/streaming_restart_gap.rs"]
+mod streaming_restart_gap;
 #[path = "durable_agents/transfer_authority.rs"]
 mod transfer_authority;
 #[path = "durable_agents/unread_store.rs"]

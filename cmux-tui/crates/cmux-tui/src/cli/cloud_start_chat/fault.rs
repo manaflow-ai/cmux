@@ -27,14 +27,12 @@
 
 use serde_json::{Value, json};
 
-use std::io::Read as _;
 use std::time::{Duration, Instant};
 
-use super::internal::fault_routes;
+use super::internal::{self, fault_routes};
 use super::{
     GlobalArgs, Outcome, Parsed, Request, Runner, SelfRunner, TAKES_VALUE, UsageError, failed,
-    forwarded_globals, lift_output_of, parse, report, run, self_runner, send_to, step_result,
-    words,
+    lift_output_of, parse, report, run, send_to, step_result, words,
 };
 use crate::carrier::drill::{Drill, EventRoutes, run_drill};
 use crate::carrier::fault::{
@@ -85,12 +83,21 @@ pub(super) fn run_if_requested(global: &GlobalArgs, rest: &[String]) -> Option<i
             return Some(refused.unwrap_or_else(|| usage(error, global.output)));
         }
     };
-    let mut runner = SelfRunner { globals: forwarded_globals(&global), global: global.clone() };
+    let mut runner = SelfRunner::new(&global);
     let env = std::env::var(crate::carrier::fault::PROBE_ENV).ok();
-    let source = |runner: &mut dyn Runner, plan: &FaultPlan, caps: &Value, until| {
-        drill_source(runner, &global, &request, stdin, (plan, caps, until))
+    // The source's steps run on a runner bound to the drill's deadline: a step still running at it is killed, and
+    // a remote script gets what is left of it as its own limit (internal/bounded.rs).
+    let sourced = std::cell::Cell::new(false);
+    let source = |_: &mut dyn Runner, plan: &FaultPlan, caps: &Value, until| {
+        sourced.set(true);
+        let mut bounded = SelfRunner::new(&global).until(until);
+        drill_source(&mut bounded, &global, &request, stdin, (plan, caps, until))
     };
     let outcome = start(&mut runner, &request, spec, env.as_deref(), || this_device(None), source);
+    // The drill ends here: a step a thread still runs (a send it gave up on) goes now, before the process exits.
+    if sourced.get() {
+        internal::bounded::kill_steps();
+    }
     Some(report(&outcome, global.output))
 }
 
@@ -112,11 +119,9 @@ pub(super) fn drill_source(
         refuse("carrier_fault.timeout", "--timeout ran out before the drill's turn started".into())
     };
     let prompt = if stdin {
-        let mut text = String::new();
-        std::io::stdin()
-            .read_to_string(&mut text)
-            .map_err(|error| refuse("usage.invalid", format!("--prompt -: {error}")))?;
-        text
+        // Bounded too: a stdin that never ends stops the drill at its deadline, not later.
+        internal::bounded::read_by(std::io::stdin(), until)
+            .map_err(|error| refuse("usage.invalid", format!("--prompt -: {error}")))?
     } else {
         request.prompt.clone().unwrap_or_default()
     };
@@ -148,8 +153,9 @@ pub(super) fn drill_source(
         return Err(out_of_time());
     }
     let text = |key: &str| started.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
+    let runner = SelfRunner::new(global);
     let send =
-        prompt_send(global, request, prompt, (text("machine_id"), text("session_id")), until);
+        prompt_send(runner, request, prompt, (text("machine_id"), text("session_id")), until);
     let dial_deadline = tokio::time::Instant::now() + left;
     match fault_routes::cloud_routes(&started, &token, dial_deadline, send) {
         Ok(routes) => Ok(Box::new(routes)),
@@ -157,10 +163,11 @@ pub(super) fn drill_source(
     }
 }
 
-/// The turn's prompt to `session` on `machine` (`cmux chat send`'s run), bounded by `until`: past it nothing is
-/// sent, and every step of the send is bounded by it (`Request::until`).
+/// The turn's prompt to `session` on `machine` (`cmux chat send`'s run, on `runner`), bounded by `until`: past it
+/// nothing is sent, every step of the send is bounded by it (`Request::until`), a step still running at it is
+/// killed and each remote script gets what is left of it as its own limit ([`SelfRunner::until`]).
 pub(super) fn prompt_send(
-    global: &GlobalArgs,
+    runner: SelfRunner,
     request: &Request,
     prompt: String,
     (machine, session): (String, String),
@@ -168,12 +175,11 @@ pub(super) fn prompt_send(
 ) -> fault_routes::SendPrompt {
     let request =
         Request { prompt: Some(prompt), wait: false, until: Some(until), ..request.clone() };
-    let global = global.clone();
+    let mut runner = runner.until(until);
     Box::new(move || {
         if Instant::now() >= until {
             return Err("--timeout ran out before the prompt was sent".into());
         }
-        let mut runner = self_runner(&global);
         match send_to(&mut runner, &request, &machine, &session) {
             Outcome::Done(_) => Ok(()),
             Outcome::Failed { error, .. } => Err(error

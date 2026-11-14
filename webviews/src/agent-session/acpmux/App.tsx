@@ -185,6 +185,7 @@ import { drawsAsIs, setStreamingRowBlocked, streamingRow, streamingRowBlocked, t
 import { liveToolOutput, toolOutputOnly } from "./liveToolOutput";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
+import { composerReadback, takeExternalInto, type ComposerReadback } from "./composer/externalAttach";
 import { StuckBanner } from "./StuckBanner";
 import { prefillStuckNudge } from "./stuckNudge";
 import { FolderContinuation, folderContinuationRequest } from "./folderContinuation";
@@ -646,6 +647,7 @@ import { Notice, NoticeSlot } from "./NoticeSlot";
 import { createPaneToasts, paneNotices, postNativePaneToast } from "./paneToasts";
 import { ToastLayer } from "./ToastLayer";
 import { AutoResumeNotice } from "./AutoResumeNotice";
+import { liveAutoResume, stuckNotice, turnPhase } from "./turnPhase";
 import { RulesNotice } from "./RulesNotice";
 import { type ForumRule, forumRules } from "./rulesNoticeModel";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
@@ -665,6 +667,7 @@ import {
   readHostRestoring,
   lostRetryDelay,
   hostSelfRetrying,
+  jitteredDelay,
 } from "./hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "./sendWhenReady";
 import { pageShowsWhatItIs } from "./firstPaint";
@@ -722,6 +725,7 @@ import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
 import { runResume } from "./resumeCommand";
+import { useExtensionCommands, withExtensionCommands } from "./composer/extensionCommands";
 import {
   CMUX_PASS_THROUGH,
   CmuxCommandRefused,
@@ -858,6 +862,8 @@ declare global {
       /// Copy Last Code Block (Opt-Cmd-;): the app reads the block and writes the pasteboard itself,
       /// since a script it runs here is no gesture the page's clipboard accepts.
       lastCodeBlock?(): string | null;
+      /// What the composer holds (`chat.composer.get`, composer/externalAttach.ts): its text and chips.
+      composerState?(): ComposerReadback | null;
       /// Copy Conversation as Markdown: read recorded history on this page's connection; the native
       /// palette action writes the role-headed, tool-folded text to the pasteboard.
       conversationMarkdown?(): Promise<string | null>;
@@ -4574,6 +4580,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   newTabNow.current = newTab;
   const currentNewTab = useCallback(() => newTabNow.current, []);
   const newTabGeneration = useNewTabAdoption(adoptNewTab, currentNewTab);
+  // A Fix from a link's failure is that New Tab visit's: the next visit starts without it.
+  useEffect(() => setNewTabFixError(undefined), [newTabGeneration]);
   // A start owns this visit's screen until accepted, even while a switch publishes queued rows.
   // A new adoption has a different generation and never inherits this pending/error view.
   const [newTabStartPage, setNewTabStartPage] = useState<number>();
@@ -4835,6 +4843,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [cloudStartKeys] = useState(() => makeCloudStartKeys());
   const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
   const composerHandle = useRef<ComposerHandle | null>(null);
+  // The host sent `attachExternal` before a composer was there to take the files (composer/externalAttach.ts).
+  const externalWaiting = useRef(false);
   const cloudSignInSend = useRef<() => Promise<CloudStartAnswer> | undefined>(() => undefined);
   /// The card retries its preserved request once; native keeps the click across browser auth.
   const [cloudSignInRetry] = useState(() => makeCloudSignInRetry(() => cloudSignInSend.current()));
@@ -6844,6 +6854,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       pendingWake.current = undefined;
     }
     replayHeldForComposer(handle, heldBack, heldQuotes);
+    // Files another app sent before this composer was there (composer/externalAttach.ts).
+    if (handle && externalWaiting.current)
+      externalWaiting.current = !takeExternalInto(() => composerHandle.current, callNative);
   }, []);
   const composerUnplacedQuotes = useCallback(
     (quotes: string[]) => handBackQuotes(composerHandle, heldQuotes, quotes),
@@ -7289,6 +7302,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       throw error;
     }
   };
+  // Extension slash commands (`cmux.composer.command/1`), as the daemon lists them.
+  const extensionCommands = useExtensionCommands();
   const composerSnapshot = useMemo(() => {
     const enabledCmuxActions = new Set<CmuxCommand["action"]>([
       "import",
@@ -7310,7 +7325,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (snapshot.sessionId && !isSideSession && !quick) enabledCmuxActions.add("btw");
     const withCommands = {
       ...snapshot,
-      commands: mergedCommands(snapshot.commands, enabledCmuxActions),
+      commands: withExtensionCommands(mergedCommands(snapshot.commands, enabledCmuxActions), extensionCommands),
       ...(keptStopping && { stopping: true as const }),
       // The Quick Composer's send never forks (it has no review to show), so its model menu
       // holds no pick of another harness either (review of #37196: it drew the hold, then sent
@@ -7344,6 +7359,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     keptStopping,
     cloudPicked,
     cloudModePick,
+    extensionCommands,
   ]);
   // What the composer draws from: the same object while nothing it shows changed (composer/composerView.ts),
   // so a tool call or another row added to the transcript does not draw the composer again.
@@ -7646,6 +7662,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       toggleInspector,
       perfCapture: (options) => chatPerfCapture.capture(options),
       lastCodeBlock: () => lastCodeBlock(snapshotRef.current?.rows ?? []) ?? null,
+      composerState: () => {
+        const draft = composerHandle.current?.draft();
+        return draft ? composerReadback(draft) : null;
+      },
       conversationMarkdown: async () => {
         const client = directClient.current;
         const sessionId = client?.selectedSession;
@@ -7728,6 +7748,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // A chat that just opened from a fork (the app's Fork Conversation): the composer takes the
         // keyboard, so the next words go to the fork.
         if (name === "focusComposer") composerHandle.current?.focus();
+        // Files another app sent to this chat (Send to cmux Chat, an image opened with cmux): the
+        // composer takes them as a drop's, an unsent draft, with the keyboard (composer/externalAttach.ts).
+        if (name === "attachExternal")
+          externalWaiting.current = !takeExternalInto(() => composerHandle.current, callNative);
         // Archive Chat (Ctrl-Cmd-A), as in the Codex app: the chat menu's row, so it does nothing where
         // the menu has none or the chat is archived.
         if (name === "archiveChat") archiveChatRef.current?.();
@@ -8302,9 +8326,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             failingSince = Date.now();
             setRelinkingSince(failingSince);
             // A client lost soon after it connected keeps the backoff growing: a daemon that drops
-            // the pane right after every connect is not asked again every 250 ms.
+            // the pane right after every connect is not asked again every 250 ms. Jittered so the
+            // tabs that lost one daemon together do not ask it again in lockstep.
             const lost = lostRetryDelay(retryDelay, Date.now() - connectedAt);
-            retryTimer = window.setTimeout(() => void connectHost(), lost.wait);
+            retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(lost.wait));
             retryDelay = lost.next;
           },
           mockModule
@@ -9559,8 +9584,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             const folds = wakeFolds(foldsNow.current.session, foldsNow.current);
             return {
               ...composer,
-              // An edit only this page holds (a queued message being edited): a release by
-              // agents.hiddenChats.discard keeps the page for it, as for a draft.
+              // An edit only this page holds (a queued message being edited, a send or draft not yet
+              // saved): every hidden-chat release keeps the page for it, so nothing typed is lost.
+              // The composer's draft itself is settled into acpmux above and comes back on reopen.
               ...(quitting !== true && pageEditHold() ? { holdsEdits: true } : {}),
               ...(attachments.length ? { attachments } : {}),
               ...(subagentDrafts ? { subagentDrafts } : {}),
@@ -9762,7 +9788,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // in flight asks again itself when it ends.
           // A reply too large to send is the same at every ask: only the line's Retry asks again.
           if (!tooLarge && restartGate.mayAsk()) {
-            retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
+            retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(retryDelay));
             retryDelay = nextRetryDelay(retryDelay, reconnect || recovering);
           }
         }
@@ -9891,6 +9917,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         throw error;
       },
     );
+  };
+  /// A start refused because a chat is already starting in this tab (`unavailable_now`): the same prompt and folder
+  /// go to a new Cloud chat, as the held send's refusal offers; this card closes and the composer keeps the prompt.
+  const openNewCloudChatForStart = () => {
+    const start = cloudStart;
+    if (!start) return;
+    const attempt = lastCloudAttempt.current;
+    const cwd = attempt?.key === start.key ? attempt.request.cwd : undefined;
+    dismissCloudFailure();
+    void openCloudChatWith({ prompt: start.task, ...(cwd ? { cwd } : {}) }).catch(() => undefined);
   };
   /// A harness's local command typed alone (localCommands.ts): its GUI answer, now, mid-turn too.
   /// False where this chat has nothing to show it in (Session Info off): it goes to the harness.
@@ -12017,9 +12053,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // the pane's own subagent id (a workflow agent's run and id). Never the relay target, whose harness
   // id, task name and connected chat arrive or change later and would remount the composer empty.
   const subagentDraftKey = `${subagentDraftChat}\u0000${shownSubagentId ?? ""}`;
-  const stuckDiagnosis =
-    snapshot.summary?.loopEpisode?.diagnosis ||
-    (snapshot.summary?.stalledSince != null ? t("stuck.silentDiagnosis") : undefined);
+  // The live turn's notices read one phase (turnPhase.ts): never "stuck" beside "Reconnecting…",
+  // never a resumed attempt's line under a turn that ended.
+  const liveTurnPhase = turnPhase(snapshot);
+  const stuckDiagnosis = stuckNotice(liveTurnPhase, snapshot.summary, t("stuck.silentDiagnosis"));
   // The chat's goal, a row of the composer hat (TaskGoalStrip.tsx; goalHat.experiment.ts places it
   // at the hat's top, the default, or its foot over the composer). Its actions are Codex's own
   // `/goal` subcommands; an edit sends `/goal <text>`, which sets the new objective in its place.
@@ -12065,7 +12102,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         <Notice id="cloud-hint" tier="hint" when={cloudHintShown && !showNewTab}>
           <CloudChatHint onUse={() => composerModeRows.onMode("cloud")} onClose={cloudHint.close} />
         </Notice>
-        <Notice id="import-error" tier="error" when={importError}>
+        <Notice id="import-error" tier="error" when={!showNewTab && importError}>
           <p className="acpmux-composer-remote-note" role="alert">
             {importError}
           </p>
@@ -12179,7 +12216,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             {background.notice && t(BACKGROUND_NOTICE_TEXT[background.notice])}
           </output>
         </Notice>
-        {!showNewTab && <AutoResumeNotice state={snapshot.autoResume} />}
+        {!showNewTab && <AutoResumeNotice state={liveAutoResume(liveTurnPhase, snapshot.autoResume)} />}
         {!showNewTab && (
           <ShareNudge
             open={shareNudge.shown}
@@ -13293,6 +13330,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                   onRunHere={runCloudHere}
                                   onDismiss={dismissCloudFailure}
                                   onSwitchTeam={switchTeamAndRetry}
+                                  onOpenNewCloudChat={openNewCloudChatForStart}
                                   {...cloudTooBigActions}
                                 />
                               ),
@@ -13371,7 +13409,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   template={screenTemplate(shownTemplate(newTab))}
                   {...(newTab.allChats === false ? { allChats: false } : {})}
                   {...(newTab.suggestionOrder ? { suggestionOrder: newTab.suggestionOrder } : {})}
-                  snapshot={commandSession ? { ...newTabSnapshot, commands: pendingCommands ?? [] } : newTabSnapshot}
+                  snapshot={
+                    commandSession
+                      ? { ...newTabSnapshot, commands: withExtensionCommands(pendingCommands ?? [], extensionCommands) }
+                      : newTabSnapshot
+                  }
                   {...(newTabFixError ? { fixError: newTabFixError } : {})}
                   omnibar={newTab.omnibar}
                   location={newTab.location}
@@ -13831,6 +13873,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     onRunHere={runCloudHere}
                     onDismiss={dismissCloudFailure}
                     onSwitchTeam={switchTeamAndRetry}
+                    onOpenNewCloudChat={openNewCloudChatForStart}
                     {...cloudTooBigActions}
                   />
                 ) : sandboxView && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed") ? (

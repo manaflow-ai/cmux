@@ -79,11 +79,11 @@ enum TerminalChatHandler {
         }
     }
 
-    /// Toggle Terminal and Chat's facts about `tab`, which the action and the pane toolbar's toggle (``PaneToolbar``)
-    /// both hand to the Rust route, so the control shows exactly where the key acts; with the chat's adopted session
+    /// Toggle Terminal and Chat's facts about `tab`, which the action and the tab's right-click row (``offersToggle(on:services:)``)
+    /// both hand to the Rust route, so the row shows exactly where the key acts; with the chat's adopted session
     /// (`key`, `harness:agentSessionId`) and the live terminals running it, best first (as an `agent/` link picks them).
     /// `membership`: only what decides whether the route refuses the tab (the tab's kind and its session), for the
-    /// toolbar, which asks for every tab of every pane: the running terminals, the turn and the hand-off only pick
+    /// right-click row: the running terminals, the turn and the hand-off only pick
     /// among the routes that act, and reading them there would observe every machine's agents.
     static func facts(_ tab: TabModel, services: AppServices, membership: Bool = false)
         -> (facts: WindowRules.ToggleFacts, key: String?, terminals: [String]) {
@@ -105,18 +105,18 @@ enum TerminalChatHandler {
         return (facts, key, terminals)
     }
 
-    /// The face of a terminal and chat pair `tab` is, nil when the route refuses it (not a terminal or chat,
-    /// no session, a harness acpmux cannot resume): the pane toolbar's toggle shows only on a pair.
-    static func face(of tab: TabModel, services: AppServices) -> PaneTerminalChatFace? {
-        let read = facts(tab, services: services, membership: true).facts
-        return face(WindowRules().terminalChatToggle(read), terminal: read.terminal)
+    /// Whether `tab` is half of a terminal and chat pair, so Toggle Terminal and Chat acts on it; false when the route
+    /// refuses it (not a terminal or chat, no session, a harness acpmux cannot resume). The tab's right-click offers the
+    /// action only then (``PaneController/contextMenu(for:)``).
+    static func offersToggle(on tab: TabModel, services: AppServices) -> Bool {
+        offersToggle(WindowRules().terminalChatToggle(facts(tab, services: services, membership: true).facts))
     }
 
-    /// The face the route's answer `route` shows for a terminal (`terminal`) or a chat: none for a refusal.
-    static func face(_ route: WindowRules.TerminalChatToggle?, terminal: Bool) -> PaneTerminalChatFace? {
+    /// Whether the route's answer `route` acts: every answer but a refusal.
+    static func offersToggle(_ route: WindowRules.TerminalChatToggle?) -> Bool {
         switch route {
-        case .notAgentTab?, .noSession?, .unsupportedHarness?, nil: nil
-        case .toChat?, .toTerminal?, .resumeInTerminal?, .handingOff?, .busy?: terminal ? .terminal : .chat
+        case .notAgentTab?, .noSession?, .unsupportedHarness?, nil: false
+        case .toChat?, .toTerminal?, .resumeInTerminal?, .handingOff?, .busy?: true
         }
     }
 

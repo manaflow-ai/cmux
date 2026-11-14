@@ -1,7 +1,8 @@
 //! Folder reads and view-specific delivery share the published index roots.
 use super::*;
 use crate::wire::{
-    Anchor, FolderPageResult, FolderPosition, FolderWindow, ListView, PageKey, PageSide, Position,
+    Anchor, FolderPageResult, FolderPosition, FolderWindow, ListFilter, ListView, PageKey,
+    PageSide, Position,
 };
 use acpmux_book::index::folders::{FolderCursor, FolderKey, FolderOp, FolderReadSide, FolderRow};
 use std::collections::VecDeque;
@@ -26,7 +27,7 @@ fn cursor(key: &FolderPosition) -> Result<FolderCursor, HubError> {
     Ok(FolderCursor::new(key.at, key_value))
 }
 
-fn validate_filter(filter: Option<&crate::wire::ListFilter>) -> Result<(), HubError> {
+fn validate_filter(filter: Option<&ListFilter>) -> Result<(), HubError> {
     if filter.is_some_and(|f| {
         f.family.is_some()
             || f.forks.is_some()

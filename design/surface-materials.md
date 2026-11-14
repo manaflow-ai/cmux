@@ -90,9 +90,26 @@ His reference is the account menu of a desktop chat app: one translucent surface
   host-veil-light, dense.
 - The popover level stays for glass in the page that is not a popup: the composer, Session Info,
   the running tray, side tabs.
-- Native NSMenus stay system-drawn (Lawrence 2026-10-23: "we don't want ANYTHING custom besides the
-  icons"). Host glass puts the web menus on the same App material, so the two meet; the web side
-  matches the native one, never the reverse.
+- **Native: one primitive on the same numbers.** `Glass.makeMenuPanel` (CmuxNextDesign
+  `GlassMenu/GlassMenuMaterial.swift`) is the App's glass at the menu level, the popup radius and the
+  same 40% veil (`GlassMenuVeilView`). Every custom native popover is on it: the account menu, the
+  page menus past the window edge (`WebPopupHost`), declarative popups, Downloads, Host Pressure,
+  the icon picker, the bookmark bubble, the Home agent pill card, Chief Settings, both group
+  editors, the palette's actions menu and the Extensions menu. `GlassMenu` draws an `NSMenu` (its
+  actions, validation, shortcuts, checks, subtitles and submenus) as rows on that surface on the
+  AppKit menu grid (`MenuMetrics`, 28 pt rows).
+- **The sidebar's account menu is a `GlassMenu`** (Leo, 2026-11-11: "Well, that's the whole point,
+  right? Like that's what we wanted to do anyways. have better design (systems too)"). Gallery
+  `ui.native-menu-material`: system (before), clear, veil (ships), veil-light, veil-submenu,
+  veil-submenu-light, dense.
+- **Right-click context menus stay `NSMenu`**, system-drawn (Lawrence 2026-10-23: "we don't want
+  ANYTHING custom besides the icons").
+- **One source.** `schemas/design-scale/design-scale.json`'s menu level holds `tint`, `veil` and
+  `blur`; `namedRadii.popup` is the radius and `controls.row` the row. gen-design-scale writes the
+  page's `--ds-glass-menu-*`; `GlassMenuMaterial` carries the same numbers and
+  `webviews/test/floating-material-sync.test.ts` fails when the two drift.
+- Host glass puts the web menus on the same App material, so the two meet; the web side matches
+  the native one, never the reverse.
 
 ## Inventory (2026-11-09, feat-cmux-next efdf71a9)
 

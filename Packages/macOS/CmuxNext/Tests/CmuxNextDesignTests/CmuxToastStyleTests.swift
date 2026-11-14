@@ -76,6 +76,25 @@ struct CmuxToastStyleTests {
         for style in CmuxToastStyle.allCases { #expect(!style.summary.isEmpty) }
     }
 
+    // MARK: The playground
+
+    /// The playground shows every style, or one alone (Debug Settings > Toasts > Playground shows), each with
+    /// every kind in a light and a dark sheet; its choices follow the styles.
+    @Test func thePlaygroundShowsEveryStyleOrOne() {
+        #expect(CmuxToastPlaygroundFocus.allCases.count == CmuxToastStyle.allCases.count + 1)
+        #expect(CmuxToastPlaygroundFocus(rawValue: "removed-style") == nil)
+        let center = CmuxToastCenter(clock: ContinuousClock(), styles: CmuxToastStyleStore(defaults: Self.defaults()))
+        let themes = CmuxToastPlaygroundThemes(colors: [:])
+        let every = CmuxToastPlaygroundView(center: center, themes: themes) { _ in }
+        #expect(every.rows.map(\.style) == CmuxToastStyle.allCases)
+        for row in every.rows {
+            #expect(row.sheets.map(\.isDark) == [false, true])
+            for sheet in row.sheets { #expect(sheet.toasts.map(\.toast.id) == CmuxToastPlaygroundSamples.kinds.map(\.id)) }
+        }
+        let one = CmuxToastPlaygroundView(center: center, themes: themes, focus: .only(.progressRing)) { _ in }
+        #expect(one.rows.map(\.style) == [.progressRing])
+    }
+
     // MARK: Every kind takes it
 
     /// Picking a style restyles every toast already showing, of every kind, in every window, and the next
@@ -130,6 +149,20 @@ struct CmuxToastStyleTests {
         #expect(CmuxToast(id: "saved", message: "Saved").tone == .neutral)
         let view = CmuxToastView(toast: CmuxToast(id: CmuxToast.refusalID, message: "No room"), reduceTransparency: .alwaysOpaque, style: .iconCard)
         #expect(view.iconSymbol == CmuxToastTone.error.symbolName)
+    }
+
+    /// The icon draws in its tone's color, not the default label gray (the cmux-lawrence-2 gallery shot of
+    /// 2026-11-14 showed every tone's icon gray: the view never set a tint).
+    @Test(arguments: [CmuxToastTone.neutral, .success, .warning, .error])
+    func theIconTakesItsTonesColor(tone: CmuxToastTone) throws {
+        let window = Self.window()
+        defer { Self.close(window) }
+        let view = CmuxToastView(toast: CmuxToast(id: "t", message: "Saved", tone: tone), reduceTransparency: .alwaysOpaque, style: .iconCard)
+        window.contentView?.addSubview(view)
+        let icon = try #require(view.iconView)
+        let tint = try #require(icon.contentTintColor, "the icon has no tint: it draws the default gray")
+        let expected = icon.performWithTheme { tone.color }
+        #expect(tint.usingColorSpace(.sRGB) == expected.usingColorSpace(.sRGB))
     }
 
     // MARK: Two actions
