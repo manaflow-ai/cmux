@@ -413,11 +413,11 @@ impl LocalStore {
             if is_last
                 && !relisted
                 && full
-                && self
-                    .dir(id)
-                    .join("events")
-                    .join(format!("{:06}.ndjson", segment.index.saturating_add(1)))
-                    .exists()
+                && crate::home_fs::try_exists_nofollow(
+                    self.dir(id)
+                        .join("events")
+                        .join(format!("{:06}.ndjson", segment.index.saturating_add(1))),
+                )?
             {
                 relisted = true;
                 marks.lists += 1;
