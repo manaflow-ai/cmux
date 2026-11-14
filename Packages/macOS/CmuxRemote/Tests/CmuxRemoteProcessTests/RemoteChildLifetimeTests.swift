@@ -32,7 +32,7 @@ import Testing
         #expect(await lifetime.waitUntilEmpty(timeout: .seconds(5)))
     }
 
-    @Test(.timeLimit(.minutes(1))) func staleReapCannotRemoveAnotherSpawnGeneration() async throws {
+    @Test(.timeLimit(.minutes(1))) func duplicateReapCannotRemoveAnotherTrackedChild() async throws {
         let lifetime = RemoteChildLifetime()
         let old = try lifetime.spawn(executable: "/bin/cat", arguments: [], environment: [:], logPath: "/dev/null")
         let current = try lifetime.spawn(executable: "/bin/cat", arguments: [], environment: [:], logPath: "/dev/null")
@@ -42,7 +42,7 @@ import Testing
             if status >= 0 { lifetime.reaped(old) }
         }
         close(old.stdin)
-        // A stale callback addresses its spawn token, never another PID generation.
+        // Duplicate callbacks for one spawn cannot remove a different tracked child.
         lifetime.reaped(old)
         lifetime.reaped(old)
         #expect(await lifetime.waitUntilEmpty(timeout: .zero) == false)

@@ -140,7 +140,6 @@ public final class RemoteHost: NSObject, NSApplicationDelegate {
         shuttingDown = true
         children.freeze()
         screen.setWanted(false)
-        computerUse.stopAll()
         children.stopOwnedChildren()
         let children = self.children, layout = self.layout
         // task-owner: one bounded shutdown per host; exit only after every tracked child was reaped.
@@ -405,7 +404,6 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
             }
             host.children.freeze()
             host.screen.setWanted(false)
-            host.computerUse.stopAll()
             host.children.stopOwnedChildren()
             let exited = await host.children.waitUntilEmpty(timeout: .seconds(15))
             result = await host.captureLease.cleanup(binding, writersExited: exited)
