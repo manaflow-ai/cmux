@@ -943,6 +943,11 @@ path = "tests/test_nightly_next_rolling.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_push_slot_holder.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that the tick counts a nightly-next loop run as holding the push slot only until its nightly-next-one ends (queued or pending always holds; the post-feed tail holds nothing; a skipped nightly-next-one keeps the old rule); run python3 tests/test_nightly_next_push_slot_holder.py yourself after changing run_holds_group or nightly_next_rolling.py (under 1 s, no Mac)."
+
+[[test]]
 path = "tests/test_nightly_next_unsigned_resume.py"
 lane = "linux-guard"
 
