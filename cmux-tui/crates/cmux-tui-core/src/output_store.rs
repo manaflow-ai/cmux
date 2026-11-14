@@ -44,8 +44,10 @@
 
 mod memory_budget;
 mod parked_trim;
+mod recovery;
 pub(crate) mod segments;
 pub(crate) mod snapshot;
+pub(crate) use recovery::RecoveryCut;
 mod tail;
 mod writer;
 
@@ -327,10 +329,11 @@ struct LogState {
     /// snapshot whose capture saw an older count does not hold the screen
     /// after the gap, so it does not clear the request for one.
     gaps: u64,
-    /// A host reconnect replaced the live screen. Until one reader receives
-    /// a coherent live snapshot, the numeric cursor alone cannot describe
-    /// the bytes the host wrote while no daemon tap existed.
+    /// A discontinuity requires a recovery cursor; numeric offsets alone
+    /// cannot describe output written while no daemon tap existed.
     gap_pending: bool,
+    recovery_epoch: Arc<str>,
+    recovery_cut: Arc<Mutex<Option<Arc<RecoveryCut>>>>,
     /// Snapshot mode: the size the last capture saw and since when; a
     /// resized terminal is snapshotted once its size has held for
     /// [`RESIZE_SETTLE`] (a divider drag does not write a snapshot per pass).
@@ -368,6 +371,8 @@ impl LogState {
             retry_delay: Duration::ZERO,
             gaps: 0,
             gap_pending: false,
+            recovery_epoch: Arc::from(crate::workspace_registry::new_uuid_v4()),
+            recovery_cut: Arc::new(Mutex::new(None)),
             size_seen: None,
         }
     }
@@ -591,6 +596,7 @@ pub(crate) struct OutputStore {
     /// The policy the writer read last (the quit pass has no settings owner
     /// handle).
     policy: Mutex<Option<PersistencePolicy>>,
+    recovery_bytes: Arc<std::sync::atomic::AtomicU64>,
     /// Held by each write pass: the writer thread, a checkpoint and the quit
     /// pass never write the same file at once.
     pass: Mutex<()>,
@@ -648,6 +654,7 @@ impl OutputStore {
             last_enforce: Mutex::new(None),
             snapshot_interval,
             policy: Mutex::new(None),
+            recovery_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             pass: Mutex::new(()),
             prune_pending: std::sync::atomic::AtomicBool::new(false),
             memory_budget: memory_budget::MemoryBudget::default(),
@@ -821,6 +828,7 @@ impl OutputStore {
             state.tail.clear();
             state.pending.clear();
             state.pending_start = 0;
+            state.invalidate_recovery();
         }
         let keep = bytes.len().min(OUTPUT_TAIL_BYTES);
         let skipped = (bytes.len() - keep) as u64;
@@ -918,19 +926,6 @@ impl OutputStore {
             .map(|(generation, end)| (Arc::from(generation.as_str()), *end))
     }
 
-    /// Whether a reconnect snapshot must be projected before raw reads resume.
-    /// The flag remains set for this stream generation: the projection is
-    /// idempotent (offset 0 replaces a client's held text), and retaining it
-    /// lets concurrent or retried readers recover without a client identity or
-    /// an acknowledgement token.
-    pub(crate) fn stream_gap_pending(&self, terminal_id: &TerminalPublicId) -> bool {
-        self.logs
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(terminal_id)
-            .is_some_and(|log| log.state.lock().unwrap_or_else(PoisonError::into_inner).gap_pending)
-    }
-
     /// Retained output at or after `after`, at most `max_bytes` (never less
     /// than one byte when any exists). A cursor older than what is kept
     /// starts at the oldest kept byte. Full mode: bytes before the unflushed
@@ -1009,11 +1004,18 @@ impl OutputStore {
         // still recoverable even before its first post-adoption append.
         let log = self.log(terminal_id, generation);
         let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.generation != *generation {
+            state.generation = generation.clone();
+            state.tail_start = 0;
+            state.tail.clear();
+            state.pending.clear();
+            state.pending_start = 0;
+        }
         if self.tail_enabled() {
             state.fall_back_to_snapshot();
         }
         state.gaps += 1;
-        state.gap_pending = true;
+        state.invalidate_recovery();
         let wait = state.retry_wait();
         drop(state);
         if self.tail_enabled() {
@@ -1057,6 +1059,7 @@ impl OutputStore {
             let end = state.next_offset();
             state.tail.clear();
             state.tail_start = end;
+            state.invalidate_recovery();
             state.pending.clear();
             state.snapshot_digest = None;
             state.snapshot_at = None;

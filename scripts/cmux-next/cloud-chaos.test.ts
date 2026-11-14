@@ -467,7 +467,7 @@ describe("judgeTerminal", () => {
     const snapshot: TerminalRead = { after: 0, start: 0, next: 0, complete: true, snapshot: true, text: all(3) };
     const v = judgeTerminal({ n: 3, reads: [snapshot, snapshot], machineSha256: sha(all(3)), sha256: sha });
     expect(v.ok).toBe(true);
-    expect(v.text).toContain("1 snapshot");
+    expect(v.text).toContain("2 snapshot");
   });
 });
 

@@ -501,7 +501,7 @@ declare namespace Cmux {
   type TerminalExitUnknown = { kind: "unknown"; reason: string }
   type TerminalHistoryResult = { start: string; next?: string | null; rows: Array<Cmux.RenderRow> }
   type TerminalLifecycle = "launching" | "running" | "exited"
-  type TerminalOutputReadResult = { text: string; start_offset: string; next_offset: string; complete: boolean; snapshot?: boolean }
+  type TerminalOutputReadResult = { text: string; start_offset: string; next_offset: string; complete: boolean; snapshot?: boolean; recovery?: string }
   type TerminalScreenResult = { text: string; revision?: string | null; osc_progress?: string | null; cols: number; rows: number; cursor_row: number; cursor_col: number; cursor_visible: boolean; extra?: Record<string, Cmux.JsonValue> }
   type TerminalSnapshot = { id: string /* terminal_… */; tab_id: string /* tab_… */ | null; tab_ids: Array<string /* tab_… */>; title: string; cwd?: string; cols: number; rows: number; running: boolean; lifecycle: Cmux.TerminalLifecycle; stream_revision?: string; exit?: Cmux.TerminalExit; extra?: Record<string, Cmux.JsonValue> }
   type TerminalStateResult = { state_base64: string; cols: number; rows: number }
@@ -1749,7 +1749,7 @@ interface CmuxGlobal {
     /** `terminal.move` (mutation, scope `terminal:write`) */
     move: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; destination_workspace: unknown; destination_screen: unknown; destination_pane: unknown; index: number; expected_revision?: string }, Cmux.MutationResult<Cmux.TerminalSnapshot>>
     /** `terminal.output_read` (read, scope `terminal:read`) */
-    output_read: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; after?: string; max_bytes?: number }, Cmux.TerminalOutputReadResult>
+    output_read: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; after?: string; max_bytes?: number; recovery?: string }, Cmux.TerminalOutputReadResult>
     process: {
       /** `terminal.process.get` (read, scope `terminal:read`) */
       get: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string }, Cmux.ProcessInfoResult>

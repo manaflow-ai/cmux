@@ -594,6 +594,7 @@ export class SeqTerminal {
   terminal = "";
   error = "";
   private offset = 0;
+  private recovery = "";
   private stopped = false;
   private loop: Promise<void> | null = null;
 
@@ -628,10 +629,11 @@ export class SeqTerminal {
   private async poll(): Promise<void> {
     while (!this.stopped) {
       try {
-        const r = answerOf(await this.dial.request({ protocol: "cmux.protocol/2", type: "request", operation: "terminal.output_read", params: { ...here, terminal: this.terminal, after: String(this.offset), max_bytes: 1_048_576 } }, 10_000));
+        const r = answerOf(await this.dial.request({ protocol: "cmux.protocol/2", type: "request", operation: "terminal.output_read", params: { ...here, terminal: this.terminal, after: String(this.offset), recovery: this.recovery, max_bytes: 1_048_576 } }, 10_000));
         const read: TerminalRead = { after: this.offset, start: Number(r.start_offset), next: Number(r.next_offset), complete: r.complete === true, snapshot: r.snapshot === true, text: String(r.text ?? "") };
         this.reads.push(read);
         this.offset = read.next;
+        this.recovery = typeof r.recovery === "string" ? r.recovery : "";
       } catch (e) {
         this.error = (e as Error).message;
       }
@@ -1222,15 +1224,8 @@ export function assembleTerminal(reads: TerminalRead[]): { text: string; problem
     if (r.after !== want) problems.push(`read ${i} asked from ${r.after}, not the last read's end ${want}`);
     if (!r.complete) problems.push(`read ${i} from ${r.after} was not complete (output past retention)`);
     if (r.snapshot === true) {
-      if (!r.complete || r.start !== 0 || r.next < r.after) problems.push(`read ${i} returned an invalid snapshot projection`);
+      if (!r.complete || r.start !== 0 || r.next < 0) problems.push(`read ${i} returned an invalid snapshot projection`);
       else { snapshots += 1; text = r.text; }
-    // A live reconnect projection can have an empty stream cursor (after 0)
-    // while its screen already contains output. Treat a repeated offset-0
-    // complete window as the same idempotent snapshot replacement used for
-    // nonzero cursors; otherwise retries would append the screen forever.
-    } else if (r.start === 0 && r.after === 0 && r.complete && i > 0 && r.text.length > 0) {
-      snapshots += 1;
-      text = r.text;
     } else if (r.start === r.after) {
       text += r.text;
     } else if (r.start === 0 && r.after > 0 && r.complete && r.next >= r.after) {
@@ -1268,7 +1263,7 @@ export function judgeTerminal(input: { n: number; reads: TerminalRead[]; machine
   const sha = input.sha256(text);
   if (sha !== input.machineSha256) problems.push(`sha256 ${sha.slice(0, 12)} differs from the machine copy's ${input.machineSha256.slice(0, 12)}`);
   if (problems.length) return { ok: false, text: `terminal output lost: ${problems.slice(0, 4).join("; ")}` };
-  const snap = held.snapshots ? `, ${held.snapshots} snapshot read${held.snapshots > 1 ? "s" : ""} after the terminal ended taken in place of what was held` : "";
+  const snap = held.snapshots ? `, ${held.snapshots} snapshot read${held.snapshots > 1 ? "s" : ""} taken in place of what was held` : "";
   return { ok: true, text: `terminal: all ${n} lines over ${reads.length} reads, offsets contiguous${snap}, sha256 matches the machine copy` };
 }
 

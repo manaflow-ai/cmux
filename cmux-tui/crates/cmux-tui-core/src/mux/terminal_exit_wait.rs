@@ -3,50 +3,126 @@
 use super::*;
 
 impl Mux {
-    /// Capture the replacement screen and the output cursor under one parser
-    /// lock. A host reconnect can advance the screen while the raw stream
-    /// cursor stays put; projecting this cut from offset zero is the only
-    /// honest way to let a live reader catch up without inventing offsets.
+    /// Capture once per recovery epoch. A failed or racing capture is an
+    /// explicit error, never a fallthrough to an apparently complete raw read.
     fn terminal_live_snapshot_after_gap(
         &self,
         terminal_id: &TerminalPublicId,
-        requested: u64,
-    ) -> anyhow::Result<Option<Value>> {
+        epoch: &str,
+        max_bytes: u64,
+    ) -> anyhow::Result<Arc<crate::output_store::RecoveryCut>> {
         let Some(surface) = self
             .terminal_resource_surface(terminal_id)
             .filter(|surface| surface.kind() == SurfaceKind::Pty)
         else {
-            return Ok(None);
+            let read = self.terminal_output_read_raw(terminal_id, None, max_bytes)?;
+            anyhow::ensure!(
+                read["snapshot"] == true && read["complete"] == true,
+                "terminal recovery surface unavailable; retry"
+            );
+            let text = read["text"].as_str().unwrap_or_default().to_owned();
+            anyhow::ensure!(
+                text.len() as u64 <= max_bytes.min(4 * 1024 * 1024),
+                "terminal recovery snapshot exceeds max_bytes"
+            );
+            let end = read["next_offset"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("terminal recovery cursor missing"))?
+                .parse()?;
+            self.output_store.check_recovery_epoch(terminal_id, epoch)?;
+            return self.output_store.make_recovery_cut(text, end);
         };
-        let captured = surface.try_with_terminal(|terminal| {
-            let settled =
-                surface.terminal_journal_capture_epoch().is_some_and(|epoch| epoch & 1 == 0);
-            if !settled {
-                return None;
-            }
-            let (_, end) = self.output_store.stream_cursor(terminal_id)?;
-            if end < requested {
-                return None;
-            }
-            let replay = terminal.vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES).ok()?;
-            Some((terminal.cols(), terminal.rows(), replay.into_self_contained_bytes(), end))
-        })?;
-        let Some((cols, rows, replay, end)) = captured else {
-            return Ok(None);
-        };
+        let (cols, rows, replay, end) =
+            surface.try_with_terminal(|terminal| -> anyhow::Result<_> {
+                anyhow::ensure!(
+                    surface.terminal_journal_capture_epoch().is_some_and(|epoch| epoch & 1 == 0),
+                    "terminal output capture is in progress; retry"
+                );
+                let (current, _, _, end) =
+                    self.output_store.recovery_state(terminal_id).ok_or_else(|| {
+                        anyhow::anyhow!("terminal output recovery disappeared; retry")
+                    })?;
+                anyhow::ensure!(
+                    current.as_ref() == epoch,
+                    "terminal output recovery changed; retry"
+                );
+                let replay = terminal.vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)?;
+                Ok((terminal.cols(), terminal.rows(), replay.into_self_contained_bytes(), end))
+            })??;
         let text = render_terminal_output_plain(std::iter::once(replay.as_slice()), cols, rows)?;
-        Ok(Some(terminal_output_read_result(text, 0, end, true, true)))
+        anyhow::ensure!(
+            text.len() as u64 <= max_bytes.min(4 * 1024 * 1024),
+            "terminal recovery snapshot exceeds max_bytes"
+        );
+        self.output_store.check_recovery_epoch(terminal_id, epoch)?;
+        self.output_store.make_recovery_cut(text, end)
     }
 
-    /// Opt-in recovery cursor entry point. Kept separate from legacy numeric reads.
+    #[cfg(test)]
+    pub(crate) fn terminal_output_read(
+        &self,
+        terminal_id: &TerminalPublicId,
+        after: Option<u64>,
+        max_bytes: u64,
+    ) -> anyhow::Result<Value> {
+        self.terminal_output_read_with_recovery(terminal_id, after, max_bytes, None)
+    }
+
+    /// Recovery is opt-in: the caller echoes the token only after applying its
+    /// snapshot. No read consumes shared state on another reader's behalf.
     pub(crate) fn terminal_output_read_with_recovery(
         &self,
         terminal_id: &TerminalPublicId,
         after: Option<u64>,
         max_bytes: u64,
-        _recovery: Option<&str>,
+        recovery: Option<&str>,
     ) -> anyhow::Result<Value> {
-        self.terminal_output_read(terminal_id, after, max_bytes)
+        let requested = after.unwrap_or(0);
+        let before = self.output_store.recovery_state(terminal_id);
+        if let (Some(token), Some((epoch, gap, cached, end))) = (recovery, &before) {
+            let mut cached = cached
+                .lock()
+                .map_err(|_| anyhow::anyhow!("terminal recovery cache unavailable"))?;
+            let needs_cut = (token != epoch.as_ref() && (*gap || !token.is_empty()))
+                || cached.as_ref().is_some_and(|cut| requested < cut.end);
+            if needs_cut {
+                let cut = match cached.as_ref() {
+                    Some(cut) => cut.clone(),
+                    None => {
+                        let cut =
+                            self.terminal_live_snapshot_after_gap(terminal_id, epoch, max_bytes)?;
+                        *cached = Some(cut.clone());
+                        cut
+                    }
+                };
+                anyhow::ensure!(
+                    cut.text.len() as u64 <= max_bytes,
+                    "terminal recovery snapshot exceeds max_bytes"
+                );
+                let mut result =
+                    terminal_output_read_result(cut.text.clone(), 0, cut.end, true, true);
+                result["recovery"] = serde_json::json!(epoch);
+                return Ok(result);
+            }
+            anyhow::ensure!(
+                requested <= *end,
+                "terminal output cursor is beyond the current stream; retry recovery"
+            );
+        }
+        let mut result = self.terminal_output_read_raw(terminal_id, after, max_bytes)?;
+        let current = self.output_store.recovery_state(terminal_id);
+        anyhow::ensure!(
+            before.as_ref().map(|state| &state.0) == current.as_ref().map(|state| &state.0),
+            "terminal output recovery changed during read; retry"
+        );
+        if let Some((epoch, gap, _, _)) = current {
+            if recovery.is_some() {
+                result["recovery"] = serde_json::json!(epoch);
+            } else if gap && result["snapshot"] != true {
+                result["complete"] = serde_json::json!(false);
+            }
+        }
+        Ok(result)
     }
 
     /// Read only public terminal completion state. The host UUID and
@@ -117,7 +193,7 @@ impl Mux {
     /// restart the store has no stream for an exited terminal; its exit
     /// snapshot (the final screen) answers instead, as it does for a cursor
     /// before the snapshot's coverage.
-    pub(crate) fn terminal_output_read(
+    fn terminal_output_read_raw(
         &self,
         terminal_id: &TerminalPublicId,
         after: Option<u64>,
@@ -175,11 +251,6 @@ impl Mux {
                 complete,
                 true,
             ));
-        }
-        if self.output_store.stream_gap_pending(terminal_id)
-            && let Some(snapshot) = self.terminal_live_snapshot_after_gap(terminal_id, requested)?
-        {
-            return Ok(snapshot);
         }
         let Some(window) = self.output_store.read_after(terminal_id, requested, max_bytes) else {
             // Nothing was ever printed in this daemon: an empty, complete stream.

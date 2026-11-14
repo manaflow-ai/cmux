@@ -814,6 +814,100 @@ fn output_read_projects_a_live_reconnect_snapshot_at_the_same_cursor() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(unix)]
+fn with_output_recovery_fixture(check: impl FnOnce(&Arc<Mux>, &Arc<Surface>, &TerminalPublicId)) {
+    const TERMINAL: &str = "0000000000004000800000000000005f";
+    const INCARNATION: &str = "1000000000004000800000000000005f";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-output-recovery-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = Mux::open_persistent("output-recovery", SurfaceOptions::default(), &root).unwrap();
+    let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+    let surface_id =
+        mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+    let surface = mux.surface(surface_id).unwrap();
+    let terminal =
+        mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+    // Adoption before any raw append: the screen can contain output even
+    // while this daemon has no log or persisted cursor for it.
+    surface.apply_stream_output_for_test(b"1\r\n2\r\n").unwrap();
+    mux.output_store.stream_gap(&terminal, &Arc::from(INCARNATION));
+    check(&mux, &surface, &terminal);
+    mux.shutdown();
+    drop(surface);
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn output_recovery_idle_adoption_resets_a_cursor_beyond_persisted_end() {
+    with_output_recovery_fixture(|mux, _, terminal| {
+        let reset = mux
+            .terminal_output_read_with_recovery(terminal, Some(900), 1 << 20, Some("old-daemon"))
+            .unwrap();
+        assert_eq!(reset["snapshot"], true);
+        assert_eq!(reset["next_offset"], "0");
+        assert!(reset["text"].as_str().unwrap().starts_with("1\n2\n"));
+        let token = reset["recovery"].as_str().unwrap();
+        let drained = mux
+            .terminal_output_read_with_recovery(terminal, Some(0), 1 << 20, Some(token))
+            .unwrap();
+        assert_eq!(drained["text"], "");
+        assert_eq!(drained["snapshot"], false);
+        assert_eq!(drained["complete"], true);
+        let legacy = mux.terminal_output_read(terminal, Some(0), 1 << 20).unwrap();
+        assert_eq!(legacy["complete"], false, "a numeric cursor cannot acknowledge recovery");
+    });
+}
+
+#[cfg(unix)]
+#[test]
+fn output_recovery_budget_failure_never_claims_complete_and_can_retry() {
+    with_output_recovery_fixture(|mux, _, terminal| {
+        let error =
+            mux.terminal_output_read_with_recovery(terminal, Some(0), 1, Some("")).unwrap_err();
+        assert!(error.to_string().contains("exceeds max_bytes"), "{error:#}");
+        let recovered =
+            mux.terminal_output_read_with_recovery(terminal, Some(0), 1 << 20, Some("")).unwrap();
+        assert_eq!(recovered["snapshot"], true);
+        assert!(
+            mux.terminal_output_read_with_recovery(terminal, Some(0), 1, Some("")).is_err(),
+            "cached cuts obey each reader's bound"
+        );
+    });
+}
+
+#[cfg(unix)]
+#[test]
+fn output_recovery_concurrent_readers_share_one_cut_and_idle_reads_stay_incremental() {
+    with_output_recovery_fixture(|mux, _, terminal| {
+        let reads = std::thread::scope(|scope| {
+            let threads: Vec<_> = (0..8)
+                .map(|_| {
+                    scope.spawn(|| {
+                        mux.terminal_output_read_with_recovery(terminal, Some(0), 1 << 20, Some(""))
+                            .unwrap()
+                    })
+                })
+                .collect();
+            threads.into_iter().map(|thread| thread.join().unwrap()).collect::<Vec<_>>()
+        });
+        for read in &reads {
+            assert_eq!(read, &reads[0]);
+        }
+        let token = reads[0]["recovery"].as_str().unwrap();
+        let start = Instant::now();
+        for _ in 0..1000 {
+            let read = mux
+                .terminal_output_read_with_recovery(terminal, Some(0), 1 << 20, Some(token))
+                .unwrap();
+            assert_eq!(read["snapshot"], false);
+            assert_eq!(read["text"], "");
+        }
+        eprintln!("output_recovery: 1000 incremental idle reads {:?}", start.elapsed());
+    });
+}
+
 /// A client that follows a terminal appends each window's text, as the
 /// cursor contract invites: the joined text must keep the stream's lines.
 /// A window that ended on a line feed lost it to the formatter's trim, so the
