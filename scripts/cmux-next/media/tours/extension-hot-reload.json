@@ -33,7 +33,7 @@
         "current",
         "write",
         "--text",
-        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\"; js() { printf 'function renderSection() {\\n  return VStack({ spacing: 2 }, [Text(\"%s\"), Row({ title: \"%s row\", symbol: \"bolt.horizontal\" })])\\n}\\nglobalThis.__cmuxAppExports = { renderSection }\\n' \"$1\" \"$1\"; }; mf() { printf '{\"manifestVersion\": 2, \"id\": \"local/customize\", \"name\": \"Hot reload probe\", \"version\": \"1.0.0\", \"description\": \"A sidebar section the hot reload tour rewrites.\", \"engines\": {\"cmux\": \"^2.0\"}, \"runtime\": {\"main\": \"main.js\"}, \"implements\": {\"cmux.section/1\": {\"export\": \"renderSection\", \"title\": \"%s\", \"symbol\": \"bolt.horizontal\", \"options\": {\"defaultRegion\": \"top\"}}}}\\n' \"$1\"; }; echo \"customize folder: $D\"\r"
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\"; js() { printf 'function renderSection() {\\n  return VStack({ spacing: 2 }, [Text(\"%s\"), Row({ title: \"%s row\", symbol: \"bolt.horizontal\" })])\\n}\\nfunction renderPane() {\\n  return VStack({ spacing: 2 }, [Text(\"pane %s\")])\\n}\\nglobalThis.__cmuxAppExports = { renderSection, renderPane }\\n' \"$1\" \"$1\" \"$1\"; }; mf() { printf '{\"manifestVersion\": 2, \"id\": \"local/customize\", \"name\": \"Hot reload probe\", \"version\": \"1.0.0\", \"description\": \"A sidebar section the hot reload tour rewrites.\", \"engines\": {\"cmux\": \"^2.0\"}, \"runtime\": {\"main\": \"main.js\"}, \"implements\": {\"cmux.section/1\": {\"export\": \"renderSection\", \"title\": \"%s\", \"symbol\": \"bolt.horizontal\", \"options\": {\"defaultRegion\": \"top\"}}, \"cmux.pane/1\": {\"export\": \"renderPane\", \"title\": \"Probe pane\", \"symbol\": \"bolt.horizontal\"}}}\\n' \"$1\"; }; echo \"customize folder: $D\"\r"
       ],
       "wait": 2,
       "shot": false
@@ -73,9 +73,40 @@
       "readback": {
         "at": "views.*.texts",
         "contains": [
-          "token-install"
+          "token-install row"
         ],
         "within": 30
+      }
+    },
+    {
+      "title": "Open the extension's pane (cmux.pane/1)",
+      "cmux": [
+        "action",
+        "run",
+        "app.open",
+        "--app",
+        "local/customize"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Read back: the pane shows the installed script",
+      "rpc": {
+        "method": "apps.views",
+        "params": {
+          "app": "local/customize"
+        }
+      },
+      "wait": 0.2,
+      "shot": true,
+      "record": true,
+      "readback": {
+        "at": "views.*.texts",
+        "contains": [
+          "pane token-install"
+        ],
+        "within": 20
       }
     },
     {
@@ -113,7 +144,26 @@
       "readback": {
         "at": "views.*.texts",
         "contains": [
-          "token-1-inplace"
+          "token-1-inplace row"
+        ],
+        "within": 20
+      }
+    },
+    {
+      "title": "Read back save 1: the open pane shows it too",
+      "rpc": {
+        "method": "apps.views",
+        "params": {
+          "app": "local/customize"
+        }
+      },
+      "wait": 0.2,
+      "shot": false,
+      "record": true,
+      "readback": {
+        "at": "views.*.texts",
+        "contains": [
+          "pane token-1-inplace"
         ],
         "within": 20
       }
@@ -153,7 +203,7 @@
       "readback": {
         "at": "views.*.texts",
         "contains": [
-          "token-2-atomic"
+          "token-2-atomic row"
         ],
         "within": 20
       }
@@ -193,7 +243,7 @@
       "readback": {
         "at": "views.*.texts",
         "contains": [
-          "token-3-away"
+          "token-3-away row"
         ],
         "within": 20
       }
@@ -233,7 +283,7 @@
       "readback": {
         "at": "views.*.texts",
         "contains": [
-          "token-4-chunks"
+          "token-4-chunks row"
         ],
         "within": 20
       }
@@ -313,7 +363,7 @@
       "readback": {
         "at": "views.*.texts",
         "contains": [
-          "token-6-inplace"
+          "token-6-inplace row"
         ],
         "within": 20
       }
@@ -353,7 +403,7 @@
       "readback": {
         "at": "views.*.texts",
         "contains": [
-          "token-7-atomic"
+          "token-7-atomic row"
         ],
         "within": 20
       }
@@ -393,7 +443,7 @@
       "readback": {
         "at": "views.*.texts",
         "contains": [
-          "token-8-away"
+          "token-8-away row"
         ],
         "within": 20
       }
@@ -433,7 +483,7 @@
       "readback": {
         "at": "views.*.texts",
         "contains": [
-          "token-9-chunks"
+          "token-9-chunks row"
         ],
         "within": 20
       }
