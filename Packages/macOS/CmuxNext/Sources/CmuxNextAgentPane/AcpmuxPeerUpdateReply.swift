@@ -76,7 +76,9 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
                 return
             }
             outcome = .needsBinary(target: target)
-        case "rolledBack": outcome = .rolledBack
+        // Rolled back only because ssh's link dropped under the restart (an older CLI; this one asks
+        // again on a new connection): nothing is wrong with the peer, so offline, asked again.
+        case "rolledBack": outcome = error.map(Self.linkLost) == true ? .unreachable : .rolledBack
         case "held": outcome = .held
         case "failed":
             switch (try? container.decodeIfPresent(String.self, forKey: .reason)) ?? nil {
@@ -103,6 +105,16 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
         let text = error.lowercased()
         return ["ssh: connect to host ", "ssh: could not resolve hostname", "connection timed out during banner exchange"]
             .contains { text.contains($0) }
+    }
+
+    /// Whether `error` ends with ssh's keepalive timeout, `Connection to H port P timed out`
+    /// (through a ProxyCommand or ProxyJump ssh has no address and says `UNKNOWN port 65535`): the
+    /// link dropped, which says nothing about the peer.
+    static func linkLost(_ error: String) -> Bool {
+        error.lowercased().split(whereSeparator: \.isNewline).contains { line in
+            let line = line.trimmingCharacters(in: .whitespaces)
+            return line.contains("connection to ") && line.hasSuffix(" timed out")
+        }
     }
 
     /// Whether the binary's upload lost its connection part way (`scp to H failed: client_loop:

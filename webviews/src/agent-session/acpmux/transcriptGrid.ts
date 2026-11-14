@@ -11,9 +11,7 @@ export const TRANSCRIPT_BLOCK_GAP = gridLength("gap-block");
 export const TRANSCRIPT_INNER_GAP = gridLength("gap-inner");
 export const TRANSCRIPT_TURN_GAP = gridLength("gap-turn");
 export const TRANSCRIPT_COMPOSER_GAP = gridLength("gap-composer");
-/// A run of one-line rows and the prose over or under it (design/transcript-spacing.md, "The table":
-/// chatgpt.com 16 box to box, ChatGPT and Claude Code desktop ~40 centre to centre). Leo, 2026-11-02:
-/// "now there's sometimes too much spacing between tool calls".
+/// Codex leaves 16px between transcript items, including prose adjacent to activity.
 export const TRANSCRIPT_RUN_GAP = gridLength("gap-run");
 /// A reply footer (design/transcript-spacing.md "Reply footer"; Leo, 2026-11-02: "didn't i always
 /// say we can do it like chatgpt"): ChatGPT's 32 button around a 20 glyph, 8 under the reply's last
@@ -56,11 +54,29 @@ export const MARK_FOOTER_SLOT = 7;
 /// the step and status rows beside it, as far from the prose around it as a run is (row-alignment.test.ts: every status row between two replies has
 /// one gap above and one below).
 export const MARK_STATUS = 8;
-/// A finished turn's "Worked for" line (model.ts `WORKED`). Its rule sits midway between its words
+/// A finished turn's "Worked for" line (model.ts `WORKED`). Its rule sits between its words
 /// and the next row, so the room under the rule is the row's own (conversation.css
 /// `.cv-worked.has-divider.is-toggle`) and no stack gap follows it inside the turn (Lucas,
 /// 2026-11-07, Codex parity). Toward the rows above it, it is a step row.
 export const MARK_WORKED = 9;
+/// An edited-files card (turnChanges/sessionRows.ts `isEditRow`): a bordered card, not a line. It
+/// stands the run gap from the one-line rows and the prose around it, the room it has under a reply,
+/// so under "Subagent finished" or a tool run it is never flush (Lucas, 2026-11-08). Toward a footer
+/// row, a prompt or the live line it is a step row.
+export const MARK_CARD = 10;
+/// A finished turn's todo list folded to its "3 of 3 tasks done" line (conversation/PlanList.tsx,
+/// opened or not). Its turn's footer row sits the same 8 under it as under a final reply (Lucas,
+/// 2026-11-12: "the exact same amount as if it were just a normal final message"); toward every
+/// other row it is any other row.
+export const MARK_PLAN_LINE = 11;
+/// Added to a row's mark (a reply or a tool run) when it opens a turn the agent ran on its own that
+/// draws as its own turn, with no line of its own over it (model.ts `opensBackgroundTurn`): a task
+/// notification started it, not a prompt. It stands the turn gap from the row over it, as a prompt
+/// does, so it never reads as the tail of the subagent or tool row above (Leo, 2026-11-08: "the
+/// text in this situation isn't from the subagent?"). Toward the rows after it, it is its own mark.
+export const MARK_OPENS_TURN = 64;
+/// A mark without its MARK_OPENS_TURN bit.
+export const baseMark = (mark: number): number => mark & ~MARK_OPENS_TURN;
 
 type MarkedRow = {
   kind: string;
@@ -72,10 +88,13 @@ type MarkedRow = {
   below?: boolean;
   retryable?: boolean;
   turnCopy?: readonly unknown[];
+  plan?: unknown;
+  turnEnded?: boolean;
 };
 export function rowMark(row: MarkedRow): number {
   if (row.kind === "user" && !row.incoming && !row.received) return MARK_PROMPT;
   if (row.kind === "assistant" && (row.text?.length ?? 0) > 0) return MARK_MESSAGE;
+  if (row.kind === "plan" && row.plan !== undefined && row.turnEnded === true) return MARK_PLAN_LINE;
   // The live line in the footer's slot (turns.ts WORKING, THINKING and ACTIVITY_LINE, by value).
   if ((row.kind === "working" || row.kind === "thinking" || row.kind === "activityLine") && row.below === true)
     return MARK_FOOTER_SLOT;
@@ -85,7 +104,6 @@ export function rowMark(row: MarkedRow): number {
     // turns.ts isEmptyFooter's inverse, inline so this module stays import-free.
     return row.status !== "failed" &&
       row.status !== "error" &&
-      !row.resumable &&
       ((row.text?.length ?? 0) > 0 || (row.retryable === true && (row.turnCopy?.length ?? 0) > 0))
       ? MARK_FOOTER_ROW
       : MARK_FOOTER;
@@ -95,9 +113,19 @@ export function rowMark(row: MarkedRow): number {
 /// One gap per adjacent pair, the most specific first: the waiting rule, then turn, then block.
 /// (The composer gap is the stack's, tailGap below.) Gaps never add.
 export function transcriptGap(previous: number, next: number): number {
+  if ((next & MARK_OPENS_TURN) !== 0) return TRANSCRIPT_TURN_GAP;
+  previous = baseMark(previous);
+  if (previous === MARK_PLAN_LINE && next === MARK_FOOTER_ROW) return TRANSCRIPT_FOOTER_GAP;
+  if (previous === MARK_PLAN_LINE) previous = MARK_OTHER;
+  if (next === MARK_PLAN_LINE) next = MARK_OTHER;
   if (previous === MARK_WORKED && next !== MARK_PROMPT) return 0;
   if (previous === MARK_WORKED) previous = MARK_STEP;
   if (next === MARK_WORKED) next = MARK_STEP;
+  const near = (mark: number) =>
+    mark === MARK_STEP || mark === MARK_STATUS || mark === MARK_MESSAGE || mark === MARK_CARD;
+  if ((previous === MARK_CARD && near(next)) || (next === MARK_CARD && near(previous))) return TRANSCRIPT_RUN_GAP;
+  if (previous === MARK_CARD) previous = MARK_STEP;
+  if (next === MARK_CARD) next = MARK_STEP;
   // A reply's footer sits 8 under its last line (Claude's placement, ChatGPT's 5); 24 or a prompt's
   // turn gap follows it, by the rules below.
   if ((next === MARK_FOOTER_ROW || next === MARK_FOOTER_SLOT) && previous === MARK_MESSAGE)
@@ -136,6 +164,8 @@ export function transcriptGap(previous: number, next: number): number {
 /// footer row keep the block gap under them, as does any element whose empty turn footer (no height,
 /// its hover controls in the gap) follows it; anything else takes the composer gap.
 export function tailGap(last: number, beforeLast: number, footerAfter = false): number {
+  last = baseMark(last);
+  beforeLast = baseMark(beforeLast);
   if (footerAfter) return TRANSCRIPT_BLOCK_GAP;
   if (last === MARK_INDICATOR && beforeLast === MARK_PROMPT) return TRANSCRIPT_BLOCK_GAP;
   if (last === MARK_PROMPT || last === MARK_MESSAGE || last === MARK_FOOTER_ROW || last === MARK_FOOTER_SLOT)

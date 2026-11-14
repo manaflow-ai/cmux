@@ -10,6 +10,7 @@ import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { settleReact } from "./support/domTeardown";
 setDefaultTimeout(120_000);
 
 // prettier-ignore
@@ -78,14 +79,16 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { setChatDisplay } = await import("../src/agent-session/acpmux/chatDisplay");
-const { REDRAW_MS, ChatMinimap } = await import("../src/agent-session/acpmux/chatMinimap/ChatMinimap");
+const { ChatMinimap } = await import("../src/agent-session/acpmux/chatMinimap/ChatMinimap");
+const { REDRAW_MS } = await import("../src/agent-session/acpmux/chatMinimap/chatMinimapModel");
 const { setBookmarkTransport } = await import("../src/agent-session/acpmux/threadMinimap/bookmarks");
 const noBookmarks = async (sessionId: string) => ({ sessionId, bookmarks: [] });
 setBookmarkTransport({ get: noBookmarks, set: noBookmarks });
 
-afterAll(() => {
+afterAll(async () => {
   setChatDisplay({});
   setBookmarkTransport(undefined);
+  await settleReact();
   dom.window.close();
   for (const [key, had, value] of saved) if (had) scope[key] = value; else delete scope[key]; // prettier-ignore
   if (stringsBefore) strings.__cmuxPaneStrings = stringsBefore; else delete strings.__cmuxPaneStrings; // prettier-ignore

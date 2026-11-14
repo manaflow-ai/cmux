@@ -85,6 +85,7 @@ impl Harness {
             locale: init.get("locale").and_then(Value::as_str).map(str::to_string),
             strings: init.get("strings").cloned().unwrap_or(Value::Null),
             main: main.to_string(),
+            main_name: Some("main.js".into()),
         })
         .expect("init");
         let mut harness = Self {

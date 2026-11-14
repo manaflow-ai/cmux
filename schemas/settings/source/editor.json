@@ -1,0 +1,1412 @@
+{
+  "$comment": "HAND-EDITED source of the Code Editor section's rows (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants from it (its docstring is the row format); schemas/settings/settings-schema.json is still exported from Swift and must not change when rows move here.",
+  "lists": [
+    {
+      "name": "editorFont",
+      "section": "editor",
+      "group": {
+        "key": "settings.group.editorFont",
+        "text": "Font"
+      },
+      "note": "The code editor's rows (diff-host S7): editor.<key>, the keys the Monaco editor page reads (webviews/src/pages/editor/settings.ts resolveEditorSettings), with VS Code's names and the page's defaults. The page toolbar and the Opt-Z word wrap toggle write editor.wordWrap and editor.minimap.enabled through the one settings write path, which refuses a key the schema does not list, so every key a page control writes is a row. A row with a null default takes it from the terminal (the font). Every key also takes a default from the person's VS Code, Cursor, Windsurf, VSCodium or Zed settings (editor.importFrom, EditorSettingsImporter); a key set in cmux wins.",
+      "rows": [
+        {
+          "key": "editor.fontFamily",
+          "title": {
+            "key": "settings.terminal.fontFamily",
+            "text": "Font Family"
+          },
+          "help": {
+            "key": "settings.editor.fontFamily.help",
+            "text": "Empty uses the terminal font."
+          },
+          "kind": "font_family",
+          "default": null,
+          "default_label": {
+            "key": "settings.section.terminal",
+            "text": "Terminal"
+          },
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "font",
+            "typeface",
+            "monospace",
+            "fontFamily"
+          ]
+        },
+        {
+          "key": "editor.fontSize",
+          "title": {
+            "key": "settings.terminal.fontSize",
+            "text": "Font Size"
+          },
+          "help": {
+            "key": "settings.editor.fontSize.help",
+            "text": "Empty uses the terminal font size. Cmd-= and Cmd-- change it in one editor."
+          },
+          "kind": "number",
+          "range": {
+            "min": 6,
+            "max": 72,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 13
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.section.terminal",
+            "text": "Terminal"
+          },
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "font",
+            "size",
+            "zoom",
+            "fontSize"
+          ]
+        },
+        {
+          "key": "editor.fontWeight",
+          "title": {
+            "key": "settings.editor.fontWeight",
+            "text": "Font Weight"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "normal",
+              "title": {
+                "key": "settings.choice.normal",
+                "text": "Normal"
+              }
+            },
+            {
+              "value": "bold",
+              "title": {
+                "key": "settings.choice.editor.bold",
+                "text": "Bold"
+              }
+            },
+            {
+              "value": "300",
+              "title": {
+                "key": "settings.choice.editor.light",
+                "text": "Light"
+              }
+            },
+            {
+              "value": "500",
+              "title": {
+                "key": "settings.choice.editor.medium",
+                "text": "Medium"
+              }
+            },
+            {
+              "value": "600",
+              "title": {
+                "key": "settings.choice.editor.semibold",
+                "text": "Semibold"
+              }
+            }
+          ],
+          "default": "normal",
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "font",
+            "weight",
+            "bold",
+            "fontWeight"
+          ]
+        },
+        {
+          "key": "editor.fontLigatures",
+          "title": {
+            "key": "settings.editor.fontLigatures",
+            "text": "Font Ligatures"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "ligatures",
+            "font",
+            "fontLigatures",
+            "calt"
+          ]
+        },
+        {
+          "key": "editor.lineHeight",
+          "title": {
+            "key": "settings.editor.lineHeight",
+            "text": "Line Height"
+          },
+          "help": {
+            "key": "settings.editor.lineHeight.help",
+            "text": "0 computes it from the font size. A value under 8 multiplies the font size."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 150,
+            "step": 0.1,
+            "unit": "points"
+          },
+          "default": 0,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "line",
+            "height",
+            "spacing",
+            "lineHeight"
+          ]
+        },
+        {
+          "key": "editor.letterSpacing",
+          "title": {
+            "key": "settings.editor.letterSpacing",
+            "text": "Letter Spacing"
+          },
+          "kind": "number",
+          "range": {
+            "min": -5,
+            "max": 20,
+            "step": 0.1,
+            "unit": "points"
+          },
+          "default": 0,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "letter",
+            "spacing",
+            "tracking",
+            "letterSpacing"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "editorText",
+      "section": "editor",
+      "group": {
+        "key": "settings.group.editorText",
+        "text": "Indentation and Wrapping"
+      },
+      "rows": [
+        {
+          "key": "editor.tabSize",
+          "title": {
+            "key": "settings.editor.tabSize",
+            "text": "Tab Size"
+          },
+          "kind": "number",
+          "range": {
+            "min": 1,
+            "max": 16,
+            "step": 1,
+            "unit": "count"
+          },
+          "default": 4,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "tab",
+            "indent",
+            "width",
+            "tabSize"
+          ]
+        },
+        {
+          "key": "editor.insertSpaces",
+          "title": {
+            "key": "settings.editor.insertSpaces",
+            "text": "Insert Spaces"
+          },
+          "help": {
+            "key": "settings.editor.insertSpaces.help",
+            "text": "Tab inserts spaces. Off inserts a tab character."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "spaces",
+            "tabs",
+            "indent",
+            "insertSpaces"
+          ]
+        },
+        {
+          "key": "editor.detectIndentation",
+          "title": {
+            "key": "settings.editor.detectIndentation",
+            "text": "Detect Indentation"
+          },
+          "help": {
+            "key": "settings.editor.detectIndentation.help",
+            "text": "Tab size and spaces follow the file's own indentation."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "indent",
+            "detect",
+            "detectIndentation"
+          ]
+        },
+        {
+          "key": "editor.wordWrap",
+          "title": {
+            "key": "settings.editor.wordWrap",
+            "text": "Word Wrap"
+          },
+          "help": {
+            "key": "settings.editor.wordWrap.help",
+            "text": "Opt-Z turns it on and off."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "on",
+              "title": {
+                "key": "settings.choice.editor.wrapEdge",
+                "text": "At the Window Edge"
+              }
+            },
+            {
+              "value": "wordWrapColumn",
+              "title": {
+                "key": "settings.choice.editor.wrapColumn",
+                "text": "At the Wrap Column"
+              }
+            },
+            {
+              "value": "bounded",
+              "title": {
+                "key": "settings.choice.editor.wrapBounded",
+                "text": "At the Edge or the Wrap Column"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "wrap",
+            "word wrap",
+            "soft wrap",
+            "wordWrap"
+          ]
+        },
+        {
+          "key": "editor.wordWrapColumn",
+          "title": {
+            "key": "settings.editor.wordWrapColumn",
+            "text": "Wrap Column"
+          },
+          "kind": "number",
+          "range": {
+            "min": 10,
+            "max": 1000,
+            "step": 1,
+            "unit": "count"
+          },
+          "default": 80,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "wrap",
+            "column",
+            "width",
+            "wordWrapColumn"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "editorDisplay",
+      "section": "editor",
+      "group": {
+        "key": "settings.group.editorDisplay",
+        "text": "Display"
+      },
+      "rows": [
+        {
+          "key": "editor.lineNumbers",
+          "title": {
+            "key": "settings.diff.lineNumbers",
+            "text": "Line Numbers"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "on",
+              "title": {
+                "key": "settings.choice.on",
+                "text": "On"
+              }
+            },
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "relative",
+              "title": {
+                "key": "settings.choice.editor.relative",
+                "text": "Relative"
+              }
+            },
+            {
+              "value": "interval",
+              "title": {
+                "key": "settings.choice.editor.interval",
+                "text": "Every 10 Lines"
+              }
+            }
+          ],
+          "default": "on",
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "line numbers",
+            "gutter",
+            "relative",
+            "lineNumbers"
+          ]
+        },
+        {
+          "key": "editor.rulers",
+          "title": {
+            "key": "settings.editor.rulers",
+            "text": "Rulers"
+          },
+          "help": {
+            "key": "settings.editor.rulers.help",
+            "text": "Columns where a vertical line shows."
+          },
+          "kind": "number_list",
+          "range": {
+            "min": 1,
+            "max": 1000,
+            "step": 1,
+            "unit": "count"
+          },
+          "default": [],
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "ruler",
+            "column",
+            "guide",
+            "rulers"
+          ]
+        },
+        {
+          "key": "editor.minimap.enabled",
+          "name": "minimap",
+          "title": {
+            "key": "settings.editor.minimap",
+            "text": "Minimap"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "minimap",
+            "overview"
+          ]
+        },
+        {
+          "key": "editor.renderWhitespace",
+          "title": {
+            "key": "settings.editor.renderWhitespace",
+            "text": "Show Whitespace"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.never",
+                "text": "Never"
+              }
+            },
+            {
+              "value": "boundary",
+              "title": {
+                "key": "settings.choice.editor.boundary",
+                "text": "Between Words"
+              }
+            },
+            {
+              "value": "selection",
+              "title": {
+                "key": "settings.choice.editor.selection",
+                "text": "In the Selection"
+              }
+            },
+            {
+              "value": "trailing",
+              "title": {
+                "key": "settings.choice.editor.trailing",
+                "text": "At Line Ends"
+              }
+            },
+            {
+              "value": "all",
+              "title": {
+                "key": "settings.choice.always",
+                "text": "Always"
+              }
+            }
+          ],
+          "default": "selection",
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "whitespace",
+            "spaces",
+            "tabs",
+            "invisibles",
+            "renderWhitespace"
+          ]
+        },
+        {
+          "key": "editor.renderControlCharacters",
+          "title": {
+            "key": "settings.editor.renderControlCharacters",
+            "text": "Show Control Characters"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "control",
+            "characters",
+            "invisible",
+            "renderControlCharacters"
+          ]
+        },
+        {
+          "key": "editor.renderLineHighlight",
+          "title": {
+            "key": "settings.editor.renderLineHighlight",
+            "text": "Current Line Highlight"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.none",
+                "text": "None"
+              }
+            },
+            {
+              "value": "gutter",
+              "title": {
+                "key": "settings.choice.editor.gutter",
+                "text": "Gutter"
+              }
+            },
+            {
+              "value": "line",
+              "title": {
+                "key": "settings.choice.editor.line",
+                "text": "Line"
+              }
+            },
+            {
+              "value": "all",
+              "title": {
+                "key": "settings.choice.editor.gutterAndLine",
+                "text": "Gutter and Line"
+              }
+            }
+          ],
+          "default": "line",
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "highlight",
+            "current line",
+            "renderLineHighlight"
+          ]
+        },
+        {
+          "key": "editor.bracketPairColorization.enabled",
+          "name": "bracketPairColorization",
+          "title": {
+            "key": "settings.editor.bracketPairColorization",
+            "text": "Color Bracket Pairs"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "bracket",
+            "pairs",
+            "color",
+            "rainbow",
+            "bracketPairColorization"
+          ]
+        },
+        {
+          "key": "editor.guides.bracketPairs",
+          "name": "bracketPairGuides",
+          "title": {
+            "key": "settings.editor.bracketPairGuides",
+            "text": "Bracket Pair Guides"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "bracket",
+            "guides",
+            "lines"
+          ]
+        },
+        {
+          "key": "editor.guides.indentation",
+          "name": "indentGuides",
+          "title": {
+            "key": "settings.editor.indentGuides",
+            "text": "Indentation Guides"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "indent",
+            "guides",
+            "lines"
+          ]
+        },
+        {
+          "key": "editor.matchBrackets",
+          "title": {
+            "key": "settings.editor.matchBrackets",
+            "text": "Highlight Matching Brackets"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "always",
+              "title": {
+                "key": "settings.choice.always",
+                "text": "Always"
+              }
+            },
+            {
+              "value": "near",
+              "title": {
+                "key": "settings.choice.editor.near",
+                "text": "Near the Cursor"
+              }
+            },
+            {
+              "value": "never",
+              "title": {
+                "key": "settings.choice.never",
+                "text": "Never"
+              }
+            }
+          ],
+          "default": "always",
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "bracket",
+            "match",
+            "matchBrackets"
+          ]
+        },
+        {
+          "key": "editor.stickyScroll.enabled",
+          "name": "stickyScroll",
+          "title": {
+            "key": "settings.editor.stickyScroll",
+            "text": "Sticky Scroll"
+          },
+          "help": {
+            "key": "settings.editor.stickyScroll.help",
+            "text": "The lines that open the scopes around the top line stay at the top while you scroll."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "sticky",
+            "scroll",
+            "scope",
+            "stickyScroll"
+          ]
+        },
+        {
+          "key": "editor.folding",
+          "title": {
+            "key": "settings.editor.folding",
+            "text": "Code Folding"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "fold",
+            "folding",
+            "collapse"
+          ]
+        },
+        {
+          "key": "editor.scrollBeyondLastLine",
+          "title": {
+            "key": "settings.editor.scrollBeyondLastLine",
+            "text": "Scroll Past the Last Line"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "scroll",
+            "last line",
+            "scrollBeyondLastLine"
+          ]
+        },
+        {
+          "key": "editor.smoothScrolling",
+          "title": {
+            "key": "settings.editor.smoothScrolling",
+            "text": "Smooth Scrolling"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "scroll",
+            "smooth",
+            "smoothScrolling"
+          ]
+        },
+        {
+          "key": "editor.mouseWheelZoom",
+          "title": {
+            "key": "settings.editor.mouseWheelZoom",
+            "text": "Zoom with Command and the Scroll Wheel"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "zoom",
+            "mouse",
+            "wheel",
+            "mouseWheelZoom"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "editorCursor",
+      "section": "editor",
+      "group": {
+        "key": "settings.group.editorCursor",
+        "text": "Cursor"
+      },
+      "rows": [
+        {
+          "key": "editor.cursorStyle",
+          "title": {
+            "key": "settings.editor.cursorStyle",
+            "text": "Cursor Style"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "line",
+              "title": {
+                "key": "settings.choice.editor.line",
+                "text": "Line"
+              }
+            },
+            {
+              "value": "block",
+              "title": {
+                "key": "settings.choice.editor.block",
+                "text": "Block"
+              }
+            },
+            {
+              "value": "underline",
+              "title": {
+                "key": "settings.choice.editor.underline",
+                "text": "Underline"
+              }
+            },
+            {
+              "value": "line-thin",
+              "title": {
+                "key": "settings.choice.editor.lineThin",
+                "text": "Thin Line"
+              }
+            },
+            {
+              "value": "block-outline",
+              "title": {
+                "key": "settings.choice.editor.blockOutline",
+                "text": "Block Outline"
+              }
+            },
+            {
+              "value": "underline-thin",
+              "title": {
+                "key": "settings.choice.editor.underlineThin",
+                "text": "Thin Underline"
+              }
+            }
+          ],
+          "default": "line",
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "cursor",
+            "caret",
+            "block",
+            "cursorStyle"
+          ]
+        },
+        {
+          "key": "editor.cursorBlinking",
+          "title": {
+            "key": "settings.editor.cursorBlinking",
+            "text": "Cursor Blinking"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "blink",
+              "title": {
+                "key": "settings.choice.blink",
+                "text": "Blink"
+              }
+            },
+            {
+              "value": "smooth",
+              "title": {
+                "key": "settings.choice.editor.smooth",
+                "text": "Smooth"
+              }
+            },
+            {
+              "value": "phase",
+              "title": {
+                "key": "settings.choice.editor.phase",
+                "text": "Phase"
+              }
+            },
+            {
+              "value": "expand",
+              "title": {
+                "key": "settings.choice.editor.expand",
+                "text": "Expand"
+              }
+            },
+            {
+              "value": "solid",
+              "title": {
+                "key": "settings.choice.editor.solid",
+                "text": "Solid"
+              }
+            }
+          ],
+          "default": "blink",
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "cursor",
+            "blink",
+            "caret",
+            "cursorBlinking"
+          ]
+        },
+        {
+          "key": "editor.cursorSmoothCaretAnimation",
+          "title": {
+            "key": "settings.editor.cursorSmoothCaretAnimation",
+            "text": "Animate Cursor Movement"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "explicit",
+              "title": {
+                "key": "settings.choice.editor.explicit",
+                "text": "When You Move It"
+              }
+            },
+            {
+              "value": "on",
+              "title": {
+                "key": "settings.choice.always",
+                "text": "Always"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "cursor",
+            "animation",
+            "smooth",
+            "caret",
+            "cursorSmoothCaretAnimation"
+          ]
+        },
+        {
+          "key": "editor.cursorSurroundingLines",
+          "title": {
+            "key": "settings.editor.cursorSurroundingLines",
+            "text": "Lines Kept Around the Cursor"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 50,
+            "step": 1,
+            "unit": "count"
+          },
+          "default": 0,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "cursor",
+            "scroll",
+            "margin",
+            "cursorSurroundingLines"
+          ]
+        },
+        {
+          "key": "editor.multiCursorModifier",
+          "title": {
+            "key": "settings.editor.multiCursorModifier",
+            "text": "Add a Cursor With"
+          },
+          "help": {
+            "key": "settings.editor.multiCursorModifier.help",
+            "text": "The key you hold while you click to add a cursor."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "alt",
+              "title": {
+                "key": "settings.choice.editor.optionClick",
+                "text": "Option-Click"
+              }
+            },
+            {
+              "value": "ctrlCmd",
+              "title": {
+                "key": "settings.choice.editor.commandClick",
+                "text": "Command-Click"
+              }
+            }
+          ],
+          "default": "alt",
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "multi cursor",
+            "multiple cursors",
+            "click",
+            "multiCursorModifier"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "editorEditing",
+      "section": "editor",
+      "group": {
+        "key": "settings.group.editorEditing",
+        "text": "Editing"
+      },
+      "rows": [
+        {
+          "key": "editor.autoClosingBrackets",
+          "title": {
+            "key": "settings.editor.autoClosingBrackets",
+            "text": "Close Brackets"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "bracket",
+            "auto close",
+            "pairs",
+            "autoClosingBrackets"
+          ]
+        },
+        {
+          "key": "editor.autoClosingQuotes",
+          "title": {
+            "key": "settings.editor.autoClosingQuotes",
+            "text": "Close Quotes"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "quote",
+            "auto close",
+            "autoClosingQuotes"
+          ]
+        },
+        {
+          "key": "editor.linkedEditing",
+          "title": {
+            "key": "settings.editor.linkedEditing",
+            "text": "Rename Matching Tags Together"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "linked",
+            "tag",
+            "html",
+            "rename",
+            "linkedEditing"
+          ]
+        },
+        {
+          "key": "editor.quickSuggestions",
+          "title": {
+            "key": "settings.editor.quickSuggestions",
+            "text": "Suggest While Typing"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "suggest",
+            "autocomplete",
+            "completion",
+            "intellisense",
+            "quickSuggestions"
+          ]
+        },
+        {
+          "key": "editor.wordBasedSuggestions",
+          "title": {
+            "key": "settings.editor.wordBasedSuggestions",
+            "text": "Suggest Words from the File"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "suggest",
+            "words",
+            "completion",
+            "wordBasedSuggestions"
+          ]
+        },
+        {
+          "key": "editor.acceptSuggestionOnEnter",
+          "title": {
+            "key": "settings.editor.acceptSuggestionOnEnter",
+            "text": "Return Accepts a Suggestion"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "on",
+              "title": {
+                "key": "settings.choice.on",
+                "text": "On"
+              }
+            },
+            {
+              "value": "smart",
+              "title": {
+                "key": "settings.choice.editor.smart",
+                "text": "When It Changes the Text"
+              }
+            },
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            }
+          ],
+          "default": "on",
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "suggest",
+            "enter",
+            "return",
+            "acceptSuggestionOnEnter"
+          ]
+        },
+        {
+          "key": "editor.emptySelectionClipboard",
+          "title": {
+            "key": "settings.editor.emptySelectionClipboard",
+            "text": "Copy the Line When Nothing Is Selected"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "copy",
+            "cut",
+            "line",
+            "clipboard",
+            "emptySelectionClipboard"
+          ]
+        },
+        {
+          "key": "editor.find.seedSearchStringFromSelection",
+          "name": "findSeed",
+          "title": {
+            "key": "settings.editor.findSeed",
+            "text": "Find Starts With"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "always",
+              "title": {
+                "key": "settings.choice.editor.wordAtCursor",
+                "text": "The Word at the Cursor"
+              }
+            },
+            {
+              "value": "selection",
+              "title": {
+                "key": "settings.choice.editor.selectionOnly",
+                "text": "The Selection Only"
+              }
+            },
+            {
+              "value": "never",
+              "title": {
+                "key": "settings.choice.none",
+                "text": "None"
+              }
+            }
+          ],
+          "default": "always",
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "find",
+            "search",
+            "selection",
+            "seedSearchStringFromSelection"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "editorSaving",
+      "section": "editor",
+      "group": {
+        "key": "settings.group.editorSaving",
+        "text": "Saving"
+      },
+      "rows": [
+        {
+          "key": "editor.autoSave",
+          "title": {
+            "key": "settings.editor.autoSave",
+            "text": "Save Automatically"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "afterDelay",
+              "title": {
+                "key": "settings.choice.editor.afterDelay",
+                "text": "After a Pause"
+              }
+            },
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            }
+          ],
+          "default": "afterDelay",
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "save",
+            "auto save",
+            "autoSave"
+          ]
+        },
+        {
+          "key": "editor.autoSaveDelay",
+          "title": {
+            "key": "settings.editor.autoSaveDelay",
+            "text": "Pause Before Saving"
+          },
+          "kind": "number",
+          "range": {
+            "min": 100,
+            "max": 60000,
+            "step": 100,
+            "unit": "milliseconds"
+          },
+          "default": 1000,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "save",
+            "delay",
+            "autoSaveDelay"
+          ]
+        },
+        {
+          "key": "editor.trimTrailingWhitespace",
+          "title": {
+            "key": "settings.editor.trimTrailingWhitespace",
+            "text": "Remove Trailing Spaces on Save"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "trim",
+            "trailing",
+            "whitespace",
+            "save",
+            "trimTrailingWhitespace"
+          ]
+        },
+        {
+          "key": "editor.insertFinalNewline",
+          "title": {
+            "key": "settings.editor.insertFinalNewline",
+            "text": "End Files with a Newline on Save"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "final newline",
+            "newline",
+            "save",
+            "insertFinalNewline"
+          ]
+        },
+        {
+          "key": "editor.formatOnSave",
+          "title": {
+            "key": "settings.editor.formatOnSave",
+            "text": "Format on Save"
+          },
+          "help": {
+            "key": "settings.editor.formatOnSave.help",
+            "text": "Runs the language's formatter when one is installed."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "format",
+            "save",
+            "prettier",
+            "formatOnSave"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "editorDefaults",
+      "section": "editor",
+      "group": {
+        "key": "settings.group.editorDefaults",
+        "text": "Defaults from Other Editors"
+      },
+      "rows": [
+        {
+          "key": "editor.importFrom",
+          "note": "Which editor's settings give the defaults (EditorImportChoice). Not agent-settable: it decides which of the person's files cmux reads.",
+          "title": {
+            "key": "settings.editor.importFrom",
+            "text": "Take Defaults From"
+          },
+          "help": {
+            "key": "settings.editor.importFrom.help",
+            "text": "cmux reads that editor's settings and keybindings files and never changes them. A setting you make here wins."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.choice.editor.firstFound",
+                "text": "The First Editor Found"
+              }
+            },
+            {
+              "value": "vscode",
+              "title": {
+                "key": null,
+                "text": "VS Code"
+              }
+            },
+            {
+              "value": "cursor",
+              "title": {
+                "key": null,
+                "text": "Cursor"
+              }
+            },
+            {
+              "value": "windsurf",
+              "title": {
+                "key": null,
+                "text": "Windsurf"
+              }
+            },
+            {
+              "value": "vscodium",
+              "title": {
+                "key": null,
+                "text": "VSCodium"
+              }
+            },
+            {
+              "value": "zed",
+              "title": {
+                "key": null,
+                "text": "Zed"
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.none",
+                "text": "None"
+              }
+            }
+          ],
+          "default": "auto",
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "import",
+            "vscode",
+            "zed",
+            "cursor",
+            "windsurf",
+            "vscodium",
+            "settings",
+            "keybindings"
+          ]
+        }
+      ]
+    }
+  ]
+}

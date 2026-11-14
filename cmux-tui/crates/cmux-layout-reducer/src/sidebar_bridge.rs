@@ -12,6 +12,9 @@
 
 use serde::{Deserialize, Serialize};
 
+mod link;
+pub use link::{Joined, PeerLink, Shown, joined_link, peer_link, status_link, status_links};
+
 #[cfg(test)]
 mod tests;
 
@@ -432,6 +435,30 @@ pub fn pane_use(waits_for_user: bool, link: Option<LinkState>, reconnects_on_use
     }
 }
 
+/// What a Cloud machine's server says when it is not simply running (`MachineServerState`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ServerState {
+    Paused,
+    Resuming,
+    Failed,
+    Deleted,
+}
+
+/// A Machines section row's link as one word (`machine.list`, `MachineSectionRow`): a
+/// connected link wins; a resume on its way or a link being made is connecting; a paused
+/// machine is paused; a failed or deleted one, and every other down link, is offline.
+pub fn row_link(connected: bool, connecting: bool, server_state: Option<ServerState>) -> LinkState {
+    match server_state {
+        _ if connected => LinkState::Connected,
+        Some(ServerState::Resuming) => LinkState::Connecting,
+        Some(ServerState::Paused) => LinkState::Paused,
+        Some(ServerState::Failed | ServerState::Deleted) => LinkState::Offline,
+        None if connecting => LinkState::Connecting,
+        None => LinkState::Offline,
+    }
+}
+
 // MARK: Bottom-left cards (SidebarBridge+Cards)
 
 /// The update status notice (`SidebarCardFeed.updateCardID`).
@@ -606,6 +633,13 @@ pub enum Request {
         #[serde(default)]
         compatibility: bool,
     },
+    RowLink {
+        connected: bool,
+        #[serde(default)]
+        connecting: bool,
+        #[serde(default)]
+        server_state: Option<ServerState>,
+    },
     PaneUse {
         #[serde(default)]
         waits_for_user: bool,
@@ -629,6 +663,18 @@ pub enum Request {
     },
     AppActivation {
         app: String,
+    },
+    /// acpmux's whole link state as one dot (`link`).
+    PeerLink {
+        link: PeerLink,
+    },
+    /// Every app status's dot, keyed by its word.
+    StatusLinks,
+    /// A hub-joined machine's dot: its peer link when acpmux has one, else the hub's row.
+    JoinedLink {
+        hub: Joined,
+        #[serde(default)]
+        peer: Option<PeerLink>,
     },
 }
 
@@ -671,6 +717,9 @@ pub fn respond(request: &Request) -> serde_json::Result<Vec<u8>> {
         Request::SshStatus { link, update_offered, compatibility } => {
             serde_json::to_vec(&ssh_status(*link, *update_offered, *compatibility))
         }
+        Request::RowLink { connected, connecting, server_state } => {
+            serde_json::to_vec(&row_link(*connected, *connecting, *server_state))
+        }
         Request::PaneUse { waits_for_user, link, reconnects_on_use } => {
             serde_json::to_vec(&pane_use(*waits_for_user, *link, *reconnects_on_use))
         }
@@ -679,6 +728,9 @@ pub fn respond(request: &Request) -> serde_json::Result<Vec<u8>> {
         }
         Request::DismissNotice { card } => serde_json::to_vec(&dismiss_notice(card)),
         Request::AppActivation { app } => serde_json::to_vec(&app_activation(app)),
+        Request::PeerLink { link } => serde_json::to_vec(&peer_link(*link)),
+        Request::StatusLinks => serde_json::to_vec(&status_links()),
+        Request::JoinedLink { hub, peer } => serde_json::to_vec(&joined_link(*hub, *peer)),
     }
 }
 

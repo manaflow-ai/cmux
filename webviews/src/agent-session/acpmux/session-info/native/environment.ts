@@ -8,7 +8,7 @@ import { chatProject } from "../chatFolders";
 import { machineHue } from "../../machineColor";
 import type { ProjectRowLook } from "../EnvironmentSection";
 import { chatMachine, type ChatPlace } from "../../chatMachine";
-import type { AttachedCloudRepo, PendingCloudRepo } from "../CloudRepositoryPicker";
+import type { AttachedCloudRepo, PendingCloudRepo } from "../cloudRepositoryPickerModel";
 import type { NativeInfoRect } from "./model";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
 import { nativeExternalUrl } from "./links";

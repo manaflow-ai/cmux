@@ -5,6 +5,7 @@
 // heading. Generic tool rows (ToolRow.tsx) and MCP calls (McpCallRows.tsx) open to it; shell,
 // edit and the cmux server's own calls keep their own bodies. The call's request as it came stays
 // behind Raw where a caller passes one (McpCallRows.tsx).
+import { cornerAction } from "./cornerActions";
 import { memo, type ReactNode, useMemo } from "react";
 import { useT } from "../i18n";
 import { CopyButton } from "./CopyButton";
@@ -96,7 +97,7 @@ export const ToolDetail = memo(function ToolDetail({
               <CopyButton
                 text={copy}
                 label={t("tools.detail.copyOutput")}
-                className="cv-codeblock__action cv-tool-detail__copy"
+                className={`${cornerAction()} cv-tool-detail__copy`}
                 size={14}
               />
             )}

@@ -108,21 +108,23 @@ public final class AgentPaneDraftAttachments {
     private nonisolated static func write(_ attachments: [AgentPaneWakeState.Attachment], to folder: URL, in directory: URL) -> [String] {
         let manager = FileManager.default
         let kept = saved(in: folder)
-        // A chat whose files can't be written keeps nothing rather than some of its chips. Bytes and
-        // text alike go to files of their own, so the list holds only the chips' names and kinds.
+        // A chat whose chips' contents can't be kept (none sent and no file, or a file that can't be
+        // written) keeps nothing rather than some of its chips. Bytes and text alike go to files of
+        // their own, so the list holds only the chips' names and kinds.
         guard !attachments.isEmpty, let bytes = AgentPaneAttachmentFiles.moveOut(attachments, to: folder, kept: kept?.files ?? [:]),
               let texts = AgentPaneAttachmentFiles.moveOut(bytes.attachments, .text, to: folder, kept: kept?.texts ?? [:]),
               !texts.attachments.isEmpty else {
             try? manager.removeItem(at: folder)
             return []
         }
+        // The list is written last, atomically: one that fails (a full disk, a locked folder) leaves
+        // the list before it and the files it names, never deletes them.
         do {
             try manager.createDirectory(at: folder, withIntermediateDirectories: true)
             let list = try JSONEncoder().encode(Saved(attachments: texts.attachments, files: bytes.files.isEmpty ? nil : bytes.files,
                                                       texts: texts.files.isEmpty ? nil : texts.files))
             try list.write(to: folder.appending(path: listName), options: .atomic)
         } catch {
-            try? manager.removeItem(at: folder)
             return []
         }
         // Files no chip names any more (a chip taken out) go.

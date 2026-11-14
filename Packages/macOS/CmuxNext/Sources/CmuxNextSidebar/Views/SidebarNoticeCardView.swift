@@ -42,9 +42,10 @@ final class SidebarNoticeCardView: NSView {
     /// The notice the card shows (or last showed, during its exit) has a switch action.
     private var hasSwitch = false
     let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 9 }, label: "")
-    /// The control on the right, vertically centred in the card (``SidebarNoticeCard/trailing``):
-    /// a running download's cancel.
-    let trailingButton = SidebarIconButton(symbol: "xmark.circle.fill", pointSize: { SidebarNoticeCardView.trailingGlyph }, label: "")
+    /// The card's own control (``SidebarNoticeCard/trailing``), a quiet text button at the top right, on the
+    /// title's row: a running download's Cancel. Lawrence 2026-11-07: "cancel button is ugly not taking up
+    /// full width here" (the round cancel sat beside the progress bar, which stopped short of it).
+    let trailingButton = SidebarCardTextButton()
     /// The text button that replaces the x when the notice names one (``SidebarNoticeCard/dismissTitle``).
     let dismissButton = SidebarCardTextButton()
     /// The card's surface: the composer's, opaque under Reduce Transparency.
@@ -90,9 +91,6 @@ final class SidebarNoticeCardView: NSView {
         closeButton.takesKeyFocus = true
         closeButton.onPress = { [weak self] in self?.closePressed() }
         dismissButton.onPress = { [weak self] in if let id = self?.notice?.id { self?.onDismiss?(id) } }
-        trailingButton.takesKeyFocus = true
-        trailingButton.takesFirstClick = true
-        trailingButton.showsLabelToolTip = true
         trailingButton.onPress = { [weak self] in
             guard let id = self?.notice?.id, let action = self?.notice?.trailing?.id else { return }
             self?.onAction?(id, action)
@@ -166,8 +164,7 @@ final class SidebarNoticeCardView: NSView {
         }
         trailingButton.isHidden = notice.trailing == nil
         if let trailing = notice.trailing {
-            trailingButton.setSymbol(trailing.symbol)
-            trailingButton.label = trailing.label
+            trailingButton.configure(title: trailing.label, help: nil)
             trailingButton.setAccessibilityIdentifier("cmux.sidebar.notice.action.\(trailing.id)")
         }
         let help = [notice.title, notice.detail].compactMap { $0 }.joined(separator: ". ")
@@ -289,9 +286,6 @@ final class SidebarNoticeCardView: NSView {
     /// List lines a notice shows.
     static let maxLines = 4
     private static let closeSide: CGFloat = 16
-    /// The right-hand control's glyph and hit square: well above the x's, on the shared spacing tokens.
-    static var trailingGlyph: CGFloat { Metrics.space6 + Metrics.space1 }
-    static var trailingSide: CGFloat { Metrics.space6 + Metrics.space4 + Metrics.space2 }
 
     /// Where a card with a symbol (or its spinner) draws it. Leo 2026-11-05, on the hang-reports card: "why is the
     /// text under it? Also giving negative space away ... the buttons and the subtitle text is in a different
@@ -364,9 +358,11 @@ final class SidebarNoticeCardView: NSView {
     /// The height of a card showing `notice` `width` wide, for a card not made yet (tests, the gallery). The slot
     /// asks its card (``height(for:width:)``), which keeps its last measure.
     static func height(for notice: SidebarNoticeCard, width: CGFloat, placement: GlyphPlacement = .above) -> CGFloat {
-        let dismiss = SidebarCardTextButton()
+        let dismiss = SidebarCardTextButton(), trailing = SidebarCardTextButton()
         dismiss.configure(title: notice.dismissTitle ?? "", help: nil)
+        trailing.configure(title: notice.trailing?.label ?? "", help: nil)
         return measureFrames(for: notice, width: width, dismissWidth: notice.dismissTitle == nil ? 0 : dismiss.fittingWidth,
+                             trailingWidth: notice.trailing == nil ? 0 : trailing.fittingWidth,
                              placement: placement, measuring: wrappingLabel()).height
     }
 
@@ -377,12 +373,14 @@ final class SidebarNoticeCardView: NSView {
     /// lays itself out on every pass: the text is measured again only when the notice, width or type size changes.
     private func frames(for notice: SidebarNoticeCard, width: CGFloat) -> Frames {
         let dismissWidth = notice.dismissTitle == nil ? 0 : dismissButton.fittingWidth
-        let key = FramesKey(notice: notice, width: width, dismissWidth: dismissWidth, placement: glyphPlacement,
-                            scale: [Self.padding, Metrics.space1, Metrics.space2, Metrics.space4, Self.trailingSide, Typography.caption.pointSize,
+        let trailingWidth = notice.trailing == nil ? 0 : trailingButton.fittingWidth
+        let key = FramesKey(notice: notice, width: width, dismissWidth: dismissWidth, trailingWidth: trailingWidth, placement: glyphPlacement,
+                            scale: [Self.padding, Metrics.space1, Metrics.space2, Metrics.space4, Typography.caption.pointSize,
                                     Typography.bodyEmphasized.pointSize, SidebarUpdateButton.font.pointSize, SidebarUpdateButton.height],
                             faces: [Typography.caption.fontName, Typography.bodyEmphasized.fontName, SidebarUpdateButton.font.fontName])
         if let measured, measured.key == key { return measured.frames }
-        let frames = Self.measureFrames(for: notice, width: width, dismissWidth: dismissWidth, placement: glyphPlacement, measuring: measuring)
+        let frames = Self.measureFrames(for: notice, width: width, dismissWidth: dismissWidth, trailingWidth: trailingWidth,
+                                        placement: glyphPlacement, measuring: measuring)
         measured = (key, frames)
         return frames
     }
@@ -391,6 +389,7 @@ final class SidebarNoticeCardView: NSView {
         var notice: SidebarNoticeCard
         var width: CGFloat
         var dismissWidth: CGFloat
+        var trailingWidth: CGFloat
         var placement: GlyphPlacement
         /// Every spacing and type size the rows are measured in (the trailing control's side included), and the faces.
         var scale: [CGFloat]
@@ -405,17 +404,18 @@ final class SidebarNoticeCardView: NSView {
     /// The rows of `notice` in a card `width` wide, top to bottom: padding, the glyph's row (``GlyphPlacement/above``),
     /// the heading, the title, the detail (two lines at least, so a loading card never changes height), the list lines,
     /// the progress bar, the button rows, padding. The title, detail and lines wrap in full; nothing truncates.
-    private static func measureFrames(for notice: SidebarNoticeCard, width: CGFloat, dismissWidth: CGFloat, placement: GlyphPlacement,
-                              measuring: ChromeLabel) -> Frames {
+    private static func measureFrames(for notice: SidebarNoticeCard, width: CGFloat, dismissWidth: CGFloat, trailingWidth: CGFloat,
+                                      placement: GlyphPlacement, measuring: ChromeLabel) -> Frames {
         let pad = padding, line = lineHeight, glyphSide = line.body
         var frames = Frames()
         let showsGlyph = notice.symbol != nil || spins(notice)
         frames.glyphRow = showsGlyph && placement == .above
-        // The right-hand control, vertically centred in the whole card; the text and the bar stop a grid step short
-        // of it. A loading card keeps that room in every stage, so the bar and the text never widen or narrow when
-        // the cancel comes and goes (Starting to Downloading to Preparing).
-        let trailingRoom = notice.trailing == nil && notice.progress == nil ? 0 : trailingSide + Metrics.space4
-        let closeRoom = notice.dismissTitle != nil ? dismissWidth + Metrics.space1 : notice.dismissLabel == nil ? trailingRoom : closeSide
+        // The card's own control (a download's Cancel) is a text button on the first row, at the top right, as the
+        // text dismiss is: only that row leaves it room. The detail and the bar span the whole inner width in every
+        // stage (Lawrence 2026-11-07: "cancel button is ugly not taking up full width here").
+        let trailingRoom = notice.trailing == nil ? 0 : trailingWidth + Metrics.space1
+        let closeRoom = notice.dismissTitle != nil ? dismissWidth + Metrics.space1
+            : (notice.dismissLabel == nil ? 0 : closeSide) + trailingRoom
         let titleX = pad + (showsGlyph && !frames.glyphRow ? glyphSide + Metrics.space2 : 0)
         let bodyX = placement == .column ? titleX : pad
         var y = pad
@@ -424,17 +424,17 @@ final class SidebarNoticeCardView: NSView {
             y += glyphSide + Metrics.space2
         }
         if notice.eyebrow != nil {
-            frames.eyebrow = CGRect(x: pad, y: y, width: max(0, width - 2 * pad - (frames.glyphRow ? trailingRoom : closeRoom)), height: line.caption)
+            frames.eyebrow = CGRect(x: pad, y: y, width: max(0, width - 2 * pad - (frames.glyphRow ? 0 : closeRoom)), height: line.caption)
             y += line.caption
         }
         if showsGlyph, !frames.glyphRow { frames.glyph = CGRect(x: pad, y: y, width: glyphSide, height: glyphSide) }
         // The title shares the x's row when nothing is above it, and the text button's (``SidebarNoticeCard/dismissTitle``) always.
         let titleHasX = !frames.glyphRow && (notice.eyebrow == nil || notice.dismissTitle != nil)
-        let titleWidth = max(0, width - pad - titleX - (titleHasX ? closeRoom : trailingRoom))
+        let titleWidth = max(0, width - pad - titleX - (titleHasX ? closeRoom : 0))
         let titleHeight = max(line.body, textHeight(notice.title, font: Typography.bodyEmphasized, width: titleWidth, in: measuring))
         frames.title = CGRect(x: titleX, y: y, width: titleWidth, height: titleHeight)
         y += titleHeight
-        let bodyWidth = max(0, width - pad - bodyX - trailingRoom)
+        let bodyWidth = max(0, width - pad - bodyX)
         if let detail = notice.detail {
             let height = max(2 * line.caption, textHeight(detail, font: detailFont(notice), width: bodyWidth, in: measuring))
             frames.detail = CGRect(x: bodyX, y: y + Metrics.space1, width: bodyWidth, height: height)
@@ -494,9 +494,6 @@ final class SidebarNoticeCardView: NSView {
         shortcutLabel.font = Typography.caption
         let dismissWidth = dismissButton.fittingWidth, dismissHeight = SidebarCardTextButton.height
         let rows = shown.map { frames(for: $0, width: b.width) } ?? Frames()
-        let trailingSide = Self.trailingSide
-        trailingButton.frame = NSRect(x: b.width - pad - trailingSide, y: ((b.height - trailingSide) / 2).rounded(),
-                                      width: trailingSide, height: trailingSide)
         eyebrowLabel.frame = rows.eyebrow ?? .zero
         icon.frame = rows.glyph ?? NSRect(x: pad, y: rows.title.minY, width: line.body, height: line.body)
         spinner.frame = icon.frame
@@ -516,6 +513,10 @@ final class SidebarNoticeCardView: NSView {
         let scale = window?.backingScaleFactor ?? 2
         closeButton.frame = NSRect(x: b.width - pad / 2 - close, y: ((rowMid - close / 2) * scale).rounded() / scale,
                                    width: close, height: close)
+        // The card's Cancel: a text button on the first row at the top right, left of the x when the card has one.
+        let trailingWidth = trailingButton.fittingWidth
+        let trailingEnd = closeButton.isHidden ? b.width - pad / 2 : closeButton.frame.minX - Metrics.space1
+        trailingButton.frame = NSRect(x: trailingEnd - trailingWidth, y: dismissMid - dismissHeight / 2, width: trailingWidth, height: dismissHeight)
         layoutProgress(rows.progress)
         for (button, frame) in zip(actionButtons, rows.buttons) { button.frame = frame }
         let rowY = rows.lastRow.y, x = rows.lastRow.end

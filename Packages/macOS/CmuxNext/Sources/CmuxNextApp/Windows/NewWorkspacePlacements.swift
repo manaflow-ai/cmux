@@ -13,7 +13,7 @@ enum NewWorkspacePlacements {
     /// recent open one), with the workspace that window shows now: none under a top page such as Home, which parks the
     /// last one and keeps `workspaceID` (#32731). Read it before the claim selects the new workspace.
     static func rule(for windowID: String?, in windows: WindowManager) -> NewWorkspaceDefaultSlot {
-        let placement = windows.services.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback
+        let placement = windows.services.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementDefault
         let window = windowID ?? windows.registry.value.mostRecentOpen()
         let current = window.flatMap { windows.states[$0] }.flatMap { $0.page == nil ? $0.workspaceID : nil }
         let model = window.flatMap { windows.controller(for: $0)?.sidebar.model }
@@ -75,7 +75,7 @@ enum NewWorkspacePlacements {
     /// New Group): last (`Int.max`) only under `workspaces.newPlacement` `bottom`, else first: under
     /// `afterCurrent` (the default) a new workspace never goes to the sidebar's end (Leo 2026-11-06).
     static func newGroupIndex(_ services: AppServices) -> Int {
-        newGroupIndex(for: services.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback)
+        newGroupIndex(for: services.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementDefault)
     }
 
     static func newGroupIndex(for placement: NewWorkspacePlacement) -> Int { placement == .bottom ? .max : 0 }

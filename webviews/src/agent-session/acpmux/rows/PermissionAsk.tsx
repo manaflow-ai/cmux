@@ -4,11 +4,18 @@ import { PermissionQuestion } from "../question/PermissionQuestion";
 import type { QuestionReply } from "../question/model";
 import { useT } from "../i18n";
 import { callNative } from "../callNative";
+import type { PlanBuildElsewhere } from "../permissions/planBuild";
 
 /// Answers `permission` with the option a button or key picked; rejects when acpmux refused it, which
 /// the card shows.
 const answerPermission = (permission: AcpmuxPermission) => (optionId: string) =>
   callNative("chat.permission", { permissionId: permission.permissionId, optionId });
+
+/// Builds a plan approval's plan elsewhere (`_acpmux/plan/build`): a new worktree, or two harnesses
+/// to compare. acpmux answers the ask itself once the new chats started; a refusal rejects, which
+/// the card shows.
+const buildPlan = (permission: AcpmuxPermission) => (target: PlanBuildElsewhere) =>
+  callNative("chat.plan.build", { permissionId: permission.permissionId, target });
 
 /// Sends a question card's reply: the harness's option (absent cancels) and its answers. The card
 /// shows a refusal (the promise rejects) and takes input again for a retry.
@@ -31,6 +38,7 @@ export function PermissionAsk({
   waiting = 0,
   alwaysAtSource,
   onDraft,
+  buildsPlan = true,
 }: {
   permission: AcpmuxPermission;
   harness?: string;
@@ -48,6 +56,9 @@ export function PermissionAsk({
   alwaysAtSource?: boolean;
   /// The card's deny instructions opened or closed (PermissionCard `onDraft`).
   onDraft?: (open: boolean) => void;
+  /// Whether a plan approval offers its builds elsewhere: only the shown chat's own ask, since
+  /// `_acpmux/plan/build` answers the shown chat's pending approval.
+  buildsPlan?: boolean;
 }) {
   const t = useT();
   if (!permission.question)
@@ -61,6 +72,7 @@ export function PermissionAsk({
         shortcuts={shortcuts}
         onAnswer={answerPermission(permission)}
         onDenyWithFeedback={shownChat && denyWithFeedback(permission, shownChat)}
+        onBuildPlan={buildsPlan && permission.plan ? buildPlan(permission) : undefined}
         onDraft={onDraft}
         waiting={waiting}
       />

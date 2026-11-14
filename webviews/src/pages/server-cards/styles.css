@@ -1,0 +1,222 @@
+/* The server cards (design/server-cards.md): one card per route on the floating panel's glass. The
+   page is transparent; the panel's glass is the background. The card's own box sets the panel's
+   size (host.ts reports it), so nothing here scrolls. The QR stays dark on white in every theme. */
+html,
+body {
+  background: transparent;
+  overflow: hidden;
+}
+
+.server-card-frame {
+  display: flow-root;
+  width: 460px;
+}
+
+.server-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 24px 16px;
+  user-select: text;
+}
+
+.server-card-title {
+  margin: 0;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  letter-spacing: var(--text-title--letter-spacing);
+  font-weight: 600;
+}
+
+.server-card-text,
+.server-card-caption,
+.server-card-waiting {
+  margin: 0;
+}
+
+.server-card-text {
+  color: var(--page-text-2);
+}
+
+.server-card-text.is-primary,
+.server-card-text.is-emphasized {
+  color: var(--page-text);
+}
+
+.server-card-text.is-emphasized {
+  font-weight: 600;
+}
+
+.server-card-text.is-danger {
+  color: var(--cmux-app-danger, #e5484d);
+}
+
+.server-card-caption {
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.server-card-waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--page-text-2);
+}
+
+.server-card-spinner {
+  flex: none;
+  color: var(--page-text-2);
+}
+
+.server-card-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.server-card-footer-gap {
+  flex: 1;
+}
+
+/* Pair Another Machine: the code with its Copy button, countdown and scan hint, and the QR beside
+   it (side), above it (stacked) or after the lines (line-first). */
+.pair-invite-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.pair-invite--stacked .pair-invite-top {
+  flex-direction: column-reverse;
+  align-items: center;
+  text-align: center;
+}
+
+.pair-invite-code-column {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.pair-invite--stacked .pair-invite-code-column {
+  align-items: center;
+}
+
+.pair-invite-code {
+  font-family: ui-monospace, monospace;
+  /* Read across a desk or aloud, like the QR beside it: half again the heading step. */
+  font-size: calc(var(--text-heading) * 1.5);
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+.pair-invite-meta {
+  margin: 0;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+
+.pair-invite-countdown {
+  font-family: ui-monospace, monospace;
+  color: var(--page-text-2);
+}
+
+.pair-invite-countdown.is-urgent {
+  color: var(--cmux-app-warning, #d08a00);
+}
+
+.pair-invite-qr {
+  flex: none;
+  width: 132px;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  background: white;
+  image-rendering: pixelated;
+}
+
+.pair-invite-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border-radius: 8px;
+  background: var(--page-hover);
+}
+
+.pair-invite-line-text {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, monospace;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.pair-invite-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--page-hover);
+}
+
+.pair-invite-facts span {
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+
+.pair-invite-words {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pair-invite-word {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--page-hover);
+  font-size: var(--text-field);
+  line-height: var(--text-field--line-height);
+  font-weight: 600;
+}
+
+.pair-invite-word-index {
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  font-weight: 400;
+}
+
+.pair-invite-name {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  color: var(--page-text-2);
+}
+
+.pair-invite-name-field {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: var(--page-text);
+}
+
+.pair-invite-chief {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

@@ -25,6 +25,9 @@ nonisolated public enum UpdateFlowEvent: Equatable, Sendable {
     case sparkle(UpdateIndicatorPhase)
     /// The user asked to check (palette, menu, CLI).
     case checkRequested
+    /// Attempt Update with nothing found yet (palette, `cmux update install`): a check the user asked
+    /// for whose update downloads and installs at once, its progress shown.
+    case attemptRequested
     /// A click on the footer pill or the Update Ready card's Restart to Update, the palette's
     /// Install Available Update, or `cmux update install`: install and relaunch once staged.
     case installRequested

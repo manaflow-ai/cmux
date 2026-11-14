@@ -152,17 +152,23 @@ impl Terminal {
         // screen coordinate space. Keep every row boundary in that case so
         // the target cannot retain stale history above the active TUI.
         let history_bearing = self.history_rows() > 0 || replay_rows > screen_rows;
-        // A replay without image placement anchors can let the target terminal
-        // recreate soft wraps naturally. Placement commands and history-bearing
-        // ranges depend on physical row cursor positions, so retain the
-        // row-delimited form for those cases.
-        let preserve_soft_wrap = !history_bearing && !insert_at_start && !has_placement_anchor;
-        // Row-delimited history still keeps soft wraps: a joinable wrapped row
-        // (see `replay_soft_wrap_rows`) prints on into its continuation, which
-        // re-creates the wrap on the same physical rows; any other wrapped row
-        // ends its segment and keeps a line break. Without this, a line that
-        // soft-wrapped at an older width comes back split there for good.
-        let joining = join_soft_wraps && !preserve_soft_wrap && history_bearing;
+        // A wrapped row is joined to the next one only where printing on
+        // re-creates the wrap on the same physical rows (see
+        // `replay_soft_wrap_rows`); any other wrapped row ends its segment and
+        // keeps a line break. Letting the formatter unwrap every wrapped row
+        // instead glued a row to a continuation that no longer starts with
+        // text (erased, or overwritten after a cursor move): its cells then
+        // landed on the row above and every row below moved up by one.
+        // Image placement commands depend on physical row cursor positions,
+        // so a replay with placement anchors and no history keeps every row
+        // break. With autowrap off (DECAWM reset, which the replay writes
+        // before its text) the target never wraps, so no row is joined.
+        let anchored = insert_at_start || has_placement_anchor;
+        let autowrap = self.mode(7, false);
+        let joining = join_soft_wraps && autowrap && (history_bearing || !anchored);
+        // Whether the row breaks are counted and padded, so every row of the
+        // range starts on its own physical row of the target.
+        let row_exact = history_bearing || joining;
         let joins = if joining {
             let (mut joins, breaks) = self.replay_soft_wrap_rows(range);
             segment_ends.extend(breaks);
@@ -196,24 +202,16 @@ impl Terminal {
             let last = segment_end == range.end;
             let remaining = format_max_bytes.saturating_sub(bytes.len());
             let Some(chunk) = self.format_bounded(
-                Self::vt_replay_segment_options(
-                    &selection,
-                    first,
-                    last,
-                    include_palette,
-                    preserve_soft_wrap || joining,
-                ),
+                Self::vt_replay_segment_options(&selection, first, last, include_palette, joining),
                 remaining,
             )?
             else {
                 return Ok(None);
             };
-            if !preserve_soft_wrap {
-                emitted_breaks = emitted_breaks
-                    .saturating_add(chunk.windows(2).filter(|bytes| *bytes == b"\r\n").count());
-            }
+            emitted_breaks = emitted_breaks
+                .saturating_add(chunk.windows(2).filter(|bytes| *bytes == b"\r\n").count());
             bytes.extend_from_slice(&chunk);
-            if !preserve_soft_wrap && history_bearing {
+            if row_exact {
                 let expected_breaks = usize::try_from(segment_end - range.start)
                     .unwrap_or(usize::MAX)
                     .saturating_sub(joins_before(segment_end));
@@ -234,17 +232,15 @@ impl Terminal {
                 insertion_offsets.insert(segment_end, bytes.len());
             }
             if !last {
-                if !preserve_soft_wrap {
-                    if bytes.len().saturating_add(2) > format_max_bytes {
-                        return Ok(None);
-                    }
-                    bytes.extend_from_slice(b"\r\n");
-                    emitted_breaks = emitted_breaks.saturating_add(1);
+                if bytes.len().saturating_add(2) > format_max_bytes {
+                    return Ok(None);
                 }
+                bytes.extend_from_slice(b"\r\n");
+                emitted_breaks = emitted_breaks.saturating_add(1);
                 segment_start = segment_end.saturating_add(1);
             }
         }
-        if !preserve_soft_wrap && history_bearing {
+        if row_exact {
             let expected_breaks =
                 usize::try_from(replay_rows - 1).unwrap_or(usize::MAX).saturating_sub(joins.len());
             if joining && emitted_breaks > expected_breaks {

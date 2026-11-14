@@ -14,12 +14,17 @@ enum Strings {
     static var closeRefused: String { String(localized: "sidebar.close.refused", defaultValue: "The workspace could not be closed.", bundle: .module) }
     static var dismissCard: String { String(localized: "sidebar.card.dismiss", defaultValue: "Dismiss", bundle: .module) }
     static var newWorkspace: String { String(localized: "sidebar.newWorkspace", defaultValue: "New Workspace", bundle: .module) }
+    /// This Mac's machine header button: its tooltip and VoiceOver label.
+    static var shareScreen: String { String(localized: "sidebar.machine.shareScreen", defaultValue: "Share screen", bundle: .module) }
+    /// A Cloud machine header's button: its tooltip and VoiceOver label.
+    static var viewScreen: String { String(localized: "sidebar.machine.viewScreen", defaultValue: "View screen", bundle: .module) }
     /// The chevron beside the sidebar's +: its VoiceOver label (it opens the workspace chooser).
     static var newWorkspaceOptions: String {
         String(localized: "sidebar.newWorkspace.options", defaultValue: "New Workspace Options", bundle: .module)
     }
     /// The footer's Search button: its VoiceOver label and tooltip.
     static var searchButton: String { String(localized: "sidebar.search", defaultValue: "Search", bundle: .module) }
+    static var restoringDetails: String { String(localized: "sidebar.restoring.details", defaultValue: "Details", bundle: .module) }
     /// The thin rail's VoiceOver label (`sidebar.style` = rail).
     static var railLabel: String { String(localized: "sidebar.rail.label", defaultValue: "Workspaces", bundle: .module) }
     static var rename: String { String(localized: "sidebar.rename", defaultValue: "Rename", bundle: .module) }
@@ -138,6 +143,13 @@ enum Strings {
     static var newProfileName: String { String(localized: "sidebar.room.newName", defaultValue: "New Space", bundle: .module) }
     static var newProfile: String { String(localized: "sidebar.space.new", defaultValue: "New Space", bundle: .module) }
     static var profiles: String { String(localized: "sidebar.a11y.rooms", defaultValue: "Spaces", bundle: .module) }
+    // The switcher's window marks (design/spaces.md "The switcher (PR 3)").
+    static var goToSpaceWindow: String { String(localized: "sidebar.space.goToWindow", defaultValue: "Go to Window", bundle: .module) }
+    static var moveSpaceHere: String { String(localized: "sidebar.space.moveHere", defaultValue: "Move Here", bundle: .module) }
+    static var newIncognitoSpace: String { String(localized: "sidebar.space.newIncognito", defaultValue: "New Incognito Space", bundle: .module) }
+    static func spaceInAnotherWindow(_ name: String) -> String {
+        String(localized: "sidebar.space.inAnotherWindow", defaultValue: "\(name), in another window", bundle: .module)
+    }
     /// The Now Playing card's scrubber (its value says the position and the length).
     static var nowPlayingPosition: String {
         String(localized: "sidebar.a11y.nowPlaying.position", defaultValue: "Playback Position", bundle: .module)

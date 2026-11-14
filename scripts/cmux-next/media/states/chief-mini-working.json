@@ -1,0 +1,231 @@
+{
+  "title": "Show in Mini, the chat working: the Chief pet looks left, right, up and down while its chat works (8 frames from debug.chief_pet, two in each look; motion runs as over an active cmux, since a capture app never is)",
+  "fakeHarness": {
+    "id": "fake",
+    "name": "Coordinator"
+  },
+  "settings": {
+    "home": {
+      "chiefPetEnabled": true,
+      "chiefPetMascot": "mochi"
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3
+    },
+    {
+      "title": "A new agent chat",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "palette.newAgentChat",
+          "focus": true
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "On the fake harness, this Mac's own acpmux",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "new_chat",
+          "harness": "fake"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "A coordinator's first message (the fake agent echoes it)",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "send_prompt",
+          "text": "Coordinator: three lanes are landing the mini captures today."
+        }
+      },
+      "wait": 4
+    },
+    {
+      "title": "The chat's ••• menu",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "click",
+          "selector": "button[aria-label=\"Chat actions\"]"
+        }
+      },
+      "wait": 1.5
+    },
+    {
+      "title": "Show in Mini, clicked as the person",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "click",
+          "text": "Show in Mini"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "A long turn (a tool call every 100 ms for 60 s): the chat works",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "send_prompt",
+          "text": "works-through-cancel"
+        }
+      },
+      "wait": 1.5
+    },
+    {
+      "title": "The mini's state while the chat works",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "state"
+        }
+      },
+      "record": "file",
+      "wait": 0.2
+    },
+    {
+      "title": "Motion as over an active cmux (the capture app is never active, and the pet's frames stand still then); Reduce Motion still wins",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "motion",
+          "on": true
+        }
+      },
+      "record": "file",
+      "wait": 0.1
+    },
+    {
+      "title": "Working, looking left: 2.3 s into the look tour (two passes of the working row, then a look; 3.2 s a look)",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "snapshot",
+          "window": "pet",
+          "path": "{collect}",
+          "at": 2.3
+        }
+      },
+      "collect": "working-01-left.png",
+      "wait": 0.1
+    },
+    {
+      "title": "Working, looking left: 2.9 s into the look tour (two passes of the working row, then a look; 3.2 s a look)",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "snapshot",
+          "window": "pet",
+          "path": "{collect}",
+          "at": 2.9
+        }
+      },
+      "collect": "working-02-left.png",
+      "wait": 0.1
+    },
+    {
+      "title": "Working, looking right: 5.5 s into the look tour (two passes of the working row, then a look; 3.2 s a look)",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "snapshot",
+          "window": "pet",
+          "path": "{collect}",
+          "at": 5.5
+        }
+      },
+      "collect": "working-03-right.png",
+      "wait": 0.1
+    },
+    {
+      "title": "Working, looking right: 6.1 s into the look tour (two passes of the working row, then a look; 3.2 s a look)",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "snapshot",
+          "window": "pet",
+          "path": "{collect}",
+          "at": 6.1
+        }
+      },
+      "collect": "working-04-right.png",
+      "wait": 0.1
+    },
+    {
+      "title": "Working, looking up: 8.7 s into the look tour (two passes of the working row, then a look; 3.2 s a look)",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "snapshot",
+          "window": "pet",
+          "path": "{collect}",
+          "at": 8.7
+        }
+      },
+      "collect": "working-05-up.png",
+      "wait": 0.1
+    },
+    {
+      "title": "Working, looking up: 9.3 s into the look tour (two passes of the working row, then a look; 3.2 s a look)",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "snapshot",
+          "window": "pet",
+          "path": "{collect}",
+          "at": 9.3
+        }
+      },
+      "collect": "working-06-up.png",
+      "wait": 0.1
+    },
+    {
+      "title": "Working, looking down: 11.9 s into the look tour (two passes of the working row, then a look; 3.2 s a look)",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "snapshot",
+          "window": "pet",
+          "path": "{collect}",
+          "at": 11.9
+        }
+      },
+      "collect": "working-07-down.png",
+      "wait": 0.1
+    },
+    {
+      "title": "Working, looking down: 12.5 s into the look tour (two passes of the working row, then a look; 3.2 s a look)",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "snapshot",
+          "window": "pet",
+          "path": "{collect}",
+          "at": 12.5
+        }
+      },
+      "collect": "working-08-down.png",
+      "wait": 0.1
+    },
+    {
+      "title": "Stop the long turn",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "escape"
+        }
+      },
+      "wait": 3,
+      "optional": "Escape may not stop the turn"
+    }
+  ]
+}

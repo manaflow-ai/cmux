@@ -3,7 +3,11 @@
 //   benchhelper wait-window PATH_PREFIX TIMEOUT_S   first on-screen window >= 300x200 with alpha > 0
 //                                                   of a process whose executable is under PATH_PREFIX;
 //                                                   prints "<epoch ms> <pid> <w>x<h>", exit 1 on timeout
-//   benchhelper windows PID                         the pid's on-screen windows as JSON lines
+//   benchhelper windows PID                         the pid's on-screen windows as JSON lines (x, y, w, h, layer;
+//                                                   global points from the main display's top-left)
+//   benchhelper activate PID                        NSRunningApplication activate (the app takes key input)
+//   benchhelper setframe PID X Y W H                moves and sizes the app's first window (Accessibility; exit 1
+//                                                   without the grant: the bench then records the sizes it got)
 //   benchhelper hide PID | unhide PID               NSRunningApplication hide/unhide (no TCC needed)
 //   benchhelper terminate PID                       NSRunningApplication terminate (a clean Quit)
 //   benchhelper frontmost                           the frontmost app's pid
@@ -34,6 +38,11 @@ private func size(of window: [String: Any]) -> (Double, Double) {
     return ((bounds["Width"] as? Double) ?? 0, (bounds["Height"] as? Double) ?? 0)
 }
 
+private func origin(of window: [String: Any]) -> (Double, Double) {
+    let bounds = window[kCGWindowBounds as String] as? [String: Any] ?? [:]
+    return ((bounds["X"] as? Double) ?? 0, (bounds["Y"] as? Double) ?? 0)
+}
+
 private func epochMs() -> Double { Date().timeIntervalSince1970 * 1000 }
 
 private func fail(_ message: String) -> Never {
@@ -42,7 +51,7 @@ private func fail(_ message: String) -> Never {
 }
 
 let arguments = CommandLine.arguments
-guard arguments.count >= 2 else { fail("usage: benchhelper wait-window|windows|hide|unhide|frontmost|displays ...") }
+guard arguments.count >= 2 else { fail("usage: benchhelper wait-window|windows|activate|setframe|hide|unhide|frontmost|displays ...") }
 
 switch arguments[1] {
 case "wait-window":
@@ -71,9 +80,27 @@ case "windows":
     guard arguments.count == 3, let pid = Int32(arguments[2]) else { fail("usage: benchhelper windows PID") }
     for window in onScreenWindows() where (window[kCGWindowOwnerPID as String] as? Int32) == pid {
         let (width, height) = size(of: window)
+        let (x, y) = origin(of: window)
         let layer = window[kCGWindowLayer as String] as? Int ?? -1
-        print("{\"w\": \(width), \"h\": \(height), \"layer\": \(layer)}")
+        print("{\"w\": \(width), \"h\": \(height), \"x\": \(x), \"y\": \(y), \"layer\": \(layer)}")
     }
+case "activate":
+    guard arguments.count == 3, let pid = Int32(arguments[2]),
+          let app = NSRunningApplication(processIdentifier: pid) else { fail("no running app for that pid") }
+    exit(app.activate(options: [.activateAllWindows]) ? 0 : 1)
+case "setframe":
+    guard arguments.count == 7, let pid = Int32(arguments[2]) else { fail("usage: benchhelper setframe PID X Y W H") }
+    let v = arguments[3...6].compactMap(Double.init)
+    guard v.count == 4 else { fail("usage: benchhelper setframe PID X Y W H") }
+    guard AXIsProcessTrusted() else { fail("no Accessibility grant for benchhelper") }
+    let app = AXUIElementCreateApplication(pid)
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
+          let windows = value as? [AXUIElement], let window = windows.first else { fail("the app has no AX window") }
+    var point = CGPoint(x: v[0], y: v[1]), size = CGSize(width: v[2], height: v[3])
+    let moved = AXValueCreate(.cgPoint, &point).map { AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, $0) }
+    let sized = AXValueCreate(.cgSize, &size).map { AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, $0) }
+    exit(moved == .success && sized == .success ? 0 : 1)
 case "hide", "unhide", "terminate":
     guard arguments.count == 3, let pid = Int32(arguments[2]),
           let app = NSRunningApplication(processIdentifier: pid) else { fail("no running app for that pid") }

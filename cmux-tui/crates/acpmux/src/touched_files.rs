@@ -402,7 +402,7 @@ pub fn rank(rows: &mut [Value]) {
     rows.sort_by_key(|r| std::cmp::Reverse(key(r)));
 }
 
-/// The one-line text of an answer row: `lane-x (codex on big-red, lane/x, #123): edited
+/// The one-line text of an answer row: `lane-x (codex on my-vm, lane/x, #123): edited
 /// src/a.rs, read src/b.rs; 12m ago`.
 pub fn row_line(r: &Value) -> String {
     let s = |k: &str| r.get(k).and_then(Value::as_str).unwrap_or("");

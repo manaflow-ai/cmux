@@ -1,7 +1,7 @@
 import CmuxNextActions
 
 /// Sidebar actions (category `sidebar`) beyond `toggleSidebar` (bound in
-/// `AppActions`), the right sidebar (`RightSidebarHandlers`) and the session
+/// `AppActions`) and the session
 /// vault (`VaultHandlers`): the file explorer's actions (`FileExplorerHandlers`,
 /// on the active window's Files section) and Open Find as Pane. The checklist
 /// actions are `WorkspaceChecklistHandlers`.

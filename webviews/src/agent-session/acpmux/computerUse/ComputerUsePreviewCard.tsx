@@ -21,7 +21,8 @@ import { useT } from "../i18n";
 import { Check, Close } from "../conversation/icons";
 import { useUnderSessionInfoRoom } from "../session-info/underSessionInfo";
 import { useLeavingCard, useLoadedFrame } from "./cardMotion";
-import { AgentCursorArt, cursorStyle, PersonPointerArt, personPointerStyle } from "./cursorArt";
+import { AgentCursorArt, PersonPointerArt } from "./cursorArt";
+import { cursorStyle, personPointerStyle } from "./cursorArtModel";
 import { closeComputerUsePreview, computerUsePreviewTitle, type ComputerUsePreview } from "./computerUsePreview";
 import "./computerUsePreview.css";
 

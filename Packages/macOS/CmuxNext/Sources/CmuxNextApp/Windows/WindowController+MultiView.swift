@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemonService
 import CmuxNextDesign
@@ -279,7 +280,7 @@ extension WindowController: WindowDockFrame {
     var frameHome: String? { services.home.dock.isClassic ? nil : services.windowHomes.home(in: state.id)?.id }
     var frameChiefPanel: ChiefPanel { get { state.chiefPanel } set { state.chiefPanel = newValue } }
     var frameChiefPanelArm: ContinuousClock.Instant? { get { chiefPanelArm } set { chiefPanelArm = newValue } }
-    var frameChiefPanelShown: Bool { chiefPanelView.map { $0.superview === root.contentHost } ?? false }
+    var frameChiefPanelShown: Bool { chiefPanelView?.isShown(in: root.contentHost) ?? false }
     var frameChiefPanelHasKeys: Bool { frameChiefPanelShown && chiefPanelView?.hasKeys == true }
     func frameChiefPanelLies(toward direction: LayoutDirection) -> Bool { chiefPanelView?.lies(toward: direction, docked: state.chiefPanel.dockedEdge) ?? false }
     func frameFocusChiefPanel() { chiefPanelView?.focusChief((chiefPanelView?.chief as? InternalPageView)?.focusTarget ?? (chiefPanelView?.chief as? HomeHostView)?.focusTarget) }
@@ -300,8 +301,8 @@ extension WindowController {
     func syncChiefPanel() -> ChiefPanel? {
         guard chiefPanelBelongsOnScreen, let chief = chiefPanelSource?() ?? homeChiefView() else { removeChiefPanel(); return nil }
         let view = chiefPanelView ?? makeChiefPanelView()
-        if view.superview !== root.contentHost { root.contentHost.addSubview(view) }
         if view.floating != (state.chiefPanel.dockedEdge == nil) { view.setFloating(state.chiefPanel.dockedEdge == nil) }
+        view.mount(in: root.contentHost)
         view.hold(chief)
         return state.chiefPanel
     }
@@ -313,7 +314,7 @@ extension WindowController {
         let homeContent = content?.workspace.id == frameHome ? content : frameHome.flatMap { parked[$0] }
         let panes = homeContent.map { Array($0.panes.values) } ?? []
         if let chief = view.release() { for pane in panes where pane.view.content === chief { _ = pane.view.show(chief) } }
-        view.removeFromSuperview()
+        view.unmount()
         if hadKeys, homeContent !== content { frameFocusStage(toward: nil) }
     }
 
@@ -326,7 +327,7 @@ extension WindowController {
         guard let pane = nearest ?? focused else { return }
         content.layoutModel.focus(pane.layoutPaneID, notify: false, source: .keyMove(byPerson: true))
         content.focus.send(.focusPane(pane.layoutPaneID.rawValue, source: .intent))
-        if let target = pane.currentContent?.focusTarget, window.firstResponder !== target { window.makeFirstResponder(target) }
+        chiefPanelView?.yieldKeys(to: window); if let target = pane.currentContent?.focusTarget, window.firstResponder !== target { window.makeFirstResponder(target) }
     }
 
     /// The view of Home's Chief tab: the Home page in its pinned chat dock (its live view), else a conversation tab.
@@ -337,15 +338,12 @@ extension WindowController {
     }
 
     private func makeChiefPanelView() -> ChiefPanelView {
-        let view = ChiefPanelView(title: HomeStrings.chiefName, actions: .init(
-            toggleDock: { [weak self] in self.map { $0.toggleChiefPanelDock(edge: $0.services.chiefDockEdge) } },
-            hide: { [weak self] in self?.hideChiefPanel() },
-            moved: { [weak self] frame in
-                guard let self else { return }
-                let size = root.contentHost.bounds.size
-                state.chiefPanel.floatingFrame = ChiefPanelFrame.fitting(CGRect(x: frame.minX, y: size.height - frame.maxY, width: frame.width, height: frame.height), in: size)
-                frameChiefPanelDidChange()
-            }, stop: { [weak self] in _ = self?.services.registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }))
+        let settings = services.settings, look = ChiefPanelScreenLook(share: { [weak services] in services?.chiefScreenShare }, settings: { settings })
+        let view = ChiefPanelView(title: HomeStrings.chiefName, launcher: ChiefLauncherPanel(frames: FloatingChatFrames(defaults: .standard, storageKey: ChiefLauncherPanel.framesKey)), actions: .init(
+            toggleDock: { [weak self] in self.map { $0.toggleChiefPanelDock(edge: $0.services.chiefDockEdge) } }, hide: { [weak self] in self?.hideChiefPanel() },
+            moved: { [weak self] in self?.state.chiefPanel.floatingFrame = $0; self?.frameChiefPanelDidChange() }, stop: { [weak self] in _ = self?.services.registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) },
+            toggleSeesScreen: look.toggle, opened: { [weak self] in look.panelOpened(window: self?.window?.title) }))
+        view.follow({ ChiefPanelStyle(rawValue: settings?.snapshot.chiefPanelStyle ?? "") ?? .default }, seesScreen: { look.seesScreen })
         chiefPanelView = view
         return view
     }

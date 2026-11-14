@@ -1,16 +1,6 @@
 import Foundation
 public import Observation
 
-/// The overall line the panel shows, most important state first.
-public nonisolated enum ServerOverall: Sendable, Equatable {
-    case unavailable
-    case off
-    case unpaired
-    case pairing
-    case serving
-    case attention(HealthSeverity)
-}
-
 /// The approver sheet's draft (client view state, never sent until Approve).
 public nonisolated struct ServerApprovalDraft: Sendable, Equatable {
     /// What the code field shows (`XXXX-XXXX` while typing).
@@ -25,8 +15,10 @@ public nonisolated struct ServerApprovalDraft: Sendable, Equatable {
 }
 
 /// The app's projection of one server: the owner's last snapshot, the
-/// intents in flight, and client view state (the approver draft). Every
-/// server change arrives as an owner snapshot; intents never edit it.
+/// intents in flight, and the Add Server draft (shared by the Add Server and
+/// Pair Another Machine cards). Every server change arrives as an owner
+/// snapshot; intents never edit it. The pages draw it
+/// (webviews/src/pages/server-cards/server, `ServerPageProvider`).
 @Observable
 @MainActor
 public final class ServerModel {
@@ -57,39 +49,20 @@ public final class ServerModel {
         source.start { [weak self] event in self?.handle(event) }
     }
 
+    /// Stops the source. Its intents in flight never settle once it stops, so they are dropped: a
+    /// later `start()` (the menu bar item shown again) never shows one as pending forever. Add
+    /// Server's draft, found server and last answer go too: a pairing code from before the stop may
+    /// have expired, so the next opening looks it up again.
     public func stop() {
         source.stop()
+        pending.removeAll()
+        dismissApproval()
     }
 
     // MARK: - Derived state
 
-    public var overall: ServerOverall {
-        guard connection == .connected, let snapshot else { return .unavailable }
-        guard snapshot.enabled else { return .off }
-        switch snapshot.pairing {
-        case .unpaired: return .unpaired
-        case .pairing: return .pairing
-        case .paired: break
-        }
-        if let worst = HealthOrdering.worst(snapshot.alerts), worst != .info { return .attention(worst) }
-        return .serving
-    }
-
-    public var openAlerts: [HealthAlert] { HealthOrdering.open(snapshot?.alerts ?? []) }
-
-    public var checklist: [HealthChecklistRow] {
-        guard let snapshot else { return [] }
-        return HealthOrdering.checklist(checks: snapshot.checks, alerts: snapshot.alerts)
-    }
-
-    public var timeline: [HealthAlert] { HealthOrdering.timeline(snapshot?.alerts ?? []) }
-
     public func isPending(_ match: (ServerIntentKind) -> Bool) -> Bool {
         pending.contains { match($0.kind) }
-    }
-
-    public func isFixing(_ check: HealthCheckID) -> Bool {
-        isPending { $0 == .fixCheck(check) }
     }
 
     /// Whether Approve can go: a complete code, a known candidate, a team
@@ -119,16 +92,6 @@ public final class ServerModel {
         return true
     }
 
-    public func toggleServer() {
-        guard let snapshot else { return }
-        send(.setEnabled(!snapshot.enabled))
-    }
-
-    public func showPairingCode() { send(.showPairingCode) }
-    public func fix(_ check: HealthCheckID) { send(.fixCheck(check)) }
-    public func openHealth() { send(.openHealth) }
-    public func revoke(device: String) { send(.revokeDevice(device)) }
-
     /// The code field changed: keep the edit form, and look the code up
     /// once it is complete.
     public func setApprovalCode(_ text: String) {
@@ -152,6 +115,14 @@ public final class ServerModel {
         candidate = nil
     }
 
+    /// The Add Server card closed any way but its Cancel (the panel dismissed, another card took its
+    /// place): the typed code stays, but the found server and a lookup still in flight go, so the
+    /// next opening looks the code up again (the server's facts may be stale, its code expired).
+    public func closeApproval() {
+        candidate = nil
+        pending.removeAll { if case .lookupCode = $0.kind { true } else { false } }
+    }
+
     // MARK: - Owner events
 
     func handle(_ event: ServerSourceEvent) {
@@ -162,7 +133,9 @@ public final class ServerModel {
             snapshot = next
             connection = .connected
         case let .candidate(found):
-            // A late reply for a code the user has since changed is stale.
+            // A late reply for a code the user has since changed, or for a lookup the card's close
+            // dropped, is stale.
+            guard isPending({ if case .lookupCode = $0 { true } else { false } }) else { return }
             if let found, found.code != PairingCode.normalize(approval.code) { return }
             candidate = found
             guard let found else { return }
@@ -172,11 +145,13 @@ public final class ServerModel {
             if approval.name.isEmpty { approval.name = found.name }
             approval.runChief = found.isChiefBrain
         case let .settled(key, reject):
-            let intent = pending.first { $0.key == key }
+            // An answer to an intent no longer pending (dropped by stop() or the card's close) is
+            // another session's: its refusal never shows on this one.
+            guard let intent = pending.first(where: { $0.key == key }) else { return }
             pending.removeAll { $0.key == key }
             if let reject {
                 lastReject = reject
-            } else if case let .approveCode(_, _, name, _) = intent?.kind {
+            } else if case let .approveCode(_, _, name, _) = intent.kind {
                 lastApproved = name
                 cancelApproval()
             }

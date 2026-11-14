@@ -31,6 +31,8 @@ mod agents_cli_receipt;
 mod agents_events_cli;
 #[path = "agents_wait_cli.rs"]
 mod agents_wait_cli;
+#[path = "events_until.rs"]
+mod events_until;
 
 const FAKE_AGENT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../acpmux/tests/fake_agent.py");
 /// The app's install key, so one connection can prove itself the verified

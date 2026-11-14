@@ -223,8 +223,16 @@ final class ChiefPetReplyPanel: NSPanel, NSTextFieldDelegate {
         return flags.contains(.command) && !editing
     }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// `debug.chief_pet` holds the box open when it loses the keys (a capture slot's app is never active).
+    var debugHold = false
+    #endif
+
     override func resignKey() {
         super.resignKey()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if debugHold { return }
+        #endif
         // A click in another app or window puts it away; the typed text stays for the next open.
         onClose?()
     }

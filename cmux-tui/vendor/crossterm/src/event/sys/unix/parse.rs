@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::io;
 
 use crate::event::{
@@ -27,6 +28,61 @@ fn could_not_parse_event_error() -> io::Error {
 /// A 1-based terminal position as a 0-based one; 0 is malformed input.
 fn zero_based(position: u16) -> io::Result<u16> {
     position.checked_sub(1).ok_or_else(could_not_parse_event_error)
+}
+
+/// Parses `input`, read after the bytes held in `pending`, byte by byte as
+/// the event sources do, and pushes each event to `events`. `more` says
+/// whether more input is already waiting after `input`. Bytes of a sequence
+/// that has not ended stay in `pending` (cmux patch: one place for the
+/// tty and mio sources, and for tests through `parse_events_from_bytes`).
+pub(crate) fn advance(
+    pending: &mut Vec<u8>,
+    input: &[u8],
+    more: bool,
+    events: &mut VecDeque<InternalEvent>,
+) {
+    // Bytes an event did not use (the keys after Alt+]) are parsed again
+    // before the rest of `input`.
+    let mut again: VecDeque<u8> = VecDeque::new();
+    let mut input = input.iter().copied();
+    while let Some(byte) = again.pop_front().or_else(|| input.next()) {
+        let more = !again.is_empty() || input.len() > 0 || more;
+
+        pending.push(byte);
+
+        match parse_event_len(pending, more) {
+            Ok(Some((ie, used))) => {
+                events.push_back(ie);
+                for byte in pending.drain(..).skip(used).rev() {
+                    again.push_front(byte);
+                }
+            }
+            Ok(None) => {
+                // Event can't be parsed, because we don't have enough bytes for
+                // the current sequence. Keep the buffer and process next bytes.
+            }
+            Err(_) => {
+                // Event can't be parsed (not enough parameters, parameter is not a number, ...).
+                // Clear the buffer and continue with another sequence.
+                pending.clear();
+            }
+        }
+    }
+}
+
+/// The event at the start of `buffer` and how many of its bytes it used
+/// (cmux patch). Every event uses the whole buffer except Alt+] from an
+/// `ESC ]` that is no host color reply: it uses 2 bytes, and the bytes
+/// after it are input of their own.
+pub(crate) fn parse_event_len(
+    buffer: &[u8],
+    input_available: bool,
+) -> io::Result<Option<(InternalEvent, usize)>> {
+    let used = match crate::event::scan_host_reply(buffer) {
+        crate::event::HostReply::NotAReply if buffer.starts_with(b"\x1b]") => 2,
+        _ => buffer.len(),
+    };
+    Ok(parse_event(buffer, input_available)?.map(|event| (event, used)))
 }
 
 pub(crate) fn parse_event(
@@ -81,17 +137,23 @@ pub(crate) fn parse_event(
                     }
                     b'[' => parse_csi(buffer),
                     b'\x1B' => Ok(Some(InternalEvent::Event(Event::Key(KeyCode::Esc.into())))),
-                    _ => parse_event(&buffer[1..], input_available).map(|event_option| {
-                        event_option.map(|event| {
-                            if let InternalEvent::Event(Event::Key(key_event)) = event {
-                                let mut alt_key_event = key_event;
-                                alt_key_event.modifiers |= KeyModifiers::ALT;
-                                InternalEvent::Event(Event::Key(alt_key_event))
-                            } else {
-                                event
-                            }
-                        })
-                    }),
+                    // cmux patch: a host's OSC 10/11 reply (a color query
+                    // answered late) is no input. The whole reply is dropped,
+                    // and its start waits for its end. `ESC ]` alone with
+                    // nothing after it, or followed by anything else, is
+                    // Alt+]; `parse_event_len` says it used 2 bytes, so the
+                    // bytes after it are parsed again as input.
+                    b']' => match crate::event::scan_host_reply(buffer) {
+                        crate::event::HostReply::Complete(_) => Err(could_not_parse_event_error()),
+                        crate::event::HostReply::Partial if buffer.len() > 2 || input_available => {
+                            Ok(None)
+                        }
+                        _ => Ok(Some(InternalEvent::Event(Event::Key(KeyEvent::new(
+                            KeyCode::Char(']'),
+                            KeyModifiers::ALT,
+                        ))))),
+                    },
+                    _ => parse_alt_event(buffer, input_available),
                 }
             }
         }
@@ -125,6 +187,21 @@ pub(crate) fn parse_event(
                 .map(InternalEvent::Event)
         }),
     }
+}
+
+/// `ESC` and the event of the bytes after it, with Alt added to a key.
+fn parse_alt_event(buffer: &[u8], input_available: bool) -> io::Result<Option<InternalEvent>> {
+    parse_event(buffer.get(1..).unwrap_or_default(), input_available).map(|event_option| {
+        event_option.map(|event| {
+            if let InternalEvent::Event(Event::Key(key_event)) = event {
+                let mut alt_key_event = key_event;
+                alt_key_event.modifiers |= KeyModifiers::ALT;
+                InternalEvent::Event(Event::Key(alt_key_event))
+            } else {
+                event
+            }
+        })
+    })
 }
 
 // converts KeyCode to KeyEvent (adds shift modifier in case of uppercase characters)

@@ -30,6 +30,12 @@ public final class WindowOverlayHost {
     var handles: [OverlayHandle] = []
     /// Dialogs still fading out after their removal: the panel stays until they finish.
     var fadingOut = 0
+    /// Each fade-out still running, with when it began (system uptime) and what ends it: a fade whose completion never
+    /// came (its animation dropped) ends at the next present instead of leaving its card on the panel for good.
+    var fades: [Int: (began: TimeInterval, end: () -> Void)] = [:]
+    var nextFadeID = 1
+    /// A fade-out older than this when the next overlay shows has lost its completion (fades run well under a second).
+    static let staleFadeAge: TimeInterval = 3
     var nextID = 1
     /// The window's layout planes need the panel (pages show) even with no overlay presented.
     var planesWantPanel = false
@@ -94,6 +100,18 @@ public final class WindowOverlayHost {
         panel.onCancel = { [weak self] in self?.escape() }
         panel.onCycleKeyView = { [weak self] forward in self?.cycleKeyView(forward: forward) ?? false }
         panel.onMouseEvent = { [weak self] event in self?.panelMouseEvent(event) ?? false }
+        for container in [panel.paneContainer, panel.windowContainer, panel.modalContainer] {
+            container.clickRegions = { [weak self] view in
+                guard let self else { return [] }
+                if let handle = handles.first(where: { ($0.clipView ?? $0.content) === view }) { return clickRegions(of: handle) }
+                // A live dialog's scrim takes every click, so nothing under the dialog reacts.
+                if let scrim = view as? OverlayScrimView, handles.contains(where: { scrim.identifier?.rawValue == "overlay-scrim-\($0.id)" }) { return nil }
+                // Anything else is left from an overlay that ended (a dialog's card fading out, or one whose fade never
+                // finished): it takes no click, so a card on screen whose dialog ended never swallows clicks (Aziz
+                // 2026-11-12, "Close “IOS INTERNAL CI”?" ignored Close, Cancel and its check box).
+                return []
+            }
+        }
         if isAppHost {
             // Above the app's own windows while cmux is active; hidden while
             // another app is active, so it never covers other apps.
@@ -133,6 +151,9 @@ public final class WindowOverlayHost {
     public static func existingHost(for window: NSWindow) -> WindowOverlayHost? {
         hosts[ObjectIdentifier(window)].flatMap { $0.window === window && !$0.isTearingDown ? $0 : nil }
     }
+
+    /// The app host if one was made (never makes one).
+    public static var existingAppHost: WindowOverlayHost? { app }
 
     /// The host for overlays with no window (its own small panel, centered on the main screen).
     public static func appHost() -> WindowOverlayHost {

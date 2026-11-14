@@ -439,12 +439,21 @@
   {
    "name": "terminal",
    "meaning": "Terminal",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><path d='M7.47 9.282l2.718 2.718 -2.718 2.718M12.453 14.718H16.53'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-terminal' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M7.47 9.282l2.718 2.718 -2.718 2.718M12.453 14.718H16.53'/></g></mask></defs><g fill='currentColor' mask='url(#cmxs-terminal)'><rect x='3.167' y='4.072' width='17.667' height='15.855' rx='2.945'/></g></svg>",
-   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><path d='M7.47 9.282l2.718 2.718 -2.718 2.718'/><path class='accent' stroke='var(--accent)' d='M12.453 14.718H15.624a1.359 1.359 0 0 0 1.359 -1.359V12.453'/></svg>",
-   "alts": [],
-   "note": "Reference glyph, unchanged (Line, Solid and Cat from glyphs.json).",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 6L10.5 12L4.5 18M13 18H19.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 6L10.5 12L4.5 18M13 18H19.5'/></svg>",
+   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 6L10.5 12L4.5 18'/><path class='accent' stroke='var(--accent)' d='M13 18H19.5'/></svg>",
+   "alts": [
+    {
+     "label": "framed prompt (the reference glyph before 2026-11-09)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><path d='M7.47 9.282l2.718 2.718 -2.718 2.718M12.453 14.718H16.53'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-terminal' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M7.47 9.282l2.718 2.718 -2.718 2.718M12.453 14.718H16.53'/></g></mask></defs><g fill='currentColor' mask='url(#cmxs-terminal)'><rect x='3.167' y='4.072' width='17.667' height='15.855' rx='2.945'/></g></svg>"
+    }
+   ],
+   "note": "The prompt alone: the chevron and the underscore cursor on its baseline, no window frame (= tab.terminal). Leo 2026-11-09 asked for a bare >_ toolbar glyph.",
    "replaces": [
+    "terminal"
+   ],
+   "overrides": [
     "terminal"
    ]
   },
@@ -514,9 +523,14 @@
   {
    "name": "terminal.dead",
    "meaning": "Terminal process exited",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><path d='M7.47 9.282l2.718 2.718 -2.718 2.718'/><path d='M13.133 11.321l3.171 3.171M16.303 11.321l-3.171 3.171'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-terminal-dead' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M7.47 9.282l2.718 2.718 -2.718 2.718'/><path d='M13.133 11.321l3.171 3.171M16.303 11.321l-3.171 3.171'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-terminal-dead)'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g></svg>",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 6L10.5 12L4.5 18M13.5 13.5L18.5 18.5M18.5 13.5L13.5 18.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 6L10.5 12L4.5 18M13.5 13.5L18.5 18.5M18.5 13.5L13.5 18.5'/></svg>",
    "alts": [
+    {
+     "label": "framed prompt with an x (before 2026-11-09)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><path d='M7.47 9.282l2.718 2.718 -2.718 2.718'/><path d='M13.133 11.321l3.171 3.171M16.303 11.321l-3.171 3.171'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-terminal-dead' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M7.47 9.282l2.718 2.718 -2.718 2.718'/><path d='M13.133 11.321l3.171 3.171M16.303 11.321l-3.171 3.171'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-terminal-dead)'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g></svg>"
+    },
     {
      "label": "terminal with x badge (badge pattern)",
      "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-terminal-dead-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><circle cx='17.472' cy='17.472' r='4.332' stroke='none'/></g></mask></defs><g mask='url(#cmxl-terminal-dead-alt1)'><rect x='3.792' y='4.704' width='16.416' height='14.592' rx='2.28'/><path d='M7.44 9.264l2.736 2.736 -2.736 2.736'/></g><path d='M15.876 15.876l3.192 3.192M19.068 15.876l-3.192 3.192'/></svg>",
@@ -528,19 +542,26 @@
      "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-terminal-dead-alt2' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M7.47 9.282l2.718 2.718 -2.718 2.718'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-terminal-dead-alt2)'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g></svg>"
     }
    ],
-   "note": "Preferred: the terminal with an x where the cursor was: still a terminal, clearly not running, and no octagon (that is policy.reject/critical). No cat on a dead process.",
+   "note": "terminal with an x where the cursor was (= tab.terminal.dead). No cat on a dead process.",
    "replaces": [
     "xmark.octagon"
-   ]
+   ],
+   "cat": null
   },
   {
    "name": "terminal.new",
    "meaning": "New terminal (sidebar shortcut / on machine)",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-terminal-new' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><circle cx='17.466' cy='17.488' r='4.327' stroke='none'/></g></mask></defs><g mask='url(#cmxl-terminal-new)'><rect x='3.801' y='4.734' width='16.398' height='14.576' rx='2.277'/><path d='M7.445 9.289l2.733 2.733 -2.733 2.733'/></g><path d='M17.466 15.211v4.555M15.188 17.488h4.555'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-terminal-new' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M7.445 9.289l2.733 2.733 -2.733 2.733'/></g><circle cx='17.466' cy='17.488' r='4.555' fill='#000'/></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-terminal-new)'><rect x='3.801' y='4.734' width='16.398' height='14.576' rx='2.277'/></g><path d='M17.466 15.211v4.555M15.188 17.488h4.555' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>",
-   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-terminal-new-cat' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><circle cx='17.466' cy='17.488' r='4.327' stroke='none'/></g></mask></defs><g mask='url(#cmxl-terminal-new-cat)'><rect x='3.801' y='5.645' width='16.398' height='13.665' rx='2.277'/><path d='M7.445 9.745l2.733 2.733 -2.733 2.733'/></g><path d='M17.466 15.211v4.555M15.188 17.488h4.555'/><path class='accent' stroke='var(--accent)' d='M5.623 5.645V3.368l1.822 1.822M11.544 5.645V3.368l-1.822 1.822'/></svg>",
-   "alts": [],
-   "note": "Terminal + the shared bottom-right plus badge (SPEC 'new X'). Underscore dropped: a stub left by the badge ring read as '>-+'. Cat: ears moved to the left so they do not crowd the badge.",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 6L10.5 12L4.5 18M16.25 12.75V19.25M13 16H19.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 6L10.5 12L4.5 18M16.25 12.75V19.25M13 16H19.5'/></svg>",
+   "cat": null,
+   "alts": [
+    {
+     "label": "framed prompt with the plus badge (before 2026-11-09)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-terminal-new' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><circle cx='17.466' cy='17.488' r='4.327' stroke='none'/></g></mask></defs><g mask='url(#cmxl-terminal-new)'><rect x='3.801' y='4.734' width='16.398' height='14.576' rx='2.277'/><path d='M7.445 9.289l2.733 2.733 -2.733 2.733'/></g><path d='M17.466 15.211v4.555M15.188 17.488h4.555'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-terminal-new' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M7.445 9.289l2.733 2.733 -2.733 2.733'/></g><circle cx='17.466' cy='17.488' r='4.555' fill='#000'/></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-terminal-new)'><rect x='3.801' y='4.734' width='16.398' height='14.576' rx='2.277'/></g><path d='M17.466 15.211v4.555M15.188 17.488h4.555' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>"
+    }
+   ],
+   "note": "terminal with a plus where the cursor was: the prompt's chevron, then +. No badge ring, since the bare prompt leaves room for the plus itself.",
    "replaces": [
     "apple.terminal"
    ]

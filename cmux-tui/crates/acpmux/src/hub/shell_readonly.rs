@@ -18,7 +18,10 @@
 //! `post-index-change` hook. So a script with git passes only when the repository it reads, and
 //! every submodule checked out in it, names none (`repository_runs_nothing`). `cd` asks:
 //! Claude Code's shell keeps the directory for its next command, whose git reads would then
-//! look at a repository this never checked.
+//! look at a repository this never checked. A merge driver (`merge.<name>.driver`) passes: a
+//! read never merges, and `--remerge-diff`, which does, asks. A partial clone's promisor remote
+//! passes: a read may fetch an object the clone left out, as `git fetch` would (W5-L, review in
+//! the cmux checkout).
 //!
 //! The commands run with the harness's environment, not the daemon's, so they are judged in it
 //! (`permissions.rs` passes `login_env::effective_for` of the env its agent was started with:
@@ -219,6 +222,9 @@ pub(crate) fn request_is_read_only(request: &Value, session_cwd: &Path, env: &En
         },
         _ => return false,
     };
+    // A subagent's command carries acpmux's own mark line, which sets one variable and runs
+    // nothing (`bg_hook.rs` `subagent_mark`): what it reads is the rest.
+    let script = crate::bg_hook::without_subagent_mark(script);
     if !env_runs_nothing(env) || !path_is_absolute(env) || !shells_are_system(env) {
         return false;
     }
@@ -630,9 +636,60 @@ fn segment_ok(words: &[String]) -> Option<Reads> {
                 || a.starts_with("-fprint")
                 || matches!(a, "-delete" | "-fls")
         }),
+        "sed" => sed_prints_only(args),
         _ => false,
     };
     ok.then_some(Reads::Plain)
+}
+
+/// `sed -n` that only prints lines by number (`sed -n '1,40p' f`, `-e '$p'`): a reviewer's way
+/// to read part of a file. Any other sed command can write (`w`, `s///w`) or run one (`e`), and
+/// `-i` edits in place, so anything else asks; GNU sed reads an option after the files too.
+pub(crate) fn sed_prints_only(args: &[String]) -> bool {
+    let mut quiet = false;
+    let mut scripts: Vec<&str> = Vec::new();
+    let mut i = 0;
+    while let Some(a) = args.get(i) {
+        match a.as_str() {
+            "-n" | "--quiet" | "--silent" => quiet = true,
+            "-E" | "-r" | "--regexp-extended" => {}
+            // A cluster of those (`-En`).
+            a if a.len() > 2
+                && !a.starts_with("--")
+                && a.strip_prefix('-').is_some_and(|f| f.chars().all(|c| "nEr".contains(c))) =>
+            {
+                quiet |= a.contains('n');
+            }
+            "-e" => {
+                i += 1;
+                let Some(script) = args.get(i) else { return false };
+                scripts.push(script);
+            }
+            a if a.starts_with('-') => return false,
+            _ => break,
+        }
+        i += 1;
+    }
+    let mut rest = args.get(i..).unwrap_or_default().iter();
+    if scripts.is_empty() {
+        let Some(script) = rest.next() else { return false };
+        scripts.push(script);
+    }
+    if rest.any(|a| a.starts_with('-')) {
+        return false;
+    }
+    let address = |a: &str| a == "$" || (!a.is_empty() && a.bytes().all(|b| b.is_ascii_digit()));
+    let prints = |command: &str| {
+        let Some(range) = command.trim().strip_suffix('p') else { return false };
+        let range = range.trim();
+        range.is_empty()
+            || match range.split_once(',') {
+                Some((from, to)) => address(from.trim()) && address(to.trim()),
+                None => address(range),
+            }
+    };
+    quiet
+        && scripts.iter().all(|s| s.split([';', '\n']).filter(|c| !c.trim().is_empty()).all(prints))
 }
 
 /// A git read: its `-C` directory (at most one) when the rest passes.
@@ -689,6 +746,10 @@ fn git_read_ok(args: &[String]) -> bool {
             // Runs smudge filters (git-lfs can fetch) and textconv drivers.
             || long_is(a, "--filters")
             || long_is(a, "--textconv")
+            // Merges again to show a merge commit, which runs the repository's merge drivers.
+            || long_is(a, "--remerge-diff")
+            // `--diff-merges=remerge` (or `r`); any other value shows no remerge, but asks too.
+            || a.starts_with("--diff-merges")
     };
     if rest.iter().any(writes) {
         return false;
@@ -925,9 +986,17 @@ fn key_runs_nothing(key: &str, value: &str) -> bool {
                 | "excludesfile"
         ),
         ("extensions", None) => matches!(name, "worktreeconfig" | "objectformat" | "refstorage"),
+        // A partial clone's promisor (`promisor`, `partialclonefilter`): a read that needs an
+        // object the clone left out fetches it from that remote's `url`, as `git fetch` does with
+        // the person's credentials, and stores it with git's own objects. The transport runs no
+        // program the repository names: `uploadpack`, `core.sshCommand`, `credential.helper` and
+        // `protocol.*` here still ask. W5-L: the cmux checkout is a partial clone, and a review
+        // chat could not run `git diff` in it.
         ("remote", Some(_)) => matches!(
             name,
             "url"
+                | "promisor"
+                | "partialclonefilter"
                 | "pushurl"
                 | "fetch"
                 | "push"
@@ -968,6 +1037,9 @@ fn key_runs_nothing(key: &str, value: &str) -> bool {
         ),
         ("log", None) => matches!(name, "decorate" | "date" | "follow" | "abbrevcommit"),
         ("merge", None) => matches!(name, "conflictstyle" | "ff"),
+        // A merge driver runs only when git merges file contents (merge, rebase, cherry-pick, a
+        // stash apply, a remerge diff, which asks: `git_read_ok`), never in an allowed read.
+        ("merge", Some(_)) => matches!(name, "name" | "driver" | "recursive"),
         ("rebase", None) => matches!(name, "autosquash" | "autostash" | "updaterefs"),
         ("rerere", None) => matches!(name, "enabled" | "autoupdate"),
         _ => false,

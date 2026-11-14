@@ -258,6 +258,57 @@ fn a_working_chat_names_the_row_over_an_earlier_idle_one() {
     assert_eq!(workspace.agent_tab(), Some(2));
 }
 
+// SidebarChatFrontTests.copyAgentIdentifierKeepsTheFirstChatBehindAnIdleShell
+#[test]
+fn copy_agent_identifier_keeps_the_first_chat_behind_an_idle_shell() {
+    let mut busy = chat("b");
+    busy.agent = Some(AgentState::Working);
+    let workspace = workspace(vec![(shell("~", HOME), 3), (chat("a"), 1), (busy, 2)], true);
+    let row = face(&workspace, &context());
+    assert_eq!(row.front, Some(0));
+    assert_eq!(row.label, Some(2), "a working chat names the row over an idle shell");
+    assert_eq!(row.chat, Some(2), "the row shows the label's chat");
+    assert_eq!(row.front_chat, Some(1), "Copy Agent Identifier copies the first chat");
+}
+
+/// A chat still on the New Tab page: the label passes over it, Copy Agent
+/// Identifier's first chat does not.
+#[test]
+fn copy_agent_identifier_counts_a_chat_on_a_new_tab_page() {
+    let mut fresh = chat("a");
+    fresh.new_tab_page = true;
+    let workspace = workspace(vec![(shell("zsh", HOME), 3), (fresh, 1), (chat("b"), 2)], true);
+    let row = face(&workspace, &context());
+    assert_eq!(row.label, Some(2), "the label skips a chat on a New Tab page");
+    assert_eq!(row.chat, Some(2));
+    assert_eq!(row.front_chat, Some(1), "the first chat, New Tab page or not");
+}
+
+/// An idle chat terminal in front (a chat whose agent reports no state,
+/// titled by its shell): the label moves to the working chat, Copy Agent
+/// Identifier keeps the front chat.
+#[test]
+fn copy_agent_identifier_keeps_an_idle_chat_terminal_in_front() {
+    let front = Tab { chat: true, ..shell("zsh", HOME) };
+    let mut busy = chat("b");
+    busy.agent = Some(AgentState::Working);
+    let workspace = workspace(vec![(front, 3), (busy, 1)], true);
+    let row = face(&workspace, &context());
+    assert_eq!(row.front, Some(0));
+    assert_eq!(row.label, Some(1), "the idle chat terminal yields the label to the working chat");
+    assert_eq!(row.chat, Some(1));
+    assert_eq!(row.front_chat, Some(0), "Copy Agent Identifier copies the front chat");
+}
+
+/// Front and label agree: both chats are the same tab.
+#[test]
+fn front_chat_is_the_row_chat_while_the_front_names_the_row() {
+    let row = face(&chat_front("npm test", HOME, true), &context());
+    assert_eq!((row.label, row.chat, row.front_chat), (Some(0), Some(1), Some(1)));
+    let row = face(&chat_front("~", HOME, false), &context());
+    assert_eq!((row.chat, row.front_chat), (None, None));
+}
+
 /// SidebarWorkTabTests: terminals `a` and `b` in their own panes and a page
 /// in a third, each focused at the given time.
 fn work_split(a: u64, b: u64, page: u64) -> Workspace<'static> {

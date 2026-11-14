@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Stages the optional agent screen detector of one macOS target for publication
-# (cmux-tui-build-package.yml "Stage binary", scripts/ci/macos-cross.sh hosts):
-# copies <release-dir>/cmux-agent-screen-detection to <dest>, or, when that
-# build produced none, removes a stale <dest> and prints a GitHub warning
-# annotation. The detector never blocks publication; the app then runs no
-# default detector (cmux-tui spec/plugins.md, "Bundled default").
+# Stages the required agent screen detector of one macOS or Linux musl target
+# for publication (cmux-tui-build-package.yml "Stage binary", scripts/ci/macos-cross.sh):
+# copies <release-dir>/cmux-agent-screen-detection to <dest>. When that build
+# produced none, it removes a stale <dest>, prints a GitHub error annotation and
+# fails: the app, npm and the deferred install put the detector beside the
+# daemon (cmux-tui spec/plugins.md, "Bundled default"). Windows has none.
 # Bash 3.2 compatible (macOS runners).
 #
 # usage: stage-agent-detector.sh <release-dir> <target> <dest>
@@ -19,5 +19,6 @@ if [[ -f "$release_dir/cmux-agent-screen-detection" ]]; then
   chmod 755 "$dest"
 else
   rm -f "$dest"
-  echo "::warning title=agent screen detector missing::$target"
+  echo "::error title=agent screen detector missing::$target"
+  exit 1
 fi

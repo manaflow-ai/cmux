@@ -165,6 +165,9 @@ pub(super) fn resource(
     ) {
         return opened.map_err(|failure| app_open_failure(failure, key.as_deref()));
     }
+    // `agents workspace create` from a cmux terminal against an older
+    // daemon: sent without `created_by`, as `cmux workspace create` is.
+    wire::drop_unsupported_created_by(&mut reader, &socket, &mut request);
     super::super::launch_credential::attach(&mut reader, &socket, &mut request);
     let encoded = resolve::encode_request_bytes(&request)
         .map_err(|message| fail(NotRun, "validation.invalid", message))?;
@@ -192,6 +195,18 @@ pub(super) fn resource(
                     idempotency_key: key.clone(),
                 });
             }
+            // An older daemon refuses an operation it does not know as a
+            // bare envelope error: name it and the upgrade, as the CLI does.
+            let error = match &plan.operation {
+                WireOperation::Typed(operation) => super::super::older_daemon::replace(
+                    &mut reader,
+                    &error,
+                    operation.wire_name(),
+                    Some(socket.as_path()),
+                )
+                .unwrap_or(error),
+                _ => error,
+            };
             Err(CallFailure { kind: Rejected, error, idempotency_key: key.clone() })
         }
         Err(resolve::Failure::Refused) => Err(fail(sent, "session.busy", "session is busy".into())),
@@ -223,6 +238,7 @@ pub(super) fn session_events(
         stream: true,
         resolve: Vec::new(),
         view: ResponseView::Full,
+        filter: Default::default(),
     };
     if let Some(cursor) = cursor {
         plan.params.set("cursor", cursor.clone());
@@ -367,7 +383,8 @@ pub(super) fn app_method(
         None
     };
     let failure = |kind, error| CallFailure { kind, error, idempotency_key: key.clone() };
-    match app::request_with_retry(&mut stream, method, &params, timeout) {
+    // The tool call's own budget, not the 30 s a person's command waits: the MCP client times the call out.
+    match app::request_with_retry_within(&mut stream, method, &params, timeout) {
         Ok(Ok(result)) => Ok(result),
         Ok(Err(error)) => Err(failure(FailureKind::Rejected, error)),
         // Once sent, a change's outcome is unknown; a read changed nothing.

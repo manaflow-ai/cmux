@@ -1,0 +1,12 @@
+/* The preview chip's alternative looks (PreviewChip.gallery.tsx); `accent` is conversation.css's own. */
+.cv-preview-chip-looks[data-look="pill"] .cv-preview-chip {
+  padding: 0 var(--ds-space-2);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--agent-accent) 14%, transparent);
+}
+.cv-preview-chip-looks[data-look="quiet"] .cv-preview-chip {
+  color: var(--cv-text-dim);
+}
+.cv-preview-chip-looks[data-look="quiet"] .cv-preview-chip:hover {
+  color: var(--agent-accent);
+}

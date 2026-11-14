@@ -109,9 +109,14 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     private let unreadableKept = Mutex(false)
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.prompt-journal", qos: .utility)
 
+    /// The prompts no agent took yet, by chat, beside this file: the ones this journal forgets at a
+    /// refusal or another answer stay there until an agent takes them or the person removes them.
+    public let unsentPrompts: AgentPaneUnsentPrompts
+
     public init(url: URL, now: @escaping @Sendable () -> Date = { Date() }) {
         self.url = url
         self.now = now
+        unsentPrompts = AgentPaneUnsentPrompts(directory: url.deletingLastPathComponent(), now: now)
     }
 
     private static func key(_ daemon: String, _ promptId: String) -> String { daemon + "\u{0}" + promptId }

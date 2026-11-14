@@ -4,6 +4,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { UpdateHighlights } from "../src/pages/changelog/updateHighlights";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT", "Node", "Element"] as const;
@@ -25,12 +26,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 // Lawrence 2026-10-31 (msg 19218): "it looks like too much text". The default picked from the
@@ -72,21 +70,25 @@ async function renderCard(d: UpdateHighlights) {
   const noop = () => undefined;
   await act(async () =>
     root!.render(
-      <UpdatedCard data={d} strings={createStrings(table)} actions={{ openChangelog: noop, dismiss: noop }} />,
+      <UpdatedCard
+        data={d}
+        strings={createStrings(table)}
+        actions={{ openChangelog: noop, dismiss: noop }}
+        previewMode="above"
+      />,
     ),
   );
 }
 
-test("the Updated card is the title with What's New on its line, and the one top change", async () => {
+test("the Updated card is the title alone on its line, and the one top change", async () => {
   await renderCard(data);
   expect(host.querySelector(".wn-card-title")?.textContent).toBe("Updated to Nightly");
   const notes = [...host.querySelectorAll(".wn-card-note")].map((n) => n.textContent);
   expect(notes).toEqual(["Composer: dictation progress is announced to VoiceOver"]);
   const buttons = [...host.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"));
-  // The version in the title is the copy button (CopyVersion), then What's New on the title line
-  // (Leo 2026-11-07: "update it to Nightly, and then What's New with the up and to the right
-  // arrow"), then the x.
-  expect(buttons).toEqual(["Nightly", "What's New ↗", "Close"]);
+  // The version in the title is the copy button (CopyVersion), then the x. What's New leads the open
+  // hover preview (Lawrence 2026-11-07: beside the title it cut it to "Updated to ...").
+  expect(buttons).toEqual(["Nightly", "Close"]);
   // No date, build, list or count.
   expect(host.querySelector(".wn-card-eyebrow, .wn-card-build, .wn-card-areas, .wn-card-more")).toBeNull();
   const text = host.textContent ?? "";

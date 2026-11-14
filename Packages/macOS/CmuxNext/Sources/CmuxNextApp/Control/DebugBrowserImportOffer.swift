@@ -17,7 +17,7 @@ enum DebugBrowserImportOffer {
         case "show":
             guard let entry = target(params["tab"]?.stringValue, services) else { return .object(["error": .string("no browser tab on screen")]) }
             // Shown once the installed browsers are known (at once after the first search).
-            offer.findBrowsers { [weak offer, weak entry] found in
+            offer.finder.find { [weak offer, weak entry] found in
                 if let chrome = entry?.chrome { offer?.show(on: chrome, browsers: found) }
             }
         case "answer":

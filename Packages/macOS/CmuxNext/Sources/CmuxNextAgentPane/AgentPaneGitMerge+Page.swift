@@ -59,6 +59,20 @@ public extension AgentPaneGitPullRequest {
         (text.count == 40 || text.count == 64) && text.allSatisfy(\.isHexDigit)
     }
 
+    /// Re-runs the failed jobs of the Actions run `run` in `repository` (`owner/name`) through
+    /// gh's normal path (`gh run rerun <run> --failed`); nil when GitHub took it, else its reason.
+    @concurrent static func rerunFailed(repository: String, run: Int) async -> String? {
+        let parts = repository.split(separator: "/").map(String.init)
+        guard run > 0, parts.count == 2,
+              parts.allSatisfy({ !$0.hasPrefix("-") && $0.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "-._".contains($0)) } }) else {
+            return mergeChangedMessage
+        }
+        guard let gh = gitHubCLI() else { return noGitHubCLIMessage }
+        let outcome = await AgentPaneGitProcess.output(["run", "rerun", String(run), "--failed", "--repo", repository],
+                                                       executable: gh, directory: NSHomeDirectory(), timeout: networkTimeout, network: true)
+        return outcome.status == 0 ? nil : message(outcome)
+    }
+
     /// gh's output for `arguments` in the home folder, for the page's reads beyond the card's
     /// fields (a pull request's body and conversation); nil when gh is missing, fails or times out.
     @concurrent static func pageRead(_ arguments: [String]) async -> Data? {

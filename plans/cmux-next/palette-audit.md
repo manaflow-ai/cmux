@@ -77,8 +77,8 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Window | `closeAllWindows` | Close All Windows |  | b. standard | its section, catalog order |
 | Window | `closeWindow` | Close Window | ⌃⌘W | b. standard | its section, catalog order |
 | Window | `commandPalette` | Command Palette… | ⇧⌘P | b. standard | its section, catalog order |
-| Window | `focusHistoryBack` | Go Back | ⌃- | b. standard | its section, catalog order |
-| Window | `focusHistoryForward` | Go Forward | ⌃⇧- | b. standard | its section, catalog order |
+| Window | `focusHistoryBack` | Go Back | ⌥⌘, | b. standard | its section, catalog order |
+| Window | `focusHistoryForward` | Go Forward | ⌥⌘. | b. standard | its section, catalog order |
 | Window | `focusHistoryLast` | Go to Last Location |  | b. standard | its section, catalog order |
 | Window | `globalSearch` | Search All Windows… | ⌥⌘F | a. daily | first in its section, +120 while typing |
 | Window | `goToWorkspace` | Go to Workspace… | ⌘P | a. daily | first in its section, +120 while typing |

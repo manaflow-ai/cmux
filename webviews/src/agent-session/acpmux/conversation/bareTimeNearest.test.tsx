@@ -5,7 +5,7 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Markdown } from "./Markdown";
-import { timestampHoverLabel } from "./timeHover";
+import { timestampHoverLabel } from "./timeHoverModel";
 
 // Local-zone rows read in the person's zone; this one is on standard time on 2026-11-07.
 process.env.TZ = "America/Los_Angeles";

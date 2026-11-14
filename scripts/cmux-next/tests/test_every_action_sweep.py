@@ -611,7 +611,6 @@ class ExpectationTests(unittest.TestCase):
     def test_each_id_is_checked_against_what_it_makes(self):
         self.assertIsNone(sweep_mod.expectation("newWorkspaceGroup"))
         self.assertIsNone(sweep_mod.expectation("nextWorkspaceGroup"))
-        self.assertIsNone(sweep_mod.expectation("focusRightSidebar"))
         self.assertEqual(sweep_mod.expectation("newTab"), "workspace+")
         self.assertEqual(sweep_mod.expectation("palette.newAgentChat"), "tab+")
         self.assertEqual(sweep_mod.expectation("focusNextPane"), "focus")

@@ -12,7 +12,7 @@
 // card's rect, so a 2 px rise rewrote the transcript's blur filter on every frame of the fade, and
 // the display compositor redrew the whole filtered transcript each time. It leaves with the
 // tooltip's short fade, which moves nothing. A menu opens on the click with no fade either.
-import type { PointerEvent, ReactNode } from "react";
+import { useEffect, type PointerEvent, type ReactNode } from "react";
 import { AnchoredCard } from "../../../ui/Tooltip";
 import { OpenInMenu } from "../previewCard/OpenInMenu";
 import { useT } from "../i18n";
@@ -24,16 +24,9 @@ import type { HoverCard } from "./useHoverCard";
 import "./linkCard.css";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { chatUnderHoverCard, hoverCardGlass } from "../chatUnderGlass";
-
-/// `href`'s host, or `href` when it doesn't parse.
-export function linkHost(href: string): string {
-  try {
-    return new URL(href).host;
-  } catch {
-    return href;
-  }
-}
-
+import { linkHost } from "./linkHoverCardModel";
+import { githubItemRef } from "./pullRequestCardModel";
+import { prefetchPullRequest } from "./pullRequestStore";
 /// `href` with its secrets masked, unless it says no more than `host` (the head names the host).
 function addressBeyond(href: string, host: string): string | undefined {
   const address = redactUrlText(href);
@@ -67,6 +60,17 @@ export function LinkHoverCard({
   // Read only: the link opens in the reader's own browser as a plain link; cmux's tabs are the owner's.
   const readOnly = useTranscriptReadOnly();
   const host = linkHost(href);
+  // A pull request's or issue's card asks the host on hover intent, when the pointer reaches the
+  // link, so the read runs during the dwell and the card opens with it (pullRequestStore.ts).
+  const item = pullRequest && !readOnly ? (githubItemRef(href)?.url ?? href) : undefined;
+  useEffect(() => {
+    if (!item) return;
+    const intent = hover.intent;
+    intent.current = () => prefetchPullRequest(item);
+    return () => {
+      intent.current = undefined;
+    };
+  }, [item, hover.intent]);
   // Any http(s) link opens in a cmux tab as a click on it does (`browser.openIn` with cmux's own id,
   // which spends the click's gesture); `browser.open` takes only a turn's local preview page.
   const openInCmux = (url: string) => void callChipHost("browser.openIn", { url, browserId: "cmux" });

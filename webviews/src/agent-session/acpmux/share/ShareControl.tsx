@@ -30,14 +30,16 @@ export const shareToasts = createNoticeQueue(1);
 const EMPTY: ShareView = shareView([]);
 
 /** A daemon refusal's line for the dialog's status. */
-function failure(error: unknown): string {
+export function shareFailureText(error: unknown): string {
   const code = (error as { code?: unknown } | undefined)?.code ?? (error as Error | undefined)?.message;
   if (code === "share.no_room") return translate("share.error.noRoom");
   if (code === "share.needs_sign_in") return translate("share.error.signIn");
   if (code === "gesture_required") return translate("share.error.gesture");
   if (code === "share.restrict_raced") return translate("share.error.restrictRaced");
-  const message = (error as { message?: unknown } | undefined)?.message;
-  return typeof message === "string" && message ? message : translate("share.error.generic");
+  // Any other refusal is the daemon's or the server's English: the log keeps it, the status says
+  // "That didn't finish. Try again."
+  console.warn("agent pane: sharing failed", error);
+  return translate("share.error.generic");
 }
 
 export function ShareDialogHost({
@@ -71,14 +73,14 @@ export function ShareDialogHost({
     try {
       setView(await client.state());
     } catch (error) {
-      setStatus(failure(error));
+      setStatus(shareFailureText(error));
     }
   };
   const step = async (work: () => Promise<unknown>) => {
     setBusy(true);
     const failed = await work().then(
       () => null,
-      (error: unknown) => failure(error),
+      (error: unknown) => shareFailureText(error),
     );
     setStatus(failed);
     await reload();
@@ -95,7 +97,7 @@ export function ShareDialogHost({
         setView(next);
         setLoaded(true);
       },
-      (error: unknown) => current && setStatus(failure(error)),
+      (error: unknown) => current && setStatus(shareFailureText(error)),
     );
     return () => {
       current = false;
@@ -125,7 +127,7 @@ export function ShareDialogHost({
         open={open}
         onOpenChange={onOpenChange}
         label={t("share.title", { chat })}
-        className="ui-glass share-dialog-popup"
+        className="ui-glass ui-glass-floats share-dialog-popup"
       >
         <ShareDialogBody
           chat={chat}
@@ -142,7 +144,10 @@ export function ShareDialogHost({
       </Dialog>
       {/* Over the page, not the header: the header is a positioned row, so the stack's bottom
           would resolve against it and clip. */}
-      {createPortal(<NoticeStack queue={shareToasts} dismissLabel={t("share.dismiss")} />, document.body)}
+      {createPortal(
+        <NoticeStack queue={shareToasts} dismissLabel={t("share.dismiss")} label={t("toast.region")} />,
+        document.body,
+      )}
     </>
   );
 }

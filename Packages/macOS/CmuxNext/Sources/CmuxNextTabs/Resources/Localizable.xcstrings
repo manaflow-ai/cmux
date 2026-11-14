@@ -8389,7 +8389,7 @@
       }
     },
     "tabs.zoom.exit": {
-      "comment": "A zoomed pane's indicator on its selected tab: tooltip and VoiceOver label; a click restores the layout.",
+      "comment": "A zoomed pane's indicator at the pane's top-right: tooltip and VoiceOver label; a click restores the layout.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -8521,7 +8521,7 @@
       }
     },
     "tabs.ax.zoomed": {
-      "comment": "VoiceOver: part of a tab's label while its pane is zoomed (the tab shows the zoom indicator).",
+      "comment": "VoiceOver: part of a tab's label while its pane is zoomed.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -14181,6 +14181,110 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "懸停關閉"}}
       }
     },
+    "tabs.playground.section.hoverCard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Hover Card"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ホバーカード"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "بطاقة التمرير"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Kartica pri prelasku"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Svævekort"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Hover-Karte"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Tarjeta flotante"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Carte de survol"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Scheda al passaggio"}},
+        "km": {"stringUnit": {"state": "translated", "value": "កាតពេលដាក់ព្រួញ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "호버 카드"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Svevekort"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Karta po najechaniu"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Cartão ao passar o mouse"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Всплывающая карточка"}},
+        "th": {"stringUnit": {"state": "translated", "value": "การ์ดเมื่อชี้"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Üzerine gelme kartı"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Спливна картка"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Thẻ khi di chuột"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "悬停卡片"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "懸停卡片"}}
+      }
+    },
+    "tabs.playground.hoverCard.morph": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Grows out of the tab, settling like a drop"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "タブから伸び出し、しずくのように落ち着きます"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تنبثق من علامة التبويب وتستقر كقطرة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Izrasta iz kartice i smiruje se poput kapi"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Vokser ud af fanen og falder til ro som en dråbe"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wächst aus dem Tab heraus und kommt wie ein Tropfen zur Ruhe"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Surge de la pestaña y se asienta como una gota"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Naît de l’onglet et se pose comme une goutte"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Nasce dalla scheda e si assesta come una goccia"}},
+        "km": {"stringUnit": {"state": "translated", "value": "លូតចេញពីផ្ទាំង ហើយស្ងប់ដូចដំណក់ទឹក"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "탭에서 자라나 물방울처럼 자리 잡습니다"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Vokser ut av fanen og legger seg som en dråpe"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wyrasta z karty i osiada jak kropla"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Surge da aba e se acomoda como uma gota"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Вырастает из вкладки и оседает, как капля"}},
+        "th": {"stringUnit": {"state": "translated", "value": "งอกออกจากแท็บและนิ่งลงเหมือนหยดน้ำ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Sekmeden çıkar ve bir damla gibi yerine oturur"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Виростає з вкладки й осідає, як крапля"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Mọc ra từ thẻ và lắng xuống như một giọt nước"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "从标签页中长出，像水滴一样落定"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "從分頁中長出，像水滴一樣落定"}}
+      }
+    },
+    "tabs.playground.hoverCard.slide": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Fades in while it slides down from the tab"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "タブから下へスライドしながらフェードインします"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تظهر تدريجيًا أثناء انزلاقها لأسفل من علامة التبويب"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Postepeno se pojavljuje dok klizi naniže iz kartice"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Toner frem, mens det glider ned fra fanen"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Blendet ein, während sie vom Tab nach unten gleitet"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Aparece gradualmente mientras se desliza hacia abajo desde la pestaña"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Apparaît en fondu en glissant vers le bas depuis l’onglet"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Appare in dissolvenza scorrendo verso il basso dalla scheda"}},
+        "km": {"stringUnit": {"state": "translated", "value": "លេចឡើងបន្តិចម្ដងៗ ពេលរអិលចុះពីផ្ទាំង"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "탭에서 아래로 미끄러지며 서서히 나타납니다"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Toner inn mens det glir ned fra fanen"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pojawia się stopniowo, zsuwając się z karty"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Aparece gradualmente enquanto desliza para baixo a partir da aba"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Проявляется, соскальзывая вниз от вкладки"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ค่อย ๆ ปรากฏขณะเลื่อนลงจากแท็บ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Sekmeden aşağı kayarken belirir"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "З’являється, зісковзуючи вниз від вкладки"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Hiện dần trong khi trượt xuống từ thẻ"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "从标签页向下滑出时淡入"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "從分頁向下滑出時淡入"}}
+      }
+    },
+    "tabs.playground.hoverCard.fade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Fades in where it rests"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "止まる位置でフェードインします"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تظهر تدريجيًا في موضع استقرارها"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Postepeno se pojavljuje tamo gdje miruje"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Toner frem, hvor det hviler"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Blendet an ihrer Ruheposition ein"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Aparece gradualmente donde se detiene"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Apparaît en fondu là où elle se pose"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Appare in dissolvenza dove si ferma"}},
+        "km": {"stringUnit": {"state": "translated", "value": "លេចឡើងបន្តិចម្ដងៗ នៅកន្លែងដែលវាឈប់"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "멈추는 자리에서 서서히 나타납니다"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Toner inn der det hviler"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pojawia się stopniowo w miejscu spoczynku"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Aparece gradualmente onde fica"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Проявляется там, где останавливается"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ค่อย ๆ ปรากฏที่ตำแหน่งที่หยุดนิ่ง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Durduğu yerde belirir"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "З’являється там, де зупиняється"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Hiện dần tại chỗ nó dừng"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在停留位置淡入"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在停留位置淡入"}}
+      }
+    },
     "tabs.playground.hoverClose.crossFade": {
       "extractionState": "manual",
       "localizations": {
@@ -14361,6 +14465,188 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Thẻ và vùng tô bên trong: %@ pt"}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "标签页和内部填充：%@ pt"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "分頁與內部填色：%@ pt"}}
+      }
+    },
+    "tabs.playground.folder.firstLeft": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Subtle Tone, the first tab selected, sidebar on the left"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "控えめなトーン、最初のタブを選択、サイドバーは左"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "درجة خفيفة، علامة التبويب الأولى محددة، الشريط الجانبي على اليسار"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Blagi ton, odabrana prva kartica, bočna traka lijevo"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Diskret tone, første fane valgt, sidepanel til venstre"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Dezenter Ton, erster Tab ausgewählt, Seitenleiste links"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Tono sutil, primera pestaña seleccionada, barra lateral a la izquierda"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Ton subtil, premier onglet sélectionné, barre latérale à gauche"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Tono tenue, prima scheda selezionata, barra laterale a sinistra"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពណ៌ស្រាល ជ្រើសផ្ទាំងទីមួយ របារចំហៀងនៅខាងឆ្វេង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "은은한 톤, 첫 번째 탭 선택, 사이드바 왼쪽"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Diskret tone, første fane valgt, sidefelt til venstre"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Subtelny odcień, zaznaczona pierwsza karta, pasek boczny po lewej"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Tom sutil, primeira aba selecionada, barra lateral à esquerda"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Мягкий тон, выбрана первая вкладка, боковая панель слева"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "โทนอ่อน เลือกแท็บแรก แถบด้านข้างอยู่ทางซ้าย"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Hafif ton, ilk sekme seçili, kenar çubuğu solda"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "М’який тон, вибрано першу вкладку, бічна панель ліворуч"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tông nhẹ, chọn thẻ đầu tiên, thanh bên ở bên trái"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "柔和色调，选中第一个标签页，边栏在左侧"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "柔和色調，選取第一個分頁，側邊欄在左側"}}
+      }
+    },
+    "tabs.playground.folder.firstRight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Subtle Tone, the first tab selected, sidebar on the right"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "控えめなトーン、最初のタブを選択、サイドバーは右"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "درجة خفيفة، علامة التبويب الأولى محددة، الشريط الجانبي على اليمين"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Blagi ton, odabrana prva kartica, bočna traka desno"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Diskret tone, første fane valgt, sidepanel til højre"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Dezenter Ton, erster Tab ausgewählt, Seitenleiste rechts"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Tono sutil, primera pestaña seleccionada, barra lateral a la derecha"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Ton subtil, premier onglet sélectionné, barre latérale à droite"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Tono tenue, prima scheda selezionata, barra laterale a destra"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពណ៌ស្រាល ជ្រើសផ្ទាំងទីមួយ របារចំហៀងនៅខាងស្ដាំ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "은은한 톤, 첫 번째 탭 선택, 사이드바 오른쪽"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Diskret tone, første fane valgt, sidefelt til høyre"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Subtelny odcień, zaznaczona pierwsza karta, pasek boczny po prawej"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Tom sutil, primeira aba selecionada, barra lateral à direita"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Мягкий тон, выбрана первая вкладка, боковая панель справа"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "โทนอ่อน เลือกแท็บแรก แถบด้านข้างอยู่ทางขวา"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Hafif ton, ilk sekme seçili, kenar çubuğu sağda"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "М’який тон, вибрано першу вкладку, бічна панель праворуч"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tông nhẹ, chọn thẻ đầu tiên, thanh bên ở bên phải"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "柔和色调，选中第一个标签页，边栏在右侧"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "柔和色調，選取第一個分頁，側邊欄在右側"}}
+      }
+    },
+    "tabs.playground.folder.fullscreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Subtle Tone, full screen"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "控えめなトーン、フルスクリーン"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "درجة خفيفة، ملء الشاشة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Blagi ton, preko cijelog ekrana"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Diskret tone, fuld skærm"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Dezenter Ton, Vollbild"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Tono sutil, pantalla completa"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Ton subtil, plein écran"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Tono tenue, schermo intero"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពណ៌ស្រាល ពេញអេក្រង់"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "은은한 톤, 전체 화면"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Diskret tone, fullskjerm"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Subtelny odcień, pełny ekran"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Tom sutil, tela cheia"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Мягкий тон, полноэкранный режим"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "โทนอ่อน เต็มหน้าจอ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Hafif ton, tam ekran"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "М’який тон, повний екран"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tông nhẹ, toàn màn hình"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "柔和色调，全屏"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "柔和色調，全螢幕"}}
+      }
+    },
+    "tabs.playground.folder.middle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Subtle Tone, a middle tab selected"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "控えめなトーン、中央のタブを選択"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "درجة خفيفة، علامة تبويب وسطى محددة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Blagi ton, odabrana srednja kartica"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Diskret tone, en midterfane valgt"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Dezenter Ton, ein mittlerer Tab ausgewählt"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Tono sutil, una pestaña central seleccionada"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Ton subtil, un onglet du milieu sélectionné"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Tono tenue, una scheda centrale selezionata"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពណ៌ស្រាល ជ្រើសផ្ទាំងកណ្ដាល"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "은은한 톤, 가운데 탭 선택"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Diskret tone, en midtfane valgt"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Subtelny odcień, zaznaczona środkowa karta"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Tom sutil, uma aba do meio selecionada"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Мягкий тон, выбрана средняя вкладка"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "โทนอ่อน เลือกแท็บกลาง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Hafif ton, ortadaki sekme seçili"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "М’який тон, вибрано середню вкладку"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tông nhẹ, chọn một thẻ ở giữa"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "柔和色调，选中中间的标签页"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "柔和色調，選取中間的分頁"}}
+      }
+    },
+    "tabs.playground.folder.oneColor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "One Color"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "単色"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لون واحد"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Jedna boja"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Én farve"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Eine Farbe"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Un color"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Une couleur"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Un colore"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពណ៌តែមួយ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "단색"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Én farge"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Jeden kolor"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Uma cor"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Один цвет"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "สีเดียว"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Tek renk"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Один колір"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Một màu"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "单色"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "單色"}}
+      }
+    },
+    "tabs.playground.folder.tabTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Tab %lld"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "タブ %lld"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "علامة التبويب %lld"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Kartica %lld"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Fane %lld"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Registerkarte %lld"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Pestaña %lld"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Onglet %lld"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Scheda %lld"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ផ្ទាំង %lld"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "탭 %lld"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Fane %lld"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Karta %lld"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Aba %lld"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Вкладка %lld"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แท็บ %lld"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Sekme %lld"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Вкладка %lld"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thẻ %lld"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "标签页 %lld"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "分頁 %lld"}}
+      }
+    },
+    "tabs.playground.section.folderCorners": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Folder Corners"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "フォルダタブの角"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "زوايا علامات التبويب المجلدية"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Uglovi kartica-mapa"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Mappefanernes hjørner"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ordnertab-Ecken"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Esquinas de pestaña carpeta"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Coins des onglets dossier"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Angoli delle schede a cartella"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ជ្រុងផ្ទាំងថត"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "폴더 탭 모서리"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Mappefanehjørner"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Narożniki kart-folderów"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Cantos da aba pasta"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Углы вкладок-папок"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "มุมแท็บโฟลเดอร์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Klasör sekmesi köşeleri"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Кути вкладок-тек"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Góc thẻ dạng thư mục"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "文件夹标签页圆角"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "資料夾分頁圓角"}}
       }
     },
     "tabs.playground.section.pinnedGap": {

@@ -95,6 +95,8 @@ ALLOWED: dict[str, str] = {
         'uses the minted App token: its mint has no continue-on-error, so the github.token fallback never applies',
     'nightly.yml: Continue the newest accepted pending notarization':
         'walks at most 5 recovery candidates once each; the only sleep retries feed reads from files.cmux.com',
+    'nightly.yml: Build the tip while its tree publishes':
+        "the scan reads every loop of a script the step runs; the step reads pin-cmux-tui.sh runs-state once per same-key candidate and active-publisher once, no polling; github_get sleeps only through a rate-limit refusal",
     'nightly.yml: Resolve cmux-tui client commit':
         "the scan reads every loop of a script the step runs; its walk visits at most 50 commits once each; only when none resolves it waits for the tip's active publisher (files.cmux.com every 30 s, one run read every 300 s, at most 3000 s)",
     'actions-artifact-prune.yml: Prune':
@@ -189,6 +191,11 @@ class PythonTests(unittest.TestCase):
         multiline = ("import time\ndef state(\n    a,\n    b,\n):\n    return urllib.request.urlopen(a)\n"
                      "while True:\n    state(1, 2)\n    time.sleep(5)\n")
         self.assertTrue(python_polls(multiline))
+        # The deadline transport is an HTTP call too, buffered or streamed (scripts/ci/deadline_http.py).
+        for call in ("deadline_http.request(u, 30)",
+                     "with deadline_http.stream(u, 30) as answer:\n        answer.read()"):
+            with self.subTest(call=call):
+                self.assertTrue(python_polls(f"import time\nwhile True:\n    {call}\n    time.sleep(5)\n"))
 
     def test_a_nested_helper_does_not_hide_the_global_one(self) -> None:
         py = ("import time\ndef state():\n    return gh_json('api', 'x')\ndef unused():\n    def state():\n"

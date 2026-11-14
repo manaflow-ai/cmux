@@ -38,21 +38,21 @@ enum SidebarTopProjection: Equatable {
 struct SidebarWorkspaceItems {
     /// How each open workspace a layout item names draws; a ref with no
     /// entry is closed or another device's (drawn dimmed by the fallback).
-    /// `favicon` gives a page tab's favicon (`AppServices.sidebarPageFavicon`), so a site's item shows it once it loads.
-    static func workspaceInfos(_ layout: SidebarLayoutDocument, refs: WorkspaceLayoutRefs, autoNames: Bool = true, favicon: @escaping (WorkspaceModel, TabModel) -> SidebarFavicon? = { _, _ in nil },
+    /// `pageFace` is the face the list's rows read (`AppServices.sidebarPageFace`): a site's item shows its favicon once it loads.
+    static func workspaceInfos(_ layout: SidebarLayoutDocument, refs: WorkspaceLayoutRefs, autoNames: Bool = true, pageFace: @escaping (WorkspaceModel, TabModel, TabModel?) -> SidebarMapping.PageFace = { _, _, _ in .init() },
                                faces: SidebarFaceBatch? = nil) -> [LayoutItemRef: SidebarItemInfo] {
         var seen = Set<LayoutItemRef>()
         let items = layout.sections.flatMap(\.items).filter { $0.ref.kind == LayoutItemRef.workspaceKind && seen.insert($0.ref).inserted }
             .compactMap { item in refs.workspace(for: item.ref).map { (ref: item.ref, workspace: $0.0, machine: MachineID($0.1.machineID)) } }
-        let infos = SidebarMapping.shared.tileInfos(items.map { ($0.workspace, $0.machine) }, favicon: favicon, homeShellTitle: homeShellTitle(autoNames), faces: faces)
+        let infos = SidebarMapping.shared.tileInfos(items.map { ($0.workspace, $0.machine) }, pageFace: pageFace, homeShellTitle: homeShellTitle(autoNames), faces: faces)
         return Dictionary(zip(items.map(\.ref), infos), uniquingKeysWith: { first, _ in first })
     }
 
     /// A workspace's band item (`SidebarItemInfo(workspaceRow:color:)`) with the row's status; the selection marks it
     /// active (SidebarModel.selectedItem).
     static func workspaceInfo(_ workspace: WorkspaceModel, machine: MachineID, autoNames: Bool = true,
-                              favicon: @escaping (WorkspaceModel, TabModel) -> SidebarFavicon? = { _, _ in nil }) -> SidebarItemInfo {
-        SidebarMapping.shared.tileInfos([(workspace, machine)], favicon: favicon, homeShellTitle: homeShellTitle(autoNames)).first
+                              pageFace: @escaping (WorkspaceModel, TabModel, TabModel?) -> SidebarMapping.PageFace = { _, _, _ in .init() }) -> SidebarItemInfo {
+        SidebarMapping.shared.tileInfos([(workspace, machine)], pageFace: pageFace, homeShellTitle: homeShellTitle(autoNames)).first
             ?? SidebarItemInfo(workspaceRow: SidebarMapping.unmapped(workspace, machine: machine), color: nil)
     }
 

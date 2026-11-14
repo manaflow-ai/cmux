@@ -10,14 +10,10 @@ import Foundation
 /// menu and the palette those of the front window's Chief Home
 /// (HomeChiefActions). The toast lists what stopped and offers Restart.
 extension HomeHostView {
-    /// The stop button's actions: a click runs the shared stop action;
-    /// Option-click stops all agents of this Home's own Chief (never another
-    /// Home's in the same window).
-    func wireStopButton(_ registry: ActionRegistry) {
-        transcript.onStop = { [weak self] in
-            guard let self else { return }
-            _ = registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user))
-        }
+    /// The stop button's Option-click: stops all agents of this Home's own Chief (never another Home's in the
+    /// same window). A click runs the shared stop action (``HomeChiefTurnActions``, over ``HomeChiefHomes``).
+    func wireStopButton() {
+        _ = turnActions  // made now: it wires the click
         transcript.onStopAll = { [weak self] in self?.stopAllAgents() }
         transcript.stopToolTip = HomeStopAllStrings.stopToolTip
     }

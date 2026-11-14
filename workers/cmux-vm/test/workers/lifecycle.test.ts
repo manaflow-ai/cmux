@@ -106,6 +106,19 @@ describe("createVm", () => {
     ]);
   });
 
+  it("tags a Stack team's VM with the vault's production tenant key, outside the create digest", async () => {
+    const team = "0b6f3a52-6c1e-4f43-9a1e-2d7c5e8f9a10";
+    const t = await harness({ environment: "production" });
+    t.setBilling(team, true);
+    const key = await t.addKey(team, ["vm:write"]);
+
+    expect((await createVm(t, key)).status).toBe(201);
+    const [sent] = t.upstream.callsTo("POST", /^\/v5\/vms$/).map((call) => call.json);
+    expect(sent).toMatchObject({ metadata: { cmux_tenant: team, cmux_vt: team } });
+    expect(sent).not.toHaveProperty("metadata.cmux_vt_stg");
+    expect(sent).not.toHaveProperty("metadata.cmux_vt_dev");
+  });
+
   it("boots from the tenant's own snapshot by its upstream id", async () => {
     const t = await harness();
     const key = await t.addKey(TENANT_A, ["vm:write"]);

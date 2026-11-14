@@ -8,6 +8,7 @@ import Testing
 /// the daemon keeps, the learned picks of 600 runs) and every workspace's sidebar place. Also the
 /// cost of building the rows (`WorkspacePaletteProvider.makeItems`, which now sorts by sidebar place), and
 /// the full history both ways: sent with every query (before) and installed once per revision (after).
+/// With memory, every workspace also has a last use (recency, ``PaletteRecencyPrior``).
 ///
 /// A measurement, not a check: it runs only with `CMUX_CMDP_RANK_BENCH=1`, on an idle fleet host:
 ///
@@ -29,12 +30,14 @@ struct CmdPRankBench {
     private static let count = 1000
     private static let queries = ["a", "al", "alp", "alpha", "build c", "fleet", "w12", "router 3", "zz", "sidebar tunnel"]
 
-    private static func workspaces(ranked: Bool) -> [PaletteWorkspace] {
+    private static func workspaces(ranked: Bool, now: Date) -> [PaletteWorkspace] {
         (0..<count).map { index in
             PaletteWorkspace(id: "w\(index)", title: "\(words[index % 20]) \(words[(index / 20) % 20]) \(index)",
                              directory: "~/fun/\(words[(index / 3) % 20])",
                              // A shuffled sidebar: places differ from the source order.
-                             sidebarRank: ranked ? (index * 7919) % count : nil)
+                             sidebarRank: ranked ? (index * 7919) % count : nil,
+                             // Every workspace used once, minutes to days ago, in another shuffled order (recency).
+                             lastUsed: ranked ? now.addingTimeInterval(-Double((index * 4099) % count) * 300) : nil)
         }
     }
 
@@ -64,7 +67,7 @@ struct CmdPRankBench {
 
     private static func measure(memory: Bool, sendsHistory: Bool = false) -> (rows: String, rank: String) {
         let now = Date()
-        let provider = WorkspacePaletteProvider(source: Workspaces(workspaces(ranked: memory)), showsItemsForEmptyQuery: true)
+        let provider = WorkspacePaletteProvider(source: Workspaces(workspaces(ranked: memory, now: now)), showsItemsForEmptyQuery: true)
         var items: [PaletteItem] = []
         let rows = (0..<50).map { _ in cpuMilliseconds { items = provider.makeItems() } }
         var index = PaletteSearchIndex(items: items)

@@ -7,11 +7,12 @@ import Testing
 /// solid bgs too". In every bundled theme (Ghostty's and cmux's own, each in the mode its colors give it), with an
 /// opaque sidebar and a see-through one, for every group color (none, each palette color, a custom color, and a custom
 /// color equal to the sidebar's own background), as the header bar and as the quiet looks' wash, glass and solid,
-/// from the fixed palette and from the theme, at rest and hovered: the background as seen over the sidebar keeps
+/// from every palette (`GroupPalette`), at rest and hovered: the background as seen over the sidebar keeps
 /// ``GroupBackground/minimumVisibleContrast`` against it. Glass composites to the same color and is never opaque; the
 /// bar's ink keeps 4.5:1. Before, a group with no color drew no background at all (1:1, an invisible group).
 @MainActor @Suite struct GroupBackgroundEveryThemeTests {
     static let opacities = [1.0, 0.7]
+    static let wallpaper = WallpaperTint(red: 0.2, green: 0.35, blue: 0.6)
 
     static func tints(_ tokens: ThemeTokens) -> [(String, GroupTint)] {
         [("none", GroupTint.none)] + GroupColor.allCases.map { ($0.rawValue, GroupTint.palette($0)) } + [
@@ -39,10 +40,12 @@ import Testing
                 for (name, tint) in Self.tints(tokens) {
                     for strength in [GroupBackground.Strength.band, .wash] {
                         for glass in [false, true] {
-                            for themed in [false, true] {
+                            // Every palette a group draws from (glass draws vibrant); the wallpaper one from a blue picture.
+                            for palette in [GroupPalette.vibrant, .theme, .grayscale, .wallpaper] {
                                 checked += 1
-                                let label = "\(theme.label) opacity \(opacity) \(name) \(strength) \(glass ? "glass" : "solid")\(themed ? " themed" : "")"
-                                let background = GroupBackground(tint: tint, strength: strength, glass: glass, themed: themed, tokens: tokens)
+                                let label = "\(theme.label) opacity \(opacity) \(name) \(strength) \(glass ? "glass" : "solid") \(palette)"
+                                let background = GroupBackground(tint: tint, strength: strength, glass: glass, palette: palette,
+                                                                 wallpaper: Self.wallpaper, tokens: tokens)
                                 let rest = background.fill.composited(over: ground)
                                 if rest.contrast(with: ground) < minimum {
                                     failures.append(String(format: "%@: rest %.3f:1", label, rest.contrast(with: ground)))

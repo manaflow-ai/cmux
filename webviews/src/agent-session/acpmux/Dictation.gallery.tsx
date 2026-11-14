@@ -2,17 +2,48 @@
 import { useEffect, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
-import { setComposerSettings } from "./composerSettings";
+import { setComposerSettings, type DictationSource } from "./composerSettings";
 import { DictationMic } from "./DictationMic";
 import { deliverDictation, type Dictation } from "./dictation";
 import type { DictationUpdate } from "./dictationText";
 import { DictationNotice } from "./DictationNotice";
+import "./DictationPill.gallery.css";
+import { setDictationApps, type InstalledDictationApp } from "./dictationSources";
 import { SHORTCUT_ACTIONS, ShortcutsContext } from "./shortcuts";
 
 type Props = {
   initialState: Dictation["state"];
   initialNotice: DictationUpdate | null;
+  /// `agentPane.dictationSource` (cmux's own unless a variant picks an app).
+  source?: DictationSource;
+  /// A pill look weighed against the shipped one (DictationPill.gallery.css); none is the shipped pill.
+  look?: "contrast" | "accent" | "quiet" | "bare";
 };
+
+/// The dictation apps this fixture Mac has, as the host's `dictation.sources` lists them.
+const APPS: InstalledDictationApp[] = [
+  { id: "chatgpt", bundleId: "com.openai.codex" },
+  { id: "wisprFlow", bundleId: "com.electron.wispr-flow" },
+];
+
+/// A stand-in app icon (the host draws the real one, `attachment.sourceIcon`): a rounded tile.
+function appIcon(bundleId: string): string | undefined {
+  const look = bundleId === "com.openai.codex" ? { fill: "#111", letter: "G" } : { fill: "#5b4bdb", letter: "W" };
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 64;
+  const ink = canvas.getContext("2d");
+  if (!ink) return undefined;
+  ink.fillStyle = look.fill;
+  ink.beginPath();
+  ink.roundRect(4, 4, 56, 56, 14);
+  ink.fill();
+  ink.fillStyle = "white";
+  ink.font = "600 34px -apple-system, system-ui, sans-serif";
+  ink.textAlign = "center";
+  ink.textBaseline = "middle";
+  ink.fillText(look.letter, 32, 34);
+  return canvas.toDataURL("image/png");
+}
 
 const update = (state: DictationUpdate["state"], extra: Partial<DictationUpdate> = {}): DictationUpdate => ({
   state,
@@ -25,7 +56,18 @@ const update = (state: DictationUpdate["state"], extra: Partial<DictationUpdate>
 /// A second of speech for the waveform: one level per update, as the host sends about 12 a second.
 const SPEECH = [0.12, 0.35, 0.62, 0.48, 0.81, 0.66, 0.3, 0.74, 0.52, 0.9, 0.58];
 
-function GalleryDictation({ initialState, initialNotice }: Props) {
+function GalleryDictation({ initialState, initialNotice, source = "cmux", look }: Props) {
+  useState(() => {
+    const actions = (window.cmuxAcpmuxActions ??= {});
+    actions["attachment.sourceIcon"] = async (params) => {
+      const src = typeof params.bundleId === "string" ? appIcon(params.bundleId) : undefined;
+      return src ? { src } : {};
+    };
+    actions["dictation.sources"] = async () => ({ sources: APPS });
+    setDictationApps(APPS);
+    setComposerSettings({ dictationSource: source });
+    return null;
+  });
   const [state, setState] = useState<Dictation["state"]>(initialState);
   const [notice, setNotice] = useState<DictationUpdate | null>(initialNotice);
   const [settingsOpened, setSettingsOpened] = useState(false);
@@ -57,7 +99,10 @@ function GalleryDictation({ initialState, initialNotice }: Props) {
 
   return (
     <ShortcutsContext.Provider value={{ [SHORTCUT_ACTIONS.toggleDictation]: "⇧⌘D" }}>
-      <div className="acpmux-shell acpmux-dictation-gallery" data-dictation-fixture>
+      <div
+        className={`acpmux-shell acpmux-dictation-gallery${look ? ` acpmux-dictation-gallery--${look}` : ""}`}
+        data-dictation-fixture
+      >
         <div className="acpmux-dictation-notice-host">
           <DictationNotice dictation={dictation} />
         </div>
@@ -121,6 +166,7 @@ export default componentEntry<Props>({
     "agent-session/acpmux/DictationListening.tsx#DictationWave",
     "agent-session/acpmux/DictationListening.tsx#DictationStrip",
     "agent-session/acpmux/DictationNotice.tsx#DictationNotice",
+    "agent-session/acpmux/dictationSources.ts#useDictationApps",
   ],
   styles: () => import("./styles.css"),
   checks: {
@@ -146,7 +192,52 @@ export default componentEntry<Props>({
     idle: { props: { initialState: "idle", initialNotice: null } },
     listening: {
       props: { initialState: "listening", initialNotice: null },
-      note: "Listening: a waveform of thin bars that fades to dots at both ends, and the lit mic; no send of its own (the composer's Send ends the session).",
+      note: 'Shipped. Listening: a compact solid pill holding a waveform of thin bars that fades to dots at both ends, and the lit mic; no send of its own (the composer\'s Send ends the session). The pill follows the theme: dark in a dark theme, its light counterpart in a light one (Leo 2026-11-08: "are you able to have it be, like, the [...] black pill?").',
+    },
+    "pill-contrast": {
+      props: { initialState: "listening", initialNotice: null, look: "contrast" },
+      note: "Weighed: the theme's ink as the pill (dark in a light theme, light in a dark one). Loudest of the looks; in a dark theme it is a white capsule, not the dark one asked for.",
+    },
+    "pill-accent": {
+      props: { initialState: "listening", initialNotice: null, look: "accent" },
+      note: "Weighed: the themed pill with accent-colored bars. Reads as a second lit control beside the lit mic.",
+    },
+    "pill-quiet": {
+      props: { initialState: "listening", initialNotice: null, look: "quiet" },
+      note: "Weighed: the themed pill with dimmed bars. Calm, but the level reads poorly on the pill.",
+    },
+    "pill-bare": {
+      props: { initialState: "listening", initialNotice: null, look: "bare" },
+      note: "Before: the waveform alone, with no pill.",
+    },
+    "source-menu": {
+      props: { initialState: "idle", initialNotice: null },
+      play: async (ctx) => ctx.contextMenu({ role: "button", name: "Dictate" }),
+      note: "The mic's right-click picks what it dictates with: cmux, macOS Dictation, and each dictation app this Mac has (here ChatGPT and Wispr Flow), above Hide Dictation Button.",
+    },
+    "source-chatgpt": {
+      props: { initialState: "idle", initialNotice: null, source: "chatgpt" },
+      note: "Dictating with ChatGPT: the mic wears ChatGPT's icon at the glyph's size, and its press sends ChatGPT's shortcut (Leo 2026-11-07: \"maybe you can map the button to that thing\").",
+    },
+    "source-pick": {
+      props: { initialState: "idle", initialNotice: null },
+      play: async (ctx) => {
+        await ctx.contextMenu({ role: "button", name: "Dictate" });
+        await ctx.click({ role: "menuitemcheckbox", name: "Dictate with ChatGPT" });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-mic[data-source="chatgpt"] img') !== null);
+      },
+      note: "Picking ChatGPT in the menu puts its icon on the mic in place, with no layout change.",
+    },
+    "source-unavailable": {
+      props: {
+        initialState: "idle",
+        initialNotice: {
+          ...update("failed"),
+          message: "To send ChatGPT's shortcut, allow cmux in System Settings > Privacy & Security > Accessibility.",
+        },
+        source: "chatgpt",
+      },
+      note: "A hand-off the host could not make says why above the composer, naming the app.",
     },
     "idle-menu": {
       props: { initialState: "idle", initialNotice: null },
@@ -169,7 +260,7 @@ export default componentEntry<Props>({
     start: {
       props: { initialState: "idle", initialNotice: null },
       play: start,
-      note: "The mic keeps the composer focused while the waveform comes in beside it.",
+      note: "The mic keeps the composer focused while the pill comes in beside it, on the shared presence motion; the mic and the row stay where they are.",
     },
     stop: {
       props: { initialState: "listening", initialNotice: null },

@@ -11,6 +11,10 @@ export const doneReportLook = defineExperiment({
   description:
     "A finished subagent's line and its final report: a chevron after the words opens it under the line, its first two lines always shown with Show more, or the line only opens the agent's view.",
   arms: {
+    compact: {
+      label: "Compact completion",
+      description: "A quiet name-finished line without a chevron; the name opens the agent and its full report.",
+    },
     disclosure: {
       label: "Chevron opens report",
       description: "A chevron right after the line's words opens the report under the line; the line opens the view.",
@@ -24,7 +28,7 @@ export const doneReportLook = defineExperiment({
       description: "As it was: the line only opens the agent's view, the report is there.",
     },
   },
-  defaultArm: "disclosure",
+  defaultArm: "compact",
 });
 
 export type DoneReportLook = keyof typeof doneReportLook.arms;

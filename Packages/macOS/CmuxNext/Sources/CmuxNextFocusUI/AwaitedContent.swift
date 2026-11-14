@@ -5,7 +5,8 @@ public struct AwaitedContent: Equatable, Sendable {
     /// What the focus names.
     public enum Kind: Equatable, Sendable {
         case terminal
-        /// A browser tab: Chromium makes its page after the window shows (an async start at a relaunch).
+        /// A page: a browser tab's (Chromium makes it after the window shows, an async start at a relaunch), or an
+        /// agent chat's or an internal page tab's, whose view comes on a later frame than its selection.
         case browser
     }
 

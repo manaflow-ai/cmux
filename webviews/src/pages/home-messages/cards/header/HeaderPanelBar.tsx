@@ -106,7 +106,7 @@ export function HeaderPanelBar({ items, onToggle }: { items: readonly HeaderPane
             aria-pressed={item.isOn}
             onClick={() => onToggle(item.id)}
           >
-            <Icon name={item.isOn ? item.onIcon : item.icon} selected={item.isOn} size={16} />
+            <Icon name={item.isOn ? item.onIcon : item.icon} size={16} />
           </button>
         </Tooltip>
       ))}

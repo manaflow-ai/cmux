@@ -10,7 +10,8 @@ import type { Play } from "../../../gallery/play";
 import type { AcpmuxBackgroundTask } from "../model";
 import { BackgroundTaskNote } from "./BackgroundTaskNote";
 import { BackgroundTaskOutputContext, type BackgroundTaskOutputReader } from "./backgroundTaskOutput";
-import { resetTranscriptDisclosure, TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 type Props = {
   task: AcpmuxBackgroundTask;
@@ -139,6 +140,44 @@ export default componentEntry<Props>({
         output: BUILD_TAIL,
       },
       play: openWithOutput,
+    },
+    "hold-named": {
+      note: 'An agent\'s Monitor timer it named "hold" (`sleep 840; echo t`), closed: it reads as the tray reads it, "Waiting 14m · hold", never the bare name (Leo, 2026-11-05: "what are you even holding for?"). The command as typed is its tooltip.',
+      props: {
+        task: {
+          toolCallId: "bg-hold",
+          command: "sleep 840; echo t",
+          description: "hold",
+          state: "completed",
+          summary: 'Monitor "hold" stream ended',
+        },
+      },
+    },
+    "hold-named-open": {
+      note: "Play: the same timer opened: the command as typed, what it printed and Claude Code's words on its end, then Open in terminal.",
+      props: {
+        task: {
+          toolCallId: "bg-hold-open",
+          command: "sleep 840; echo t",
+          description: "hold",
+          state: "completed",
+          summary: 'Monitor "hold" stream ended',
+        },
+        process: record("bg-hold-open", "sleep 840; echo t", "exited", { exitCode: 0, description: "hold" }),
+        output: "t\n",
+      },
+      play: openWithOutput,
+    },
+    "wait-for-file-named": {
+      note: 'A wait for a review\'s output file an agent named "review result": "Waiting for b0luhqojj.output · review result".',
+      props: {
+        task: {
+          toolCallId: "bg-review",
+          command: "until [ -s /tmp/tasks/b0luhqojj.output ]; do sleep 5; done",
+          description: "review result",
+          state: "completed",
+        },
+      },
     },
     "stopped-open": {
       note: "Play: a task the agent stopped, opened with nothing in the registry (another machine's chat): the whole command and Open in terminal, no invented output.",

@@ -134,6 +134,8 @@ public final class SettingsController {
     /// person about a value it ignores (`SettingsDiagnosticToasts`); tests leave it off.
     /// `rotatingFavoriteThemes`: the app's launch turns to the next starred theme when Rotate Starred
     /// Themes says so (`rotateFavoriteThemeAtLaunch`); tests leave it off.
+    /// A launch that made the settings file from nothing (``readAtLaunch(file:buildDefaults:)``) starts
+    /// the window on Glass (`startFreshInstallOnGlass`).
     public func start(announcingDiagnostics: Bool = false, rotatingFavoriteThemes: Bool = false) {
         guard watcher == nil else { return }
         if announcingDiagnostics, diagnosticToasts == nil {
@@ -148,8 +150,11 @@ public final class SettingsController {
         watcher.start()
         startManagedWatchers()
         watchThemeFiles(named: ThemeFileSetting.name(in: snapshot.root))
+        let freshInstall = launchRead?.createdEmptyFile == true // loadNow lets the launch read go
         if loadCount == 0 { loadNow() } else { requestReload() }
         if rotatingFavoriteThemes { rotateFavoriteThemeAtLaunch(root: snapshot.root) }
+        // A task, so it reads the Ghostty blur after the launch that called this set its reader.
+        if freshInstall { Task { [weak self] in try? await self?.startFreshInstallOnGlass() } }
     }
 
     public func stop() {
@@ -215,6 +220,18 @@ public final class SettingsController {
         // reload path and wait for it to apply even when that event is
         // coalesced away.
         await reloadAfterWrite()
+    }
+
+    /// Whether something other than the row's default fills `key` when cmux-next.json leaves it
+    /// unset, so only a value in the file keeps the person's pick of the default: MDM recommended or
+    /// the team's default, under the key or an older name (`EffectiveSettings.legacyKeys`), an older
+    /// name in the file itself (classic's `browser.openTerminalLinksInCmuxBrowser`), or a reader with
+    /// its own fallback (`SettingsSchema.unsetIsNotDefault`).
+    func layerBelowFileSets(_ key: String) -> Bool {
+        let older = EffectiveSettings.legacyKeys.filter { $0.value == key }.map(\.key)
+        return ([key] + older).contains { lastSource?.managed.recommended[$0] != nil || teamPolicy.defaults[$0] != nil }
+            || older.contains { fileRoot.value(at: CmuxConfigFile.keyPath(from: $0)) != nil }
+            || SettingsSchema.unsetIsNotDefault(key)
     }
 
     /// Writes a shortcut override for `id`; nil unbinds it.
@@ -349,7 +366,18 @@ public final class SettingsController {
         fileprivate let loaded: Loaded
         public let fileURL: URL
         let buildDefaults: SettingsBuildDefaults
+        /// This launch made the settings file from nothing (`CmuxConfigFile.LaunchFile`): a fresh install.
+        var createdEmptyFile = false
         public var snapshot: CmuxConfigSnapshot { loaded.snapshot }
+    }
+
+    /// ``readAtLaunch(fileURL:managedReader:buildDefaults:)`` of the launch's file, remembering whether
+    /// the launch made it from nothing, so ``start(announcingDiagnostics:rotatingFavoriteThemes:)``
+    /// starts a fresh install's window on Glass.
+    public static func readAtLaunch(file: CmuxConfigFile.LaunchFile, buildDefaults: SettingsBuildDefaults = .none) -> LaunchRead {
+        var read = readAtLaunch(fileURL: file.url, buildDefaults: buildDefaults)
+        read.createdEmptyFile = file.createdEmpty
+        return read
     }
 
     public static func readAtLaunch(
@@ -485,13 +513,14 @@ extension SettingsController {
             }
             let source = sources[name].map { Result<String, any Error>.success($0) }
                 ?? ThemeFileOverlay.source(named: name, configDirectory: configDirectory)
-            var overlay = ThemeFileOverlay(name: name, source: source, base: root)
+            let folder = ThemeFileSetting.folder(configDirectory: configDirectory)
+            var overlay = ThemeFileOverlay(name: name, source: source, base: root, folder: folder)
             activeSource = try? source?.get()
             var good = overlay.isLoaded ? activeSource : nil
             // A save that does not parse keeps the file's last good text, with the problem noted.
             if overlay.isUnparsable, let lastGood, lastGood.name == name, let text = lastGood.source {
                 let problems = overlay.diagnostics
-                overlay = ThemeFileOverlay(name: name, source: .success(text), base: root)
+                overlay = ThemeFileOverlay(name: name, source: .success(text), base: root, folder: folder)
                 overlay.diagnostics += problems
                 good = text
             }

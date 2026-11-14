@@ -18,13 +18,16 @@ use ghostty_vt::KeyEncoder;
 use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::CrosstermBackend;
 
+use crate::app::daemon_reconnect::DaemonReconnect;
 use crate::app::events::{AppEvent, OwnerReloadWorker};
 use crate::app::frame_geometry::{
     SidebarWidthOverrides, content_size_for_rect, sidebar_layout_for,
 };
 use crate::app::frontend_journal::FrontendJournalWorker;
 use crate::app::graphics::GraphicsSceneCache;
-use crate::app::host_input::{HostInputRuntime, read_crossterm_event};
+use crate::app::host_input::{
+    CROSSTERM_POLL_INTERVAL, HostInputRuntime, WAKEABLE_POLL_CAP, read_crossterm_event,
+};
 use crate::app::layout::{FocusTarget, SidebarLayout};
 use crate::app::machine_worker::{
     MachineActionWorker, ensure_initial_for_machine_ui, ensure_managed_workspace_guard,
@@ -73,6 +76,9 @@ pub struct RunRequest {
     pub machine_ui: Option<MachineUiState>,
     pub machine_controller: Option<Box<dyn MachineController>>,
     pub startup_config: crate::config::StartupConfigSnapshot,
+    /// Connects to the same session again after its daemon is replaced
+    /// (`cmux daemon restart`); `None` keeps the old exit.
+    pub session_reconnector: Option<crate::app::SessionReconnector>,
 }
 
 pub fn run_with_machine_updates(request: RunRequest) -> anyhow::Result<RunOutcome> {
@@ -115,6 +121,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         machine_ui,
         machine_controller,
         startup_config,
+        session_reconnector,
     } = request;
     if let Session::Local(mux) = &session {
         install_mux_diagnostic_logger(mux);
@@ -154,6 +161,16 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
     )?;
     let encoder = KeyEncoder::new()?;
     let (tx, rx) = sync_channel::<AppEvent>(APP_EVENT_CAPACITY);
+    // The loop blocks with no timeout when nothing timed waits (idle_wait),
+    // so state it checks after each wait must wake it when set elsewhere.
+    if let Some(mux) = owner_mux.as_deref() {
+        let wake = tx.clone();
+        mux.set_daemon_shutdown_waker(move || {
+            let _ = wake.try_send(AppEvent::Wake);
+        });
+    }
+    #[cfg(unix)]
+    wake_on_shutdown_signal(tx.clone());
     let owner_reload_worker =
         owner_mux.as_deref().map(|mux| OwnerReloadWorker::spawn(mux, tx.clone())).transpose()?;
     let host_input = HostInputRuntime::new();
@@ -261,6 +278,20 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
     // startup terminal probes so their replies cannot be consumed as key
     // input. Backpressure here must never block mutation completions.
     let input = host_input.producer(tx.clone());
+    // With the event reader's waker, shutdown wakes the reader's poll, so an
+    // idle reader waits for input with no timer of its own.
+    let poll_cap = match crossterm::event::poll_waker() {
+        Ok(waker) => {
+            host_input.set_reader_wake(move || {
+                let _ = waker.wake();
+            });
+            WAKEABLE_POLL_CAP
+        }
+        Err(error) => {
+            crate::client_log::warn("input", &format!("no input poll waker: {error}"));
+            CROSSTERM_POLL_INTERVAL
+        }
+    };
     if let Err(error) = host_input.spawn_reader("input", move || {
         for event in crate::ui::graphics::finish_startup_input(pending_input) {
             if !input.send(event) {
@@ -274,6 +305,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
             }
             let events = match read_crossterm_event(
                 graphics_responses.time_until_expiry(),
+                poll_cap,
                 crossterm::event::poll,
                 crossterm::event::read,
             ) {
@@ -376,6 +408,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         machine_deleted_rail_index: None,
         machine_provider_reconnect_attempts: 0,
         machine_provider_reconnect_retry_at: None,
+        daemon_reconnect: DaemonReconnect::new(session_reconnector),
         pending_machine_replacement: None,
         machine_update_pump: None,
         machine_update_generation: 0,
@@ -393,6 +426,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         tree: TreeView::default(),
         tab_locations: HashMap::new(),
         render_states: HashMap::new(),
+        synchronized_output: Default::default(),
         chrome_row_scratch: ReusableRowBuffer::default(),
         sidebar_kind_scratch: Vec::new(),
         rendered_terminal_sizes: HashMap::new(),
@@ -429,6 +463,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         pending_size_releases: HashSet::new(),
         geometry_authority_surface: None,
         prefix_armed: false,
+        copy_mode: None,
         session_label,
         surface_only,
         sidebar_visible: surface_only.is_none(),
@@ -452,6 +487,9 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         tabs_footer_scroll: 0,
         projection_rails: HashMap::new(),
         projection_order_cache: AgentOrderCache::default(),
+        sidebar_status: crate::sidebar_status::SidebarStatus::default(),
+        agent_section_scroll: 0,
+        done_tab_ack_sent: None,
         machine_rail_follow_selection: true,
         workspace_rail_follow_selection: true,
         tabs_rail_follow_selection: true,
@@ -486,6 +524,10 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         shortcut_help: None,
         omnibar: None,
         toast: None,
+        host_notify: crate::host_notify::HostNotifyGate::new(
+            crate::host_notify::HostTerminalInfo::detect(|name| std::env::var(name).ok()),
+        ),
+        host_focused: true,
         shake_frames: 0,
         selection: None,
         selection_generation: 0,
@@ -556,6 +598,8 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
     }
 
     let result = app.event_loop(&mut terminal, rx);
+    #[cfg(unix)]
+    SIGNAL_WAKE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
     app.shutdown_runtime_components();
     let restore_result = terminal_restore.restore();
     match (result, restore_result) {
@@ -565,12 +609,43 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
             return Err(terminal_restore_error(error, restore_error));
         }
     }
+    // Said on the restored terminal: why the TUI left (its session stopped).
+    if let Some(notice) = app.daemon_reconnect.exit_notice.take() {
+        eprintln!("{notice}");
+    }
     let outcome = app
         .machine_ui
         .and_then(|machine| machine.request)
         .map(RunOutcome::Machine)
         .unwrap_or(RunOutcome::Quit);
     Ok(outcome)
+}
+
+/// The running loop's sender for a termination signal's wake.
+#[cfg(unix)]
+static SIGNAL_WAKE: Mutex<Option<crossbeam_channel::Sender<AppEvent>>> = Mutex::new(None);
+
+/// A termination signal sets the shutdown flag the loop checks after each
+/// wait; this wakes the loop for it. One waiter serves every run of the loop
+/// in the process (a machine switch runs it again); it peeks, so other
+/// shutdown waiters still see the signal.
+#[cfg(unix)]
+fn wake_on_shutdown_signal(tx: crossbeam_channel::Sender<AppEvent>) {
+    static WAITER: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    *SIGNAL_WAKE.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(tx);
+    WAITER.get_or_init(|| {
+        let spawned = std::thread::Builder::new().name("tui-signal-wake".into()).spawn(|| {
+            crate::wait_for_shutdown_signal_peek();
+            if let Some(tx) =
+                SIGNAL_WAKE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref()
+            {
+                let _ = tx.try_send(AppEvent::Wake);
+            }
+        });
+        if let Err(error) = spawned {
+            crate::client_log::warn("signals", &format!("no signal wake thread: {error}"));
+        }
+    });
 }
 
 pub(super) fn format_panic_diagnostic(info: &std::panic::PanicHookInfo<'_>) -> String {

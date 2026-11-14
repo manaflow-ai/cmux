@@ -54,10 +54,10 @@ describe("cmux VM image guest commands", () => {
 
   // Bake run 41701438675 passed with a session host that crash-looped after any rebind (cmux#34128).
   test("daemon uptime parsing: a crash loop, a fence without auth/ and the migration error fail", () => {
-    const up = "pid=812\nalive=1\npid-after=812\nudp4101=0\ncloud-bound=0";
-    expect(daemonUptimeProblems(up, true)).toEqual([]);
-    expect(daemonUptimeProblems("pid=\nalive=0\npid-after=\nudp4101=0\ncloud-bound=0", false)).toEqual(["no session host at the start of the hold"]);
-    expect(daemonUptimeProblems("pid=812\nalive=0\npid-after=901\nudp4101=0\ncloud-bound=0", false)).toEqual(["session host 812 did not stay up 60 s (now 901)"]);
+    const up = "pid=812\nalive=1\npid-after=812";
+    expect(daemonUptimeProblems(up)).toEqual([]);
+    expect(daemonUptimeProblems("pid=\nalive=0\npid-after=")).toEqual(["no session host at the start of the hold"]);
+    expect(daemonUptimeProblems("pid=812\nalive=0\npid-after=901")).toEqual(["session host 812 did not stay up 60 s (now 901)"]);
     const crashLoop = [
       "pid=812",
       "alive=0",
@@ -66,11 +66,7 @@ describe("cmux VM image guest commands", () => {
       "legacy-error=cmux-tui: previous remote daemon authorization state requires explicit migration; verify that no legacy cmux-tui process remains",
       "host-exit=cmux-host: session host 2840 exited after 94 ms",
     ].join("\n");
-    expect(daemonUptimeProblems(crashLoop, false)).toHaveLength(4);
-    // UDP 4101 is required once the clone is bound to Cloud (the Native receiver binds after a Cloud bind).
-    expect(daemonUptimeProblems(up.replace("cloud-bound=0", "cloud-bound=1"), true)).toEqual(["UDP 4101 not bound on a Cloud-bound Native receiver clone"]);
-    expect(daemonUptimeProblems(up.replace("cloud-bound=0", "cloud-bound=1").replace("udp4101=0", "udp4101=1"), true)).toEqual([]);
-    expect(daemonUptimeProblems(up.replace("cloud-bound=0", "cloud-bound=1"), false)).toEqual([]);
+    expect(daemonUptimeProblems(crashLoop)).toHaveLength(4);
   });
 
   test("program check parsing: exit code, store path and version", () => {
@@ -298,5 +294,90 @@ describe("cmux VM image snapshot-ready check", () => {
 
   test("covers the bind's identity receipt (cmux-host identity.rs RECEIPT)", () => {
     expect(bake.PER_MACHINE_FILES).toContain("/var/lib/cmux/install/identity.json");
+  });
+});
+
+describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/opencode)", () => {
+  const source = () => readFileSync(new URL("../scripts/cmux-vm-image/bake.ts", import.meta.url), "utf8");
+
+  test("acpmux stays running: its harness checks finish before clean, the leftover check is last before snapshot-ready", () => {
+    const bake_ = source();
+    const at = (needle: string) => {
+      const i = bake_.indexOf(needle);
+      expect({ needle, found: i >= 0 }).toEqual({ needle, found: true });
+      return i;
+    };
+    const loginEnv = at('L.step(vm, "acpmux-login-env"');
+    const checks = at('L.step(vm, "acpmux-harness-checks", acpmuxHarnessChecksDoneCommand())');
+    const clean = at('L.step(vm, "clean"');
+    const tmpEmpty = at('L.step(vm, "tmp-empty"');
+    const warm = at('"drop-cache-warm-bind-path"');
+    const writers = at('L.step(vm, "tmp-no-writer", tmpWritersCommand())');
+    const ready = at('L.step(vm, "snapshot-ready", snapshotReadyCommand())');
+    expect(loginEnv).toBeLessThan(checks);
+    expect(checks).toBeLessThan(clean);
+    expect(clean).toBeLessThan(tmpEmpty);
+    expect(warm).toBeLessThan(writers);
+    expect(writers).toBeLessThan(ready);
+    // Nothing runs on the builder between the leftover check and snapshot-ready.
+    expect(bake_.slice(writers, ready).match(/L\.step\(/g)?.length).toBe(1);
+    // acpmux is never stopped for the snapshot: snapshot-ready still requires it running.
+    expect(bake.snapshotReadyCommand()).toContain("pgrep -f '[a]cpmux daemon run'");
+    expect(bake_).not.toMatch(/systemctl --user (stop|disable) acpmux/);
+  });
+
+  test("the harness-check wait reads acpmux's own completion signal (harness-health.json), not a fixed sleep", () => {
+    const refresh = bake.acpmuxLoginEnvRefreshCommand();
+    // The saved copy goes before the restart, so its reappearance is this start's finished check.
+    expect(refresh).toContain('health="$CMUX_TUI_HOME/.acpmux/harness-health.json"');
+    expect(refresh.indexOf('rm -f "$cache" "$health"')).toBeGreaterThanOrEqual(0);
+    expect(refresh.indexOf('rm -f "$cache" "$health"')).toBeLessThan(refresh.indexOf("systemctl --user restart acpmux.service"));
+    const wait = bake.acpmuxHarnessChecksDoneCommand();
+    expect(wait).toContain('"$CMUX_TUI_HOME/.acpmux/harness-health.json"');
+    expect(wait).toContain('[ ! -s "$health" ]');
+    expect(wait).not.toMatch(/sleep (?!1;)\d/);
+    expect(wait).toContain("acpmux's harness check did not finish");
+  });
+
+  async function writers(dir: string) {
+    return runChild("bash", ["-c", bake.tmpWritersCommand([dir])], { timeout: 30_000 });
+  }
+
+  test("passes when nothing was written after clean", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "tmp-writers-"));
+    try {
+      mkdirSync(path.join(dir, ".freestyle-exec-1"));
+      const result = await writers(dir);
+      expect(result.stdout).toContain("tmp-no-writer");
+      expect(result.status).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("fails naming each leftover's owner, mtime and the processes that hold it open or name it", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "tmp-writers-"));
+    const leftover = path.join(dir, "opencode");
+    const { spawn } = await import("node:child_process");
+    // One process holds the leftover open; another names it on its command line.
+    const holder = spawn("bash", ["-c", 'exec 3>>"$1"; exec sleep 300', "holder", leftover], { stdio: "ignore" });
+    const namer = spawn("sh", ["-c", "sleep 300; :", "namer", leftover], { stdio: "ignore" });
+    try {
+      for (let i = 0; i < 50 && !readdirSync(dir).includes("opencode"); i++) await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 200));
+      const result = await writers(dir);
+      const out = result.stdout + result.stderr;
+      expect(result.status).not.toBe(0);
+      expect(out).toContain(`written after clean: ${leftover}`);
+      expect(out).toMatch(/owner=\S+:\S+/);
+      expect(out).toContain("mtime=");
+      expect(out).toContain(`open by pid ${holder.pid}: sleep 300`);
+      expect(out).toContain(`named by pid ${namer.pid}:`);
+      expect(out).toContain("processes of");
+    } finally {
+      holder.kill("SIGKILL");
+      namer.kill("SIGKILL");
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -92,7 +92,7 @@ import Testing
         await h.until { h.checked() == [moon] }
         // Every character the pet can wear, in the Settings page's order; no hard-coded count.
         #expect(Self.ids() == ChiefPetMascot.allCases.map(\.rawValue))
-        #expect(Self.ids() == HomeChiefPetSetting.mascots)
+        #expect(Self.ids() == HomeChiefPetSetting.mascotValues)
         #expect(h.characters().compactMap { $0.accessibilityLabel() } == Self.names())
         #expect(h.characters().allSatisfy { $0.image != nil }, "each character shows its picture")
         #expect(h.checked() == [moon])

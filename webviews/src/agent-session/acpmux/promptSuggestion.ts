@@ -1,3 +1,4 @@
+import { sessionIndex } from "./sessionIndex";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { sliceWhole } from "../../ui/wholeChars";
 
@@ -36,8 +37,11 @@ export function promptSuggestion(
   // Another chat changing these files, whatever branch it last recorded.
   const sameTree = (entry: AcpmuxSessionEntry) =>
     other(entry) && (folder(entry.cwd) === cwd || folder(entry.worktree) === cwd);
-  const working = (entry: AcpmuxSessionEntry) => entry.indicator === "working" || entry.indicator === "input";
-  const source = sessions
+  // Only the chats with an open or draft PR, and the working ones, from the list's shared index
+  // (sessionIndex.ts): one session's change costs those few here, not a pass over every listed chat.
+  const index = sessionIndex(sessions);
+  const source = index
+    .of("openPullRequest")
     .filter(
       (entry) =>
         sameCheckout(entry) &&
@@ -50,9 +54,9 @@ export function promptSuggestion(
   if (!pr) return undefined;
   // A second agent would collide with a chat working (or waiting) in this working tree, whatever PR
   // it reports (live session summaries name none), and with one working on this PR in any folder.
-  const busy = sessions.some(
-    (entry) => working(entry) && (sameTree(entry) || (other(entry) && entry.pullRequest?.number === pr.number)),
-  );
+  const busy = index
+    .of("working")
+    .some((entry) => sameTree(entry) || (other(entry) && entry.pullRequest?.number === pr.number));
   if (busy) return undefined;
   const title = pr.title.length > TITLE_MAX ? `${sliceWhole(pr.title, TITLE_MAX - 1).trimEnd()}…` : pr.title;
   const kind = pr.checks === "failing" ? "failing" : pr.state === "draft" ? "draft" : "open";

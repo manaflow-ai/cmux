@@ -96,10 +96,13 @@ fn executable_link(pid: libc::pid_t) -> String {
 }
 
 /// The start time of `pid` in clock ticks, its version in a peer key.
+///
+/// The line is read as bytes: the system can cut a program's name inside a
+/// character, so the line is not always UTF-8. The start time is ASCII.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn start_time_of(pid: libc::pid_t) -> Option<u64> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    linux_start_time(&stat)
+    let stat = std::fs::read(format!("/proc/{pid}/stat")).ok()?;
+    linux_start_time(&String::from_utf8_lossy(&stat))
 }
 
 /// Field 22 of `/proc/<pid>/stat`. The command name (field 2) may hold
@@ -114,6 +117,10 @@ fn linux_start_time(stat: &str) -> Option<u64> {
 pub(crate) fn key(_fd: RawFd) -> Option<String> {
     None
 }
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "peer_process_tests.rs"]
+mod start_time_tests;
 
 #[cfg(all(test, any(target_os = "linux", target_os = "android")))]
 mod tests {

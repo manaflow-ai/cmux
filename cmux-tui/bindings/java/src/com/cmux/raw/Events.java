@@ -48,6 +48,8 @@ public final class Events {
     public static final EventMetadata DAEMON_SHUTDOWN = new EventMetadata("daemon-shutdown", 12, null, List.of("control"), true);
     public static final EventMetadata DETACHED = new EventMetadata("detached", 5, null, List.of("attach-byte", "attach-render", "attach-browser"), true);
     public static final EventMetadata EMPTY = new EventMetadata("empty", 5, null, List.of("subscribe"), true);
+    public static final EventMetadata FEED_REPORTS_CHANGED = new EventMetadata("feed-reports-changed", 12, "feed-client-v1", List.of("subscribe"), true);
+    public static final EventMetadata FEED_VIEW_CHANGED = new EventMetadata("feed-view-changed", 12, "feed-client-v1", List.of("subscribe"), true);
     public static final EventMetadata FRAME = new EventMetadata("frame", 6, null, List.of("attach-browser"), true);
     public static final EventMetadata FRONTEND_PROJECTION_CHANGED = new EventMetadata("frontend-projection-changed", 7, null, List.of("subscribe"), true);
     public static final EventMetadata GRAPHICS_STATUS = new EventMetadata("graphics-status", 10, null, List.of("subscribe"), true);
@@ -76,6 +78,7 @@ public final class Events {
     public static final EventMetadata SELECTION_CHANGED = new EventMetadata("selection-changed", 12, "tree-selection-deltas-v1", List.of("subscribe-deltas"), true);
     public static final EventMetadata SETTINGS_CHANGED = new EventMetadata("settings-changed", 12, "settings-v1", List.of("subscribe"), true);
     public static final EventMetadata SIZE_STATE = new EventMetadata("size-state", 12, "shared-sizing-v1", List.of("subscribe", "attach-byte", "attach-render"), true);
+    public static final EventMetadata STASH_CHANGED = new EventMetadata("stash-changed", 12, "stash-v1", List.of("subscribe"), true);
     public static final EventMetadata STATUS = new EventMetadata("status", 5, null, List.of("subscribe"), true);
     public static final EventMetadata SURFACE_EXITED = new EventMetadata("surface-exited", 5, null, List.of("subscribe"), true);
     public static final EventMetadata SURFACE_OUTPUT = new EventMetadata("surface-output", 5, null, List.of("subscribe"), true);
@@ -142,6 +145,8 @@ public final class Events {
         values.put("daemon-shutdown", DAEMON_SHUTDOWN);
         values.put("detached", DETACHED);
         values.put("empty", EMPTY);
+        values.put("feed-reports-changed", FEED_REPORTS_CHANGED);
+        values.put("feed-view-changed", FEED_VIEW_CHANGED);
         values.put("frame", FRAME);
         values.put("frontend-projection-changed", FRONTEND_PROJECTION_CHANGED);
         values.put("graphics-status", GRAPHICS_STATUS);
@@ -170,6 +175,7 @@ public final class Events {
         values.put("selection-changed", SELECTION_CHANGED);
         values.put("settings-changed", SETTINGS_CHANGED);
         values.put("size-state", SIZE_STATE);
+        values.put("stash-changed", STASH_CHANGED);
         values.put("status", STATUS);
         values.put("surface-exited", SURFACE_EXITED);
         values.put("surface-output", SURFACE_OUTPUT);

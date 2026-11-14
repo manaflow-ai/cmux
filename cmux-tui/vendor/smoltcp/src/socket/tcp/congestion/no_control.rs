@@ -1,6 +1,6 @@
 use super::Controller;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct NoControl;
 

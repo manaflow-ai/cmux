@@ -81,7 +81,7 @@ extension AppControl {
             // active window's sidebar width (narrow-sidebar shots; answers the
             // previous width, to restore it); "open-changes"
             // runs the staged card's "See all changes" (its intent) and
-            // "open-whats-new" the Updated card's "See What's New" (cx-7rone).
+            // "open-whats-new" the Updated card's "See What's New" (cx-7rone), "hover-updated" rests on it.
             .mainActor("debug.update_surfaces") { [weak services = appServices] call in
                 guard let services, let sidebar = services.windows.active?.sidebar.container.sidebarView else {
                     throw ControlError.invalidParams("debug.update_surfaces: no active window")
@@ -150,6 +150,7 @@ extension AppControl {
                     return .value(.null)
                 case "open-whats-new":
                     return .value(.bool(services.updater.openWhatsNewForLastUpdate()))
+                case "hover-updated": return .value(.object(sidebar.debugHoverUpdatedCard().mapValues { JSONValue.string($0) }))
                 case let action:
                     throw ControlError.invalidParams("debug.update_surfaces: unknown action \(action)")
                 }

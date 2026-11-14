@@ -1,0 +1,55 @@
+# path	matching lines	why the raw file lock stays (check-no-raw-flock.py; the count only goes down; move a site to cmux_file_lock::FileLock and lower its row)
+cmux-tui/crates/acpmux/src/agent_host/host.rs	1	c-agenthost lock audit: held for the process life: Host liveness lock (lock_live_file) is held for the host process life; O_CLOEXEC std File.
+cmux-tui/crates/acpmux/src/agent_host/mod.rs	2	c-agenthost lock audit: explicit unlock: liveness_of probe unlocks at once with LOCK_UN at line 571.
+cmux-tui/crates/acpmux/src/agent_host/sweep.rs	2	c-agenthost lock audit: held for the process life: Test-only python fake hosts that hold the lock until the test kills them.
+cmux-tui/crates/acpmux/src/agent_host/wait.rs	6	c-agenthost lock audit: explicit unlock: take_death_lock unlocks at 132, dead_now_in probe at 207, test at 237, all before close.
+cmux-tui/crates/acpmux/src/bg_hook.rs	1	c-agenthost lock audit: audit OK no spawn: the hook process starts no child while it holds the first-time lock
+cmux-tui/crates/acpmux/src/bg_run.rs	1	c-agenthost lock audit: held for the process life: Runner lock held for the runner process life (liveness); O_CLOEXEC, task child execs.
+cmux-tui/crates/acpmux/src/cli/cloud_join.rs	1	c-agenthost lock audit: unlocking Drop: HeldLock, Drop at line 443 calls unlock().
+cmux-tui/crates/acpmux/src/cli/host_approvals.rs	1	c-agenthost lock audit: audit OK no spawn: close-only probe in a CLI that starts no child
+cmux-tui/crates/acpmux/src/cli/host_lock.rs	2	c-agenthost lock audit: audit OK: step lock no spawn; the lease is held for the self-update command's life (CLOEXEC); :45 is a remote shell script
+cmux-tui/crates/acpmux/src/cli/machine_consent.rs	1	c-agenthost lock audit: unlocking Drop: Uses cloud_join::HeldLock, Drop at cloud_join.rs:443 unlocks.
+cmux-tui/crates/acpmux/src/daemon/lock.rs	7	c-agenthost lock audit: unlocking Drop: DaemonLock Drop at line 16 unlocks; probes at 108 and 158 unlock at once; 174 is Windows-only.
+cmux-tui/crates/acpmux/src/daemon/login_session.rs	2	c-agenthost lock audit: audit OK no spawn: the sweep holds each lock while no child starts on another thread
+cmux-tui/crates/acpmux/src/daemon/running.rs	2	c-agenthost lock audit: explicit unlock: Test-only probe; LOCK_UN at line 151 before drop.
+cmux-tui/crates/acpmux/src/deps/warm.rs	1	c-agenthost lock audit: audit OK: upload lock held for the upload's life; wait_uploads probe runs in a process that does not spawn
+cmux-tui/crates/acpmux/src/hand/link.rs	1	c-agenthost lock audit: held for the process life: single_instance: cmux-hand lock held for the process life by design.
+cmux-tui/crates/acpmux/src/hub/bg_notify.rs	2	c-agenthost lock audit: explicit unlock: wait_unlocked unlocks at line 350 right after the blocking lock.
+cmux-tui/crates/acpmux/src/hub/bg_tasks.rs	2	c-agenthost lock audit: wait lock fixed in batch 7 (Shared FileLock); the other lines are cfg(test) helpers
+cmux-tui/crates/acpmux/src/linux_sandbox/supervisor/locking.rs	4	c-agenthost lock audit: unlocking Drop: Guard, Drop at line 18 does flock LOCK_UN; lines 138 and 181 are tests.
+cmux-tui/crates/acpmux/src/vault/pull.rs	2	c-agenthost lock audit: unlocking Drop: Lock, Drop at line 167 does flock LOCK_UN.
+cmux-tui/crates/cmux-automations/src/store.rs	1	c-agenthost lock audit: unlocking Drop: Flock, Drop at line 138 calls unlock() (RunnerLock Drop at 99 too).
+cmux-tui/crates/cmux-browser-host/src/server.rs	1	c-agenthost lock audit: held for the process life: bind: lock is mem::forget'd and held until the browser host process exits.
+cmux-tui/crates/cmux-coderouter/src/lib.rs	1	c-agenthost lock audit: held for the process life: router.lock held for the router serve process run; drop(lock) at 539 is close-only just before main returns.
+cmux-tui/crates/cmux-customize/src/store.rs	1	c-agenthost lock audit: unlocking Drop: Lock, Drop at line 133 calls fs4 unlock.
+cmux-tui/crates/cmux-holder/src/lib.rs	1	c-agenthost lock audit: held for the process life: hold_copy_in_use: O_CLOEXEC fd kept open with LOCK_SH for the holder process life.
+cmux-tui/crates/cmux-host/src/team_ssh/store.rs	1	c-agenthost lock audit: audit OK no spawn: ApplyLock is held for one apply with no child started
+cmux-tui/crates/cmux-host/src/updater/gate.rs	2	c-agenthost lock audit: explicit unlock: Test probe free() unlocks at line 330 before close.
+cmux-tui/crates/cmux-link/src/key_holder.rs	1	c-agenthost lock audit: held for the process life: Test-only python new holder keeps the lock until its stdin closes (KeyHolder Drop at 152 is separate).
+cmux-tui/crates/cmux-remote/src/admin.rs	2	c-agenthost lock audit: explicit unlock: Test-only: LOCK_UN at line 1063 before drop (a panic before it skips it).
+cmux-tui/crates/cmux-remote/src/owner_lock.rs	2	c-agenthost lock audit: unlocking Drop: OwnerFileLock, Drop at line 32 calls fs4 unlock.
+cmux-tui/crates/cmux-remote/src/secrets/replay.rs	2	c-agenthost lock audit: unlocking Drop: Lock, Drop at line 60 calls unlock().
+cmux-tui/crates/cmux-tasks/src/store/mod.rs	1	c-agenthost lock audit: audit OK lifetime (owner) / no spawn (CLI fallback)
+cmux-tui/crates/cmux-tui-core/src/browser_host_activation.rs	1	c-agenthost lock audit: audit OK lifetime: socket locks held for the daemon's life by design
+cmux-tui/crates/cmux-tui-core/src/diagnostics/hook_queue.rs	1	c-agenthost lock audit: explicit unlock: shared_count unlocks at line 341 before close.
+cmux-tui/crates/cmux-tui-core/src/git_ops/worktree_setup.rs	2	c-agenthost lock audit: ports::Lock unlocking Drop (batch 10); hold() run lock passed to the setup shell as fd 7: by design (lead)
+cmux-tui/crates/cmux-tui-core/src/server/listen.rs	1	c-agenthost lock audit: unlocking Drop: SocketStartLock, Drop at line 238 unlocks; replaced-file path unlocks at 285; line 360 is helper fn lock.
+cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/sys/unix.rs	2	c-agenthost lock audit: explicit unlock: probe_lease unlocks at line 235 at once.
+cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/sys/unix/lease.rs	7	c-agenthost lock audit: unlocking Drop: Drops at 47, 196, 203 unlock; gap: a ? after lock (try_clone, second validate) closes a locked File. 156 is a helper.
+cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/pty_lock.rs	2	c-agenthost lock audit: held for the process life: PtyOwnershipLock held for host process life by design; no Drop unlock; retry path closes a locked unlinked file; 49 helper.
+cmux-tui/crates/cmux-tui-core/src/workspace_registry.rs	7	c-agenthost lock audit: SessionLease Drop unlocks; probe/coordinator error paths close a file no longer at the guard path; live-marker lease: reset CLI, no spawn
+cmux-tui/crates/cmux-tui-core/src/workspace_registry/premigrate.rs	1	c-agenthost lock audit: audit OK no spawn: premigrate runs before any child starts
+cmux-tui/crates/cmux-tui-core/src/workspace_registry/terminal_state_end.rs	1	c-agenthost lock audit: explicit unlock: Waits with lock then unlocks at once (line 140).
+cmux-tui/crates/cmux-tui-image-paste/src/image_paste_file.rs	1	c-agenthost lock audit: unlocking Drop: ImagePasteFile Drop at 494 unlocks; gap: errors after try_lock before Self exists close it. 458 is helper try_lock.
+cmux-tui/crates/cmux-tui-platform/src/host_exe/macos.rs	3	c-agenthost lock audit: explicit unlock: remove_if_unused unlocks at line 460; line 409 is a process-life LOCK_SH (mem::forget, O_CLOEXEC).
+cmux-tui/crates/cmux-tui/src/cli/chief/launch.rs	1	c-agenthost lock audit: audit OK no spawn: close-only probe in a CLI that starts no child at that point
+cmux-tui/crates/cmux-tui/src/cli/cloud_secret.rs	1	c-agenthost lock audit: audit OK no spawn while the index lock is held
+cmux-tui/crates/cmux-tui/src/cli/setup/cloud_machine/state.rs	1	c-agenthost lock audit: OK no spawn (lane check 2026-11-13; no audit row): held for one setup run, the module starts no child
+cmux-tui/crates/cmux-tui/src/link/ensure.rs	1	c-agenthost lock audit: audit OK no spawn while the ensure lock is held
+cmux-tui/crates/cmux-tui/src/link/machine_update/apply.rs	1	c-agenthost lock audit: held for the process life: Update and claim locks held while the update process lives (doc comments); 445 is helper lock_at.
+cmux-tui/crates/cmux-tui/src/link/mod.rs	1	c-agenthost lock audit: held for the process life: serve_lock: link.lock held by the running serve process for its life.
+cmux-tui/crates/cmux-tui/src/machine_agent/identity.rs	2	c-agenthost lock audit: unlocking Drop: RegistrationLock, Drop at line 248 does flock LOCK_UN.
+cmux-tui/crates/cmux-tui/src/plugin_manager.rs	1	c-agenthost lock audit: unlocking Drop: PluginUpdateLock, Drop at line 245 calls fs4 unlock.
+cmux-tui/crates/cmux-tui/src/provider_notice_identity.rs	2	c-agenthost lock audit: unlocking Drop: IdentityLeaseLock, Drop at line 82 does flock LOCK_UN.
+cmux-tui/crates/cmux-tui/src/remote_cli/daemon_lifecycle.rs	1	c-agenthost lock audit: audit OK: start lock held across spawn() on the holding thread only; O_CLOEXEC, spawn returns after the child's exec
+cmux-tui/crates/cmux-tui/src/remote_runtime/client_socket.rs	3	c-agenthost lock audit: unlocking Drop: OwnerFileLock, Drop at line 15 does flock LOCK_UN.

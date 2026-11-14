@@ -10,18 +10,6 @@ public import AppKit
 public struct LeaderLayer {
     public nonisolated static let prefix = Shortcut("j", modifiers: [.command])
 
-    /// The second key of each default leader chord, by action
-    /// (`ActionDescriptor.defaultChord`, set by the catalog).
-    public nonisolated static let defaultChords: [(id: ActionID, key: Shortcut)] = [
-        // Ghostty's macOS default for it was Cmd-J itself.
-        ("terminal.scrollToSelection", Shortcut("j", modifiers: [])),
-        ("palette.newAgentChat", Shortcut("s", modifiers: [])),
-        // `?` on a US layout; cmux.json writes it `shift+/`.
-        ("palette.searchShortcuts", Shortcut("/", modifiers: [.shift])),
-        // Vimium's `f`: Click by Hint (a preview feature, cx-zjtn.1).
-        ("hints.show", Shortcut("f", modifiers: [])),
-    ]
-
     let registry: ActionRegistry
 
     public init(registry: ActionRegistry) {
@@ -70,20 +58,5 @@ public struct LeaderLayer {
               !registry.shortcutOverrides.values.contains(.some(chord.first)),
               !registry.alternateShortcuts.values.contains(where: { $0.contains([chord.first]) }) else { return nil }
         return chord
-    }
-}
-
-extension [ActionDescriptor] {
-    /// The catalog with `defaultChord` set on the rows
-    /// `LeaderLayer.defaultChords` names.
-    nonisolated func withLeaderChords() -> [ActionDescriptor] {
-        var keys: [ActionID: Shortcut] = [:]
-        for (id, key) in LeaderLayer.defaultChords { keys[id] = key }
-        return map { descriptor in
-            guard let key = keys[descriptor.id] else { return descriptor }
-            var descriptor = descriptor
-            descriptor.defaultChord = ShortcutChord(LeaderLayer.prefix, key)
-            return descriptor
-        }
     }
 }

@@ -11,6 +11,7 @@ export function ChatFindScope({
   rows,
   shown,
   openFold,
+  showHeld,
   findRef,
   children,
 }: {
@@ -20,6 +21,9 @@ export function ChatFindScope({
   /// subagent's view, which has no folds.
   shown: readonly AcpmuxRow[] | undefined;
   openFold: (fold: string) => void;
+  /// Puts a row back that the pane holds out of the transcript while the reader is scrolled up
+  /// (turnEndHold.ts `rowsToHold`), so a match in it can be shown.
+  showHeld?: (rowId: string) => void;
   findRef: RefObject<ChatFind | undefined>;
   children: (find: ChatFind) => ReactNode;
 }) {
@@ -43,6 +47,7 @@ export function ChatFindScope({
   const target = find.open ? find.matches[find.active] : undefined;
   useLayoutEffect(() => {
     if (!target || !shown || shown.some((row) => isFindRow(row, target.rowId))) return;
+    showHeld?.(target.rowId);
     // Its turn's fold and the message run inside it (turns.ts hiddenRowFolds).
     for (const fold of hiddenRowFolds(rows, shown, target.rowIndex)) openFold(fold);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new current match opens its fold once

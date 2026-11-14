@@ -15,7 +15,7 @@ import Testing
 /// the focus back to the chat (#22990), so the next Cmd-W closed the chat.
 ///
 /// The rule: a closed tab's pane keeps the focus while it has tabs, on the neighbour the close
-/// selects (the next tab, else the previous). Only the close of a pane's last tab moves the focus
+/// selects (the next tab, the previous only when it was the last: close-selection-rule.md R1). Only the close of a pane's last tab moves the focus
 /// to another pane; a press aimed at the emptied pane (made before the frame showing the new
 /// focus, or a repeat of the held key) closes nothing there (``PaneCloseAim``). Runs the app's
 /// Close Tab against a same-tree cmux-tui daemon.
@@ -57,7 +57,8 @@ struct CloseTabKeepsPaneTests {
                                             report: { "the browser pane holds \(browserPane.orderedIDs.map(\.rawValue)), wanted \(ids)" })
             for surface in surfaces { services.linkOpener.returnFocus(of: surface, to: agentPane.layoutPaneID, in: content) }
 
-            // Start on the middle tab: the first close has a tab on its right, the second only on its left.
+            // Start on the middle tab: the first close selects the NEXT tab, the second (now the last tab) the one before it
+            // (the one close-selection rule, /work/wt/handoff/tasks/close-selection-rule.md R1 rank 4; it was the tab before).
             browserPane.select(TabID(ids[1]))
             PaneHandlers.focus(browserPane.layoutPaneID, in: content)
             try await PinnedPageTests.until({ content.focusedPane === browserPane && browserPane.stripModel.selectedID?.rawValue == ids[1] })
@@ -237,12 +238,13 @@ struct CloseTabKeepsPaneTests {
         return pressedAt
     }
 
-    /// Pure: the neighbour a close selects (``FocusAfterClose/tab(selected:old:surviving:shown:opener:)``):
-    /// the next tab, else the previous; nil once no tab is left.
-    @Test func aClosedTabsNeighbourIsTheNextElseThePrevious() {
+    /// Pure: the neighbour a close selects with no opener (the one close-selection rule,
+    /// /work/wt/handoff/tasks/close-selection-rule.md R1 rank 4; it was the tab before): the next
+    /// tab, the previous only when it was the last; nil once no tab is left.
+    @Test func aClosedTabsNeighbourIsTheNextTabElseThePreviousTab() {
         func next(_ selected: String, _ old: [String]) -> String? {
             let surviving = old.filter { $0 != selected }
-            return FocusAfterClose.tab(selected: selected, old: old, surviving: surviving, shown: Set(surviving))
+            return CloseSelection<String>().successor(ofTab: selected, old: old, surviving: surviving, shown: Set(surviving))
         }
         #expect(next("b", ["a", "b", "c"]) == "c")
         #expect(next("c", ["a", "c"]) == "a")

@@ -6,9 +6,11 @@
 # once, alone: a file that then passes is listed as passing only alone, and the lane passes; a file
 # that fails twice fails the lane with both logs.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../cmux-next/tests/lib/git-fixture.sh"  # drops inherited GIT_DIR/GIT_CONFIG redirects; turns off background maintenance
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"' EXIT
+git_fixture_trap_exit 'rm -rf "$WORK"'
 fails=0
 fail() { echo "FAIL: $*" >&2; fails=$((fails + 1)); }
 

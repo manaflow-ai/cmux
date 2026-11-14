@@ -22,7 +22,13 @@
 // Measuring: each toast's natural height is read once per change of the toasts or of the deck's
 // width (a ResizeObserver on the deck, disconnected on unmount), never per frame. A drag writes
 // the card's offset straight to its style, so a pointer move renders nothing.
-import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+//
+// Keyboard (#38090): the cards are in the document in the order they stand on screen, top to
+// bottom, so Tab and Shift-Tab walk a spread deck the way the eye does: a bottom deck has its
+// newest card last, a top deck first. Gathered, only the front card can be reached, and focusing it
+// spreads the deck. Tab leaving the deck goes to the nearest control on screen that way
+// (tabReach.ts), never to one with no box or to a transcript row drawn past the viewport's edge.
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   anchorPoint,
   createDrag,
@@ -34,6 +40,7 @@ import {
   type Point,
 } from "./anchors";
 import type { NoticeEntry } from "./NoticeStack";
+import { leaveLayerOnScreen } from "./tabReach";
 
 export type DeckAlign = "center" | "end";
 /** How a dragged toast feels: `spring` follows the pointer and settles on the spring;
@@ -157,6 +164,7 @@ export function NoticeDeck({
   edge = "bottom",
   drag,
   flights,
+  onHold,
 }: {
   entries: readonly NoticeEntry[];
   /** Spread whatever the pointer does. Otherwise it spreads while the pointer or focus is in it. */
@@ -168,8 +176,12 @@ export function NoticeDeck({
   drag?: DeckDrag;
   /** Shared by the stack's decks: a card dropped here from another deck flies in from there. */
   flights?: Flights;
+  /** Whether the pointer, focus or a drag is in this deck: the stack's time stops while any is.
+   *  The deck owns it because it may be drawn in another host (the top anchors), outside the
+   *  stack's own element. */
+  onHold?(held: boolean): void;
 }) {
-  // Newest first: the front card is first in the DOM, so Tab reaches it first.
+  // Newest first; drawn in screen order (below).
   const [cards, setCards] = useState<Card[]>(() =>
     [...entries].reverse().map((entry) => ({ entry, phase: "shown" as const })),
   );
@@ -226,6 +238,23 @@ export function NoticeDeck({
     setHovered(element.matches(":hover"));
     setFocused(element.contains(document.activeElement));
   }, [entries]);
+
+  // Tab leaving the deck lands on a control on screen (tabReach.ts). A listener, not a prop: the
+  // deck is no widget of its own, only the box its cards' controls sit in.
+  useLayoutEffect(() => {
+    const element = deck.current;
+    if (!element) return;
+    const key = (event: KeyboardEvent) => leaveLayerOnScreen(element, event);
+    element.addEventListener("keydown", key);
+    return () => element.removeEventListener("keydown", key);
+  }, []);
+
+  const holding = hovered || focused || held !== undefined;
+  useEffect(() => {
+    onHold?.(holding);
+  }, [holding, onHold]);
+  // Unmounted: it holds nothing.
+  useEffect(() => () => onHold?.(false), [onHold]);
 
   // Natural heights, read once per change of the cards or of the deck's width.
   useLayoutEffect(() => {
@@ -395,7 +424,11 @@ export function NoticeDeck({
       card.phase === "from" ||
       (card.phase === "leaving" && elements.current.get(card.entry.spec.id)?.dataset.flung === undefined),
   );
+  // Each card's place counts from the front (newest first); the document lists them as they stand on
+  // screen, so Tab moves the way the eye does: a bottom deck grows upward, its newest card last.
   let order = 0;
+  const ranked = shown.map((card) => ({ card, index: card.phase === "leaving" ? -1 : order++ }));
+  if (edge === "bottom") ranked.reverse();
 
   return (
     <div
@@ -414,10 +447,9 @@ export function NoticeDeck({
       }}
     >
       <ol className="ui-notice-deck-cards">
-        {shown.map((card) => {
+        {ranked.map(({ card, index }) => {
           const id = card.entry.spec.id;
           const leaving = card.phase === "leaving";
-          const index = leaving ? -1 : order++;
           const place = leaving
             ? (card.at ?? { y: 0, scale: 1, height: 0 })
             : { ...placed[index]!, height: placed[index]!.height ?? 0 };

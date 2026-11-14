@@ -1,0 +1,19 @@
+/* The looks the dictation pill was weighed against (Dictation.gallery.tsx, `look`). The themed pill
+   ships (dictation.css); these restyle the same strip for comparison. */
+.acpmux-shell.acpmux-dictation-gallery--contrast {
+  /* Inverse of the theme: the ink as the pill, the composer's surface as the bars. */
+  --acpmux-dictation-pill: var(--agent-text);
+  --acpmux-dictation-pill-ink: var(--acpmux-composer-solid, var(--acpmux-base));
+}
+.acpmux-shell.acpmux-dictation-gallery--accent {
+  --acpmux-dictation-pill-ink: var(--acpmux-dictation-accent);
+}
+.acpmux-shell.acpmux-dictation-gallery--quiet {
+  --acpmux-dictation-pill-ink: var(--acpmux-composer-dim, var(--agent-muted));
+}
+.acpmux-dictation-gallery--bare .acpmux-dictation-pill {
+  /* Before: the wave alone, no pill. */
+  padding-inline: 0;
+  background: none;
+  color: var(--acpmux-composer-dim, var(--agent-muted));
+}

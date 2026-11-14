@@ -620,8 +620,9 @@ publish_reload_cli_path() {
   fi
 
   # Legacy pointer (plans/cmux-next/version-skew.md step 7). The app writes
-  # ~/Library/Application Support/cmux/last-app-cli at launch, and the dev
-  # shim and cleanup-dev-builds.sh read that first. This writer stays for one
+  # ~/Library/Application Support/cmux-next/last-app-cli at launch (an older
+  # build: cmux/last-app-cli), and the dev shim and cleanup-dev-builds.sh
+  # read that first. This writer stays for one
   # release only because readers outside this repo still read /tmp: the
   # cmuxterm-hq Tag Opener, local-build-guards and keep-devs.sh, plus app
   # builds older than the app pointer. Remove it once those read last-app-cli.
@@ -1062,7 +1063,7 @@ print_tag_cleanup_commands() {
   local -a roots=()
   [[ -z "$derived" || "$derived" == "$link" || "${derived%/}" == "$own" ]] || roots+=("${derived%/}")
   roots+=("$own")
-  for root in "${roots[@]}"; do
+  for root in ${roots[@]+"${roots[@]}"}; do
     for config in Debug Release; do
       bin="${root}/Build/Products/${config}/cmux DEV ${tag}.app/Contents/Resources/bin/cmux-tui"
       printf '  [ -x %q ] && %q --session %q server stop\n' "$bin" "$bin" "cmux-app-${tag}"
@@ -1119,11 +1120,11 @@ print_tag_cleanup_reminder() {
     echo "  stale cleanup: not needed"
   else
     echo "  stale tags:"
-    for tag in "${stale_tags[@]}"; do
+    for tag in ${stale_tags[@]+"${stale_tags[@]}"}; do
       echo "    - ${tag}"
     done
     echo "Cleanup stale tags only:"
-    for tag in "${stale_tags[@]}"; do
+    for tag in ${stale_tags[@]+"${stale_tags[@]}"}; do
       print_tag_cleanup_commands "$tag"
     done
   fi
@@ -1554,7 +1555,7 @@ if [[ -z "${CMUX_NEXT_MOBILE_HOST_BIN:-}" && -x "$PWD/scripts/cmux-next/build-mo
 fi
 [[ -n "${CMUX_NEXT_MOBILE_HOST_BIN:-}" ]] && echo "==> cmux-next: bundling cmux-mobile-host from $CMUX_NEXT_MOBILE_HOST_BIN"
 
-# The web bundles (agent pane, pages, Agent Activity, palette ranker, webviews
+# The web bundles (agent pane, pages, Agent Activity, webviews
 # app) are build output, not committed: they are built from the sources before
 # the compile, so the app never ships a stale or missing copy (cx-vn5). A warm
 # tree skips the build in about a second. The Xcode "Verify web bundles" phase
@@ -1834,6 +1835,12 @@ if [[ "$BENCH_HOOKS" -eq 1 ]]; then
   source "$(dirname "${BASH_SOURCE[0]}")/cmux-next/lib/bench-swift-defines.sh"
   SWIFT_OTHER_FLAGS+=" $CMUX_BENCH_SWIFT_DEFINES"
   echo "==> bench configuration: Release optimization with $CMUX_BENCH_SWIFT_DEFINES (no DEBUG)"
+fi
+if [[ "$BUILD_CONFIGURATION" == "Release" && "${CMUX_LIVE_CODE_BUILD:-0}" != "1" ]]; then
+  # Release Swift for size, hot targets at -O, as the NIGHTLY builds it (scripts/cmux-next/lib/swift-size-opt.sh).
+  # shellcheck source=scripts/cmux-next/lib/swift-size-opt.sh
+  source "$SCRIPT_DIR/cmux-next/lib/swift-size-opt.sh"
+  while IFS= read -r arg; do XCODEBUILD_ARGS+=("$arg"); done < <(swift_size_opt_xcodebuild_args)
 fi
 if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == "1" ]]; then
   # Live code: every CmuxNext target unoptimized, testable and a file at a time, linked so a patch
@@ -2583,9 +2590,9 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     fi
   fi
 
-  if [[ "${#LAUNCH_CMD[@]}" -gt 0 ]] && ! "${LAUNCH_CMD[@]}"; then
+  if [[ "${#LAUNCH_CMD[@]}" -gt 0 ]] && ! ${LAUNCH_CMD[@]+"${LAUNCH_CMD[@]}"}; then
     echo "warning: open -g failed; retrying launch with open -n -g" >&2
-    "${LAUNCH_RETRY_CMD[@]}"
+    ${LAUNCH_RETRY_CMD[@]+"${LAUNCH_RETRY_CMD[@]}"}
   fi
 
   # Safety: ensure only one instance is running.

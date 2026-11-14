@@ -83,7 +83,7 @@ struct FullWidthTabTests {
     /// Each pane's choice outlives the pane's view and the app (kept in defaults, per pane key).
     @Test func eachPanesChoiceIsKeptPerPaneAcrossLaunches() throws {
         let suite = "cmux.next.tests.fullWidthTab.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let choices = PaneFullWidthTabs(defaults: defaults)
         #expect(!choices.contains("pane_a"))

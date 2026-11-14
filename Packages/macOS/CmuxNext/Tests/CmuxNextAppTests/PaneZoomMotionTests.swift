@@ -132,7 +132,7 @@ struct PaneZoomMotionTests {
         #expect(Self.grid3.panes.filter({ $0 != "p5" }).allSatisfy({ screen.opacity($0) == 0 }))
     }
 
-    @Test func anUnzoomMidZoomKeepsTheMotionsVelocityAndTheLeavingPanesComeBackFromWhereTheyAre() throws {
+    @Test func anUnzoomMidZoomTurnsAtOnceWithNoJumpAndTheLeavingPanesComeBackFromWhereTheyAre() throws {
         let screen = Screen(Self.grid2)
         defer { screen.window.closeAfterTest() }
         screen.zoom("p1")
@@ -144,13 +144,14 @@ struct PaneZoomMotionTests {
         let corner = screen.opacity("p4")
         #expect(widths[5] > widths[4])
         screen.unzoom()
-        // Nothing jumps at the interrupt, and the spring keeps its velocity: from rest it would
-        // start shrinking at once, carried it still grows for a frame.
+        // Nothing jumps at the interrupt, and the pane turns at once: its growing edges' velocity points away from
+        // the new target, so the next step drops it (`SpringParameters.admitted(velocity:distance:)`) and the pane
+        // shrinks from where it shows. It never grows past the place of the interrupt.
         #expect(screen.shown("p1")?.width == widths[5], "the zoomed pane jumped on the interrupt")
         #expect(abs(screen.opacity("p4") - corner) < 0.02, "the opposite corner jumped on the interrupt")
         screen.step()
         let after = try #require(screen.shown("p1")).width - widths[5]
-        #expect(after > 0, "velocity lost: the unzoom started from rest")
+        #expect(after < 0, "the unzoom carried the zoom's velocity: the pane grew \(after) pt more after the interrupt")
         let returning = try #require(screen.hostFrame("p2"))
         for frame in 1...120 {
             screen.step()

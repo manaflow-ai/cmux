@@ -192,6 +192,12 @@ impl App {
                         self.focus = FocusTarget::Pane;
                     }
                 }
+                Hit::AgentRow { surface, target } => {
+                    self.workspace_rail_follow_selection = true;
+                    self.workspace_rail_selection = WorkspaceRailSelection::Agent(surface);
+                    self.activate_projection_target(target)?;
+                    self.focus = FocusTarget::Pane;
+                }
                 Hit::ProjectionToggle { view, branch } => {
                     let state = self.projection_rail_state_mut(view);
                     if !state.collapsed.remove(&branch) {

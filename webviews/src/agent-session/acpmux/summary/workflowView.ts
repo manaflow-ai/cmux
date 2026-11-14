@@ -18,6 +18,7 @@
 import type { BackgroundCommand } from "../session-info/processes";
 import { phaseAgents, phaseState, tally } from "./foldWorkflows";
 import type { WorkflowAgent, WorkflowPhase, WorkflowSummary } from "./workflow";
+import { shownOfCut } from "../conversation/markdownCut";
 
 /// An agent that ended: done, failed or cancelled.
 export const agentEnded = (agent: Pick<WorkflowAgent, "state">): boolean =>
@@ -190,7 +191,8 @@ const unquote = (body: string): string => {
 export function outputMarkdown(agent: WorkflowAgent): string | undefined {
   const raw = (agent.result ?? agent.lastMessage)?.trim();
   if (!raw) return undefined;
-  if (!looksLikeJson(raw)) return raw;
+  // A preview Claude cut (no `result`) shows its whole blocks, never a cut span.
+  if (!looksLikeJson(raw)) return !agent.result && raw.endsWith("…") ? shownOfCut(raw) : raw;
   let value: unknown;
   try {
     value = JSON.parse(raw);
@@ -198,7 +200,8 @@ export function outputMarkdown(agent: WorkflowAgent): string | undefined {
     // A cut preview: the first prose field present, up to where the preview ends.
     for (const key of PROSE) {
       const match = new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)("|\\\\?$)`).exec(raw);
-      if (match) return unquote(match[1]!) + (match[2] === '"' ? "" : "…");
+      // Cut inside the field: its whole blocks, never a cut span (conversation/markdownCut.ts).
+      if (match) return match[2] === '"' ? unquote(match[1]!) : shownOfCut(unquote(match[1]!));
     }
     // No prose field before the cut: the scalar fields it has, as lines.
     const fields = [...raw.matchAll(/"([^"\\]+)"\s*:\s*("(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?(?![\d.])|true|false)/g)].map(

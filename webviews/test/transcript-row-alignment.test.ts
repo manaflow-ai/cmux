@@ -5,14 +5,14 @@
 // ours: "1 CODEX 2 US 3 US 4 CODEX 5 CLAUDDE WE NEED TO LINE OUR SHIT UP LIKE THEIRS".
 //
 // In gallery entry agent-pane.transcript-row-alignment (a reply, a tool call, a reply, a subagent
-// that finished, a reply, a background command that ended, a reply, another agent's message, a
+// that started, a reply, the subagent finished, a reply, a background command that ended, a reply, another agent's message, a
 // reply; above them a folded
 // turn's "Worked for" line and a footer with its actions and time), measured from the
 // transcript column's left edge (`col-left`, design/grid.md 5.5) in light and dark:
 // - every reply's first glyph, a "Worked for" line's first glyph and the first glyph of every action
 //   row (a reply's, a footer's) start on col-left; nothing comes before a footer's buttons
 //   (reply-footer.test.ts);
-// - every row with a leading icon (a tool row, a subagent's end, a background command's end,
+// - every row with a leading icon (a tool row, a subagent's start and end, a background command's end,
 //   another agent's message) has its 16px icon box on col-left and its words at one shared x;
 // - each status row between two replies has the same room above it as every other, and the same
 //   below; the room above is the stack's gap from a message to a step, the room below its gap from
@@ -119,9 +119,11 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
       const iconed: { kind: string; label: string; slot: number; slotWidth: number; text: number }[] = [];
       const ROWS: [string, string, string][] = [
         ["tool", ".acpmux-activity .cv-tool", ":scope > .cv-tool__icon"],
+        ["subagent started", ".cv-subagent-started", ":scope > .cv-tool__icon"],
         ["subagent finished", ".cv-subagent-done", ":scope > .cv-tool__icon"],
         ["background command", ".acpmux-backgroundTask .cv-tool", ":scope > .cv-tool__icon"],
-        ["agent message", ".cv-received > .cv-disclosure__line", ".cv-received__mark"],
+        // A received message's line (AgentMessageRow.tsx): its icon slot holds the sender's mark.
+        ["agent message", ".cv-received > .cv-agentmsg__line", ":scope > .cv-agentmsg__icon"],
       ];
       for (const [kind, selector, icon] of ROWS)
         for (const element of document.querySelectorAll(selector)) {
@@ -147,9 +149,10 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
         .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
       const STATUS: [string, string][] = [
         ["tool", ".acpmux-activity > .cv-tools"],
+        ["subagent started", ".cv-subagent-started"],
         ["subagent finished", ".cv-subagent-done"],
         ["background command", ".acpmux-backgroundTask .cv-tool"],
-        ["agent message", ".cv-received > .cv-disclosure__line"],
+        ["agent message", ".cv-received > .cv-agentmsg__line"],
       ];
       for (let index = 1; index < rows.length - 1; index += 1) {
         const before = rows[index - 1]!.querySelector(".cv-md");
@@ -253,6 +256,7 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
           "worked-for",
           "footer actions",
           "tool",
+          "subagent started",
           "subagent finished",
           "background command",
           "agent message",
@@ -262,6 +266,7 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
           "agent message",
           "background command",
           "subagent finished",
+          "subagent started",
           "tool",
         ]);
         expect(found).toEqual([]);

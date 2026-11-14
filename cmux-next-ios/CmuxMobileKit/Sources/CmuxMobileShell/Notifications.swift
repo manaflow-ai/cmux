@@ -228,15 +228,18 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         guard BuildCapabilities.current.push else { return }
         Task { @MainActor in
             let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
-            if APNsRegistrationDecision.shouldRegister(push: true, authorization: status) {
+            let registers = APNsRegistrationDecision.shouldRegister(push: true, authorization: status)
+            log.info("APNs: authorization \(status.rawValue, privacy: .public), asks for a token: \(registers, privacy: .public)")
+            if registers {
                 UIApplication.shared.registerForRemoteNotifications()
             }
         }
     }
 
-    /// Portrait everywhere but a Mac's shared screen, which turns with the phone.
+    /// Portrait on a phone's screen everywhere but a Mac's shared screen, which turns with the
+    /// phone; an unfolded foldable's screen turns everywhere.
     public func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
-        ScreenSharingOrientation.shared.allowed
+        ScreenSharingOrientation.shared.allowed(in: window)
     }
 
     public func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {

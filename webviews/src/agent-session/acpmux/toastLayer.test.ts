@@ -10,7 +10,14 @@ import { join } from "node:path";
 const css = readFileSync(join(import.meta.dir, "toastLayer.css"), "utf8");
 const buttonCss = readFileSync(join(import.meta.dir, "conversation/conversation.css"), "utf8");
 const pillCss = readFileSync(join(import.meta.dir, "needsYou/needsYou.css"), "utf8");
-const px = (source: string, pattern: RegExp) => Number(pattern.exec(source)?.[1] ?? Number.NaN);
+const tokenCss = readFileSync(join(import.meta.dir, "../../pages/shared/desktop.css"), "utf8");
+// A height is a literal `Npx` or a design token (`var(--ds-…)`), read from desktop.css.
+const px = (source: string, pattern: RegExp) => {
+  const value = pattern.exec(source)?.[1] ?? "";
+  const token = /^var\((--[\w-]+)\)$/.exec(value)?.[1];
+  const resolved = token ? new RegExp(`${token}:\\s*(\\d+)px`).exec(tokenCss)?.[1] : value;
+  return Number(resolved?.replace(/px$/, "") ?? Number.NaN);
+};
 
 describe("toast deck and Jump to latest", () => {
   const lifted =
@@ -24,8 +31,9 @@ describe("toast deck and Jump to latest", () => {
     const room = /--acpmux-toasts-jump-room:\s*calc\((\d+)px\s*\+\s*(\d+)px\)/.exec(css);
     expect(room).not.toBeNull();
     const foot = px(buttonCss, /\.acpmux-jump-latest\s*\{[^}]*bottom:\s*calc\((\d+)px/);
-    const circle = px(buttonCss, /\.acpmux-jump-latest\s*\{[^}]*height:\s*(\d+)px/);
-    const pill = px(pillCss, /\.acpmux-jump-latest\.acpmux-needs-you-pill\s*\{[^}]*height:\s*(\d+)px/);
+    const circle = px(buttonCss, /\.acpmux-jump-latest\s*\{[^}]*height:\s*(\d+px)/);
+    const pill = px(pillCss, /\.acpmux-jump-latest\.acpmux-needs-you-pill\s*\{[^}]*height:\s*(\d+px|var\(--[\w-]+\))/);
+    expect(Number.isFinite(pill)).toBe(true);
     expect(Number(room![1])).toBe(foot);
     expect(Number(room![2])).toBeGreaterThanOrEqual(Math.max(circle, pill));
   });

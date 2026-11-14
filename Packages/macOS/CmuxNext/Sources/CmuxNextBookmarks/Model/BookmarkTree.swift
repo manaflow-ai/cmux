@@ -43,6 +43,12 @@ public nonisolated struct BookmarkTree: Sendable, Equatable {
 
     public func node(_ id: String) -> BookmarkNode? { nodes[id] }
 
+    /// The bookmarks bar has something to show: a Bookmarks Bar item, or Other Bookmarks (its
+    /// trailing button). An empty bar takes no room under the toolbar (#38046).
+    public var fillsBookmarksBar: Bool {
+        childIDs[BookmarkRoot.bar.rawValue]?.isEmpty == false || childIDs[BookmarkRoot.other.rawValue]?.isEmpty == false
+    }
+
     public func children(of parent: String) -> [BookmarkNode] {
         (childIDs[parent] ?? []).compactMap { nodes[$0] }
     }

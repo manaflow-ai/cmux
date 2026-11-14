@@ -1,5 +1,7 @@
 #if DEBUG
 import AppKit
+import CmuxNextPages
+import CmuxNextSettings
 import CmuxNextTestSupport
 import Foundation
 import Testing
@@ -86,6 +88,34 @@ struct AgentPageFlickerLogTests {
         let flips = try lines(log.url)
         #expect(flips.map { $0["kind"] as? String } == ["window-occlusion"])
         #expect(flips.first?["window"] as? Int == window.windowNumber)
+    }
+
+    /// The shared page host takes the page's batches as `cmux.agent.diag.flicker` and hands them to
+    /// the pane (``AgentPageProvider/onFlicker``) without asking the model: Leo's NIGHTLY ring file
+    /// (2026-11-11) held no page line at all, because the page host had no such op. A page whose
+    /// pid the app does not know (Chromium) writes its lines without one.
+    @MainActor @Test func thePageHostTakesTheBatchesWithoutTheModel() async throws {
+        let log = AgentPageFlickerLog(directory: directory())
+        defer { try? FileManager.default.removeItem(at: log.directory) }
+        var asked = 0
+        let provider = AgentPageProvider { _ in
+            asked += 1
+            return nil
+        }
+        provider.onFlicker = { params in log.recordPage(params.foundationObject as? [String: Any], page: "chat:s1", pid: 0) }
+        let params: JSONValue = .object(["events": .array([
+            .object(["kind": .string("frames"), "at": .number(1_793_836_520_250), "n": .number(60), "p95": .number(16.7), "miss120": .number(3)]),
+            .object(["kind": .string("long-frame"), "at": .number(1_793_836_521_000), "ms": .number(140)]),
+        ])])
+        let reply = try await provider.call(AgentPageOps.namespace + AgentPageFlickerLog.method, params: params,
+                                            context: PageCallContext(page: PageDescriptor.agent.id))
+        #expect(reply == .null)
+        #expect(asked == 0)
+        log.flush()
+        let written = try lines(log.url)
+        #expect(written.map { $0["kind"] as? String } == ["frames", "long-frame"])
+        #expect(written[0]["page"] as? String == "chat:s1" && written[0]["from"] as? String == "page" && written[0]["pid"] == nil)
+        #expect(written[0]["miss120"] as? Double == 3 && written[1]["ms"] as? Double == 140)
     }
 }
 #endif

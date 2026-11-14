@@ -244,8 +244,8 @@ await requireBrowserLane("newtab-machine-menu.test.ts", async () => {
           "\t",
         ),
       );
-      expect(first).toEqual(["This Mac", "Cloud", "Another machine"]);
-      expect(settled).toEqual(["This Mac", "Sign in for Cloud", "Another machine"]);
+      expect(first).toEqual(["This Mac", "Cloud", "Remote"]);
+      expect(settled).toEqual(["This Mac", "Sign in for Cloud", "Remote"]);
       expect(await height()).toBe(before);
     } finally {
       await page.close();

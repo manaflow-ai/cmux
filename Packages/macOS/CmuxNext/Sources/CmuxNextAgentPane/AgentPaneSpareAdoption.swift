@@ -1,3 +1,4 @@
+import CmuxNextDesignTokens
 import CmuxNextWakeups
 public import Foundation
 
@@ -54,7 +55,7 @@ extension AgentPaneModel {
     /// (``AgentPaneSpareReadiness``, with this Mac's power and thermal state read now).
     public var servesExistingChat: Bool {
         AgentPaneSpareReadiness(handshake: hasHandshake, painted: hasPainted, clientReady: clientReady,
-                                lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled,
+                                lowPower: LowPowerMode.system.isEnabled,
                                 thermal: ProcessInfo.processInfo.thermalState).servesChat
     }
 

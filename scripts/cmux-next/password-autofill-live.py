@@ -25,6 +25,7 @@ import argparse, glob, http.server, json, os, plistlib, subprocess, sys, tempfil
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -242,7 +243,7 @@ app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_SOCKET_MODE": "auto
                                       # import is off unless the data is throwaway (DEBUG builds only): it is.
                                       "CMUX_NEXT_PASSWORD_IMPORT_MOCK_KEY": "throwaway"},
                        stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT)
-print(f"app pid {app.pid}, scratch {SCRATCH}, origin {ORIGIN}, out {opts.out}", flush=True)
+safe_print(f"app pid {app.pid}, scratch {SCRATCH}, origin {ORIGIN}, out {opts.out}", flush=True)
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 120)
     to_workspace()  # the picker's keys go to a window's palette, not the first-launch Home page
@@ -259,7 +260,7 @@ try:
     check(report is not None, f"Chromium fills the saved sign-in in a person's tab ({reports.get('person')})")
 
     reply = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": f"{ORIGIN}/login?tab=agent"}, "focus": True})
-    print("note: agent open", reply, flush=True)
+    safe_print("note: agent open", reply, flush=True)
     wait_for(lambda: "agent" in reports, "the agent's tab reports", 30)
     time.sleep(max(3, 2 * fill_time))  # twice as long as the person's tab took to fill
     agent = reports.get("agent") or {}

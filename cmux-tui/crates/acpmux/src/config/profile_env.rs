@@ -92,6 +92,13 @@ pub fn resolve_env_refs(
     lookup_env: &dyn Fn(&str) -> Option<String>,
     lookup_keychain: &dyn Fn(&str, Option<&str>) -> Result<String, String>,
 ) -> Result<(), String> {
+    // An endpoint harness (its marker in the env) reads cmux's own items only by exact account.
+    let endpoint = crate::byo_endpoint::Kind::of_env(env).is_some();
+    let gated = |service: &str, account: Option<&str>| {
+        crate::byo_endpoint::endpoint_keychain_lookup(None, service, account, lookup_keychain)
+    };
+    let lookup_keychain: &dyn Fn(&str, Option<&str>) -> Result<String, String> =
+        if endpoint { &gated } else { lookup_keychain };
     for (key, value) in env.iter_mut() {
         if !is_reference(value) {
             continue;
@@ -133,6 +140,20 @@ pub fn resolve_env_refs(
         *value = out;
     }
     Ok(())
+}
+
+/// The names `${env:NAME}` references in `env`'s values read from the login environment.
+pub fn env_ref_names(env: &BTreeMap<String, String>) -> Vec<String> {
+    let mut names = Vec::new();
+    for value in env.values() {
+        let mut rest = value.as_str();
+        while let Some((_, after)) = rest.split_once("${env:") {
+            let Some((name, tail)) = after.split_once('}') else { break };
+            names.push(name.to_owned());
+            rest = tail;
+        }
+    }
+    names
 }
 
 /// Whether any env value holds a reference that must be resolved.

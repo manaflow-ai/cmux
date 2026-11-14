@@ -75,8 +75,10 @@ restore_head() {
 base_app="" base_desc=""
 if [[ -n "$base_revert" ]]; then
   # A shallow step checkout may lack the commit or its parent; reverting needs both trees.
+  depth=()  # --depth only in a checkout that is already shallow, so a full clone stays full
+  [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 2)
   { git cat-file -e "$base_revert^{commit}" && git cat-file -e "$base_revert^^{commit}"; } 2>/dev/null \
-    || git fetch --quiet --depth 2 origin "$base_revert"
+    || git fetch --quiet ${depth[@]+"${depth[@]}"} origin "$base_revert" 2>/dev/null || git fetch --quiet ${depth[@]+"${depth[@]}"} https://github.com/manaflow-ai/cmux.git "$base_revert"
   if ! git revert --no-commit "$base_revert" >"$out/revert.log" 2>&1; then
     cat "$out/revert.log" >&2
     echo "hover-preload: $base_revert does not revert cleanly at $head_sha; use --base-ref" >&2
@@ -89,7 +91,7 @@ if [[ -n "$base_revert" ]]; then
   base_app="$(build hoverbase)" || { restore_head; exit 1; }
   restore_head
 elif [[ -n "$base_ref" ]]; then
-  git cat-file -e "$base_ref^{commit}" 2>/dev/null || git fetch --quiet origin "$base_ref"
+  git cat-file -e "$base_ref^{commit}" 2>/dev/null || git fetch --quiet origin "$base_ref" 2>/dev/null || git fetch --quiet https://github.com/manaflow-ai/cmux.git "$base_ref"
   git -c advice.detachedHead=false checkout --quiet --detach "$base_ref"
   base_desc="base $(git rev-parse HEAD)"
   check_base_setting

@@ -26,6 +26,7 @@ import argparse, http.server, json, os, plistlib, subprocess, sys, tempfile, thr
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True, help="the tagged .app")
@@ -260,7 +261,7 @@ try:
         tab = submit(engine, "duplicate")
         since = time.monotonic()
         reply = rpc("action.run", {"action": "duplicateTab", "target": f"tab:{tab}", "origin": "script"})
-        print(f"note: {engine}/duplicate: duplicateTab -> {json.dumps(reply)[:200]}", flush=True)
+        safe_print(f"note: {engine}/duplicate: duplicateTab -> {json.dumps(reply)[:200]}", flush=True)
         settle(engine, "duplicate", since, f"{engine}-duplicate")
 
         # hibernate, then wake
@@ -272,7 +273,7 @@ try:
         state = hibernation()
         slept = tab in (state.get("hibernated") or [])
         exemption = (state.get("exemptions") or {}).get(tab)
-        print(f"note: {engine}/hibernate: hibernateTab -> {json.dumps(reply)[:200]}; hibernated={slept} exemption={exemption}", flush=True)
+        safe_print(f"note: {engine}/hibernate: hibernateTab -> {json.dumps(reply)[:200]}; hibernated={slept} exemption={exemption}", flush=True)
         check(not slept and exemption == "form_submission",
               f"{engine}/hibernate: a page that shows a form result does not hibernate (hibernated={slept}, exemption={exemption})")
         since = time.monotonic()
@@ -287,7 +288,7 @@ try:
         time.sleep(2)
         since = time.monotonic()
         reply = rpc("action.run", {"action": "reopenClosedBrowserPanel", "origin": "script"})
-        print(f"note: {engine}/reopen: reopen -> {json.dumps(reply)[:200]}", flush=True)
+        safe_print(f"note: {engine}/reopen: reopen -> {json.dumps(reply)[:200]}", flush=True)
         settle(engine, "reopen", since, f"{engine}-reopen")
 
         # relaunch (after the loop)
@@ -296,7 +297,7 @@ try:
     end("quit")
     launch()
     tabs = rpc("browser.page.tabs", {"all": True}).get("tabs") or []
-    print("note: tabs after relaunch", [(t.get("id"), t.get("url")) for t in tabs], flush=True)
+    safe_print("note: tabs after relaunch", [(t.get("id"), t.get("url")) for t in tabs], flush=True)
     for engine in ENGINES:
         tab = next((t for t in tabs if f"-{engine}-relaunch-{RUN}" in (t.get("url") or "")), None)
         check(tab is not None, f"{engine}/relaunch: the tab comes back")

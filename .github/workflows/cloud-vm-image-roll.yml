@@ -7,7 +7,7 @@ name: Cloud VM image roll
 #               images/cmux-vm/auto-roll.ts plan rolls only a build of the branch that changes the binaries
 #               the lock pins, and never an older one; it lists the fix commits the roll carries.
 #   2. bake     cloud-vm-image-bake.yml (called, roll: true) pins that build into the lock and bakes the
-#               Native receiver image with the agent tools. The gate is the bake's own exact-image checks
+#               image with the agent tools. The gate is the bake's own exact-image checks
 #               on the candidate snapshot: the 5-clone smoke and the agent tools probe. Any red there and
 #               nothing is kept or promoted; production stays on its image.
 #   3. promote  images/cmux-vm/image-roll-push.sh lands one bot commit on feat-cmux-next: the pinned lock
@@ -130,7 +130,6 @@ jobs:
       keep_snapshot: true
       probes: true
       agent_tools: true
-      native_receiver: true
       layered: true
       roll: true
       cmux_tui_commit: ${{ needs.plan.outputs.pin }}

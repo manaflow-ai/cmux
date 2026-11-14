@@ -18,6 +18,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
+use cmux_json::JsonGet as _;
 use serde_json::{Value, json};
 
 use crate::cli::errors::{AppError, Code};
@@ -57,11 +58,6 @@ fn failure(failure: Failure) -> anyhow::Error {
 #[cfg(test)]
 pub(crate) fn failure_for_test(f: Failure) -> anyhow::Error {
     failure(f)
-}
-
-/// The string at `key` of `v`, or "".
-fn text_at<'a>(v: &'a Value, key: &str) -> &'a str {
-    v.get(key).and_then(Value::as_str).unwrap_or_default()
 }
 
 /// The outcome JSON with `store`.
@@ -122,7 +118,11 @@ fn print_outcome(outcome: &Value, store: &str, json_out: bool) {
         ),
     }
     for failed in outcome.get("failed").and_then(Value::as_array).into_iter().flatten() {
-        eprintln!("{}: {}", text_at(failed, "name"), text_at(failed, "code"));
+        eprintln!(
+            "{}: {}",
+            failed.get_str("name").unwrap_or_default(),
+            failed.get_str("code").unwrap_or_default()
+        );
     }
 }
 
@@ -382,7 +382,8 @@ pub async fn status_cmd(json_out: bool) -> Result<()> {
         }
     }
     for h in out.get("harnesses").and_then(Value::as_array).into_iter().flatten() {
-        let (id, step) = (text_at(h, "harness"), text_at(h, "signIn"));
+        let (id, step) =
+            (h.get_str("harness").unwrap_or_default(), h.get_str("signIn").unwrap_or_default());
         match h.get("signedIn").and_then(Value::as_str).unwrap_or("unknown") {
             "yes" => println!("{id}: signed in"),
             "no" => println!("{id}: not signed in here; {step}"),

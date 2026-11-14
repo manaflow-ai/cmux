@@ -224,11 +224,13 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
           at.modelButton!.right + 0.5,
         );
         expect(at.box.right - at.end, "the row ends near the box's right side").toBeLessThanOrEqual(14);
-        // Claude Code ends the row on the context ring, right of the model button, once there is usage.
-        // The chat's ring keeps its place from the start; the New Tab page has no chat yet, so no ring.
-        expect(Boolean(at.ring), "the chat's quiet row ends on the context ring").toBe(stage.plus);
+        // The context ring stands just left of the model button (Lawrence and Lucas 2026-11-11), so the row
+        // ends on the effort. The chat has its ring; the New Tab page has no chat yet, so no ring.
+        expect(Boolean(at.ring), "the chat's quiet row draws the context ring").toBe(stage.plus);
         if (at.ring)
-          expect(at.ring.left, "the ring follows the model button").toBeGreaterThanOrEqual(at.modelButton!.right - 0.5);
+          expect(at.ring.right, "the ring comes before the model button").toBeLessThanOrEqual(
+            at.modelButton!.left + 0.5,
+          );
       });
 
     for (const stage of COMPOSERS)
@@ -281,7 +283,8 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
               const r = element.getBoundingClientRect();
               return r.width ? { left: r.left, right: r.right } : null;
             };
-            const check = row.querySelector(".ui-menu-check")?.textContent?.trim() ?? "";
+            // The check is drawn (MenuCheckGlyph, an SVG), not a text glyph.
+            const check = row.querySelector(".ui-menu-check .ui-menu-check-glyph");
             return {
               checked: row.hasAttribute("data-checked"),
               check: check ? box(".ui-menu-check") : null,

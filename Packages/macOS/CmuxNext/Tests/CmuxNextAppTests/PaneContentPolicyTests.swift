@@ -624,10 +624,12 @@ struct PaneContentPolicyTests {
         // The tab switch: the joining terminal takes the pane's content area in the middle of the spring.
         pane.show(joining.view)
         rig.root.layoutSubtreeIfNeeded()
-        var off: [String] = []
+        let atShow = joining.surfaceView.fittedGrid
+        var off: [String] = [], atFirstFrame: TerminalGridSize?
         let frames = try Self.run(rig) { frame in
             let host = joining.view, area = try #require(host.superview)
             if host.frame.size != area.bounds.size { off.append("frame \(frame): the joining host \(host.frame.size) in \(area.bounds.size)") }
+            if frame == 1 { atFirstFrame = joining.surfaceView.fittedGrid }
         }
         #expect(frames > 3, "the spring landed before the switch (\(frames) frames left)")
         #expect(off.isEmpty, "the joining terminal's host did not follow its pane: \(off.prefix(3))")
@@ -637,9 +639,12 @@ struct PaneContentPolicyTests {
         joining.surfaceView.bridge.takeUnretainedValue().input.focusGained()
         let grids = await io.gridsUntilMarker()
         let final = try #require(joining.surfaceView.fittedGrid)
-        // RESIZE P0 7: the grid of the first landed frame goes at once; these frames run in one turn, so no refresh ends a window and the rest go as the final grid.
-        #expect(grids.last == final && grids.count <= 2 && Set(grids).count == grids.count,
-                "the joining terminal asked its PTY for \(grids), not at most its first frame's grid and then its final grid \(final)")
+        // RESIZE P0 7: the grid of the first landed frame (the join's, or the next frame's) goes at once; these frames run in
+        // one turn, so no refresh ends a window and the rest go as the final grid. Exact: any other first grid fails
+        // (RESIZE P0 8, review of 28a640183a7).
+        let allowed = [[final]] + [atShow, atFirstFrame].compactMap { $0 }.filter { $0 != final }.map { [$0, final] }
+        #expect(allowed.contains(grids),
+                "the joining terminal asked its PTY for \(grids), not [the join's \(String(describing: atShow)) or its first frame's grid \(String(describing: atFirstFrame)),] then its final grid \(final)")
     }
 
     // MARK: Note 5: S3c

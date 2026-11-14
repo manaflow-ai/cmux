@@ -1,13 +1,11 @@
 public import WebKit
 
 extension WebTheme {
-    /// The document-start scripts every cmux web view installs, in order: ``bootstrapScript``
-    /// (`window.cmuxTheme`), then the UI font's face (`BundledFonts.pageScript`: Inter, which
-    /// `--font-ui` names first). Main frame only, in the page's world.
+    /// The document-start scripts every cmux web view installs: ``bootstrapScript``
+    /// (`window.cmuxTheme`). Main frame only, in the page's world. The UI font needs none: `--font-ui`
+    /// is the system font, which every page already has.
     @MainActor public static var userScripts: [WKUserScript] {
-        [bootstrapScript, BundledFonts.pageScript].map {
-            WKUserScript(source: $0, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page)
-        }
+        [WKUserScript(source: bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page)]
     }
 
     /// Adds ``userScripts`` to `controller`.

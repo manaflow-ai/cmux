@@ -8,6 +8,7 @@ import { avatarsChanged, UPLOADED_AVATAR } from "../../../gallery/fixtures/agent
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, session, summary, tool, user, SESSION_ID } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxSessionEntry } from "../sessionList";
+import { openEndedStretch } from "./endedStretchPlay";
 
 /// Claude Code's shape for a call to the server: `mcp__cmux-subsessions__<tool>`, the arguments as
 /// its input and the result's text as its output.
@@ -309,11 +310,15 @@ export default agentPaneEntry({
           user(prompt, 6),
           activity([started("tests", "sub-tests"), started("docs", "sub-docs"), started("lint", "sub-lint")], 5.8),
           assistant("Started three sub-sessions; I'll collect their reports.", 5.5),
+          // The stretch that started them ended while the chat works on: under the shipped
+          // live-turn-work `line` a stretch still running draws no call (turns.ts `codexRuns`).
+          summary(5.5, { status: "completed", toolCount: 3 }),
         ],
         { isWorking: true },
       ),
       native: { "agent.avatar": { src: UPLOADED_AVATAR } },
       play: async (ctx) => {
+        await openEndedStretch(ctx);
         await ctx.click({ selector: ".cv-disclosure__toggle" });
         avatarsChanged(ctx.document, ["sub-tests", "sub-docs", "sub-lint"]);
         await ctx.waitFor(() => {

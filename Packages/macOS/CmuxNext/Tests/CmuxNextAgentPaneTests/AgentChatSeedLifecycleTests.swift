@@ -34,4 +34,17 @@ struct AgentChatSeedLifecycleTests {
         #expect(await seed.peek()?.host == nil)
         #expect(seed.holdsOnlyFolder)
     }
+
+    /// New Cloud Chat (`palette.newCloudChat`): the inherited seed keeps its folder, and the page's
+    /// handshake says `pickCloud` once, so a reload before the first prompt does not pick it again.
+    @Test func newCloudChatSeedPicksCloudOnceOverTheInheritedSeed() async throws {
+        let seed = AgentPaneSeedSource.picksCloud(after: AgentPaneSeedSource(AgentPaneSeed(cwd: "/tmp/project")))
+        #expect(!seed.holdsOnlyFolder)
+        let model = AgentPaneModel(host: Host(), seed: seed)
+        let first = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        #expect(first["pickCloud"] as? Bool == true)
+        #expect(first["cwd"] as? String == "/tmp/project")
+        let again = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        #expect(again["pickCloud"] == nil)
+    }
 }

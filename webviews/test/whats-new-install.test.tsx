@@ -9,6 +9,7 @@ import { SheetBuilds } from "../src/pages/changelog/SheetPage";
 import { ChangelogStore, type ChangelogSnapshot } from "../src/pages/changelog/store";
 import type { IndexEntry } from "../src/pages/changelog/types";
 import type { PageClient } from "../src/pages/shared/pageClient";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "location", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -27,11 +28,8 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 const strings = {

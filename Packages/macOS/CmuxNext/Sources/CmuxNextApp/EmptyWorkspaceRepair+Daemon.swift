@@ -8,7 +8,7 @@ extension EmptyWorkspaceRepair {
     convenience init(daemon: DaemonService) {
         self.init(store: daemon.store, create: { [weak daemon] key in
             guard let daemon, let connection = daemon.connection else { throw DaemonError.notConnected }
-            let cwd = daemon.defaultCwd
+            let cwd = NewTerminalStart.defaultFolder(on: daemon)
             return try await connection.createTerminal(in: key, cwd: cwd).surface
         }, close: { [weak daemon] key in
             guard let daemon, let connection = daemon.connection else { throw DaemonError.notConnected }

@@ -17,7 +17,7 @@ enum ComputerUseSessionStrings {
                table: "MiscHandlers", bundle: .module)
     }
     static var off: String {
-        String(localized: "handlers.computerUse.off", defaultValue: "Computer Use is off. Turn it on in Settings > Computer Use.",
+        String(localized: "handlers.computerUse.off", defaultValue: "Computer Use is off. Turn it on in Settings > Agents > Computer Use.",
                table: "MiscHandlers", bundle: .module)
     }
     static var disabledByPolicy: String {

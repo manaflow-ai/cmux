@@ -57,6 +57,7 @@ const SILENT_FOR: Duration = Duration::from_secs(70);
 const MAX_CALLS: usize = 32;
 /// All calls' request bodies held at once, from the first body frame until the provider call ends.
 const MAX_HELD_BYTES: usize = 64 * 1024 * 1024;
+// timeout: a WebSocket upgrade that never completes fails the connect.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
 /// The backend refuses a frame over 1 MiB; answer chunks stay well under it once base64'd.
 const CHUNK_BYTES: usize = 192 * 1024;
@@ -218,8 +219,11 @@ pub(super) fn parse(
         (None, Some(base)) => {
             let url =
                 reqwest::Url::parse(&base).map_err(|_| "--upstream is not a URL".to_owned())?;
-            if !matches!(url.scheme(), "http" | "https") || url.query().is_some() {
-                return Err("--upstream must be an http(s) URL with no query".into());
+            if !matches!(url.scheme(), "http" | "https")
+                || url.query().is_some()
+                || url.fragment().is_some()
+            {
+                return Err("--upstream must be an http(s) URL with no query or fragment".into());
             }
             // The URL is logged; a key goes in --upstream-key-file, never in the URL.
             if !url.username().is_empty() || url.password().is_some() {
@@ -376,13 +380,29 @@ pub(super) async fn backend_token(
     Ok(token)
 }
 
-/// The proxy's URL for a call's path. An OpenAI-style base that already ends in `/v1` takes the path without its own
-/// `/v1`, so `--upstream http://host/v1` and `--upstream http://host` reach the same place.
-fn proxy_url(base: &str, path: &str) -> String {
-    match path.strip_prefix("/v1/") {
+/// The model paths a machine may call, the same list as the cmux-platform Worker's `GATEWAY_CALL_PATH`.
+const PROXY_PATHS: &[&str] = &[
+    "/v1/responses",
+    "/v1/responses/compact",
+    "/v1/models",
+    "/v1/messages",
+    "/v1/messages/count_tokens",
+    "/v1/chat/completions",
+];
+
+/// The proxy's URL for a call's path, or `None` for a path the gateway does not serve. The Worker already refuses
+/// other paths; checking again here means a path such as `@other.host/x` can never carry the proxy's key elsewhere.
+/// An OpenAI-style base that already ends in `/v1` takes the path without its own `/v1`, so
+/// `--upstream http://host/v1` and `--upstream http://host` reach the same place.
+fn proxy_url(base: &str, path: &str) -> Option<String> {
+    let route = path.split_once('?').map_or(path, |(route, _)| route);
+    if !PROXY_PATHS.contains(&route) {
+        return None;
+    }
+    Some(match path.strip_prefix("/v1/") {
         Some(rest) if base.ends_with("/v1") => format!("{base}/{rest}"),
         _ => format!("{base}{path}"),
-    }
+    })
 }
 
 async fn command_output(program: &str, args: &[&str]) -> Result<String, String> {
@@ -824,7 +844,11 @@ impl Provider {
                     }
                     None => None,
                 };
-                self.send(&proxy_url(base, &call.path), call, key.as_deref(), &[]).await
+                let url = proxy_url(base, &call.path).ok_or((
+                    "inference.not_found",
+                    format!("the inference gateway serves no {}", log_path(&call.path)),
+                ))?;
+                self.send(&url, call, key.as_deref(), &[]).await
             }
             Upstream::Codex { auth } => {
                 let url = codex_url(&call.path).ok_or((
@@ -999,6 +1023,7 @@ async fn refresh_codex(
 ) -> Result<CodexLogin, String> {
     let response = http
         .post(CODEX_TOKEN_URL)
+        // timeout: a token endpoint that never answers fails this refresh.
         .timeout(Duration::from_secs(20))
         .form(&[
             ("grant_type", "refresh_token"),
@@ -1243,9 +1268,49 @@ mod tests {
 
     #[test]
     fn joins_a_proxy_base_with_or_without_v1() {
-        assert_eq!(proxy_url("http://h:1", "/v1/responses"), "http://h:1/v1/responses");
-        assert_eq!(proxy_url("http://h:1/v1", "/v1/responses"), "http://h:1/v1/responses");
-        assert_eq!(proxy_url("http://h:1/api", "/v1/models?x=1"), "http://h:1/api/v1/models?x=1");
+        assert_eq!(proxy_url("http://h:1", "/v1/responses").unwrap(), "http://h:1/v1/responses");
+        assert_eq!(proxy_url("http://h:1/v1", "/v1/responses").unwrap(), "http://h:1/v1/responses");
+        assert_eq!(
+            proxy_url("http://h:1/api", "/v1/models?x=1").unwrap(),
+            "http://h:1/api/v1/models?x=1"
+        );
+    }
+
+    #[test]
+    fn a_proxy_serves_only_the_workers_model_paths() {
+        for path in [
+            "/v1/responses",
+            "/v1/responses?x=1",
+            "/v1/responses/compact",
+            "/v1/models",
+            "/v1/messages",
+            "/v1/messages/count_tokens",
+            "/v1/chat/completions",
+        ] {
+            assert!(proxy_url("https://h", path).is_some(), "{path}");
+        }
+        for path in [
+            "@evil.example/x",
+            "/admin",
+            "",
+            "/v1/responses/../admin",
+            "/v1/responsesx",
+            "/v1/models/x",
+            "/v1/responses#x",
+            "//evil.example/v1/responses",
+        ] {
+            assert!(proxy_url("https://h", path).is_none(), "{path}");
+        }
+    }
+
+    #[test]
+    fn refuses_an_upstream_with_a_fragment() {
+        let parse_up = |up: &str| {
+            parse(&args(&["--api", "https://a.dev", "--upstream", up]), &no_env).map(|_| ())
+        };
+        assert!(parse_up("https://h#f").is_err());
+        assert!(parse_up("https://h/v1#").is_err());
+        assert!(parse_up("https://h/v1").is_ok());
     }
 
     #[test]

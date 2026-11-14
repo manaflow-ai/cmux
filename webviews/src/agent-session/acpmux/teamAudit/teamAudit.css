@@ -1,0 +1,16 @@
+/* Team (teamAudit/TeamAuditScreen.tsx): History > Costs' controls, strip and status (ledger.css),
+   then a table with a column per measure. The key column takes the room left and ellipsizes; the
+   measure columns hold tabular numbers and scroll sideways in a narrow pane. */
+.tma-scroll{overflow:auto}
+.tma-table{width:100%;border-collapse:collapse;font-size:var(--text-detail);font-variant-numeric:tabular-nums}
+.tma-table th,.tma-table td{padding:var(--ds-space-1) var(--ds-space-2);text-align:right;white-space:nowrap}
+.tma-table thead th{font-weight:var(--weight-regular);color:var(--agent-muted)}
+.tma-table tbody tr:hover{background:color-mix(in srgb,var(--agent-text) 5%,transparent)}
+/* The key column takes the room the measure columns leave (width 100%) and never less than 12ch: the
+   label inside does not size the column (contain: inline-size), so a long name ellipsizes only past
+   that minimum, and a pane too narrow for 12ch and the measures scrolls the table sideways in
+   .tma-scroll instead of cutting names (never a cut at a fixed width: test/chip-fixed-width). */
+.tma-table .tma-key{width:100%;text-align:left;font-size:var(--text-body);font-weight:var(--weight-regular);color:var(--agent-text)}
+.tma-key-text{display:block;contain:inline-size;min-width:12ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tma-table thead .tma-key{font-size:var(--text-detail);color:var(--agent-muted)}
+.tma-saved{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

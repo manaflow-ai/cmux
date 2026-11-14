@@ -5,7 +5,7 @@ public import Foundation
 /// Every field but the id and name is optional, so an older or newer CLI still lists the row.
 public nonisolated struct JoinedMachine: Identifiable, Hashable, Sendable {
     public nonisolated enum State: String, Hashable, Sendable {
-        /// Its last heartbeat is within ``JoinedMachine/onlineWindow`` (the hub's 90 s row TTL).
+        /// Its last heartbeat is within ``JoinedMachine/onlineWindow`` (the hub's 30 s row TTL).
         case online
         case offline
         /// Its credential was revoked: it left the mesh.
@@ -60,8 +60,10 @@ public nonisolated struct JoinedMachine: Identifiable, Hashable, Sendable {
     }
 
     /// How fresh a heartbeat must be for the machine to show online: the hub's address-book row TTL
-    /// (cmux-platform `src/server/mesh/Core.ts`, 90 s; the daemon heartbeats every 30 s or sooner).
-    public static let onlineWindow: TimeInterval = 90
+    /// (cmux-platform `src/server/mesh/Core.ts`, 30 s; the daemon heartbeats every third of it, and
+    /// the platform stamps the heartbeat at most every 10 s). The platform's list also says `online`
+    /// itself, which the CLI's row `state` follows.
+    public static let onlineWindow: TimeInterval = 30
 
     /// Its state from its own heartbeat at `now`: revoked first (the platform's `revoked`, or the CLI's
     /// `state: "revoked"`, which keeps the last heartbeat); then online when `heartbeat` is within
@@ -83,6 +85,15 @@ public nonisolated struct JoinedMachine: Identifiable, Hashable, Sendable {
 
     /// The Machines section's id of a joined machine (its row, its last check in ``MachineHealthStore``).
     public static func healthID(_ id: String) -> String { "joined:\(id)" }
+
+    /// The machine a Machines section row id names for a link verb (`machine.reconnect`): a joined
+    /// row's id (`joined:<id>`, ``healthID(_:)``) names the daemon of its `meshPeerId` when it has one;
+    /// any other id, and a joined machine with no mesh id or none of `machines`, stays as given.
+    public static func linkedMachine(_ id: String, in machines: [JoinedMachine]) -> String {
+        guard id.hasPrefix("joined:") else { return id }
+        let machineID = String(id.dropFirst("joined:".count))
+        return machines.first(where: { $0.id == machineID })?.meshPeerId ?? id
+    }
 
     /// The joined rows of `cmux machine list --json` (a JSON array of rows of every kind); nil when
     /// the output is not that array. Rows of other kinds, and joined rows with no id, are skipped.

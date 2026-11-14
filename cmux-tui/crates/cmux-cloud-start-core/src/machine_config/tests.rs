@@ -157,3 +157,125 @@ fn the_scripts_parse() {
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     }
 }
+
+/// Review F1 (cmux#38099, 344dd0d083c): a --repo checkout cloned head first gets the rest of its
+/// tree after the bootstrap runner ended, so the applier waits at the repository barrier
+/// (`cmux repo wait`) before setup runs in the checkout, and a fill that failed refuses the apply.
+#[cfg(unix)]
+#[test]
+fn an_apply_waits_for_a_checkout_still_filling() {
+    struct Scratch(std::path::PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    impl Scratch {
+        fn path(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+    let scratch = std::env::temp_dir().join(format!("cmux-apply-wait-{}", std::process::id()));
+    std::fs::create_dir_all(&scratch).unwrap();
+    let root = Scratch(scratch.canonicalize().unwrap());
+    let home = root.path().join("home");
+    let boot = home.join(".cmux/bootstrap");
+    std::fs::create_dir_all(&boot).unwrap();
+    std::fs::create_dir_all(home.join("work/r")).unwrap();
+    std::fs::create_dir_all(root.path().join("bin")).unwrap();
+    std::fs::create_dir_all(root.path().join("conf")).unwrap();
+    std::fs::write(boot.join("repo.json"), r#"{"dir":"work/r"}"#).unwrap();
+    let applier_path = root.path().join("conf/apply");
+    std::fs::write(&applier_path, applier()).unwrap();
+    // A stand-in cmux: records its arguments, exits with $CODE.
+    // Under both names: the applier asks for `cmux-tui` first.
+    use std::os::unix::fs::PermissionsExt as _;
+    for name in ["bin/cmux", "bin/cmux-tui"] {
+        let cmux = root.path().join(name);
+        std::fs::write(&cmux, "#!/bin/sh\necho \"$@\" > \"$HOME/waited\"\nexit \"$CODE\"\n")
+            .unwrap();
+        std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let call = "import importlib.util, sys\n\
+                s = importlib.util.spec_from_file_location('applier', sys.argv[1])\n\
+                m = importlib.util.module_from_spec(s); s.loader.exec_module(m)\n\
+                try:\n    m.wait_for_repository(); print('applies')\n\
+                except m.Refused as e:\n    print('refused:', e)\n";
+    let path = format!("{}:/usr/bin:/bin", root.path().join("bin").display());
+    let apply = |fill: &str, code: &str| {
+        let _ = std::fs::remove_file(home.join("waited"));
+        std::fs::write(boot.join("repo-status.json"), format!(r#"{{"fill":"{fill}"}}"#)).unwrap();
+        let out = std::process::Command::new("python3")
+            .args(["-I", "-c", call])
+            .arg(&applier_path)
+            .env("HOME", &home)
+            .env("PATH", &path)
+            .env("CODE", code)
+            .output()
+            .ok()?;
+        let said = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+        let waited = std::fs::read_to_string(home.join("waited")).ok();
+        Some((said, waited.map(|w| w.trim().to_owned())))
+    };
+    // A host without python3 3.11 (tomllib) cannot load the applier.
+    let Some((said, waited)) = apply("background", "0") else { return };
+    if said.is_empty() {
+        return;
+    }
+    let dir = home.join("work/r").display().to_string();
+    assert_eq!(said, "applies");
+    assert_eq!(waited, Some(format!("repo wait {dir} 10800")));
+    let (said, _) = apply("background", "1").unwrap();
+    assert!(said.starts_with("refused:") && said.contains("not checked out completely"), "{said}");
+    let (said, _) = apply("background", "124").unwrap();
+    assert!(said.starts_with("refused:") && said.contains("after 3 h"), "{said}");
+    let whole = apply("done", "1").unwrap();
+    assert_eq!(whole, ("applies".to_owned(), None), "a whole clone waits on nothing");
+}
+
+/// A delivered secret set of any size is read back whole: the applier masks every value of a
+/// machine-secrets.env past 4 MiB (the size it once refused setup at) and knows all its names.
+#[cfg(unix)]
+#[test]
+fn a_secrets_file_of_any_size_is_masked_and_named() {
+    struct Scratch(std::path::PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let scratch = std::env::temp_dir().join(format!("cmux-apply-secrets-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(scratch.join("home/.config/cmux")).unwrap();
+    let root = Scratch(scratch.canonicalize().unwrap());
+    let home = root.0.join("home");
+    // 300 values of 16 KiB each: about 4.8 MiB.
+    let file: String = (0..300)
+        .map(|i| format!("export SECRET_{i}='{i:05}{}'\n", "x".repeat(16 * 1024 - 5)))
+        .collect();
+    assert!(file.len() > 4 << 20, "{}", file.len());
+    std::fs::write(home.join(".config/cmux/machine-secrets.env"), &file).unwrap();
+    let applier_path = root.0.join("apply");
+    std::fs::write(&applier_path, applier()).unwrap();
+    // These two read no TOML: a python3 older than 3.11 (no tomllib) loads the applier with a
+    // stand-in, so the check runs on every host that has a python3. The applier has no `.py`
+    // suffix, so its loader is named (a file-location spec would have none).
+    let call = "import importlib.machinery, importlib.util, sys, types\n\
+                try:\n    import tomllib\n\
+                except ImportError:\n    sys.modules['tomllib'] = types.ModuleType('tomllib')\n\
+                l = importlib.machinery.SourceFileLoader('applier', sys.argv[1])\n\
+                m = importlib.util.module_from_spec(importlib.util.spec_from_loader('applier', l))\n\
+                l.exec_module(m)\n\
+                try:\n    print(len(m.secret_values()), len(m.delivered()))\n\
+                except m.Refused as e:\n    print('refused:', e)\n";
+    let Ok(out) = std::process::Command::new("python3")
+        .args(["-I", "-c", call])
+        .arg(&applier_path)
+        .env("HOME", &home)
+        .output()
+    else {
+        return;
+    };
+    let said = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    assert_eq!(said, "300 300", "{}", String::from_utf8_lossy(&out.stderr));
+}

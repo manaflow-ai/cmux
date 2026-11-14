@@ -11,6 +11,11 @@
 //! retry after a lost reply or a timeout finds the worktree (or the branch)
 //! it made instead of making a second. A post-checkout hook that fails does
 //! not undo the worktree git made, so that is a made worktree too.
+//!
+//! Once git made it, the project's recipe sets it up without holding the
+//! reply (`worktree_setup`): the `.worktreeinclude` files are copied from
+//! the main checkout and the setup command runs; the reply's `setup` says
+//! it started and which port the worktree keeps.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -25,7 +30,7 @@ use super::mutation::{Target, key, output_extra, refused, run_failed};
 use super::push::current_branch;
 use super::run::run_git;
 use super::user_run::{UserGit, deadline};
-use super::{MAX_SMALL_OUTPUT_BYTES, Repository};
+use super::{MAX_SMALL_OUTPUT_BYTES, Repository, worktree_recipe, worktree_setup};
 use crate::Mux;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
@@ -71,7 +76,8 @@ pub(super) fn dispatch(
         };
         match create(repository, &git, &attempt) {
             Ok(()) => {
-                let value = described(&attempt, target.common_dir());
+                let mut value = described(&attempt, target.common_dir());
+                value.set("setup", setup(mux, &attempt, target.common_dir()));
                 let reply = ledger::commit(
                     mux,
                     &key,
@@ -203,13 +209,32 @@ fn create(
     Ok(())
 }
 
+/// Starts the new worktree's setup from the project's recipe; what the
+/// reply says of it.
+fn setup(mux: &Mux, attempt: &Attempt, common_dir: &Path) -> Value {
+    let main = main_root(common_dir).map(Path::to_path_buf);
+    let Some(git_dir) = admin_dir(&attempt.root) else { return json!({"state": "none"}) };
+    let resolved =
+        worktree_recipe::resolve(mux, main.as_deref(), main.as_deref().unwrap_or(common_dir));
+    let root = worktree_setup::resolved(&attempt.root);
+    let place = worktree_setup::Place { root, main_root: main, git_dir };
+    worktree_setup::start(place, resolved.recipe)
+}
+
+/// A linked worktree's own git folder, from its `.git` file.
+pub(super) fn admin_dir(root: &Path) -> Option<PathBuf> {
+    let link = std::fs::read_to_string(root.join(".git")).ok()?;
+    let admin = link.trim().strip_prefix("gitdir:")?.trim();
+    let admin = root.join(admin);
+    admin.is_dir().then_some(admin)
+}
+
 /// The attempt's worktree exists on its branch and git finished making it:
 /// its administrative folder is no longer locked (`git worktree add` locks
 /// it while it checks the files out).
 fn made(attempt: &Attempt) -> bool {
-    let Ok(link) = std::fs::read_to_string(attempt.root.join(".git")) else { return false };
-    let Some(admin) = link.trim().strip_prefix("gitdir:").map(str::trim) else { return false };
-    if Path::new(admin).join("locked").exists() {
+    let Some(admin) = admin_dir(&attempt.root) else { return false };
+    if admin.join("locked").exists() {
         return false;
     }
     let arguments = ["symbolic-ref", "--quiet", "--short", "HEAD"];

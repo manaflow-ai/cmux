@@ -28,9 +28,17 @@ pub(super) fn handle_command_with_cancellation(
             | Command::MoveTerminal { .. }
     );
     let claim = if moves { incognito_orphans::begin_move(mux, false) } else { None };
+    // `terminal-public-ids-v1` (W5-P): only a client that declared it gets the
+    // public ids; a released SDK rejects the unknown fields.
+    let public_ids = cmd.names_a_terminal_view()
+        && mux.control_clients.supports_capability(client, TERMINAL_PUBLIC_IDS_CAPABILITY);
+    let pruned = cmd.prunes_its_own_reply();
     let mut result = dispatch_command(mux, client, cmd, writer, cancellation);
+    if public_ids && let Ok(reply) = &mut result {
+        *reply = cmd_terminals::with_public_ids(mux, std::mem::take(reply));
+    }
     // A remote device's lists leave incognito workspaces out (#31210).
-    if let Ok(reply) = &mut result {
+    if !pruned && let Ok(reply) = &mut result {
         incognito_remote::prune_reply(mux, client, reply);
     }
     if let Some(claim) = claim
@@ -68,6 +76,11 @@ fn dispatch_command(
         Command::ChiefInspect(_) => {
             anyhow::bail!("chief-inspect requires the asynchronous request path")
         }
+        Command::ShellRead(_) => {
+            anyhow::bail!("shell-read requires the asynchronous request path")
+        }
+        Command::ShellRun(params) => shell_wire::run(mux, client, params),
+        Command::ShellStop(params) => shell_wire::stop(mux, client, params),
         Command::ChiefWork { chief } => {
             drop(chief);
             anyhow::bail!("chief-work requires the asynchronous request path")
@@ -79,6 +92,7 @@ fn dispatch_command(
             upload_id,
             op,
             mime,
+            filename,
             size,
             offset,
             data,
@@ -91,6 +105,7 @@ fn dispatch_command(
             upload_id,
             op,
             mime,
+            filename,
             size,
             offset,
             data,
@@ -115,7 +130,7 @@ fn dispatch_command(
         Command::Identify { machine_metadata, revisions } => {
             cmd_server::identify(mux, machine_metadata, revisions)
         }
-        Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout } => {
+        Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout, restart } => {
             cmd_server::shutdown_daemon(
                 mux,
                 client,
@@ -124,6 +139,7 @@ fn dispatch_command(
                 force,
                 end_terminals,
                 keep_layout,
+                restart,
             )
         }
         Command::Ping => cmd_server::ping(),
@@ -222,7 +238,13 @@ fn dispatch_command(
         Command::ReloadConfig => cmd_server::reload_config(mux),
         Command::SetWindowTitle { title } => cmd_server::set_window_title(mux, title),
         Command::ClearWindowTitle => cmd_server::clear_window_title(mux),
-        Command::ListWorkspaces => cmd_workspaces::list_workspaces(mux, writer.lines_written()),
+        Command::ListWorkspaces { known, limit } => cmd_workspaces::list_workspaces(
+            mux,
+            client,
+            writer.lines_written(),
+            known.as_ref(),
+            limit,
+        ),
         Command::GetFrontendProjection { frontend, scope, subject_key } => {
             cmd_frontend::get_frontend_projection(mux, frontend, scope, subject_key)
         }
@@ -253,6 +275,9 @@ fn dispatch_command(
             cmd_panes::apply_layout(mux, actor, workspace, name, layout, cols, rows)
         }
         Command::Send(params) => cmd_terminal_io::send(mux, client, writer, params),
+        Command::CancelCreatingInput { terminal_id } => {
+            creating_input::cancel(mux, client, &terminal_id)
+        }
         Command::ReadScreen { surface } => cmd_terminal_io::read_screen(mux, surface),
         Command::ClearHistory { surface, fallback_key } => {
             cmd_terminal_io::clear_history(mux, surface, fallback_key)
@@ -316,6 +341,9 @@ fn dispatch_command(
         }
         Command::SetTerminalKeep { surface, terminal_id, keep } => {
             cmd_terminals::set_terminal_keep(mux, surface, terminal_id, keep)
+        }
+        Command::SetTerminalTailPin { surface, terminal, pinned } => {
+            cmd_terminals::set_terminal_tail_pin(mux, surface, terminal, pinned)
         }
         Command::TerminalLastCommand { surface, terminal_id } => {
             cmd_terminals::terminal_last_command(mux, surface, terminal_id)
@@ -382,8 +410,8 @@ fn dispatch_command(
         Command::NewWorkspace { name, cols, rows } => {
             cmd_workspaces::new_workspace(mux, actor, name, cols, rows)
         }
-        Command::CreateWorkspace { name, key, mutation } => {
-            cmd_workspaces::create_workspace(mux, client, name, key, mutation)
+        Command::CreateWorkspace { name, key, first_tab, mutation } => {
+            cmd_workspaces::create_workspace(mux, client, name, key, first_tab, mutation)
         }
         Command::CreateTerminal {
             workspace,
@@ -399,6 +427,8 @@ fn dispatch_command(
             env,
             keep,
             detached,
+            create_workspace,
+            workspace_name,
             mutation,
         } => cmd_terminals::create_terminal(
             mux,
@@ -417,6 +447,7 @@ fn dispatch_command(
             env,
             keep,
             detached,
+            create_workspace.then_some(workspace_name),
             mutation,
         ),
         Command::NewScreen(params) => cmd_screens::new_screen(mux, client, params),
@@ -467,6 +498,9 @@ fn dispatch_command(
         }
         Command::SetSplitRatio { split, ratio, transaction } => {
             cmd_panes::set_split_ratio(mux, client, actor, split, ratio, transaction)
+        }
+        Command::SetDividerVisible { split, visible, transaction } => {
+            cmd_panes::set_divider_visible(mux, actor, split, visible, transaction)
         }
         Command::SetViewportPaneWidth { pane, width, transaction } => {
             cmd_panes::set_viewport_pane_width(mux, client, actor, pane, width, transaction)

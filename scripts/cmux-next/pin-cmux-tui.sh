@@ -89,11 +89,12 @@
 #   beside it as cmux-browser-host (cmux-browser-host.sha256; browser_host_url=
 #   and browser_host_sha256= in the pin), where the daemon looks for it (the
 #   sibling of its own executable); without it the daemon has no browser host.
-#   Tree mode fetches the agent screen-detection plugin the same way:
+#   The agent screen-detection plugin rides the same way:
 #   cmux-tui-agent-screen-detection-<target> goes beside it as
-#   cmux-agent-screen-detection (cmux-agent-screen-detection.sha256), which the
-#   daemon runs by default; the pin carries no plugin fields yet (Release
-#   bundles none until its notices are mapped). The slim terminal host rides
+#   cmux-agent-screen-detection (cmux-agent-screen-detection.sha256;
+#   agent_screen_detection_url= and agent_screen_detection_sha256= in the pin),
+#   which the daemon runs by default (the sibling of its own executable); a pin
+#   without those fields stays valid and bundles none. The slim terminal host rides
 #   the same way, tree mode only: cmux-tui-host-<target> goes beside it as
 #   cmux-tui-host (cmux-tui-host.sha256), which a macOS daemon runs every
 #   terminal host from; without it hosts re-exec the daemon's own binary. The
@@ -107,6 +108,7 @@
 #        | app-host-path [--tree|--pin] (where fetch puts the app host)
 #        | cloud-server-path [--tree|--pin] (where fetch puts cmux-cloud)
 #        | browser-host-path [--tree|--pin] (where fetch puts cmux-browser-host)
+#        | agent-screen-detection-path [--tree|--pin] (where fetch puts cmux-agent-screen-detection)
 #        | acpmux-path (where a tree fetch puts acpmux)
 #        | resolve-commit (the commit that published this tree; waits for it)
 #        | resolve-exact (release and RC builds: resolve-commit for HEAD itself, printed
@@ -177,6 +179,12 @@ read_pin() {
   if [[ -n "$pin_browser_host_url$pin_browser_host_sha256" ]]; then
     [[ "$pin_browser_host_url" == https://* && "$pin_browser_host_sha256" =~ ^[0-9a-f]{64}$ ]] || {
       echo "error: malformed pin $pin_file (browser_host_url= and browser_host_sha256= go together)" >&2; exit 1; }
+  fi
+  pin_agent_screen_detection_url="$(pin_field agent_screen_detection_url)"
+  pin_agent_screen_detection_sha256="$(pin_field agent_screen_detection_sha256)"
+  if [[ -n "$pin_agent_screen_detection_url$pin_agent_screen_detection_sha256" ]]; then
+    [[ "$pin_agent_screen_detection_url" == https://* && "$pin_agent_screen_detection_sha256" =~ ^[0-9a-f]{64}$ ]] || {
+      echo "error: malformed pin $pin_file (agent_screen_detection_url= and agent_screen_detection_sha256= go together)" >&2; exit 1; }
   fi
 }
 
@@ -1663,6 +1671,11 @@ fetch_pin() {
   else
     rm -f "$dir/cmux-browser-host"
   fi
+  if [[ -n "$pin_agent_screen_detection_url" ]]; then
+    fetch_pinned "$pin_agent_screen_detection_url" "$pin_agent_screen_detection_sha256" "$dir/cmux-agent-screen-detection" cmux-agent-screen-detection
+  else
+    rm -f "$dir/cmux-agent-screen-detection"
+  fi
 }
 
 cmd="${1:-}"
@@ -1685,18 +1698,19 @@ case "$cmd" in
     manifest_url="$BASE/$commit/manifest.json"
     download "$manifest_url" "$temp_dir/manifest.json" || {
       echo "error: $manifest_url is not published; run the cmux-tui artifacts workflow on $commit (see --help)" >&2; exit 1; }
-    read -r manifest_commit sha256 run app_host_sha256 cloud_server_sha256 browser_host_sha256 < <(python3 - "$temp_dir/manifest.json" "cmux-tui-$TARGET" "cmux-tui-app-host-$TARGET" "cmux-tui-cloud-server-$TARGET" "cmux-tui-browser-host-$TARGET" <<'PY'
+    read -r manifest_commit sha256 run app_host_sha256 cloud_server_sha256 browser_host_sha256 agent_screen_detection_sha256 < <(python3 - "$temp_dir/manifest.json" "cmux-tui-$TARGET" "cmux-tui-app-host-$TARGET" "cmux-tui-cloud-server-$TARGET" "cmux-tui-browser-host-$TARGET" "cmux-tui-agent-screen-detection-$TARGET" <<'PY'
 import json, re, sys
 m = json.load(open(sys.argv[1]))
 run = re.search(r"/actions/runs/(\d+)", m.get("attestationUrl") or "")
 binaries = m.get("binaries", {})
-print(m.get("sourceCommit", ""), binaries.get(sys.argv[2], ""), run.group(1) if run else "-", binaries.get(sys.argv[3], "") or "-", binaries.get(sys.argv[4], "") or "-", binaries.get(sys.argv[5], "") or "-")
+print(m.get("sourceCommit", ""), binaries.get(sys.argv[2], ""), run.group(1) if run else "-", binaries.get(sys.argv[3], "") or "-", binaries.get(sys.argv[4], "") or "-", binaries.get(sys.argv[5], "") or "-", binaries.get(sys.argv[6], "") or "-")
 PY
 )
     [[ "$run" == - ]] && run=""
     [[ "$app_host_sha256" == - ]] && app_host_sha256=""
     [[ "$cloud_server_sha256" == - ]] && cloud_server_sha256=""
     [[ "$browser_host_sha256" == - ]] && browser_host_sha256=""
+    [[ "$agent_screen_detection_sha256" == - ]] && agent_screen_detection_sha256=""
     [[ "$manifest_commit" == "$commit" && "$sha256" =~ ^[0-9a-f]{64}$ ]] || {
       echo "error: $manifest_url does not describe cmux-tui-$TARGET for $commit" >&2; exit 1; }
     url="$BASE/$commit/cmux-tui-$TARGET"
@@ -1732,6 +1746,15 @@ PY
     else
       echo "note: $commit published no cmux-browser-host; the pin bundles none"
     fi
+    agent_screen_detection_url=""
+    if [[ "$agent_screen_detection_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+      agent_screen_detection_url="$BASE/$commit/cmux-tui-agent-screen-detection-$TARGET"
+      download "$agent_screen_detection_url" "$temp_dir/cmux-agent-screen-detection"
+      [[ "$(sha256_of "$temp_dir/cmux-agent-screen-detection")" == "$agent_screen_detection_sha256" ]] || {
+        echo "error: $agent_screen_detection_url does not match its manifest" >&2; exit 1; }
+    else
+      echo "note: $commit published no cmux-agent-screen-detection; the pin bundles none"
+    fi
     {
       echo "# Hosted cmux-tui that release and RC builds bundle (dogfood builds use the same-tree binary). Refresh: scripts/cmux-next/pin-cmux-tui.sh --help"
       echo "commit=$commit"
@@ -1750,6 +1773,10 @@ PY
       if [[ -n "$browser_host_url" ]]; then
         echo "browser_host_url=$browser_host_url"
         echo "browser_host_sha256=$browser_host_sha256"
+      fi
+      if [[ -n "$agent_screen_detection_url" ]]; then
+        echo "agent_screen_detection_url=$agent_screen_detection_url"
+        echo "agent_screen_detection_sha256=$agent_screen_detection_sha256"
       fi
     } > "$pin_file"
     echo "pinned $commit ($version)"
@@ -1807,6 +1834,16 @@ PY
     else
       read_pin
       echo "$repo_root/cmux-tui/target/hosted/$pin_commit/cmux-browser-host"
+    fi
+    ;;
+  agent-screen-detection-path)
+    mode_from_args "$@"
+    [[ "$mode" == tree ]] && TARGET="$(host_tree_target)"
+    if [[ "$mode" == tree ]]; then
+      echo "$(tree_dir "$(checkout_tree_key)")/cmux-agent-screen-detection"
+    else
+      read_pin
+      echo "$repo_root/cmux-tui/target/hosted/$pin_commit/cmux-agent-screen-detection"
     fi
     ;;
   resolve-commit)

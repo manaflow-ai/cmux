@@ -1,0 +1,161 @@
+{
+  "$comment": "HAND-EDITED source of the General section's Agent Chat defaults for new chats (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants from it (its docstring is the row format); schemas/settings/settings-schema.json is still exported from Swift and must not change when rows move here.",
+  "lists": [
+    {
+      "name": "agentDefaults",
+      "section": "general",
+      "group": {
+        "key": "settings.group.agentChat",
+        "text": "Agent Chat"
+      },
+      "note": "The defaults a new agent chat starts with (Agents > Agent Chat).",
+      "rows": [
+        {
+          "key": "agents.defaultPermissionMode",
+          "name": "permissionMode",
+          "note": "acpmux reads it at each new chat (cmux-tui/crates/acpmux/src/hub/start_mode.rs): a mode picked in a chat applies to that chat only (Leo 2026-10-21). A value MDM or the team policy forces reaches acpmux through the app's settings push (ChatSettings) and wins over the settings file.",
+          "title": {
+            "key": "settings.agents.defaultPermissionMode",
+            "text": "Permission Mode for New Chats"
+          },
+          "help": {
+            "key": "settings.agents.defaultPermissionMode.help",
+            "text": "What a new chat may do without asking. A mode you pick in a chat applies to that chat only."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "fullAccess",
+              "title": {
+                "key": "settings.choice.permissionFullAccess",
+                "text": "Full Access"
+              }
+            },
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.permissionStandard",
+                "text": "Harness Default"
+              }
+            },
+            {
+              "value": "ask",
+              "title": {
+                "key": "settings.choice.permissionAsk",
+                "text": "Ask Before Changes"
+              }
+            }
+          ],
+          "default": "fullAccess",
+          "keywords": [
+            "permission",
+            "mode",
+            "full access",
+            "ask",
+            "approval",
+            "yolo",
+            "bypass",
+            "agent",
+            "new chat"
+          ]
+        },
+        {
+          "key": "agents.promptCache",
+          "note": "How long Claude Code keeps a chat's prompt cached. acpmux reads it at each Claude Code start (cmux-tui/crates/acpmux/src/prompt_cache_env.rs).",
+          "title": {
+            "key": "settings.agents.promptCache",
+            "text": "Prompt Cache"
+          },
+          "help": {
+            "key": "settings.agents.promptCache.help",
+            "text": "How long Claude Code keeps a chat's prompt cached. One hour keeps replies after a pause cheap; its cache writes cost a little more."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "1h",
+              "title": {
+                "key": "settings.choice.promptCacheOneHour",
+                "text": "1 Hour"
+              }
+            },
+            {
+              "value": "5m",
+              "title": {
+                "key": "settings.choice.promptCacheFiveMinutes",
+                "text": "5 Minutes"
+              }
+            }
+          ],
+          "default": "1h",
+          "keywords": [
+            "prompt cache",
+            "cache",
+            "ttl",
+            "claude",
+            "cost",
+            "tokens",
+            "1 hour",
+            "5 minutes"
+          ]
+        },
+        {
+          "key": "agents.modelRouter.model",
+          "name": "modelRouterModel",
+          "note": "The model the cmux model router profile (cmux) starts new chats on; acpmux reads it when it builds that profile (cmux-tui/crates/acpmux/src/config/discover.rs add_cmux_router). The choices are the router's DeepSeek models, default first (user 2026-10-28: DeepSeek only, the 10/17 build with images by default); CMUX_ROUTER_MODELS in acpmux and the backend allowlist (INFERENCE_MODEL_ALLOWLIST) hold the same list.",
+          "title": {
+            "key": "settings.agents.modelRouter.model",
+            "text": "cmux Model Router Model"
+          },
+          "help": {
+            "key": "settings.agents.modelRouter.model.help",
+            "text": "The model a new chat on the cmux model router starts on. A model you pick in a chat applies to that chat only."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "deepseek/deepseek-v4.1-flash-1017",
+              "title": {
+                "key": "settings.choice.modelRouterDeepSeekV41Flash1017",
+                "text": "DeepSeek V4.1 Flash 1017 (Images)"
+              }
+            },
+            {
+              "value": "deepseek/deepseek-v4.1-flash",
+              "title": {
+                "key": "settings.choice.modelRouterDeepSeekV41Flash",
+                "text": "DeepSeek V4.1 Flash"
+              }
+            },
+            {
+              "value": "deepseek/deepseek-v4-flash",
+              "title": {
+                "key": "settings.choice.modelRouterDeepSeekV4Flash",
+                "text": "DeepSeek V4 Flash"
+              }
+            },
+            {
+              "value": "deepseek/deepseek-v4-pro",
+              "title": {
+                "key": "settings.choice.modelRouterDeepSeekV4Pro",
+                "text": "DeepSeek V4 Pro"
+              }
+            }
+          ],
+          "default": "deepseek/deepseek-v4.1-flash-1017",
+          "keywords": [
+            "model",
+            "router",
+            "cmux router",
+            "deepseek",
+            "vision",
+            "images",
+            "inference",
+            "default model",
+            "new chat"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -404,8 +404,9 @@ fn caller_scopes(
     if explicit && !caller_route {
         return Err(lookup_error(
             "selector.invalid",
-            "`caller` names the caller's own objects, which are not in a session or machine \
-             named with --socket, --session or --machine; name an id instead"
+            "`caller` names the caller's own objects, and --socket or --session names \
+             another session than the caller's terminal is in (or --machine another \
+             machine); name an id instead, or drop --session to act in your own session"
                 .into(),
         ));
     }
@@ -767,6 +768,19 @@ pub(super) fn call_as(
     idempotency_key: Option<&str>,
     credential: Option<&str>,
 ) -> Result<Value, Failure> {
+    call_as_on(reader, None, operation, params, idempotency_key, credential)
+}
+
+/// [`call_as`] on the daemon at `socket`, which an older daemon's error
+/// names in its restart fix (cli/older_daemon.rs).
+pub(super) fn call_as_on(
+    reader: &mut Reader,
+    socket: Option<&Path>,
+    operation: ResourceOperation,
+    params: Map<String, Value>,
+    idempotency_key: Option<&str>,
+    credential: Option<&str>,
+) -> Result<Value, Failure> {
     let id = random_request_id().map_err(|error| Failure::Transport(format!("cmux: {error}")))?;
     let mut request = json!({
         "protocol": PROTOCOL,
@@ -785,7 +799,10 @@ pub(super) fn call_as(
     send_request(reader, &encoded)?;
     match read_response(reader, &id).map_err(response_failure)? {
         Ok(result) => Ok(result),
-        Err(error) => Err(Failure::Resource(error)),
+        Err(error) => Err(Failure::Resource(
+            super::older_daemon::replace(reader, &error, operation.wire_name(), socket)
+                .unwrap_or(error),
+        )),
     }
 }
 

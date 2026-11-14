@@ -49,9 +49,9 @@ pub struct Attach {
     /// The link details from the host (`cmux.host.link.get`). Until they
     /// are `Ready`, connect answers a typed error.
     pub(crate) link: config::LinkConfig,
-    /// The last overlay host id of each machine, so a link-details change
-    /// respawns a live link without a new backend call.
-    pub(crate) hosts: BTreeMap<String, String>,
+    /// The Mac app's carrier socket of each machine (super::dial), so a
+    /// link-details change respawns a live link without a new ask.
+    pub(crate) upstreams: BTreeMap<String, std::path::PathBuf>,
     /// Machines whose paused dial already got its one start (cleared when
     /// a link comes up).
     pub(crate) paused_restarts: BTreeSet<String>,
@@ -61,8 +61,7 @@ pub struct Attach {
     /// authenticated identity epoch. They avoid a Cloud read on every
     /// connect over an already-up carrier.
     pub(crate) owner_answers: BTreeMap<String, (u64, u64, bool)>,
-    /// The server's allowlisted environment; children get only
-    /// [`AppEnv::child_env`].
+    /// The server's allowlisted environment.
     pub(crate) env: AppEnv,
     pub(crate) rescue: RescueBackend,
     pub(crate) rescue_terminals: BTreeMap<String, Box<dyn ByteTerminal>>,
@@ -107,7 +106,7 @@ impl Attach {
         Self {
             supervisor: LinkSupervisor::new(spawner),
             link: paths.map_or(config::LinkConfig::Unrequested, config::LinkConfig::Ready),
-            hosts: BTreeMap::new(),
+            upstreams: BTreeMap::new(),
             paused_restarts: BTreeSet::new(),
             infos: info::InfoCache::default(),
             owner_answers: BTreeMap::new(),

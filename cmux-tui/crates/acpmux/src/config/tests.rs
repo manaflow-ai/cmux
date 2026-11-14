@@ -2,6 +2,36 @@ use super::*;
 use crate::test_exec::write_executable;
 
 #[test]
+fn v2_surfaces_are_opt_in_and_default_empty() {
+    let config = Config::default();
+    assert!(config.acpmux_v2.is_empty());
+    assert!(config.acpmux_v2.enabled().is_empty());
+
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "acpmux.v2": ["list", "chat", "unknown", "start"]
+    }))
+    .unwrap();
+    let enabled = config.acpmux_v2.enabled();
+    assert!(enabled.contains("list"));
+    assert!(enabled.contains("chat"));
+    assert!(enabled.contains("start"));
+    assert!(enabled.contains("books"), "chat/start imply the books surface");
+    assert!(!enabled.contains("unknown"));
+}
+
+#[test]
+fn v2_surfaces_round_trip_without_writing_the_empty_default() {
+    let empty = serde_json::to_value(Config::default()).unwrap();
+    assert!(empty.get("acpmux.v2").is_none());
+
+    let config = Config { acpmux_v2: V2Surfaces(vec!["peers".into()]), ..Config::default() };
+    let saved = serde_json::to_value(&config).unwrap();
+    assert_eq!(saved["acpmux.v2"], serde_json::json!(["peers"]));
+    let parsed: Config = serde_json::from_value(saved).unwrap();
+    assert_eq!(parsed.acpmux_v2, config.acpmux_v2);
+}
+
+#[test]
 fn cli_session_resource_settings_are_config_values() {
     let mut config = Config::default();
     config.set_session_resource("session.memory_mb", "6144").unwrap();
@@ -384,4 +414,92 @@ fn a_claude_code_profile_of_its_own_family_reads_the_claude_store() {
     let mut pi = prof(HarnessKind::Acp, &["pi-acp"]);
     pi.family = Some("pi".into());
     assert_eq!(store_family("pi", &pi), "pi");
+}
+
+/// A permission policy this build does not know (one a newer build added and saved, read again
+/// after a rollback) never stops the daemon: `Config::load` failed on it, so no chat could be
+/// reached until someone edited config.json by hand. It loads as `ask`, the default: a person
+/// is asked, nothing is approved that was not. Every known value, and every alias, reads as
+/// before, and what this build writes is unchanged.
+#[test]
+fn a_permission_policy_from_a_newer_build_loads_as_ask() {
+    let dir = std::env::temp_dir().join(format!(
+        "acpmux-config-policy-{}-{}",
+        std::process::id(),
+        uuid::Uuid::now_v7()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("config.json");
+    std::fs::write(
+        &path,
+        r#"{"permissionPolicy": "a-policy-from-a-newer-build",
+            "defaults": {"claude": {"policy": "another-new-one"}}}"#,
+    )
+    .unwrap();
+    let loaded = Config::load_from_with(&path, &ProfileSources::none());
+    let _ = std::fs::remove_dir_all(&dir);
+    let config = loaded.expect("a config with a newer build's policy did not load");
+    assert_eq!(config.permission_policy, PermissionPolicy::Ask);
+    assert_eq!(config.defaults.get("claude").and_then(|d| d.policy), Some(PermissionPolicy::Ask));
+    for (text, policy) in [
+        ("ask", PermissionPolicy::Ask),
+        ("approve-all", PermissionPolicy::ApproveAll),
+        ("yolo", PermissionPolicy::ApproveAll),
+        ("approve-reads", PermissionPolicy::ApproveReads),
+        ("approve-edits", PermissionPolicy::ApproveEdits),
+        ("accept-edits", PermissionPolicy::ApproveEdits),
+        ("deny-all", PermissionPolicy::DenyAll),
+        ("review", PermissionPolicy::Review),
+    ] {
+        let read: PermissionPolicy = serde_json::from_value(serde_json::json!(text)).unwrap();
+        assert_eq!(read, policy, "{text}");
+    }
+    for policy in [
+        PermissionPolicy::Ask,
+        PermissionPolicy::ApproveAll,
+        PermissionPolicy::ApproveReads,
+        PermissionPolicy::ApproveEdits,
+        PermissionPolicy::DenyAll,
+        PermissionPolicy::Review,
+    ] {
+        assert_eq!(serde_json::to_value(policy).unwrap(), serde_json::json!(policy.to_string()));
+    }
+    // A value that is not a string is still an error: that is a damaged file, not a newer one.
+    assert!(serde_json::from_value::<PermissionPolicy>(serde_json::json!(3)).is_err());
+}
+
+#[test]
+fn ordinary_atomic_writes_still_sync_file_and_directory() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("session.json");
+    let syncs = startup_seams::Count::syncs(home.path());
+    write_atomic(&path, b"old").unwrap();
+    assert_eq!(syncs.get(), 2);
+    write_atomic(&path, b"new").unwrap();
+    assert_eq!(syncs.get(), 4);
+    assert_eq!(std::fs::read(&path).unwrap(), b"new");
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unsynced_atomic_write_keeps_the_old_copy_until_rename() {
+    use std::os::unix::fs::MetadataExt;
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("copy");
+    std::fs::write(&path, b"old").unwrap();
+    let before = std::fs::metadata(&path).unwrap().ino();
+    let called = std::rc::Rc::new(std::cell::Cell::new(0));
+    let seen = called.clone();
+    let target = path.clone();
+    let _guard = seams::on_before_rename(move |path| {
+        assert_eq!(path, target.as_path());
+        assert_eq!(std::fs::read(path).unwrap(), b"old");
+        seen.set(seen.get() + 1);
+    });
+    let syncs = startup_seams::Count::syncs(home.path());
+    write_atomic_unsynced(&path, b"new").unwrap();
+    assert_eq!(called.get(), 1);
+    assert_ne!(std::fs::metadata(&path).unwrap().ino(), before);
+    assert_eq!(std::fs::read(&path).unwrap(), b"new");
+    assert_eq!(syncs.get(), 0);
 }

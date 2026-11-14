@@ -54,6 +54,23 @@ impl App {
         }
     }
 
+    /// Moves session `id`'s flipped folds down by `added` rows' worth of items, after an
+    /// older page put `added` items before the ones they name.
+    pub(super) fn shift_folds(&mut self, id: &str, added: usize) {
+        if added == 0 {
+            return;
+        }
+        let Some(set) = self.toggled.get_mut(id) else { return };
+        *set = set
+            .drain()
+            .map(|t| match t {
+                Toggle::Turn(i) => Toggle::Turn(i + added),
+                Toggle::Group(i) => Toggle::Group(i + added),
+                Toggle::Item(i) => Toggle::Item(i + added),
+            })
+            .collect();
+    }
+
     fn toggled_set(&self) -> Option<&std::collections::HashSet<Toggle>> {
         self.selected_id().and_then(|id| self.toggled.get(&id))
     }

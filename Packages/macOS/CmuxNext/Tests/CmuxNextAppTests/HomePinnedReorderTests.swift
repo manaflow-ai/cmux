@@ -95,7 +95,7 @@ import Testing
 
     static func defaults() -> UserDefaults {
         let suite = "cmux.tests.homePinnedReorder.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = UserDefaults(testSuiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         // Maya's DM is pinned on this Mac (no owner lists it, so its pin stays here).
         HomePinStore(defaults: defaults).save(HomePins(pinned: [maya]), account: HomeLaunchListTests.account)

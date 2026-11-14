@@ -213,7 +213,7 @@ pub(super) fn remote_steps(
                 }
                 Err(error) => {
                     let why = match error {
-                        CallError::Status { status, code } => {
+                        CallError::Status { status, code, .. } => {
                             format!("{status} {code}").trim_end().to_owned()
                         }
                         CallError::Unreachable(_) => "no answer".to_owned(),
@@ -263,7 +263,7 @@ pub(super) fn remote_steps(
     };
     steps.push(JoinStep::new("listed", StepState::Ok, format!("listed as {}", machine.machine_id)));
     steps.push(match machine.last_heartbeat_ms {
-        Some(at) if now.saturating_sub(at) < machine_join::ONLINE_WITHIN_MS => JoinStep::new(
+        Some(at) if machine.is_online(now) => JoinStep::new(
             "heartbeat",
             StepState::Ok,
             format!("last heartbeat {} ago", doctor::age_words(now.saturating_sub(at))),

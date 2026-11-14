@@ -38,6 +38,7 @@ import { rowIconSize } from "../icons/iconSize";
 import type { SubagentStatus } from "../summary/subagentStatusListModel";
 import type { Subagent } from "./subagentFold";
 import { TonedIcon } from "./TonedIcon";
+import { SenderIcon } from "./SenderIcon";
 import { useAgentProgress } from "./agentProgressStore";
 import { Tick } from "./trayMotion";
 import { DoneCheck, DoneMark, type DoneLook } from "./DoneMark";
@@ -88,8 +89,9 @@ export function AgentLine({
   status: SubagentStatus;
   /// Its state in words ("Running", "Waiting", "Done").
   state: string;
-  /// How long it has run, or ran (formatDuration); none when unknown.
-  time?: string;
+  /// How long it has run, or ran (formatDuration); none when unknown. A running one is its own ticking
+  /// leaf (Elapsed.tsx), so the clock's second never draws the line.
+  time?: ReactNode;
   /// `agent.session` for a subagent, `terminal` for a background command.
   icon?: string;
   /// The harness of an agent of another family (`codex`), whose mark replaces the icon.
@@ -187,6 +189,9 @@ export function AgentLine({
       >
         {working && !timed ? (
           <Spinner size={iconSize} loading />
+        ) : tone !== undefined ? (
+          // An agent or a chat: its sender icon, its family's mark with its badge in its tone.
+          <SenderIcon harness={mark} tone={tone} size={iconSize} fallback={icon} />
         ) : brand ? (
           <AgentMark agent={brand} size={iconSize} fallback={glyph} />
         ) : (

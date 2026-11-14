@@ -62,6 +62,23 @@ export default componentEntry<ComponentProps<typeof SandboxRunView>>({
         },
       },
     },
+    abandoned: {
+      note: "A run whose VM cmux gave up deleting: the receipt says it was not deleted and is left for the person, never that its destroy is pending.",
+      props: {
+        run: {
+          task,
+          state: "done",
+          receipt: {
+            status: "succeeded",
+            exitCode: 0,
+            reply: "14 TODOs: web/ 6, cmux-tui/ 5, scripts/ 3.",
+            timings: { totalMs: 96_400, bootMs: 31_200 },
+            cost: { vmSeconds: 96, estimateUsd: 0.0029 },
+            cleanup: "abandoned",
+          },
+        },
+      },
+    },
     refused: {
       note: "The server has not enabled sandboxes for this account: a readable refusal, no VM started.",
       props: { run: { task, state: "failed", code: "run_sandbox_unavailable" } },

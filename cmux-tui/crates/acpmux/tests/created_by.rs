@@ -143,6 +143,10 @@ async fn the_person_an_agent_and_a_script_each_record_who_created_the_session() 
         .new_session(json!({"name": "ran", "createdBy": {"kind": "agent", "session": coord}}))
         .await;
     assert_eq!(app.created_by(&ran).await, json!({"kind": "script"}));
+    // Nor by saying it carries the person's phone (`via`, the Cloud mobile carrier's marker):
+    // its connection proves no person.
+    let ran = cli.new_session(json!({"name": "ran-via", "via": "cloud-mobile"})).await;
+    assert_eq!(app.created_by(&ran).await, json!({"kind": "script"}));
     // A script naming a workspace: from that workspace.
     let ran = cli.new_session(json!({"name": "ran2", "workspaceId": WORKSPACE})).await;
     assert_eq!(app.created_by(&ran).await, json!({"kind": "script", "workspace": WORKSPACE}));
@@ -193,6 +197,15 @@ fn a_start_forwarded_to_a_peer_carries_who_created_it_here() {
             .new_session(json!({"peer": "b", "name": "by-cli", "createdBy": {"kind": "agent"}}))
             .await;
         assert_eq!(on_b.created_by(&child).await, json!({"kind": "script"}));
+
+        // A's agent dispatches a brief to B (as a workflow's `on: b` activity does): B's
+        // session for it records that agent too.
+        let sent = agent.ok("_acpmux/dispatch", json!({"brief": "echo hi", "host": "b"})).await;
+        let sid = sent["brief"]["sessionId"].as_str().unwrap_or_else(|| panic!("{sent}"));
+        assert_eq!(
+            on_b.created_by(sid).await,
+            json!({"kind": "agent", "workspace": WORKSPACE, "session": coord}),
+        );
     });
 }
 

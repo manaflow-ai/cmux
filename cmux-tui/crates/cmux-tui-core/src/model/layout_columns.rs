@@ -98,6 +98,7 @@ pub(crate) fn project_layout_columns(columns: &mut Vec<LayoutColumn>) -> ColumnP
             ratio,
             a: Box::new(root),
             b: Box::new(column.root.clone()),
+            divider_hidden: false,
         };
         viewport_splits.insert(column.id, column.width);
         width_before += column.width;

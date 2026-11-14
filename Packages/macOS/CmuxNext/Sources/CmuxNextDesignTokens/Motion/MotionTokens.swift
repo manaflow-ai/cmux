@@ -20,15 +20,17 @@ public nonisolated enum MotionSpeed: String, Sendable, CaseIterable, Codable {
 }
 
 /// Spring tokens. Each one is a response (seconds for one undamped period)
-/// and a damping fraction (1 = critically damped), as in SwiftUI
-/// `.spring(response:dampingFraction:)`. The structural ones (`move`,
-/// `appear`, `disappear`) are critically damped with a short response
-/// (they never pass the target; `ui.animations.bounce` subtle opts into a
-/// SwiftUI bounce). The values are the spec's design-tokens.json `motion`
-/// (cmux-motion reads the same file; scripts/cmux-next/motion-parity.py
-/// compares this port's paths with cmux-motion's). The cases are declared
-/// in cmux-motion's `MotionSpring::ALL` order, the token index of its C ABI
-/// (`cmux_motion_spring_base`): append new tokens on both sides.
+/// and a damping fraction, as in SwiftUI `.spring(response:dampingFraction:)`.
+/// Every token is critically damped (damping fraction 1): no spring passes
+/// its target (Lawrence 2026-11-10, no bounce in any motion;
+/// plans/cmux-next/motion-first-principles-DESIGN.md, principle 5;
+/// NoBounceSpringTests samples each one). The spec's design-tokens.json
+/// `motion.springs` and cmux-motion hold the same values
+/// (scripts/cmux-next/motion-parity.py compares this port's paths with
+/// cmux-motion's). The cases up to `tabOpen` are declared in cmux-motion's
+/// `MotionSpring::ALL` order, the token index of its C ABI
+/// (`cmux_motion_spring_base`; this port does not read a token by its
+/// index): append new tokens on both sides.
 public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// An existing item moves or resizes: tab reflow and reorder, sidebar
     /// rows, pane and divider frames, pane unzoom, toolbar height.
@@ -40,15 +42,13 @@ public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// sidebar hide. Faster than `appear`.
     case disappear
     /// Release after direct manipulation (drop, drag cancel, ghost landing).
-    /// Slightly under-damped so the carried velocity reads as physical.
+    /// It starts with the release's velocity, as far as that velocity cannot
+    /// take the item past its place (`SpringParameters.admitted`).
     case settle
     /// Programmatic scroll: tab strip reveal, strip column reveal, wheel
     /// notch, trackpad fling snap. Response 0.2 s (stiffness about 990;
-    /// 0.222 s until Leo 2026-10-20's shorter scale); damping 0.9 instead of
-    /// 1 drops the slow sub-pixel tail.
+    /// 0.222 s until Leo 2026-10-20's shorter scale).
     case scroll
-    /// Screen switch slide.
-    case screen
     /// An overlay that tracks the pointer between targets: drop zones, the
     /// drag ghost's jump between card and inline slot.
     case track
@@ -66,14 +66,12 @@ public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// their dividers, on this one spring (Lawrence 2026-10-18).
     case exit
     /// A new tab growing in at its final slot while the tabs right of it make room, on one
-    /// spring (`ui.animations.newTab`, on by default). Structural.
+    /// spring (`ui.animations.newTab`, on by default).
     case tabOpen
     /// A split (Cmd-D, Cmd-Shift-D): the new pane grows in from the split edge while every pane
     /// of its chain gives up room, one spring from the key's frame to rest (Lawrence 2026-10-19:
-    /// "resize all of them while adding a new one"). Slightly under-damped (0.95): no visible
-    /// overshoot, a shorter tail than critical damping. Not structural: the bounce setting does
-    /// not change it. Swift-only for now (cmux-motion's `MotionSpring` ends at `tabOpen`; parity
-    /// compares the tokens both ports have).
+    /// "resize all of them while adding a new one"). Swift-only for now (cmux-motion's
+    /// `MotionSpring` ends at `tabOpen`; parity compares the tokens both ports have).
     case split
     /// The legacy popup entrance spring. Native popovers and menus now open in one frame;
     /// this token remains for settings compatibility. Swift-only, like `split`.
@@ -85,7 +83,7 @@ public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// Values at `MotionSpeed.fast`: the code default (`MotionTunables`),
     /// or its Debug Settings override in DEV and NIGHTLY builds.
     public var base: SpringParameters {
-        MotionTunables.springs[self]?.value ?? SpringParameters(response: 0.2, dampingFraction: 0.9)
+        MotionTunables.springs[self]?.value ?? MotionTunables.fallbackSpring
     }
 }
 

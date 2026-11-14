@@ -54,10 +54,14 @@ impl Faults {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct Options {
     pub faults: Faults,
     /// Retries carry `_meta.acpmux.resend`.
     pub resend: bool,
+    /// A power loss drops the records not yet flushed. Off, it is a crash at the same step:
+    /// the same seed with the power-loss gap taken away (invariants.rs, KNOWN_GAPS).
+    pub power_drops_unflushed: bool,
 }
 
 /// What one simulation left.
@@ -92,10 +96,10 @@ pub fn human(d: Duration) -> String {
 pub fn run(seed: u64, opts: &Options) -> Run {
     let mut rng = Rng::new(seed);
     let plan = Plan::draw(&mut rng.split(1), opts.faults.0);
-    let faulty = simulate(seed, &plan, opts.resend);
+    let faulty = simulate(seed, &plan, opts);
     let uninterrupted = (!plan.faults.is_empty()).then(|| {
         let calm = Plan { sends: plan.sends.clone(), faults: Vec::new() };
-        simulate(seed, &calm, opts.resend)
+        simulate(seed, &calm, opts)
     });
     let mut trace = vec![format!(
         "seed {seed}: {} sends {:?}, faults {:?}",
@@ -197,7 +201,7 @@ enum Heal {
     Release,
 }
 
-fn simulate(seed: u64, plan: &Plan, resend: bool) -> Outcome {
+fn simulate(seed: u64, plan: &Plan, opts: &Options) -> Outcome {
     let mut rng = Rng::new(seed);
     let _plan_stream = rng.split(1);
     let agents = Agents::new(rng.split(2));
@@ -235,7 +239,7 @@ fn simulate(seed: u64, plan: &Plan, resend: bool) -> Outcome {
             daemon(disk.clone(), agents.clone(), incarnation.get())
         });
     }
-    sim.client(APP, app::run(app.clone(), resend));
+    sim.client(APP, app::run(app.clone(), opts.resend));
 
     let mut faults = plan.faults.iter().copied().peekable();
     let mut heals: Vec<(Duration, Heal)> = Vec::new();
@@ -268,8 +272,9 @@ fn simulate(seed: u64, plan: &Plan, resend: bool) -> Outcome {
                     Fault::Crash { down: d } | Fault::PowerLoss { down: d } if !down => {
                         sim.crash(app::DAEMON);
                         down = true;
-                        let lost =
-                            matches!(fault, Fault::PowerLoss { .. }).then(|| disk.power_loss());
+                        let lost = (matches!(fault, Fault::PowerLoss { .. })
+                            && opts.power_drops_unflushed)
+                            .then(|| disk.power_loss());
                         note(&app, format!("{fault:?} (unflushed records lost: {lost:?})"));
                         heals.push((now + d, Heal::Restart));
                     }

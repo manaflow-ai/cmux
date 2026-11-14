@@ -265,9 +265,21 @@ impl BuildIdentity {
     /// Where an untagged NIGHTLY, RC or staging app records that it adopted
     /// the old shared `cmux-app` daemon session (CmuxNext
     /// `LegacyChannelSession.marker`: beside its daemon state directory
-    /// `Application Support/cmux/tags/<channel>/tui`). `None` for every other
-    /// build, which never adopts it.
+    /// `Application Support/cmux-next/tags/<channel>/tui`). `None` for every
+    /// other build, which never adopts it. Builds before CmuxNext
+    /// `StateFolderMove` kept it in classic's `Application Support/cmux`
+    /// ([`Self::legacy_session_marker_before_move`]).
     pub fn legacy_session_marker(&self, user_home: &Path) -> Option<PathBuf> {
+        self.legacy_session_marker_in(user_home, "cmux-next")
+    }
+
+    /// [`Self::legacy_session_marker`] where builds before CmuxNext
+    /// `StateFolderMove` kept it: under classic's `Application Support/cmux`.
+    pub fn legacy_session_marker_before_move(&self, user_home: &Path) -> Option<PathBuf> {
+        self.legacy_session_marker_in(user_home, "cmux")
+    }
+
+    fn legacy_session_marker_in(&self, user_home: &Path, folder: &str) -> Option<PathBuf> {
         let tag = match &self.kept {
             Some(KeptNames { session_tag: Some(tag), .. }) => tag,
             _ => return None,
@@ -281,7 +293,7 @@ impl BuildIdentity {
             user_home
                 .join("Library")
                 .join("Application Support")
-                .join("cmux")
+                .join(folder)
                 .join("tags")
                 .join(tag)
                 .join("legacy-session-adopted"),
@@ -392,4 +404,53 @@ fn fnv1a32(bytes: &[u8]) -> u32 {
 /// The folder of every build's Chief home: `~/.cmux/chief`.
 pub fn chief_homes_root(user_home: &Path) -> PathBuf {
     user_home.join(".cmux/chief")
+}
+
+/// The name a NEXT state path is known by wherever its name is hashed into an
+/// identity (cmux Remote's Keychain scope, a terminal holder's socket, the
+/// daemon's runtime sockets): the path before CmuxNext `StateFolderMove`
+/// moved `Application Support/cmux/{tags,builds}/...` to
+/// `Application Support/cmux-next/{tags,builds}/...`. So the move keeps the
+/// build's Remote device, and a new daemon still finds the holders and sockets
+/// a daemon from before the move made. Every other path is its own name.
+pub fn path_identity(path: &Path) -> std::borrow::Cow<'_, Path> {
+    use std::path::Component;
+    let parts: Vec<Component<'_>> = path.components().collect();
+    let moved = parts.windows(3).position(|window| {
+        matches!(window, [support, next, kind]
+            if support.as_os_str() == "Application Support"
+                && next.as_os_str() == "cmux-next"
+                && (kind.as_os_str() == "tags" || kind.as_os_str() == "builds"))
+    });
+    let Some(at) = moved else { return std::borrow::Cow::Borrowed(path) };
+    let mut before = PathBuf::new();
+    for (index, part) in parts.iter().enumerate() {
+        before.push(if Some(index) == at.checked_add(1) {
+            std::ffi::OsStr::new("cmux")
+        } else {
+            part.as_os_str()
+        });
+    }
+    std::borrow::Cow::Owned(before)
+}
+
+#[cfg(test)]
+mod path_identity_tests {
+    use super::path_identity;
+    use std::path::Path;
+
+    #[test]
+    fn a_moved_state_path_keeps_its_name_from_before_the_move() {
+        let support = Path::new("/Users/a/Library/Application Support");
+        let at = |folder: &str, rest: &str| support.join(folder).join(rest);
+        for rest in ["tags/nightly/tui/terminal-hosts-x", "builds/k1/tui"] {
+            assert_eq!(path_identity(&at("cmux-next", rest)), at("cmux", rest));
+        }
+        for own in [
+            Path::new("/Users/a/.local/state/cmux-tui").to_path_buf(),
+            at("cmux-next", "agent-home"),
+        ] {
+            assert_eq!(path_identity(&own), own);
+        }
+    }
 }

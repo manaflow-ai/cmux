@@ -49,7 +49,7 @@ extension SidebarBridge {
         if let builtIn = ref.builtIn, let action = Self.builtInActions[builtIn] {
             var invocation = ActionInvocation(origin: .user)
             if opensWorkspace, builtIn == .newTerminal { invocation.arguments["toggleWorkspace"] = .bool(true) }
-            _ = services.registry.perform(action, invocation: invocation)
+            inThisWindow { _ = services.registry.perform(action, invocation: invocation) }
             return
         }
         switch ref.kind {
@@ -60,10 +60,12 @@ extension SidebarBridge {
         case LayoutItemRef.roomKind: switchToPinnedSpace(ref.value)
         case LayoutItemRef.appKind:
             let (action, arguments) = Self.appActivation(ref.value, registered: { services.registry.action(for: $0) != nil })
-            _ = services.registry.perform(action, invocation: ActionInvocation(arguments: arguments, origin: .user))
+            inThisWindow { _ = services.registry.perform(action, invocation: ActionInvocation(arguments: arguments, origin: .user)) }
         default: break
         }
     }
+
+    private func inThisWindow(_ body: () -> Void) { services.windows.dispatching(eventFrom: state.flatMap { services.windows.controller(for: $0.id)?.window }, body) }
 
     /// What an app item's click runs (R63/R64): `cmux.apps.open {app}` (it
     /// opens the app's screen or page as the manifest says) once it is
@@ -76,7 +78,7 @@ extension SidebarBridge {
     }
 
     /// Keeps `model.itemInfo` current: a built-in whose action this build
-    /// does not register draws dimmed.
+    /// does not register draws dimmed; with it, the drawn order's hold (`SidebarLaunchOrderHold`).
     func observeSections() {
         let model = model
         let registry = services.registry
@@ -93,21 +95,21 @@ extension SidebarBridge {
         let chiefPicture = { [weak services] in services?.wornUpload(of: nil)?.still }
         let uploads = services.chiefAvatarUploads, pictures = services.chiefSidebarPictures
         let home = services.home
-        // A band item's site favicon, read in the observation so a favicon that loads replaces the item's globe.
-        let favicon = { [weak services] (workspace: WorkspaceModel, tab: TabModel) in services?.sidebarPageFavicon(workspace, tab: tab) }, faces = faceBuffers
+        // A band item's page face (the list rows' own), read in the observation so a favicon that loads replaces the item's globe.
+        let pageFace = { [weak services] (workspace: WorkspaceModel, tab: TabModel, work: TabModel?) in services?.sidebarPageFace(workspace, tab: tab, work: work) ?? .init() }, faces = faceBuffers
         sectionsObservation = Task { [weak self] in
             // Also observed: the apps client (installs, hides), the unread count, Home's unread conversations, the built-ins' shortcuts (tooltips) and
             // the workspaces tiles and top rows name. The selected item comes from the one selection.
-            for await (layout, unread, homeUnread, shortcuts, workspaces, picture, previewFeatures) in ObservationStream({
-                () -> (SidebarLayoutDocument, Int, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo], URL?, Bool) in
+            for await (layout, unread, homeUnread, shortcuts, workspaces, picture) in ObservationStream({
+                () -> (SidebarLayoutDocument, Int, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo], URL?) in
                 _ = (apps.apps, ChiefSidebar.shared.status)
                 return (service.document, NotificationCenterService.unreadCount(store), home.unreadConversations.count,
-                        Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs, autoNames: settings?.snapshot.sidebarSections.autoNamesWorkspaces ?? true, favicon: favicon, faces: faces), chiefPicture(), settings?.snapshot.previewFeatures == true)
+                        Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs, autoNames: settings?.snapshot.sidebarSections.autoNamesWorkspaces ?? true, pageFace: pageFace, faces: faces), chiefPicture())
             }) {
                 // The window closed: the bridge is gone, stop observing.
                 guard self != nil else { return }
                 // `model.layout` is written with the rows it projects (SidebarBridge.show).
-                let visibleLayout = SidebarRows.visibleLayout(layout, showAppStore: previewFeatures)
+                let visibleLayout = SidebarRows.visibleLayout(layout)
                 let infos = Self.itemInfo(for: visibleLayout, registered: { registry.action(for: $0) != nil },
                                           unread: unread, homeUnread: homeUnread,
                                           app: { SidebarAppItemInfo.info($0, client: apps) }, shortcut: { shortcuts[$0] },
@@ -116,7 +118,7 @@ extension SidebarBridge {
                 let suppressed = AppPresence(apps.apps).suppressed
                 if model.suppressedApps != suppressed { model.suppressedApps = suppressed }
             }
-        }
+        }.cancelling(SidebarLaunchOrderHold(home: store, document: { [weak services] in services?.sidebarDoc.store }).follow(model))
     }
 
     /// Built-in tooltips use the same shortcut text as menus.

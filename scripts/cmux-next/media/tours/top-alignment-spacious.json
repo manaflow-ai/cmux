@@ -1,0 +1,328 @@
+{
+ "title": "Window top alignment, spacious and dark: the top row, the first tab and the sidebar's columns",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3
+  },
+  {
+   "title": "New workspace",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Align"
+   ],
+   "shot": false
+  },
+  {
+   "title": "Show it",
+   "cmux": [
+    "workspace",
+    "name:Align",
+    "focus"
+   ],
+   "shot": false
+  },
+  {
+   "title": "Second tab",
+   "cmux": [
+    "action",
+    "run",
+    "newSurface"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "An unread mark on a row",
+   "daemon": true,
+   "cmux": [
+    "notify",
+    "--title",
+    "Align",
+    "--body",
+    "unread"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "A plain prompt (no host name in the stills)",
+   "daemon": true,
+   "cmux": [
+    "workspace",
+    "name:Align",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "terminal",
+    "current",
+    "write",
+    "--text",
+    "export PS1='$ '; clear\r"
+   ],
+   "wait": 1,
+   "shot": false,
+   "optional": "terminal write"
+  },
+  {
+   "title": "Wide window",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      1440,
+      860
+     ]
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "Wide window",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      1440,
+      860
+     ]
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "Density spacious",
+   "cmux": [
+    "action",
+    "run",
+    "appearance.density.spacious"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "rpc": {
+    "method": "debug.top_alignment",
+    "params": {}
+   },
+   "optional": "debug.top_alignment is DEBUG only",
+   "title": "measure: spacious wide sidebar shown",
+   "shot": true,
+   "wait": 1.0
+  },
+  {
+   "title": "Sidebar 300",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.metrics.sidebarWidth",
+    "300"
+   ],
+   "wait": 4,
+   "shot": false,
+   "optional": "metric key"
+  },
+  {
+   "rpc": {
+    "method": "debug.top_alignment",
+    "params": {}
+   },
+   "optional": "debug.top_alignment is DEBUG only",
+   "title": "measure: spacious wide sidebar 300",
+   "shot": false,
+   "wait": 1.0
+  },
+  {
+   "title": "Sidebar default",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.metrics.sidebarWidth"
+   ],
+   "wait": 1,
+   "shot": false,
+   "optional": "metric key"
+  },
+  {
+   "title": "Hide sidebar",
+   "cmux": [
+    "action",
+    "run",
+    "toggleSidebar"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "rpc": {
+    "method": "debug.top_alignment",
+    "params": {}
+   },
+   "optional": "debug.top_alignment is DEBUG only",
+   "title": "measure: spacious wide sidebar hidden",
+   "shot": true,
+   "wait": 1.0
+  },
+  {
+   "title": "Show sidebar",
+   "cmux": [
+    "action",
+    "run",
+    "toggleSidebar"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Narrow window",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      820,
+      600
+     ]
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "DEBUG only"
+  },
+  {
+   "rpc": {
+    "method": "debug.top_alignment",
+    "params": {}
+   },
+   "optional": "debug.top_alignment is DEBUG only",
+   "title": "measure: spacious narrow sidebar shown",
+   "shot": false,
+   "wait": 1.0
+  },
+  {
+   "title": "Wide window",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      1440,
+      860
+     ]
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "Dark",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "dark"
+    }
+   },
+   "wait": 1.5,
+   "shot": false,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "Density compact",
+   "cmux": [
+    "action",
+    "run",
+    "appearance.density.compact"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "rpc": {
+    "method": "debug.top_alignment",
+    "params": {}
+   },
+   "optional": "debug.top_alignment is DEBUG only",
+   "title": "measure: compact dark wide sidebar shown",
+   "shot": true,
+   "wait": 1.0
+  },
+  {
+   "title": "Density cozy",
+   "cmux": [
+    "action",
+    "run",
+    "appearance.density.cozy"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "rpc": {
+    "method": "debug.top_alignment",
+    "params": {}
+   },
+   "optional": "debug.top_alignment is DEBUG only",
+   "title": "measure: cozy dark wide sidebar shown",
+   "shot": true,
+   "wait": 1.0
+  },
+  {
+   "title": "Density spacious",
+   "cmux": [
+    "action",
+    "run",
+    "appearance.density.spacious"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "rpc": {
+    "method": "debug.top_alignment",
+    "params": {}
+   },
+   "optional": "debug.top_alignment is DEBUG only",
+   "title": "measure: spacious dark wide sidebar shown",
+   "shot": true,
+   "wait": 1.0
+  },
+  {
+   "title": "Back to system appearance",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "system"
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "DEBUG only"
+  },
+  {
+   "title": "Density back to Compact",
+   "cmux": [
+    "action",
+    "run",
+    "appearance.density.compact"
+   ],
+   "wait": 1,
+   "shot": false
+  }
+ ]
+}

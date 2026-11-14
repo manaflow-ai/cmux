@@ -129,7 +129,8 @@ nonisolated extension AgentChatPullRequestReader {
             let checks = entry.checks ? " commits(last: 1) { nodes { commit { statusCheckRollup { state \(rollupCounts) } } } }"
                 + " baseRef { target { ... on Commit { statusCheckRollup { state \(rollupCounts) } } } }" : ""
             return "p\(index): repository(owner: \"\(entry.target.owner)\", name: \"\(entry.target.name)\") "
-                + "{ pullRequest(number: \(entry.target.number)) { updatedAt state isDraft mergeable\(checks) } }"
+                + "{ issueOrPullRequest(number: \(entry.target.number)) { __typename "
+                + "... on PullRequest { updatedAt state isDraft mergeable\(checks) } ... on Issue { updatedAt state stateReason } } }"
         }
         return "query { \(rateLimitField) \(aliases.joined(separator: " ")) }"
     }
@@ -146,11 +147,13 @@ nonisolated extension AgentChatPullRequestReader {
         var result: [String: Probe?] = [:]
         for (index, target) in targets.enumerated() {
             guard let alias = answers["p\(index)"] else { continue }
-            guard let view = (alias as? [String: Any])?["pullRequest"] as? [String: Any] else {
+            guard let view = (alias as? [String: Any])?["issueOrPullRequest"] as? [String: Any] else {
                 if !unanswered.contains("p\(index)") { result[target.url] = .some(nil) }
                 continue
             }
-            let state = (view["state"] as? String)?.lowercased() ?? "open"
+            // An issue's state as the full read keeps it (``issueView(_:)``): not planned is its own.
+            let issue = view["__typename"] as? String == "Issue" ? issueView(view) : view
+            let state = (issue["state"] as? String)?.lowercased() ?? "open"
             let baseTarget = (view["baseRef"] as? [String: Any])?["target"] as? [String: Any]
             let commit = ((view["commits"] as? [String: Any])?["nodes"] as? [[String: Any]])?.last?["commit"] as? [String: Any]
             result[target.url] = .some(Probe(updatedAt: view["updatedAt"] as? String ?? "",

@@ -1,6 +1,6 @@
 // A reply's Markdown table as the clipboard carries it (TableBlock.tsx Copy): the Markdown for a
 // chat or an editor, TSV and an HTML table so Sheets, Numbers, Notes and Docs paste real cells.
-import type { Align } from "./Markdown";
+import type { Align } from "./markdownModel";
 import { inlinePlainText } from "./messageMenu";
 
 export type Table = { align: Align[]; header: string[]; rows: string[][] };

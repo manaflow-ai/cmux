@@ -10,7 +10,7 @@
 use super::{Conn, str_param};
 use crate::hub::Hub;
 use crate::rpc::{RpcError, method};
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::sync::Arc;
 
 /// The reply to a background-task method, or None for any other method.
@@ -65,7 +65,17 @@ async fn handle(hub: &Arc<Hub>, conn: &Conn, m: &str, params: &Value) -> Result<
             };
             // The task prints its outcome last (`run_wait`): its summary line once it ended.
             let result_line = params.get("resultLine").and_then(Value::as_bool).unwrap_or(false);
-            hub.bg_start(&session, command, cwd, description, notify, result_line).await
+            // The Claude Code subagent whose MCP call starts it (`subagent_call.rs`), `{id, type}`:
+            // a label its commands carry, as its Bash calls do; the session's token is the proof.
+            let subagent = params.get("callerSubagent").and_then(|sub| {
+                let word = |key: &str| {
+                    sub.get(key)
+                        .and_then(Value::as_str)
+                        .filter(|w| crate::cli::sender::subagent_word(w))
+                };
+                Some(json!({"id": word("id")?, "type": word("type")?}))
+            });
+            hub.bg_start(&session, command, cwd, description, notify, result_line, subagent).await
         }
         method::MUX_BG_LIST => Ok(hub.bg_list(&session)),
         method::MUX_BG_OUTPUT => {

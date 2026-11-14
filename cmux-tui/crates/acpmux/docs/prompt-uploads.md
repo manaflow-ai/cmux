@@ -320,10 +320,28 @@ repeated finish answers the same.
   it. A prompt that still names a removed upload is refused with `upload.missing`.
 - Any other upload is removed while it is unfinished.
 
+### How uploads are stored
+
+- A finished upload's bytes are stored once, by their SHA-256, under
+  `<ACPMUX_HOME>/uploads/.store/<first two hex digits>/<sha256>` (owner-only, read-only). The
+  same file pasted again, in the same chat or another, adds no second copy
+  (`hub/file_uploads/store.rs`).
+- The path the finish answers, `<ACPMUX_HOME>/uploads/<session>/<uploadId>/<fileName>`, stays
+  that upload's path for as long as it exists: it is another hard link to the stored bytes, so an
+  agent opens it by path as before.
+- Each upload's folder has a `.record`: `{name, source, at, sha256, size}`. `source` is
+  `file_put_begin`'s optional `source` (the app the file came from).
+- A stored file's references are its hard links other than the store's own. It is deleted once
+  none is left: when the last upload naming it is deleted with its chat, cancelled or aged out.
+- Where the uploads folder cannot hard-link (another file system, Windows), an upload keeps its
+  own copy, as before.
+
 ### How long uploads stay
 
 - Finished uploads stay until the chat is deleted or the age sweep removes them
-  (`uploadsMaxAgeDays`, default 30).
+  (`uploadsMaxAgeDays`, default 30). A chat marked kept stays out of the sweep:
+  `_acpmux/uploads_keep {sessionId, keep}` (for a pinned or starred chat; `keep: false` lets
+  its uploads age out again). A Web connection may not call it (`filePut.remote`).
 - An upload begun and never finished or cancelled (its sender's connection dropped, or a late
   begin ack nobody cancelled) is reaped by the same sweep. It deletes the upload's whole folder,
   `.part` and `.meta` included, once both the upload and its last use are older than

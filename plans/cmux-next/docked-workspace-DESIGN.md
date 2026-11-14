@@ -213,11 +213,13 @@ it have no tabbar, ensure cmd shift p actions for it too".
   - Floating (the default): over the stage, dragged by its bar, resized at its rim, its place kept as fractions of
     the content area. Esc (while the Chief is not working) and Cmd-I hide it.
   - Docked: the Dock button in its bar, or Dock Workspace Left/Right/Top/Bottom run on Home, docks it at that edge as
-    a Chief-only pane; the stage takes the rest. Float (the same button) or Undock Workspace on Home floats it again.
+    a Chief-only pane; the stage takes the rest. Float (the same button), Undock Chief
+    (`home.undockChief`: palette, the Chief pane's more menu, `cmux home undock-chief`) or Undock Workspace on Home
+    floats it again.
   - It never shows over Home, floating or docked (`ChiefPanel.isShown(stage:home:)`).
 - It opens only on purpose: a workspace, tab, agent link or subagent pill clicked in the Chief while Home shows
   (`WindowDockActions.chiefLinkWillOpen`, `WindowDockFrame.armChiefPanel`), whose next show in this window opens the
-  panel (the arm lapses after 10 s, so a later sidebar pick shows no Chief; `home.chiefDock.openBeside` turns it
+  panel floating, also when the person docked it before (cmux#37372: no link click docks the Chief) (the arm lapses after 10 s, so a later sidebar pick shows no Chief; `home.chiefDock.openBeside` turns it
   off), or Show/Hide Chief (`home.openChiefDock`, Cmd-I, rebindable; on Home it focuses the message box). A workspace
   opened any other way (sidebar, Cmd-P, switch, restore, launch, new window) shows no Chief. A relaunch never
   reopens it, and a Home dock an older build saved (by a link or by Cmd-I) is dropped (cmux#37365: the Chief is

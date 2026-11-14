@@ -66,7 +66,7 @@ function GalleryEmptyState({ state = "recents", direction = "ltr", many }: Props
     </>
   );
   return (
-    <div ref={setContainer} className="empty-state-gallery-host">
+    <div ref={setContainer} className="empty-state-gallery-host ve-root">
       {container ? (
         <UiProvider container={container} dir={direction}>
           <EmptyState

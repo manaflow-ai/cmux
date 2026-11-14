@@ -39,7 +39,7 @@ import WebKit
     /// Runs the real probe in a page whose key-system request is refused, as Chromium refuses
     /// Widevine, and waits for the probe's event: the refused key system is on `<html>`.
     @MainActor @Test func theProbeReportsARefusedWidevineRequest() async throws {
-        let view = WKWebView(frame: .zero)
+        let view = try await Self.fixturePage()
         _ = try await view.callAsyncJavaScript("""
             Navigator.prototype.requestMediaKeySystemAccess = function (name) {
               return Promise.reject(new DOMException("Unsupported keySystem", "NotSupportedError"));
@@ -58,7 +58,7 @@ import WebKit
 
     /// A page that is granted one protected configuration is not reported for a refused one.
     @MainActor @Test func theProbeStaysQuietWhenARequestIsGranted() async throws {
-        let view = WKWebView(frame: .zero)
+        let view = try await Self.fixturePage()
         _ = try await view.callAsyncJavaScript("""
             Navigator.prototype.requestMediaKeySystemAccess = function (name, configs) {
               return configs.length ? Promise.resolve({ keySystem: name }) : Promise.reject(new Error("no"));
@@ -73,5 +73,20 @@ import WebKit
             return document.documentElement.getAttribute("\(BrowserProtectedMedia.attribute)") ?? "none";
             """, contentWorld: .page)
         #expect(attribute as? String == "none")
+    }
+
+    /// The suite's own document: CmuxNextBrowser carries a built bundle, so a probe never runs in one
+    /// (the bundle-input routing guard). The title is read too, since the empty initial document is
+    /// already `complete` before the HTML load commits.
+    @MainActor private static func fixturePage() async throws -> WKWebView {
+        let view = WKWebView(frame: .zero)
+        view.loadHTMLString("<!doctype html><title>media</title>", baseURL: nil)
+        for _ in 0..<600 {
+            if (try? await view.evaluateJavaScript("document.readyState === 'complete' && document.title === 'media'")) as? Bool == true {
+                return view
+            }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        throw BrowserTabError.timedOut("load")
     }
 }

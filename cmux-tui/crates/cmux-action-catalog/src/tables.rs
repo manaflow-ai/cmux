@@ -14,15 +14,14 @@ pub static DEBUG_BUILD_ONLY_ACTIONS: &[&str] = &[
     "home.chiefTeleportPlayground",
 ];
 
-/// The pane's VNC client is development-only (`RemoteViewAvailability`).
-pub static DEBUG_BUILD_ONLY_CASES: &[(&str, &str, &str)] =
-    &[("cloudOpenDesktop", "viewer", "native")];
+/// Enumeration cases only Debug builds offer: none since Open Desktop's development-only `native`
+/// viewer went with the Cloud tunnel (`rd` is its only viewer).
+pub static DEBUG_BUILD_ONLY_CASES: &[(&str, &str, &str)] = &[];
 
 /// Ids from before the catalog or renamed since, mapped to the catalog id (users keep them in
 /// cmux.json `shortcuts`).
 #[rustfmt::skip]
 pub static LEGACY_ALIASES: &[(&str, &str)] = &[
-    ("agentInbox", "feed.show"),
     ("app.quit", "quit"),
     ("browserNewProfile", "browserProfile.new"),
     ("browserProfile.clearRoomDefault", "browserProfile.clearSpaceDefault"),

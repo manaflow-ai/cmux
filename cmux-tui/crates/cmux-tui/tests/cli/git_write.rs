@@ -57,6 +57,9 @@ fn git_commit_and_push_run_in_the_repository_through_a_real_daemon() {
     fs::write(repo.join("a.txt"), "one\n").unwrap();
     git(&repo, &["add", "a.txt"]);
     git(&repo, &["commit", "-q", "-m", "first"]);
+    let missing_remote = git_cli(&server, &repo, &["push"]);
+    assert!(!missing_remote.status.success());
+    assert!(String::from_utf8_lossy(&missing_remote.stderr).contains("no_remote"));
     git(&repo, &["remote", "add", "origin", remote.to_str().unwrap()]);
 
     // Nothing to commit is refused and makes no commit.
@@ -103,11 +106,83 @@ fn git_commit_and_push_run_in_the_repository_through_a_real_daemon() {
     assert_eq!(git(&remote, &["rev-parse", "refs/heads/main"]), git(&repo, &["rev-parse", "HEAD"]));
     assert_eq!(git(&repo, &["rev-parse", "--abbrev-ref", "main@{upstream}"]), "origin/main");
 
+    // Create PR pushes even an already-published branch. A configured
+    // same-branch refspec must not make that ordinary push fail.
+    git(&repo, &["config", "remote.origin.push", "refs/heads/main:refs/heads/main"]);
+    assert_success(&git_cli(&server, &repo, &["push"]));
+
     // A push the remote would have to force is refused.
     git(&repo, &["commit", "-q", "--amend", "-m", "second, amended"]);
     let refused = git_cli(&server, &repo, &["push"]);
     assert!(!refused.status.success(), "a non-fast-forward push was accepted");
     assert_ne!(git(&remote, &["rev-parse", "refs/heads/main"]), git(&repo, &["rev-parse", "HEAD"]));
+    // A fresh branch also uses the repository's sole remote when it is not origin.
+    git(&repo, &["config", "--unset-all", "remote.origin.push"]);
+    git(&repo, &["remote", "rename", "origin", "publish"]);
+    git(&repo, &["checkout", "-q", "-b", "feature"]);
+    let fresh = git_cli(&server, &repo, &["push"]);
+    assert_success(&fresh);
+    assert_eq!(git(&repo, &["rev-parse", "--abbrev-ref", "feature@{upstream}"]), "publish/feature");
+    assert_eq!(
+        git(&remote, &["rev-parse", "refs/heads/feature"]),
+        git(&repo, &["rev-parse", "HEAD"])
+    );
+
+    // A differently named upstream is ambiguous: it may be a renamed branch,
+    // or the base a fresh feature branched from. Never update it implicitly.
+    git(&repo, &["push", "publish", "feature:published"]);
+    git(&repo, &["checkout", "-q", "-b", "local-feature", "feature"]);
+    git(&repo, &["branch", "--set-upstream-to=publish/published"]);
+    fs::write(repo.join("a.txt"), "renamed branch\n").unwrap();
+    git(&repo, &["commit", "-q", "-am", "local change"]);
+    let published = git_cli(&server, &repo, &["push"]);
+    assert!(!published.status.success());
+    assert!(String::from_utf8_lossy(&published.stderr).contains("upstream_mismatch"));
+    assert_eq!(
+        git(&remote, &["rev-parse", "refs/heads/published"]),
+        git(&repo, &["rev-parse", "feature"])
+    );
+    assert_eq!(
+        git(&repo, &["rev-parse", "--abbrev-ref", "local-feature@{upstream}"]),
+        "publish/published"
+    );
+
+    git(&repo, &["checkout", "-q", "-b", "fresh-from-main", "publish/main"]);
+    git(&repo, &["config", "push.default", "simple"]);
+    let base = git(&remote, &["rev-parse", "refs/heads/main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "feature work"]);
+    let refused = git_cli(&server, &repo, &["push"]);
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("upstream_mismatch"));
+    assert_eq!(git(&remote, &["rev-parse", "refs/heads/main"]), base);
+    assert_eq!(git(&remote, &["branch", "--list", "fresh-from-main"]), "");
+    // Explicitly choosing the same-named destination creates the feature
+    // branch and updates its tracking config without touching main.
+    assert_success(&git_cli(&server, &repo, &["push", "--set-upstream"]));
+    assert_eq!(git(&remote, &["rev-parse", "refs/heads/main"]), base);
+    assert_eq!(
+        git(&remote, &["rev-parse", "refs/heads/fresh-from-main"]),
+        git(&repo, &["rev-parse", "HEAD"])
+    );
+    assert_eq!(
+        git(&repo, &["rev-parse", "--abbrev-ref", "fresh-from-main@{upstream}"]),
+        "publish/fresh-from-main"
+    );
+    // A separate push remote is a deliberate triangular setup. It receives
+    // the local feature name even when the branch tracks the base elsewhere.
+    let fork = root.join("fork.git");
+    git(&root, &["init", "-q", "--bare", fork.to_str().unwrap()]);
+    git(&repo, &["remote", "add", "fork", fork.to_str().unwrap()]);
+    git(&repo, &["checkout", "-q", "-b", "fork-feature", "publish/main"]);
+    git(&repo, &["config", "branch.fork-feature.pushRemote", "fork"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "fork feature work"]);
+    assert_success(&git_cli(&server, &repo, &["push"]));
+    assert_eq!(git(&remote, &["rev-parse", "refs/heads/main"]), base);
+    assert_eq!(git(&fork, &["branch", "--list", "main"]), "");
+    assert_eq!(
+        git(&fork, &["rev-parse", "refs/heads/fork-feature"]),
+        git(&repo, &["rev-parse", "HEAD"])
+    );
     let _ = fs::remove_dir_all(root);
 }
 
@@ -675,5 +750,125 @@ fn the_worktree_remove_guard_runs_no_clean_filter_from_a_submodules_config() {
     assert!(!refused.status.success(), "a worktree with a changed submodule was removed");
     let reason = String::from_utf8_lossy(&refused.stderr).to_string();
     assert!(reason.contains("uncommitted_changes"), "{reason}");
+    let _ = fs::remove_dir_all(root);
+}
+
+/// Reads `git worktree setup` in `worktree` until its setup is done.
+fn finished_setup(server: &HeadlessServer, worktree: &std::path::Path) -> serde_json::Value {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let read = git_cli(server, worktree, &["worktree", "setup"]);
+        assert_success(&read);
+        let value = json_output(&read);
+        let state = value["run"]["state"].as_str().unwrap_or_default().to_string();
+        if !matches!(state.as_str(), "copying" | "running") {
+            return value;
+        }
+        assert!(Instant::now() < deadline, "setup never finished: {value}");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+#[test]
+fn a_new_worktree_copies_its_include_files_and_runs_the_projects_setup_and_teardown() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-git-worktree-setup-{}-{:x}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let home = root.join("home");
+    let repo = root.join("project");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(repo.join(".cmux")).unwrap();
+    let server = HeadlessServer::start_with_options(
+        "git-worktree-setup",
+        None,
+        None,
+        &[("HOME", home.to_str().unwrap())],
+    );
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "user.name", "cmux test"]);
+    git(&repo, &["config", "user.email", "cmux@example.invalid"]);
+    git(&repo, &["config", "commit.gpgsign", "false"]);
+    fs::write(repo.join(".gitignore"), ".env\nsetup-ran.txt\n").unwrap();
+    fs::write(repo.join(".worktreeinclude"), ".env\n").unwrap();
+    fs::write(
+        repo.join(".cmux/worktree.toml"),
+        concat!(
+            "setup = 'printf \"%s %s %s\" \"$CMUX_WORKSPACE_NAME\" \"$CMUX_PORT\" ",
+            "\"$CONDUCTOR_ROOT_PATH\" > setup-ran.txt; echo hello-from-setup'\n",
+            "teardown = 'echo bye > \"$CMUX_ROOT_PATH/teardown-ran.txt\"; echo left > leftover.txt'\n",
+        ),
+    )
+    .unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    fs::write(repo.join(".env"), "SECRET=1\n").unwrap();
+    let main = fs::canonicalize(&repo).unwrap();
+
+    // The reply comes before setup runs; the read follows it to the end.
+    let args = ["worktree", "create", "--name", "chat", "--idempotency-key", "s1"];
+    let created = git_cli(&server, &repo, &args);
+    assert_success(&created);
+    let value = json_output(&created)["value"].clone();
+    assert_eq!(value["setup"]["state"], "copying", "{value}");
+    let port = value["setup"]["port"].as_u64().expect("a port");
+    assert!(port >= 40_000, "{value}");
+    let worktree = home.join(".cmux/worktrees/project/chat");
+    let read = finished_setup(&server, &worktree);
+    assert_eq!(read["run"]["state"], "succeeded", "{read}");
+    assert_eq!(read["run"]["exit_code"], 0, "{read}");
+    assert_eq!(read["run"]["include"]["copied"], 1, "{read}");
+    assert!(read["run"]["output"].as_str().unwrap().contains("hello-from-setup"), "{read}");
+    assert_eq!(
+        read["recipe"]["files"],
+        serde_json::json!([".worktreeinclude", ".cmux/worktree.toml"])
+    );
+    assert_eq!(fs::read_to_string(worktree.join(".env")).unwrap(), "SECRET=1\n");
+    let ran = fs::read_to_string(worktree.join("setup-ran.txt")).unwrap();
+    assert_eq!(ran, format!("chat {port} {}", main.display()));
+
+    // Reading on from where the last read ended returns only what is new.
+    let end = read["run"]["output_end"].as_str().unwrap().to_string();
+    let more = git_cli(&server, &worktree, &["worktree", "setup", "--since", &end]);
+    assert_eq!(json_output(&more)["run"]["output"], "", "{}", json_output(&more));
+
+    // A second worktree gets other ports.
+    let other = git_cli(
+        &server,
+        &repo,
+        &["worktree", "create", "--name", "other", "--idempotency-key", "s2"],
+    );
+    assert_success(&other);
+    let other_port = json_output(&other)["value"]["setup"]["port"].as_u64().unwrap();
+    assert_ne!(other_port, port);
+    finished_setup(&server, &home.join(".cmux/worktrees/project/other"));
+
+    // Removing it runs the teardown first; what the teardown leaves there goes too.
+    let removed = git_cli(
+        &server,
+        &repo,
+        &["worktree", "remove", "--path", worktree.to_str().unwrap(), "--idempotency-key", "s3"],
+    );
+    assert_success(&removed);
+    let value = json_output(&removed)["value"].clone();
+    assert_eq!(value["teardown"]["state"], "succeeded", "{value}");
+    assert_eq!(fs::read_to_string(repo.join("teardown-ran.txt")).unwrap(), "bye\n");
+    assert!(!worktree.exists());
+
+    // A failing setup keeps the worktree and says how it failed.
+    fs::write(repo.join(".cmux/worktree.toml"), "setup = 'echo broke; exit 3'\n").unwrap();
+    let failing = git_cli(
+        &server,
+        &repo,
+        &["worktree", "create", "--name", "bad", "--idempotency-key", "s4"],
+    );
+    assert_success(&failing);
+    let bad = home.join(".cmux/worktrees/project/bad");
+    let read = finished_setup(&server, &bad);
+    assert_eq!(read["run"]["state"], "failed", "{read}");
+    assert_eq!(read["run"]["exit_code"], 3, "{read}");
+    assert!(read["run"]["output"].as_str().unwrap().contains("broke"), "{read}");
+    assert!(bad.join(".git").exists());
     let _ = fs::remove_dir_all(root);
 }

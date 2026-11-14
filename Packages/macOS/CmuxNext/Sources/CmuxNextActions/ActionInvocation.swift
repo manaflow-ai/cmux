@@ -141,6 +141,14 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
         arguments[name]
     }
 
+    /// A non-empty file path or data source argument `name` (an import or export file, a browser
+    /// to read) as the caller named it, or nil when none is named or a page asks: page script
+    /// never names a file or a source, the person picks it in the action's own panel.
+    public func callerNamedSource(_ name: String) -> String? {
+        guard origin != .page, let text = arguments[name]?.stringValue, !text.isEmpty else { return nil }
+        return text
+    }
+
     /// Whether a destructive action was confirmed (`confirm: true`).
     public var isConfirmed: Bool { arguments[ActionArgument.confirmName]?.boolValue == true }
 

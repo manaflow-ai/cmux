@@ -39,42 +39,46 @@ export function CodeRouterPage({ store, strings }: { store: CodeRouterStore; str
         <p className="cr-subtitle">{t("page.subtitle")}</p>
         {snap.error && <output className="cr-error selectable">{snap.error}</output>}
       </header>
-      <div className="cr-scroll">
-        <section className="cr-section">
-          <h2>{t("section.thisMac")}</h2>
-          <ul className="cr-list">
-            {snap.providers.map((row) => (
-              <ProviderItem key={row.provider} row={row} signedIn={signedIn} store={store} strings={strings} />
-            ))}
-          </ul>
-        </section>
-        <section className="cr-section">
-          <h2>{t("section.linked")}</h2>
-          {!signedIn ? (
-            <p className="cr-linked-empty cr-muted">{t("linked.signedOut")}</p>
-          ) : snap.linked.length === 0 ? (
-            <p className="cr-linked-empty cr-muted">{t("linked.none")}</p>
-          ) : (
+      {/* The body waits for the first status, so its lists land at their final size instead of
+          growing under the person after the page shows (no load shift; gallery coderouter#connected). */}
+      {snap.status && (
+        <div className="cr-scroll">
+          <section className="cr-section">
+            <h2>{t("section.thisMac")}</h2>
             <ul className="cr-list">
-              {snap.linked.map((account) => (
-                <li key={account.id} className="cr-linked-row">
-                  <span className="cr-linked-label selectable">{account.label}</span>
-                  <span className="cr-muted">{account.state}</span>
-                  {account.visibility && (
-                    <span className="cr-badge">
-                      {t(account.visibility === "team" ? "visibility.team" : "visibility.private")}
-                    </span>
-                  )}
-                </li>
+              {snap.providers.map((row) => (
+                <ProviderItem key={row.provider} row={row} signedIn={signedIn} store={store} strings={strings} />
               ))}
             </ul>
-          )}
-        </section>
-        <section className="cr-section cr-keys">
-          <h2>{t("section.keys")}</h2>
-          <p className="cr-muted">{t("unavailable")}</p>
-        </section>
-      </div>
+          </section>
+          <section className="cr-section">
+            <h2>{t("section.linked")}</h2>
+            {!signedIn ? (
+              <p className="cr-linked-empty cr-muted">{t("linked.signedOut")}</p>
+            ) : snap.linked.length === 0 ? (
+              <p className="cr-linked-empty cr-muted">{t("linked.none")}</p>
+            ) : (
+              <ul className="cr-list">
+                {snap.linked.map((account) => (
+                  <li key={account.id} className="cr-linked-row">
+                    <span className="cr-linked-label selectable">{account.label}</span>
+                    <span className="cr-muted">{account.state}</span>
+                    {account.visibility && (
+                      <span className="cr-badge">
+                        {t(account.visibility === "team" ? "visibility.team" : "visibility.private")}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+          <section className="cr-section cr-keys">
+            <h2>{t("section.keys")}</h2>
+            <p className="cr-muted">{t("unavailable")}</p>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

@@ -41,6 +41,19 @@ fn folded(kind: &str) -> bool {
     kind.starts_with("agent.")
 }
 
+/// The kinds a read past the in-memory journal returns: every kind [`page`]
+/// can use. It folds `agent.*` records ([`folded`]) and notices resource
+/// commits that change the closed store ([`changes_closed`]); a resource
+/// commit's kind is its operation's name, so no list of kinds covers the
+/// second. What it never uses is terminal output (neither check matches
+/// it) and the presentation store's `personal.*` records: they carry no
+/// resource `changes` (`commit_personal`), and no resource operation is
+/// named `personal.*`. `personal.session.put` alone was 96.6% of the
+/// 12M other records on a 59 GB registry (2026-11-08).
+fn read_kind(kind: &str) -> bool {
+    kind != "terminal.output" && !kind.starts_with("personal.")
+}
+
 /// True for a resource commit that upserted or deleted a closed item
 /// (`state_upsert`/`state_delete` of resource `closed` in its changes).
 fn changes_closed(record: &SessionJournalRecord) -> bool {
@@ -83,20 +96,20 @@ fn page(mux: &Mux, cursor: u64) -> anyhow::Result<(Vec<(HistoryKind, Value)>, u6
             scanned = scanned.max(page.scanned_through.min(page.head_sequence));
         }
         SharedJournalRead::Gap { .. } | SharedJournalRead::Unavailable => {
-            // Past the in-memory journal: neither fold reads terminal
-            // output, so skip it (and the sealed segments that hold only
-            // output) instead of inflating it.
+            // Past the in-memory journal: skip the kinds neither check
+            // reads ([`read_kind`]), and the sealed segments that hold only
+            // those, instead of inflating them.
             // Read on a reader of our own, never through the registry, whose
             // lock every write takes.
             let (behind, reached) = match mux.shared_journal_handle().open_reader()? {
                 Some(reader) => {
                     let head = reader.head()?;
-                    reader.without_output_after(cursor, head, PAGE)?
+                    reader.kinds_after(cursor, head, read_kind, PAGE)?
                 }
                 // An in-memory registry has no file to open.
                 None => {
                     let head = mux.session_journal_head()?;
-                    mux.session_journal_without_output_after(cursor, head, PAGE)?
+                    mux.session_journal_kinds_after(cursor, head, read_kind, PAGE)?
                 }
             };
             for record in &behind {

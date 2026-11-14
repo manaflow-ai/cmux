@@ -63,7 +63,7 @@ extension PaneContentView {
         if backdropState.pin != .inherit {
             let paints = WindowBackdrop(paneScope.tokens, reduceTransparency: ReduceTransparency.shared.isEnabled,
                                         selection: paneScope.backdropSelection).panesPaintBackground
-            contentHost.layer?.backgroundColor = paints ? surface.cgColor : nil
+            contentHost.restingGround = paints ? surface.cgColor : nil
         }
     }
 
@@ -100,10 +100,7 @@ extension PaneContentView {
     func themeDidChange() {
         needsLayout = true
         // In scope: its workspace's picture decides, not the app's (#28867: a black pane behind the chat).
-        performWithTheme {
-            let paints = WindowBackdrop.current(themeTokens).panesPaintBackground
-            contentHost.layer?.backgroundColor = paints ? Palette.surfaceBackground.cgColor : nil
-        }
+        contentHost.restingGround = performWithTheme { WindowBackdrop.current(themeTokens).panesPaintBackground ? Palette.surfaceBackground.cgColor : nil }
         paintStrip()
         paintPaneBackdrop()
     }

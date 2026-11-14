@@ -6,7 +6,8 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { runStretches, ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
+import { runStretches } from "../src/agent-session/acpmux/conversation/toolGroups";
+import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { toolGroupLabel, toolGroups } from "../src/agent-session/acpmux/conversation/toolGroups";
 import { toolRunSummary } from "../src/agent-session/acpmux/conversation/toolRunSummary";
 import { translate } from "../src/agent-session/acpmux/i18n";

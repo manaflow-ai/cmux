@@ -323,8 +323,10 @@ fn malformed_notification_outcome_fails_closed() {
     assert!(error.contains("invalid committed notification result"), "{error}");
 }
 
+/// `spec/resource-api-v2.md`, "Agent": the registry stores one current projection row per live
+/// terminal, and tombstoning a terminal deletes its projection in the same transaction.
 #[test]
-fn agent_projections_survive_terminal_tombstones() {
+fn terminal_tombstones_end_agent_records() {
     let mut registry = WorkspaceRegistry::in_memory("terminal-relationships").unwrap();
     let session = registry.session_id().clone();
     let (terminal, pane, tab) = seed_live_terminal(&mut registry);
@@ -386,7 +388,7 @@ fn agent_projections_survive_terminal_tombstones() {
                     }),
                     ResourceChange::TombstoneTab { tab_id: tab, close_content: true },
                     ResourceChange::TombstoneTerminal {
-                        public_id: terminal.clone(),
+                        public_id: terminal,
                         expected_incarnation: None,
                     },
                     ResourceChange::SetTabOrder { pane_id: pane, tab_ids: Vec::new() },
@@ -398,9 +400,8 @@ fn agent_projections_survive_terminal_tombstones() {
         .unwrap();
 
     let tombstoned = registry.public_projections().unwrap();
-    assert_eq!(registry.resource_agent_projection_count_for_test().unwrap(), 1);
-    assert_eq!(tombstoned.agents.len(), 1);
-    assert_eq!(tombstoned.agents[0].terminal_id, terminal);
+    assert_eq!(registry.resource_agent_projection_count_for_test().unwrap(), 0);
+    assert!(tombstoned.agents.is_empty(), "{:?}", tombstoned.agents);
     assert_eq!(tombstoned.notifications.len(), 1);
     assert_eq!(tombstoned.notifications[0].terminal_id, None);
 }

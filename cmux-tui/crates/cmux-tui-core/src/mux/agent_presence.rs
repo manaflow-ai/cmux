@@ -231,6 +231,18 @@ impl Mux {
     /// presence table and broadcast the change. Hook events for a terminal
     /// with no live placement are dropped: presence has nothing to point at.
     pub(super) fn apply_agent_presence(&self, ingress: &crate::JournalIngress, sequence: u64) {
+        self.apply_agent_presence_at(ingress, Some(sequence));
+    }
+
+    /// Apply a hook report that got no journal row (`agent_hooks_at_rest.rs`).
+    /// It has no sequence of its own: it comes after every row of its
+    /// terminal, because a report is appended while one of those is still on
+    /// its way to the journal. The watermark stays where the last row put it.
+    pub(super) fn apply_live_agent_presence(&self, ingress: &crate::JournalIngress) {
+        self.apply_agent_presence_at(ingress, None);
+    }
+
+    fn apply_agent_presence_at(&self, ingress: &crate::JournalIngress, sequence: Option<u64>) {
         if ingress.producer_id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID
             || ingress.payload.get("native_event").and_then(Value::as_str)
                 == Some(crate::journal_reducers::LEGACY_SCREEN_DETECT_NATIVE_EVENT)
@@ -251,10 +263,12 @@ impl Mux {
         // subscriber lock and never this one.
         let mut table = self.agent_presence.lock().unwrap();
         let slot = table.entry(terminal_id.clone()).or_default();
-        if slot.sequence >= sequence && slot.sequence != 0 {
-            return;
+        if let Some(sequence) = sequence {
+            if slot.sequence >= sequence && slot.sequence != 0 {
+                return;
+            }
+            slot.sequence = sequence;
         }
-        slot.sequence = sequence;
         let presence = match next_presence(slot.presence.as_ref(), ingress, &terminal_id, now_ms())
         {
             PresenceStep::Unchanged => return,

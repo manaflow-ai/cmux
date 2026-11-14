@@ -4,7 +4,7 @@ import CoreGraphics
 /// The `appearance.metrics.<name>` keys the schema lists besides the interface size (which has its
 /// own `InterfaceSizeSetting`): sizes in points whose default is the density's. cmux-next and
 /// cmux-browser both read them. Each `range` must equal `DesignSettings.allowedRange` and each
-/// default its `MetricTunables` preset, or for `tabFontSize` the density's body size (kept by hand:
+/// default its `MetricTunables` preset, or for `tabFontSize` Chrome's 12 pt at every density (kept by hand:
 /// this module reads no main-actor state).
 public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
     /// The `MetricKey` raw value.
@@ -25,6 +25,10 @@ public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
                                                             comfortable: 7)
     public static let titlebarHeight = LayoutMetricSetting(name: "titlebarHeight", range: titlebarHeightRange, compact: titlebarHeightPlaceholder,
                                                            comfortable: 40)
+    /// The workspace row height, shared with tabs and browser controls through `Metrics.chromeRowHeight`.
+    /// Unset, the app density supplies it. Explicit tab sizing still takes precedence for tabs.
+    public static let sidebarRowHeight = LayoutMetricSetting(name: "sidebarRowHeight", range: sidebarRowHeightRange, compact: sidebarRowHeightPlaceholder,
+                                                             comfortable: 32)
 
     /// The tab bar rows' ranges and compact values (their Settings placeholders) come from
     /// schemas/settings/source/tabs.json (SettingsSchema+Tabs.generated.swift).
@@ -43,10 +47,10 @@ public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
     /// from the interface size (https://github.com/manaflow-ai/cmux/issues/26493). Unset, the title follows
     /// the interface size; the defaults here are the density's body size.
     public static let tabStripHeight = LayoutMetricSetting(name: "tabStripHeight", range: tabStripHeightRange, compact: tabStripHeightPlaceholder, comfortable: 36)
-    public static let tabFontSize = LayoutMetricSetting(name: "tabFontSize", range: tabFontSizeRange, compact: tabFontSizePlaceholder, comfortable: 13)
+    public static let tabFontSize = LayoutMetricSetting(name: "tabFontSize", range: tabFontSizeRange, compact: tabFontSizePlaceholder, comfortable: 12)
     public static let tabBar: [LayoutMetricSetting] = [tabStripHeight, tabFontSize]
 
-    public static let all: [LayoutMetricSetting] = [sidebarWidth, columnGap, dividerThickness, dividerHitWidth, titlebarHeight] + tabBar + tabWidths
+    public static let all: [LayoutMetricSetting] = [sidebarWidth, sidebarRowHeight, columnGap, dividerThickness, dividerHitWidth, titlebarHeight] + tabBar + tabWidths
 
     /// A tab strip width whose comfortable value is the shared token's; its range and compact value (the
     /// Settings placeholder) are the source's (schemas/settings/source/tabs.json).

@@ -47,14 +47,27 @@ trap cleanup EXIT
 # in every nightly variant job. SPARKLE_TOOLS_DIR points at an existing tools
 # directory (tests); other versions still build from source.
 SPARKLE_281_TARBALL_SHA256="5cddb7695674ef7704268f38eccaee80e3accbf19e61c1689efff5b6116d85be"
+# The release asset id of Sparkle-2.8.1.tar.xz, for the API fallback.
+SPARKLE_281_ASSET_ID="316680272"
 if [[ -n "${SPARKLE_TOOLS_DIR:-}" ]]; then
   tools_dir="$SPARKLE_TOOLS_DIR"
 elif [[ "$SPARKLE_VERSION" == "2.8.1" ]]; then
   echo "Downloading Sparkle ${SPARKLE_VERSION} tools..."
   tarball="$work_dir/Sparkle-${SPARKLE_VERSION}.tar.xz"
-  curl --fail --silent --show-error --location --retry 3 --retry-delay 2 \
-    --connect-timeout 15 --max-time 300 -o "$tarball" \
-    "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz"
+  # github.com's release download path answered 504 for over an hour on
+  # 2026-11-08 (nightly runs 42462657834, 42464844265) while the API's asset
+  # endpoint served the same file. Over HTTP/2 that 504 is curl exit 56, which
+  # plain --retry never retries, so retry every error, then fall back to the
+  # asset endpoint. The checksum below checks whichever answered.
+  sparkle_download() {
+    curl --fail --silent --show-error --location --retry 4 --retry-delay 10 --retry-max-time 90 --retry-all-errors \
+      --connect-timeout 15 --max-time 300 -o "$tarball" "$@"
+  }
+  if ! sparkle_download "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz"; then
+    echo "Sparkle release download failed; trying the GitHub API asset endpoint" >&2
+    sparkle_download -H "Accept: application/octet-stream" \
+      "https://api.github.com/repos/sparkle-project/Sparkle/releases/assets/${SPARKLE_281_ASSET_ID}"
+  fi
   actual_sha="$(shasum -a 256 "$tarball" | awk '{print $1}')"
   if [[ "$actual_sha" != "$SPARKLE_281_TARBALL_SHA256" ]]; then
     echo "Sparkle ${SPARKLE_VERSION} tarball checksum mismatch: $actual_sha" >&2

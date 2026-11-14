@@ -55,7 +55,8 @@ public final class GlassRimView: NSView {
         CATransaction.setDisableActions(true)
         gradient.frame = bounds
         stroke.frame = bounds
-        stroke.lineWidth = width
+        // A hairline like any other: none under `appearance.borders` none (the Blocks window style).
+        stroke.lineWidth = Borders.width(width)
         let inset = bounds.insetBy(dx: width / 2, dy: width / 2)
         // CoreGraphics refuses a corner wider than half the rect.
         let radius = min(max(cornerRadius - width / 2, 0), max(min(inset.width, inset.height) / 2, 0))

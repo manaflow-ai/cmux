@@ -113,6 +113,10 @@ async function hookStatus(runtime) {
   });
 }
 
+function acceptedStates(expectedState) {
+  return expectedState === "idle" ? ["idle", "done"] : [expectedState];
+}
+
 async function agentStatus(runtime, name, event, expectedState) {
   return probe(runtime, name, { event, expectedState, emitToHostMs: null }, async (deadline, observation) => {
     const startedAt = runtime.now();
@@ -125,7 +129,10 @@ async function agentStatus(runtime, name, event, expectedState) {
     await pollHost(runtime, deadline, observation,
       async () => (await readHost(runtime, ["agent", "list"], deadline))
         .filter((record) => record.terminal_id === runtime.terminal),
-      (records) => records.some((record) => record.state === expectedState && record.source === "hook"),
+      // `agent list` says one word per agent (`status`; `state` is its alias).
+      // A Stop leaves the finished turn unread, which the list calls `done`.
+      (records) => records.some((record) =>
+        acceptedStates(expectedState).includes(record.status ?? record.state) && record.source === "hook"),
     );
     observation.emitToHostMs = Math.round(runtime.now() - startedAt);
   });

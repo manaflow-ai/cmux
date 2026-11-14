@@ -46,6 +46,8 @@ export type ActivityState = {
   scrubSeq?: number;
   /** The frame viewer is open over the timeline or grid (this page only; the host never sends it). */
   viewing?: boolean;
+  /** The viewer fills the page (Full Screen; this page only, the host never sends it). */
+  fullFrame?: boolean;
   filter: string;
   watching: string[];
   lastOperationError?: string;
@@ -79,6 +81,8 @@ export type ActivityState = {
     previous: string;
     next: string;
     close: string;
+    fullScreen: string;
+    exitFullScreen: string;
     stepClick: string;
     stepType: string;
     stepKeys: string;
@@ -316,7 +320,8 @@ export function reduceActivity(state: ActivityState, action: any): ActivityState
       ...reduceActivity(reduceActivity(state, { type: "select", id: action.id }), { type: "scrub", seq: action.seq }),
       viewing: true,
     };
-  if (action.type === "close") next = { ...state, viewing: false };
+  if (action.type === "close") next = { ...state, viewing: false, fullFrame: false };
+  if (action.type === "full") next = { ...state, fullFrame: action.on };
   if (action.type === "filter") next = { ...state, filter: action.value };
   if (action.type === "layout") next = { ...state, layout: action.value };
   if (action.type === "scrub") {
@@ -369,6 +374,8 @@ export const initialActivityState = (): ActivityState => ({
     previous: "Previous",
     next: "Next",
     close: "Close",
+    fullScreen: "Full Screen",
+    exitFullScreen: "Exit Full Screen",
     stepClick: "Click",
     stepType: "Type",
     stepKeys: "Press Keys",

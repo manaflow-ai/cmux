@@ -23,7 +23,7 @@ struct CloudHomeShellNameTests {
     private static func reader(cloud: Bool, autoNames: Bool = true) -> WorkspaceAutoNameReader {
         WorkspaceAutoNameReader(
             enabled: { autoNames }, isNewTabPage: { _ in false }, livePage: { _ in nil }, incognitoTitle: { _ in nil },
-            terminal: { NewWorkspaceName.Tab(kind: .terminal, userName: $0.name, title: $0.title, pageTitle: nil, url: $0.url, cwd: $0.cwd) },
+            terminal: { NewWorkspaceName.Tab(kind: .terminal, userName: $0.name, title: $0.titleText, pageTitle: nil, url: $0.url, cwd: $0.cwd) },
             turns: AgentTurnStateStore(), hold: WorkspaceAutoNameHold(), homeShellTitle: { _ in cloud ? "Terminal" : nil })
     }
 

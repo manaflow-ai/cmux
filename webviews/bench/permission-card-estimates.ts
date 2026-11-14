@@ -2,7 +2,7 @@
 // Run on the fleet: bun run bench/permission-card-estimates.ts.
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { chromium } from "playwright";
+import { chromium } from "./browsers";
 import { createServer } from "vite";
 import { refusePlaywrightOnMacs, useSystemChrome } from "../test/support/systemChrome";
 import { galleryFrame, warmGalleryFrame } from "../test/support/galleryFrame";

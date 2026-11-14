@@ -8,12 +8,12 @@ import { setPaneLanguage, translate } from "../src/agent-session/acpmux/i18n";
 import { awaitsOwnWork, SUBAGENTS, type Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { finishedTrayItems, trayItems, withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
 import { lastSaidLine, latestLine } from "../src/agent-session/acpmux/subagents/trayDetail";
-import { elapsed, groupElapsed, ticking } from "../src/agent-session/acpmux/subagents/SubagentGroup";
+import { elapsed, groupElapsed, ticking } from "../src/agent-session/acpmux/subagents/subagentGroupModel";
 import { subagentStatus, subagentStateText } from "../src/agent-session/acpmux/summary/subagentStatusListModel";
 import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { attentionFirst, type TrayCard } from "../src/agent-session/acpmux/subagents/trayAttention";
-import { pullTabCounts } from "../src/agent-session/acpmux/subagents/TrayPullTab";
+import { pullTabCounts } from "../src/agent-session/acpmux/subagents/trayPullTabModel";
 
 setPaneLanguage("en");
 const t = (key: Parameters<typeof translate>[0], values?: Parameters<typeof translate>[1]) =>

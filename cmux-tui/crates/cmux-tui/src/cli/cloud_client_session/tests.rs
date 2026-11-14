@@ -190,6 +190,15 @@ fn errors_print_only_known_codes() {
     assert_eq!(known_code(None), "");
 }
 
+/// Every code of cmux-platform's refusal table (cmux-platform#1192) prints by name: the VM
+/// limit, a rate limit and a machine's state among them.
+#[test]
+fn every_platform_refusal_code_is_known() {
+    for row in cmux_cloud_machine::refusals::PLATFORM {
+        assert_eq!(known_code(Some(row.code)), row.code);
+    }
+}
+
 #[test]
 fn exec_answers_are_checked_against_freestyles_schema() {
     let ok = |exit_code, stdout: &str, stderr: &str| {

@@ -168,6 +168,29 @@ struct CloudFileViewerTests {
         provider.close()
     }
 
+    /// App health never reloads a page over unsaved edits (#39247): an edited file tab, on this Mac or
+    /// another machine, is held until a save covers its reported edits. Codex's review at f02e048 (F2):
+    /// the hold lasted for the tab's life, so one edit refused every later repair. A save clears it
+    /// when no report came while it ran; an edit still waiting in the page's next report is held by the
+    /// page's own mark (`[data-cmux-unsaved-edits]`, PageHeartbeatTests).
+    @Test func aCloudTabHoldsItsUnsavedEditsUntilASaveCoversThem() async throws {
+        let path = "/home/cmux/notes.md"
+        let machine = MachineFiles()
+        machine.set(path, "one\n")
+        let provider = FilePageProvider(kind: .markdown, file: URL(fileURLWithPath: path), host: Host(), libraries: nil, images: NoImages(),
+                                        files: RemoteFilePageFiles(client: machine, machine: Self.machine))
+        let config = try await Self.call(provider, "config")
+        let base = try #require(config["hash"]?.stringValue)
+        #expect(!provider.reportedEdits.held)
+        _ = try await Self.call(provider, "edited", ["path": .string(path), "text": "two\n", "baseHash": .string(base)])
+        #expect(provider.reportedEdits.held)
+        let saved = try await Self.call(provider, "save", ["path": .string(path), "text": "two\n", "baseHash": .string(base)])
+        #expect(!provider.reportedEdits.held, "a save with no report while it ran covers the edits")
+        _ = try await Self.call(provider, "edited", ["path": .string(path), "text": "three\n", "baseHash": saved["hash"] ?? .null])
+        #expect(provider.reportedEdits.held, "a later edit holds the tab again")
+        provider.close()
+    }
+
     @Test func aCloudTabFollowsChangesOnTheMachineAndSaysWhenItIsGone() async throws {
         let path = "/home/cmux/notes.md"
         let machine = MachineFiles()

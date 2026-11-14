@@ -16,8 +16,7 @@ enum SettingsSharedLinks {
         static let command = AgentSessionShareListRequest.command
     }
 
-    /// `{available, shares, titles}`: `available` false when this Mac's daemon is not connected;
-    /// `titles` maps a share's surface number to its chat's title.
+    /// `{available, shares, titles}` (`available` false: no daemon); `titles`: each surface's chat, named as its tab is (never about:blank).
     static func list(_ host: (any AgentShareHost)?) async throws -> CmuxNextSettings.JSONValue {
         guard let host, let connection = host.shareLocalConnection else { return .object(["available": .bool(false)]) }
         let reply = try await connection.request(ListRequest())
@@ -27,7 +26,7 @@ enum SettingsSharedLinks {
             for case .object(let share) in items {
                 guard case .number(let number)? = share["surface"], number >= 1, number < 9e15 else { continue }
                 let surface = UInt64(number)
-                if let tab = host.shareTab(surface: SurfaceID(rawValue: surface)) { titles[String(surface)] = .string(tab.titleText) }
+                if let tab = host.shareChatTab(session: share["session"]?.stringValue, surface: SurfaceID(rawValue: surface)) { titles[String(surface)] = .string(host.shareTitle(of: tab)) }
             }
         }
         let answer: CmuxNextDaemon.JSONValue = .object(["available": .bool(true), "shares": shares, "titles": .object(titles)])

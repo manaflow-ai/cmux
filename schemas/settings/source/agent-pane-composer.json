@@ -1,0 +1,392 @@
+{
+  "$comment": "HAND-EDITED source of the General section's Agent Chat composer rows (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants from it (its docstring is the row format); schemas/settings/settings-schema.json is still exported from Swift and must not change when rows move here.",
+  "lists": [
+    {
+      "name": "composer",
+      "section": "general",
+      "group": {
+        "key": "settings.group.agentChat",
+        "text": "Agent Chat"
+      },
+      "note": "The composer's rows (General > Agent Chat, after the edited-files card's); the pane reads the same names (webviews/src/agent-session/acpmux/composerSettings.ts).",
+      "rows": [
+        {
+          "key": "agentPane.showContextUsage",
+          "title": {
+            "key": "settings.agentPane.showContextUsage",
+            "text": "Show Context Usage"
+          },
+          "help": {
+            "key": "settings.agentPane.showContextUsage.help",
+            "text": "The ring beside the model that fills as the chat uses its context window."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "context",
+            "usage",
+            "tokens",
+            "window",
+            "ring",
+            "composer",
+            "agent"
+          ]
+        },
+        {
+          "key": "agentPane.composerRing",
+          "note": "What the composer's ring shows (agentPane.composerRing). Leo, 2026-11-04: \"i guess we can turn that into a 5h/weekly usage type thing instead as well for some people\".",
+          "title": {
+            "key": "settings.agentPane.composerRing",
+            "text": "Composer Ring"
+          },
+          "help": {
+            "key": "settings.agentPane.composerRing.help",
+            "text": "What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "context",
+              "title": {
+                "key": "settings.choice.composerRingContext",
+                "text": "Context"
+              },
+              "note": "How much of its context window the chat has used (the ring as it always was)."
+            },
+            {
+              "value": "planUsage",
+              "title": {
+                "key": "settings.choice.composerRingPlanUsage",
+                "text": "Plan Usage"
+              },
+              "note": "The account's plan usage limits (5-hour and weekly), when the harness reports them."
+            }
+          ],
+          "default": "context",
+          "keywords": [
+            "context",
+            "usage",
+            "plan",
+            "limit",
+            "limits",
+            "5-hour",
+            "weekly",
+            "rate",
+            "quota",
+            "ring",
+            "composer",
+            "agent"
+          ],
+          "swift_enum": {
+            "name": "AgentPaneComposerRing"
+          }
+        },
+        {
+          "key": "agentPane.showDictation",
+          "title": {
+            "key": "settings.agentPane.showDictation",
+            "text": "Show Dictation Button"
+          },
+          "help": {
+            "key": "settings.agentPane.showDictation.help",
+            "text": "The microphone beside Send in every composer, including the New Tab page."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "dictation",
+            "microphone",
+            "mic",
+            "voice",
+            "speech",
+            "composer",
+            "agent",
+            "new tab"
+          ]
+        },
+        {
+          "key": "agentPane.dictationSource",
+          "note": "What the composer's mic dictates with (agentPane.dictationSource): cmux's own dictation, or an app the person already dictates with (design/composer-dictation.md). Leo, 2026-11-07: \"you can optionally have it be like, oh, you use Claude's thing, or ChatGPT's thing ... Or, like, maybe you can map the button to that thing, perhaps?\"",
+          "title": {
+            "key": "settings.agentPane.dictationSource",
+            "text": "Dictate With"
+          },
+          "help": {
+            "key": "settings.agentPane.dictationSource.help",
+            "text": "What the dictation button uses: cmux's own dictation, or the dictation app you already use. An app's button sends that app's shortcut."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "cmux",
+              "title": {
+                "key": "settings.choice.dictationSourceCmux",
+                "text": "cmux"
+              },
+              "note": "cmux's own dictation, as before."
+            },
+            {
+              "value": "macos",
+              "title": {
+                "key": "settings.choice.dictationSourceMacos",
+                "text": "macOS Dictation"
+              },
+              "note": "macOS Dictation, into the composer."
+            },
+            {
+              "value": "chatgpt",
+              "title": {
+                "key": "settings.choice.dictationSourceChatgpt",
+                "text": "ChatGPT"
+              }
+            },
+            {
+              "value": "claude",
+              "title": {
+                "key": "settings.choice.dictationSourceClaude",
+                "text": "Claude"
+              }
+            },
+            {
+              "value": "gemini",
+              "title": {
+                "key": "settings.choice.dictationSourceGemini",
+                "text": "Gemini"
+              }
+            },
+            {
+              "value": "wisprFlow",
+              "title": {
+                "key": "settings.choice.dictationSourceWisprFlow",
+                "text": "Wispr Flow"
+              }
+            },
+            {
+              "value": "superwhisper",
+              "title": {
+                "key": "settings.choice.dictationSourceSuperwhisper",
+                "text": "Superwhisper"
+              }
+            }
+          ],
+          "default": "cmux",
+          "keywords": [
+            "dictation",
+            "dictate",
+            "microphone",
+            "mic",
+            "voice",
+            "speech",
+            "chatgpt",
+            "claude",
+            "gemini",
+            "wispr",
+            "flow",
+            "superwhisper",
+            "macos",
+            "composer"
+          ],
+          "swift_enum": {
+            "name": "AgentPaneDictationSource"
+          }
+        },
+        {
+          "key": "agentPane.dictationShortcut",
+          "note": "The chord the mic sends for an app source, such as ctrl+opt+space, when the person bound the app to one other than its default; empty uses the app's. AgentPaneDictationShortcut parses it.",
+          "title": {
+            "key": "settings.agentPane.dictationShortcut",
+            "text": "Dictation App Shortcut"
+          },
+          "help": {
+            "key": "settings.agentPane.dictationShortcut.help",
+            "text": "The shortcut the dictation button sends to the app it dictates with, such as ctrl+opt+space, when you set that app to one other than its default. Leave it empty for the app's default."
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "dictation",
+            "shortcut",
+            "hotkey",
+            "key",
+            "chatgpt",
+            "claude",
+            "gemini",
+            "wispr",
+            "flow",
+            "superwhisper"
+          ]
+        },
+        {
+          "key": "agentPane.spellChecking",
+          "title": {
+            "key": "settings.agentPane.spellChecking",
+            "text": "Check Spelling While Typing"
+          },
+          "help": {
+            "key": "settings.agentPane.spellChecking.help",
+            "text": "Underlines misspellings and offers system suggestions in the composer."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "spell",
+            "spelling",
+            "grammar",
+            "misspelling",
+            "composer",
+            "suggestions",
+            "typing"
+          ]
+        },
+        {
+          "key": "agentPane.attachmentView",
+          "note": "How the composer and sent messages show attachments (agentPane.attachmentView). Only the look: a draft's text, its attachments and their order are the same in all.",
+          "title": {
+            "key": "settings.agentPane.attachmentView",
+            "text": "Attachment View"
+          },
+          "help": {
+            "key": "settings.agentPane.attachmentView.help",
+            "text": "How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "inline",
+              "title": {
+                "key": "settings.choice.agentChatAttachmentInline",
+                "text": "Inline"
+              },
+              "note": "Each attachment in the text where it was added, as Messages does."
+            },
+            {
+              "value": "strip",
+              "title": {
+                "key": "settings.choice.agentChatAttachmentStrip",
+                "text": "Strip"
+              },
+              "note": "The attachments together in a row."
+            },
+            {
+              "value": "both",
+              "title": {
+                "key": "settings.choice.agentChatAttachmentBoth",
+                "text": "Inline and Strip"
+              },
+              "note": "In the text and in the row too, so every attachment shows in one place with its remove (Leo, 2026-10-24: \"ALSO show the top displayed attachments alongside the inline attachments\")."
+            }
+          ],
+          "default": "inline",
+          "keywords": [
+            "attachment",
+            "attachments",
+            "image",
+            "picture",
+            "file",
+            "inline",
+            "strip",
+            "both",
+            "composer",
+            "messages"
+          ],
+          "swift_enum": {
+            "name": "AgentPaneAttachmentView"
+          }
+        },
+        {
+          "key": "agentPane.scrollToBottomOnSend",
+          "note": "On, sending while reading up jumps to the newest row; off, sending keeps the visible row and offset while new rows arrive below it. A reader at the bottom still follows streaming output.",
+          "title": {
+            "key": "settings.agentPane.scrollToBottomOnSend",
+            "text": "Scroll to Bottom When I Send"
+          },
+          "help": {
+            "key": "settings.agentPane.scrollToBottomOnSend.help",
+            "text": "When off, sending while you are reading up keeps your place and shows new messages below."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "scroll",
+            "bottom",
+            "send",
+            "message",
+            "chat",
+            "latest",
+            "follow"
+          ]
+        },
+        {
+          "key": "agentPane.showMachineLoadWarnings",
+          "note": "The Computer menu adds cached high-load or low-memory details to remote machine rows; it starts no other health poller.",
+          "title": {
+            "key": "settings.agentPane.showMachineLoadWarnings",
+            "text": "Show Machine Load Warnings"
+          },
+          "help": {
+            "key": "settings.agentPane.showMachineLoadWarnings.help",
+            "text": "Shows a warning when a remote machine is at its CPU or memory budget in the Computer menu."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "machine",
+            "load",
+            "memory",
+            "cpu",
+            "warning",
+            "computer",
+            "composer",
+            "agent"
+          ]
+        },
+        {
+          "key": "agentPane.newChatsIn",
+          "note": "Where a new chat runs when its composer picks nothing (agentPane.newChatsIn); the page decides (runLocationDefault.ts). Leo, 2026-10-31: \"whenever i start a chat it should be able to send me to cloud autommatically\".",
+          "title": {
+            "key": "settings.agentPane.newChatsIn",
+            "text": "Start New Chats In"
+          },
+          "help": {
+            "key": "settings.agentPane.newChatsIn.help",
+            "text": "Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "local",
+              "title": {
+                "key": "settings.choice.newChatsInLocal",
+                "text": "This Mac"
+              },
+              "note": "This Mac, as before."
+            },
+            {
+              "value": "cloud",
+              "title": {
+                "key": "settings.choice.newChatsInCloud",
+                "text": "Cloud"
+              },
+              "note": "The person's own Cloud machine (a free one of theirs, else a new one)."
+            }
+          ],
+          "default": "local",
+          "keywords": [
+            "cloud",
+            "new chat",
+            "start",
+            "machine",
+            "vm",
+            "remote",
+            "this mac",
+            "local",
+            "run"
+          ],
+          "swift_enum": {
+            "name": "AgentPaneNewChatPlace"
+          }
+        }
+      ]
+    }
+  ]
+}

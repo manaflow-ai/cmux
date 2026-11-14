@@ -16,6 +16,8 @@ bench launches and quits the app itself), and maps their reports to budget rows 
   home-perf.py                   Home: typing key dispatch, chat scroll frames
   agent-engine-bench.py          ACP chat composer: keydown to next frame (the page's typingStats)
   bench_idle.py                  idle CPU of the app with terminals open
+  tab-churn-bench.py             terminal_burst: 30 Ctrl-` terminals in a row (first and last ten, growth), closing them,
+                                 and Cmd-T / Cmd-W in a pane of 1 tab and of 31 (ask-8a0837950b)
 
   A bench that fails to run (older build without its debug method, no display) leaves its rows "n/a"; the
   suite goes on, but the gate reports an incomplete result when an expected row is absent. Output: --json
@@ -41,6 +43,9 @@ BASELINE_DIR = os.path.join(HERE, "perf-budgets-baseline")
 REGRESSION = 0.10
 
 BENCHES = ["new_surfaces", "panes", "tab_switch", "palette", "sidebar", "home", "acp", "idle", "anim"]
+# Benches that run only when --only names them: the default (all of BENCHES) is what stable-next's --gate step runs, and
+# a bench added here is a perf cron row that warns, never a new gate row (CLAUDE.md: no new CI gates).
+OPT_IN_BENCHES = ["terminal_burst"]
 PERF_BENCH = os.path.join(HERE, "..", "perf-bench")
 
 
@@ -112,7 +117,14 @@ def run_bench(name, argv, log_dir, timeout):
     except subprocess.TimeoutExpired:
         code = "timeout"
     took = round(time.time() - start, 1)
-    tail = open(log, errors="replace").read().splitlines()[-6:]
+    # A bench that failed shows its launch's reason lines first: the app's own log tail, which follows them, is all
+    # Chromium crash keys when the app died, and pushed the reason out of both a six and a forty line tail.
+    lines = open(log, errors="replace").read().splitlines()
+    tail = lines[-6:]
+    if code != 0:
+        said = [t for t in lines[:-6] if t.startswith("bench-launch: ")][-2:]
+        said += [t[:3500] for t in lines[:-6] if t.startswith("BENCH-LAUNCH ")][-1:]  # the report: exit, crash summary
+        tail = said + tail
     print(f"--- {name}: exit {code} in {took}s", *("    " + t for t in tail), sep="\n", flush=True)
     return {"exit": code, "seconds": took, "log": log}
 
@@ -158,7 +170,12 @@ def stop_load(procs, scratch):
         try:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
+            pass
+        # Whether or not the leader exited: a child that ignores SIGTERM would outlive it (cmux#41767 review F1).
+        try:
             os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
     for name in os.listdir(scratch):
         if name.startswith("w"):
             try:
@@ -255,6 +272,26 @@ def rows_acp(rep):
         summ = r.get("summary", r) if isinstance(r, dict) else {}
         out[f"acp.{mode}.typing.to_frame"] = p50_p95(summ.get("typing_to_frame"))
         out[f"acp.{mode}.typing.to_paint"] = p50_p95(summ.get("typing_to_paint"))
+    return out
+
+
+def rows_terminal_burst(rep):
+    """tab-churn-bench.py summary: open and close key to visible at each tab count, the terminal burst's first and last
+    third, closing the burst (key to the pane's new selection), and the burst's growth (last third p50 / first third)."""
+    out = {}
+    for step, s in ((rep or {}).get("summary") or {}).items():
+        if not isinstance(s, dict):
+            continue
+        if step == "new_terminal":
+            for part in ("first", "last"):
+                out[f"terminal_burst.new_terminal.{part}.key_to_visible"] = p50_p95(s.get(part))
+            if isinstance(s.get("growth"), (int, float)):
+                out["terminal_burst.new_terminal.growth"] = (s["growth"], s["growth"])
+        elif step == "close_terminal":
+            out["terminal_burst.close_terminal.key_to_state"] = p50_p95(s.get("visible_ms"))
+        else:
+            action, _, count = step.partition("@")
+            out[f"terminal_burst.{action}.{count}.key_to_visible"] = p50_p95(s.get("visible_ms"))
     return out
 
 
@@ -451,13 +488,16 @@ def main():
                      *(["--target-hz", str(opts.scroll_target_hz)] if opts.scroll_target_hz is not None else []),
                      *([] if opts.profile else ["--no-trace"]), "--out", o("sidebar")], os.path.join("sidebar", "results.json"),
                     lambda r: rows_sidebar(r, opts.sidebar_size)),
-        "home": ([py, S("home-perf.py"), "--tag", opts.tag, "--out", o("home.json")], "home.json", rows_home),
+        "home": ([py, S("home-perf.py"), *common, "--out", o("home.json")], "home.json", rows_home),
         "acp": ([py, S("agent-engine-bench.py"), *common, "--modes", "own,chromium", "--chats", "2", "--flings", "1",
                  "--rows", str(opts.acp_rows), "--fling-seconds", str(opts.acp_fling_seconds),
                  *(["--target-hz", str(opts.scroll_target_hz)] if opts.scroll_target_hz is not None else []),
                  "--out", o("acp"), "--json", o("acp.json")], "acp.json", rows_acp),
         "anim": ([py, S("anim-perf-terminal.py"), *common, "--rounds", "2", "--out", o("anim"), "--json", o("anim.json")],
                  "anim.json", rows_anim),
+        "terminal_burst": ([py, S("tab-churn-bench.py"), *common, "--cycles", "12", "--terminals", "30",
+                  "--out", o("terminal_burst"), "--json", o("terminal_burst.json")], "terminal_burst.json",
+                           rows_terminal_burst),
         "idle": ([py, S("bench_idle.py"), *common, "--scenarios", "terminals,chromium-static", "--settle", "15",
                   "--measure", "30", "--no-fail", "--label", "budgets", "--out", o("idle")], None, rows_idle),
     }
@@ -476,6 +516,22 @@ def main():
     finish(opts, budgets, only, runs, values)
 
 
+def prepare_outputs(argv, report_path):
+    """Make the folders a bench writes into: its `--out` folder, or the parent of its `--out` when that is the bench's
+    report file (home-perf.py writes one JSON file at --out). Making the report path itself a folder had home-perf.py
+    end in IsADirectoryError after measuring, so the home rows were never read (cmux#24569). An empty folder an older
+    run left at the report path goes, so the bench can write its file there."""
+    for flag, value in zip(argv, argv[1:]):
+        if flag != "--out":
+            continue
+        if report_path and os.path.abspath(value) == os.path.abspath(report_path):
+            if os.path.isdir(value) and not os.listdir(value):
+                os.rmdir(value)
+            os.makedirs(os.path.dirname(os.path.abspath(value)), exist_ok=True)
+        else:
+            os.makedirs(value, exist_ok=True)
+
+
 def run_phase(phase, only, plan, opts, runs, values):
     """Run each bench of `only` once in `phase` (idle, or under that tier's load), its rows suffixed `@phase`."""
     out = os.path.join(opts.out, phase) if phase else opts.out
@@ -486,9 +542,7 @@ def run_phase(phase, only, plan, opts, runs, values):
     for name in only:
         argv, report, mapper = plan[name]
         # Some benches open files in their --out without making it.
-        for flag, value in zip(argv, argv[1:]):
-            if flag == "--out":
-                os.makedirs(value, exist_ok=True)
+        prepare_outputs(argv, o(report) if report else None)
         if not os.path.exists(argv[1]):  # a bench another lane adds (anim-perf) on a checkout without it
             print(f"\n=== {name}: {os.path.basename(argv[1])} is not in this checkout; its rows stay n/a", flush=True)
             continue

@@ -15,7 +15,8 @@ extension TabStripView {
         for (group, chip) in groups.chips where counts[group] == nil {
             let id = TabID.groupChip(group)
             guard !dying.contains(id) else { continue }
-            if animated {
+            // A group whose tabs moved to another pane, or that a drag holds, takes its chip with them: no close (`departures`).
+            if animated, group != groups.detachedGroupID, !displayed.contains(where: { $0.groupID == group && model.departures.contains($0.id) }) {
                 dying.insert(id)
                 placed[id]?.width = 0
                 placed[id]?.alpha = 0

@@ -38,7 +38,7 @@ pub fn marker(home: &Path) -> PathBuf {
     home.join(".config/cmux/inference-gateway/enabled")
 }
 
-/// Stops the thread when dropped (a rebind replaces it, as it does the relay).
+/// Stops the thread when dropped (a rebind replaces it).
 pub struct GatewayToken {
     stop: Arc<AtomicBool>,
 }

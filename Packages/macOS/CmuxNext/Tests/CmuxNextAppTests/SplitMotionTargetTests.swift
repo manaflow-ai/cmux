@@ -24,6 +24,9 @@ struct SplitMotionTargetTests {
 
     static let stack = PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.stack)
     static let single = PaneGroundCoversPaneTests.column(.leaf("p1"))
+    /// p1 over p2 over p3, even: Cmd-Shift-D on p2 of ``stack`` with even split sizing.
+    static let thirds = PaneGroundCoversPaneTests.column(.split("x", axis: .vertical, ratio: 1.0 / 3, a: .leaf("p1"),
+                                                                b: .split("y", axis: .vertical, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3"))))
 
     /// p1 over p2; p2 closes, so p1 grows down. p1's prompt is in its lower half but not on its last row, with no history
     /// (Leo's recording): Ghostty keeps the text's top, so the prompt stays where it is.
@@ -80,11 +83,60 @@ struct SplitMotionTargetTests {
         #expect(trace.violations.isEmpty, "\(trace.violations.count) frames break a motion target: \(trace.violations.prefix(4))")
     }
 
+    /// p1 over p2; p1 closes, so p2 grows up (ask-1cbd6386ac, Leo 2026-11-08: "the upwards thing. target gets
+    /// recalculated ... shit doesn't look right, shit is not smooth"). Whatever p2 shows, its text rides the edge Ghostty
+    /// keeps it on, and every edge goes straight to its rest.
+    @Test(arguments: [3, 0, 200])
+    func aCloseOfThePaneAboveGrowsThePaneBelowUpInOneMotion(lines: Int) async throws {
+        let rig = Rig(Self.stack, focused: "p2")
+        defer { rig.close() }
+        let rows = try Self.rows("p2", rig)
+        try await Self.write("p2", rig, lines: lines == 0 ? rows * 3 / 4 : lines)
+        let trace = try Self.trace("p2", rig) {
+            _ = try #require(rig.model.showPaneClose("p1"), "p1 did not close in the key's turn")
+        }
+        Self.report("close above, \(lines == 0 ? "low prompt" : "\(lines) lines")", trace)
+        #expect(trace.violations.isEmpty, "\(trace.violations.count) frames break a motion target: \(trace.violations.prefix(4))")
+    }
+
+    /// p1 over p2; Cmd-Shift-D on p2 opens p3 under it with even sizing, so p1's bottom edge and all of p2 move up. Each
+    /// of them goes straight to its rest on the one spring.
+    @Test(arguments: ["p1", "p2"] as [PaneID])
+    func aSplitDownUnderTwoPanesMovesEveryPaneUpInOneMotion(pane: PaneID) async throws {
+        let rig = Rig(Self.stack, focused: "p2")
+        defer { rig.close() }
+        try await Self.write(pane, rig, lines: 200)
+        let trace = try Self.trace(pane, rig) {
+            rig.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: Self.thirds)])
+        }
+        Self.report("split down under two, \(pane)", trace)
+        #expect(trace.violations.isEmpty, "\(trace.violations.count) frames break a motion target: \(trace.violations.prefix(4))")
+    }
+
+    /// Two quick Cmd-Shift-D: p1 alone splits, and 6 frames in (50 ms) p2 splits again. The second split starts from what
+    /// the window shows: p1's edges keep going one way to the new rest and land on the first motion's deadline, not one
+    /// whole spring after the second press (design/motion.md: "A newly measured endpoint retargets from the currently
+    /// drawn geometry and keeps the original deadline").
+    @Test func aSecondSplitMidMotionRetargetsWithoutGoingBack() async throws {
+        let rig = Rig(Self.single, focused: "p1")
+        defer { rig.close() }
+        try await Self.write("p1", rig, lines: 200)
+        let trace = try Self.trace("p1", rig, midway: (frame: 6, change: {
+            rig.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: Self.thirds)])
+        })) {
+            rig.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: Self.stack)])
+        }
+        Self.report("split down twice", trace)
+        #expect(trace.violations.isEmpty, "\(trace.violations.count) frames break a motion target: \(trace.violations.prefix(4))")
+    }
+
     // MARK: - The rig
 
     /// Records `pane`'s prompt row and its pane's edges from the frame before `change` to the landing, then where they
     /// rest after one more layout pass.
-    static func trace(_ pane: PaneID, _ rig: Rig, _ change: () throws -> Void) throws -> MotionTargetTrace {
+    /// `midway` is a second change made after that many frames (a second key press during the motion).
+    static func trace(_ pane: PaneID, _ rig: Rig, midway: (frame: Int, change: () throws -> Void)? = nil,
+                      _ change: () throws -> Void) throws -> MotionTargetTrace {
         var trace = MotionTargetTrace()
         var edges = try Self.edges(pane, rig)
         let leftover = try Self.leftover(pane, rig)
@@ -102,12 +154,20 @@ struct SplitMotionTargetTests {
         rig.root.layoutSubtreeIfNeeded()
         try sample()
         var frames = 0
-        while frames < 240, rig.frame() {
+        var moving = true
+        while frames < 240, moving {
+            if frames == midway?.frame {
+                try midway?.change()
+                rig.root.syncWithModel()
+                rig.root.layoutSubtreeIfNeeded()
+            }
+            moving = rig.frame()
             frames += 1
             try sample()
         }
         rig.commit()
         try #require(frames > 3, "the motion did not spring (\(frames) frames)")
+        trace.deadline(Self.deadline)
         rig.root.layoutSubtreeIfNeeded()
         let rest = try Self.edges(pane, rig)
         trace.settle("\(pane) top", rest.top)
@@ -116,6 +176,10 @@ struct SplitMotionTargetTests {
         trace.allowFirstStep("\(pane) prompt", try Self.leftover(pane, rig) - leftover)
         return trace
     }
+
+    /// The frame by which every tracked element shows at its rest: the `split` spring's 235 ms ceiling at 120 Hz, plus the
+    /// key's frame.
+    static let deadline = 30
 
     /// The pane host's top and bottom edges in the window.
     static func edges(_ pane: PaneID, _ rig: Rig) throws -> (top: CGFloat, bottom: CGFloat) {

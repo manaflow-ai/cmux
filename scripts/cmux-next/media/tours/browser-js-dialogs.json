@@ -1,0 +1,120 @@
+{
+  "title": "Browser dialogs over a page: confirm, prompt and the window fixtures, all on one card (Lawrence 2026-11-07: weird roundness and border)",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Browser workspace",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "newBrowserWorkspace",
+          "focus": true
+        }
+      },
+      "wait": 4,
+      "shot": false
+    },
+    {
+      "title": "A busy page under the dialog",
+      "rpc": {
+        "method": "debug.omnibar_type",
+        "params": {
+          "text": "https://en.wikipedia.org/wiki/Gmail"
+        }
+      },
+      "wait": 6,
+      "shot": false
+    },
+    {
+      "title": "Settle the page",
+      "rpc": {
+        "method": "browser.page.eval",
+        "params": {
+          "script": "1"
+        }
+      },
+      "optional": "the page reopens once after its first load (no saved password stays filled in) and asks for a retry",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "confirm(): the tab's dialog over the page",
+      "rpc": {
+        "method": "browser.page.eval",
+        "params": {
+          "script": "setTimeout(() => confirm('Changes that you made may not be saved.'), 50); true"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "Close the confirm",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "key": "escape"
+        }
+      },
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "prompt(): the tab's text dialog",
+      "rpc": {
+        "method": "browser.page.eval",
+        "params": {
+          "script": "setTimeout(() => prompt('Name this page', 'Gmail'), 50); true"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "Close the prompt",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "key": "escape"
+        }
+      },
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "The same card as a window confirm (debug.dialog fixture)",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "open": "confirm",
+          "scope": "window"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "Close the window confirm",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "key": "escape"
+        }
+      },
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "The same card as a window text prompt (debug.dialog fixture)",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "open": "text",
+          "scope": "window"
+        }
+      },
+      "wait": 3
+    }
+  ]
+}

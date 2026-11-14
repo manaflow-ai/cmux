@@ -13,6 +13,9 @@ import { MockCloudProvider } from "./mockProvider";
 import { parseLayout } from "./model";
 import { PAGE_COMMAND } from "./ops";
 import { CloudStore, parseView } from "./store";
+// The shared popup and dialog surface (ui.css imports it; this page loads no ui.css): the sheet role
+// rule `.ui-dialog.ui-glass` draws this page's dialogs.
+import "../../ui/popupSurface.css";
 import "./styles.css";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
 import { appPopupHost } from "../shared/pagePopupHost";

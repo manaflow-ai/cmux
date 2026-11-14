@@ -185,9 +185,8 @@ enum RoomHandlers {
         let store = context.services.machines.local.store
         let name = invocation["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
             ?? (incognito ? RoomStrings.incognitoName : RoomStrings.defaultName(store.profileIDs.count + 1))
-        let used = Set(store.profiles.compactMap(\.color))
         let color = invocation["color"]?.stringValue.flatMap(GroupColor.init(rawValue:))
-            ?? GroupColor.automatic(used: used) ?? .grey
+            ?? GroupColor.automatic(after: store.profiles.compactMap(\.color))
         let icon = invocation["icon"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? (incognito ? "eyeglasses" : nil)
         let active = context.activeWindow?.state
         // A new room shares the current room's browser profile, so logins

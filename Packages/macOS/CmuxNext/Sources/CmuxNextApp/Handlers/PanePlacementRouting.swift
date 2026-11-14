@@ -55,7 +55,7 @@ enum PanePlacementRouting {
         guard invocation.origin == .user, !ctx.namesPane(invocation), let focused = ctx.services.paneController(for: pane),
               let content = focused.workspace,
               let screen = content.layoutModel.screen(containing: focused.layoutPaneID) else { return .tab(pane) }
-        let placement = ctx.services.settings?.snapshot.newPanePlacement ?? CmuxConfigSnapshot.newPanePlacementFallback
+        let placement = ctx.services.settings?.snapshot.newPanePlacement ?? CmuxConfigSnapshot.newPanePlacementDefault
         let plan = PanePlacement().plan(layout: screen.layout, focused: focused.layoutPaneID, recent: content.recentPanes,
                                         frames: content.layoutView.navigationFrames(ofScreenContaining: focused.layoutPaneID), placement: placement, tiles: tiles)
         guard case .split(let target, _) = plan, let controller = content.panes[target],
@@ -65,7 +65,7 @@ enum PanePlacementRouting {
 
     /// Whether `layout.tileBrowsers` lets a person's new browser split.
     static func browsersTile(_ ctx: AppActionContext) -> Bool {
-        ctx.services.settings?.snapshot.tileBrowsers ?? CmuxConfigSnapshot.tileBrowsersFallback
+        ctx.services.settings?.snapshot.tileBrowsers ?? CmuxConfigSnapshot.tileBrowsersDefault
     }
 
     /// The invocation aimed at `pane`, keeping its arguments and origin. A

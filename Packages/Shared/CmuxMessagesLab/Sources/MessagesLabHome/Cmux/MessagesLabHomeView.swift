@@ -33,7 +33,8 @@ public final class MessagesLabHomeView: NSView {
     ///   - replies: how an agent's running reply shows: ``HomeReplyDisplay/wholeMessages`` (default:
     ///     typing dots, then each message whole) or the older token-by-token stream bubble.
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler,
-                diagrams: (any HomeDiagramRendering)? = nil, replies: HomeReplyDisplay = .wholeMessages) {
+                diagrams: (any HomeDiagramRendering)? = nil,
+                replies: HomeReplyDisplay = .wholeMessages) {
         MessagesLabHomeView.liveFormatting()
         HomeMarkdownPolicy.install()
         // Before the projection maps its first messages, so a diagram never shows as text first.
@@ -50,6 +51,7 @@ public final class MessagesLabHomeView: NSView {
         wantsLayer = true
         addSubview(controller.host)
         HomeApprovalRowProvider.install()
+        HomeTurnFailureRowProvider.install()
         projection.start()
         // Reduce Motion changes (the system setting or the host's pin) still or restart the loops
         // already running (MessagesLabHomeView+Motion.swift).
@@ -176,6 +178,16 @@ public final class MessagesLabHomeView: NSView {
         set { projection.liveLine.style = newValue }
     }
 
+    /// The folders a Chief chat's `/` menu lists skills from (``SlashSkillCatalog``); nil: no menu
+    /// (a channel, a DM, a Chief whose host runs elsewhere).
+    public var slashSkillCatalog: SlashSkillCatalog? {
+        get { controller.slashSkills?.catalog }
+        set {
+            guard newValue != controller.slashSkills?.catalog else { return }
+            controller.slashSkills = newValue.map(SlashSkillSource.init(catalog:))
+        }
+    }
+
     /// The Chief works: the compose bar offers Stop (the button, Esc, Cmd-.).
     public var isWorking: Bool {
         get { controller.isWorking }
@@ -268,11 +280,24 @@ public final class MessagesLabHomeView: NSView {
         set { controller.onAppLink = newValue }
     }
 
-    /// cmux: a click on an agent's pill in an agents row: the host opens that agent's chat (the agent's
-    /// id, `a12`). Nil: a click on the row opens and closes its messages.
-    public var onAgentPill: ((String) -> Void)? {
+    /// cmux: a click on an agent's pill in an agents row: the host opens that agent (the agent's id, `a12`,
+    /// and the pill's frame in window coordinates, for a card over it). Nil: a click on the row opens and
+    /// closes its messages.
+    public var onAgentPill: ((String, CGRect) -> Void)? {
         get { controller.onAgentPill }
         set { controller.onAgentPill = newValue }
+    }
+
+    #if DEBUG
+    /// cmux: agent `peer`'s drawn pill in window coordinates, nil when none shows (`debug.home.drive`).
+    public func debugAgentPillFrame(_ peer: String) -> CGRect? { controller.debugAgentPillFrame(peer) }
+    #endif
+
+    /// cmux: the context menu of an agent's pill (its id): the host's items for that agent, such as Start now
+    /// on a queued one. None or nil: the message's own menu.
+    public var agentPillMenu: ((String) -> [NSMenuItem])? {
+        get { controller.agentPillMenu }
+        set { controller.agentPillMenu = newValue }
     }
 
     /// cmux: the pointer moved over the transcript, in screen coordinates (nil: it left). The
@@ -445,6 +470,10 @@ public final class MessagesLabHomeView: NSView {
     /// The field's text view (the pane's primary input).
     public var primaryInput: NSView { controller.demo?.compose.textView.view ?? self }
 
+    /// Where the pane's keyboard goes when it gets focus or a key typed elsewhere in it: the open picture viewer
+    /// (its Esc, arrows and letters are its own), else ``primaryInput``.
+    public var keyboardTarget: NSView { controller.keyboardTarget ?? self }
+
     /// Whether focusing this view should move the keyboard from `responder`
     /// to ``primaryInput``.
     ///
@@ -560,6 +589,21 @@ public final class MessagesLabHomeView: NSView {
         NSApp.sendAction(action, to: item.target, from: item)
         return true
     }
+
+    /// Chooses `title` in the menu of the red "!" beside my Not Delivered bubble showing `text`
+    /// (the click's own path, `failedMarkMenu(at:)`); false when there is no mark or no such row.
+    public func debugChooseFailedMarkItem(_ title: String, onBubble text: String) -> Bool {
+        guard let hit = debugBubble(text: text),
+              let menu = controller.failedMarkMenu(at: CGPoint(x: hit.body.minX - 14, y: hit.body.midY)),
+              let item = menu.items.first(where: { ($0 as? MenuAction)?.label == title || $0.title == title }),
+              let action = item.action else { return false }
+        NSApp.sendAction(action, to: item.target, from: item)
+        return true
+    }
+
+    /// The localized titles of a failed send's Try Again and Delete rows.
+    public static var tryAgainMenuTitle: String { CmuxStrings.tryAgain }
+    public static var deleteFailedMenuTitle: String { CmuxStrings.deleteFailed }
 
     /// The localized title of a bubble's Forward… row.
     public static var forwardMenuTitle: String { CmuxStrings.forward }
@@ -764,8 +808,9 @@ public final class MessagesLabHomeView: NSView {
 
     /// Automation (DEBUG socket): opens picture `index` of the newest table card in the large picture viewer
     /// through the click's path (``ChatController/openTablePicture(_:at:width:)``); `compare` shows its row's
-    /// Before and After; `mark` draws a box, an arrow and a word on it. False when no table has a loaded picture.
-    public func debugOpenTablePicture(index: Int, compare: Bool, mark: Bool) -> Bool {
+    /// Before and After; `mark` draws a box, an arrow and a word on it; `style` and `show` (``HomePictureViewer/Key/before``
+    /// or `after`) set the comparison. False when no table has a loaded picture.
+    func debugOpenTablePicture(index: Int, compare: Bool, mark: Bool, style: HomePictureCompare.Style? = nil, show: HomePictureViewer.Key? = nil) -> Bool {
         guard let store = controller.store else { return false }
         for m in store.state.conversation.messages.reversed() {
             for part in m.parts {
@@ -781,6 +826,8 @@ public final class MessagesLabHomeView: NSView {
                     guard let viewer else { return }
                     await viewer.loaded()
                     if compare { viewer.handle(.compare) }
+                    if let style { viewer.showCompareStyle(style) }
+                    if let show { viewer.handle(show) }
                     if mark, let size = viewer.markedImage().map({ CGSize(width: $0.width, height: $0.height) }) {
                         viewer.addMark(.box(CGRect(x: size.width * 0.18, y: size.height * 0.2, width: size.width * 0.42, height: size.height * 0.36)))
                         viewer.addMark(.arrow(from: CGPoint(x: size.width * 0.86, y: size.height * 0.84), to: CGPoint(x: size.width * 0.62, y: size.height * 0.58)))

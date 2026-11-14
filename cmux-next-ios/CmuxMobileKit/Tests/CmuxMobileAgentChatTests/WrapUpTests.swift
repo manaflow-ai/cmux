@@ -105,12 +105,71 @@ import Testing
         #expect(box < footer)
     }
 
+    // Aziz, 2026-11-09: "whenever a workspace agent finished its task, theres a direct way for me
+    // to try out and verify its work in addition to the artifact."
+    @Test func aFinishedWrapUpCarriesItsTryVerifyAndReport() throws {
+        let args: [String: JSONValue] = [
+            "recap": .string("Done."),
+            "try": .object(["label": .string("Open build"), "url": .string("http://127.0.0.1:17320/try-agent-work")]),
+            "verify": .array([.string("Finish a task: its row shows Try."), .string("two\nlines")]),
+            "report": .string("https://example.com/report.html"),
+        ]
+        let tryIt = try #require(NextStepAsk.wrapUp(Self.wrapUpCall(args))?.tryIt)
+        #expect(tryIt.label == "Open build")
+        #expect(tryIt.url?.absoluteString == "http://127.0.0.1:17320/try-agent-work")
+        #expect(!tryIt.opensOnPhone, "a Tag Opener build opens on the Mac")
+        #expect(tryIt.verify == ["Finish a task: its row shows Try."])
+        #expect(tryIt.report == "https://example.com/report.html")
+        let web = try #require(NextStepAsk.wrapUp(arguments: ["try": .object(["url": .string("https://preview.example.com")])])?.tryIt)
+        #expect(web.opensOnPhone && web.label == "Try it")
+        let command = try #require(NextStepAsk.wrapUp(arguments: ["recap": .string("x"), "try": .object(["command": .string("make demo")])])?.tryIt)
+        #expect(command.command == "make demo" && !command.opensOnPhone)
+    }
+
+    @Test func aTargetTheToolRefusesDrawsNoButton() throws {
+        for bad: JSONValue in [.object(["url": .string("javascript:alert(1)")]), .object(["command": .string("ls\nrm -rf ~")]),
+                               .object(["url": .string("https://a.b"), "command": .string("ls")])] {
+            let tryIt = NextStepAsk.wrapUp(arguments: ["recap": .string("x"), "try": bad, "verify": .array([.string("Look.")])])?.tryIt
+            #expect(tryIt?.label == nil && tryIt?.url == nil && tryIt?.command == nil)
+            #expect(tryIt?.verify == ["Look."])
+        }
+        #expect(NextStepAsk.wrapUp(arguments: ["recap": .string("x")])?.tryIt == nil)
+    }
+
+    @Test func aRepliedBoxKeepsItsTry() throws {
+        let call = Self.wrapUpCall(["recap": .string("Fixed it."), "ask": .string("Merge?"),
+                                    "try": .object(["url": .string("https://preview.example.com")])])
+        let rows = Self.rows(answer: "Done.", call: call, then: "merge")
+        let card = try #require(NewMacRowsTests.nextStep(rows))
+        #expect(card.0.tryIt?.url?.absoluteString == "https://preview.example.com")
+    }
+
     @Test func aReplyFoldsTheBoxToItsAnswer() throws {
         let rows = Self.rows(answer: "Done.", call: Self.wrapUpCall(["recap": .string("Fixed it."), "ask": .string("Merge?"), "actions": .array([.string("Merge"), .string("Hold")])]),
                              then: "merge")
         let card = try #require(NewMacRowsTests.nextStep(rows))
         #expect(card.1 == "Merge")
         #expect(!card.2)
+    }
+
+    // Leo, 2026-11-08, on a bare "Not now" bubble: "wait this thing should've shown that it was a
+    // reply to an ask from you". A tap sends the answer quoting the ask, as the Mac's card does.
+    @Test func anAnswerQuotesTheAskAndWhoAsked() throws {
+        let ask = try #require(NextStepAsk.wrapUp(Self.wrapUpCall(["recap": .string("Done."), "ask": .string("Push it?")])))
+        let sent = ask.answerPrompt("Not now", asker: "Claude Code")
+        #expect(sent == "> Claude Code: Push it?\n\nNot now")
+        #expect(ask.chosenAnswer(sent) == "Not now")
+        #expect(ask.chosenAnswer("> Something else\n\nNot now") == "> Something else")
+        let split = try #require(NextStepAsk.replyQuote(sent))
+        #expect(split.quote == "Claude Code: Push it?")
+        #expect(split.body == "Not now")
+        #expect(NextStepAsk.replyQuote("Not now") == nil)
+    }
+
+    @Test func aQuotedReplyFoldsTheBoxToItsAnswer() throws {
+        let rows = Self.rows(answer: "Done.", call: Self.wrapUpCall(["recap": .string("Fixed it."), "ask": .string("Merge?"), "actions": .array([.string("Merge"), .string("Hold")])]),
+                             then: "> Codex: Merge?\n\nHold")
+        #expect(try #require(NewMacRowsTests.nextStep(rows)).1 == "Hold")
     }
 
     @Test func theWrapUpGoesBeforeATaggedAsk() throws {

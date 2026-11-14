@@ -12,7 +12,7 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
-import { useSessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
 import {
   resetSessionInfoState,
   setSessionInfoMore,
@@ -23,6 +23,7 @@ import * as outputsSection from "../src/agent-session/acpmux/session-info/Output
 import * as environmentSection from "../src/agent-session/acpmux/session-info/EnvironmentSection";
 import type { SessionInfoProcess } from "../src/agent-session/acpmux/session-info/processes";
 import { activity, assistant, chat, tool, user } from "../src/gallery/fixtures/acpmux";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -71,6 +72,7 @@ afterEach(async () => {
   root = undefined;
   resetSessionInfoState();
   setHeaderState({ inspector: false });
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -81,7 +83,9 @@ afterEach(async () => {
 });
 
 const CWD = "/Users/you/src/atlas-web";
-const PANE_WIDTH = 1200;
+// Session Info lies over the chat here (a push would narrow Chat Text Width's 800px column), as it did
+// at 1200px beside the old 720px column.
+const PANE_WIDTH = 1100;
 const UPDATES = 50;
 
 const edited = (path: string, newText: string) =>

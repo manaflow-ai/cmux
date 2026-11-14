@@ -4,6 +4,7 @@
 // commit form would be lost, and then it says the files changed.
 import { afterAll, expect, spyOn, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -47,13 +48,9 @@ const { diffFingerprintReader, useDiffFreshness } = await import("../src/diff-vi
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 let onDisk = "a";
@@ -86,6 +83,8 @@ function Viewer({
   );
 }
 const shown = () => dom.window.document.querySelector("output")?.textContent;
+// The reason that the viewer shows when its machine does not answer; empty when it shows none.
+const reason = () => dom.window.document.querySelector("aside")?.textContent;
 const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
 
 test("a repository's diffs are fingerprinted, Branch included (the chat's ± opens it; cx-4ukqc)", async () => {
@@ -154,6 +153,243 @@ test("an open Cloud diff reports disconnection and clears it after reconnect wit
   expect(host.querySelector("aside")?.textContent).toBe("");
   expect(shown()).toBe("fresh");
   expect(refreshed).toBe(0);
+});
+
+test("a session host without the fingerprint read gets no timer: each return asks again and reloads the diff", async () => {
+  await act(async () => root.render(null));
+  const intervals = spyOn(globalThis, "setInterval");
+  const cleared = spyOn(globalThis, "clearInterval");
+  let asked = 0;
+  let refreshed = 0;
+  let canRefresh = true;
+  const read = async (): Promise<string> => {
+    asked += 1;
+    throw Object.assign(new Error("native.unsupported"), { code: "native.unsupported" });
+  };
+  const render = () =>
+    act(async () =>
+      root.render(<Viewer key="older-host" read={read} canRefresh={canRefresh} refresh={() => (refreshed += 1)} />),
+    );
+  try {
+    await render();
+    await settle();
+    // The load asked once; the answer reloads nothing and stops the one timer it started.
+    expect(asked).toBe(1);
+    expect(refreshed).toBe(0);
+    expect(intervals).toHaveBeenCalledTimes(1);
+    const timer = intervals.mock.results[0]?.value;
+    expect(cleared.mock.calls.some(([id]) => id === timer)).toBe(true);
+    // The answer is not a failure for the reader: no notice and no reason are shown.
+    expect([shown(), reason()]).toEqual(["fresh", ""]);
+
+    for (let returns = 1; returns <= 3; returns += 1) {
+      dom.window.dispatchEvent(new dom.window.Event("focus"));
+      await settle();
+      expect(refreshed).toBe(returns);
+    }
+    dom.window.dispatchEvent(new dom.window.Event("blur"));
+    dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
+    await settle();
+    expect(refreshed).toBe(4);
+    // Four returns: each asked one time more (the host sends an older session host nothing), and
+    // no timer was started.
+    expect(asked).toBe(5);
+    expect(intervals).toHaveBeenCalledTimes(1);
+    expect([shown(), reason()]).toEqual(["fresh", ""]);
+
+    // A comment draft or the commit form would be lost: the return reloads nothing.
+    canRefresh = false;
+    await render();
+    dom.window.dispatchEvent(new dom.window.Event("focus"));
+    await settle();
+    expect(refreshed).toBe(4);
+    expect(asked).toBe(6);
+    expect(shown()).toBe("fresh");
+  } finally {
+    await act(async () => root.render(null));
+    intervals.mockRestore();
+    cleared.mockRestore();
+  }
+});
+
+test("a session host that gets the fingerprint read is compared again from the next return", async () => {
+  await act(async () => root.render(null));
+  const intervals = spyOn(globalThis, "setInterval");
+  let older = true;
+  let digits = "a";
+  let asked = 0;
+  let refreshed = 0;
+  const read = async (): Promise<string> => {
+    asked += 1;
+    if (older) throw Object.assign(new Error("native.unsupported"), { code: "native.unsupported" });
+    return digits;
+  };
+  const comeBack = async () => {
+    dom.window.dispatchEvent(new dom.window.Event("blur"));
+    dom.window.dispatchEvent(new dom.window.Event("focus"));
+    await settle();
+  };
+  try {
+    await act(async () =>
+      root.render(<Viewer key="replaced-host" read={read} canRefresh refresh={() => (refreshed += 1)} />),
+    );
+    await settle();
+    expect([asked, refreshed]).toEqual([1, 0]);
+    expect(intervals).toHaveBeenCalledTimes(1);
+
+    // The session host was replaced by one with the read. The return asks, gets digits and loads the
+    // diff one time (the shown diff has no digits of its own). The answer itself starts no timer.
+    older = false;
+    await comeBack();
+    expect([asked, refreshed]).toEqual([2, 1]);
+    expect(intervals).toHaveBeenCalledTimes(1);
+
+    // From here the digits decide: a return with the same digits loads nothing. The timer starts
+    // again when the page loses the focus and when it gets it.
+    await comeBack();
+    expect([asked, refreshed]).toEqual([3, 1]);
+    expect(intervals).toHaveBeenCalledTimes(3);
+    digits = "b";
+    await comeBack();
+    expect([asked, refreshed]).toEqual([4, 2]);
+    expect(shown()).toBe("fresh");
+  } finally {
+    await act(async () => root.render(null));
+    intervals.mockRestore();
+  }
+});
+
+test("one return to a page of a session host without the fingerprint read loads the diff one time", async () => {
+  await act(async () => root.render(null));
+  // The window has the focus when it is asked: a return ends the time that the page was away.
+  const focused = spyOn(dom.window.document, "hasFocus").mockReturnValue(true);
+  let refreshed = 0;
+  const read = async (): Promise<string> => {
+    throw Object.assign(new Error("native.unsupported"), { code: "native.unsupported" });
+  };
+  try {
+    await act(async () =>
+      root.render(<Viewer key="one-return" read={read} canRefresh refresh={() => (refreshed += 1)} />),
+    );
+    await settle();
+    expect(refreshed).toBe(0);
+
+    // One return gives two events: the page is visible again, and the window has the focus.
+    dom.window.dispatchEvent(new dom.window.Event("blur"));
+    dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
+    dom.window.dispatchEvent(new dom.window.Event("focus"));
+    await settle();
+    expect(refreshed).toBe(1);
+
+    // A focus event with no time away before it is no return.
+    dom.window.dispatchEvent(new dom.window.Event("focus"));
+    await settle();
+    expect(refreshed).toBe(1);
+
+    dom.window.dispatchEvent(new dom.window.Event("blur"));
+    dom.window.dispatchEvent(new dom.window.Event("focus"));
+    await settle();
+    expect(refreshed).toBe(2);
+  } finally {
+    await act(async () => root.render(null));
+    focused.mockRestore();
+  }
+});
+
+/// A viewer whose load is a new generation, as the diff page's is: the freshness check starts again
+/// after each load.
+function LoadingViewer({ read, loaded }: { read: () => Promise<string | undefined>; loaded: () => void }) {
+  const [generation, setGeneration] = useState(0);
+  const stale = useDiffFreshness(
+    read,
+    generation,
+    () => true,
+    () => {
+      loaded();
+      setGeneration((now) => now + 1);
+    },
+  );
+  return <output>{stale ? "stale" : "fresh"}</output>;
+}
+
+test("five returns to a page of a session host without the fingerprint read are five loads of the diff", async () => {
+  await act(async () => root.render(null));
+  const focused = spyOn(dom.window.document, "hasFocus").mockReturnValue(true);
+  let loads = 0;
+  const read = async (): Promise<string> => {
+    throw Object.assign(new Error("native.unsupported"), { code: "native.unsupported" });
+  };
+  try {
+    await act(async () => root.render(<LoadingViewer key="count" read={read} loaded={() => (loads += 1)} />));
+    await settle();
+    expect(loads).toBe(0);
+    for (let returns = 1; returns <= 5; returns += 1) {
+      dom.window.dispatchEvent(new dom.window.Event("blur"));
+      dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
+      dom.window.dispatchEvent(new dom.window.Event("focus"));
+      // The load is a new generation: its own first check and a later turn start no load.
+      await settle();
+      await settle();
+      expect(loads).toBe(returns);
+    }
+    expect(shown()).toBe("fresh");
+  } finally {
+    await act(async () => root.render(null));
+    focused.mockRestore();
+  }
+});
+
+test("a machine without the fingerprint read that is connected again shows no offline reason", async () => {
+  await act(async () => root.render(null));
+  const offline = "Build VM is offline. Reconnect to see its diff.";
+  let failure = Object.assign(new Error(offline), { code: "cmux.diff.machine_offline" });
+  let refreshed = 0;
+  const read = async (): Promise<string> => {
+    throw failure;
+  };
+  try {
+    await act(async () =>
+      root.render(
+        <Viewer key="older-machine-offline" read={read} canRefresh={false} refresh={() => (refreshed += 1)} />,
+      ),
+    );
+    await settle();
+    expect(reason()).toBe(offline);
+    // The machine is connected again, and its session host is older than the read.
+    failure = Object.assign(new Error("native.unsupported"), { code: "native.unsupported" });
+    dom.window.dispatchEvent(new dom.window.Event("focus"));
+    await settle();
+    expect([shown(), reason()]).toEqual(["fresh", ""]);
+    // A comment draft or the commit form is open here: nothing is loaded.
+    expect(refreshed).toBe(0);
+  } finally {
+    await act(async () => root.render(null));
+  }
+});
+
+test("a session host that gets the fingerprint read while a draft is open says that the files changed", async () => {
+  await act(async () => root.render(null));
+  let older = true;
+  let refreshed = 0;
+  const read = async (): Promise<string> => {
+    if (older) throw Object.assign(new Error("native.unsupported"), { code: "native.unsupported" });
+    return "a";
+  };
+  try {
+    await act(async () =>
+      root.render(<Viewer key="replaced-host-draft" read={read} canRefresh={false} refresh={() => (refreshed += 1)} />),
+    );
+    await settle();
+    expect(shown()).toBe("fresh");
+    // The session host was replaced by one with the read. The shown diff has no digits of its own,
+    // and a comment draft or the commit form would be lost: nothing is loaded, and the page says so.
+    older = false;
+    dom.window.dispatchEvent(new dom.window.Event("focus"));
+    await settle();
+    expect([shown(), refreshed]).toEqual(["stale", 0]);
+  } finally {
+    await act(async () => root.render(null));
+  }
 });
 
 test("a replaced source ignores a late offline failure from the old machine", async () => {

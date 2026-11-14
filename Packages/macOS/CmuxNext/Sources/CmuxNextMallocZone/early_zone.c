@@ -22,8 +22,9 @@ static void* d_valloc(malloc_zone_t* z, size_t size) { return g_default_zone->va
 // PartitionAlloc's constructor moved its zone to the front) with a pointer another zone made. The
 // system zone would act on memory it does not own. malloc_default_zone() is libmalloc's virtual
 // zone, which follows zones[0], so CoreFoundation's calls go to PartitionAlloc after the swap and
-// never reach this lookup. This zone never claims a pointer (d_size is 0), so the lookup never
-// returns it. Only the rare paths take it: free and try_free_default stay plain forwards (an
+// never reach this lookup. This zone claims exactly the pointers the system zone claims (d_size
+// forwards), and those take the first branch, so the lookup never returns this zone. Only the
+// rare paths take it: free and try_free_default stay plain forwards (an
 // extra size() on every free, for a session that never loads CEF, is not worth it; libmalloc's
 // try_free_default already finds the owner of a pointer the system zone does not claim).
 static malloc_zone_t* owner_of(const void* p) {
@@ -42,8 +43,16 @@ static unsigned d_batch_malloc(malloc_zone_t* z, size_t size, void** results, un
 static void* d_memalign(malloc_zone_t* z, size_t alignment, size_t size) {
   return g_default_zone->memalign(g_default_zone, alignment, size);
 }
-// Never claims memory, so free() always skips this zone.
-static size_t d_size(malloc_zone_t* z, const void* p) { return 0; }
+// The system zone's answer. While this zone is zones[0], malloc_default_zone() (libmalloc's
+// virtual zone, which follows zones[0]) answers size() from here, and a caller that allocates
+// through that zone reads its block's size from here too: the SQLite bundled in CCmuxAppFFI
+// (mem1.c) sizes its hash tables with malloc_default_zone()->size(). Chromium's early zone
+// answers 0 for the microseconds before PartitionAlloc replaces it; this one stays first for
+// the whole session, so a 0 gave SQLite zero buckets and nightly 4294166855401 crashed at launch
+// (sqlite3HashInsert on the cmux-cookie-sync thread). A pointer the system zone does not own is
+// still 0, so free() and malloc_zone_from_ptr find its real owner.
+// Regression: scripts/cmux-next/malloc-zone-race/run.sh size.
+static size_t d_size(malloc_zone_t* z, const void* p) { return g_default_zone->size(g_default_zone, p); }
 // CoreFoundation calls malloc_zone_free(zone, ptr) directly: forward.
 static void d_free(malloc_zone_t* z, void* p) { g_default_zone->free(g_default_zone, p); }
 static void d_free_definite_size(malloc_zone_t* z, void* p, size_t size) {

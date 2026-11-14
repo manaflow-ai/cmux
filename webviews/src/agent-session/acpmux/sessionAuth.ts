@@ -159,10 +159,14 @@ export function authText(auth: SessionAuth | undefined, t: Translate = translate
   return [label, auth.detail, recovery].filter(Boolean).join(" · ");
 }
 
+/// The model chip's word before the model. A chat whose machine is down gets none: the link is the
+/// machine's, not the model's, and the quiet row's machine link says it in the sidebar's words
+/// (MachineLinkStatus.tsx); "Unavailable" there read as the model being unavailable. The chip's
+/// label (authText) still names the cause.
 export function authChipText(auth: SessionAuth | undefined, t: Translate = translate): string | undefined {
   return authBlocksSend(auth)
     ? authLoginText(auth, t)
-    : auth?.state === "routeUnreachable" || auth?.state === "peerUnreachable"
+    : auth?.state === "routeUnreachable"
       ? t("picker.unavailable")
       : undefined;
 }

@@ -69,8 +69,10 @@ impl ResourceOperation {
                 | Self::DiffCommentsList
                 | Self::GitDiff
                 | Self::GitFilesList
+                | Self::GitFingerprint
                 | Self::GitFilesSearch
                 | Self::GitStatus
+                | Self::GitWorktreeSetup
                 | Self::HistoryEntriesList
                 | Self::HistoryVisitSummaries
                 | Self::WorkspaceList
@@ -98,6 +100,7 @@ impl ResourceOperation {
                 | Self::NotificationList
                 | Self::AgentList
                 | Self::AgentMessageList
+                | Self::ChatList
                 | Self::SidebarViewGet
                 | Self::ClosedList
                 | Self::WindowRecordList
@@ -113,9 +116,13 @@ impl ResourceOperation {
                 | Self::ProjectList
                 | Self::PaletteUsageGet
                 | Self::PaletteRank
+                | Self::ThemeSchemeConvert
+                | Self::ThemeSchemeExport
+                | Self::ThemeSchemeFromImage
                 | Self::StashList
+                | Self::ClassicImportPlan
                 | Self::ConductorImportPlan
-                | Self::CloudVmSnapshots
+                | Self::BrowserImportRead
                 | Self::CloudVmFirewallList
                 | Self::CloudVmFirewallGet
                 | Self::CloudVmNetworks
@@ -127,6 +134,8 @@ impl ResourceOperation {
                 | Self::CloudOwnerHandoffs
                 | Self::CloudOwnerHarnessLoginCopy
                 | Self::CloudOwnerGithubApp
+                | Self::CloudMachineChatAccess
+                | Self::CloudOwnerTurns
                 | Self::RoomList
                 | Self::SavedTabGroupList
                 | Self::ScreenGroupGet

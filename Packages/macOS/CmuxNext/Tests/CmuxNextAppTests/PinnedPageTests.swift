@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextDesign
 import Foundation
 import Darwin
 import Testing
@@ -245,6 +246,19 @@ struct PinnedPageTests {
         try #require(condition(), "timed out: \(report())", sourceLocation: sourceLocation)
     }
 
+    /// The close question that shows in one of `services`' own windows. `CmuxDialogCenter.shared` is one for the test
+    /// process, and a suite that runs beside this one has its own app in it: the centre's first confirmation can be
+    /// that suite's. The two Cmd-W suites in one process each read, and cancelled, the other's question.
+    static func closeQuestion(of services: AppServices) -> CmuxDialogCenter.Record? {
+        let center = CmuxDialogCenter.shared
+        for controller in services.windows.controllers {
+            guard let window = controller.window, let id = center.dialogBlockingKeys(in: window), let record = center.record(id),
+                  record.spec.identifier == "cmux.dialog.confirmation" else { continue }
+            return record
+        }
+        return nil
+    }
+
     /// The app's services on a fresh same-tree daemon, ready once the launch's restore is over and
     /// its first terminal shows.
     /// `heldKeyReplay`: where a creation hold's keys run again (the app's own unless a test passes another).
@@ -291,6 +305,11 @@ struct PinnedPageTests {
             try await until({ !services.windows.registry.isLaunching || services.windows.restoreGaveUp }, within: .seconds(90))
             // Actions reach tabs through the window's panes, which attach after the daemon's.
             try await until({ services.windows.active?.workspaceContent?.panes.isEmpty == false }, within: .seconds(30))
+            // And one of them is focused: bodies start with `#require(services.windows.active?.focusedPane)`,
+            // and on a busy runner the panes attach before the focus lands. `PasswordManagerRouteTests.withApp`
+            // waits the same way.
+            try await until({ services.windows.active?.focusedPane != nil }, within: .seconds(30),
+                            report: { "the active window's panes attached but none is focused" })
             result = .success(try await body(services, try #require(services.daemon.connection)))
         } catch { result = .failure(error) }
         reaped = await owner.stop(services)

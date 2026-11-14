@@ -78,7 +78,10 @@ import Testing
         #expect(TerminalStatusBanner.revealDelay(for: .restoring, stall: nil) == TerminalStatusBanner.restoringRevealDelay)
         #expect(TerminalStatusBanner.revealDelay(for: .restoring, stall: .reconnecting) == grace)
         // Lasting: the quiet retries ran out, the daemon gave up, another build owns the shell, it ended.
-        #expect(TerminalStatusBanner.revealDelay(for: .disconnected(.connectionLost, reconnecting: false), stall: nil) == nil)
+        // A drop that is not reconnecting by itself waits a short delay: a daemon restart drops every pane at once.
+        #expect(TerminalStatusBanner.revealDelay(for: .disconnected(.connectionLost, reconnecting: false), stall: nil)
+            == TerminalStatusBanner.disconnectedRevealDelay)
+        #expect(!TerminalStatusBanner.isInBetween(.disconnected(.connectionLost, reconnecting: false), stall: nil))
         #expect(TerminalStatusBanner.revealDelay(for: .connected, stall: .linkLost) == nil)
         #expect(TerminalStatusBanner.revealDelay(for: .connected, stall: .otherBuild) == nil)
         #expect(TerminalStatusBanner.revealDelay(for: .exited, stall: .reconnecting) == nil)
@@ -118,15 +121,41 @@ import Testing
         #expect(view.statusText == "cmux lost its link to the shell · Still retrying")
         #expect(!view.statusLabelWaits)
 
-        // A dropped view's "Reconnecting…" waits too; its lasting "Disconnected" does not.
+        // A dropped view's "Reconnecting…" waits too; its "Disconnected" waits only its own short delay
+        // from the same start, then says its words (not the in-between mark).
         view.showShellStall(nil)
         view.showStatus(.connected)
         view.showStatus(.disconnected(.connectionLost, reconnecting: true))
         #expect(view.statusText == nil)
         #expect(view.statusLabelWaits)
         view.showStatus(.disconnected(.connectionLost, reconnecting: false))
-        #expect(!view.statusLabelWaits)
+        #expect(view.statusText == nil, "a drop that heals within the delay never shows")
+        #expect(view.statusLabelWaits)
+        clock.advance(by: .seconds(TerminalStatusBanner.disconnectedRevealDelay))
+        try await Self.until { view.statusText != nil }
         #expect(view.statusText == "Disconnected: connection lost · Click or type to reconnect")
+        #expect(view.statusLabel.banner?.showsMark == false)
+    }
+
+    /// A pane whose link drops and comes back within ``TerminalStatusBanner/disconnectedRevealDelay``
+    /// (a daemon restart, a re-attach on a click) never shows "Disconnected"; one that lasts does.
+    @Test func aDropThatHealsAtOnceShowsNothing() async throws {
+        let clock = ManualClock()
+        let view = TerminalHostView(clock: clock)
+        view.showStatus(.connected)
+        view.showStatus(.disconnected(.streamEnded, reconnecting: false))
+        #expect(view.statusText == nil)
+        #expect(view.statusLabelWaits)
+        clock.advance(by: .seconds(TerminalStatusBanner.disconnectedRevealDelay / 2))
+        view.showStatus(.connected)
+        #expect(view.statusText == nil)
+        #expect(!view.statusLabelWaits)
+
+        view.showStatus(.disconnected(.streamEnded, reconnecting: false))
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(TerminalStatusBanner.disconnectedRevealDelay))
+        try await Self.until { view.statusText != nil }
+        #expect(view.statusText == "Disconnected: the stream ended · Click or type to reconnect")
     }
 
     /// "Restoring…" turning into a reconnecting stall keeps the longer wait from the same start: the label

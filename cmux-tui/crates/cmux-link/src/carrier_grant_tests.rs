@@ -86,6 +86,79 @@ fn a_valid_grant_admits_with_its_signed_services() {
     assert_eq!(grant.expires_at, NOW + 200);
     assert_eq!(grant.vm_kind, None);
     assert!(!grant.owner(), "a grant without vmk is never the owner's");
+    assert_eq!((grant.chats, grant.name), (None, None));
+}
+
+#[test]
+fn chats_and_name_are_read_as_signed() {
+    let signer = Signer::generate("k1");
+    let (verifier, _) = verifier(&signer);
+    let key = [3_u8; 32];
+    let mut c = claims(&key);
+    c["vmk"] = json!("team");
+    c["chats"] = json!(["ses_a", "0f8e2c1a-7b0d-4c55-9a43-2b1d7d7f5e10"]);
+    c["name"] = json!("Ana Lí");
+    let grant = verifier.verify(&signer.sign(GRANT_TYP, &c), &key, ATTEMPT).unwrap();
+    assert_eq!(
+        grant.chats.as_deref(),
+        Some(&["ses_a".to_owned(), "0f8e2c1a-7b0d-4c55-9a43-2b1d7d7f5e10".to_owned()][..])
+    );
+    assert_eq!(grant.name.as_deref(), Some("Ana Lí"));
+}
+
+/// #38420 review F1: a grant at the chats and name limits (the most chats, each
+/// 128 bytes, and the longest name in 4-byte characters) fits the token
+/// cap and is admitted; the old 4096-byte cap refused it as `token_size`.
+#[test]
+fn a_grant_at_the_chats_and_name_limits_is_admitted() {
+    let signer = Signer::generate("k1");
+    let (verifier, _) = verifier(&signer);
+    let key = [3_u8; 32];
+    let mut c = claims(&key);
+    c["vmk"] = json!("team");
+    c["chats"] = json!((0..MAX_GRANT_CHATS).map(|i| format!("{i:0>128}")).collect::<Vec<_>>());
+    c["name"] = json!("\u{1F600}".repeat(MAX_NAME_CHARS));
+    let token = signer.sign(GRANT_TYP, &c);
+    assert!(token.len() > 4096 && token.len() <= MAX_GRANT_BYTES, "{}", token.len());
+    let grant = verifier.verify(&token, &key, ATTEMPT).unwrap();
+    assert_eq!(grant.chats.map(|chats| chats.len()), Some(MAX_GRANT_CHATS));
+}
+
+#[test]
+fn a_malformed_chats_or_name_claim_is_refused_and_spends_nothing() {
+    let signer = Signer::generate("k1");
+    let (verifier, _) = verifier(&signer);
+    let key = [3_u8; 32];
+    let too_many: Vec<String> = (0..=MAX_GRANT_CHATS).map(|i| format!("ses_{i}")).collect();
+    let cases: Vec<(&str, Value, &str)> = vec![
+        ("chats", json!([]), "chats"),
+        ("chats", json!(too_many), "chats"),
+        ("chats", json!(["ses a"]), "chats"),
+        ("chats", json!(["ses:a"]), "chats"),
+        ("chats", json!(["x".repeat(129)]), "chats"),
+        ("chats", json!(["ses_a", ""]), "chats"),
+        ("chats", json!(null), "claims_malformed"),
+        ("chats", json!("ses_a"), "claims_malformed"),
+        ("chats", json!([1]), "claims_malformed"),
+        ("name", json!(""), "name"),
+        ("name", json!("   "), "name"),
+        ("name", json!("Ana\nBob"), "name"),
+        ("name", json!("Ana\u{202e}"), "name"),
+        ("name", json!("x".repeat(MAX_NAME_CHARS + 1)), "name"),
+        ("name", json!(null), "claims_malformed"),
+        ("name", json!(7), "claims_malformed"),
+    ];
+    for (field, value, reason) in cases {
+        let mut c = claims(&key);
+        c[field] = value.clone();
+        let refusal = verifier.verify(&signer.sign(GRANT_TYP, &c), &key, ATTEMPT).unwrap_err();
+        assert_eq!(refusal.reason, reason, "{field} {value}");
+    }
+    // The longest name and the most chats are fine, and nothing above spent the jti.
+    let mut c = claims(&key);
+    c["chats"] = json!((0..MAX_GRANT_CHATS).map(|i| format!("ses_{i}")).collect::<Vec<_>>());
+    c["name"] = json!("é".repeat(MAX_NAME_CHARS));
+    verifier.verify(&signer.sign(GRANT_TYP, &c), &key, ATTEMPT).unwrap();
 }
 
 #[test]

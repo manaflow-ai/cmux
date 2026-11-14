@@ -128,6 +128,7 @@ async fn who_else_finds_the_session_that_edits_the_same_file_in_another_worktree
 }
 
 /// Waits until session `id` streams text containing `want`, and answers with that text.
+#[cfg(unix)]
 async fn said(
     events: &mut tokio::sync::broadcast::Receiver<HubEvent>,
     id: &str,
@@ -146,6 +147,8 @@ async fn said(
     .unwrap_or_else(|_| panic!("{id} never said {want:?}"))
 }
 
+// The turn waits on a FIFO gate (mkfifo is Unix-only).
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_edit_of_a_file_another_running_session_edits_steers_one_notice_into_its_turn() {
     let f = fixture().await;
@@ -182,6 +185,8 @@ async fn an_edit_of_a_file_another_running_session_edits_steers_one_notice_into_
     turn.await.unwrap().unwrap();
 }
 
+// The turn waits on a FIFO gate (mkfifo is Unix-only).
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_notice_for_a_turn_that_ended_is_refused_not_steered_into_the_next() {
     let f = fixture().await;

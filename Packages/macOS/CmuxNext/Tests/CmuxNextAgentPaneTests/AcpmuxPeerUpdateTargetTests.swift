@@ -66,6 +66,11 @@ import Testing
         #expect(outcome(#"{"outcome":"busy","sessions":3}"#) == .busy)
         #expect(outcome(#"{"outcome":"needsBinary","target":"x86_64-unknown-linux-musl"}"#) == .needsBinary(target: Self.triple))
         #expect(outcome(#"{"outcome":"rolledBack","error":"daemon did not come up"}"#) == .rolledBack)
+        // huge-blue, 2026-11-06: ssh's link dropped under the restart (its keepalive timeout through a
+        // ProxyJump names no address) and an older CLI rolled back: offline, asked again, never a failure.
+        #expect(outcome(#"{"outcome":"rolledBack","reason":"restartFailed","error":"Connection to UNKNOWN port 65535 timed out"}"#) == .unreachable)
+        #expect(AcpmuxPeerUpdateReply.linkLost("Connection to 100.64.0.7 port 22 timed out\r\n"))
+        #expect(!AcpmuxPeerUpdateReply.linkLost("the new daemon did not answer; its restart timed out"))
         #expect(outcome(#"{"outcome":"failed","error":"ssh: connection refused"}"#) == .failed)
         #expect(outcome(#"{"outcome":"failed","reason":"cloudMachine","error":"a cmux Cloud VM"}"#) == .cloudMachine)
         #expect(outcome(#"{"outcome":"failed","reason":"unreachable","error":"ssh huge-blue failed: timed out"}"#) == .unreachable)
@@ -316,7 +321,6 @@ import Testing
         #expect(fixture.calls.count == 3)
         #expect(clock.sleeps == [.seconds(120)])
         #expect(events.withLock { $0.map(\.state) } == [.updating, .retrying, .updating, .updated(build: Self.local)])
-        #expect(events.withLock { $0.allSatisfy { !$0.notify } }, "a notice for a run cut short")
         let ledger = DaemonUpdateLedger.read(state, build: try #require(DaemonBuildCommit(Self.local)).hash)
         #expect(ledger.targets == ["acpmux-peer:huge-blue": "updated"])
     }
@@ -464,7 +468,6 @@ import Testing
 
         #expect(fixture.calls.count == 1)
         #expect(events.withLock { $0.map(\.state) } == [.updating, .cleared])
-        #expect(!events.withLock { $0.contains { $0.notify } })
         let local = try #require(DaemonBuildCommit(Self.local))
         let ledger = DaemonUpdateLedger.read(state, build: local.hash)
         #expect(ledger.targets.isEmpty)

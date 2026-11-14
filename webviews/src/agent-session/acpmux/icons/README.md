@@ -17,3 +17,10 @@ Line icons render at 1.25px stroke at 16px, proportional at 12/14/20 and the com
 The renderer compensates for plain, row-cropped and optically fitted viewports, including knockout
 gaps. Selected Solid drawings retain their authored geometry. The shared Spinner and third-party
 brand marks retain their settled drawings. Gallery: `agent-pane.icon-system`.
+
+`nekoCandidate.json` is a gallery-only experiment generated from the existing Cat drawings and
+copy/pin fill-ins. It is not imported by the production icon map. The reserved `neko` family falls
+back to the default until a complete comparison clears the quality bar. See
+`design/icons/neko-evaluation.md` for provenance, coverage and evaluated rounds.
+
+Nothing imports this module yet. Call sites migrate one surface at a time, each in its own change.

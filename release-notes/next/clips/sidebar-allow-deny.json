@@ -1,0 +1,76 @@
+{
+  "caption": "A chat waiting on a permission shows Allow and Deny on its sidebar row, so you answer without opening it.",
+  "frameInterval": 0.25,
+  "settings": {
+    "sidebar": {
+      "sessionTree": true
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "A new agent chat",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "palette.newAgentChat",
+          "focus": true
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "On the fake harness (acpmux's test agent)",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "new_chat",
+          "harness": "fake"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "A prompt whose answer needs a tool permission",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "send_prompt",
+          "text": "ask: npm run db:migrate"
+        }
+      },
+      "wait": 2
+    },
+    {
+      "title": "The folder is trusted, so the prompt goes and the agent asks",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "click",
+          "selector": ".acpmux-trust-ask-primary"
+        }
+      },
+      "wait": 3.5,
+      "clip": true
+    },
+    {
+      "title": "Allow and Deny wait on its Needs You row (Y, N)",
+      "wait": 1.5,
+      "clip": true
+    },
+    {
+      "title": "End",
+      "wait": 0.3
+    }
+  ],
+  "crop": [
+    0,
+    0.45,
+    0.2,
+    0.55
+  ],
+  "hold": 1.6
+}

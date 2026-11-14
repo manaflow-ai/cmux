@@ -138,4 +138,54 @@ await requireBrowserLane("composer-attach-instant.test.ts", async () => {
     expect(whileLoading).toBeGreaterThanOrEqual(3);
     await page.close();
   });
+
+  // Leo, 2026-11-11, over the same paste: "this 3 stage attachment thing is still there". It was
+  // empty glass, then the picture dim under that glass, then the chip coming up to full: a pasted
+  // image now shows once, as its picture at full strength, and the chip it becomes changes nothing.
+  test("a pasted image shows in one step: its picture at full strength from its first frame", async () => {
+    const page = await newChat();
+    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
+    const frames = await page.evaluate(async () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1600;
+      canvas.height = 1000;
+      const context = canvas.getContext("2d")!;
+      context.fillStyle = "#1b1c20";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = "#6aa2ff";
+      context.fillRect(200, 200, 800, 400);
+      const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+      const data = new DataTransfer();
+      data.items.add(new File([blob], "Screenshot.png", { type: "image/png" }));
+      const target = document.querySelector(".acpmux-composer-prompt [contenteditable='true']")!;
+      const prompt = target.closest(".acpmux-composer-prompt")!;
+      /// Each frame's look of the pasted chip, from the paste until it is ready and settled.
+      const seen: { state: string; picture: boolean; opacity: number }[] = [];
+      const done = new Promise<void>((resolve) => {
+        let settled = 0;
+        const look = () => {
+          const chip = prompt.querySelector<HTMLElement>(".acpmux-md-inline-chip");
+          if (chip && getComputedStyle(chip).visibility !== "hidden" && chip.getBoundingClientRect().width > 0) {
+            const img = chip.querySelector<HTMLImageElement>("img");
+            const picture = Boolean(img?.complete && img.naturalWidth > 0);
+            const opacity = Number(getComputedStyle(chip).opacity) * (img ? Number(getComputedStyle(img).opacity) : 1);
+            seen.push({ state: chip.getAttribute("data-state") ?? "", picture, opacity });
+            if (chip.getAttribute("data-state") === "ready" && (settled += 1) > 20) return resolve();
+          }
+          // raf-read: the look is per frame, so it samples each one.
+          requestAnimationFrame(look);
+        };
+        // raf-read: the same sampling, from the paste's frame.
+        requestAnimationFrame(look);
+      });
+      target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      await done;
+      return seen;
+    });
+    // No frame shows the tile without its picture, or with the picture dimmed.
+    expect(frames.length).toBeGreaterThan(0);
+    expect(frames.filter((frame) => !frame.picture)).toEqual([]);
+    expect(frames.filter((frame) => frame.opacity < 0.99)).toEqual([]);
+    await page.close();
+  });
 });

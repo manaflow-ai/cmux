@@ -4,8 +4,9 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { useChatOpenFeedback } from "./AllChatsList";
+import { useChatOpenFeedback } from "./allChatsListModel";
 import { newTabScreenActions } from "./screenActions";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const names = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -30,6 +31,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await act(async () => root.unmount());
+  await settleReact();
   for (const [name, had, value] of saved) {
     if (had) scope[name] = value;
     else delete scope[name];

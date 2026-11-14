@@ -30,8 +30,13 @@ default. Say so when the chat used them.
 ## The folder
 
 - A git checkout on a branch: the branch is pushed (never forced) and checked
-  out as a fresh worktree on the target. Uncommitted changes refuse the move:
-  commit them first, or pass `--leave-dirty` and say they stayed behind.
+  out as a fresh worktree on the target. Uncommitted changes refuse the move
+  unless you pass `--carry-changes`: tracked edits, deletions and untracked
+  files that are not ignored then arrive uncommitted in the new worktree, and
+  likely secrets (`.env`, keys, `.netrc`) stay here (the move's output names
+  them). Or commit them first, or pass `--leave-dirty` and say they stayed
+  behind. A teleport the user asked for ("keep going there") is
+  `--interrupt --carry-changes`.
 - Any other folder under the home: the same path under the target's home,
   made there; its files do not move.
 - `--cwd PATH`: run there as the target has it.
@@ -42,6 +47,7 @@ default. Say so when the chat used them.
 acpmux machine ls                                # targets: connected, current build
 acpmux session move CHAT --machine NAME --dry-run   # where it would go; changes nothing
 acpmux session move CHAT --machine NAME --json      # the move
+acpmux session move CHAT --machine NAME --interrupt --carry-changes   # mid-turn, uncommitted work too
 ```
 
 - `--machine auto` lets placement pick (never a machine a person works at).

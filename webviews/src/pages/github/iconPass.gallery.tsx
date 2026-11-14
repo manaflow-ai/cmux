@@ -15,7 +15,7 @@ export default componentEntry<IconPassGalleryProps>({
   },
   variants: {
     "peel-off": {
-      note: "Chosen: the chat runs on as the straight arrow and the fork peels off up and right, the 90-degree turn Leo asked for. Arrows, no nodes, so it stays apart from the GitHub page's pull request mark.",
+      note: 'Picked 2026-11-07: the chat runs on as the straight arrow and the fork peels off up and right. Replaced 2026-11-09 by the fork mark (Leo: "and this fork symbol is so bad"; agent-pane.fork-glyph).',
       props: { fork: "peel-off" },
     },
     "turned-y": {

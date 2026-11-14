@@ -8,6 +8,7 @@ import { afterAll, afterEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { teardownDom } from "./support/domTeardown";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -84,13 +85,9 @@ setBookmarkTransport({
   },
 });
 
-afterAll(() => {
+afterAll(async () => {
   setBookmarkTransport(undefined);
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
   delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
 });
 afterEach(() => {
@@ -175,13 +172,13 @@ test("its padding shrinks first, then its hit width, as the pane narrows", () =>
   expect(at(1040)).toMatchObject({ left: 16, width: 36 });
   // A short gutter keeps the compact step left of the ticks (Lawrence via Leo, 2026-10-28: "needs
   // more left padding"), then gives up padding only once the hit width is at its narrowest.
-  expect(at(800)).toMatchObject({ left: 12, width: 28 });
-  expect(at(760)).toMatchObject({ left: 8, width: 12 });
+  expect(at(880)).toMatchObject({ left: 12, width: 28 });
+  expect(at(840)).toMatchObject({ left: 8, width: 12 });
   // At its minimum edge the rail's hit width is what the edge leaves after its 4 inset (12 on the grid).
   expect(at(320)).toMatchObject({ left: 4, width: MIN_EDGE - 4 });
 });
 
-for (const width of [320, 520, 760, 800])
+for (const width of [320, 520, 840, 880])
   test(`a ${width} px pane draws the rail at rest and it stays hoverable, with the full wave over the text`, async () => {
     paneWidth = width;
     const view = await mount(12);

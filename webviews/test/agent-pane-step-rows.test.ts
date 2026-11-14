@@ -15,10 +15,14 @@
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux.
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+//
+// This file tests the `runs` arm of live-turn-work, not the shipped `line` arm: its steps are finished
+// calls and thoughts of a turn that still runs, which only `runs` draws (support/liveTurnRuns.ts).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -73,8 +77,8 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
       }),
     ],
     ...call("c3", "Read build-acpmux.sh", "read", { locations: [{ path: "/home/dev/cmux/scripts/build-acpmux.sh" }] }),
-    // The turn is still running. Its finished steps fold under their run's line, which the tests
-    // open (`openRun`).
+    // The turn is still running. Its finished steps stay in sight in their open group, as nothing
+    // folds before the turn ends (cmux#38339); `openRun` opens it only if it is closed.
   ];
   const events = steps.map(([dir, kind, msg], index) => ({
     sessionId: CHAT,
@@ -120,6 +124,7 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
   };
   const open = async (): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await pinLiveTurnRuns(page);
     await page.goto(url());
     await page.getByText("build-acpmux.sh").first().waitFor();
     // Rows place by their drawn heights a frame after they mount: two painted frames later they have.
@@ -129,9 +134,10 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
   };
   /// Opens the group of the first two commands and the thought between them ("Ran 2 commands",
   /// conversation/ToolGroupRow.tsx; the thought stays in the group, toolGroups.ts), so each step in
-  /// it draws its own row.
+  /// it draws its own row. A running turn draws it open already (cmux#38339): then nothing is clicked.
   const openRun = async (page: Page) => {
-    await page.locator(".acpmux-row button.cv-tool", { hasText: "Ran 2 commands" }).click();
+    const line = page.locator(".acpmux-row button.cv-tool", { hasText: "Ran 2 commands" });
+    if ((await line.getAttribute("aria-expanded")) !== "true") await line.click();
     await page.locator(".cv-thought").waitFor();
     // The fold plays (a Web Animation, fold.ts), then the rows below it place by their drawn heights.
     await page.evaluate(async () => {
@@ -175,6 +181,8 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     for (let attempt = 1; ; attempt++) {
       const warm = await browser.newPage();
       try {
+        // The same look as the pages under test (it also passed with no pin: shards of 3aff677f6a5f).
+        await pinLiveTurnRuns(warm);
         await warm.goto(url());
         await warm.getByText("build-acpmux.sh").first().waitFor({ timeout: 25_000 });
         await warm.close();
@@ -280,6 +288,8 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     expect(hovered.text).not.toBe(rest.text);
     expect(hovered.icon).toBe(rest.icon);
     // Open and still focused from the click, with the pointer gone, it is back at rest: only hover lights it.
+    // A running turn draws the group open (cmux#38339): the first click closes it, the second opens it.
+    if ((await run.getAttribute("aria-expanded")) === "true") await run.click();
     await run.click();
     await page.mouse.move(0, 0);
     await page.waitForFunction((before) => {

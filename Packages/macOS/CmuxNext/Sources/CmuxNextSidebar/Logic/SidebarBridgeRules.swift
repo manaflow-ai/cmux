@@ -148,6 +148,14 @@ public nonisolated struct SidebarBridgeRules: Sendable {
                          "reconnects_on_use": .bool(header.map(MachineLinkState.reconnectsOnUse) ?? false)], as: String.self) ?? "stuck"
     }
 
+    /// A Machines section row's link as one ``MachineLinkState`` (`machine.list`): connected first, then
+    /// what its server says (`serverState`: `paused`, `resuming`, `failed`, `deleted`), then whether the
+    /// link is being made. Nil when the library did not answer.
+    public func rowLink(connected: Bool, connecting: Bool, serverState: String?) -> MachineLinkState? {
+        ask("row_link", ["connected": .bool(connected), "connecting": .bool(connecting), "server_state": RuleJSON(serverState)],
+            as: String.self).flatMap(MachineLinkState.init(rawValue:))
+    }
+
     // MARK: Cards (SidebarBridge+Cards) and items (SidebarBridge+Sections)
 
     public enum NoticeRoute: Equatable, Sendable {
@@ -189,6 +197,16 @@ public nonisolated struct SidebarBridgeRules: Sendable {
     /// What an app item's click may run, best first; the caller runs the first it has, and the last always runs.
     public func appActivation(_ app: String) -> [(action: String, appArgument: Bool)] {
         (ask("app_activation", ["app": .string(app)], as: [AppReply].self) ?? []).map { ($0.action, $0.appArgument) }
+    }
+
+    // MARK: Machine links (MachineLinkState)
+
+    /// Every machine status's dot and whether using the machine reconnects it, keyed by the status's word: the
+    /// table Rust owns (`status_links`), read once per launch by ``MachineLinkState``; nil when the library did not answer.
+    public func statusLinks() -> [String: MachineLinkState.Shown]? {
+        ask("status_links", [:], as: [String: LinkReply].self)?.compactMapValues { reply in
+            MachineLinkState(rawValue: reply.link).map { MachineLinkState.Shown(link: $0, reconnectsOnUse: reply.reconnectsOnUse) }
+        }
     }
 
     // MARK: The call
@@ -277,4 +295,10 @@ private nonisolated struct AppReply: Decodable {
     let action: String, appArgument: Bool
 
     enum CodingKeys: String, CodingKey { case action, appArgument = "app_argument" }
+}
+
+private nonisolated struct LinkReply: Decodable {
+    let link: String, reconnectsOnUse: Bool
+
+    enum CodingKeys: String, CodingKey { case link, reconnectsOnUse = "reconnects_on_use" }
 }

@@ -71,8 +71,9 @@ const ALIASES: &[Alias] = &[
     },
 ];
 
-/// `cmux` has no session scope; its top level is the workspace, so the
-/// session-list shorthands list workspaces there.
+/// `cmux`'s top level is the workspace (a session holds one person's
+/// workspaces), so the tmux session-list shorthands list workspaces there;
+/// `cmux session list` lists the session itself.
 fn alias_path(alias: &Alias, surface: Surface) -> &'static [&'static str] {
     match (surface, alias.path) {
         (Surface::Cmux, ["session", "list"]) => &["workspace", "list"],
@@ -174,7 +175,12 @@ pub(super) fn normalize(args: &[String], surface: Surface) -> Result<Vec<String>
             } else {
                 flag.to_string()
             });
-            if inline.is_none() && !super::command::is_boolean_flag(flag.trim_start_matches("--")) {
+            if inline.is_none()
+                && !super::command::flag_takes_no_value(
+                    flag.trim_start_matches("--"),
+                    args.get(index + 1).map(String::as_str),
+                )
+            {
                 index += 1;
                 options.push(args.get(index).cloned().ok_or_else(|| error(arg))?);
             }
@@ -294,7 +300,7 @@ fn instance_actions(scope: &str) -> &'static [&'static str] {
         }
         "pane" => &[
             "show", "rename", "focus", "close", "split", "neighbor", "swap", "zoom", "viewport",
-            "run",
+            "run", "move",
         ],
         "tab" => &["show", "rename", "move", "focus", "close", "pin", "unpin", "zoom", "update"],
         "terminal" => &[

@@ -36,7 +36,7 @@ struct TabTitleResolver {
     init(services: AppServices, workspace: WorkspaceHandle? = nil) {
         let agentTabs = services.agentTabs
         showsNewTabPage = { [weak agentTabs] tab in agentTabs.map { RestoredNewTabPages.shows(tab, in: $0, workspace: workspace) } ?? false }
-        newTabPageTitle = { [weak services] tab in services.flatMap { AgentHistoryPage.title(tab.id, $0) } }
+        newTabPageTitle = { [weak services] tab in services.flatMap { AgentHistoryPage.title(tab.id, machine: $0.agentTabs.daemonListing(tab)?.machineID, $0) } }
         conversationTitle = { [weak services] tab in services?.home.tabTitle(for: tab) ?? Strings.untitledBrowser }
         page = { [weak services] tab in
             guard let services else { return nil }

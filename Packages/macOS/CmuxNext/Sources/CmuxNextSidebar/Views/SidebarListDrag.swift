@@ -85,8 +85,9 @@ final class SidebarListDrag {
     var restShaped = true
     /// One card drags only: a group keeps its block shape.
     var morphs = false
-    /// The drag's base layout and drop rules, made once per row set and look (`SidebarListView.dragBase`), not per move.
-    var base: (key: SidebarDragBaseKey, layout: SidebarLayout, rules: DropResolver.DragRules?)?
+    /// The drag's base layout and drop rules, made once per row set and look (`SidebarListView.dragBase`), not per move;
+    /// a workspace drag's look is spliced from it (`look`).
+    var base: (key: SidebarDragBaseKey, layout: SidebarLayout, rules: DropResolver.DragRules?, look: SidebarDragLook?)?
     /// The last drop probe (debug.sidebar_rows "drop"): the card edge that
     /// decided, the row it hit in the base layout and where in that row.
     var probe: SidebarDropProbe?

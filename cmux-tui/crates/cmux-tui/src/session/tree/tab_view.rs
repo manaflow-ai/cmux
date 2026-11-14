@@ -3,6 +3,8 @@
 
 use cmux_tui_core::resource::{ContentPublicId, TabPublicId, TerminalPublicId};
 use cmux_tui_core::{BrowserSource, ShownProgramStatus, SurfaceId, SurfaceKind};
+use std::sync::Arc;
+
 use serde_json::Value;
 
 #[derive(Clone)]
@@ -21,12 +23,39 @@ pub struct TabView {
     pub notification: Option<TabNotificationView>,
     /// OSC 7501: the status the tab shows (tab bar indicator).
     pub program_status: Option<ShownProgramStatus>,
+    /// `tab-attention-v1`: an agent needs the person to act in this tab.
+    pub attention: Option<TabAttentionView>,
+    /// The git branch (or abbreviated commit when detached) of the PTY's
+    /// directory, when the daemon resolved one.
+    pub git_branch: Option<String>,
 }
 
 #[derive(Clone, Copy)]
 pub struct TabNotificationView {
     pub unread: bool,
     pub level: &'static str,
+    /// The daemon's notification number (ascending in posting order), so
+    /// the attention queue puts the oldest unread tab first.
+    pub sequence: u64,
+}
+
+/// An agent's "needs you here" mark on a tab: the one line the person reads
+/// and when the agent asked (Unix ms).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TabAttentionView {
+    pub reason: Arc<str>,
+    pub at_ms: u64,
+}
+
+/// The tree tab's `attention` (`{reason, at_ms}`), absent or null when the tab
+/// holds no mark; a mark without a readable reason is not drawn.
+pub(crate) fn parse_attention(value: &Value) -> Option<TabAttentionView> {
+    let attention = value.get("attention")?;
+    let reason = attention.get("reason")?.as_str().filter(|reason| !reason.trim().is_empty())?;
+    Some(TabAttentionView {
+        reason: Arc::from(reason),
+        at_ms: attention.get("at_ms").and_then(Value::as_u64).unwrap_or(0),
+    })
 }
 
 pub(super) fn parse_notification(value: &Value) -> Option<TabNotificationView> {
@@ -38,6 +67,7 @@ pub(super) fn parse_notification(value: &Value) -> Option<TabNotificationView> {
     Some(TabNotificationView {
         unread: value.get("unread").and_then(|v| v.as_bool()).unwrap_or(false),
         level,
+        sequence: value.get("notification").and_then(Value::as_u64).unwrap_or(0),
     })
 }
 

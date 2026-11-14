@@ -241,7 +241,7 @@ public final class RemoteViewPageSession {
     public var focusTarget: NSView { pane.view.focusView }
 
     /// `debug.remote_view` state of this session: the source, the session
-    /// state and the decode counters.
+    /// state, why it ended (`end_reason`, null while live) and the decode counters.
     public func debugState() async -> JSONValue {
         let stats = await pane.decodeStats()
         let state = pane.state
@@ -262,6 +262,7 @@ public final class RemoteViewPageSession {
             "decode_errors": stats.map { .number(Double($0.decodeErrors)) } ?? .null,
             "hardware": stats.map { .bool($0.hardware) } ?? .null,
             "upstream_offered": .bool(state.status?.upstream.offered ?? false),
+            "end_reason": state.status?.endReason.map { .string($0) } ?? .null,
             "mode": .string(state.requestedMode.rawValue),
         ])
     }

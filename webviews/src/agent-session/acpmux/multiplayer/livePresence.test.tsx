@@ -3,6 +3,7 @@
 // whole transcript. Leo 2026-10-26: "we can still do the regular chat multiplayer".
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -19,7 +20,8 @@ beforeAll(() => {
     Element: dom.window.Element,
   });
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved)
     if (had) scope[key] = value;
     else delete scope[key];
@@ -36,7 +38,7 @@ const ana = { id: "tailnet:ana@example.com", name: "Ana", devices: 1, viewing: t
 test("a teammate's presence reaches the live faces without a pane snapshot", async () => {
   const { AcpmuxDirectClient } = await import("../direct");
   const { MockAcpmuxSocket, mockHost } = await import("../mock");
-  const { shownPresence } = await import("./LivePresence");
+  const { shownPresence } = await import("./livePresenceModel");
   let hooks: Hooks | undefined;
   class SharedHost extends MockAcpmuxSocket {
     constructor() {
@@ -109,7 +111,8 @@ test("a teammate's presence reaches the live faces without a pane snapshot", asy
 test("the faces and typing line draw only over the chat the presence is for", async () => {
   const { createRoot } = await import("react-dom/client");
   const { act } = await import("react");
-  const { LivePresenceStack, LiveTypingLine, shownPresence } = await import("./LivePresence");
+  const { LivePresenceStack, LiveTypingLine } = await import("./LivePresence");
+  const { shownPresence } = await import("./livePresenceModel");
   const scopeAct = scope as { IS_REACT_ACT_ENVIRONMENT?: boolean };
   scopeAct.IS_REACT_ACT_ENVIRONMENT = true;
   const host = dom.window.document.createElement("div");
@@ -145,7 +148,8 @@ test("the faces and typing line draw only over the chat the presence is for", as
 test("a chat that opens with nobody else draws no faces its snapshot kept from before", async () => {
   const { createRoot } = await import("react-dom/client");
   const { act } = await import("react");
-  const { LivePresenceStack, LiveTypingLine, shownPresence } = await import("./LivePresence");
+  const { LivePresenceStack, LiveTypingLine } = await import("./LivePresence");
+  const { shownPresence } = await import("./livePresenceModel");
   const { PresenceClient } = await import("./presenceClient");
   const scopeAct = scope as { IS_REACT_ACT_ENVIRONMENT?: boolean };
   scopeAct.IS_REACT_ACT_ENVIRONMENT = true;

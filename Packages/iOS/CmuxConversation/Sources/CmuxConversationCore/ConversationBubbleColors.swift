@@ -94,7 +94,7 @@ public struct ConversationBubbleColors: Hashable, Sendable, Codable {
     /// Their text as drawn: the chosen one, else one that reads on a chosen fill; nil keeps the default.
     public var resolvedReceivedText: ConversationColor? { receivedText ?? received?.readableText }
 
-    /// The Mac's swatches (HomeChatColorsView): my bubbles, then theirs.
+    /// The Mac's swatches (webviews/src/pages/home-chat-colors/host.ts): my bubbles, then theirs.
     public static let sentSwatches: [ConversationColor] = ["#0A84FF", "#34C759", "#AF52DE", "#FF2D55", "#FF9500", "#FFD60A", "#30B0C7", "#8E8E93"]
         .compactMap(ConversationColor.init(hex:))
     public static let receivedSwatches: [ConversationColor] = ["#E9E9EB", "#3B3B3D", "#D6EAFF", "#D9F7E0", "#EADCF8", "#FFE5CC", "#1C2A4A"]

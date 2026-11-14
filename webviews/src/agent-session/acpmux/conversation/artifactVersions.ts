@@ -2,7 +2,7 @@
 // has (same kind, same title) is its next version, and the side panel steps between them. Read with
 // the transcript's own block parser (Markdown.tsx), so a version is a fence the chat drew with Open.
 import { artifactKind, documentName, type Artifact } from "./artifactPreview";
-import { parseMarkdown, type MdBlock } from "./Markdown";
+import { parseMarkdown, type MdBlock } from "./markdownModel";
 
 export type ArtifactSourceRow = {
   id: string;

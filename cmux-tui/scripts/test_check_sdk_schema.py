@@ -105,6 +105,20 @@ class LiveSchemaTests(unittest.TestCase):
             },
         )
 
+    def test_struct_fields_skip_lint_attributes(self) -> None:
+        fields = CHECKER._parse_rust_fields(
+            "    #[serde(default)]\n"
+            "    #[allow(dead_code)]\n"
+            "    ignored: bool,\n"
+            "    #[expect(dead_code, reason = \"wire only\")]\n"
+            "    kept: u64,\n",
+            "Rust struct Fixture",
+        )
+        self.assertEqual(
+            {name: (field.rust_type, field.attributes) for name, field in fields.items()},
+            {"ignored": ("bool", ("default",)), "kept": ("u64", ())},
+        )
+
     def test_handler_module_request_uses_its_struct_and_flattened_key(self) -> None:
         fields = CHECKER.runtime_command_fields()["move-bookmark"]
         self.assertEqual(

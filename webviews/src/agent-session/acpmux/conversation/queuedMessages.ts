@@ -56,7 +56,8 @@ export function queuedMessageRows(queue: AcpmuxSnapshot["queue"], last?: readonl
       ? { name: person?.name ?? "", text: entry.prompt, raw: entry.prompt, fromPerson: true as const }
       : entry.message;
     // An inbox notice draws as its threads, each another agent's line, never its text for the agent.
-    const notice = !message && !isHeldEntry(entry) ? entry.inbox : undefined;
+    // One that names no thread (direct.ts `mergeQueue`) has nothing to draw.
+    const notice = !message && !isHeldEntry(entry) && entry.inbox?.threads.length ? entry.inbox : undefined;
     if (!message && !notice) continue;
     // The first message may explain a Stop hold, once for the run.
     const lead = rows.length === 0;

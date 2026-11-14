@@ -51,18 +51,77 @@
   flex-direction: column;
   gap: var(--ds-space-1);
   /* Four rows, then the band scrolls. */
-  height: calc(4 * var(--ds-control-primary) + 3 * var(--ds-space-1));
+  height: calc(4 * (var(--ds-control-primary) + 2 * var(--ds-space-1)) + 3 * var(--ds-space-1));
   margin: 0;
   padding: 0;
   overflow-y: auto;
   list-style: none;
 }
 .share-dialog__person,
-.share-dialog__general {
+.share-dialog__row {
   display: flex;
   align-items: center;
   gap: var(--ds-space-3);
   min-height: var(--ds-control-primary);
+}
+/* A big row is one button (RowPicker; Leo 2026-11-07: "if you have these big blocks you need to have
+   the blocks be clickable. like google sign-in those huge buttons"): a block with the controls'
+   hairline edge and radius at rest, so it reads as a button before the pointer reaches it; the hover
+   fill on the whole block, and the press fill while pressed or while its menu is open, as the
+   account picker's rows do. */
+.share-dialog__row {
+  appearance: none;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-md);
+  background: transparent;
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ds-color-separator);
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  transition: background-color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.share-dialog__row:hover:not(:disabled) {
+  background: var(--ds-color-hover);
+}
+.share-dialog__row:active:not(:disabled),
+.share-dialog__row[data-popup-open] {
+  background: var(--ds-color-pressed);
+}
+.share-dialog__row:focus-visible {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
+  outline-offset: -1px;
+}
+.share-dialog__row:disabled .share-dialog__chevron {
+  opacity: 0.25;
+}
+/* The owner's row is not a button: its text lines up with the buttons' text beside it. */
+.share-dialog__person--owner {
+  padding-inline: var(--ds-space-2);
+}
+.share-dialog__role-value {
+  flex: none;
+  color: var(--ui-fg-2);
+  font-size: var(--text-detail);
+}
+/* The row's chevron: the select's (ui/controls.css), a 6 px corner turned down. */
+.share-dialog__chevron {
+  flex: none;
+  width: calc(var(--ds-space-1) * 1.5);
+  height: calc(var(--ds-space-1) * 1.5);
+  margin-inline-end: var(--ds-space-1);
+  border-block-end: 1.5px solid currentColor;
+  border-inline-end: 1.5px solid currentColor;
+  transform: rotate(45deg) translateY(-2px);
+  opacity: 0.65;
+}
+@media (prefers-reduced-motion: reduce) {
+  .share-dialog__row {
+    transition: none;
+  }
 }
 .share-dialog__who {
   display: flex;
@@ -97,12 +156,16 @@
 .share-dialog__general-mark[data-access="anyone"] {
   background: color-mix(in srgb, var(--cmux-accent, var(--ui-fg)) 18%, transparent);
 }
-.share-dialog__access {
-  align-self: flex-start;
-}
 .share-dialog__footer {
   display: flex;
   justify-content: space-between;
   gap: var(--ds-space-2);
   padding-top: var(--ds-space-2);
+}
+/* Every role picker is one width, so the rows' pickers and Remove line up whatever the role says. */
+.share-dialog__role {
+  flex: none;
+}
+.share-dialog__role > .ui-select-button {
+  width: calc(3 * var(--ds-space-6));
 }

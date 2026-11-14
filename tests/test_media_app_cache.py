@@ -280,12 +280,90 @@ class WorkflowWiringTest(unittest.TestCase):
         self.assertEqual(out.read_text(), f"base_app={tmp / 'app'}\n")
         self.assertNotIn("artifact=", out.read_text(), "a reused app was packed again")
 
+    def fake_ci(self, tmp: Path, hit_tag: str | None) -> Path:
+        """A media_app_cache.py and media_build_app.sh that log their calls; fetch hits only hit_tag."""
+        ci = tmp / "ci"
+        ci.mkdir()
+        log = tmp / "calls"
+        (ci / "media_app_cache.py").write_text(f"""import sys
+args = sys.argv[1:]
+open({str(log)!r}, "a").write(" ".join(args) + "\\n")
+tag = args[args.index("--tag") + 1]
+if args[0] == "fetch":
+    if tag != {hit_tag!r}:
+        sys.exit(1)
+    out = args[args.index("--github-output") + 1]
+    open(out, "a").write("app=/fetched/" + tag + "\\n")
+elif args[0] == "name":
+    print("cmux-media-app-" + tag + "-" + args[args.index("--sha") + 1])
+""")
+        (ci / "media_build_app.sh").write_text(f"""#!/bin/bash
+echo "build $1 $2" >> {str(log)!r}
+echo "$4=/built/$2" >> "$GITHUB_OUTPUT"
+""")
+        os.chmod(ci / "media_build_app.sh", 0o755)
+        return ci
+
+    def run_step(self, name: str, tmp: Path, ci: Path, **extra: str) -> tuple[str, str]:
+        out = tmp / "output"
+        out.unlink(missing_ok=True)
+        env = dict(os.environ, GITHUB_OUTPUT=str(out), RUNNER_TEMP=str(tmp), GITHUB_WORKSPACE=str(tmp / "head"),
+                   GITHUB_REPOSITORY="manaflow-ai/cmux", TOUR_TAG="ci-media-slot0", RUNNER_NAME="r",
+                   MEDIA_TOUR_CI=str(ci), MEDIA_APP_RECIPE=RECIPE, MERGE_BASE=SHA, HEAD_SHA="b" * 40,
+                   HOME=str(tmp), **extra)
+        result = subprocess.run(["bash", "-c", self.steps[name]["run"]], env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return (out.read_text() if out.exists() else ""), (tmp / "calls").read_text()
+
+    def test_a_nightly_base_is_the_previous_tours_head_and_the_head_takes_the_free_tag(self) -> None:
+        tmp = Path(tempfile.mkdtemp())
+        ci = self.fake_ci(tmp, "ci-media-slot0-head")
+        out, calls = self.run_step("Reuse the base app another tour built", tmp, ci)
+        self.assertEqual(out, "app=/fetched/ci-media-slot0-head\nhead_tag=ci-media-slot0-base\n")
+        self.assertIn("--tag ci-media-slot0-base", calls.splitlines()[0], "the -base tag is tried first")
+        self.assertIn("DerivedData/cmux-ci-media-slot0-head/Build/Products/Debug", calls.splitlines()[1])
+        out, calls = self.run_step("Build the head app", tmp, ci, HEAD_TAG="ci-media-slot0-base", EVENT_NAME="push")
+        self.assertIn(f"build {tmp / 'head'} ci-media-slot0-base", calls)
+        self.assertIn(f"pack --app /built/ci-media-slot0-base --tag ci-media-slot0-base --sha {'b' * 40}", calls)
+        self.assertIn(f"artifact=cmux-media-app-ci-media-slot0-base-{'b' * 40}", out)
+
+    def test_a_base_hit_keeps_the_head_tag_and_a_miss_builds(self) -> None:
+        tmp = Path(tempfile.mkdtemp())
+        out, _ = self.run_step("Reuse the base app another tour built", tmp, self.fake_ci(tmp, "ci-media-slot0-base"))
+        self.assertEqual(out, "app=/fetched/ci-media-slot0-base\n")
+        tmp = Path(tempfile.mkdtemp())
+        out, calls = self.run_step("Reuse the base app another tour built", tmp, self.fake_ci(tmp, None))
+        self.assertEqual(out, "")
+        self.assertEqual(len(calls.splitlines()), 2)
+
+    def test_only_a_nightly_tour_packs_its_head_and_never_its_base(self) -> None:
+        tmp = Path(tempfile.mkdtemp())
+        ci = self.fake_ci(tmp, None)
+        out, calls = self.run_step("Build the head app", tmp, ci, EVENT_NAME="pull_request")
+        self.assertIn("ci-media-slot0-head", calls)
+        self.assertNotIn("pack", calls)
+        self.assertNotIn("artifact=", out)
+        out, calls = self.run_step("Build the head app", tmp, ci, EVENT_NAME="push", HEAD_TUI_TREE_KEY="c" * 40)
+        self.assertNotIn("pack", calls, "an app built on a stand-in cmux-tui tree is not this commit's app")
+        base = tmp / "cmux-next-base"
+        out, calls = self.run_step("Build the base app", tmp, ci, EVENT_NAME="push", BASE_APP="")
+        self.assertNotIn("pack", calls, "a nightly tour's base is never asked for")
+        out, calls = self.run_step("Build the base app", tmp, ci, EVENT_NAME="pull_request", BASE_APP="")
+        self.assertIn(f"pack --app /built/ci-media-slot0-base --tag ci-media-slot0-base --sha {SHA}", calls)
+        self.assertFalse(base.exists())
+
     def test_the_fetch_runs_before_the_base_worktree_and_build_and_can_read_artifacts(self) -> None:
         names = [step.get("name") for step in self.job["steps"]]
         fetch = names.index("Reuse the base app another tour built")
         self.assertLess(fetch, names.index("Download pre-built GhosttyKit.xcframework for both revisions"))
-        self.assertLess(names.index("Build the base app"), names.index("Share the base app with later tours"))
-        self.assertLess(names.index("Share the base app with later tours"), names.index("Build the head app"))
+        # One share step uploads whichever app a build step packed, as soon as the head is built.
+        self.assertLess(names.index("Build the head app"), names.index("Share a built app with later tours"))
+        self.assertLess(names.index("Share a built app with later tours"),
+                        names.index("Capture before and after interactions"))
+        share = self.steps["Share a built app with later tours"]
+        self.assertIn("steps.build_head.outputs.artifact", share["with"]["name"])
+        # always(): a pull request tour cancelled mid head build still shares its packed base.
+        self.assertTrue(share["if"].startswith("${{ always() &&"), share["if"])
         self.assertTrue(self.steps["Reuse the base app another tour built"].get("continue-on-error"))
         self.assertEqual(self.job["permissions"].get("actions"), "read")
 

@@ -19,6 +19,8 @@ public final class AcpmuxPersonLine {
     public private(set) var isPerson = false
     /// The surfaces this acpmux serves (`initialize`'s `_meta.acpmux.capabilities`, e.g. `machine-consent-v1`).
     public private(set) var capabilities: Set<String> = []
+    /// The `error.message` of the last request acpmux refused (its own words, never a secret).
+    public private(set) var lastError: String?
 
     private init(environment: AcpmuxEnvironment) {
         line = AcpmuxCheckedLine(environment: environment)
@@ -109,7 +111,10 @@ public final class AcpmuxPersonLine {
         // line (MainActorLineBatch); the close comes after the last line.
         let batch = MainActorLineBatch<Reply> { [weak self] drain in
             guard let self else { return }
-            for reply in drain.values { waiters.removeValue(forKey: reply.id)?.resume(returning: reply.result) }
+            for reply in drain.values {
+                if let error = reply.error { lastError = error }
+                waiters.removeValue(forKey: reply.id)?.resume(returning: reply.result)
+            }
             if drain.overflowed || drain.closed { close() }
         }
         let reply: ResultBox? = await withCheckedContinuation { waiter in
@@ -125,12 +130,14 @@ public final class AcpmuxPersonLine {
     nonisolated struct Reply: Sendable {
         let id: Int
         let result: ResultBox?
+        var error: String?
     }
 
     /// Decodes one line on the line's queue; nil for a line that is not a reply.
     nonisolated static func decode(_ data: Data) -> Reply? {
         guard let message = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let id = (message["id"] as? NSNumber)?.intValue else { return nil }
-        return Reply(id: id, result: message["error"] == nil ? ResultBox(message["result"] as? [String: Any] ?? [:]) : nil)
+        let error = message["error"].map { (($0 as? [String: Any])?["message"] as? String) ?? "" }
+        return Reply(id: id, result: error == nil ? ResultBox(message["result"] as? [String: Any] ?? [:]) : nil, error: error)
     }
 }

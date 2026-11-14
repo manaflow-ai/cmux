@@ -6,8 +6,20 @@ import { ContextScreen, type ContextLayout, type ContextOverride } from "./Conte
 const GUIDANCE =
   "Read relevant instructions and likely source files early. Batch independent reads and searches into parallel tool calls; sequence dependent work.";
 
-/// An inventory as `_acpmux/context` answers for a Claude Code chat that reported its /context.
-const inventory = (overrides: { user?: string; project?: string } = {}, canEditOverrides = true) => ({
+/// Where cmux's rules go, and the label suffix acpmux gives them (`context_inventory::channel_label`).
+const RULES_CHANNELS = {
+  claude: { channel: "append-system-prompt", where: "system prompt" },
+  codex: { channel: "developer-instructions", where: "developer instructions" },
+} as const;
+type Harness = keyof typeof RULES_CHANNELS;
+
+/// An inventory as `_acpmux/context` answers for a Claude Code chat that reported its /context,
+/// or for a Codex chat, whose rules go in its developer instructions.
+const inventory = (
+  overrides: { user?: string; project?: string } = {},
+  canEditOverrides = true,
+  harness: Harness = "claude",
+) => ({
   parts: [
     {
       id: "harness-category-0-system",
@@ -72,23 +84,23 @@ const inventory = (overrides: { user?: string; project?: string } = {}, canEditO
             : "cmux-default-override",
       source:
         overrides.project !== undefined ? "cmux-project" : overrides.user !== undefined ? "cmux-user" : "cmux-default",
-      label: "cmux guidance (first-turn context)",
+      label: `cmux guidance (${RULES_CHANNELS[harness].where})`,
       tokens: 40,
       included: true,
       editable: true,
       measurement: "estimated",
-      channel: "user-context",
+      channel: RULES_CHANNELS[harness].channel,
       ...(canEditOverrides ? { text: overrides.project ?? overrides.user ?? GUIDANCE } : {}),
     },
     {
       id: "cmux-guidance",
       source: "cmux-guidance",
-      label: "cmux chat guidance and your skills (first-turn context)",
+      label: `cmux chat guidance and your skills (${RULES_CHANNELS[harness].where})`,
       tokens: 90,
       included: true,
       editable: false,
       measurement: "estimated",
-      channel: "user-context",
+      channel: RULES_CHANNELS[harness].channel,
       ...(canEditOverrides
         ? { text: "This chat runs in cmux NEXT, which draws your TodoWrite list as a checklist." }
         : {}),
@@ -137,9 +149,17 @@ type Props = {
   remote?: boolean;
   fails?: boolean;
   pending?: boolean;
+  harness?: Harness;
 };
 
-function GalleryContext({ layout, saved = {}, remote = false, fails = false, pending = false }: Props) {
+function GalleryContext({
+  layout,
+  saved = {},
+  remote = false,
+  fails = false,
+  pending = false,
+  harness = "claude",
+}: Props) {
   const [state, setState] = useState(saved);
   const [closed, setClosed] = useState(false);
   const load = useCallback(
@@ -148,13 +168,13 @@ function GalleryContext({ layout, saved = {}, remote = false, fails = false, pen
         ? new Promise<unknown>(() => undefined)
         : fails
           ? Promise.reject(new Error("acpmux is not running"))
-          : Promise.resolve(inventory(state, !remote)),
-    [pending, fails, remote, state],
+          : Promise.resolve(inventory(state, !remote, harness)),
+    [pending, fails, remote, state, harness],
   );
   const save = (change: ContextOverride) => {
     const next = { ...state, [change.scope]: change.text ?? undefined };
     setState(next);
-    return Promise.resolve(inventory(next));
+    return Promise.resolve(inventory(next, true, harness));
   };
   if (closed) return <output data-context-closed="">Closed</output>;
   return (
@@ -193,6 +213,10 @@ export default componentEntry<Props>({
     "saved-for-folder": {
       note: "A replacement saved for this folder: the editor opens on This Folder with it, and Use Default can remove it.",
       props: { layout: "list", saved: { project: "Answer in short sentences. Run tests before you report." } },
+    },
+    codex: {
+      note: "A Codex chat: cmux's rules go in its developer instructions, and their rows say so.",
+      props: { layout: "list", harness: "codex" },
     },
     remote: {
       note: "A chat on another computer: counts only, no text, and the editor reads only.",

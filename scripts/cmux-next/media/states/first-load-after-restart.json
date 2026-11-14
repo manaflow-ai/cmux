@@ -1,0 +1,23 @@
+{
+ "title": "First load after restart to update (Leo, 2026-11-09: \"the chat loading kinda flickered in and out and layout shifted\"): a live fake chat with a transcript and a terminal beside it, the updater's relaunch, then the app's own frames from its first window frame. The chat must draw its last picture in the first frame and keep it until the live chat replaces it in place: no blank pane, no composer or row moving. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/first-load-after-restart.json --video (a fleet capture slot: a reopen step does not run on the controller or Blacksmith route)",
+ "fakeHarness": true,
+ "frameInterval": 0.25,
+ "steps": [
+  {"title": "Launch", "wait": 2, "shot": false},
+  {"title": "Open an agent chat", "rpc": {"method": "action.run", "params": {"action": "palette.newAgentChat", "focus": true}}, "wait": 2, "shot": false},
+  {"title": "Start the isolated fake harness", "rpc": {"method": "debug.agent_pane", "params": {"action": "new_chat", "harness": "fake"}}, "record": true, "wait": 2, "shot": false},
+  {"title": "First turn", "rpc": {"method": "debug.agent_pane", "params": {"action": "send_prompt", "text": "Read the launch path and say where the first frame comes from. The chat should come back as it was."}}, "wait": 2, "shot": false},
+  {"title": "Second turn", "rpc": {"method": "debug.agent_pane", "params": {"action": "send_prompt", "text": "slow"}}, "wait": 3, "shot": false},
+  {"title": "Third turn", "rpc": {"method": "debug.agent_pane", "params": {"action": "send_prompt", "text": "Now list every place the pane can go blank between the saved picture and the live transcript, one per line, with the file each lives in."}}, "wait": 2, "shot": false},
+  {"title": "Fourth turn", "rpc": {"method": "debug.agent_pane", "params": {"action": "send_prompt", "text": "slow"}}, "wait": 3, "shot": false},
+  {"title": "Fifth turn", "rpc": {"method": "debug.agent_pane", "params": {"action": "send_prompt", "text": "Last one: the composer keeps its place and its draft across the restart."}}, "wait": 2, "shot": false},
+  {"title": "The chat before the restart", "rpc": {"method": "debug.agent_pane", "params": {"action": "chat_state"}}, "untilReply": 20, "untilReplyContains": "composer keeps its place", "record": "file", "shot": false},
+  {"title": "A terminal split beside the chat", "cmux": ["action", "run", "splitRight"], "wait": 2, "shot": false},
+  {"title": "Quiet, so the page writes its copy (chatSnapshot/live.ts: 1.5 s quiet)", "wait": 3},
+  {"title": "The updater's relaunch, then open the app again, recording its frames from the first window frame",
+   "reopen": "update", "recordLaunch": 12, "wait": 1},
+  {"title": "Restored: the same chat, transcript and composer", "wait": 6},
+  {"title": "The chat after the restart", "rpc": {"method": "debug.agent_pane", "params": {"action": "chat_state"}}, "record": "file", "shot": false},
+  {"title": "The chat's open trace (debug builds)", "rpc": {"method": "debug.agent_pane", "params": {"action": "layout_watch"}}, "record": "file", "optional": "older builds have no layout watch", "shot": false}
+ ]
+}

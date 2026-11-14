@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextDesign
 import Testing
 
 /// Lawrence 2026-10-27 ("dialog sides has weird bg"): a Chromium page is a child window above the
@@ -32,5 +33,41 @@ import Testing
     @Test func aBarOutsideThePageAddsNoShape() {
         let away = CEFClipShape.RoundedRect(rect: CGRect(x: 900, y: 0, width: 50, height: 50), radius: 8)
         #expect(CEFClipShape.path(bounds: Self.page, clips: [], roundedHoles: [away]) == nil)
+    }
+
+    @Test func aPageCardClipsItsOwnFillInChromium() throws {
+        let root = NSView(frame: Self.page)
+        let area = PaneContentAreaView(frame: Self.page)
+        let host = CEFHostView(frame: Self.page)
+        root.addSubview(area)
+        area.addSubview(host)
+        let before = CEFHostGeometry(of: host)
+        area.setChromeClip(card: Self.page, radius: 12, in: root)
+        let clipped = CEFHostGeometry(of: host)
+        #expect(clipped != before)
+        let path = try #require(clipped.clip.path)
+        #expect(!path.contains(CGPoint(x: 0.5, y: Self.page.maxY - 0.5)))
+        #expect(!path.contains(CGPoint(x: Self.page.maxX - 0.5, y: Self.page.maxY - 0.5)))
+        #expect(path.contains(CGPoint(x: Self.page.midX, y: Self.page.maxY - 0.5)))
+        area.setChromeClip(card: nil, radius: 0, in: root)
+        #expect(CEFHostGeometry(of: host) == before)
+    }
+
+    @Test func aCardClipUpdatesOnlyItsOwnChromiumHosts() {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: Self.page, styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let root = NSView(frame: Self.page)
+        let areas = [PaneContentAreaView(frame: Self.page), PaneContentAreaView(frame: Self.page)]
+        for area in areas {
+            area.addSubview(CEFHostView(frame: Self.page))
+            root.addSubview(area)
+        }
+        window.contentView = root
+        let before = CEFHostView.trackerStats.geometryBuilds
+        areas[0].setChromeClip(card: Self.page, radius: 12, in: root)
+        #expect(CEFHostView.trackerStats.geometryBuilds == before + 1,
+                "a clip change must not rebuild geometry for the other area's page")
     }
 }

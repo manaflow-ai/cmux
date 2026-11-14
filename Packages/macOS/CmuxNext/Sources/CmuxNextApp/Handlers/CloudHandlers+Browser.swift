@@ -3,8 +3,9 @@ import CmuxNextBrowser
 import CmuxNextBrowserTabs
 import CmuxNextCloud
 import CmuxNextCloudUI
-import CmuxNextDesign
 import CmuxNextDaemon
+import CmuxNextDaemonService
+import CmuxNextDesign
 import CmuxNextRemoteLocalhostService
 import Foundation
 
@@ -34,13 +35,9 @@ extension CloudHandlers {
             let session = try machine(invocation, context), names = CloudPortNames(session, port: nil)
             answer("list machine ports", invocation, context, pendingAfter: answerWithin, pending: ["machine_id": .string(session.machineID)]) {
                 let listed = try await portOp("cloud.port.list", ["machine": .string(session.machineID)], key: nil, names, invocation, context)
-                let forwards = (listed["forwards"]?.arrayValue ?? []).map(forwardFields)
-                let lines = forwards.compactMap { fields -> String? in
-                    guard case .int(let port)? = fields["port"], case .string(let url)? = fields["url"] else { return nil }
-                    return "\(port) -> \(url)"
-                }
-                return CloudAnswer(title: CloudPortStrings.title, text: lines.isEmpty ? CloudPortStrings.none : lines.joined(separator: "\n"),
-                                   fields: ["machine_id": .string(session.machineID), "forwards": .array(forwards.map(ActionResultValue.object))])
+                let forwards = (listed["forwards"]?.arrayValue ?? []).map(CloudHandlerRules.any)
+                return cloudAnswer(CloudPortStrings.title, CloudHandlerRules().answer(["kind": "portList", "machineId": session.machineID, "forwards": forwards]),
+                                   none: CloudPortStrings.none)
             }
         }
         bind("cloudPortForward", registry, reason: reason) { invocation in
@@ -48,9 +45,10 @@ extension CloudHandlers {
             let session = try machine(invocation, context), port = try port(invocation, session, verb: "port-forward"), names = CloudPortNames(session, port: port)
             answer("forward machine port", invocation, context, pendingAfter: answerWithin, pending: ["machine_id": .string(session.machineID), "port": .int(port)]) {
                 let args: [String: JSONValue] = ["machine": .string(session.machineID), "port": .number(Double(port))]
-                let forward = forwardFields(try await portOp("cloud.port.forward", args, key: UUID().uuidString.lowercased(), names, invocation, context))
-                guard case .string(let url)? = forward["url"] else { throw ActionFailure(message: CloudPortStrings.failed(names, detail: "no local port")) }
-                return CloudAnswer(title: CloudPortStrings.title, text: url, fields: forward)
+                let record = CloudHandlerRules.any(try await portOp("cloud.port.forward", args, key: UUID().uuidString.lowercased(), names, invocation, context))
+                let rules = CloudHandlerRules()
+                let reply = try rules.answered("cloud_handler_forward", ["record": record, "names": CloudHandlerRules.json(names)])
+                return cloudAnswer(CloudPortStrings.title, CloudHandlerRules.answer(reply))
             }
         }
         bind("cloudPortClose", registry, reason: reason) { invocation in
@@ -81,10 +79,8 @@ extension CloudHandlers {
         bind("cloudPreviewRevoke", registry, reason: reason) { invocation in
             let invocation = effective(invocation)
             let session = try machine(invocation, context), port = try port(invocation, session, verb: "preview-revoke")
-            guard let linkID = invocation["linkId"]?.stringValue, !linkID.isEmpty else {
-                throw ActionFailure(message: CloudPortStrings.failed(CloudPortNames(session, port: port), detail: "linkId is required"))
-            }
             let names = CloudPortNames(session, port: port)
+            let linkID = try CloudHandlerRules().text("linkId", invocation, port: names)
             answer("revoke machine preview link", invocation, context, pendingAfter: answerWithin,
                    pending: ["machine_id": .string(session.machineID), "port": .int(port), "linkId": .string(linkID)]) {
                 guard let api = context.services.cloud.previewAPI else { throw ActionFailure(message: CloudPortStrings.noLink(names)) }
@@ -102,20 +98,16 @@ extension CloudHandlers {
             let port = invocation["port"] == nil ? nil : try Self.port(invocation, session, verb: "machine-link")
             let names = CloudPortNames(session, port: port)
             answer("machine link", invocation, context, pendingAfter: answerWithin, pending: ["machine_id": .string(session.machineID)]) {
-                var fields: [String: ActionResultValue] = ["machine_id": .string(session.machineID), "target": .string("machine:\(session.machineID)")]
-                let address = session.machine.address?.ipv4
-                guard let port else {
-                    if let address { fields["address"] = .string(address) }
-                    return CloudAnswer(title: CloudPortStrings.title, text: address ?? "machine:\(session.machineID)", fields: fields)
+                let rules = CloudHandlerRules()
+                var facts: [String: Any] = ["names": CloudHandlerRules.json(names), "ipv4": session.machine.address?.ipv4 as Any,
+                                            "allowsPorts": session.machine.allows(.ports)]
+                if let port {
+                    // A provider that opens no port links is refused before the platform makes one.
+                    _ = try rules.checked("cloud_handler_machine_link_port", facts.compacted)
+                    let link = try await previewShareLink(context.services.cloud.previewAPI, machine: session.machineID, port: port, names: names)
+                    facts["link"] = ["url": link.url, "linkId": link.link.linkId, "expiresAt": link.link.expiresAt]
                 }
-                fields["port"] = .int(port)
-                if let address { fields["private_url"] = .string("http://\(address):\(port)") }
-                guard session.machine.allows(.ports) else { throw ActionFailure(message: CloudPortStrings.noLink(names)) }
-                let link = try await previewShareLink(context.services.cloud.previewAPI, machine: session.machineID, port: port, names: names)
-                fields["url"] = .string(link.url)
-                fields["linkId"] = .string(link.link.linkId)
-                fields["expiresAt"] = .int(link.link.expiresAt)
-                return CloudAnswer(title: CloudPortStrings.title, text: link.url, fields: fields)
+                return cloudAnswer(CloudPortStrings.title, CloudHandlerRules.answer(try rules.answered("cloud_handler_machine_link", facts.compacted)))
             }
         }
     }
@@ -127,8 +119,9 @@ extension CloudHandlers {
     static func previewShareLink(_ api: CloudAPIClient?, machine: String, port: Int, names: CloudPortNames) async throws -> CloudPreviewShareLinkCreated {
         guard let api else { throw ActionFailure(message: CloudPortStrings.noLink(names)) }
         let created = try await wrapped(names) { try await api.createPreviewShareLink(machine, port: port) }
-        guard let url = URL(string: created.url), url.scheme == "https", url.user == nil, url.password == nil else {
-            throw ActionFailure(message: CloudPortStrings.failed(names, detail: "the platform returned an invalid share URL"))
+        let checked = CloudHandlerRules().ask("cloud_handler_share_link", ["url": created.url, "names": CloudHandlerRules.json(names)])
+        guard checked?["ok"] as? Bool == true else {
+            throw CloudHandlerRules.failure(CloudHandlerRules.decodeSaid(checked?["refusal"] ?? NSNull()))
         }
         return created
     }
@@ -226,10 +219,10 @@ extension CloudHandlers {
 
     /// An error's own words, without a trailing period (it sits inside a sentence).
     static func detail(_ error: any Error) -> String {
-        var text = (error as? ActionFailure)?.message ?? (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
-        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        while text.hasSuffix(".") { text.removeLast() }
-        return text
+        let text = (error as? ActionFailure)?.message ?? (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
+        let said = CloudHandlerRules.decodeSaid(CloudHandlerRules().ask("cloud_handler_port_failure", ["text": text])?["refusal"] ?? NSNull())
+        // `portFailed` names the machine and port first; its detail is last.
+        return said.key == "portFailed" ? said.args.last ?? text : text
     }
 
     /// The run with its outermost caller's origin (``ActionRunScope``): a nested run of a script
@@ -252,41 +245,20 @@ extension CloudHandlers {
 
     /// `--port`, refused with the machine named and the command to run.
     static func port(_ invocation: ActionInvocation, _ session: CloudMachineSession, verb: String) throws -> Int {
-        guard let port = invocation["port"]?.intValue, (1...65535).contains(port) else {
-            throw ActionFailure(message: CloudPortStrings.invalidPort(CloudPortNames(session, port: nil), verb: verb))
-        }
-        return port
+        try CloudHandlerRules().namedPort(invocation, CloudPortNames(session, port: nil), verb: verb)
     }
 
     /// The message of a refused port op.
     static func portFailure(_ failure: CloudAppOpFailure, _ names: CloudPortNames) -> String {
-        switch failure.code {
-        case "cmux.cloud.port_limit": CloudPortStrings.limit(names)
-        default: CloudPortStrings.failed(names, detail: detail(failure))
-        }
-    }
-
-    /// A forward record of `cloud.port.list` / `cloud.port.forward` as result fields.
-    static func forwardFields(_ record: JSONValue) -> [String: ActionResultValue] {
-        var fields: [String: ActionResultValue] = [:]
-        if let machine = record["machine"]?.stringValue { fields["machine_id"] = .string(machine) }
-        if let port = record["port"]?.doubleValue { fields["port"] = .int(Int(port)) }
-        if let local = record["localPort"]?.doubleValue {
-            fields["local_port"] = .int(Int(local))
-            fields["url"] = .string("http://127.0.0.1:\(Int(local))/")
-        }
-        if let state = record["state"]?.stringValue { fields["state"] = .string(state) }
-        if let reason = record["reason"]?.stringValue { fields["reason"] = .string(reason) }
-        return fields
+        let text = (failure as? any LocalizedError)?.errorDescription ?? String(describing: failure)
+        let facts: [String: Any] = ["code": failure.code as Any, "text": text, "names": CloudHandlerRules.json(names)]
+        let said = CloudHandlerRules().ask("cloud_handler_port_failure", facts.compacted)?["refusal"] ?? NSNull()
+        return CloudHandlerRules.text(CloudHandlerRules.decodeSaid(said))
     }
 
     /// `--path`: where the tab opens on the port, `/` when absent.
     static func browserPath(_ invocation: ActionInvocation, _ names: CloudPortNames) throws -> String {
-        guard let path = invocation["path"]?.stringValue?.trimmingCharacters(in: .whitespaces), !path.isEmpty else { return "/" }
-        guard path.hasPrefix("/"), path.utf8.count <= 2048, !path.contains(where: { $0.isWhitespace || $0.unicodeScalars.contains { $0.properties.generalCategory == .control } }) else {
-            throw ActionFailure(message: CloudPortStrings.pathInvalid(names))
-        }
-        return path
+        try CloudHandlerRules().text("browserPath", invocation, port: names)
     }
 }
 

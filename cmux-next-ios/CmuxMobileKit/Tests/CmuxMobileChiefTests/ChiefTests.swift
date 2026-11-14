@@ -68,6 +68,79 @@ import Testing
         #expect(read.sentAt.timeIntervalSince1970 > 1_791_000_000)
         #expect(wire.message(object, peerReadSeq: 3)?.delivery == .delivered)
     }
+
+    private func chiefSays(_ text: String) throws -> ConversationMessage {
+        try #require(wire.message([
+            "id": "msg_t", "conversation": "conv_1", "seq": 5, "client_msg_id": "t", "author": "agent_mux",
+            "parts": [["type": "text", "text": text]], "created_at": "2026-10-12T09:41:07.123Z", "reactions": [],
+        ], peerReadSeq: 5))
+    }
+
+    /// CMUX-19: Chief's Markdown tables show as a table, not pipe syntax.
+    /// A narrow one becomes rows of tab-separated cells (the bubble puts each
+    /// on a column's tab stop); every cell's text is kept.
+    @Test func chiefTableShowsAsColumns() throws {
+        let read = try chiefSays("Agents:\n\n| Agent | State |\n| --- | :---: |\n| a12 | done |\n| [a13](cmux://agent/x) | open |\n\nThat's all.")
+        #expect(read.text == "Agents:\n\nAgent\tState\na12\tdone\na13\topen\n\nThat's all.")
+        #expect(!read.text.contains("|"))
+        #expect(!read.text.contains("---"))
+        #expect(read.tables.map(\.alignments) == [[.leading, .center]])
+        let table = try #require(read.tables.first)
+        #expect((read.text as NSString).substring(with: table.range) == "Agent\tState\na12\tdone\na13\topen")
+        // The header is bold; the link inside a cell still opens.
+        #expect(read.textRuns.map { (read.text as NSString).substring(with: $0.range) } == ["Agent", "State"])
+        #expect(read.links.map { (read.text as NSString).substring(with: $0.range) } == ["a13"])
+        #expect(read.links.first?.url.absoluteString == "cmux://agent/x")
+    }
+
+    /// A table too wide for a phone bubble becomes one record per row, each
+    /// cell after its bold header, so it reads on a narrow screen.
+    @Test func wideChiefTableShowsAsRecords() throws {
+        let read = try chiefSays("| Workspace | Agent | Status |\n|---|---|---|\n| cmux-next iOS | Claude (a42) | building on aws-m4pro-5 |\n| Feed chips | Codex | waiting for review |")
+        #expect(read.text == "Workspace: cmux-next iOS\nAgent: Claude (a42)\nStatus: building on aws-m4pro-5\n\nWorkspace: Feed chips\nAgent: Codex\nStatus: waiting for review")
+        #expect(read.tables.isEmpty)
+        #expect(read.textRuns.count == 6)
+    }
+
+    /// A Chief transcript kept on the phone by a build before tables
+    /// (no "tables" key) still loads, so relaunching shows it with no spinner.
+    @Test func messageKeptBeforeTablesStillDecodes() throws {
+        let read = try chiefSays("| a | b |\n| - | - |\n| 1 | 2 |")
+        let data = try JSONEncoder().encode(read)
+        var object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["tables"] != nil)
+        #expect(try JSONDecoder().decode(ConversationMessage.self, from: data) == read)
+        object["tables"] = nil
+        let old = try JSONDecoder().decode(ConversationMessage.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(old.tables.isEmpty)
+        #expect(old.text == read.text)
+    }
+
+    /// Text that is not a table is left as it was: pipes in prose, a table
+    /// inside a code fence, and my own messages.
+    @Test func nonTableMarkdownIsUnchanged() throws {
+        for text in [
+            "Run `a | b` then pick yes | no.",
+            "Heading\n---\nbody",
+            "```\n| a | b |\n| - | - |\n| 1 | 2 |\n```",
+            "See [#1](https://github.com/o/r/pull/1) and more.",
+        ] {
+            let read = try chiefSays(text)
+            #expect(read.tables.isEmpty, "\(text)")
+            #expect(read.textRuns.isEmpty, "\(text)")
+            #expect(read.text == text.replacingOccurrences(of: "[#1](https://github.com/o/r/pull/1)", with: "#1"), "\(text)")
+        }
+        // Bold (CMUX-20) inside a table cell stays bold once the table is rewritten.
+        let bold = try chiefSays("| Agent | State |\n| - | - |\n| a1 | **done** |")
+        #expect(bold.text == "Agent\tState\na1\tdone")
+        #expect(bold.textRuns.map { (bold.text as NSString).substring(with: $0.range) } == ["Agent", "State", "done"])
+        let mine = try #require(wire.message([
+            "id": "msg_m", "conversation": "conv_1", "seq": 6, "client_msg_id": "m", "author": "user_local",
+            "parts": [["type": "text", "text": "| a | b |\n| - | - |\n| 1 | 2 |"]], "created_at": "2026-10-12T09:41:07.123Z", "reactions": [],
+        ], peerReadSeq: 6))
+        #expect(mine.text == "| a | b |\n| - | - |\n| 1 | 2 |")
+        #expect(mine.tables.isEmpty)
+    }
 }
 
 /// A fake cmux-tui daemon behind `MockMacLink`: the local conversation

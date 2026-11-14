@@ -3,6 +3,8 @@
 // conversation owner plus the Cloud owners) into these shapes. The page keeps a window of it as
 // view state; it is never a second store. Times are milliseconds since 1970.
 
+import type { EndpointBackend } from "../shared/byoEndpoint";
+
 /** The owner's parts per message (cmux-conversation and home-core `MAX_PARTS`): a protocol bound on
  * one message, never on a send. A send with more files goes as several messages
  * (`messageGroups`), so any number of files attaches. cap-allow: route */
@@ -171,7 +173,8 @@ export interface HomeChiefBackend {
  * The key goes to the Keychain through the host; the page never keeps it after submit. */
 export type HomeChiefByoBackend =
   | { kind: "command"; name: string; command: string; args: string[] }
-  | { kind: "anthropic-endpoint" | "openai-endpoint"; name: string; baseUrl: string; model: string; apiKey: string };
+  /** `id` and `replace` (the form's own earlier add, written again): shared/byoEndpoint.ts. */
+  | EndpointBackend;
 
 /** `_acpmux/harness/doctor {id, prompt: true}`: each step, the first failing one with its fix. */
 export interface HomeChiefDoctor {

@@ -125,7 +125,9 @@ await requireBrowserLane("agent-pane-table-actions.test.ts", async () => {
           cell.bottom > measured.tools.top + 0.1,
       );
       expect(overlapping).toEqual([]);
-      expect(measured.gap).toBe(4);
+      // Side by side with no gap, as a code card's corner buttons and a reply's Copy row
+      // (code-toolbar-buttons.test.ts).
+      expect(measured.gap).toBe(0);
       if (variant === "hover") {
         const output = path.resolve(import.meta.dir, "../../artifacts/fleet/table-action-alignment-zoom.png");
         await mkdir(path.dirname(output), { recursive: true });

@@ -38,6 +38,7 @@ pass "webviews/test/session-info-name.test.ts" "the exempt naming test" 'const I
 pass "webviews/src/agent-session/acpmux/Inspector.tsx" "the event Inspector outside the panel" 'export function Inspector() {}'
 
 python3 -I "$CHECK" --self-test >/dev/null
-# The real tree is clean.
-python3 -I "$CHECK" >/dev/null
+# The real tree is clean; a hit prints its file and line (a CI log that says only "1 hit(s)"
+# names nothing to fix).
+python3 -I "$CHECK"
 echo "check-session-info-names: ok"

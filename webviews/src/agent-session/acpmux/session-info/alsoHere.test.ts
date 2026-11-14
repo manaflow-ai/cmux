@@ -2,7 +2,7 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxSessionEntry } from "../sessionList";
 import { alsoHere, alsoHereExpiry, ALSO_HERE_WINDOW_MS } from "./alsoHere";
-import { alsoHereRow } from "./AlsoHereSection";
+import { alsoHereRow } from "./alsoHereSectionModel";
 
 const NOW = 10 * ALSO_HERE_WINDOW_MS;
 const chat = (sessionId: string, more: Partial<AcpmuxSessionEntry> = {}): AcpmuxSessionEntry => ({
@@ -29,7 +29,7 @@ test("a chat in the same worktree or a folder inside it is also here; another fo
 test("the same feature branch in another clone counts, a shared branch does not", () => {
   const all = [
     ME,
-    chat("other-clone", { worktree: "/x/cmux", branch: "lane/who-else", peer: "big-red" }),
+    chat("other-clone", { worktree: "/x/cmux", branch: "lane/who-else", peer: "my-vm" }),
     chat("on-main", { cwd: "/x/cmux", branch: "main" }),
   ];
   expect(alsoHere("me", all, NOW)).toEqual([{ entry: all[1]!, why: "branch" }]);
@@ -56,16 +56,16 @@ test("this chat's own family, closed, archived, side and day-old chats are not s
 });
 
 test("a peer's chat in a folder of the same path on another machine is not here", () => {
-  const all = [ME, chat("far", { cwd: "/w/cmux-a", peer: "big-red" })];
+  const all = [ME, chat("far", { cwd: "/w/cmux-a", peer: "my-vm" })];
   expect(alsoHere("me", all, NOW)).toEqual([]);
 });
 
 test("a row names a peer's chat with its machine", () => {
   const row = alsoHereRow({
-    entry: chat("x", { peer: "big-red", title: "crate split", harness: "codex" }),
+    entry: chat("x", { peer: "my-vm", title: "crate split", harness: "codex" }),
     why: "branch",
   });
-  expect(row).toMatchObject({ sessionId: "x", title: "big-red/crate split", harness: "codex", state: "running" });
+  expect(row).toMatchObject({ sessionId: "x", title: "my-vm/crate split", harness: "codex", state: "running" });
 });
 
 test("the list redraws when its next idle chat goes a day old, and a running one never ages out", () => {

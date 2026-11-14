@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesignTokens
+import os
 
 /// The single owner of every open cmux dialog. Callers present a spec in a
 /// scope and get exactly one answer; automation (the debug socket, the
@@ -29,7 +30,7 @@ public final class CmuxDialogCenter {
         /// Weak: the dialog never keeps its tab or window alive.
         var scope: CmuxDialogWeakScope
         var completion: (CmuxDialogAnswer) -> Void
-        var view: CmuxDialogView?
+        var dialog: CmuxDialogPresentation?
         /// The tab view's deallocation marker (`CmuxDialogScopeLifetime`).
         var lifetime: UUID?
         /// The window's close observer.
@@ -41,8 +42,11 @@ public final class CmuxDialogCenter {
         case app
     }
 
-    /// The host that places dialogs. Replaced by the R84 overlay host.
-    public var host: any CmuxDialogHosting
+    /// The host that places dialogs: the overlay host with the native card (``CmuxDialogNativeDrawing``) by
+    /// default. A dialog shown before the host changes moves to the new host.
+    public var host: any CmuxDialogHosting {
+        didSet { rehost(from: oldValue) }
+    }
     private var entries: [Int: Entry] = [:]
     private var queue = CmuxDialogQueue<ScopeKey>()
     private var nextID = 1
@@ -121,17 +125,17 @@ public final class CmuxDialogCenter {
     /// Sets one field of dialog `id` (it must be visible).
     @discardableResult
     public func setValue(_ value: CmuxDialogValue, for field: String, in id: Int) -> Bool {
-        entries[id]?.view?.setValue(value, for: field) ?? false
+        entries[id]?.dialog?.setValue(value, for: field) ?? false
     }
 
     /// Runs one key against the visible dialog `id`, as if typed.
     @discardableResult
     public func key(_ key: CmuxDialogKeys.Key, modifiers: CmuxDialogKeys.Modifiers = [], in id: Int) -> Bool {
-        entries[id]?.view?.handle(key, modifiers: modifiers) ?? false
+        entries[id]?.dialog?.handle(key, modifiers: modifiers) ?? false
     }
 
     /// Some dialog is open: a scan of the open dialogs (0 or 1 as a rule), so every key-down can skip the lookup.
-    public var showsDialog: Bool { entries.values.contains { $0.view != nil } }
+    public var showsDialog: Bool { entries.values.contains { $0.dialog != nil } }
 
     /// A key-down that missed the dialog blocking keys in `host` (its overlay did not have the
     /// keyboard): the dialog keyboard answers it (`CmuxDialogKeys`: Return presses the default
@@ -141,9 +145,10 @@ public final class CmuxDialogCenter {
     /// `keyWindow`'s keyboard is in the dialog itself is AppKit's to deliver. True when it took the key.
     public func answersMissedKey(_ event: NSEvent, in host: NSWindow, focusedArea: NSView?, keyWindow: NSWindow) -> Bool {
         guard event.modifierFlags.isDisjoint(with: [.command, .control]), event.keyCode != 53,
-              let id = dialogBlockingKeys(in: host, focusedArea: focusedArea), let view = entries[id]?.view else { return false }
-        if let responder = keyWindow.firstResponder as? NSView, responder === view || responder.isDescendant(of: view) { return false }
-        if let key = CmuxDialogView.key(event) { view.handle(key, modifiers: CmuxDialogView.modifiers(event)) }
+              let id = dialogBlockingKeys(in: host, focusedArea: focusedArea), let dialog = entries[id]?.dialog else { return false }
+        if let view = dialog.view, let responder = keyWindow.firstResponder as? NSView,
+           responder === view || responder.isDescendant(of: view) { return false }
+        if let key = CmuxDialogPresentation.key(event) { dialog.handle(key, modifiers: CmuxDialogPresentation.modifiers(event)) }
         return true
     }
 
@@ -206,8 +211,8 @@ public final class CmuxDialogCenter {
         }?.id
     }
 
-    /// The view of visible dialog `id` (screenshots, tests).
-    public func view(_ id: Int) -> CmuxDialogView? { entries[id]?.view }
+    /// Visible dialog `id` (screenshots, tests).
+    public func dialog(_ id: Int) -> CmuxDialogPresentation? { entries[id]?.dialog }
 
     /// Observes opens and answers; keep the token to stop.
     public func observe(_ observer: @escaping (Event) -> Void) -> UUID {
@@ -226,37 +231,59 @@ public final class CmuxDialogCenter {
             dismiss(id)
             return
         }
-        let view = CmuxDialogView(spec: entry.spec, activeLook: scope.window?.backdropActiveLook)
-        view.onPress = { [weak self] button in self?.press(id, button: button) }
-        entries[id]?.view = view
-        host.show(view, in: scope) { [weak self] in self?.dismiss(id) }
+        let dialog = CmuxDialogPresentation(id: id, spec: entry.spec, activeLook: scope.window?.backdropActiveLook)
+        dialog.onPress = { [weak self, weak dialog] button in
+            guard let self, let dialog else { return }
+            self.cardPressed(dialog, button: button)
+        }
+        entries[id]?.dialog = dialog
+        host.show(dialog, in: scope) { [weak self] in self?.dismiss(id) }
+    }
+
+    /// A press on a shown card (a click, Return, Escape, Space): it answers the dialog the card shows. A card that is not
+    /// its dialog's shown card any more (the dialog ended, or it shows again in another card) answers nothing: it leaves
+    /// the screen, so no card ever stays up taking clicks and keys that end nothing.
+    private func cardPressed(_ dialog: CmuxDialogPresentation, button: String) {
+        if entries[dialog.id]?.dialog === dialog {
+            press(dialog.id, button: button)
+            return
+        }
+        Logger(subsystem: "com.cmuxterm.app.next", category: "dialog")
+            .fault("a card took a press after its dialog \(dialog.id, privacy: .public) ended; it leaves the screen")
+        host.discard(dialog)
+    }
+
+    /// Shows the dialogs `old` showed on ``host`` instead, so none is left in a host that no longer draws.
+    private func rehost(from old: any CmuxDialogHosting) {
+        guard old !== host else { return }
+        for id in entries.keys.sorted() {
+            guard let dialog = entries[id]?.dialog else { continue }
+            old.hide(dialog)
+            show(id)
+        }
     }
 
     private func finish(_ id: Int, _ answer: CmuxDialogAnswer) {
         guard let entry = entries.removeValue(forKey: id) else { return }
         if let observer = entry.closeObserver { NotificationCenter.default.removeObserver(observer) }
-        if let view = entry.view { host.hide(view) }
+        if let dialog = entry.dialog {
+            host.hide(dialog)
+            // The host let its card go, or the card stays up answering nothing: take it off the screen now.
+            if dialog.isPresented {
+                Logger(subsystem: "com.cmuxterm.app.next", category: "dialog")
+                    .fault("dialog \(id, privacy: .public) ended but its host kept its card on screen; it leaves the screen")
+                host.discard(dialog)
+            }
+        }
         let next = queue.remove(id)
         entry.completion(answer)
         emit(.answered(id: id, answer: answer))
         if let next { show(next) }
     }
 
-    /// The visible view's values, else the spec's initial values.
+    /// The visible dialog's values, else the spec's initial values.
     private func values(of entry: Entry) -> [String: CmuxDialogValue] {
-        if let view = entry.view { return view.values }
-        var values: [String: CmuxDialogValue] = [:]
-        for field in entry.spec.fields {
-            switch field {
-            case .text(let id, _, let initial, _, _): values[id] = .text(initial)
-            case .choice(let id, _, let options, let selected):
-                let enabled = options.filter(\.isEnabled)
-                values[id] = .text(selected.flatMap { s in enabled.first { $0.value == s }?.value } ?? enabled.first?.value ?? "")
-            case .check(let id, _, let on): values[id] = .bool(on)
-            case .preview: break
-            }
-        }
-        return values
+        entry.dialog?.values ?? CmuxDialogPresentation.initialValues(entry.spec)
     }
 
     private func emit(_ event: Event) {

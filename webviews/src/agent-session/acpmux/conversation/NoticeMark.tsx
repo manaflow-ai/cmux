@@ -3,17 +3,11 @@
 // an info notice a quiet ring in the rows' muted tone. Never animated: a page that needs a person
 // reads from its colour and shape, never a pulse or a blink (design/chat-transcript.md, the agent
 // working-state rule).
-import type { StringKey } from "../i18n";
+
 import { useT } from "../i18n";
 import type { NoticeSeverity } from "./agentNotice";
 import "./NoticeMark.css";
-
-export const SEVERITY_LABEL: Record<NoticeSeverity, StringKey> = {
-  fire: "notice.severity.fire",
-  warn: "notice.severity.warn",
-  info: "notice.severity.info",
-};
-
+import { SEVERITY_LABEL } from "./noticeMarkModel";
 export function NoticeMark({ severity, size = 14 }: { severity: NoticeSeverity; size?: number }) {
   const t = useT();
   return (

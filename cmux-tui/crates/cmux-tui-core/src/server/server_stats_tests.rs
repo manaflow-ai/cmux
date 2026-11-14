@@ -140,3 +140,44 @@ fn server_stats_include_reports_the_hook_queue() {
     );
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// `disk` reports the registry's files, its journal tail by kind and its
+/// sealed segments, only when asked and only for an on-disk registry.
+#[test]
+fn server_stats_include_reports_disk_use_by_file_and_journal_kind() {
+    let memory = Mux::new_for_test("server-stats-disk-memory", crate::SurfaceOptions::default());
+    let client = memory.control_clients.register(ClientTransport::Unix, writer());
+    let in_memory = stats(&memory, client, json!({"cmd":"server-stats","include":["disk"]}));
+    assert!(in_memory.get("disk").is_none(), "{in_memory}");
+
+    let root = std::env::temp_dir()
+        .join(format!("cmux-server-stats-disk-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux =
+        Mux::open_persistent("server-stats-disk", crate::SurfaceOptions::default(), &root).unwrap();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer());
+    mux.new_workspace(None, None).unwrap();
+    let plain = stats(&mux, client, json!({"cmd":"server-stats"}));
+    assert!(plain.get("disk").is_none(), "{plain}");
+
+    let full = stats(&mux, client, json!({"cmd":"server-stats","include":["disk"]}));
+    let disk = &full["disk"];
+    assert!(disk["registry_bytes"].as_u64().unwrap_or(0) > 0, "{disk}");
+    assert!(disk["page_size"].as_u64().unwrap_or(0) > 0, "{disk}");
+    assert!(disk["error"].is_null(), "{disk}");
+    let files = disk["files"].as_array().unwrap();
+    assert!(
+        files.iter().any(|file| file["name"] == "workspace-registry.sqlite3"),
+        "the registry is listed beside its sidecars: {disk}"
+    );
+    let journal = &disk["journal"];
+    assert!(journal["head_sequence"].as_u64().unwrap_or(0) >= 1, "{disk}");
+    assert!(journal["sample_rows"].as_u64().unwrap_or(0) >= 1, "{disk}");
+    let kinds = journal["kinds"].as_array().unwrap();
+    assert!(!kinds.is_empty() && kinds.len() <= 16, "{disk}");
+    for kind in kinds {
+        assert!(kind["budget_bytes_per_day"].as_u64().unwrap_or(0) > 0, "{kind}");
+    }
+    assert_eq!(disk["segments"]["segments"], 0, "nothing is sealed yet: {disk}");
+    mux.shutdown();
+    let _ = std::fs::remove_dir_all(root);
+}

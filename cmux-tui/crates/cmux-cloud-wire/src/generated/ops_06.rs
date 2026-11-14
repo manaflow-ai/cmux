@@ -5,6 +5,132 @@
 use super::*;
 
 wire_errors! {
+    /// The error codes firewall.list declares.
+    FirewallListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Comment on a GitHub issue or pull request as the cmux GitHub App installation.
+    GithubIssueCommentOp {
+        name: "github.issue.comment",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConnectionDO",
+        risk: "send-external",
+        principals: [Session, Install],
+        params: GithubIssueCommentParams,
+        result: Value,
+        error: GithubIssueCommentError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GithubIssueCommentParams {
+    pub connection: ConnectionId,
+    pub repo: String,
+    pub issue: i64,
+    pub body: String,
+}
+
+wire_errors! {
+    /// The error codes github.issue.comment declares.
+    GithubIssueCommentError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        IntegrationUnavailable = "integration.unavailable",
+        MutationIndeterminate = "mutation.indeterminate",
+        PolicyDenied = "policy.denied",
+        ProviderError = "provider.error",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Make a group link: whoever signs in and opens it joins with role (default member, at most your own; admin only from the owner) for expires_in_hours (default 168) and max_uses joins (default 20). Only this answer carries the secret (in link's fragment). It closes when revoked, used up, or when you leave, are removed or lose the role it grants. At most 50 open links per group.
+    GrantCreateOp {
+        name: "grant.create",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: GrantCreateParams,
+        result: GrantCreateResult,
+        error: GrantCreateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GrantCreateParams {
+    pub conversation: ConversationId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<HomeGrantableRole>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_in_hours: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_uses: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GrantCreateResult {
+    pub rev: i64,
+    pub change: Value,
+    pub grant_id: String,
+    pub code: String,
+    pub secret: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes grant.create declares.
+    GrantCreateError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        HomeNotConfigured = "home.not_configured",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidInvite = "invalid_invite",
+        InvalidRole = "invalid_role",
+        InviteLimit = "invite_limit",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        ReadOnly = "read_only",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Close a group link at once: its maker, or an admin or the owner above the maker. Open links are in the conversation head's grants.
+    GrantRevokeOp {
+        name: "grant.revoke",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: GrantRevokeParams,
+        result: HomeConversationCommit,
+        error: GrantRevokeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GrantRevokeParams {
+    pub conversation: ConversationId,
+    pub grant_id: String,
+}
+
+wire_errors! {
     /// The error codes grant.revoke declares.
     GrantRevokeError {
         Archived = "archived",
@@ -773,132 +899,5 @@ wire_op! {
         params: InboxMarkUnreadParams,
         result: HomeInboxEntry,
         error: InboxMarkUnreadError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InboxMarkUnreadParams {
-    pub conversation: ConversationId,
-    pub unread: bool,
-}
-
-wire_errors! {
-    /// The error codes inbox.mark_unread declares.
-    InboxMarkUnreadError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParams = "invalid_params",
-        RevisionConflict = "revision.conflict",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Mute a conversation (until a time in ms, or until unmuted). Approvals still notify.
-    InboxMuteOp {
-        name: "inbox.mute",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: InboxMuteParams,
-        result: HomeInboxEntry,
-        error: InboxMuteError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InboxMuteParams {
-    pub conversation: ConversationId,
-    pub muted: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub until: Option<WireNumber>,
-}
-
-wire_errors! {
-    /// The error codes inbox.mute declares.
-    InboxMuteError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParams = "invalid_params",
-        RevisionConflict = "revision.conflict",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Pin or unpin a conversation in your Home list.
-    InboxPinOp {
-        name: "inbox.pin",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: InboxPinParams,
-        result: HomeInboxEntry,
-        error: InboxPinError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InboxPinParams {
-    pub conversation: ConversationId,
-    pub pinned: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub position: Option<i64>,
-}
-
-wire_errors! {
-    /// The error codes inbox.pin declares.
-    InboxPinError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParams = "invalid_params",
-        RevisionConflict = "revision.conflict",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// List the caller's installs and grants.
-    InstallListOp {
-        name: "install.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:UserDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: InstallListParams,
-        result: InstallListResult,
-        error: InstallListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InstallListParams {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InstallListResult {
-    pub user: Option<UserProfile>,
-    pub installs: Vec<Install>,
-    pub grants: Vec<Grant>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes install.list declares.
-    InstallListError {
-        AuthUnauthenticated = "auth.unauthenticated",
     }
 }

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextDaemon
 public import Foundation
 public import Observation
@@ -79,6 +80,17 @@ public nonisolated struct ProgramStatusSeen: Hashable, Sendable {
         return true
     }
 
+    /// The terminals whose keys differ from `old`'s after a ``markSeen(_:terminal:)`` of `terminal`: it, and those
+    /// whose oldest keys the limit pushed out. O(1) unless the set is full (only then can a key leave another terminal).
+    func terminals(changedFrom old: Self, marking terminal: String) -> Set<String> {
+        var changed: Set<String> = [terminal]
+        guard keys.count >= Self.limit else { return changed }
+        for (other, count) in old.keysPerTerminal where other != terminal && keysPerTerminal[other, default: 0] != count {
+            changed.insert(other)
+        }
+        return changed
+    }
+
     static func holdsUntilSeen(_ record: ProgramStatusRecord) -> Bool {
         record.state == .done || record.state == .error
     }
@@ -99,7 +111,13 @@ public final class ProgramStatusSeenStore {
 
     static let defaultsKey = "cmux.next.programStatusSeen.v1"
 
-    public private(set) var seen = ProgramStatusSeen()
+    /// Not observed as one value: a reader observes its terminal's revision (`revisions`), so a look at one tab
+    /// redraws the tabs and rows of that terminal only, not every row that shows a program status.
+    @ObservationIgnored public private(set) var seen = ProgramStatusSeen()
+    /// Bumped per terminal whose seen keys changed; read by each lookup of that terminal.
+    private let revisions = ObservedMap<String, UInt64>()
+    /// Bumped when the whole set is loaded (`persist`): every reader reads it again.
+    private var loads: UInt64 = 0
     @ObservationIgnored private var defaults: UserDefaults?
 
     public init() {}
@@ -110,6 +128,7 @@ public final class ProgramStatusSeenStore {
         if let data = defaults.data(forKey: Self.defaultsKey),
            let keys = try? JSONDecoder().decode([ProgramStatusSeen.Key].self, from: data) {
             seen = ProgramStatusSeen(keys: keys)
+            loads &+= 1
         }
     }
 
@@ -119,18 +138,31 @@ public final class ProgramStatusSeenStore {
     }
 
     public func visible(_ records: [ProgramStatusRecord], terminal: String) -> [ProgramStatusRecord] {
-        seen.visible(records, terminal: terminal)
+        observe(terminal)
+        return seen.visible(records, terminal: terminal)
     }
 
     /// The records of `tab` still to show.
     public func visible(_ tab: TabModel) -> [ProgramStatusRecord] {
-        tab.programStatus.isEmpty ? [] : seen.visible(tab.programStatus, terminal: Self.terminal(of: tab))
+        guard !tab.programStatus.isEmpty else { return [] }
+        let terminal = Self.terminal(of: tab)
+        observe(terminal)
+        return seen.visible(tab.programStatus, terminal: terminal)
+    }
+
+    /// Observes `terminal`'s seen keys only (and a load of the whole set).
+    private func observe(_ terminal: String) {
+        _ = loads
+        _ = revisions[terminal]
     }
 
     public func markSeen(_ records: [ProgramStatusRecord], terminal: String) {
         var next = seen
         guard next.markSeen(records, terminal: terminal) else { return }
+        // The terminal marked, and any whose oldest keys the limit pushed out.
+        let changed = next.terminals(changedFrom: seen, marking: terminal)
         seen = next
+        for terminal in changed { revisions[terminal] = (revisions[terminal] ?? 0) &+ 1 }
         save()
     }
 

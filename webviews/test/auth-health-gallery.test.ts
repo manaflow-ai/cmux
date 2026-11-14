@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import strings from "../src/agent-session/acpmux/generated/strings.json";
 import type { PlayContext } from "../src/gallery/play";
 import fixture from "../src/agent-session/acpmux/AuthHealth.gallery";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -18,7 +19,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, value] of Object.entries({
     window: saved.window,
     document: saved.document,

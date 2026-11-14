@@ -15,7 +15,7 @@
  * is deleted afterwards.
  *
  *   bun backend/scripts/chief-durable-evals.ts [--env staging|development] [--brains pi,durable] [--model claude-opus-5-5] [--only PREFIX]
- *       [--repeat 1] [--jobs 4] [--report PATH] [--judge gateway|subrouter] [--judge-url http://100.89.225.106:31415]
+ *       [--repeat 1] [--jobs 4] [--report PATH] [--judge gateway|subrouter] [--judge-url http://100.120.48.119:4016]
  *
  * Reads ~/.secrets/cmuxterm-dev.env (Stack project) and ~/.secrets/cmux-next-e2e-cloudchief-staging.env (the
  * throwaway e2e account). Never prints a token. Staging (default) or development only; development runs the free
@@ -36,7 +36,7 @@ const ONLY = arg("--only", "")
 const REPEAT = Number(arg("--repeat", "1"))
 const JOBS = Number(arg("--jobs", "4"))
 const REPORT = arg("--report", "")
-const JUDGE_URL = arg("--judge-url", "http://100.89.225.106:31415")
+const JUDGE_URL = arg("--judge-url", "http://100.120.48.119:4016")
 const JUDGE_MODEL = arg("--judge-model", "claude-sonnet-5")
 const TURN_MS = 240_000
 /** --second: after the case's turn, one short follow-up ("thanks, anything else?") whose reply time is the warm (second-turn) latency. */

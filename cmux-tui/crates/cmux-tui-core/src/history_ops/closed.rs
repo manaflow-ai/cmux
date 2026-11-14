@@ -62,17 +62,20 @@ pub(super) fn remove(
 }
 
 /// Deletes every closed group closed at or after `since_ms` (every group
-/// when `None`). Answers how many groups it deleted.
+/// when `None`) and at or before `until_ms`. Answers how many groups it deleted.
 pub(super) fn clear(
     mux: &Arc<Mux>,
     key: &str,
     actor: &Actor,
     since_ms: Option<i64>,
+    until_ms: i64,
 ) -> Result<u64, ResourceError> {
-    let request = DeleteRequest { all: true, since_ms, ..DeleteRequest::default() };
-    // The scope names the bound: the range start moves with the clock, and a
-    // retry with another bound must not meet the first commit's fingerprint.
-    let scope = format!("\u{0}all\u{0}{}", since_ms.map_or(String::new(), |ms| ms.to_string()));
+    let before_ms = Some(until_ms.saturating_add(1));
+    let request = DeleteRequest { all: true, since_ms, before_ms, ..DeleteRequest::default() };
+    // The scope names the bounds: the range start moves with the clock, and a
+    // retry with other bounds must not meet the first commit's fingerprint.
+    let since = since_ms.map_or(String::new(), |ms| ms.to_string());
+    let scope = format!("\u{0}all\u{0}{since}\u{0}{until_ms}");
     delete(mux, key, actor, &scope, &request)
 }
 

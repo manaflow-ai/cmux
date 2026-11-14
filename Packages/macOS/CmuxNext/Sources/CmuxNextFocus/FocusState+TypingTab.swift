@@ -1,10 +1,11 @@
 extension FocusState {
-    /// The focused terminal or browser page that keys typed now are for (pane, tab, whether a page); nil for other focus.
-    /// A window's key hold waits while its content is not shown yet (REOPEN-F4).
+    /// The focused terminal or page (a browser tab's, an agent chat's, an internal page tab's) that keys typed now are
+    /// for (pane, tab, whether a page); nil for other focus. A window's key hold waits while its content is not shown
+    /// yet (REOPEN-F4): held for a page, the keys run again as typed once it shows, never in the view that had the keyboard.
     public var awaitableContent: (pane: String, tab: String, isPage: Bool)? {
         switch resolved {
         case .terminal(let pane, let tab): (pane, tab, false)
-        case .browserPage(let pane, let tab): (pane, tab, true)
+        case .browserPage(let pane, let tab), .agentPage(let pane, let tab), .page(let pane, let tab): (pane, tab, true)
         default: nil
         }
     }

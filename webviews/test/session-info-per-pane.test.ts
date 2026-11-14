@@ -100,8 +100,11 @@ await requireBrowserLane("session-info-per-pane.test.ts", async () => {
       try {
         const left = await pane!.open();
         const right = await pane!.open();
+        // A new pane starts with Session Info closed (#37576): each pane opens it itself.
         for (const page of [left, right]) {
           await offer(page);
+          await toggle(page).waitFor({ timeout: 10_000 });
+          if ((await toggle(page).getAttribute("aria-pressed")) !== "true") await toggle(page).click();
           await shown(page).waitFor({ timeout: 10_000 });
         }
         await toggle(left).click();

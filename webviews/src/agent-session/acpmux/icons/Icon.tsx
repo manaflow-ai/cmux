@@ -2,7 +2,7 @@ import { useId, type CSSProperties } from "react";
 import { MISSING_ICON, resolveIcon } from "./iconPack";
 import { iconLayers } from "./iconLayers";
 import { ICON_FLOOR, ICON_STROKE, ROW_VIEWBOX } from "./iconSize";
-import { useIcons } from "./IconsContext";
+import { useIcons } from "./iconsContextModel";
 import { opticalRowFit } from "./opticalFit";
 import type { IconLayer } from "./types";
 

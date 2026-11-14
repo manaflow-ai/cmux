@@ -25,14 +25,14 @@ public nonisolated final class CmuxRemoteDevices: Sendable {
     let consentNow = Mutex<(@Sendable () async -> (enabled: Bool, view: Bool, full: Bool))?>(nil)
 
     public func setConsentSource(_ source: @escaping @Sendable () async -> (enabled: Bool, view: Bool, full: Bool)) {
-        consentNow.withLock { $0 = source }
+        consentNow.store(source)
     }
 
     /// The request channel, opened on first use and again after it ends (a worker or host restart).
     private func channel() async throws -> RemoteDeviceChannel {
         if let live = control.withLock({ $0 }), live.isOpen { return live }
         let fresh = RemoteDeviceChannel(socket: try await open())
-        if let source = consentNow.withLock({ $0 }) {
+        if let source = consentNow.load() {
             let consent = await source()
             _ = try? await fresh.call("consent", ["enabled": consent.enabled, "view": consent.view, "full": consent.full])
         }

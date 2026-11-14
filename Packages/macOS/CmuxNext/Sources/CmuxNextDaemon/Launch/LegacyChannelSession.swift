@@ -7,7 +7,7 @@ import Foundation
 /// Before cx-6so.41 (79dbcd0baf025) these builds ran the session `cmux-app`
 /// with cmux-tui's default state root (`<Application Support>/cmux-tui/sessions`).
 /// Since then each runs `cmux-app-<channel>` with its state in
-/// `cmux/tags/<channel>/tui`, and nothing moved the old state, so the first
+/// `cmux-next/tags/<channel>/tui`, and nothing moved the old state, so the first
 /// launch after the update opened an empty session: no launch snapshot (the
 /// "Connecting to cmux-tui" screen) and none of the person's workspaces,
 /// terminals or agents, which stayed with the old `cmux-app` daemon.
@@ -44,9 +44,19 @@ struct LegacyChannelSession: Sendable {
     /// The old shared registry root: cmux-tui's default state root on macOS.
     var legacyRoot: URL { applicationSupport.appendingPathComponent("cmux-tui/sessions", isDirectory: true) }
 
-    /// Beside the channel's own state directory (BuildIdentity's `cmux/tags/<channel>/tui`).
+    /// Beside the channel's own state directory (BuildIdentity's `cmux-next/tags/<channel>/tui`).
     func marker(stateDirectory: URL) -> URL {
         stateDirectory.deletingLastPathComponent().appendingPathComponent(Self.markerName)
+    }
+
+    /// ``marker(stateDirectory:)`` where builds before ``StateFolderMove`` kept it, under classic's `cmux`. It stays
+    /// there when the move found NEXT's folder already in use; the Rust CLI reads it too
+    /// (`legacy_session_marker_before_move`), so the app and the CLI pick the same session.
+    func markerBeforeMove(stateDirectory: URL) -> URL? {
+        let next = DaemonLauncher.nextSupport(applicationSupport).path + "/"
+        guard stateDirectory.path.hasPrefix(next) else { return nil }
+        let classic = applicationSupport.appendingPathComponent("cmux", isDirectory: true)
+        return marker(stateDirectory: classic.appendingPathComponent(String(stateDirectory.path.dropFirst(next.count))))
     }
 
     /// The channel of an untagged channel build (`com.cmuxterm.app.<channel>`
@@ -66,6 +76,7 @@ struct LegacyChannelSession: Sendable {
     private func decide(channel: String, session: String, stateDirectory: URL) -> Bool {
         let marker = marker(stateDirectory: stateDirectory)
         if FileManager.default.fileExists(atPath: marker.path) { return true }
+        if let before = markerBeforeMove(stateDirectory: stateDirectory), FileManager.checked.fileExists(atPath: before.path) { return true }
         guard let legacy = rememberedSnapshot(),
               URL(fileURLWithPath: legacy).deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL.path
                 == legacyRoot.standardizedFileURL.path,

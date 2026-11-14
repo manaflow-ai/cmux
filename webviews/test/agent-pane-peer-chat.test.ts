@@ -278,7 +278,9 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
           );
           const { port } = vite!.httpServer!.address() as { port: number };
           await page.goto(`http://127.0.0.1:${port}/`);
-          await page.getByText(failure, { exact: true }).first().waitFor();
+          // The pane says it plainly; the peer's own words (`failure`) go to the log, never the chat.
+          await page.getByText("Couldn't start the chat. Try again.", { exact: true }).first().waitFor();
+          expect(await page.getByText(failure, { exact: true }).count()).toBe(0);
           await page.evaluate(() => {
             const w = window as unknown as Pane;
             w.seededPeerAction = w.cmuxAcpmuxActions["chat.new"];
@@ -388,11 +390,14 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
       const row = page.locator(".cv-thinking", { hasText: "Run make" });
       await row.first().waitFor();
       const named = await row.count();
-      // The call ends: the live line holds it until the next step and times the turn from the
-      // prompt ("Run make 5s"), moved onto this computer's clock, as it did while the call ran.
+      // The call ends. The turn's clock is "Working for 5s" over its work, under the prompt, as the
+      // Codex app draws a running turn (turns.ts `shapeLiveTurn`, liveTurnClock.experiment.ts `top`):
+      // timed from the prompt, moved onto this computer's clock. The line at the bottom says only what
+      // the agent does now ("Thinking"), with no clock of its own.
       send(3, "tool_call_update", { toolCallId: "t1", status: "completed" });
-      const time = page.locator(".cv-worked.is-below .cv-worked__time");
+      const time = page.locator(".cv-worked.has-divider .cv-worked__label-time");
       await time.waitFor();
+      const lineClocks = await page.locator(".cv-worked.is-below .cv-worked__time").count();
       const label = (await time.textContent()) ?? "";
       const seconds = /^(\d+)s$/.exec(label)?.[1];
       const strips = await page.locator(".acpmux-composer-strip").count();
@@ -401,11 +406,13 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
         label,
         recent: seconds !== undefined && Number(seconds) >= 4 && Number(seconds) < 30,
         named,
+        lineClocks,
         strips,
       }).toEqual({
         label: expect.stringMatching(/^\d+s$/),
         recent: true,
         named: 1,
+        lineClocks: 0,
         strips: 0,
       });
       await page.close();

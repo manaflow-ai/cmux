@@ -106,6 +106,7 @@
 			);
 			explicitFolders = (
 				"markdown-viewer",
+				"theme-files",
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -262,6 +263,7 @@
 
 			inputPaths = (
 				"$(SRCROOT)/scripts/cmux-next/bundle-cli-resources.sh",
+				"$(SRCROOT)/scripts/cmux-next/compact-json.py",
 				"$(SRCROOT)/scripts/cmux-next/cmux-code-mode-runner",
 				"$(SRCROOT)/scripts/cmux-next/cmux-code-mode-macos-profile",
 				"$(SRCROOT)/scripts/lib/cmux-dev-shim-install",
@@ -797,7 +799,6 @@
 				"$(SRCROOT)/scripts/cmux-next/build-agent-pane-web.sh",
 				"$(SRCROOT)/scripts/cmux-next/build-pages-web.sh",
 				"$(SRCROOT)/scripts/cmux-next/build-agent-activity-web.sh",
-				"$(SRCROOT)/scripts/cmux-next/build-palette-ranker.sh",
 				"$(SRCROOT)/scripts/build-webviews-app.sh",
 				"$(SRCROOT)/scripts/cmux-next/build-optchat-inspector-web.sh",
 				"$(SRCROOT)/Native/OptChat",
@@ -805,7 +806,6 @@
 				"$(SRCROOT)/Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane",
 				"$(SRCROOT)/Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages",
 				"$(SRCROOT)/Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity",
-				"$(SRCROOT)/Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources",
 				"$(SRCROOT)/Resources/markdown-viewer/webviews-app",
 				"$(SRCROOT)/schemas/settings",
 				"$(SRCROOT)/Resources/markdown-viewer/marked.min.js",

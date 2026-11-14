@@ -1,5 +1,5 @@
 import type { MouseEvent, ReactNode } from "react";
-import type { SessionHoverTrigger } from "../started/SessionHoverCard";
+import type { SessionHoverTrigger } from "../started/useSessionHover";
 import "./AgentTag.css";
 
 /** A compact agent or lane name tag shared by transcript activity rows. One that opens a chat is a

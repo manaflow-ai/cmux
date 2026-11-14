@@ -13,6 +13,7 @@ import java.util.Objects;
 /** Immutable paste-image request. Protocol v12; authority: control. */
 public final class PasteImageRequest implements WireValue {
     private final Field<String> data;
+    private final Field<String> filename;
     private final String lease;
     private final Field<String> mime;
     private final Field<UInt64> offset;
@@ -24,6 +25,7 @@ public final class PasteImageRequest implements WireValue {
 
     private PasteImageRequest(Builder builder) {
         this.data = builder.data;
+        this.filename = builder.filename;
         if (!builder.leaseSet) throw new IllegalArgumentException("lease is required");
         this.lease = Wire.nonNull(builder.lease, "lease");
         this.mime = builder.mime;
@@ -42,6 +44,7 @@ public final class PasteImageRequest implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public Field<String> data() { return data; }
+    public Field<String> filename() { return filename; }
     public String lease() { return lease; }
     public Field<String> mime() { return mime; }
     public Field<UInt64> offset() { return offset; }
@@ -57,6 +60,10 @@ public final class PasteImageRequest implements WireValue {
         Object rawData = Wire.optional(object, "data");
         if (!Wire.isMissing(rawData)) {
             builder.data(rawData == null ? null : Wire.string(rawData, "PasteImageRequest.data"));
+        }
+        Object rawFilename = Wire.optional(object, "filename");
+        if (!Wire.isMissing(rawFilename)) {
+            builder.filename(rawFilename == null ? null : Wire.string(rawFilename, "PasteImageRequest.filename"));
         }
         Object rawLease = Wire.required(object, "lease");
         builder.lease(Wire.string(rawLease, "PasteImageRequest.lease"));
@@ -87,6 +94,7 @@ public final class PasteImageRequest implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "data", data);
+        Wire.put(object, "filename", filename);
         Wire.put(object, "lease", lease);
         Wire.put(object, "mime", mime);
         Wire.put(object, "offset", offset);
@@ -101,17 +109,18 @@ public final class PasteImageRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof PasteImageRequest that)) return false;
-        return Objects.equals(data, that.data) && Objects.equals(lease, that.lease) && Objects.equals(mime, that.mime) && Objects.equals(offset, that.offset) && Objects.equals(op, that.op) && Objects.equals(size, that.size) && Objects.equals(surface, that.surface) && Objects.equals(terminalId, that.terminalId) && Objects.equals(uploadId, that.uploadId);
+        return Objects.equals(data, that.data) && Objects.equals(filename, that.filename) && Objects.equals(lease, that.lease) && Objects.equals(mime, that.mime) && Objects.equals(offset, that.offset) && Objects.equals(op, that.op) && Objects.equals(size, that.size) && Objects.equals(surface, that.surface) && Objects.equals(terminalId, that.terminalId) && Objects.equals(uploadId, that.uploadId);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(data, lease, mime, offset, op, size, surface, terminalId, uploadId); }
+    public int hashCode() { return Objects.hash(data, filename, lease, mime, offset, op, size, surface, terminalId, uploadId); }
 
     @Override
-    public String toString() { return "PasteImageRequest{" + "data=[redacted]" + ", " + "lease=[redacted]" + ", " + "mime=" + String.valueOf(mime) + ", " + "offset=" + String.valueOf(offset) + ", " + "op=" + String.valueOf(op) + ", " + "size=" + String.valueOf(size) + ", " + "surface=" + String.valueOf(surface) + ", " + "terminal_id=" + String.valueOf(terminalId) + ", " + "upload_id=" + String.valueOf(uploadId) + "}"; }
+    public String toString() { return "PasteImageRequest{" + "data=[redacted]" + ", " + "filename=" + String.valueOf(filename) + ", " + "lease=[redacted]" + ", " + "mime=" + String.valueOf(mime) + ", " + "offset=" + String.valueOf(offset) + ", " + "op=" + String.valueOf(op) + ", " + "size=" + String.valueOf(size) + ", " + "surface=" + String.valueOf(surface) + ", " + "terminal_id=" + String.valueOf(terminalId) + ", " + "upload_id=" + String.valueOf(uploadId) + "}"; }
 
     public static final class Builder {
         private Field<String> data = Field.omitted();
+        private Field<String> filename = Field.omitted();
         private String lease;
         private boolean leaseSet;
         private Field<String> mime = Field.omitted();
@@ -128,6 +137,10 @@ public final class PasteImageRequest implements WireValue {
 
         public Builder data(String value) {
             this.data = Field.ofNullable(value);
+            return this;
+        }
+        public Builder filename(String value) {
+            this.filename = Field.ofNullable(value);
             return this;
         }
         public Builder lease(String value) {

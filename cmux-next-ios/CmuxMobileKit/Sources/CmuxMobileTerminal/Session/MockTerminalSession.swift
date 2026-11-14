@@ -22,6 +22,12 @@ public final class MockTerminalSession: TerminalSession {
     private var busy = false
     private var escapeBuffer: [UInt8] = []
     private var history: [String] = []
+    /// The emulated round trip: each write of input reaches the shell this
+    /// much later, in order (`-cmux-mobile-term-rtt-ms N`; predictive echo
+    /// dogfood and measurement). Zero answers at once.
+    private let roundTrip: Duration
+    private var inFlight: [(due: ContinuousClock.Instant, bytes: Data)] = []
+    private var delivery: Task<Void, Never>?
 
     private enum Program {
         case shell
@@ -30,9 +36,10 @@ public final class MockTerminalSession: TerminalSession {
     }
 
     /// `playsIntro`: run `ls -la`, `git log` and a build when the session starts.
-    public init(clock: any Clock<Duration> = ContinuousClock(), playsIntro: Bool = true) {
+    public init(clock: any Clock<Duration> = ContinuousClock(), playsIntro: Bool = true, roundTrip: Duration = .zero) {
         self.clock = clock
         self.playsIntro = playsIntro
+        self.roundTrip = roundTrip
     }
 
     public func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void) {
@@ -50,6 +57,21 @@ public final class MockTerminalSession: TerminalSession {
     }
 
     public func send(_ bytes: Data) {
+        guard roundTrip > .zero else { return deliver(bytes) }
+        inFlight.append((ContinuousClock.now + roundTrip, bytes))
+        guard delivery == nil else { return }
+        delivery = Task { [weak self] in
+            while let self, let next = self.inFlight.first {
+                try? await Task.sleep(until: next.due, clock: .continuous)
+                guard !Task.isCancelled else { return }
+                self.inFlight.removeFirst()
+                self.deliver(next.bytes)
+            }
+            self?.delivery = nil
+        }
+    }
+
+    private func deliver(_ bytes: Data) {
         for byte in bytes { receive(byte) }
         // A lone ESC at the end of a write is the Escape key, not a sequence start.
         if escapeBuffer == [0x1B] {
@@ -74,6 +96,9 @@ public final class MockTerminalSession: TerminalSession {
     public func stop() {
         for task in tasks { task.cancel() }
         tasks.removeAll()
+        delivery?.cancel()
+        delivery = nil
+        inFlight.removeAll()
         handler = nil
     }
 

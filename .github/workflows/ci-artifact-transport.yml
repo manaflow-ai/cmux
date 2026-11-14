@@ -9,6 +9,7 @@ on:
       - workers/ci-artifacts/**
       - scripts/ci/restore-r2-artifact.py
       - scripts/ci/parallel_artifact_download.py
+      - scripts/ci/deadline_http.py
       - tests/test_ci_parallel_artifact_transport.py
       - scripts/ci/node_product_cache.py
       - docs/ci/node-product-cache-maintenance.md
@@ -23,6 +24,9 @@ on:
       - tests/test_ci_r2_canary.py
       - .github/workflows/ci-artifact-canary.yml
       - tests/test_ci_r2_artifact.py
+      - .github/actions/download-test-product/action.yml
+      - scripts/ci/measure-r2-artifact-run.py
+      - tests/git_fixture_env.py
   push:
     branches: [main]
     paths:
@@ -32,6 +36,7 @@ on:
       - workers/ci-artifacts/**
       - scripts/ci/restore-r2-artifact.py
       - scripts/ci/parallel_artifact_download.py
+      - scripts/ci/deadline_http.py
       - tests/test_ci_parallel_artifact_transport.py
       - scripts/ci/node_product_cache.py
       - docs/ci/node-product-cache-maintenance.md
@@ -46,6 +51,9 @@ on:
       - tests/test_ci_r2_canary.py
       - .github/workflows/ci-artifact-canary.yml
       - tests/test_ci_r2_artifact.py
+      - .github/actions/download-test-product/action.yml
+      - scripts/ci/measure-r2-artifact-run.py
+      - tests/git_fixture_env.py
 
 permissions:
   contents: read

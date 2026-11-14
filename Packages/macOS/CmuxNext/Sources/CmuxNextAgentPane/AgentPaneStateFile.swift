@@ -100,12 +100,12 @@ public nonisolated final class AgentPaneStateFiles: Sendable {
 
     /// The one writer for the chat tails kept in `directory` (``AgentPaneTailDisk``), so the quit
     /// awaits their saves with the files' (#36492 review F3: a quit during a save backlog relaunched
-    /// without the tail).
-    public func tails(in directory: URL) -> AgentPaneTailDisk {
+    /// without the tail). `make` makes it the first time (the chats' drawn copies pass their own rules).
+    public func tails(in directory: URL, make: (URL) -> AgentPaneTailDisk = { AgentPaneTailDisk(directory: $0) }) -> AgentPaneTailDisk {
         tailDisks.withLock { disks in
             let key = directory.standardizedFileURL.path
             if let disk = disks[key] { return disk }
-            let disk = AgentPaneTailDisk(directory: directory)
+            let disk = make(directory)
             disks[key] = disk
             return disk
         }

@@ -17,8 +17,17 @@ async fn hub_with(after: Duration) -> (Arc<Hub>, TestClient, std::path::PathBuf)
     let root = std::env::temp_dir().join(format!("acpmux-msg-bg-{}", uuid::Uuid::now_v7()));
     let claude = root.join("claude");
     std::fs::create_dir_all(&claude).unwrap();
-    let (hub, c) = claude_setup(&claude, &[]).await;
+    let (hub, _setup) = claude_setup(&claude, &[]).await;
     hub.set_message_background_after(Some(after));
+    // The person's message is the person's only by a proof (`server/requests.rs`
+    // `person_admitted`): the app's connection, which proved the key; a unix client that proves
+    // nothing sends an unverified one, which moves nothing.
+    hold_person_key(&hub);
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
+    let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    c.become_person().await;
     (hub, c, root)
 }
 

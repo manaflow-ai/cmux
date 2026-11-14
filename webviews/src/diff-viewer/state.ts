@@ -177,7 +177,7 @@ export function initialAppState(config: DiffViewerConfig, initialStatus: DiffVie
 
 /**
  * The display options before any stored pref. In cmux NEXT (the page host; its config's transport
- * is `page`) they are the defaults of the `diff.*` settings (DiffViewerSettingsSchema.swift), and
+ * is `page`) they are the defaults of the `diff.*` settings (schemas/settings/source/diff-viewer.json), and
  * diff-option-defaults.test.ts holds every key here to the exported schema. Word changes are on
  * there (Leo, 2026-10-20). The classic viewer and the dev server embed their config and keep word
  * changes off.

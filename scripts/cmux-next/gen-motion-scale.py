@@ -4,8 +4,8 @@
 
 The one scale is schemas/motion-scale/motion-scale.json. This script writes the app's
 (CmuxNextDesignTokens/Motion/MotionScale.generated.swift: the Motion tunables' defaults), the webviews'
-CSS (the generated block of webviews/src/pages/shared/desktop.css: --cmux-motion-<step> and
---cmux-ease-out) and their TypeScript (webviews/src/motion/scale.generated.ts: for Web Animations
+CSS (the generated block of webviews/src/pages/shared/desktop.css: --cmux-motion-<step>,
+--cmux-ease-out, --cmux-ease-spring, and the fold's --cmux-ease-settle over --cmux-motion-settle) and their TypeScript (webviews/src/motion/scale.generated.ts: for Web Animations
 and timers), so a duration changes in one place for all three.
 
 The scale's `spinner` is the one period every spinner turns at (Leo 2026-11-07, of a reference desktop
@@ -53,8 +53,17 @@ def load():
     stops = [at for _, at in points]
     assert points[0] == [0, 0] and points[-1] == [1, 100], "the spring starts at rest and ends at rest"
     assert stops == sorted(set(stops)), "the spring's stops run forward"
+    settle = data["settle"]
+    assert set(settle) == {"ms", "for", "bezier"}, settle
+    # Its own measured length: visibly at rest by the scale's ceiling, the last few percent of a point after.
+    assert isinstance(settle["ms"], int) and 0 < settle["ms"] <= 300, settle
+    # Never past its end: both control points' progress stays within 0..1.
+    assert len(settle["bezier"]) == 4 and all(0 <= value <= 1 for value in settle["bezier"]), settle
     spinner = data["spinner"]
     assert set(spinner) == {"ms", "for"} and isinstance(spinner["ms"], int) and spinner["ms"] >= 600, spinner
+    send = data["send"]
+    assert set(send) == {"ms", "ease", "for"} and isinstance(send["ms"], int), send
+    assert len(send["ease"]) == 4 and 0 <= send["ease"][0] <= 1 and 0 <= send["ease"][2] <= 1, send
     return data
 
 
@@ -65,8 +74,8 @@ def spring_linear(data):
     return "linear(%s)" % ", ".join(["0"] + inner + ["1"])
 
 
-def bezier(data):
-    return "cubic-bezier(%s)" % ", ".join("%g" % value for value in data["easeOut"])
+def bezier(data, points=None):
+    return "cubic-bezier(%s)" % ", ".join("%g" % value for value in (points or data["easeOut"]))
 
 
 def css_block(data):
@@ -77,6 +86,13 @@ def css_block(data):
     lines.append("  --cmux-ease-out: %s;" % bezier(data))
     lines.append("  /* A selection that travels settles on the one spring, run over --cmux-motion-%s. */" % data["spring"]["step"])
     lines.append("  --cmux-ease-spring: %s;" % spring_linear(data))
+    lines.append("  /* A sent prompt's one motion: its room, its bubble and the thread's rise. */")
+    lines.append("  --cmux-motion-send: %sms;" % data["send"]["ms"])
+    lines.append("  --cmux-ease-send: %s;" % bezier(data, data["send"]["ease"]))
+    settle_ms = data["settle"]["ms"]
+    lines.append("  /* A fold or Show more that grows or shrinks decelerates into its new height, never past it. */")
+    lines.append("  --cmux-motion-settle: %sms;" % settle_ms)
+    lines.append("  --cmux-ease-settle: %s;" % bezier(data, data["settle"]["bezier"]))
     lines.append("  /* One turn of every spinner (`cmux-spin`); not a transition. */")
     lines.append("  --cmux-spinner-period: %sms;" % data["spinner"]["ms"])
     lines += ["}", END]
@@ -115,10 +131,33 @@ export const MOTION_SPRING = "{spring}";
 /** The step the spring runs over (`MOTION_MS[MOTION_SPRING_STEP]`). */
 export const MOTION_SPRING_STEP: MotionStep = "{spring_step}";
 
+/**
+ * A sent prompt's one motion (ms, `--cmux-motion-send`): {send_for}.
+ */
+export const MOTION_SEND_MS = {send_ms};
+
+/** The sent prompt's curve (`--cmux-ease-send`): a fast start that settles. */
+export const MOTION_EASE_SEND = "{send_ease}";
+
+/** The same curve's control points, for a scroll stepped from script. */
+export const MOTION_SEND_CURVE = [{send_points}] as const;
+
+/**
+ * The settle (`--cmux-ease-settle`, over `--cmux-motion-settle`): {settle_for}.
+ */
+export const MOTION_SETTLE = "{settle}";
+
+/** How long the settle runs (ms, `--cmux-motion-settle`): measured, not a step of the scale. */
+export const MOTION_SETTLE_MS = {settle_ms};
+
 /** One turn of every spinner (ms, `--cmux-spinner-period`); a loop, not a step of the scale. */
 export const SPINNER_PERIOD_MS = {spinner};
-""".format(src=SOURCE, steps=steps, ease=bezier(data), spring=spring_linear(data),
-           spring_for=data["spring"]["for"], spring_step=data["spring"]["step"], spinner=data["spinner"]["ms"])
+""".format(send_for=data["send"]["for"], send_ms=data["send"]["ms"], send_ease=bezier(data, data["send"]["ease"]),
+           send_points=", ".join("%g" % value for value in data["send"]["ease"]),
+           src=SOURCE, steps=steps, ease=bezier(data), spring=spring_linear(data),
+           spring_for=data["spring"]["for"], spring_step=data["spring"]["step"], spinner=data["spinner"]["ms"],
+           settle=bezier(data, data["settle"]["bezier"]), settle_for=data["settle"]["for"],
+           settle_ms=data["settle"]["ms"])
 
 
 def swift(data):

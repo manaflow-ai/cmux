@@ -276,6 +276,7 @@ impl Mux {
                     entity,
                     workspace_revision: Some(workspace_revision),
                     transaction: None,
+                    mutation: None,
                 },
                 workspace_mutation_result(&commit)?,
             )

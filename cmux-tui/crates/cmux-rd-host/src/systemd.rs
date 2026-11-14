@@ -2,9 +2,9 @@
 //!
 //! systemd owns the listening socket (`cmux-agent-rd.socket`: `/run/cmux-rd/desktop.sock`,
 //! root:cmux 0660, in `/run/cmux-rd` mode 0711) and passes it as fd 3 (`LISTEN_FDS=1`,
-//! `LISTEN_PID` = this process). The only process meant to connect is the machine's link
-//! receiver (the session daemon's `__receive-vm`, running as the work user, uid 1000),
-//! after it verified the owner's one-time link token for service `desktop`; the host checks
+//! `LISTEN_PID` = this process). The only process meant to connect is the machine's carrier
+//! server (`cmux carrier serve`, running as the work user, uid 1000), after it admitted
+//! the owner's grant for service `desktop`; the host checks
 //! each accepted connection's `SO_PEERCRED` uid against `--peer-uid` and closes any other
 //! peer before it reads a byte. There is no TCP or UDP listener in this mode.
 

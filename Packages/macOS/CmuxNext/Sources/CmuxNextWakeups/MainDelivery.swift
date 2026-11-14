@@ -27,4 +27,11 @@ public struct MainDelivery: Sendable {
             DispatchQueue.main.async { MainActor.assumeIsolated(work) }
         }
     }
+
+    /// Runs `work` on the main queue's next turn, from any thread, the main thread included: for work that must not
+    /// run inside the caller's frame (a callback that holds a lock the work takes).
+    public func later(_ work: @escaping @MainActor @Sendable () -> Void) {
+        // main-proof: DispatchQueue.main runs its blocks on the main thread
+        DispatchQueue.main.async { MainActor.assumeIsolated(work) }
+    }
 }

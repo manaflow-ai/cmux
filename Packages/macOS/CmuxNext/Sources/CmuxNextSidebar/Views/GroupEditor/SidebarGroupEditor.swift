@@ -65,12 +65,12 @@ public final class SidebarGroupEditor {
     private(set) weak var shownParent: NSWindow?
 
     /// The page's width in CSS pixels at 100% page zoom (webviews/src/pages/group-editor). Its controls are fixed CSS
-    /// sizes that scale only by the Interface Size (`Typography.userScale`, its `--cmux-interface-scale`), not by the
-    /// density, so the width is this times that, at every density: the eleven dots, their gaps and the insets need about
-    /// 234 of it.
+    /// sizes times the page's `--cmux-interface-scale` (`Typography.pageScale`: the chrome body size over the Default
+    /// density's, never below 1), so the width is this times that: the eleven dots, their gaps and the insets need
+    /// about 234 of it.
     static let pageWidth: CGFloat = 240
-    /// The editor's width at 100% page zoom, at the Interface Size.
-    public static var width: CGFloat { pageWidth * Typography.userScale }
+    /// The editor's width at 100% page zoom, at its page's scale.
+    public static var width: CGFloat { pageWidth * Typography.pageScale }
 
     /// The card's frame on screen for a card `height` tall opened at `anchor` over `parent`: under the
     /// control that opened it, on the anchor's edge, above it when there is no room below, inside the window.

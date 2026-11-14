@@ -102,8 +102,12 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     public var url: String
     public var number: Int
     public var title: String
-    /// `open`, `draft`, `merged` or `closed`.
+    /// `open`, `draft`, `merged` or `closed`; an issue's is `open`, `closed` (completed) or
+    /// `not_planned`.
     public var state: String
+    /// What the link names: a pull request, or an issue (``AgentChatPullRequestReader/issueView(_:)``),
+    /// which has no branches, checks or files.
+    public var isIssue = false
     /// `approved`, `changes_requested`, `review_required`, or empty without a required review.
     public var review: String
     /// `mergeable`, `conflicting`, or empty while GitHub works it out.
@@ -228,6 +232,7 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
                   authorAvatarURL: (author?["avatarUrl"] as? String).flatMap(AgentReplyAvatars.allowedURL)?.absoluteString ?? "",
                   rollupState: (object["rollupState"] as? String)?.uppercased() ?? "",
                   baseRollupState: (object["baseRollupState"] as? String)?.uppercased() ?? "")
+        isIssue = object["kind"] as? String == "issue"
     }
 
     /// gh's `files`, each with its own counts, at most ``maximumFiles``.
@@ -460,6 +465,8 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
         // Only when there are any, so a card with none draws its own colors and placeholder.
         if !labelColors.isEmpty { object["labelColors"] = .object(labelColors.mapValues { .string($0) }) }
         if let authorAvatar { object["authorAvatar"] = .string(authorAvatar) }
+        // Only for an issue, so a pull request's answer reads as it always has.
+        if isIssue { object["kind"] = .string("issue") }
         return .object(object)
     }
 }

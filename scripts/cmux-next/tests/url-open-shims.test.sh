@@ -19,6 +19,8 @@ cat >"$bin/cmux" <<'SH'
 #!/bin/sh
 printf '%s\n' "$*" >>"$CMUX_TEST_LOG.cli"
 cat >>"$CMUX_TEST_LOG.stdin"
+# Where the CLI's stdout goes: the CLI reads a terminal there as a person at it.
+[ -z "${CMUX_TEST_STDOUT_MARK:-}" ] || printf '%s\n' "$CMUX_TEST_STDOUT_MARK"
 [ -z "${CMUX_TEST_CLI_FAILS:-}" ]
 SH
 cat >"$TMP/system-open" <<'SH'
@@ -45,7 +47,7 @@ expect_absent() { [[ ! -e "$1" ]] || { echo "FAIL: ${1##*/} should be empty: $(c
 # open <url>: to cmux on stdin, with the caller names; the system open is not used.
 run open-url open "https://signin.aws.amazon.com/oauth?state=SECRET"
 expect_file "$TMP/open-url.stdin" "https://signin.aws.amazon.com/oauth?state=SECRET"
-grep -q -- '^open --link --caller .* -$' "$TMP/open-url.cli" || { echo "FAIL: open-url argv: $(cat "$TMP/open-url.cli")" >&2; fail=1; }
+grep -q -- '^--quiet open --link --caller .* -$' "$TMP/open-url.cli" || { echo "FAIL: open-url argv: $(cat "$TMP/open-url.cli")" >&2; fail=1; }
 grep -q SECRET "$TMP/open-url.cli" && { echo "FAIL: the URL reached argv" >&2; fail=1; }
 expect_absent "$TMP/open-url.system"
 
@@ -93,6 +95,17 @@ env PATH="$bin:/usr/bin:/bin" BROWSER=open CMUX_BUNDLED_CLI_PATH="$bin/cmux" CMU
   python3 -I -c 'import webbrowser,sys; sys.exit(0 if webbrowser.open("https://example.com/device?code=PY") else 1)'
 expect_file "$TMP/python-browser-open.stdin" "https://example.com/device?code=PY"
 expect_absent "$TMP/python-browser-open.system"
+
+# gh's "Press Enter to open https://github.com/login/device in your browser"
+# runs BROWSER with gh's own stdout, the person's terminal. The URL is on the
+# CLI's stdin, so its stdout is the only sign a person is there: the shim must
+# hand it on (quiet, never /dev/null), or the CLI opens the page in the
+# background and Enter seems to do nothing.
+out=$(CMUX_TEST_STDOUT_MARK=cli-stdout run gh-device cmux-open-url "https://github.com/login/device")
+[[ "$out" == cli-stdout ]] || { echo "FAIL: the CLI's stdout is not the caller's: [$out]" >&2; fail=1; }
+grep -q -- '^--quiet open --link --caller .* -$' "$TMP/gh-device.cli" || { echo "FAIL: gh-device argv: $(cat "$TMP/gh-device.cli")" >&2; fail=1; }
+expect_file "$TMP/gh-device.stdin" "https://github.com/login/device"
+expect_absent "$TMP/gh-device.system"
 
 # The app cannot be reached: the system open gets the URL.
 CMUX_TEST_CLI_FAILS=1 run unreachable cmux-open-url "https://example.com/x"

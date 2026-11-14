@@ -68,7 +68,7 @@ await requireBrowserLane("transcript-icon-column.test.ts", async () => {
   /** Measures the transcript's top-level rows, from each row's left edge (its `.acpmux-row`). */
   const measure = (page: Page): Promise<Row[]> =>
     page.evaluate(() => {
-      const ROW = ".cv-tool, .cv-received > .cv-disclosure__line, .cv-pending__line";
+      const ROW = ".cv-tool, .cv-received > :is(.cv-agentmsg__line, .cv-disclosure__line), .cv-pending__line";
       const ICON = ":scope > .cv-tool__icon, .cv-received__mark, .cv-pending__icon";
       const visible = (element: Element) => {
         const box = element.getBoundingClientRect();
@@ -79,7 +79,7 @@ await requireBrowserLane("transcript-icon-column.test.ts", async () => {
           visible(row) &&
           // Top level only: not a step inside an opened group, a waiting group's body or a panel.
           !row.parentElement?.closest(ROW) &&
-          !row.closest(".cv-pending__body, .cv-disclosure__panel, .cv-steps"),
+          !row.closest(".cv-pending__body, .cv-disclosure__panel, .cv-agentmsg__card, .cv-steps"),
       );
       return rows.map((row) => {
         const origin = (row.closest(".acpmux-row") ?? row).getBoundingClientRect().left;
@@ -117,7 +117,8 @@ await requireBrowserLane("transcript-icon-column.test.ts", async () => {
           label = row.textContent?.trim().slice(0, 40) ?? "";
           break;
         }
-        const kind = row.matches(".cv-received > .cv-disclosure__line")
+        // A received message's line (AgentMessageRow.tsx) or a notice's (DisclosureRow.tsx); a send's is an AgentMessageRow line outside `.cv-received`.
+        const kind = row.matches(".cv-received > :is(.cv-agentmsg__line, .cv-disclosure__line)")
           ? "received"
           : row.matches(".cv-agentmsg__line")
             ? "sent"

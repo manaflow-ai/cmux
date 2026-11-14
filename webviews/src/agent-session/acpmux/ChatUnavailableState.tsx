@@ -3,6 +3,7 @@ import type { ChatUnavailable } from "./chatUnavailable";
 import { Spinner } from "./conversation/icons";
 import { relativeTime } from "./conversation/relativeTime";
 import { currentLanguage, useT } from "./i18n";
+import { shortSession } from "./chatUnavailableStateModel";
 
 /// The tab's chat is not here (`missingSession`): centered in place of the transcript, quiet, in the
 /// new chat hero's type (EmptyState.tsx), it says which case it is. Deleted: Remove from Sidebar
@@ -64,9 +65,16 @@ export function ChatUnavailableState({
   // shifts nothing when it appears.
   const pausedShown = useAfterDelay(unavailable.reason === "paused", noteDelayMs);
   const resumeSlow = useAfterDelay(resuming, noteDelayMs);
-  // Still loading, or paused for less than the threshold: nothing shows, in the loading layout, until
-  // the chat opens or the wait goes on (then offline or paused, below).
-  if (unavailable.reason === "connecting" || (unavailable.reason === "paused" && !pausedShown))
+  // A machine whose link just dropped is the same: "Reconnecting…" shows only once the drop has
+  // lasted past the threshold, so a link back within it never flashes the state.
+  const offlineShown = useAfterDelay(unavailable.reason === "offline", noteDelayMs);
+  // Still loading, or paused or offline for less than the threshold: nothing shows, in the loading
+  // layout, until the chat opens or the wait goes on (then offline or paused, below).
+  if (
+    unavailable.reason === "connecting" ||
+    (unavailable.reason === "paused" && !pausedShown) ||
+    (unavailable.reason === "offline" && !offlineShown)
+  )
     return line ? null : (
       <div className="acpmux-empty acpmux-unavailable" data-unavailable="connecting" aria-busy="true" />
     );
@@ -237,9 +245,4 @@ export function ChatUnavailableState({
       </div>
     </div>
   );
-}
-
-/// The first 13 characters of a session id (an acpmux UUIDv7's time part), enough to tell chats apart.
-export function shortSession(session: string): string {
-  return session.length > 13 ? session.slice(0, 13) : session;
 }

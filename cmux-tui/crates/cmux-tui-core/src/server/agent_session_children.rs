@@ -46,7 +46,7 @@ const MAX_KNOWN: usize = 1024;
 pub(crate) struct KnownChildren(Mutex<VecDeque<String>>);
 
 impl KnownChildren {
-    fn remember<'a>(&self, ids: impl IntoIterator<Item = &'a str>) {
+    pub(crate) fn remember<'a>(&self, ids: impl IntoIterator<Item = &'a str>) {
         let mut known = self.0.lock().unwrap_or_else(|e| e.into_inner());
         for id in ids {
             if known.iter().any(|old| old == id) {
@@ -153,6 +153,12 @@ impl Attachment {
         if let Some(mux) = self.mux.upgrade() {
             mux.control_clients.agent_sessions.known_children.forget(session);
         }
+    }
+
+    /// True when `params` name a descendant the attachment already follows.
+    pub(super) fn follows_session(&self, params: &Value) -> bool {
+        let Some(id) = params.get("sessionId").and_then(Value::as_str) else { return false };
+        self.children.lock().unwrap_or_else(|e| e.into_inner()).contains(id)
     }
 
     /// True when a `session_changed` (its `params`) is about a descendant the

@@ -148,7 +148,7 @@ await requireBrowserLane("agent-pane-reading-place.test.ts", async () => {
           const hidden = scroller.hasAttribute("data-seeking");
           frames.push({
             shown: hidden ? null : bubble.textContent,
-            jump: hidden && document.querySelector(".acpmux-jump-latest[data-shown]") !== null,
+            jump: hidden && document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]") !== null,
           });
         }
       });

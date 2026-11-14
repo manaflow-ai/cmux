@@ -4,7 +4,7 @@ import { type Artifact } from "./artifactPreview";
 import { rowUpdates, type RowUpdates } from "../rowUpdates";
 import type { AcpmuxRow } from "../model";
 import { artifactForIdentity, artifactVersions, type ArtifactSourceRow } from "./artifactVersions";
-import { latestWrittenArtifacts, type LatestWrite } from "./writtenArtifacts";
+import { latestWrittenArtifacts, type LatestWrite } from "./writtenArtifactsModel";
 
 const VERSION_LIMIT = 64;
 

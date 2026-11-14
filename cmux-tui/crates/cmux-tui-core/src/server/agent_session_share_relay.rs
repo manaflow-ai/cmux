@@ -722,6 +722,36 @@ mod tests {
         });
     }
 
+    /// A person's prompt reaches every guest page with its sender: the `user_message` record goes
+    /// to the room whole, its `person_message` provenance (`fromName`, `fromAvatar`) included,
+    /// so a guest page draws it as from that person (ask-2a1105b933).
+    #[test]
+    fn a_persons_message_reaches_the_guests_with_its_sender() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            let (ours, _theirs) = tokio::net::UnixStream::pair().unwrap();
+            let (_read, write) = ours.into_split();
+            let (out, mut frames) = mpsc::unbounded_channel();
+            let mut link = link(out, write);
+            link.pending.insert(1, Pending::Attach);
+            let reply = json!({"id": 1, "ok": true, "data": {"events": []}});
+            assert!(link.inbound(&reply.to_string()).await);
+            let record = json!({"seq": 7, "kind": "user_message", "msg": {"text": "hi",
+                "promptId": "g-x", "_meta": {"provenance": {"kind": "person_message",
+                    "from": "guest:s.g2", "fromName": "Sam Park",
+                    "fromAvatar": "https://lh3.example.com/a/sam.png", "approval": "owner"}}}});
+            let live = json!({"event": "agent-session-record", "record": record});
+            assert!(link.inbound(&live.to_string()).await);
+            let mut relayed = None;
+            while let Ok(Out::Frame(_, _, frame)) = frames.try_recv() {
+                if frame["t"] == "records" {
+                    relayed = Some(frame["records"][0].clone());
+                }
+            }
+            assert_eq!(relayed, Some(record), "the record reaches the room whole");
+        });
+    }
+
     /// Records before the attach answer are cut and bounded by bytes: big ones end the relay
     /// (its next one starts from a fresh snapshot) instead of filling memory.
     #[test]

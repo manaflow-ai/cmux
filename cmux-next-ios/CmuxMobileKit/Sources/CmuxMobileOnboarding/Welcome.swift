@@ -145,6 +145,8 @@ public struct WelcomeView: View {
             buttons
                 .opacity(controls)
                 .overlay(alignment: .top) { errorLine }
+                // A phone's width: an unfolded foldable keeps them centered, not 750 pt wide.
+                .frame(maxWidth: 440)
                 .padding(.horizontal, theme.metrics.sideMargin)
             legal
                 .opacity(controls)
@@ -313,7 +315,7 @@ public struct WelcomeView: View {
             }
         }
         .alignmentGuide(.top) { $0[.bottom] + 12 }
-        .animation(theme.motion.snap.animation, value: auth.errorMessage)
+        .animation(theme.motion.snap.animation.unlessReduceMotion, value: auth.errorMessage)
     }
 
     private var legal: some View {
@@ -493,7 +495,7 @@ private struct ProviderStyle: ButtonStyle {
             .contentShape(shape)
             .opacity(configuration.isPressed ? 0.85 : 1)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
-            .animation(theme.motion.snap.animation, value: configuration.isPressed)
+            .animation(theme.motion.snap.animation.unlessReduceMotion, value: configuration.isPressed)
     }
 }
 #endif

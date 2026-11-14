@@ -1,6 +1,6 @@
 //! `cmux agents wait` through a real daemon: it answers when text reaches a
 //! terminal's screen and when a terminal's agent stops working, a timeout
-//! prints the unmatched receipt and exits 1 (as `screen wait` does), and a bad
+//! prints the unmatched receipt and exits 124 (as `screen wait` does), and a bad
 //! request exits 2.
 
 use std::process::{Child, Command, Output, Stdio};
@@ -85,15 +85,21 @@ fn agents_wait_cli_answers_on_text_and_idle_through_a_real_daemon() {
     let waited = receipt["waited_seconds"].as_f64().unwrap();
     assert!((0.5..15.0).contains(&waited), "it waited for the report: {receipt}");
 
-    // A timeout still prints its receipt, and exits 1 as `screen wait` does.
+    // A timeout still prints its receipt, and exits 124 as `screen wait` does.
     report("working");
     let started = Instant::now();
     let timed_out = wait(&["--until", "idle", "--target", &terminal, "--timeout", "1"])
         .wait_with_output()
         .unwrap();
-    assert_eq!(timed_out.status.code(), Some(1), "{}", String::from_utf8_lossy(&timed_out.stderr));
+    assert_eq!(
+        timed_out.status.code(),
+        Some(124),
+        "{}",
+        String::from_utf8_lossy(&timed_out.stderr)
+    );
     let receipt = json_output(&timed_out);
     assert_eq!(receipt["matched"], false, "{receipt}");
+    assert_eq!(receipt["timed_out"], true, "{receipt}");
     assert!(started.elapsed() < Duration::from_secs(4), "{:?}", started.elapsed());
 
     let usage = wait(&["--until", "soon"]).wait_with_output().unwrap();

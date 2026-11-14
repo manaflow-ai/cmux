@@ -46,6 +46,8 @@ import "./header/header.css";
 import "./needsYou/needsYou.css";
 import "./newtab/screen.css";
 import "./newtab/history.css";
+import "./queue/queue.css";
+import "./ledger/ledger.css";
 import "./newtab/noEntry.css";
 import "./threadMinimap/threadMinimap.css";
 import "./turnChanges/turnChanges.css";

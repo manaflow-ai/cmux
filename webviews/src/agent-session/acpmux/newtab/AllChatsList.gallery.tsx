@@ -3,7 +3,8 @@ import { componentEntry } from "../../../gallery/format";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import type { ComponentProps } from "react";
-import { AllChatsList, type AllChatsPage, type LoadChatsPage } from "./AllChatsList";
+import { AllChatsList } from "./AllChatsList";
+import { type AllChatsPage, type LoadChatsPage } from "./allChatsListModel";
 
 const rows = Array.from({ length: 8 }, (_, index) => ({
   key: `claude:gallery-${index}`,

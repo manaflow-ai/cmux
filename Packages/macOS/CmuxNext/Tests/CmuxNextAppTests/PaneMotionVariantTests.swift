@@ -84,7 +84,9 @@ struct PaneMotionVariantTests {
         #expect(!screen.step())
     }
 
-    @Test func crispExpandAndCloseMoveFartherInTheFirstFrameThanCurrent() throws {
+    /// Crisp's expand moves farther in the first frame than the current zoom spring. Its close does not: the current
+    /// close is the split spring, which since instant-splits (Leo 2026-11-08) is at least as quick as crisp's.
+    @Test func crispExpandMovesFartherInTheFirstFrameThanCurrentAndTheCurrentCloseKeepsUp() throws {
         for zooming in [true, false] {
             let current = Screen(Self.split, variant: .standard)
             let crisp = Screen(Self.split, variant: .crisp)
@@ -93,7 +95,7 @@ struct PaneMotionVariantTests {
             crisp.step()
             let currentWidth = try #require(current.view.paneFrames["p1"]?.width.value)
             let crispWidth = try #require(crisp.view.paneFrames["p1"]?.width.value)
-            #expect(crispWidth > currentWidth)
+            if zooming { #expect(crispWidth > currentWidth) } else { #expect(currentWidth >= crispWidth) }
         }
     }
 

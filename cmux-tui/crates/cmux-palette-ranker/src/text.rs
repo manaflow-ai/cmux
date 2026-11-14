@@ -1,7 +1,7 @@
 //! Text folding, character classes, prepared fields and queries.
 //!
 //! Every rule here matches the TypeScript ranker this crate replaced
-//! (`webviews/src/palette/ranker.ts`) scalar for scalar, including the
+//! scalar for scalar, including the
 //! JavaScript white space set and `String.prototype.trim`, so a query ranks
 //! the same on every host.
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ComposerAttachment } from "../attachments";
-import { appendAttachments } from "./attachmentIntake";
+import { appendAttachments } from "./attachmentIntakeModel";
 import { holdWebSwap } from "../../../pages/shared/webSwap";
 
 /// Where the host keeps each chat's unsent chips (AgentPaneDraftAttachments.swift), so reopening

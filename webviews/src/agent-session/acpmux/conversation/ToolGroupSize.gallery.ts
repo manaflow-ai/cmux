@@ -7,8 +7,9 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, activity, chat, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxActivity } from "../model";
-import { stepProbe } from "./ToolGroupRow";
+import { stepProbe } from "./toolGroupRowModel";
 import type { Play } from "../../../gallery/play";
+import { pinnedVariants } from "./pinnedToolRowsScenes";
 
 const log = Array.from({ length: 6 }, (_, index) => `ok ${index + 1} - fetch retries case ${index + 1}`).join("\n");
 
@@ -141,12 +142,17 @@ export default agentPaneEntry({
   title: "Opening a long run of commands",
   area: "Agent pane",
   height: 640,
-  covers: ["agent-session/acpmux/conversation/ToolGroupRow.tsx#ToolGroupRow"],
+  covers: [
+    "agent-session/acpmux/conversation/ToolGroupRow.tsx#ToolGroupRow",
+    "agent-session/acpmux/conversation/KeepOpenedLine.tsx#KeepOpenedLine",
+  ],
   variants: {
     n5: variant(5),
     n20: variant(20),
     n100: variant(100),
     "mixed-commands": mixed("commands", mixedCommands),
     "mixed-reads": mixed("reads", mixedReads),
+    // An opened call stays open and in place when the next call regroups the run (pinnedToolRowsScenes.ts).
+    ...pinnedVariants,
   },
 });

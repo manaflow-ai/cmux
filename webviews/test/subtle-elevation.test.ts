@@ -206,7 +206,11 @@ describe("one subtle elevation scale", () => {
   test("no filter drop-shadow blurs past the scale", () => {
     const filters = css.flatMap(({ file, text }) =>
       [...text.matchAll(/drop-shadow\(([^()]*(?:\([^()]*\)[^()]*)*)\)/g)]
-        .filter((match) => (lengths(match[1])[2] ?? 0) > MAX_BLUR || !(alpha(match[1]) <= MAX_ALPHA))
+        .filter((match) => {
+          // `drop-shadow(var(--elevation-2))` casts the token: check what it resolves to.
+          const drops = tokenCall(match[1].trim()) ? blurredDrops(match[1].trim()) : [match[1]];
+          return drops.some((drop) => (lengths(drop)[2] ?? 0) > MAX_BLUR || !(alpha(drop) <= MAX_ALPHA));
+        })
         .map((match) => `${file}: ${match[0]}`),
     );
     expect(filters).toEqual([]);
@@ -220,13 +224,14 @@ describe("one subtle elevation scale", () => {
     // diff toolbar's menus and base picker (.toolbar-menu, .base-picker-popover) do.
     ["ui/popupSurface.css", ".ui-popup", "--elevation-2"],
     ["ui/ui.css", ".ui-sheet", "--elevation-2"],
+    // Every dialog a page draws (Share, Delete chat, Add account, Add project, the PDF viewer, Cloud's
+    // create sheet, Home's forms) is the sheet role's glass, which casts its drop once.
+    ["ui/popupSurface.css", ".ui-dialog.ui-glass", "--elevation-2"],
     // A tooltip is small and close to its control: elevation 1 (--tooltip-shadow, TooltipSurface.shadow).
     ["pages/shared/desktop.css", ".ui-title-tooltip", "--elevation-1"],
     // The link editor (.md-link-popover) is a ui/Popover, so .ui-popup casts its drop; the hover bubble is solid.
     ["pages/markdown/styles.css", ".md-link-bubble", "--elevation-2"],
-    ["pages/cloud/styles.css", ".cloud-create-sheet", "--elevation-2"],
     ["pages/home-channels/ledger.css", ".lg-palette", "--elevation-2"],
-    ["pages/home-channels/ledger.css", ".lg-form", "--elevation-2"],
     ["pages/home-channels/ledger.css", ".lg-sheet", "--elevation-2"],
     ["pages/home-channels/styles.css", ".hc-msg-toolbar", "--elevation-2"],
     ["icon-picker/styles.css", ".icon-bar-pill", "--elevation-2"],
@@ -249,8 +254,6 @@ describe("one subtle elevation scale", () => {
     ["agent-session/acpmux/conversation/conversation.css", ".acpmux-jump-latest", "--elevation-2"],
     ["agent-session/acpmux/threadMinimap/threadMinimap.css", ".acpmux-minimap__card", "--elevation-2"],
     ["agent-session/acpmux/summary/summary.css", ".acpmux-summary-card", "--elevation-2"],
-    ["agent-session/acpmux/addProject.css", ".acpmux-add-project-dialog", "--elevation-2"],
-    ["agent-session/acpmux/composerAttachments.css", ".acpmux-pdf-viewer", "--elevation-2"],
     ["agent-session/acpmux/composerAttachments.css", ".acpmux-pdf-sheet", "--elevation-1"],
     ["agent-session/acpmux/composerControls.css", ".acpmux-effort-thumb", "--elevation-1"],
   ];

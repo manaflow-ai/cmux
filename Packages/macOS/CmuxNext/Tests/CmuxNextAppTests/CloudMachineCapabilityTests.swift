@@ -26,17 +26,15 @@ struct CloudMachineCapabilityTests {
         #expect(machine.servesDesktop)
         #expect(machine.capabilities.desktop)
         #expect(machine.allows(.desktop))
-        #expect(machine.defaultDesktopViewer(for: "user_u0000000000000000001") == "rd")
-        // The rd stream is the creator's alone: a teammate, or no signed-in user, keeps the noVNC page.
-        #expect(machine.defaultDesktopViewer(for: "user_u0000000000000000002") == "web")
-        #expect(machine.defaultDesktopViewer(for: nil) == "web")
+        // Whoever asks: the carrier itself refuses anyone but the creator (`service_refused`).
+        #expect(machine.opensCarrierDesktop)
         // Serving the desktop declares nothing else: the other actions keep the undeclared default.
         #expect(machine.declaredCapabilities == nil)
         #expect(machine.allows(.ports))
         #expect(machine.allows(.fork))
     }
 
-    @Test func cmuxNextRecordWithoutDesktopKeepsTheWebViewer() throws {
+    @Test func cmuxNextRecordWithoutDesktopOpensNoDesktop() throws {
         for record in [
             JSONValue.object(["id": .string("m-old"), "status": .string("running")]),
             JSONValue.object(["id": .string("m-off"), "status": .string("running"), "desktop": .bool(false)]),
@@ -44,7 +42,7 @@ struct CloudMachineCapabilityTests {
             let machine = try #require(CloudMachine(next: record))
             #expect(!machine.servesDesktop)
             #expect(!machine.capabilities.desktop)
-            #expect(machine.defaultDesktopViewer(for: "user_u0000000000000000001") == "web")
+            #expect(!machine.opensCarrierDesktop)
         }
     }
 
@@ -58,5 +56,18 @@ struct CloudMachineCapabilityTests {
         #expect(machine.capabilities.desktop)
         #expect(machine.allows(.exec))
         #expect(!machine.allows(.snapshot))
+    }
+
+    /// A record whose `provider_operations` lists `desktop` while its own `desktop` is false opens no
+    /// desktop: only the record's `desktop` says the machine serves one.
+    @Test func aPromotedDesktopOperationOpensNoDesktop() throws {
+        let record = JSONValue.object([
+            "id": .string("m-promoted"), "status": .string("running"), "desktop": .bool(false),
+            "provider_operations": .array([.string("desktop"), .string("exec")]),
+        ])
+        let machine = try #require(CloudMachine(next: record))
+
+        #expect(!machine.servesDesktop)
+        #expect(!machine.opensCarrierDesktop)
     }
 }
