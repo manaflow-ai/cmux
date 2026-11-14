@@ -1,3 +1,4 @@
+import CMUXAuthCore
 import Foundation
 import struct CmuxMobileModel.ServiceFailureMessage
 import struct CmuxMobileModel.TeamAppearance
@@ -9,10 +10,15 @@ public struct LiveAPI: Sendable {
     /// A Stack access token; `true` forces a refresh after a 401.
     let accessToken: @Sendable (_ forceRefresh: Bool) async throws -> String
     let session: URLSession
+    /// A dev build's cloud data space (`X-Cmux-Build-Space`), on every request and the signaling
+    /// upgrade; nil (nightly, TestFlight, App Store, Demo) sends no header.
+    public let buildSpace: CMUXBuildSpace?
 
-    public init(baseURL: URL, session: URLSession = .shared, accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String) {
+    public init(baseURL: URL, session: URLSession = .shared, buildSpace: CMUXBuildSpace? = nil,
+                accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String) {
         self.baseURL = baseURL
         self.session = session
+        self.buildSpace = buildSpace
         self.accessToken = accessToken
     }
 
@@ -252,7 +258,7 @@ public struct LiveAPI: Sendable {
     func pinningToken() async throws -> LiveAPI {
         let token = try await accessToken(false)
         let provider = accessToken
-        return LiveAPI(baseURL: baseURL, session: session, accessToken: { forceRefresh in
+        return LiveAPI(baseURL: baseURL, session: session, buildSpace: buildSpace, accessToken: { forceRefresh in
             if forceRefresh { return try await provider(true) }
             return token
         })
@@ -302,10 +308,12 @@ public struct LiveAPI: Sendable {
         var request = URLRequest(url: components.url!)
         request.setValue("Bearer \(try await accessToken(false))", forHTTPHeaderField: "Authorization")
         request.setValue("cmux-mobile.v1", forHTTPHeaderField: "Sec-WebSocket-Protocol")
+        buildSpace?.apply(to: &request)
         return request
     }
 
-    func call(_ method: String, _ path: String, body: [String: Any]? = nil) async throws -> Data {
+    /// The request ``call(_:_:body:)`` sends, before its bearer.
+    func makeRequest(_ method: String, _ path: String, body: [String: Any]? = nil) throws -> URLRequest {
         var request = URLRequest(url: baseURL.appending(path: path))
         request.httpMethod = method
         request.timeoutInterval = 15
@@ -313,6 +321,12 @@ public struct LiveAPI: Sendable {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
+        buildSpace?.apply(to: &request)
+        return request
+    }
+
+    func call(_ method: String, _ path: String, body: [String: Any]? = nil) async throws -> Data {
+        var request = try makeRequest(method, path, body: body)
         // A rejected token (expired while the app slept) is refreshed once.
         for forceRefresh in [false, true] {
             request.setValue("Bearer \(try await accessToken(forceRefresh))", forHTTPHeaderField: "Authorization")

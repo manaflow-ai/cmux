@@ -124,6 +124,17 @@ public nonisolated struct BuildIdentity: Sendable, Equatable {
         self.init(bundleID: bundle.bundleIdentifier, bundledTag: environment?["CMUX_TAG"] as? String)
     }
 
+    /// The tag of a tagged dev build (`com.cmuxterm.app.debug.<tag>`, `com.cmuxterm.app.staging.<tag>`, or a DEV
+    /// bundle that ships `CMUX_TAG`): the cloud build space its requests carry (`X-Cmux-Build-Space`). Nil for
+    /// NIGHTLY (also cmux NEXT's `.cmux-next`), RC, release, an untagged DEV build and a standalone process, which
+    /// share the cloud's default space.
+    public var devTag: String? {
+        switch kind {
+        case .dev, .staging: tag
+        case .nightly, .release, .rc, .unbundled: nil
+        }
+    }
+
     /// FNV-1a 32 of the key, 8 hex digits: for names that must stay short
     /// (socket paths, session names).
     public var keyHash: String { Self.fnv1a32(Array(key.utf8)) }

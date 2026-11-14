@@ -163,15 +163,14 @@ extension CloudService {
     /// way the feed does; used only to answer a G8 approval after the
     /// person's native confirmation. Never on the relay path.
     private func sessionCall() -> CloudApprovalAnswer.Call {
-        let base = FeedService.apiBaseURL(auth: auth)
-        let auth = auth
+        let auth = auth, base = FeedService.apiBaseURL(auth: auth), buildSpace = configuration.buildSpace
         let session = Self.sessionTransport
         return { path, body in
-            var request = URLRequest(url: base.appendingPathComponent(path))
+            var request = URLRequest(url: base.appendingPathComponent(path), timeoutInterval: 15)
             request.httpMethod = "POST"
-            request.timeoutInterval = 15
             request.setValue("application/json", forHTTPHeaderField: "content-type")
             request.setValue("Bearer \(try await auth.tokens().access)", forHTTPHeaderField: "authorization")
+            buildSpace?.apply(to: &request)
             request.httpBody = body
             return try await session.data(for: request).0
         }

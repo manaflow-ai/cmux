@@ -9,7 +9,9 @@ use std::time::Duration;
 use cmux_mobile_link::api::ApiClient;
 use cmux_mobile_link::api::{HttpClient, IceCache, IceServer};
 use cmux_mobile_link::link::{ChannelReceiver, ChannelSender};
-use cmux_mobile_link::{ChannelEvent, DialError, DialOptions, LinkConfig, SignalingClient, Timeline};
+use cmux_mobile_link::{
+    BuildSpace, ChannelEvent, DialError, DialOptions, LinkConfig, SignalingClient, Timeline,
+};
 use tokio::runtime::Runtime;
 
 mod browser;
@@ -895,6 +897,9 @@ struct SocketKey {
     base_url: String,
     team_id: String,
     device_id: String,
+    /// The build space the socket's upgrade carried (`set_build_space`): a
+    /// change opens a new socket instead of reusing one in the old space.
+    build_space: Option<BuildSpace>,
 }
 
 /// A signaling socket shared by the warm pool and the links dialed on it;
@@ -1022,7 +1027,7 @@ async fn prewarm_on(
     device_id: String,
 ) -> Vec<TimingMark> {
     let timeline = Timeline::new();
-    let key = SocketKey { base_url: base_url.clone(), team_id, device_id };
+    let key = SocketKey { base_url: base_url.clone(), team_id, device_id, build_space: build_space() };
     let socket = async {
         if let Some(socket) = pool.pooled(&key).await {
             if socket.client.probe(STALE_PROBE).await {
@@ -1049,7 +1054,7 @@ async fn network_changed_on(
 ) -> Vec<TimingMark> {
     let roam = tokio::spawn(cmux_mobile_link::dial::wireguard::network_changed());
     let timeline = Timeline::new();
-    let key = SocketKey { base_url, team_id, device_id };
+    let key = SocketKey { base_url, team_id, device_id, build_space: build_space() };
     if let Some(socket) = pool.pooled(&key).await {
         if socket.client.probe(NETWORK_PROBE).await {
             timeline.mark("alive");
@@ -1094,7 +1099,7 @@ impl Warm {
     }
 
     async fn ice_servers(&self, base_url: &str, token: &str, timeline: &Timeline) -> Vec<IceServer> {
-        let api = ApiClient::with_http(base_url, token, self.http.clone());
+        let api = ApiClient::with_http(base_url, token, self.http.clone()).with_build_space(build_space());
         let (servers, cached) = self.ice_cache(base_url).get(&api, ICE_BUDGET).await;
         timeline.mark(if cached { "ice_servers_cached" } else { "ice_servers_fetched" });
         servers
@@ -1142,9 +1147,15 @@ impl Warm {
         token: &str,
         timeline: &Timeline,
     ) -> Result<Arc<WarmSocket>, CmuxMobileError> {
-        let client = SignalingClient::connect(&key.base_url, token, &key.team_id, &key.device_id)
-            .await
-            .map_err(CmuxMobileError::from)?;
+        let client = SignalingClient::connect_in(
+            &key.base_url,
+            token,
+            &key.team_id,
+            &key.device_id,
+            key.build_space.as_ref(),
+        )
+        .await
+        .map_err(CmuxMobileError::from)?;
         timeline.mark("signaling_open");
         let socket = Arc::new(WarmSocket { key: key.clone(), client });
         let mut pool = self.sockets.lock().await;
@@ -1187,6 +1198,26 @@ pub async fn prewarm(base_url: String, token: String, team_id: String, device_id
 #[uniffi::export]
 pub fn set_cellular_path(cellular: bool) {
     cmux_mobile_link::dial::wireguard::set_cellular_path(cellular);
+}
+
+/// This process's build space (`set_build_space`); nil: none (no header).
+static BUILD_SPACE: Mutex<Option<BuildSpace>> = Mutex::new(None);
+
+fn build_space() -> Option<BuildSpace> {
+    BUILD_SPACE.lock().unwrap_or_else(PoisonError::into_inner).clone()
+}
+
+/// A dev build's cloud data space, `dev:<slug>` (Swift `CMUXBuildSpace`),
+/// set once at launch by the app's composition root before any `connect`
+/// or `prewarm`: every `GET /v1/ice` and signaling upgrade then carries
+/// `x-cmux-build-space`. `None`, or a value that is not `dev:<slug>`, sends
+/// no header (nightly, TestFlight and App Store builds never call it with a
+/// value). A change takes effect for the next socket opened; a socket opened
+/// in another space is not reused.
+#[uniffi::export]
+pub fn set_build_space(value: Option<String>) {
+    let space = BuildSpace::parse_optional(value.as_deref());
+    *BUILD_SPACE.lock().unwrap_or_else(PoisonError::into_inner) = space;
 }
 
 /// Settings → Transport → Align Keepalives (off by default): every
@@ -1252,6 +1283,7 @@ async fn dial(
         base_url: request.base_url.clone(),
         team_id: request.team_id.clone(),
         device_id: request.device_id.clone(),
+        build_space: build_space(),
     };
     // ICE servers and the signaling socket are independent: get both at once.
     let socket = async {

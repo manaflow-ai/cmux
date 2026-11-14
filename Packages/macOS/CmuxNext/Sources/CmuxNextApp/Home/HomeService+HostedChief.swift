@@ -15,7 +15,7 @@ extension HomeService {
             apiBase: { feed.apiBaseURL }, token: { try await auth.tokens().access },
             ops: { body in try await Self.hostedCall(feed, "v1/ops", body) },
             user: { auth.user.map { CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: $0.id) } },
-            debugBuild: auth.configuration.isDebugBuild, owner: owner, localChief: Self.mux.id,
+            debugBuild: auth.configuration.isDebugBuild, owner: owner, localChief: Self.mux.id, headers: auth.configuration.buildSpace?.headers ?? [:],
             refreshTab: { [weak self] in self?.refreshChiefTab() }))
     }
 

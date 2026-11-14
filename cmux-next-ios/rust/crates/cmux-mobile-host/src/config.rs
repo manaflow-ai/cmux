@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+use cmux_mobile_link::BuildSpace;
 
 use crate::auth::{DEFAULT_STACK_API, DEFAULT_STACK_PROJECT, TokenSource};
 use crate::control::{AcpmuxEndpoint, Supplied};
@@ -89,6 +90,10 @@ pub fn chief_socket(tui_socket_dir: &Path) -> PathBuf {
 #[derive(Debug, Clone)]
 pub struct HostConfig {
     pub base_url: String,
+    /// `CMUX_MOBILE_BUILD_SPACE`: a dev build's `dev:<slug>`, sent as
+    /// `x-cmux-build-space` on every request to the service; `None` (nightly,
+    /// stable, an unset or malformed value) sends no header.
+    pub build_space: Option<BuildSpace>,
     pub team_id: String,
     pub device_id: String,
     pub device_name: String,
@@ -109,6 +114,16 @@ pub struct HostConfig {
     pub exclude_cgnat: bool,
     pub session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
     pub services: ServiceConfig,
+}
+
+/// `CMUX_MOBILE_BUILD_SPACE`'s build space; a malformed value is dropped
+/// (the backend would refuse it) with a warning, never sent.
+pub fn build_space_from(value: Option<&str>) -> Option<BuildSpace> {
+    let space = BuildSpace::parse_optional(value);
+    if space.is_none() && value.is_some_and(|v| !v.trim().is_empty()) {
+        tracing::warn!("CMUX_MOBILE_BUILD_SPACE is not dev:<slug>; sending no build space");
+    }
+    space
 }
 
 fn env(name: &str) -> Option<String> {
@@ -418,6 +433,7 @@ impl HostConfig {
             .unwrap_or_default();
         Ok(Self {
             base_url,
+            build_space: build_space_from(env("CMUX_MOBILE_BUILD_SPACE").as_deref()),
             team_id,
             device_id,
             device_name: env("CMUX_MOBILE_DEVICE_NAME").unwrap_or_else(hostname),

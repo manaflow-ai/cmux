@@ -156,7 +156,7 @@ public final class ChiefSources {
     /// Signed in: finds the user's Cloud Chief with this account's access
     /// token, and looks again whenever the app returns to the foreground
     /// while it has none.
-    public func start(userID: String, config: ChiefCloudConfig? = .current(),
+    public func start(userID: String, config: ChiefCloudConfig?,
                       accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String) {
         guard let config else {
             stop()
@@ -168,7 +168,7 @@ public final class ChiefSources {
         }
         self.userID = userID
         useHistory(of: userID)
-        http = ChiefCloudHTTP(base: config.baseURL, accessToken: accessToken)
+        http = ChiefCloudHTTP(base: config.baseURL, accessToken: accessToken, buildSpace: config.buildSpace)
         #if canImport(UIKit)
         if foregroundObserver == nil {
             foregroundObserver = NotificationCenter.default.addObserver(
