@@ -158,6 +158,38 @@ top, so a block copies between the two:
 - Contrast is guarded: a `foreground` under 4.5:1 on its `background` shows as the
   app theme's text color instead, and Settings says so at the Theme File row.
 
+### Restyle cmux from an agent: `cmux theme`
+
+When someone asks you to change how cmux looks, use these commands rather than
+hand-editing JSON. They check every value the same way the app does, keep the
+file's comments, and work even when cmux is not running. The app picks up each
+save at once, on the Mac and on a paired iPhone.
+
+1. If no theme file is active yet, `cmux theme export --save <name> --use`. It
+   writes the current look as a theme file and makes it the active one. Nothing on
+   screen changes: each live entry holds today's value, and every other look key is
+   a comment showing its default.
+2. Change one thing at a time with `cmux theme set KEY VALUE`, for example
+   `cmux theme set appearance.accent magenta` or
+   `cmux theme set appearance.backgroundOpacity 0.85`. A value cmux refuses is
+   rejected before anything is written, and the error says what is accepted.
+3. Run `cmux theme check`. Each problem prints as `themes/NAME.json:LINE: key:
+   message`. Exit 0 means there are none.
+4. To undo, `cmux theme reset KEY` takes one key out. `cmux theme reset` with no
+   key goes back to the stock look.
+
+The other verbs:
+- `cmux theme get [KEY]` shows what the file sets.
+- `cmux theme list` lists the files and marks the active one.
+- `cmux theme use NAME` picks a different file.
+- `cmux theme import FILE.json [--use]` installs someone else's theme file.
+- `cmux theme schema --install` writes `themes/.schema.json` for editor completion.
+  The exported file's `$schema` already points at it.
+- A base16, iTerm2, Windows Terminal or Ghostty color scheme is a terminal theme, not
+  a look. Install it with `cmux theme import scheme.yaml`, then
+  `cmux theme set appearance.theme "<its name>"`.
+- Add `--json` to any of these for output a script can read.
+
 ## Make a view
 
 When someone asks for a view of their own (a sidebar section, a Session Info
