@@ -125,20 +125,21 @@ impl OpRouter for MuxRouter {
     }
 }
 
-/// The app streams a daemon event invalidates (`cmux.live` re-reads on them).
+/// The streams a change to the workspace tree invalidates.
+const TREE_STREAMS: &[&str] =
+    &["workspace.changed", "screen.changed", "pane.changed", "tab.changed", "terminal.changed"];
+/// The stream an agent state change invalidates.
+const AGENT_STREAMS: &[&str] = &["agent.changed"];
+
+/// The app streams a daemon event invalidates (`cmux.live` re-reads on them). Every one is
+/// declared in `cmux-app-host/schema/v2/events.json`, the table the extension SDKs are made from.
 fn streams(event: &MuxEvent) -> &'static [&'static str] {
     match event {
         MuxEvent::TreeChanged
         | MuxEvent::TreeSelectionChanged(_)
         | MuxEvent::WorkspacePresentationChanged(_)
-        | MuxEvent::TreeDelta(_) => &[
-            "workspace.changed",
-            "screen.changed",
-            "pane.changed",
-            "tab.changed",
-            "terminal.changed",
-        ],
-        MuxEvent::AgentChanged { .. } => &["agent.changed"],
+        | MuxEvent::TreeDelta(_) => TREE_STREAMS,
+        MuxEvent::AgentChanged { .. } => AGENT_STREAMS,
         _ => &[],
     }
 }
@@ -146,6 +147,21 @@ fn streams(event: &MuxEvent) -> &'static [&'static str] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_stream_the_daemon_publishes_is_in_the_sdks_event_table() {
+        let table: Value =
+            serde_json::from_str(include_str!("../../../cmux-app-host/schema/v2/events.json"))
+                .unwrap();
+        let declared = table["events"].as_object().unwrap();
+        assert_eq!(streams(&MuxEvent::TreeChanged), TREE_STREAMS);
+        for stream in TREE_STREAMS.iter().chain(AGENT_STREAMS) {
+            assert!(
+                declared.contains_key(*stream),
+                "{stream} is published to apps but not declared in schema/v2/events.json"
+            );
+        }
+    }
 
     #[test]
     fn requests_fill_current_selectors_only_where_the_op_takes_them() {

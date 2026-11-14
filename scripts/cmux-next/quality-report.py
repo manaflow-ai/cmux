@@ -18,6 +18,12 @@ So the nightly tracks three numbers over time, each from the source that already
                             attempt of every run): green_share, the share of checks whose newest finished run on the
                             branch is green, and flake_rate, the share of (commit, check) pairs that failed and then
                             passed on the same commit. The checks red now are listed with their failure counts.
+  first_user_journey        Leo, 2026-11-12: "We need to, like, actually properly, like, click through and utilize every
+                            single thing." The newest results.json of each first-user journey surface (web: the webviews
+                            click-through on the mock daemon; mac: the fresh-user Nightly walk; ios: the simulator walk),
+                            each a matrix of harness x sign-in state cells (or iOS screens) with its reds by rule class
+                            (error-without-next-step, raw-error-code, dead-button, permanent-spinner, layout-break, ...).
+                            A result older than JOURNEY_MAX_AGE_H is stale and not counted. HQ docs/qa/first-user-journey.md.
   nightly_speed             Leo, 2026-11-12: "we need to start freaking enforcing, like, the speed". Over the window:
                             nightlies published, merge to feed p50 and p95 against SPEED_BUDGET_MIN (30), how many
                             were over it, and the stage with the largest p50. From the history that
@@ -32,7 +38,8 @@ cmuxterm-hq). The section says which source answered and why the other did not.
 
     quality-report.py report [--hours 24] [--perf-state state.json] [--god-small FILE] [--anim-coverage FILE]
                              [--ci-branches feat-cmux-next,main] [--ci-commits 50] [--ci-repo manaflow-ai/cmux] [--speed]
-                             --json OUT [--md OUT] [--public-md OUT]
+                             [--first-user-journey RESULTS.json]... --json OUT [--md OUT] [--public-md OUT]
+    quality-report.py fetch-journey --repo OWNER/NAME --workflow FILE.yml --artifact NAME --dir DIR [--tries 5]
     quality-report.py sticky --report OUT.json --md OUT.md [--repo manaflow-ai/cmuxterm-hq]
 
 `report` writes the metrics JSON (--json), the full report with signature names (--md, for the private sticky
@@ -44,6 +51,10 @@ with a `why`; nothing here fails a build. Input slots that other checks fill, by
   --god-small      {"rows": [{"name": str, "small_p95": num, "god_p95": num}, ...]} (or a bare list of those rows;
                    `small`/`god` are accepted for the two numbers, and a given `ratio` is used as is)
   --anim-coverage  {"coverage": 0..1} or {"covered": int, "total": int} (`animated` for total is accepted)
+  --first-user-journey  {"schema": 1, "surface": "web"|"mac"|"ios", "generated_at", "build", "run_url",
+                   "cells": [{"cell", "harness", "state", "outcome": "pass"|"red"|"needs-account"|"skip", "steps",
+                   "reds": [{"rule", "where", "step", "detail", "screenshot"}]}], "missing_accounts": [...]};
+                   `fetch-journey` downloads the newest run's artifact of that shape into DIR/results.json.
 
 Tests: scripts/cmux-next/tests/test_quality_report.py (python3 -m unittest, no network).
 """
@@ -479,6 +490,79 @@ def anim_coverage(doc: Any, why: Optional[str]) -> Dict[str, Any]:
             "why": None if value is not None else (why or "the coverage input has no coverage figure")}
 
 
+# First-user journey
+
+JOURNEY_SURFACES = ("web", "mac", "ios")
+JOURNEY_MAX_AGE_H = 48  # a nightly that has not run for two nights is stale, not green
+JOURNEY_TOP_REDS = 12
+
+
+def journey_surface(doc: Any, why: Optional[str], t: dt.datetime) -> Dict[str, Any]:
+    """One surface's results.json as counts: cells by outcome, reds by rule, the harnesses missing a test account."""
+    out: Dict[str, Any] = {"surface": None, "cells": 0, "pass": 0, "red": 0, "needs_account": 0, "skip": 0,
+                           "steps": 0, "reds_by_rule": {}, "red_cells": [], "top_reds": [], "missing_accounts": [],
+                           "generated_at": None, "build": None, "run_url": None, "why": why}
+    if why:
+        return out
+    if not isinstance(doc, dict) or not isinstance(doc.get("cells"), list):
+        out["why"] = "the results have no cells list"
+        return out
+    surface = doc.get("surface")
+    out.update(surface=surface if surface in JOURNEY_SURFACES else None, generated_at=doc.get("generated_at"), build=doc.get("build"),
+               run_url=doc.get("run_url"))
+    stamp = doc.get("generated_at")
+    at = parse_time(stamp) if isinstance(stamp, str) else None
+    if at is None:
+        out["why"] = "the results have no generated_at"
+        return out
+    if t - at > dt.timedelta(hours=JOURNEY_MAX_AGE_H):
+        out["why"] = f"stale: generated {doc.get('generated_at')}, over {JOURNEY_MAX_AGE_H} h old"
+        return out
+    rules: Dict[str, int] = {}
+    for c in doc["cells"]:
+        if not isinstance(c, dict):
+            continue
+        outcome = str(c.get("outcome") or "skip").replace("-", "_")
+        out["cells"] += 1
+        out[outcome if outcome in ("pass", "red", "needs_account", "skip") else "skip"] += 1
+        steps = c.get("steps")
+        out["steps"] += steps if isinstance(steps, int) and not isinstance(steps, bool) else 0
+        raw_reds = c.get("reds")
+        reds = [r for r in raw_reds if isinstance(r, dict)] if isinstance(raw_reds, list) else []
+        if outcome == "red":
+            out["red_cells"].append(str(c.get("cell")))
+        for r in reds:
+            rule = str(r.get("rule") or "unnamed")
+            rules[rule] = rules.get(rule, 0) + 1
+            if len(out["top_reds"]) < JOURNEY_TOP_REDS:
+                out["top_reds"].append({"cell": str(c.get("cell")), "rule": rule, "where": str(r.get("where") or ""),
+                                        "detail": " ".join(str(r.get("detail") or "").split())[:200]})
+    out["reds_by_rule"] = dict(sorted(rules.items(), key=lambda kv: (-kv[1], kv[0])))
+    missing = doc.get("missing_accounts")
+    out["missing_accounts"] = sorted(str(h) for h in missing) if isinstance(missing, list) else []
+    out["why"] = None
+    return out
+
+
+def first_user_journey(paths: List[str], t: dt.datetime) -> Dict[str, Any]:
+    """Every given surface, keyed by its surface name (a path whose file is missing keys by its position)."""
+    surfaces: Dict[str, Any] = {}
+    for i, path in enumerate(paths):
+        doc, why = load_json(path)
+        try:
+            row = journey_surface(doc, why, t)
+        except Exception as e:  # an odd artifact costs its surface, never the report
+            row = journey_surface(None, f"unreadable results: {type(e).__name__}: {e}", t)
+        key = row["surface"] or f"input{i + 1}"
+        surfaces[key if key not in surfaces else f"input{i + 1}"] = row
+    live = [v for v in surfaces.values() if v["why"] is None]
+    return {"surfaces": surfaces,
+            "cells": sum(v["cells"] for v in live) if live else None,
+            "red_cells": sum(v["red"] for v in live) if live else None,
+            "reds": sum(sum(v["reds_by_rule"].values()) for v in live) if live else None,
+            "why": None if live else ("no input given" if not paths else "no surface has fresh results")}
+
+
 # CI health
 
 CI_REPO = "manaflow-ai/cmux"
@@ -692,7 +776,8 @@ def build_report(hours: int, t: dt.datetime, sentry_token: Optional[str], perf_s
                  hang_watch: Callable[[dt.datetime], List[Dict[str, Any]]] = gh_hang_watch_issues,
                  ci_branches: Optional[List[str]] = None, ci_commits: int = CI_COMMITS, ci_repo: str = CI_REPO,
                  ci_history: Optional[Callable] = None,
-                 speed_history: Optional[Callable[[], Dict[str, Any]]] = None) -> Dict[str, Any]:
+                 speed_history: Optional[Callable[[], Dict[str, Any]]] = None,
+                 journey_paths: Optional[List[str]] = None) -> Dict[str, Any]:
     since = t - dt.timedelta(hours=hours)
     get = sentry_getter or (lambda path, params: sentry_get(path, params, sentry_token or ""))
     sentry_why = None if sentry_token or sentry_getter else "no SENTRY_AUTH_TOKEN"
@@ -733,7 +818,8 @@ def build_report(hours: int, t: dt.datetime, sentry_token: Optional[str], perf_s
             "god_vs_small": god_vs_small(god, god_why),
             "animation_token_coverage": anim_coverage(anim, anim_why),
             "ci_health": ci_health(ci_branches or [], ci_commits, ci_repo, ci_history),
-            "nightly_speed": nightly_speed(speed_doc, speed_why, since)}
+            "nightly_speed": nightly_speed(speed_doc, speed_why, since),
+            "first_user_journey": first_user_journey(journey_paths or [], t)}
 
 
 def public_report(r: Dict[str, Any]) -> Dict[str, Any]:
@@ -748,6 +834,10 @@ def public_report(r: Dict[str, Any]) -> Dict[str, Any]:
     cf.pop("sessions", None)
     for env in (cf.get("by_environment") or {}).values():
         env.pop("sessions", None)
+    # A journey red's cell, screen and text name what the person saw (and the Mac walk's run is private): counts only.
+    for v in ((out.get("first_user_journey") or {}).get("surfaces") or {}).values():
+        for key in ("top_reds", "red_cells", "run_url", "build"):
+            v.pop(key, None)
     return out
 
 
@@ -762,6 +852,7 @@ def headline(r: Dict[str, Any], public: bool = False) -> Dict[str, str]:
     g = r["god_vs_small"]
     a = r["animation_token_coverage"]
     ci = r.get("ci_health") or {"why": "not in this report"}
+    fj = r.get("first_user_journey") or {"why": "not in this report"}
     sp = r.get("nightly_speed") or {"why": "not in this report"}
     return {
         "Crash-free sessions": (pct(cf["value"]) + ("" if public else f" of {cf.get('sessions')}")) if cf["value"] is not None else f"n/a ({cf['why']})",
@@ -777,6 +868,10 @@ def headline(r: Dict[str, Any], public: bool = False) -> Dict[str, str]:
                                     + ", ".join(b for b, v in ci["branches"].items() if "why" not in v) if ci.get("green_share") is not None else f"n/a ({ci.get('why')})"),
         "CI flake rate": (f"{pct(ci['flake_rate'])} of {ci['pairs']} commit-check pairs failed then passed on the same commit"
                           if ci.get("flake_rate") is not None else f"n/a ({ci.get('why')})"),
+        "First-user journey": (f"{fj['red_cells']} red of {fj['cells']} cells, {fj['reds']} reds ("
+                               + ", ".join(f"{k} {'n/a' if v['why'] else str(v['red']) + '/' + str(v['cells'])}"
+                                           for k, v in fj["surfaces"].items()) + ")"
+                               if fj.get("cells") is not None else f"n/a ({fj.get('why')})"),
         "Nightly merge to feed": speed_line(sp),
     }
 
@@ -827,6 +922,7 @@ def render_markdown(r: Dict[str, Any], public: bool) -> str:
         out += ["", "God-vs-small rows failed: " + ", ".join(
             f"`{row['name']}`" + (f" ({row['reason']})" if row.get("reason") else "") for row in failed)]
     out += ci_markdown(r.get("ci_health") or {})
+    out += journey_markdown(r.get("first_user_journey") or {}, public)
     return "\n".join(out) + "\n"
 
 
@@ -850,6 +946,29 @@ def ci_markdown(ci: Dict[str, Any]) -> List[str]:
     return out
 
 
+def journey_markdown(fj: Dict[str, Any], public: bool) -> List[str]:
+    if not fj.get("surfaces"):
+        return []
+    out = ["", "### First-user journey", "", "| Surface | Cells | Pass | Red | Needs account | Steps | Reds by rule | Run |",
+           "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+    for k, v in fj["surfaces"].items():
+        if v["why"]:
+            out.append(f"| {k} | n/a ({' '.join(str(v['why']).split()).replace('|', '/')}) | | | | | | |")
+            continue
+        rules = ", ".join(f"{rule} {n}" for rule, n in v["reds_by_rule"].items()) or "none"
+        run = f"[run]({v['run_url']})" if v.get("run_url") and not public else ""
+        out.append(f"| {k} | {v['cells']} | {v['pass']} | {v['red']} | {v['needs_account']} | {v['steps']} | {rules} | {run} |")
+    missing = sorted({h for v in fj["surfaces"].values() for h in v.get("missing_accounts") or []})
+    if missing:
+        out += ["", "No test account yet, so their signed-in cells are not walked: " + ", ".join(f"`{h}`" for h in missing)]
+    if not public:
+        top = [x for v in fj["surfaces"].values() for x in v.get("top_reds") or []]
+        if top:
+            out += ["", "Reds (first of each surface's list): " + "; ".join(
+                f"`{x['cell']}` {x['rule']} at {x['where']}: {x['detail']}".replace("|", "/") for x in top[:JOURNEY_TOP_REDS])]
+    return out
+
+
 def history_row(r: Dict[str, Any]) -> Dict[str, Any]:
     cr = r["crashes"]
     return {"at": r["generated_at"][:10], "crash_free": r["crash_free_session_rate"]["value"],
@@ -860,7 +979,9 @@ def history_row(r: Dict[str, Any]) -> Dict[str, Any]:
             "over_budget": len(r["interaction_p95_ms"]["over_budget"]),
             "god_ratio": r["god_vs_small"]["worst_ratio"], "anim": r["animation_token_coverage"]["value"],
             "ci_green": (r.get("ci_health") or {}).get("green_share"), "ci_flake": (r.get("ci_health") or {}).get("flake_rate"),
-            "speed_p95": (r.get("nightly_speed") or {}).get("p95_min")}
+            "speed_p95": (r.get("nightly_speed") or {}).get("p95_min"),
+            "journey_red": (r.get("first_user_journey") or {}).get("red_cells"),
+            "journey_cells": (r.get("first_user_journey") or {}).get("cells")}
 
 
 def sticky_body(r: Dict[str, Any], md: str, old_body: str) -> str:
@@ -874,15 +995,16 @@ def sticky_body(r: Dict[str, Any], md: str, old_body: str) -> str:
     row = history_row(r)
     history = [h for h in history if isinstance(h, dict) and h.get("at") != row["at"]] + [row]
     history = history[-HISTORY_KEEP:]
-    lines = ["| Night | Crash-free | Crashes (NIGHTLY/DEV) | New sigs | Worst p95 ms | Over budget | God/small | Anim coverage | CI green | CI flake | Merge to feed p95 min |",
-             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+    lines = ["| Night | Crash-free | Crashes (NIGHTLY/DEV) | New sigs | Worst p95 ms | Over budget | God/small | Anim coverage | CI green | CI flake | Merge to feed p95 min | Journey red cells |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     for h in reversed(history):
         crashes = "n/a" if h.get("crashes") is None else f"{h['crashes']} ({h.get('nightly') or 0}/{h.get('dev') or 0}, {h.get('crash_source')})"
         lines.append(f"| {h['at']} | {pct(h.get('crash_free'))} | {crashes} | {h.get('new_sigs') if h.get('new_sigs') is not None else 'n/a'} | "
                      f"{h.get('worst_p95_ms') if h.get('worst_p95_ms') is not None else 'n/a'} | {h.get('over_budget')} | "
                      f"{h.get('god_ratio') if h.get('god_ratio') is not None else 'n/a'} | {pct(h.get('anim'))} | "
                      f"{pct(h.get('ci_green'))} | {pct(h.get('ci_flake'))} | "
-                     f"{h.get('speed_p95') if h.get('speed_p95') is not None else 'n/a'} |")
+                     f"{h.get('speed_p95') if h.get('speed_p95') is not None else 'n/a'} | "
+                     f"{'n/a' if h.get('journey_red') is None else str(h['journey_red']) + '/' + str(h.get('journey_cells'))} |")
     return (f"{STICKY_MARK}\nWritten each night by cmux `.github/workflows/cmux-next-quality-report.yml` "
             f"(`scripts/cmux-next/quality-report.py`). Do not edit: the next night replaces this body.\n\n{md}\n"
             f"## Over time\n\n" + "\n".join(lines) + f"\n\n<!-- quality-history: {json.dumps(history, separators=(',', ':'))} -->\n")
@@ -905,6 +1027,22 @@ def write_sticky(r: Dict[str, Any], md: str, repo: str, run: Callable = subproce
     return f"#{own[0]['number']}" if own else (done.stdout or "").strip()
 
 
+def fetch_journey(repo: str, workflow: str, artifact: str, dest: str, run: Callable = subprocess.run,
+                  tries: int = 5) -> str:
+    """Download the newest of the workflow's last `tries` finished runs that kept `artifact` into DEST (gh, on
+    GH_TOKEN). A red run still carries results (its reds are why it is red), so the conclusion is not filtered."""
+    listed = run(["gh", "run", "list", "--repo", repo, "--workflow", workflow, "--status", "completed",
+                  "--json", "databaseId,createdAt", "--limit", str(tries)], capture_output=True, text=True, timeout=60)
+    if listed.returncode != 0:
+        raise SourceError(f"gh could not list {workflow} runs: {(listed.stderr or listed.stdout).strip()[-200:]}")
+    for r in json.loads(listed.stdout or "[]"):
+        got = run(["gh", "run", "download", str(r["databaseId"]), "--repo", repo, "--name", artifact, "--dir", dest],
+                  capture_output=True, text=True, timeout=120)
+        if got.returncode == 0:
+            return str(r["databaseId"])
+    raise SourceError(f"none of the last {tries} {workflow} runs kept the artifact {artifact}")
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -916,6 +1054,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     rep.add_argument("--ci-branches", default="", help="comma-separated base branches for the CI health section")
     rep.add_argument("--ci-commits", type=int, default=CI_COMMITS, help="commits read per branch")
     rep.add_argument("--ci-repo", default=CI_REPO)
+    rep.add_argument("--first-user-journey", action="append", default=[], metavar="RESULTS",
+                     help="a first-user journey surface's results.json (repeatable)")
     rep.add_argument("--speed", action="store_true", help="read the nightly speed history from the cmuxterm-hq issue")
     rep.add_argument("--json", required=True, help="the metrics JSON, signature names included (private)")
     rep.add_argument("--public-json", help="the metrics JSON without signature names (public)")
@@ -925,13 +1065,27 @@ def main(argv: Optional[List[str]] = None) -> int:
     st.add_argument("--report", required=True)
     st.add_argument("--md", required=True)
     st.add_argument("--repo", default=HQ_REPO)
+    fj = sub.add_parser("fetch-journey", help="download a first-user journey surface's newest results artifact")
+    fj.add_argument("--repo", required=True)
+    fj.add_argument("--workflow", required=True)
+    fj.add_argument("--artifact", required=True)
+    fj.add_argument("--dir", required=True)
+    fj.add_argument("--tries", type=int, default=5, help="finished runs looked at, newest first")
     args = ap.parse_args(argv)
+    if args.cmd == "fetch-journey":
+        try:
+            print(f"quality-report: {args.artifact} from run {fetch_journey(args.repo, args.workflow, args.artifact, args.dir, tries=args.tries)}")
+        except SourceError as e:
+            print(f"quality-report: {e}", file=sys.stderr)
+            return 1
+        return 0
     if args.cmd == "report":
         branches = [b.strip() for b in args.ci_branches.split(",") if b.strip()]
         r = build_report(args.hours, now_utc(), os.environ.get("SENTRY_AUTH_TOKEN") or None, args.perf_state,
                          args.god_small, args.anim_coverage, ci_branches=branches, ci_commits=args.ci_commits,
                          ci_repo=args.ci_repo, ci_history=gh_ci_history if branches else None,
-                         speed_history=gh_speed_history if args.speed else None)
+                         speed_history=gh_speed_history if args.speed else None,
+                         journey_paths=args.first_user_journey)
         for path, doc in ((args.json, r), (args.public_json, public_report(r) if args.public_json else None)):
             if path:
                 with open(path, "w", encoding="utf-8") as f:

@@ -99,6 +99,34 @@ fn parses_new_dev_list_remove_and_help() {
 }
 
 #[test]
+fn capabilities_parse_and_print_the_manifest_rows() {
+    assert_eq!(parse(&words("capabilities")), Ok(Request::Capabilities { op: None }));
+    assert_eq!(
+        parse(&words("capabilities --op net.fetch")),
+        Ok(Request::Capabilities { op: Some("net.fetch".into()) })
+    );
+    for bad in ["capabilities --op", "capabilities net.fetch", "capabilities --op a b"] {
+        assert!(parse(&words(bad)).is_err(), "{bad}");
+    }
+    let table = cmux_app_manifest::Capabilities::get();
+    let all = super::capabilities_table(&table.manifest_json(None).unwrap());
+    assert!(all.starts_with("OP "), "{all}");
+    let create =
+        all.lines().find(|l| l.starts_with("workspace.create ")).expect("workspace.create");
+    assert!(
+        create.contains("workspace:write") && create.contains("mutation sensitive"),
+        "{create}"
+    );
+    assert!(create.contains("with a command: workspace:execute"), "{create}");
+    let fetch = all.lines().find(|l| l.starts_with("net.fetch ")).expect("net.fetch");
+    assert!(fetch.contains("refused when sandboxed"), "{fetch}");
+    assert!(all.contains("ops no app may call") && all.contains("cmux app API "), "{all}");
+    let never = table.never().next().unwrap();
+    let one = super::capabilities_table(&table.manifest_json(Some(never)).unwrap());
+    assert!(one.lines().nth(1).unwrap().contains("never"), "{one}");
+}
+
+#[test]
 fn ext_leaves_other_commands_alone() {
     assert_eq!(super::run_if_requested(&words("apps list")), None);
     assert_eq!(super::run_if_requested(&words("extensions")), None);
@@ -388,6 +416,25 @@ fn serve(stream: UnixStream, local: &Path, app: &str, installed: bool, seen: &Mu
                     );
                 }
             }
+            // The capability manifest, when the test put a live types file
+            // next to the local folder (`LIVE_TYPES`); else an older daemon's `{}`.
+            "apps-capabilities" => {
+                let live = local.parent().map(|state| state.join(LIVE_TYPES));
+                match live.and_then(|path| std::fs::read_to_string(path).ok()) {
+                    Some(types) => {
+                        let digest = format!(
+                            "{:x}",
+                            types.len() * 31 + types.bytes().map(usize::from).sum::<usize>()
+                        );
+                        let mut data = json!({"apiVersion": "9.9.9", "typesDigest": digest});
+                        if request["brief"] != true {
+                            data["types"] = json!(types);
+                        }
+                        out.push(reply(data));
+                    }
+                    None => out.push(reply(json!({}))),
+                }
+            }
             _ => out.push(reply(json!({}))),
         }
         for value in out {
@@ -467,6 +514,73 @@ fn once_loads_a_new_extension_then_reports_a_load_error_with_its_position() {
     // `ext remove` drops the copy it made, and only that.
     assert_eq!(dev::remove_made_folder(&copy), Ok(true));
     assert!(!copy.exists());
+}
+
+/// The live types file the fake daemon serves as `apps-capabilities`.
+const LIVE_TYPES: &str = "live-cmux-app.d.ts";
+
+/// Hot reload of the API: `ext dev` writes the running cmux's typed global
+/// into the project when it differs, on start and when the daemon's digest
+/// moves; an unchanged digest fetches nothing more, and a daemon without the
+/// manifest (older) changes nothing.
+#[test]
+fn ext_dev_writes_the_live_types_when_they_differ() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = new_extension(root.path(), "typed");
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/typed", true);
+    let options = dev_options(&dir);
+    let scaffolded = std::fs::read_to_string(dir.join(dev::TYPES_FILE)).unwrap();
+
+    // An older daemon: no manifest, the file stays.
+    let outcome = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert_eq!(outcome.types_updated, None);
+    assert_eq!(std::fs::read_to_string(dir.join(dev::TYPES_FILE)).unwrap(), scaffolded);
+
+    // A daemon whose API differs: the file becomes its text, once.
+    // Next to the local folder, where the fake daemon looks.
+    let live = root.path().join("state/apps").join(LIVE_TYPES);
+    std::fs::write(&live, "declare const cmux: { newOp(): void }\n").unwrap();
+    let outcome = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert_eq!(outcome.types_updated.as_deref(), Some("9.9.9"));
+    assert!(outcome.line().contains("cmux-app.d.ts now matches this cmux"), "{}", outcome.line());
+    assert_eq!(outcome.to_json(&dir)["typesUpdated"], "9.9.9");
+    assert_eq!(
+        std::fs::read_to_string(dir.join(dev::TYPES_FILE)).unwrap(),
+        "declare const cmux: { newOp(): void }\n"
+    );
+    let again = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(again.types_updated, None, "the same text is not written again");
+
+    // One session: the digest is remembered, so a reload with no API change
+    // asks only the brief answer; a moved digest (a new cmux) rewrites.
+    let (sender, wakes) = std::sync::mpsc::channel();
+    let daemon = super::daemon::Daemon::connect(&global(&fake.socket), sender, wakes).unwrap();
+    let mut session = dev::Session::new(dir.clone(), &options, daemon);
+    std::fs::write(dir.join(dev::TYPES_FILE), "stale").unwrap();
+    assert_eq!(session.reload(true).types_updated.as_deref(), Some("9.9.9"));
+    let full = |fake: &FakeDaemon| {
+        let requests = fake.requests.lock().unwrap();
+        requests.iter().filter(|r| r["cmd"] == "apps-capabilities" && r["brief"] != true).count()
+    };
+    let before = full(&fake);
+    assert_eq!(session.reload(false).types_updated, None);
+    assert_eq!(full(&fake), before, "an unchanged digest fetches no manifest");
+    std::fs::write(&live, "declare const cmux: { newerOp(): void }\n").unwrap();
+    assert_eq!(session.reload(false).types_updated.as_deref(), Some("9.9.9"));
+    assert!(std::fs::read_to_string(dir.join(dev::TYPES_FILE)).unwrap().contains("newerOp"));
+    assert!(
+        !dir.join(format!(".{}.cmux-ext-dev", dev::TYPES_FILE)).exists(),
+        "no staged file left"
+    );
+
+    // A folder that does not use the types gets none.
+    let plain = root.path().join("plain");
+    std::fs::create_dir_all(&plain).unwrap();
+    assert!(!dev::write_types(&plain, "x").unwrap());
+    assert!(!plain.join(dev::TYPES_FILE).exists());
 }
 
 #[test]
