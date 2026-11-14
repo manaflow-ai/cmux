@@ -959,6 +959,7 @@ jobs:
         timeout-minutes: 5
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          CMUX_CI_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
           JOBS: resolve-nightly-cmux-tui-client find-nightly-next-recovery pick-nightly-build-runner resolve-nightly-ghostty-cli-helper
           NIGHTLY_ONLY_LABEL: ${{ vars.CI_NIGHTLY_ONLY_RUNNER }}
           REQUIRE_LIVE_CAPACITY: "1"
@@ -980,6 +981,7 @@ jobs:
         timeout-minutes: 5
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          CMUX_CI_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
           JOBS: pick-nightly-build-runner
           REQUIRE_LIVE_CAPACITY: "1"
           NIGHTLY: "1"

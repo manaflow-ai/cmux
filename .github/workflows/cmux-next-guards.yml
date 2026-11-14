@@ -158,6 +158,7 @@ jobs:
       linux_jobs: ${{ steps.place.outputs.linux_jobs }}
       mini_runner: ${{ steps.place.outputs.mini_runner }}
       mini_jobs: ${{ steps.place.outputs.mini_jobs }}
+      mini_lease_ids: ${{ steps.place.outputs.mini_lease_ids }}
       # A re-run of failed jobs carries this job's outputs from an earlier attempt; a job takes them
       # only in the attempt that placed it, so a stale reading never sends it to a busy mini.
       placed_attempt: ${{ github.run_attempt }}
@@ -206,6 +207,7 @@ jobs:
         timeout-minutes: 2
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          CMUX_CI_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
           JOBS: tooling-tests release-notary
           # Fork branch first: a fork never reads the runner variables (and its job is skipped); ubuntu-24.04 places nothing.
           FLEET_LINUX: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER }}
