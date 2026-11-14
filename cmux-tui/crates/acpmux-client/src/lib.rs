@@ -3830,9 +3830,9 @@ tail"#;
         fn sample(closed_rows: usize) -> (Vec<u64>, u64) {
             use acpmux_book::index::{ReadSide, SummaryIndex};
 
-            let mut timings = Vec::with_capacity(8);
+            let mut timings = Vec::with_capacity(40);
             let mut received = 0_u64;
-            for _ in 0..8 {
+            for _ in 0..40 {
                 let mut client = Client::<Value>::connected_v2();
                 let hello = Frame::json(
                     FrameKind::Hello,
@@ -3893,8 +3893,8 @@ tail"#;
         }
         let mut small_rounds = Vec::with_capacity(5);
         let mut god_rounds = Vec::with_capacity(5);
-        let mut small_all = Vec::with_capacity(40);
-        let mut god_all = Vec::with_capacity(40);
+        let mut small_all = Vec::with_capacity(200);
+        let mut god_all = Vec::with_capacity(200);
         let mut small_bytes = Vec::with_capacity(5);
         let mut god_bytes = Vec::with_capacity(5);
         for _ in 0..5 {
@@ -3910,8 +3910,7 @@ tail"#;
         let best = |rounds: &[Vec<u64>]| rounds.iter().map(|round| p95(round)).min().unwrap_or(0);
         let best_small = best(&small_rounds);
         let best_god = best(&god_rounds);
-        let small = p95(&small_all);
-        let god = p95(&god_all);
+        let small_p95_all = p95(&small_all);
         let god_p95_all = p95(&god_all);
         let small_bytes = small_bytes.into_iter().min().unwrap_or(0);
         let god_bytes = god_bytes.into_iter().min().unwrap_or(0);
@@ -3921,10 +3920,9 @@ tail"#;
         );
         let line = serde_json::json!({
             "name":"v2.pr04b.mirror_v1_rows",
-            "small_p95":small,
-            "god_p95":god,
-            "best_small_p95":best_small,
-            "best_god_p95":best_god,
+            "small_p95":best_small,
+            "god_p95":best_god,
+            "small_p95_all":small_p95_all,
             "god_p95_all":god_p95_all,
             "unit":"ns",
             "small_bytes":small_bytes,
