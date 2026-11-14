@@ -702,69 +702,10 @@ fn socket_inputs(
 }
 
 #[cfg(all(test, unix))]
-mod autostart_pair_tests {
-    use super::*;
-
-    /// A removed test home is never made again for a daemon; the default home still is.
-    #[test]
-    fn only_the_default_home_is_created_for_a_start() {
-        let dir = tempfile::tempdir().unwrap();
-        let gone = dir.path().join("removed-test-home");
-        let own = gone.join("acpmux.sock");
-        let why = autostart_refusal(&gone, true, None, &own).expect("a missing home is refused");
-        assert!(why.contains("does not exist"), "{why}");
-        assert!(!gone.exists());
-        let default = default_home();
-        let own = default.join("acpmux.sock");
-        assert_eq!(autostart_refusal(&default, false, None, &own), None);
-        assert_eq!(autostart_refusal(dir.path(), true, None, &dir.path().join("s.sock")), None);
-    }
-
-    /// `ACPMUX_SOCKET` pairs only with an explicit `ACPMUX_HOME` (or is the home's own): the
-    /// Chief's socket with no home must not start a daemon under `~/.acpmux`'s lock.
-    #[test]
-    fn a_socket_pairs_only_with_an_explicit_home_or_its_own() {
-        let dir = tempfile::tempdir().unwrap();
-        let home = dir.path();
-        let own = home.join("acpmux.sock");
-        // Another home's socket, as the Chief's would be.
-        let elsewhere = tempfile::tempdir().unwrap();
-        let chief_socket = elsewhere.path().join("acpmux.sock");
-        let chief = chief_socket.as_path();
-        let why = autostart_refusal(home, false, Some(chief), &own).expect("unpaired");
-        assert!(why.contains(&chief.display().to_string()), "{why}");
-        assert!(why.contains(&own.display().to_string()), "{why}");
-        assert_eq!(autostart_refusal(home, true, Some(chief), &own), None);
-        assert_eq!(autostart_refusal(home, false, Some(&own), &own), None);
-        assert_eq!(autostart_refusal(home, false, None, &own), None);
-    }
-}
+mod autostart_pair_tests;
 
 #[cfg(all(test, unix))]
-mod socket_input_tests {
-    use super::*;
-
-    /// A daemon a command starts is handed its home and socket absolute
-    /// (`daemon/login_placement.rs` `daemon_env`): from relative ones, the command must derive
-    /// the same socket, short alias included, or it waits on one the daemon never binds.
-    #[test]
-    fn a_long_relative_home_or_socket_uses_the_same_socket_alias() {
-        let cwd = Path::new("/work/a-folder-long-enough-that-its-socket-needs-a-short-alias");
-        let long = "x".repeat(80);
-        let alias = |configured: Option<&str>, home: &Path, cwd: &Path| {
-            let (configured, home) = socket_inputs(configured, home, Some(cwd));
-            cmux_agent_pane_policy::environment::socket_path(configured.as_deref(), &home, 501)
-        };
-        let elsewhere = Path::new("/elsewhere");
-        assert_eq!(alias(None, Path::new(&long), cwd), alias(None, &cwd.join(&long), elsewhere));
-        let sock = format!("{long}/a.sock");
-        let abs_sock = cwd.join(&sock).to_string_lossy().into_owned();
-        assert_eq!(
-            alias(Some(&sock), Path::new("/h"), cwd),
-            alias(Some(&abs_sock), Path::new("/h"), elsewhere)
-        );
-    }
-}
+mod socket_input_tests;
 
 /// A relative `ACPMUX_SOCKET` against this process's folder: the daemon
 /// hands the path to harnesses that run in a project folder
