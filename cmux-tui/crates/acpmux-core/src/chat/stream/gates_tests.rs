@@ -812,8 +812,8 @@ fn v2_pr03c_append_behind_page() {
     report_probes(name, "cold_page", &small.probes, &god.probes);
     emit(name, measures, "ns");
     // Each sample holds a cold read, as a row that holds a file sync does: judged on the best
-    // round's p95 alone.
-    measures.check(name, "cold_page", false);
+    // round's p95, and the p95 of all samples held to 2x beside it.
+    measures.check(name, "cold_page", true);
 }
 
 /// The p50 and p95 of each part of the samples, small then god.
@@ -866,6 +866,105 @@ fn v2_pr03c_append_behind_page_probe() {
             || append_sample(&rt, &mut god),
         );
         report_probes(name, &mode, &small.probes, &god.probes);
+    }
+}
+
+/// One side's page and append run apart: the page alone, waited for, then the append alone.
+/// Each part's time and the page faults and blocks the process took in it.
+#[derive(Clone, Copy, Debug, Default)]
+struct Split {
+    page_ns: u64,
+    page_minflt: u64,
+    page_inblock: u64,
+    append_ns: u64,
+    append_minflt: u64,
+    append_inblock: u64,
+}
+
+fn split_sample(rt: &Runtime, side: &mut Appender, cold: bool) -> Split {
+    if cold {
+        drop_set(&side.reader.fixture.chat.book(), DropSet::Rows);
+    }
+    let chat = &side.reader.fixture.chat;
+    let handle = chat.registry.get("chat").expect("the subscribed chat's actor runs");
+    let page: Page = serde_json::from_value(
+        json!({"sid": "s", "stream": "chat:chat", "after": 1, "edition": side.edition}),
+    )
+    .unwrap();
+    let (reply, answer) = Reply::channel("page", Some("s".to_owned()), None);
+    let (_, minflt, inblock) = rusage();
+    let start = Instant::now();
+    handle.page(page, person_id(None), reply);
+    let frame = answer.recv_timeout(WAIT).expect("the page is answered");
+    let page_ns = start.elapsed().as_nanos() as u64;
+    let (_, page_minflt, page_inblock) = rusage();
+    assert_eq!(frame.kind, FrameKind::Page, "{}", String::from_utf8_lossy(frame.payload()));
+    let marker = format!("append-{:08}", side.reader.n);
+    side.reader.n += 1;
+    let notice = side.reader.fixture.raw.notice(&marker);
+    chat.append(&[notice]);
+    let start = Instant::now();
+    handle.wake().unwrap();
+    let consumed = rt.block_on(until_marker(&mut side.reader.client, marker.as_bytes()));
+    let append_ns = start.elapsed().as_nanos() as u64;
+    let (_, append_minflt, append_inblock) = rusage();
+    side.consumed += consumed;
+    if side.consumed - side.credited >= CREDIT_WINDOW_BYTES / 4 {
+        rt.block_on(side.reader.client.credit("s", side.consumed));
+        side.credited = side.consumed;
+    }
+    Split {
+        page_ns,
+        page_minflt: page_minflt - minflt,
+        page_inblock: page_inblock - inblock,
+        append_ns,
+        append_minflt: append_minflt - page_minflt,
+        append_inblock: append_inblock - page_inblock,
+    }
+}
+
+/// The page and the append apart, cold (the gate's drop) and warm (no drop), small and god
+/// alternating: which of the two holds god's extra time, and whether the disk is in it.
+#[test]
+#[ignore]
+fn v2_pr03c_append_behind_page_split() {
+    let rt = runtime();
+    let (god, small) = god_and_small();
+    let (mut god, mut small) = (appender(&rt, god), appender(&rt, small));
+    let name = "v2.pr03c.append_behind_page_split";
+    for cold in [true, false] {
+        let (mut small_splits, mut god_splits) = (Vec::new(), Vec::new());
+        for round in 0..ROUNDS {
+            for (side, into) in [(&mut small, &mut small_splits), (&mut god, &mut god_splits)] {
+                for sample in 0..108 {
+                    let split = split_sample(&rt, side, cold);
+                    if sample >= 8 {
+                        into.push(split);
+                    }
+                }
+            }
+            println!("{name} cold={cold} round={} done", round + 1);
+        }
+        let parts: [(&str, fn(&Split) -> u64); 6] = [
+            ("page_ns", |s| s.page_ns),
+            ("page_minflt", |s| s.page_minflt),
+            ("page_inblock", |s| s.page_inblock),
+            ("append_ns", |s| s.append_ns),
+            ("append_minflt", |s| s.append_minflt),
+            ("append_inblock", |s| s.append_inblock),
+        ];
+        for (part, of) in parts {
+            let quantiles = |splits: &[Split]| {
+                let mut values: Vec<u64> = splits.iter().map(of).collect();
+                values.sort_unstable();
+                (values[values.len() / 2], percentile(&values))
+            };
+            let ((small_50, small_95), (god_50, god_95)) =
+                (quantiles(&small_splits), quantiles(&god_splits));
+            println!(
+                "{name} cold={cold} part={part} small_p50={small_50} god_p50={god_50} small_p95={small_95} god_p95={god_95}"
+            );
+        }
     }
 }
 
