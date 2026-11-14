@@ -272,7 +272,9 @@ fn match_prefix(kind: &str, raw: &str, ids: Vec<String>) -> Result<Option<String
 }
 
 /// The full id `raw` names when it is a bare id of `kind` (or, for a
-/// terminal, a host id); `Ok(None)` for any other word.
+/// terminal, a host id); `Ok(None)` for any other word, and for 32 hex
+/// digits that name no such object: the word stays a name, so one slot that
+/// matches nothing does not stop the other slots (`focused`) from expanding.
 fn expand_bare(
     state: &State,
     in_process_host: Option<InProcessHostLookup<'_>>,
@@ -298,7 +300,7 @@ fn expand_bare(
             return Ok(Some(public.to_string()));
         }
     }
-    Err(ResourceError::not_found(kind.kind(), raw))
+    Ok(None)
 }
 
 /// The tab a terminal selector names by a tab or pane id (full or prefix; a
