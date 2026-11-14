@@ -22,7 +22,7 @@ const CASES: u64 = 48;
 /// Steps per case.
 const STEPS: usize = 12;
 /// The longest that [`wait_for_a_later_millisecond`] waits for the wall clock.
-const LATER_MILLISECOND_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+const LATER_MILLISECOND_WAIT: Duration = Duration::from_secs(5);
 
 struct Rng(u64);
 
@@ -184,10 +184,11 @@ fn terminal_hex(prefix: &str, index: usize) -> String {
 /// case out of the run. No test asserts on it.
 ///
 /// The wait is less than a millisecond while the wall clock goes forward. A
-/// wall clock that was set back fails the test after [`LATER_MILLISECOND_WAIT`]
-/// (measured on the monotonic clock); it does not hang it.
+/// wall clock that was set back is waited out for [`LATER_MILLISECOND_WAIT`]
+/// at most (measured on the monotonic clock); then the test fails, it does
+/// not hang.
 fn wait_for_a_later_millisecond(process_end_ms: u64) {
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     while crate::session_shutdown::unix_now_ms() <= process_end_ms {
         assert!(
             started.elapsed() < LATER_MILLISECOND_WAIT,
