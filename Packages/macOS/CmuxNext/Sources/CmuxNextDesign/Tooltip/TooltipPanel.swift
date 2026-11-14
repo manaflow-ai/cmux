@@ -142,6 +142,10 @@ final class TooltipPanel: NSPanel {
             adoptedScope = scope
         }
         self.appearance = appearance
+        // The panel lives for the process: the corner rule in effect now (density, layout.paneCornerRadius,
+        // layout.cornerPadding) rounds this tooltip, as it does its shadow below.
+        glass.cornerRadius = Self.radius
+        legibility.layer?.cornerRadius = Self.radius
         glass.refreshMaterial()
         glass.applyTheme()
         applyColors()
