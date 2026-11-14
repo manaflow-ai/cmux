@@ -93,14 +93,14 @@ async fn enroll_transition_with<D: Future<Output = Option<MeshRelayConfig>>>(
             let replaced = outcome == EnrollOutcome::Joined;
             // So does the carrier: one the last join started stops first, with the relay's hub
             // client, so no ticket goes out on the last join's config meanwhile.
-            let carrier_ran = replaced && stop_carrier(hub);
+            if replaced {
+                stop_carrier(hub);
+            }
             let relay = reconcile_relay(hub, on_disk().await, replaced).await;
             // Then it runs on this join's, whether or not one ran before: a first join, or one
             // after a sign-out's leave stopped the last, has none yet (#38440 review F1). One
             // that still runs on this same join is kept.
-            if carrier_ran {
-                carrier(Arc::clone(hub)).await;
-            }
+            carrier(Arc::clone(hub)).await;
             Some(relay)
         }
         _ => None,

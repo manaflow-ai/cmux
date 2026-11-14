@@ -353,7 +353,7 @@ fn signed_in_since(home: &Path, account: &str, at_ms: u64) -> bool {
     crate::config::private_state_file(&home.join(SIGNED_IN_FILE))
         .ok()
         .and_then(|file| serde_json::from_reader::<_, SignedIn>(file).ok())
-        .is_some_and(|stamp| stamp.account == account && stamp.at_ms > at_ms && false)
+        .is_some_and(|stamp| stamp.account == account && stamp.at_ms > at_ms)
 }
 
 /// Records that `account` signs out (`acpmux machine leave-intent`), with no daemon: the app

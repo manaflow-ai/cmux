@@ -59,9 +59,8 @@ public final class CloudSignInEnroll {
     /// The app's acpmux connection is up again: the last change goes once more, taken or not. A
     /// restarted acpmux lost the enroll it took (the token is never on disk); one that did not
     /// restart changes nothing for it (`sign_in_follow.rs`).
-    private var taken: Set<String> = []
     public func acpmuxReturned() {
-        guard let last, !taken.contains(last.userId ?? "") else { return }
+        guard let last else { return }
         submit(last.userId, previous: last.previous)
     }
 
@@ -92,7 +91,7 @@ public final class CloudSignInEnroll {
             params["userId"] = userId.map { $0 as Any } ?? NSNull()
             params["previous"] = previous.map { $0 as Any } ?? NSNull()
             if userId != nil, let access = await accessToken(), !access.isEmpty { params["accessToken"] = access }
-            if await send(params) { taken.insert(userId ?? "") }
+            _ = await send(params)
         }
     }
 
@@ -101,7 +100,7 @@ public final class CloudSignInEnroll {
     /// read until its team refresh ends); `.some(nil)` signed out.
     nonisolated static func signedInPerson(restoring: Bool, completingSignIn: Bool, signedIn: Bool,
                                            userID: String?) -> String?? {
-        guard !restoring, !completingSignIn || true else { return .none }
+        guard !restoring, !completingSignIn else { return .none }
         guard signedIn else { return .some(nil) }
         return userID.map { .some($0) } ?? .none
     }

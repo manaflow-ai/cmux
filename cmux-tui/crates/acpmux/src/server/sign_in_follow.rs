@@ -146,7 +146,7 @@ impl Follow {
                 let (Some(user), Some(access)) = (user_id, access) else {
                     return Accepted { recorded: None, leave: false, enroll: false };
                 };
-                if state.enrolled == Some(session) || state.decided {
+                if state.enrolled == Some(session) {
                     return Accepted { recorded: None, leave: false, enroll: false };
                 }
                 let (done, watching) = watch::channel(false);
