@@ -22,7 +22,9 @@
 # policy = "keep": the area stays in `language`. A pull request fails when, inside the area,
 #   - it loses files of `language`: more files of `language` deleted or renamed out of the area (or renamed to
 #     another language) than added to it. A split, move within the area or rename passes; a deletion with no
-#     replacement in the same language, the shape of a port, fails;
+#     replacement in the same language, the shape of a port, fails. In a web or rust area the loss counts only
+#     when the same pull request brings in a file of a language the area refuses (below), anywhere: deleting
+#     dead code there is not a port. A swift area's loss always counts;
 #   - or it adds a file of a foreign language: swift areas refuse rust and web files, web areas refuse swift and
 #     rust files, rust areas refuse swift files (crates already carry small TypeScript runtimes and templates).
 #   Files that are no language (json, md, xcstrings, toml, images) are never counted.
