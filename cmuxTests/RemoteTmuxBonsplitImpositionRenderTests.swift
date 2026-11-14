@@ -394,6 +394,195 @@ import Testing
         withExtendedLifetime(connection) {}
     }
 
+    /// The mirror view must treat the content background as every other
+    /// panel view does. With terminal transparency on, the appearance asks
+    /// for a clear content background so the window backdrop shows through.
+    /// The mirror painted the opaque theme color instead, so a remote tmux
+    /// workspace looked solid beside translucent local ones.
+    /// The oracle is the pixel the user sees. The real view is hosted over
+    /// a known backing color and sampled in the part of its region that
+    /// lies outside the split tree, the trailing margin that only the
+    /// mirror's base paints. A clear content background must show the
+    /// backing. An opaque one must still paint the theme color, which keeps
+    /// the transparency-off look.
+    @Test(arguments: [true, false])
+    func mirrorRegionOutsideTheSplitTreeFollowsTheContentBackground(
+        usesClearContentBackground: Bool
+    ) throws {
+        let backing = NSColor(srgbRed: 1, green: 0, blue: 1, alpha: 1)
+        let themeBackground = NSColor(srgbRed: 0, green: 1, blue: 0, alpha: 1)
+        let region = CGSize(width: 500, height: 400)
+        // The corner diagonally opposite the top-leading split tree.
+        let sampleInset: CGFloat = 40
+
+        // A grid far smaller than the region, so the tree's exact-fit frame
+        // leaves a wide margin that nothing but the base paints.
+        let layout = node(.horizontal([
+            node(.pane(1), w: 10, h: 5, x: 0, y: 0),
+            node(.pane(2), w: 10, h: 5, x: 11, y: 0),
+        ]), w: 21, h: 5, x: 0, y: 0)
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "backdrop-\(UUID().uuidString)@host"),
+            sessionName: "work"
+        )
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: layout,
+            geometrySource: {
+                RemoteTmuxMirrorGeometry(
+                    cellWidthPx: 16, cellHeightPx: 34,
+                    surfacePadWidthPx: 8, surfacePadHeightPx: 0,
+                    scale: 2
+                )
+            },
+            hostingContentSizeSource: { region },
+            makePanel: { _ in nil }
+        )
+        mirror.isVisibleForSizing = true
+        mirror.containerSizePt = region
+        mirror.containerScale = 2
+        mirror.updateRenderFrameSize()
+
+        let appearance = PanelAppearance(
+            backgroundColor: themeBackground, foregroundColor: .white,
+            dividerColor: .gray, unfocusedOverlayNSColor: .black,
+            unfocusedOverlayOpacity: 0,
+            usesClearContentBackground: usesClearContentBackground
+        )
+        let hostingView = NSHostingView(
+            rootView: ZStack {
+                Color(nsColor: backing)
+                RemoteTmuxWindowMirrorSplitView(
+                    mirror: mirror,
+                    appearance: appearance,
+                    isOuterFocused: false,
+                    isVisibleInUI: true,
+                    portalPriority: 0,
+                    onOuterFocus: {}
+                )
+            }
+        )
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: region),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false
+        )
+        let contentView = try #require(window.contentView)
+        hostingView.frame = contentView.bounds
+        hostingView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostingView)
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        // The host probe backs the whole mirror region, so its frame is the
+        // signal that the mirror is mounted and laid out over the sample.
+        let sampledArea = hostingView.bounds.insetBy(dx: sampleInset / 2, dy: sampleInset / 2)
+        func mirrorRegionInHost() -> NSRect? {
+            guard let probe = mirror.hostProbeView, probe.window === window else { return nil }
+            return probe.convert(probe.bounds, to: hostingView)
+        }
+        for _ in 0..<50 {
+            contentView.layoutSubtreeIfNeeded()
+            if mirrorRegionInHost()?.contains(sampledArea) == true { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        let mirrorRegion = try #require(
+            mirrorRegionInHost(),
+            "the mirror view was never mounted: the probe has no window, so nothing was rendered"
+        )
+        try #require(
+            mirrorRegion.contains(sampledArea),
+            "the mirror region \(mirrorRegion) does not cover the sampled corner of \(hostingView.bounds)"
+        )
+        let treeFrame = try #require(mirror.renderFrameSize)
+        try #require(
+            treeFrame.width <= region.width - 2 * sampleInset
+                && treeFrame.height <= region.height - 2 * sampleInset,
+            "fixture: the split tree (\(treeFrame)) must leave the sampled corner to the base"
+        )
+
+        // NSHostingView's cacheDisplay path can return the host window's
+        // material instead of the SwiftUI layer on macOS 26 (see
+        // SimulatorPanelThemeTests). Render the hosting view's layer directly.
+        // The backing color is part of the same SwiftUI root, so it is in
+        // this layer tree and in the captured pixels.
+        let layer = try #require(hostingView.layer, "the hosting view has no layer to render")
+        let width = Int(hostingView.bounds.integral.width)
+        let height = Int(hostingView.bounds.integral.height)
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let context = try #require(
+            CGContext(
+                data: &bytes,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ),
+            "no bitmap context for a \(width)x\(height) capture"
+        )
+        // Same flip as SimulatorPanelThemeTests: byte row 0 is the top row.
+        // The context is in points, one pixel per point. The sampled corner
+        // is outside the top-leading tree for either y direction, because
+        // its x is beyond the tree's width.
+        context.translateBy(x: 0, y: CGFloat(height))
+        context.scaleBy(x: 1, y: -1)
+        let offset = (Int(region.height - sampleInset) * width + Int(region.width - sampleInset)) * 4
+        try #require(
+            offset >= 0 && offset + 3 < bytes.count,
+            "no pixel at the sampled corner of a \(width)x\(height) capture"
+        )
+        // The capture starts fully transparent. The opaque backing color
+        // fills the root, so an opaque sample is the signal that SwiftUI
+        // painted the sampled corner. Poll that predicate to a deadline
+        // instead of a fixed number of timed passes.
+        let captureArea = CGRect(x: 0, y: 0, width: width, height: height)
+        let renderDeadline = ContinuousClock.now + .seconds(10)
+        var sampleIsPainted = false
+        while true {
+            hostingView.layoutSubtreeIfNeeded()
+            hostingView.displayIfNeeded()
+            context.clear(captureArea)
+            layer.render(in: context)
+            sampleIsPainted = bytes[offset + 3] >= 250
+            if sampleIsPainted || ContinuousClock.now >= renderDeadline { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        try #require(
+            sampleIsPainted,
+            """
+            the sampled corner was never painted: alpha \(bytes[offset + 3]) of 255 after 10 seconds, \
+            so the capture does not show the rendered view
+            """
+        )
+        let painted = NSColor(
+            srgbRed: CGFloat(bytes[offset]) / 255,
+            green: CGFloat(bytes[offset + 1]) / 255,
+            blue: CGFloat(bytes[offset + 2]) / 255,
+            alpha: CGFloat(bytes[offset + 3]) / 255
+        )
+
+        let expected = usesClearContentBackground ? backing : themeBackground
+        let delta = max(
+            abs(painted.redComponent - expected.redComponent),
+            abs(painted.greenComponent - expected.greenComponent),
+            abs(painted.blueComponent - expected.blueComponent),
+            abs(painted.alphaComponent - expected.alphaComponent)
+        )
+        #expect(
+            delta < 0.2,
+            """
+            the mirror region outside the split tree drew \(painted) with \
+            usesClearContentBackground=\(usesClearContentBackground): a clear content \
+            background must show what is behind the mirror (\(backing)), an opaque one \
+            must paint the theme background (\(themeBackground))
+            """
+        )
+        withExtendedLifetime(connection) {}
+    }
+
     /// Render ownership against the real renderer: a container change under a
     /// held imposition must NOT be fought. Bonsplit used to re-assert the old
     /// extent from its resize callback (inside the very layout pass that moved
