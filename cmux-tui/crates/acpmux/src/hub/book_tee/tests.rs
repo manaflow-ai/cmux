@@ -485,7 +485,7 @@ fn fifty_daemon_kills_during_a_catch_up_give_the_book_made_with_no_kill() {
     let book = the_book(&killed);
     assert_eq!(book_rows(&book), expected, "the book after 50 kills equals the one with none");
     eprintln!(
-        "v2.pr03b.kill sync_through waits: n={} p95={} ns max={} ns",
+        "pr03b kill: sync_through waits: n={} p95={} ns max={} ns",
         waits.len(),
         p95(&mut waits),
         waits.iter().max().copied().unwrap_or(0)
