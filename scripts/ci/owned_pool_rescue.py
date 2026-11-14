@@ -191,7 +191,13 @@ which may put the iOS jobs on an owned pool with the glaeda-ios-sim capability
 label, and uploads the same marker; from attempt 2 on every macOS job takes
 its retry_runs_on, the Blacksmith pool. A job asking for a capability label no
 idle mini carries waits like any other queued owned job, so it is moved after
-the same budget.
+the same budget. A simulator job the picker put on glaeda's sim-first label
+(pr_runner_pool.SIM_FIRST_LABEL, `glaeda-sim-xcode-<version>`, requested
+alone; feat-cmux-next's reliability matrix phone cells too, which this sweeper
+on the default branch watches) is an owned job here too (job_pool()): queued
+past the budget, held in its runner's setup for CPU units past
+SETUP_WAIT_SECONDS, or refused, it is moved to retry_runs_on like a job on the
+pool label.
 
 Dispatches of iroh-release-gate.yml, and of cmux-next-dev-daily.yml (its
 verify job), are watched the same way. Its `runner`
@@ -807,9 +813,15 @@ def nightly_control_label(label: object) -> bool:
 
 
 def job_pool(job: Mapping[str, Any]) -> str | None:
-    """The owned pool a job asked for, if any: a pull request pool or the trusted one."""
+    """The owned pool a job asked for, if any: a pull request pool, the trusted one or the sim-first label.
+
+    glaeda's sim-first label (pr_runner_pool.SIM_FIRST_LABEL) is requested alone by a simulator job
+    ios_runner_pool.py placed there, so a job queued on it past the budget, held in its setup or
+    refused is moved to retry_runs_on like one on a pool label.
+    """
     for label in job.get("labels") or []:
-        if (persistent(str(label)) or TRUSTED_LABEL.fullmatch(str(label)) or LANE_LABEL.fullmatch(str(label))
+        if (persistent(str(label)) or pr_runner_pool.sim_first(str(label))
+                or TRUSTED_LABEL.fullmatch(str(label)) or LANE_LABEL.fullmatch(str(label))
                 or job.get("name") == "decide" and nightly_control_label(label)
                 or nightly_dedicated(str(label))):
             return str(label)
