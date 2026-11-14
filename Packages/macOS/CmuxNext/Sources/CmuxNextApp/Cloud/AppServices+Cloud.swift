@@ -25,10 +25,10 @@ extension AppServices {
               let dial = CloudCarrierDial.Connector(machine: session.machineID, service: .desktop, cli: cloud.binary, auth: cloud.auth, platform: cloud.configuration.relayAPIBaseURL(),
                                                     team: session.machine.team, stateDirectory: cloud.tuiState, streams: cloud.desktopStreams) else { return nil }
         return { control in
-            let carrier = RemoteRdStreamCarrier {
-                let stream = try await dial.open()
+            let carrier = RemoteRdStreamCarrier(reportingOpen: { progress in
+                let stream = try await dial.open(progress: progress)
                 return RemoteRdByteStream(read: { await stream.read() }, write: { try await stream.send($0) }, close: { stream.close() })
-            }
+            })
             return RemoteRdStreamTransport(carrier: carrier, hello: RemoteRdHello.cloudDesktop(), startKey: UUID().uuidString, control: control)
         }
     }
@@ -116,18 +116,12 @@ extension AppServices {
                     self.githubAppLease.accountChanged(user: user.map { CloudIdentity.workerUserID(stackProjectID: project, stackUserID: $0) },
                                                        team: team)
                 }
-                // Phone access follows the account: start after sign-in, restart on a user or team switch,
-                // stop on sign-out. A switch of the active team also reloads the team's machines and accounts.
+                // A switch of the active team reloads the team's machines and accounts.
                 let current = state.0 ? state.2.flatMap { user in state.3.map { (user: user, team: $0) } } : nil
                 guard current?.user != account?.user || current?.team != account?.team else { continue }
                 // task-owner: one machine-list reload; CloudService reconciles.
                 if let before = account, before.user == current?.user { Task { await cloud.refresh() }; self.accounts.model.refresh() }
                 account = current
-                if let auth = CloudMobileAuth(auth: cloud.auth) {
-                    self.mobile.start(auth: auth, launch: self.environment.launch, daemon: self.daemon)
-                } else {
-                    self.mobile.stop()
-                }
             }
         }
     }

@@ -12,6 +12,13 @@ extension AgentPaneRequest {
             && id.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "_" || $0 == "-") }
     }
 
+    /// A page's one-time hand-off token (webviews commandPlace.ts: a UUID): 16 to 64 ASCII letters,
+    /// digits and dashes, so it names a stored entry and carries nothing itself.
+    static func isHandoffToken(_ token: String) -> Bool {
+        (16...64).contains(token.count)
+            && token.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-") }
+    }
+
     private static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
         guard let params else { return .unsupported(method) }
         switch method {
@@ -156,6 +163,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.finishSound":
+            if let kind = (params?["kind"] as? String).flatMap(AgentPaneFinishSound.Kind.init(rawValue:)) {
+                self = .finishSound(kind)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.saveFile":
             // A document's kind only: the inspector's log has its own method.
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneSave.Kind.init(rawValue:)), kind != .log,
@@ -238,7 +251,8 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "pane.painted":
-            self = .painted(fromKeptTail: params?["drewKeptTail"] as? Bool ?? false)
+            self = .painted(fromKeptTail: params?["drewKeptTail"] as? Bool ?? false,
+                            settled: params?["settled"] as? Bool ?? false)
         case "pane.renderRate":
             if let full = params?["full"] as? Bool {
                 self = .renderRate(full)
@@ -254,7 +268,8 @@ extension AgentPaneRequest {
                                                  run: kind != .terminal || params?["run"] as? Bool != false,
                                                  keep: params?["keep"] as? Bool == true,
                                                  profile: kind == .browser ? AgentPaneOpenTabProfile(params: params) : nil,
-                                                 inPlace: params?["inPlace"] as? Bool == true))
+                                                 inPlace: params?["inPlace"] as? Bool == true,
+                                                 beside: kind == .browser && params?["beside"] as? Bool == true))
             } else {
                 self = .unsupported(method)
             }
@@ -269,10 +284,17 @@ extension AgentPaneRequest {
         case "account.add":
             self = AgentPaneAddAccount(params: params).map(AgentPaneRequest.addAccount) ?? .unsupported(method)
         case "harness.update":
-            // A harness id (profile file name), never a command.
-            if let id = params?["id"] as? String, !id.isEmpty, id.utf8.count <= 128,
-               id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "-_.".contains($0)) }) {
-                self = .harnessUpdate(id: id)
+            // Harness ids (profile file names), never a command: one `id`, or `ids` for Update all.
+            let harnessId = { (value: Any?) -> String? in
+                guard let id = value as? String, !id.isEmpty, id.utf8.count <= 128,
+                      id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "-_.".contains($0)) }) else { return nil }
+                return id
+            }
+            if let id = harnessId(params?["id"]) {
+                self = .harnessUpdate(ids: [id], each: false)
+            } else if let list = params?["ids"] as? [Any], (1 ... 32).contains(list.count) {
+                let ids = list.compactMap(harnessId)
+                self = ids.count == list.count && Set(ids).count == ids.count ? .harnessUpdate(ids: ids, each: true) : .unsupported(method)
             } else {
                 self = .unsupported(method)
             }
@@ -327,8 +349,6 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "newTab.editWidgets":
-            self = AgentPaneNewTabEdit(widgetParams: params).map(AgentPaneRequest.editNewTab) ?? .unsupported(method)
         case "readAloud.speak", "readAloud.stop":
             self = AgentPaneReadAloud.Command(method: method, params: params).map(AgentPaneRequest.readAloud) ?? .unsupported(method)
         case "nowPlaying.command":
@@ -369,8 +389,10 @@ extension AgentPaneRequest {
                 return
             }
             self = .cloudHandoffTurn(sessionId: session)
-        case "cloud.signInCancel": self = .cloudSignInCancel
-        case "cloud.signIn": self = AgentPaneCloudStart(params: params).map(Self.cloudSignIn) ?? .unsupported(method)
+        case "cloud.signInCancel": self = .cloudSignInCancel(expired: params?["expired"] as? Bool == true)
+        case "cloud.signIn":
+            // The start's key only (`AgentPaneCloudStart`'s): the start itself goes after, as `cloud.startChat`.
+            if let key = params?["key"] as? String, UUID(uuidString: key) != nil { self = .cloudSignIn(key: key) } else { self = .unsupported(method) }
         case "cloud.startChat": self = AgentPaneCloudStart(params: params).map(Self.cloudStartChat) ?? .unsupported(method)
         case "cloud.repickChat": self = AgentPaneCloudRepick(params: params).map(Self.cloudRepickChat) ?? .unsupported(method)
         case "cloud.answerStart": self = AgentPaneCloudAnswer(params: params).map(Self.cloudAnswerStart) ?? .unsupported(method)
@@ -507,9 +529,16 @@ extension AgentPaneRequest {
         case "pane.sessionInfo.overlays":
             if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]) { self = .sessionInfoOverlays(rects) }
             else { self = .unsupported(method) }
+        case "pane.sessionInfo.pinch":
+            if let pinch = AgentPaneSessionInfoPinch.decode(params) { self = .sessionInfoPinch(pinch) }
+            else { self = .unsupported(method) }
         case "pane.toastAvoidance":
             if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]), rects.count <= 1 { self = .toastAvoidance(rects.first?.rect) }
             else { self = .unsupported(method) }
+        case "pane.toast":
+            if let message = params?["message"] as? String, !message.isEmpty {
+                self = .toast(message: message, isError: params?["tone"] as? String == "error", group: params?["group"] as? String)
+            } else { self = .unsupported(method) }
         case "pane.glass":
             if let surfaces = AgentPaneHostGlassSurface.decode(params?["surfaces"]) { self = .hostGlass(surfaces) }
             else { self = .unsupported(method) }
@@ -545,13 +574,14 @@ extension AgentPaneRequest {
         case "chat.subagentPane":
             if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
                 // `title`: the subagent's own name, which its pane's tab shows (SubagentTabTitles).
-                self = .subagentPane(id, focus: params?["focus"] as? Bool == true, title: params?["title"] as? String, tone: params?["tone"] as? Int)
+                self = .subagentPane(id, focus: params?["focus"] as? Bool == true, title: params?["title"] as? String, tone: params?["tone"] as? Int,
+                                     mark: SubagentTabTitles.mark(params?["mark"]))
             } else { self = .unsupported(method) }
         case "chat.subagentShown":
             let id = params?["subagent"] as? String
             if let id, id.isEmpty || id.count > 256 { self = .unsupported(method) } else {
                 self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String, tone: id == nil ? nil : params?["tone"] as? Int,
-                                      facts: id == nil ? nil : SubagentTabFacts(params))
+                                      facts: id == nil ? nil : SubagentTabFacts(params), mark: id == nil ? nil : SubagentTabTitles.mark(params?["mark"]))
             }
         case "chat.processTerminal":
             if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }
@@ -559,6 +589,8 @@ extension AgentPaneRequest {
             if let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder) { self = .newChatHere(cwd) } else { self = .unsupported(method) }
         case AgentPaneTryAnotherApproach.method:
             self = AgentPaneTryAnotherApproach(params: params).map(AgentPaneRequest.tryAnotherApproach) ?? .unsupported(method)
+        case AgentPaneCloudTurnRewind.checkpointMethod, AgentPaneCloudTurnRewind.rewindMethod:
+            self = AgentPaneCloudTurnRewind(method: method, params: params).map(AgentPaneRequest.cloudTurnRewind) ?? .unsupported(method)
         case "chat.openTab":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .chatTab(id, AgentForkDestination(placement: params?["placement"] as? String)) } else { self = .unsupported(method) }
         case "chat.asks.open":
@@ -590,10 +622,13 @@ extension AgentPaneRequest {
             // An `environment` is New Cloud Machine's only, and a Cloud environment id (`env_…`);
             // any other is refused, never dropped (which would make a machine in another one).
             let environment = params?["environment"].map { $0 as? String }
+            // A `handoff` is New Cloud Chat's only, and a token; any other is refused, never dropped.
+            let handoff = params?["handoff"].map { $0 as? String }
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128,
                session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true,
-               environment.map({ $0.map { id == "newCloudMachine" && AgentPaneRequest.isCloudEnvironmentID($0) } ?? false }) ?? true {
-                self = .runAction(id, session: session ?? nil, environment: environment ?? nil)
+               environment.map({ $0.map { id == "newCloudMachine" && AgentPaneRequest.isCloudEnvironmentID($0) } ?? false }) ?? true,
+               handoff.map({ $0.map { id == "palette.newCloudChat" && AgentPaneRequest.isHandoffToken($0) } ?? false }) ?? true {
+                self = .runAction(id, session: session ?? nil, environment: environment ?? nil, handoff: handoff ?? nil)
             } else {
                 self = .unsupported(method)
             }
@@ -676,8 +711,6 @@ extension AgentPaneRequest {
         case "dictation.toggle": self = .dictation(.toggle)
         case "dictation.handoff": self = .dictationHandoff
         case "dictation.sources": self = .dictationSources
-        case "dictation.watchMicrophone":
-            if let on = params?["on"] as? Bool { self = .watchMicrophone(on) } else { self = .unsupported(method) }
         case "dictation.start": self = .dictation(.start)
         case "dictation.stop": self = .dictation(.stop)
         case "dictation.cancel": self = .dictation(.cancel)

@@ -25,9 +25,9 @@ import ImageIO
 /// home-mac.md) over the shared `HomeStore` of the local conversation owner,
 /// or why it cannot show (the local daemon does not serve conversations).
 @MainActor
-final class HomeHostView: PaneMotionFollowingView {
+final class HomeHostView: NSView {
     let transcript: HomeNativeTranscriptView
-    private let message = ChromeLabel(labelWithString: "")
+    private let message = HomeUnavailableLabel.make(HomeStrings.unavailable)
     private var availability: Task<Void, Never>?
     /// The Chief's settings, a popover under the header's name pill, which
     /// toggles it (Chief conversation only).
@@ -82,7 +82,7 @@ final class HomeHostView: PaneMotionFollowingView {
         let service = services.home
         let id = ConversationID(conversation)
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id, diagrams: service.diagrams,
-                                              widgets: services.sidebarCustomization.chatWidgets, openPanel: services.openPanel)
+                                              openPanel: services.openPanel)
         let approvals = ChiefApprovalDecider(home: service.chief.home, app: QuitAgents.environment(services),
                                              work: services.work, environment: ChiefHomeAcpmux.environment)
         transcript.approvals = approvals
@@ -107,7 +107,7 @@ final class HomeHostView: PaneMotionFollowingView {
                                            invocation: ActionInvocation(arguments: ["conversation": .string(conversation)], origin: .user))
         }
         loadAvatar()
-        // The header's top-right toggles (Memory, Right Sidebar): each runs its panel's action.
+        // The header's top-right toggles (Share Screen, Memory): each runs its panel's action.
         transcript.onHeaderPanel = { [weak self] id in
             if let self { HomeHeaderPanels.toggle(id, headerPanelContext) }
         }
@@ -326,7 +326,7 @@ final class HomeHostView: PaneMotionFollowingView {
                 // A cloud Chief (no local import) or an owner not connected yet keeps the first-run intro.
                 if kind == .welcome, service.chiefWelcome.play(in: id, source: service.homeSource,
                                                                connection: service.isCloudConversation(id) ? nil : service.chief.connection,
-                                                               intro: intro, text: ChiefWelcome.text(services.registry)) { return }
+                                                               intro: intro, text: ChiefWelcome.text(services.registry, anyAppOn: services.settings?.snapshot.startAgentGlobalHotKey ?? false)) { return }
                 self.transcript.welcomesInChat = false
                 intro.markShown(kind, for: id)
                 self.transcript.showFirstRunIntro(kind)
@@ -357,7 +357,7 @@ final class HomeHostView: PaneMotionFollowingView {
         let reveal = services.launchReveal
         // task-owner: lives as long as this view; ends when the first page is in
         firstPage = Task { [weak self] in
-            await binding.opened()
+            await binding.firstDrawable() // the first page, or an owner-named empty conversation: nothing to read for
             // A Home released before its page came (deinit cancels this) must not
             // reveal the Home that replaced it, which waits for its own page.
             guard let self, !Task.isCancelled else { return }
@@ -367,14 +367,6 @@ final class HomeHostView: PaneMotionFollowingView {
         }
         wantsLayer = true
         clipsToBounds = true
-        message.alignment = .center
-        // A long reason (a migration notice) wraps in a narrow pane instead of clipping.
-        message.maximumNumberOfLines = 0
-        message.lineBreakMode = .byWordWrapping
-        message.wraps = true
-        message.stringValue = HomeStrings.unavailable
-        // Hidden until the owner answers: a daemon still connecting is not one too old (the launch's fill shows).
-        message.isHidden = true
         addSubview(transcript)
         addSubview(message)
         // task-owner: lives as long as this view; event-driven (Observation)
@@ -436,11 +428,7 @@ final class HomeHostView: PaneMotionFollowingView {
     override func layout() {
         super.layout()
         transcript.frame = bounds
-        let inset: CGFloat = 24
-        let width = max(0, bounds.width - 2 * inset)
-        message.preferredMaxLayoutWidth = width
-        let height = ceil(message.size(forWidth: width).height)
-        message.frame = NSRect(x: inset, y: (bounds.height - height) / 2, width: width, height: height)
+        message.place(in: bounds)
     }
 
     /// The name pill's click (or `home.toggleChiefSettings`): the Chief's settings open under the pill, or
@@ -555,9 +543,9 @@ final class HomeHostView: PaneMotionFollowingView {
     var headerHeight: CGFloat { transcript.headerHeight }
 
     /// The view that takes the keyboard when the tab's pane is focused.
-    /// Home's primary input: the message box itself. Focusing the transcript
-    /// view would leave it the responder after it forwards to the box.
-    var focusTarget: NSView { transcript.primaryInput }
+    /// Home's message box (focusing the transcript would leave it the responder
+    /// after it forwards), or the picture viewer while it is open over the chat.
+    var focusTarget: NSView { transcript.keyboardTarget }
 
     /// The person opened this conversation from Home (a click, Return, a switch key): the message
     /// box takes the keyboard, at once or once its first page installs it.

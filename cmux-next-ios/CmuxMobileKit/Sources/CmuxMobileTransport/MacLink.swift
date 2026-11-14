@@ -89,10 +89,17 @@ public protocol MacLink: AnyObject, Sendable {
     /// it as connected at once instead of waiting a main-actor turn for the
     /// state stream (verify/perf-latency.md).
     var connectedPath: LinkPathKind? { get }
+    /// How long ago the link last received any frame from the Mac (a pong,
+    /// channel data, a control frame), measured where frames arrive, not where
+    /// a channel's reader takes them; nil when the link cannot say. Any frame
+    /// proves the link alive as a probe would, so the heartbeat probes only a
+    /// link this long quiet.
+    var receivedAgo: Duration? { get }
 }
 
 extension MacLink {
     public var connectedPath: LinkPathKind? { nil }
+    public var receivedAgo: Duration? { nil }
 
     /// A link that only pings: the pong or nothing.
     public func probe(timeout: Duration) async throws -> UInt32? {
@@ -122,6 +129,10 @@ public extension LinkChannel {
 public struct LinkError: Error, Equatable, Sendable {
     public var code: String
     public var message: String
+
+    /// The code for the cmux service refusing the access token (a 401), as the
+    /// Rust link sends it (`cmux_mobile_link_ffi::UNAUTHORIZED`).
+    public static let unauthorized = "unauthorized"
 
     public init(code: String, message: String) {
         self.code = code

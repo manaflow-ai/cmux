@@ -276,7 +276,9 @@ tree pushes):
   shell after the orphan grace with no owner, or on a `SIGTERM` while orphaned (cx-3ryj). The last two come from the respawn supervisor
   (cx-6so.49): a placed terminal lost with its host respawns after a bounded backoff (0, 2, 10,
   30, 60 s; five attempts per 10 min), and ends as `restart_exhausted` once they are used, or
-  `restart_failed` when a respawn launch fails. The owner start respawns committed respawnable
+  `restart_failed` when a respawn launch fails. A failed launch is first tried again (at most 3
+  more tries, by the same backoff; the tab reads `adopting` meanwhile, `terminal_respawn/retry.rs`);
+  one that found no free PTY is not. The owner start respawns committed respawnable
   losses an earlier owner never ran (also `session_shutdown` and `owner_gone`).
   Terminals with a runtime use its end; surfaceless ones use their durable receipt.
 - Swift: `TabSnapshot/TabModel.terminalState`, `.end` (`TerminalTabEnd`), `.hostRecordVersion`;

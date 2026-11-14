@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextWakeups
 public import WebKit
 
 @MainActor
@@ -11,34 +12,74 @@ extension PageWebView {
         bridge.uninstall()
         endChromium()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: PagePaintProbe.handlerName, contentWorld: .page)
+        PageAccessibilityPress.uninstall(from: webView)
         resumeLoadWaiters()
         webView.stopLoading()
         WebViewRetirement.retire(webView)
+        healthFeed?.pageClosed(self)
     }
 
     /// Waits for the current document to finish loading or fail, and for a pending claim to be
-    /// acknowledged (or its fallback reload to finish).
+    /// acknowledged (or its fallback reload to finish). A cancelled wait returns at once and leaves
+    /// no waiter on the page.
     public func waitUntilLoaded() async {
-        guard !loaded || claimState.pending else { return }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            loadWaiters.append(continuation)
+        _ = await waitForLoad(deadline: nil)
+    }
+
+    /// ``waitUntilLoaded()`` for at most `deadline` (a one-shot DemandTimer): false when the deadline
+    /// or a cancel came first, so a page that never loads cannot hold its caller. `clock` times the
+    /// deadline (a test's manual clock).
+    public func waitUntilLoaded(within deadline: Duration, clock: any Clock<Duration> = ContinuousClock()) async -> Bool {
+        await waitForLoad(deadline: deadline, clock: clock)
+    }
+
+    private func waitForLoad(deadline: Duration?, clock: any Clock<Duration> = ContinuousClock()) async -> Bool {
+        guard !loaded || claimState.pending else { return true }
+        let id = UUID()
+        let timer = DemandTimer(owner: "page.load.deadline", clock: clock)
+        defer { timer.cancel() }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                guard !Task.isCancelled else { return continuation.resume(returning: false) }
+                loadWaiters.append((id, continuation))
+                if let deadline { timer.schedule(after: deadline) { @MainActor [weak self] in self?.resumeLoadWaiter(id) } }
+            }
+        } onCancel: {
+            MainDelivery().later { [weak self] in self?.resumeLoadWaiter(id) }
         }
     }
 
     func resumeLoadWaiters() {
         let waiters = loadWaiters
         loadWaiters.removeAll()
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.continuation.resume(returning: true) }
+    }
+
+    /// Ends one wait unloaded (its deadline or its cancel).
+    private func resumeLoadWaiter(_ id: UUID) {
+        guard let index = loadWaiters.firstIndex(where: { $0.id == id }) else { return }
+        loadWaiters.remove(at: index).continuation.resume(returning: false)
     }
 
     // crash-allow: WebKit delegate signature uses nullable navigation handles.
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: any Error) {
         resumeLoadWaiters()
+        noteLoadFailed(error)
     }
 
     // crash-allow: WebKit delegate signature uses nullable navigation handles.
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: any Error) {
         resumeLoadWaiters()
+        noteLoadFailed(error)
+    }
+
+    /// A failed main-frame load tells app health (the page host's `loadFailed`), unless it was only
+    /// cancelled (a newer navigation replaced it) or a policy change interrupted it.
+    private func noteLoadFailed(_ error: any Error) {
+        let error = error as NSError
+        if error.domain == NSURLErrorDomain, error.code == NSURLErrorCancelled { return }
+        if error.domain == "WebKitErrorDomain", error.code == 102 { return } // frame load interrupted by a policy change
+        healthFeed?.pageLoadFailed(self)
     }
 
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -72,6 +113,13 @@ extension PageWebView {
     func contentProcessTerminated() {
         loaded = false
         router.reset()
+        if rendererRestartPending {
+            // App health ended this renderer to repair the page: bring it back, never the notice.
+            rendererRestartPending = false
+            logger.error("page \(self.descriptor.id, privacy: .public) renderer restarted by app health; reloading")
+            return reloadPage()
+        }
+        healthFeed?.pageCrashed(self)
         guard reloadsAfterCrash else {
             // A renderer that crashed before the page reached the host leaves the Chromium start
             // deadline armed: its fallback would load the page in WebKit by itself.

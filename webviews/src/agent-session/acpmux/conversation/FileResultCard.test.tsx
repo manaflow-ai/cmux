@@ -14,6 +14,7 @@ import { activityText } from "./chatFind";
 import { TranscriptReadOnly } from "./readOnly";
 import { ToolRow } from "./ToolRow";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -28,6 +29,7 @@ const GLOBALS = [
   "HTMLElement",
   "Element",
   "MutationObserver",
+  "customElements",
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
@@ -37,6 +39,7 @@ afterEach(async () => {
   setChipHost(undefined);
   resetLinkStore();
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -50,7 +53,7 @@ async function render(node: ReactNode): Promise<HTMLElement> {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
     url: "http://localhost/",
   });
-  for (const key of GLOBALS) saved.set(key, scope[key]);
+  for (const key of GLOBALS) if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -61,6 +64,9 @@ async function render(node: ReactNode): Promise<HTMLElement> {
     Element: dom.window.Element,
     // The highlighted lines watch the page's theme (HighlightedCode.tsx) when a highlight pool is up.
     MutationObserver: dom.window.MutationObserver,
+    // A read's lines load @pierre/diffs, whose web component registers itself once wherever there
+    // is an HTMLElement: with no customElements beside it the import fails, for every later file too.
+    customElements: dom.window.customElements,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   const container = dom.window.document.getElementById("root")!;
@@ -89,7 +95,7 @@ const READ = Array.from({ length: 12 }, (_, index) => `${String(120 + index).pad
 const GREP =
   "/work/app/src/a.ts:12:  const x = useTool();\n/work/app/src/a.ts:40:useTool(b)\n/work/app/src/lib/b.ts:3:import { useTool }";
 
-test("an opened Read is its file, line range and numbered lines, cut to eight; closed, one row", async () => {
+test("an opened Read is its file, line range and numbered lines, scrolling past eight; closed, one row", async () => {
   const container = await render(<ToolRow item={item(HARNESS_CALLS.claude.read, READ)} />);
   expect(container.querySelector(".cv-filepeek")).toBeNull();
   await open(container);
@@ -104,10 +110,8 @@ test("an opened Read is its file, line range and numbered lines, cut to eight; c
   expect(container.querySelector(".cv-filepeek__lines")?.textContent).not.toContain("→");
   const body = container.querySelector(".cv-filepeek__body")!;
   expect(body.getAttribute("data-preview")).toBe("cut");
-  const more = container.querySelector<HTMLButtonElement>(".cv-filepeek .cv-output-more")!;
-  expect(more.textContent).toBe("Show all 12 lines");
-  await act(async () => more.click());
-  expect(body.getAttribute("data-preview")).toBe("all");
+  // The box scrolls through all twelve; no Show all row under it.
+  expect(container.querySelector(".cv-filepeek .cv-output-more")).toBeNull();
 });
 
 test("an opened Grep lists matches by file with their line numbers, and a line opens its file", async () => {

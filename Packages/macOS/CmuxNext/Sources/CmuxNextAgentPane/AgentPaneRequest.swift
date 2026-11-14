@@ -61,8 +61,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// real gesture in the pane.
     case shellRun(command: String, cwd: String?)
     /// `harness.update {id}`: the chat card's Update (cx-1mbnu): this Mac's acpmux runs that agent
-    /// CLI's own update now and answers `{ok, version?, error?}`. Only with a real gesture.
-    case harnessUpdate(id: String)
+    /// CLI's own update now and answers `{ok, version?, error?}`. `harness.update {ids}`: the model
+    /// menus' Update all (Harness updates available): one click runs every listed agent's update in
+    /// one acpmux call, answering `{results: [{id, ok, version?, error?}]}` (`each`). Only with a
+    /// real gesture, which the one call spends once.
+    case harnessUpdate(ids: [String], each: Bool)
     /// `harness.restart {}`: the card's Restart Chat: this chat's agent restarts on the installed
     /// version and resumes (after its turn); answers `{restarted, after_turn}`. Only with a gesture.
     case harnessRestart
@@ -79,8 +82,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The agent picked on the new tab screen, to remember for the next
     /// new tab (`newTab.remember`).
     case rememberNewTab(AgentPaneRememberedPick)
-    /// The new tab page's style switch (`newTab.setTemplate`) or edit mode (`newTab.editWidgets`):
-    /// ``AgentPaneNewTabEdit``.
+    /// The new tab page's style switch (`newTab.setTemplate`): ``AgentPaneNewTabEdit``.
     case editNewTab(AgentPaneNewTabEdit)
     /// The New Tab page player's control (`nowPlaying.command {command, seconds}`).
     case nowPlaying(AgentPaneNowPlaying.Command)
@@ -105,8 +107,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The new tab page asked the app to run a user facing action. `session`, when the page names
     /// one (the title menu's Bring Back Local), binds it to that chat: the app runs it only while the
     /// tab still shows it. `environment`: New Cloud Machine's Cloud environment (`env_…`), from the
-    /// composer's Environment chip; its setup dialog starts on that environment.
-    case runAction(String, session: String? = nil, environment: String? = nil)
+    /// composer's Environment chip; its setup dialog starts on that environment. `handoff`: New Cloud
+    /// Chat's one-time token from the page (`/side --on cloud`), handed to the tab it opens.
+    case runAction(String, session: String? = nil, environment: String? = nil, handoff: String? = nil)
     /// The new-tab project picker asked for the explicit Browse… fallback.
     case browseProject
     /// "Choose Folder…" (`workspace.chooseFolder`): the native folder sheet that sets the
@@ -180,12 +183,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case sandboxRun(task: String, agent: String?, key: String)
     /// `cloud.startChat {task, cwd, harness?, model?, key}`: a new chat's first send in Cloud (``AgentPaneCloudStart``).
     case cloudStartChat(AgentPaneCloudStart)
-    /// `cloud.signIn {task, ...}`: signs in, keeping the click for this exact Cloud start; the page
-    /// sends it again as `cloud.startChat {..., signedIn: true}` while it still waits for it.
-    case cloudSignIn(AgentPaneCloudStart)
-    /// `cloud.signInCancel`: the page left Cloud (another mode, chat or tab) while a `cloud.signIn`
-    /// waited on the browser; that sign-in still finishes, but its preserved prompt is not sent.
-    case cloudSignInCancel
+    /// `cloud.signIn {key}`: signs in, keeping the click for the Cloud start `key`; the page sends
+    /// that start again as `cloud.startChat {..., signedIn: true}` while it still waits for it.
+    case cloudSignIn(key: String)
+    /// `cloud.signInCancel {expired?}`: the page stopped waiting on a `cloud.signIn` (it left Cloud,
+    /// or its deadline passed); that sign-in keeps no click. `expired` also ends the browser sign-in.
+    case cloudSignInCancel(expired: Bool)
     case cloudReservation(AgentPaneCloudReservationRequest)
     /// `cloud.repickChat {machine?, name?}`: another machine picked for a Cloud chat whose first send
     /// has not run (``AgentPaneCloudRepick``, ``AgentPaneModel/onCloudRepickChat``).
@@ -208,6 +211,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case cloudCredentialTransfer(AgentPaneCloudCredentialTransferRequest)
     /// Fork a Cloud machine as it is now and its latest completed transcript turn into one sibling.
     case tryAnotherApproach(AgentPaneTryAnotherApproach)
+    /// A Cloud chat's whole-machine turn checkpoint, or a rewind to one (`cloud.turnCheckpoints`).
+    case cloudTurnRewind(AgentPaneCloudTurnRewind)
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of
@@ -247,9 +252,15 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.sessionInfo.overlays {rects}`: the page's open popups (viewport CSS pixels), which the
     /// natively drawn Session Info steps behind; empty when none shows.
     case sessionInfoOverlays([AgentPaneSessionInfoOverlay])
+    /// `pane.sessionInfo.pinch {scale, left, top}`: the page's trackpad pinch, which the natively
+    /// drawn Session Info zooms and pans with (``AgentPaneSessionInfoPinch``).
+    case sessionInfoPinch(AgentPaneSessionInfoPinch)
     /// `pane.toastAvoidance {rects}`: the page's bottom stack (viewport CSS pixels), which the
     /// window's toasts rest above; nil when the page has none (AgentPaneView+ToastAvoidance.swift).
     case toastAvoidance(CGRect?)
+    /// `pane.toast {message, tone, group}`: feedback the page shows as the app's native toast, so it
+    /// takes the picked toast style (Lawrence 2026-11-13); `group` is its kind (Don't Show Again hides it).
+    case toast(message: String, isError: Bool, group: String?)
     /// `pane.glass {surfaces}`: the page's floating glass the App draws under the page
     /// (``AgentPaneHostGlass``); empty when none shows.
     case hostGlass([AgentPaneHostGlassSurface])
@@ -281,12 +292,13 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// chat's ask in place, with that ask's allow once or deny once (``AgentPaneAskAnswer``).
     case asksAnswer(AgentPaneAskAnswer)
     /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
-    /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
-    case subagentPane(String, focus: Bool, title: String? = nil, tone: Int? = nil)
+    /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it. `mark`: the
+    /// harness whose mark its row draws, nil for the subagent mark (``SubagentTabTitles/icon(ofTab:)``).
+    case subagentPane(String, focus: Bool, title: String? = nil, tone: Int? = nil, mark: String? = nil)
     /// `chat.subagentShown {subagent?, title?, state?, sinceMs?, model?}`: a pane opened on a subagent
     /// now shows that subagent (named `title`, in state `facts`), or its chat again (no subagent): its
     /// tab's name and hover card follow (``SubagentTabTitles``).
-    case subagentShown(String?, title: String?, tone: Int? = nil, facts: SubagentTabFacts? = nil)
+    case subagentShown(String?, title: String?, tone: Int? = nil, facts: SubagentTabFacts? = nil, mark: String? = nil)
     /// `chat.processTerminal {toolCallId}`: the background process this chat's tool call started,
     /// in a read-only terminal tab beside the chat (``AgentPaneProcessViewer``).
     case processTerminal(toolCall: String)
@@ -303,7 +315,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// drew there: a chat it took from a kept tail (tailCache.ts), which is
     /// already on screen in that frame, or a chat read cold, which the pane's
     /// loading state fades in. An older page says nothing, which means cold.
-    case painted(fromKeptTail: Bool)
+    /// `settled` (`pane.painted {settled: true}`, hq#9655 stage 1): that frame is
+    /// the chat's settled view (the daemon's `_acpmux/attach {settled: true}`
+    /// snapshot), the chat as it stands, so the pane's hold ends on it at once.
+    /// Absent (an older page, or a page's fallback paths) means as before.
+    case painted(fromKeptTail: Bool, settled: Bool)
     /// `pane.clientReady {ready}`: the page's acpmux client finished connecting (its handshake,
     /// machines and first chat list are in, and its page actions answer), or lost its connection.
     /// A prewarmed page serves a tab opening an existing chat only while it is ready
@@ -317,9 +333,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case dictationHandoff
     /// `dictation.sources`: the dictation apps this Mac has, for the mic's menu.
     case dictationSources
-    /// `dictation.watchMicrophone {on}`: a composer of the page has the keyboard (or none has any
-    /// more); while one has, the host says when another app holds the microphone (`micActivity`).
-    case watchMicrophone(Bool)
     /// `externalAccess.openSettings {kind}`: open the local Privacy & Security destination after a real click.
     case externalAccessOpenSettings(AgentPaneExternalAccessKind)
     /// `dictation.recording.upload {path}`: send a long recording the host gave the page to the
@@ -404,6 +417,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.saveLog` (the ACP inspector's export) and `pane.saveFile` (a side panel document):
     /// text to save where the user picks (``AgentPaneSave``).
     case saveFile(AgentPaneSave)
+    /// `pane.finishSound {kind}`: a short system sound for a finish the page marks (a turn, CI, a merge),
+    /// fire and forget (``AgentPaneFinishSound``). The page sends it only when the person turned it on.
+    case finishSound(AgentPaneFinishSound.Kind)
     /// `pane.showContextUsage`, `pane.showDictation` or `pane.setScrollToBottomOnSend` with
     /// `{show}`: a composer setting which the host writes to cmux.json at `path`.
     case composerSetting(path: [String], show: Bool)

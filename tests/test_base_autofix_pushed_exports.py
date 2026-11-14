@@ -31,6 +31,15 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/cmux-next"))
 import base_autofix_pushed_exports as px  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 PACK_SCRIPT = ROOT / "scripts/cmux-next/base-autofix-exports-pack.sh"
 AUTOFIX = yaml.safe_load((ROOT / ".github/workflows/cmux-next-base-autofix.yml").read_text())
@@ -713,7 +722,10 @@ sys.exit(subprocess.run(["jq", "-r", query], input=json.dumps(body), text=True).
         self.assertLess(2700 / 60, step["timeout-minutes"])
         self.assertLess(step["timeout-minutes"], job["timeout-minutes"])
         self.assertNotIn("runs-on: macos", json.dumps(job))
-        self.assertIn("ubuntu", job["runs-on"])
+        cells = workflow_jobs.runs_on_cells(job)
+        self.assertTrue(cells, "a runs-on matrix nothing resolves, or no runs-on")
+        for cell in cells:
+            self.assertIn("ubuntu", cell)
 
     def test_the_consumer_job_cannot_fail_so_the_mac_job_always_has_its_fallback(self):
         # action-exports needs pushed-exports with no status function: a failed pushed-exports would

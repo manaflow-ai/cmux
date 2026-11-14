@@ -23,9 +23,11 @@ mod completion;
 pub(crate) mod contention;
 mod disk_full;
 mod effect_intents;
+mod terminal_offer;
 pub(crate) use completion::JournalBatchReceipt;
 use completion::{complete_batch_error, complete_batch_success};
 pub(crate) use effect_intents::{EffectSend, PendingRegistryReceipt};
+pub(crate) use terminal_offer::TerminalOffer;
 
 const JOURNAL_TERMINAL_QUEUE_CAPACITY: usize = 1024;
 const JOURNAL_DURABLE_QUEUE_CAPACITY: usize = 256;
@@ -39,12 +41,16 @@ const JOURNAL_TERMINAL_FAILURE_RETRY_ATTEMPTS: usize = 6;
 /// A guest can be descheduled for several seconds while its state disk is
 /// busy. Two seconds was short enough to turn a routine VM pause into a
 /// permanent journal failure and, consequently, a capture gap on every
-/// terminal. Keep the test timeout short so deadline tests stay fast; the
-/// production default is deliberately long and can be tuned for a host.
-#[cfg(test)]
-const JOURNAL_DURABLE_WAIT: Duration = Duration::from_secs(2);
-#[cfg(not(test))]
+/// terminal. The production default is deliberately long and can be tuned
+/// for a host. Tests use the same 30 s by default: under a loaded full run
+/// a 2 s deadline timed out ordinary appends (agent_reports_at_rest,
+/// create_commit_cost). A test that is about the deadline sets
+/// [`JOURNAL_DEADLINE_TEST_WAIT`] on its own ingress.
 const JOURNAL_DURABLE_WAIT: Duration = Duration::from_secs(30);
+/// The short deadline a deadline test sets on its own ingress
+/// (`Mux::set_journal_durable_wait_for_test`).
+#[cfg(test)]
+pub(crate) const JOURNAL_DEADLINE_TEST_WAIT: Duration = Duration::from_secs(2);
 #[cfg(not(test))]
 const JOURNAL_DURABLE_WAIT_ENV: &str = "CMUX_TUI_JOURNAL_DURABLE_WAIT_MS";
 #[cfg(not(test))]
@@ -60,11 +66,6 @@ const JOURNAL_NONRETRYABLE_RETRY_DELAY: Duration = Duration::from_millis(10);
 const COMMIT_PENDING: u8 = 0;
 const COMMIT_ADMITTED: u8 = 1;
 const COMMIT_CANCELED: u8 = 2;
-
-#[cfg(test)]
-fn journal_durable_wait() -> Duration {
-    JOURNAL_DURABLE_WAIT
-}
 
 #[cfg(not(test))]
 fn journal_durable_wait() -> Duration {
@@ -223,6 +224,14 @@ pub(crate) enum JournalIngressEvent {
     /// A registry commit (effect receipt, terminal record, workspace
     /// registry revision) applied in the batch under its own SAVEPOINT.
     Effect(Box<crate::workspace_registry::RegistryIntent>),
+    /// A projected agent hook's retry row, deleted in the batch: the request
+    /// that projected the hook waits for it instead of committing the delete
+    /// on its own (mux/journal.rs finish_journal_ingress).
+    AgentHookCleared {
+        producer_id: String,
+        origin: String,
+        idempotency_key: String,
+    },
 }
 
 /// Which bounded ingress lane an event travels on. Terminal bytes and their
@@ -242,7 +251,10 @@ impl JournalIngressEvent {
             | Self::TerminalOutputGap { .. } => JournalLane::Terminal,
             #[cfg(test)]
             Self::TerminalOutput { .. } => JournalLane::Terminal,
-            Self::Frontend { .. } | Self::Producer { .. } | Self::Effect(_) => JournalLane::Durable,
+            Self::Frontend { .. }
+            | Self::Producer { .. }
+            | Self::Effect(_)
+            | Self::AgentHookCleared { .. } => JournalLane::Durable,
         }
     }
 
@@ -254,6 +266,11 @@ impl JournalIngressEvent {
             Self::TerminalResize { .. } => 64,
             Self::TerminalOutputGap { .. } => 128,
             Self::Effect(intent) => intent.estimated_bytes(),
+            Self::AgentHookCleared { producer_id, origin, idempotency_key } => producer_id
+                .len()
+                .saturating_add(origin.len())
+                .saturating_add(idempotency_key.len())
+                .saturating_add(64),
             Self::Frontend { event, .. } => match event {
                 FrontendJournalEvent::Focus { .. } => 512,
                 FrontendJournalEvent::Resize { .. } => 256,
@@ -508,15 +525,35 @@ struct JournalIngressState {
     queue_space_epoch: Mutex<u64>,
     queue_space_changed: Condvar,
     disk_full: disk_full::DiskFullState,
+    /// Markers for records the full terminal lane refused (terminal_offer.rs).
+    owed_terminal_gaps: Mutex<terminal_offer::OwedTerminalGaps>,
     #[cfg(test)]
     failure_notifier: Mutex<Option<SyncSender<String>>>,
     #[cfg(test)]
     nonretryable_failure_hook: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,
     #[cfg(test)]
     enqueue_full_notifier: Mutex<Option<SyncSender<()>>>,
+    /// This ingress's durable wait in milliseconds; 0 is [`JOURNAL_DURABLE_WAIT`].
+    #[cfg(test)]
+    durable_wait_ms: std::sync::atomic::AtomicU64,
 }
 
 impl JournalIngressState {
+    /// How long a commit may take before its waiters get a timeout. Shipped builds: one value per
+    /// process (`journal_durable_wait`). Test builds: this ingress's own value.
+    #[cfg(not(test))]
+    fn durable_wait(&self) -> Duration {
+        journal_durable_wait()
+    }
+
+    #[cfg(test)]
+    fn durable_wait(&self) -> Duration {
+        match self.durable_wait_ms.load(Ordering::Acquire) {
+            0 => JOURNAL_DURABLE_WAIT,
+            milliseconds => Duration::from_millis(milliseconds),
+        }
+    }
+
     fn failure(&self) -> Option<String> {
         self.failure.lock().recover_poison().clone()
     }
@@ -579,7 +616,7 @@ impl JournalIngressState {
             if remaining.is_zero() {
                 return Err(format!(
                     "timed out after {} ms waiting to queue a durable session journal event",
-                    journal_durable_wait().as_millis()
+                    self.durable_wait().as_millis()
                 ));
             }
             let (next, result) =
@@ -588,13 +625,14 @@ impl JournalIngressState {
             if result.timed_out() && *epoch == observed {
                 return Err(format!(
                     "timed out after {} ms waiting to queue a durable session journal event",
-                    journal_durable_wait().as_millis()
+                    self.durable_wait().as_millis()
                 ));
             }
         }
         Ok(())
     }
 
+    #[cfg(test)]
     fn wait_for_queue_space_change(&self, observed: u64) -> Result<(), String> {
         let mut epoch = self.queue_space_epoch.lock().recover_poison();
         while *epoch == observed {
@@ -644,6 +682,10 @@ impl JournalIngressSender {
         )
     }
 
+    /// Test-only: waits for room in the terminal lane with no time limit.
+    /// Shipped code offers its terminal-lane records (terminal_offer.rs): its
+    /// callers hold terminal locks.
+    #[cfg(test)]
     pub(crate) fn send(&self, event: JournalIngressEvent) {
         debug_assert!(event.lane() == JournalLane::Terminal);
         let Some(sender) = &self.terminal_sender else { return };
@@ -716,7 +758,7 @@ impl JournalIngressSender {
     }
 
     pub(crate) fn durable_deadline(&self) -> Instant {
-        Instant::now() + journal_durable_wait()
+        Instant::now() + self.state.durable_wait()
     }
 
     pub(crate) fn send_durable_until(
@@ -777,7 +819,7 @@ impl JournalIngressSender {
             anyhow::bail!("session journal writer is unavailable")
         };
         let (completion, result) = sync_channel(1);
-        let deadline = Instant::now() + journal_durable_wait();
+        let deadline = Instant::now() + self.state.durable_wait();
         let commit_fence = Arc::new(AtomicU8::new(COMMIT_PENDING));
         self.enqueue_until(
             sender,
@@ -889,6 +931,13 @@ impl JournalIngressSender {
         }
     }
 
+    /// A test about the deadline sets this ingress's durable wait (others keep the 30 s default).
+    #[cfg(test)]
+    pub(crate) fn set_durable_wait_for_test(&self, wait: Duration) {
+        let milliseconds = u64::try_from(wait.as_millis()).unwrap_or(u64::MAX).max(1);
+        self.state.durable_wait_ms.store(milliseconds, Ordering::Release);
+    }
+
     #[cfg(test)]
     pub(crate) fn install_failure_notifier_for_test(&self, notifier: SyncSender<String>) {
         *self.state.failure_notifier.lock().recover_poison() = Some(notifier);
@@ -912,6 +961,7 @@ impl JournalIngressSender {
         &self.state.stats
     }
 
+    #[cfg(test)]
     fn enqueue(
         &self,
         sender: &SyncSender<QueuedJournalEvent>,
@@ -983,7 +1033,7 @@ impl JournalIngressSender {
                 return Err((
                     format!(
                         "timed out after {} ms waiting to queue a durable session journal event",
-                        journal_durable_wait().as_millis()
+                        self.state.durable_wait().as_millis()
                     ),
                     Box::new(pending),
                 ));
@@ -996,7 +1046,7 @@ impl JournalIngressSender {
                         format!(
                             "timed out after {} ms waiting to queue a durable session journal \
                              event",
-                            journal_durable_wait().as_millis()
+                            self.state.durable_wait().as_millis()
                         ),
                         Box::new(pending),
                     ));
@@ -1050,6 +1100,7 @@ impl JournalIngressSender {
         commit_fence: &AtomicU8,
         operation: &str,
     ) -> anyhow::Result<T> {
+        let _slow_log = crate::diagnostics::request_log::registry_wait(deadline);
         match result.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
             Ok(result) => result.map_err(anyhow::Error::msg),
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -1062,7 +1113,7 @@ impl JournalIngressSender {
                         commit_fence.store(COMMIT_CANCELED, Ordering::Release);
                         Err(anyhow::anyhow!(
                             "timed out after {} ms {operation}",
-                            journal_durable_wait().as_millis()
+                            self.state.durable_wait().as_millis()
                         ))
                     }
                     COMMIT_ADMITTED => {
@@ -1074,7 +1125,8 @@ impl JournalIngressSender {
                             }
                             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                                 Err(anyhow::Error::new(JournalCommitIndeterminate::after(
-                                    journal_durable_wait()
+                                    self.state
+                                        .durable_wait()
                                         .saturating_add(JOURNAL_COMMIT_RESULT_WAIT),
                                 )))
                             }
@@ -1082,7 +1134,7 @@ impl JournalIngressSender {
                     }
                     COMMIT_CANCELED => Err(anyhow::anyhow!(
                         "timed out after {} ms {operation}",
-                        journal_durable_wait().as_millis()
+                        self.state.durable_wait().as_millis()
                     )),
                     state => Err(anyhow::anyhow!(
                         "session journal has an invalid commit admission state {state}"
@@ -1120,7 +1172,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                 .iter()
                 .filter_map(QueuedJournalEvent::deadline)
                 .min()
-                .unwrap_or_else(|| Instant::now() + journal_durable_wait());
+                .unwrap_or_else(|| Instant::now() + receivers.state.durable_wait());
             loop {
                 let Some(mux) = mux.upgrade() else {
                     let error = "session journal stopped".to_string();
@@ -1197,18 +1249,15 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                                 break;
                             }
                             // Only events nobody waits on are kept: no deadline.
-                            retry_deadline = Instant::now() + journal_durable_wait();
+                            retry_deadline = Instant::now() + receivers.state.durable_wait();
                             continue;
                         }
                         let transient = contention::is_transient(&error, retry_deadline);
                         if Instant::now() >= retry_deadline {
+                            // Any error once the deadline passed: the waiters get their timeout,
+                            // the records nobody waits on stay for the next try. The writer never
+                            // stops for good here (only a closed admission stops it, in expire).
                             let detail = format!("journal commit: {summary}");
-                            if !transient {
-                                stop_writer_after_retry_deadline(
-                                    &receivers, &batch, pending, &detail,
-                                );
-                                return;
-                            }
                             let (deadline, rest) = (&mut retry_deadline, &mut pending);
                             let (batch, detail) = (&mut batch, detail.as_str());
                             if !contention::expire(&receivers, batch, rest, deadline, detail) {
@@ -1242,24 +1291,28 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             wait_for_journal_retry(mux, nonretryable_delay.min(remaining));
                             nonretryable_delay = next_nonretryable_retry_delay(nonretryable_delay);
                             continue;
-                        } else if batch.first().is_some_and(|event| event.completion.is_none()) {
-                            let _admit = receivers.state.enqueue_admission.lock().recover_poison();
-                            let failure = receivers.state.fail(format!(
-                                "session journal writer failed permanently: {summary}"
+                        } else if let Some(dropped) =
+                            batch.first().filter(|event| event.completion.is_none())
+                        {
+                            // The store rejected one record nobody waits on every time: drop that
+                            // record alone and go on. No stored failure: admission stays open (a
+                            // failure stored here, with nothing else queued, would never clear).
+                            // Its terminal owes a gap marker and gets a checkpoint, which states
+                            // the terminal again from memory with a later commit.
+                            let owed = receivers.state.owe_gap_for_dropped(&dropped.event);
+                            receivers.state.stats.commit_late(format!(
+                                "dropped a record nobody waits on: {summary}"
                             ));
-                            // A terminal journal failure must not strand the
-                            // live terminal hosts. Mark journaling failed,
-                            // fail pending receipts, and keep the daemon
-                            // available so callers can reconnect or export
-                            // their session before the next restart.
-                            #[cfg(test)]
-                            receivers.state.notify_failure_for_test(&failure);
-                            complete_batch_error(&batch, failure.clone());
-                            for pending_batch in pending {
-                                complete_batch_error(&pending_batch, failure.clone());
+                            eprintln!(
+                                "cmux-tui: session journal dropped a record nobody waits on \
+                                 after {} tries: {summary}",
+                                JOURNAL_TERMINAL_FAILURE_RETRY_ATTEMPTS + 1
+                            );
+                            if let Some(terminal) = owed {
+                                mux.note_terminal_host_reconnect((*terminal).clone());
                             }
-                            complete_queued_error(&receivers, &failure);
-                            return;
+                            drop((writer, mux));
+                            complete_batch_error(&batch, summary);
                         } else {
                             drop((writer, mux));
                             complete_batch_error(&batch, summary);
@@ -1329,7 +1382,7 @@ fn stop_writer_after_retry_deadline(
     receivers.state.stats.deadline_expired();
     let failure = receivers.state.fail(format!(
         "session journal writer timed out after {} ms: {detail}",
-        journal_durable_wait().as_millis()
+        receivers.state.durable_wait().as_millis()
     ));
     // Journal persistence is a recoverability aid, not a reason to tear down
     // every live terminal host. The failed state rejects later journal writes

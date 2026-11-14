@@ -11,7 +11,7 @@ fn strings(words: &[&str]) -> Vec<String> {
 
 fn request(words: &[&str]) -> Request {
     match parse(&strings(words), || Ok("from stdin".to_owned())) {
-        Ok(Parsed::Run(request)) => request,
+        Ok(Parsed::Run(request)) => *request,
         other => panic!("{words:?}: {other:?}"),
     }
 }
@@ -21,6 +21,34 @@ mod clone_wait;
 #[path = "folder_tests.rs"]
 mod folder;
 
+/// Leo, 2026-11-10: a Cloud chat runs the Claude model the person asked for. `--model`, or
+/// `--agent claude/MODEL` as `acp ensure -m` reads it, is the run's model, asked again with it.
+#[test]
+fn the_model_is_taken_from_model_or_agent_and_checked() {
+    let flag = request(&["--model", "claude-haiku-5-5", "-p", "go"]);
+    assert_eq!((flag.agent.as_str(), flag.model.as_deref()), ("claude", Some("claude-haiku-5-5")));
+    let joined = request(&["--agent", "claude/claude-sonnet-5-5", "-p", "go"]);
+    assert_eq!(
+        (joined.agent.as_str(), joined.model.as_deref()),
+        ("claude", Some("claude-sonnet-5-5"))
+    );
+    assert!(
+        again_command(&flag, &Machine::Target("vm-1".into())).contains("--model claude-haiku-5-5")
+    );
+    assert_eq!(request(&["-p", "go"]).model, None);
+    for bad in ["", "-x", "a b", "$(id)", "a'b"] {
+        assert!(
+            parse(&strings(&["--model", bad, "-p", "go"]), || Ok(String::new())).is_err(),
+            "{bad:?}"
+        );
+    }
+    assert!(
+        parse(&strings(&["--agent", "claude/x", "--model", "y", "-p", "go"]), || Ok(String::new()))
+            .is_err()
+    );
+    assert!(TAKES_VALUE.contains(&"--model"));
+}
+
 #[test]
 fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
     let parsed = request(&["--prompt", "hi there"]);
@@ -29,13 +57,18 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
         Request {
             prompt: Some("hi there".into()),
             agent: "claude".into(),
+            model: None,
             cwd: None,
             from_folder: None,
             login: None,
             environment: None,
+            account: None,
             machine: Machine::New,
             wait: false,
             timeout: Duration::from_secs(900),
+            make_room: false,
+            until: None,
+            allow_large: false,
         }
     );
     let parsed = request(&[
@@ -245,6 +278,14 @@ struct Fake {
     costs: Vec<(&'static str, Duration)>,
     /// How long the step at this index of `ran` takes, before `costs`.
     slow: Vec<(usize, Duration)>,
+    /// The app's link stream socket (`cloud.machine_stream`); None: no app answers.
+    stream: Option<Result<Value, Value>>,
+    /// The link waits' answers, in order.
+    pushes: VecDeque<Result<Value, link_wait::Failure>>,
+    /// The app calls and link waits asked: what and its params.
+    called: Vec<(String, Value)>,
+    /// [`Runner::until`].
+    until: Option<Instant>,
 }
 
 impl Fake {
@@ -256,6 +297,10 @@ impl Fake {
             paused: Duration::ZERO,
             costs: Vec::new(),
             slow: Vec::new(),
+            stream: None,
+            pushes: VecDeque::new(),
+            called: Vec::new(),
+            until: None,
         }
     }
 }
@@ -283,6 +328,33 @@ impl Runner for Fake {
     fn fresh_name(&mut self) -> String {
         "chat-fresh".into()
     }
+    fn until(&mut self) -> Option<Instant> {
+        self.until
+    }
+    fn app(
+        &mut self,
+        method: &str,
+        params: Value,
+        _timeout: Duration,
+    ) -> Option<Result<Value, Value>> {
+        self.called.push((method.to_owned(), params));
+        self.clock += Duration::from_millis(5);
+        self.stream.clone()
+    }
+    fn observe(
+        &mut self,
+        socket: &str,
+        surface: u64,
+        after: u64,
+        _wait: Duration,
+    ) -> Result<Value, link_wait::Failure> {
+        self.called.push((
+            "observe".to_owned(),
+            json!({"socket": socket, "surface": surface, "after_seq": after}),
+        ));
+        self.clock += Duration::from_millis(400);
+        self.pushes.pop_front().unwrap_or_else(|| Err(link_wait::Failure::Link("no link".into())))
+    }
 }
 
 fn ok(result: Value) -> Ran {
@@ -305,9 +377,13 @@ fn made() -> Ran {
 }
 
 fn started() -> Ran {
-    ok(json!({"machine_id": "vm-1", "machine_name": "chat-fresh", "session_id": "sess-1",
-              "host": "registry:x", "agent": "claude", "workspace_id": "ws_1",
-              "tab_id": "tab-1", "target": "machine:vm-1"}))
+    ok(started_value())
+}
+
+fn started_value() -> Value {
+    json!({"machine_id": "vm-1", "machine_name": "chat-fresh", "session_id": "sess-1",
+           "host": "registry:x", "agent": "claude", "workspace_id": "ws_1",
+           "tab_id": "tab-1", "target": "machine:vm-1"})
 }
 
 #[test]
@@ -351,6 +427,123 @@ fn a_new_chat_starts_on_a_new_machine_sends_waits_and_answers_the_reply() {
     assert_eq!(fake.paused, Duration::from_secs(2));
 }
 
+fn started_with_surface() -> Ran {
+    let mut ran = started();
+    let mut answer: Value = serde_json::from_str(&ran.stdout).unwrap();
+    answer["result"]["surface_id"] = json!("7");
+    ran.stdout = answer.to_string();
+    ran
+}
+
+/// A fresh chat's turn: pushed over the machine's link (the app's stream socket, then the tab's records read
+/// here), not `cloud exec ... acp wait` and `acp last` (Leo, 2026-11-10: "have we figured out where the 26.5
+/// seconds were yet?"; the trailing two execs took 1091 + 2590 ms). The reply and the felt times come from the
+/// records.
+#[test]
+fn a_fresh_chats_turn_is_pushed_over_the_link() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started_with_surface(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    let update = |seq: u64, at: u64, text: &str| {
+        json!({"seq": seq, "at": at, "dir": "in", "kind": "notification",
+        "msg": {"method": "session/update", "params": {"sessionId": "s", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}}})
+    };
+    fake.pushes.push_back(Ok(json!({"records": [
+        {"seq": 1, "at": 1_000, "dir": "mux", "kind": "user_message", "msg": {"text": "pong"}},
+        update(2, 2_100, "po"), update(3, 2_200, "ng"),
+    ], "last_seq": 3, "ended": "timeout"})));
+    fake.pushes.push_back(Ok(json!({"records": [
+        {"seq": 4, "at": 3_000, "dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}},
+    ], "last_seq": 4, "ended": "turn_end"})));
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "pong", "--wait"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "pong");
+    assert_eq!(answer["wait_route"], "link");
+    assert_eq!(answer["turn"]["status"], "completed");
+    assert_eq!(answer["turn_ms"], json!({"first_output": 1_100, "end": 2_000}));
+    // No exec after the send; the second wait starts after the first one's newest seq.
+    assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
+    assert_eq!(fake.called[0], ("cloud.machine_stream".to_owned(), json!({"machine": "vm-1"})));
+    assert_eq!(fake.called[1].1, json!({"socket": "/tmp/link.sock", "surface": 7, "after_seq": 0}));
+    assert_eq!(fake.called[2].1["after_seq"], 3);
+}
+
+/// A turn that fails writes `turn_error` and no `turn_end` (acpmux `hub/turns.rs`): the pushed wait ends there with
+/// the agent's error, not at `--timeout`.
+#[test]
+fn a_pushed_turn_that_fails_answers_its_error() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started_with_surface(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    fake.pushes.push_back(Ok(json!({"records": [
+        {"seq": 1, "at": 1_000, "dir": "mux", "kind": "user_message", "msg": {"text": "pong"}},
+        {"seq": 2, "at": 1_500, "dir": "mux", "kind": "turn_error", "msg": {"error": "agent process closed", "errorKind": "agent_exited"}},
+    ], "last_seq": 2, "ended": "turn_end"})));
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "pong", "--wait"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(exit, 1);
+    assert_eq!(error["code"], "chat.turn_failed");
+    assert_eq!(error["message"], "agent process closed");
+    assert_eq!(error["details"]["errorKind"], "agent_exited");
+    assert_eq!(error["details"]["turn"]["status"], "failed");
+    assert_eq!(error["details"]["wait_route"], "link");
+}
+
+/// The link closes mid-turn after some records were read: the turn is read through exec instead.
+#[test]
+fn a_link_that_closes_mid_turn_falls_back_to_exec() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started_with_surface(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+        exec_out(
+            "@@wait 0\n@@history\n{\"turns\":[{\"seq\":3,\"status\":\"completed\",\"endedAt\":9}]}\n\
+             @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"4\"]}\n@@lastexit 0\n",
+        ),
+    ]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    fake.pushes.push_back(Ok(json!({"records": [
+        {"seq": 1, "at": 1_000, "dir": "mux", "kind": "user_message", "msg": {"text": "x"}},
+    ], "last_seq": 1, "ended": "closed"})));
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--wait"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "4");
+    assert_eq!(answer["wait_route"], "exec");
+}
+
+/// No app answers the link's socket (an older app) or the link cannot be observed: the turn is read through the
+/// Cloud API's exec as before, and the answer says which route it took.
+#[test]
+fn without_the_link_the_turn_is_read_through_exec() {
+    for stream in [None, Some(Ok(json!({"socket": "/tmp/link.sock"})))] {
+        let mut fake = Fake::new(vec![
+            signed_in(),
+            started_with_surface(),
+            exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+            exec_out(
+                "@@wait 0\n@@history\n{\"turns\":[{\"seq\":3,\"status\":\"completed\",\"endedAt\":9}]}\n\
+                 @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"4\"]}\n@@lastexit 0\n",
+            ),
+        ]);
+        fake.stream = stream;
+        let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--wait"])) else {
+            panic!("{:?}", fake.ran)
+        };
+        assert_eq!(answer["reply"], "4");
+        assert_eq!(answer["wait_route"], "exec");
+    }
+}
+
 #[test]
 fn the_answer_times_each_step_it_ran() {
     let mut fake = Fake::new(vec![
@@ -382,6 +575,55 @@ fn the_answer_times_each_step_it_ran() {
             ("cloud exec", 10_000, 5_000)
         ]
     );
+}
+
+/// Leo, 2026-11-10: "have we figured out where the 26.5 seconds were yet?". The app's own split of
+/// `cloud start-session` (its steps and the machine's start phases) rides under that step as `detail`; an
+/// app that reports none leaves the step as it was.
+#[test]
+fn the_start_sessions_own_split_rides_under_its_step() {
+    let split = json!({"steps": [{"step": "machine", "ms": 7100}, {"step": "connect.link", "ms": 2800}],
+                       "machine": {"session_new": 1800}, "total": 22_826});
+    let mut with_split = started();
+    let mut answer: Value = serde_json::from_str(&with_split.stdout).unwrap();
+    answer["result"]["stages_detail_ms"] = split.clone();
+    with_split.stdout = answer.to_string();
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        with_split,
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--name", "dev"]))
+    else {
+        panic!()
+    };
+    let steps = answer["stages_ms"]["steps"].as_array().unwrap();
+    assert_eq!(steps[1]["step"], "cloud start-session");
+    assert_eq!(steps[1]["detail"], split);
+    assert!(steps[0].get("detail").is_none() && steps[2].get("detail").is_none(), "{steps:?}");
+}
+
+/// `cloud start-session`'s own split (the app's `stages_ms`) goes under that step's `parts`, so its 20-odd seconds
+/// name the machine, the connect, the login, the tab and the start (cmuxterm-hq#8658: "no breakdown of it yet").
+#[test]
+fn the_start_sessions_own_stages_are_its_parts() {
+    let parts = json!([{"step": "machine", "ms": 8_100}, {"step": "connect", "ms": 9_400},
+                       {"step": "login", "ms": 2_100}, {"step": "tab", "ms": 700}, {"step": "start", "ms": 2_500}]);
+    let mut session = started_value();
+    session["stages_ms"] = parts.clone();
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        ok(session),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--name", "dev"]))
+    else {
+        panic!()
+    };
+    let steps = answer["stages_ms"]["steps"].as_array().unwrap();
+    assert_eq!(steps[1]["step"], "cloud start-session");
+    assert_eq!(steps[1]["parts"], parts);
+    assert!(steps[0].get("parts").is_none() && steps[2].get("parts").is_none(), "{steps:?}");
 }
 
 #[test]
@@ -445,7 +687,13 @@ fn without_wait_it_answers_once_the_prompt_is_sent() {
 #[test]
 fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
     for wait in [false, true] {
-        let mut fake = Fake::new(vec![signed_in(), started()]);
+        let mut fake = Fake::new(vec![
+            signed_in(),
+            started(),
+            exec_out(
+                "@@cwd\n{\"sessions\":[{\"sessionId\":\"sess-1\",\"cwd\":\"/home/cmux/chats/peer-7\"}]}\n",
+            ),
+        ]);
         let mut words = vec!["--login", "machine"];
         if wait {
             words.push("--wait");
@@ -454,8 +702,8 @@ fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
             panic!("{:?}", fake.ran)
         };
         assert_eq!(
-            fake.ran,
-            vec![
+            fake.ran[..2],
+            [
                 strings(&["cloud", "list-machines", "--json"]),
                 strings(&[
                     "cloud",
@@ -470,6 +718,15 @@ fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
                 ]),
             ]
         );
+        // A folderless start with no prompt still says where the chat runs (review #39939 F1): one read
+        // of the machine's sessions, after the chat is ready, so `ready_ms` does not count it.
+        assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
+        assert!(
+            fake.ran[2][5].contains("acp ls --live --machine local --json --fields sessionId,cwd")
+        );
+        assert!(!fake.ran[2][5].contains("acp send"), "nothing is sent: {}", fake.ran[2][5]);
+        assert_eq!(answer["cwd"], "/home/cmux/chats/peer-7");
+        assert_eq!(answer["folder"], "fresh");
         for (key, value) in [
             ("machine_id", "vm-1"),
             ("machine_name", "chat-fresh"),
@@ -522,8 +779,8 @@ fn an_environment_makes_the_chats_machine_in_it_first() {
     assert_eq!(fake.ran[1], new_machine(&["--name", "chat-fresh", "--environment", "python-dev"]));
     assert_eq!(fake.ran[2], on_vm_1);
     assert_eq!(fake.ran.len(), 4);
-    // No prompt: new-machine and start-session only.
-    let mut fake = Fake::new(vec![signed_in(), made(), started()]);
+    // No prompt: new-machine and start-session, then the read of where the chat runs.
+    let mut fake = Fake::new(vec![signed_in(), made(), started(), exec_out("@@cwd\n[]\n")]);
     let Outcome::Done(answer) = run(&mut fake, &request(&["--environment", "env_1", "--wait"]))
     else {
         panic!("{:?}", fake.ran)
@@ -531,7 +788,8 @@ fn an_environment_makes_the_chats_machine_in_it_first() {
     assert_eq!(answer["sent"], false);
     assert_eq!(fake.ran[1], new_machine(&["--name", "chat-fresh", "--environment", "env_1"]));
     assert_eq!(fake.ran[2], on_vm_1);
-    assert_eq!(fake.ran.len(), 3);
+    assert_eq!(fake.ran.len(), 4);
+    assert!(answer.get("cwd").is_none(), "an unread folder is left out: {answer}");
     // --wait with a prompt: the chat on the machine made in the environment, its turn waited on, and no
     // second machine.
     let mut fake = Fake::new(vec![
@@ -552,7 +810,7 @@ fn an_environment_makes_the_chats_machine_in_it_first() {
     assert_eq!(fake.ran.iter().filter(|step| step[1] == "new-machine").count(), 1);
     assert_eq!(fake.ran.len(), 5);
     // --name of no machine yet: that name, in the environment.
-    let mut fake = Fake::new(vec![signed_in(), made(), started()]);
+    let mut fake = Fake::new(vec![signed_in(), made(), started(), exec_out("@@cwd\n[]\n")]);
     let asked = request(&["--name", "py-1", "--environment", "env_1"]);
     let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
     assert_eq!(fake.ran[1], new_machine(&["--name", "py-1", "--environment", "env_1"]));
@@ -592,6 +850,68 @@ fn an_environment_for_a_machine_that_exists_or_is_still_being_made_says_so() {
     assert_eq!(fake.ran.len(), 2);
 }
 
+/// Enough answers of `listed` for every read of [`loaded_list`]'s wait (a step takes 5 s in [`Fake`]).
+fn unloaded_lists(listed: Value) -> Vec<Ran> {
+    (0..LIST_LOAD_WAIT.as_secs()).map(|_| ok(listed.clone())).collect()
+}
+
+/// Whether every step the run took was a read of the machine list: nothing was started or made.
+fn only_lists(fake: &Fake) -> bool {
+    fake.ran.iter().all(|step| step.get(1).map(String::as_str) == Some("list-machines"))
+}
+
+/// An app just launched answers its machine list `loaded: false` until its first read lands (the
+/// production chat probe on 2026-11-14 got `cloud.list_unread` right after sign-in). start-chat reads it
+/// again, [`LIST_LOAD_POLL`] apart, and starts once it is loaded; a list still unread after
+/// [`LIST_LOAD_WAIT`] (or `--timeout`) is `cloud.list_unread` with nothing started; a signed-out list is
+/// not waited for.
+#[test]
+fn a_machine_list_the_app_loads_late_is_waited_for_within_its_bound() {
+    let unloaded = json!({"account": {"signed_in": true}, "loaded": false, "machines": []});
+    let mut fake = Fake::new(vec![
+        ok(unloaded.clone()),
+        ok(unloaded.clone()),
+        signed_in(),
+        started(),
+        exec_out("@@cwd\n"),
+    ]);
+    let outcome = run(&mut fake, &request(&[]));
+    assert!(matches!(outcome, Outcome::Done(_)), "{outcome:?}: {:?}", fake.ran);
+    let verbs: Vec<&str> = fake.ran.iter().map(|step| step[1].as_str()).collect();
+    assert_eq!(verbs[..4], ["list-machines", "list-machines", "list-machines", "start-session"]);
+    assert_eq!(fake.paused, LIST_LOAD_POLL * 2);
+
+    // Never loaded: refused once the wait is over. It ends within the first read, the wait, and one
+    // read started just before the wait ran out (5 s each in `Fake`).
+    let mut fake = Fake::new(unloaded_lists(unloaded.clone()));
+    let began = fake.clock;
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&[])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!((error["code"].as_str(), exit), (Some("cloud.list_unread"), 75));
+    assert!(only_lists(&fake), "{:?}", fake.ran);
+    assert!(fake.ran.len() > 2, "read again: {:?}", fake.ran);
+    assert!(
+        fake.clock - began <= LIST_LOAD_WAIT + Duration::from_secs(10),
+        "{:?}",
+        fake.clock - began
+    );
+
+    // `--timeout` shorter than the wait bounds it.
+    let mut fake = Fake::new(unloaded_lists(unloaded));
+    let began = fake.clock;
+    let asked = request(&["--prompt", "x", "--wait", "--timeout", "12"]);
+    let Outcome::Failed { .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert!(only_lists(&fake), "{:?}", fake.ran);
+    assert!(fake.clock - began <= Duration::from_secs(12 + 5), "{:?}", fake.clock - began);
+
+    // Signed out: no wait, the sign-in refusal at once.
+    let mut fake = Fake::new(vec![ok(json!({"account": {"signed_in": false}, "loaded": false}))]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&[])) else { panic!() };
+    assert_eq!(error["code"], "cloud.signed_out");
+    assert_eq!(fake.ran.len(), 1);
+}
+
 /// `--environment` with `--name` makes a machine of that name only when the app's list says none exists
 /// and none is on its way: a list the app has not loaded yet says nothing, and a create of that name still
 /// in flight (a first run that answered pending, or another start) is joined as pending or refused, never
@@ -599,14 +919,14 @@ fn an_environment_for_a_machine_that_exists_or_is_still_being_made_says_so() {
 #[test]
 fn an_environment_never_makes_a_second_machine_of_its_name() {
     let asked = request(&["--name", "py-1", "--environment", "env_1", "--prompt", "x"]);
-    // The list is not loaded: no create.
-    let mut fake = Fake::new(vec![ok(
+    // The list is still not loaded past its wait: no create.
+    let mut fake = Fake::new(unloaded_lists(
         json!({"account": {"signed_in": true}, "loaded": false, "machines": [], "creating": []}),
-    )]);
+    ));
     let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
     assert_eq!((error["code"].as_str(), exit), (Some("cloud.list_unread"), 75));
     assert_eq!(error["details"]["machine_name"], "py-1");
-    assert_eq!(fake.ran.len(), 1, "no new-machine on a list that says nothing");
+    assert!(only_lists(&fake), "no new-machine on a list that says nothing: {:?}", fake.ran);
     // A create of that name is on its way: pending, and no second create.
     let mut fake = Fake::new(vec![ok(json!({"account": {"signed_in": true}, "loaded": true,
         "machines": [{"title": "dev"}], "creating": [{"name": "py-1", "status": "creating"}]}))]);
@@ -802,6 +1122,32 @@ fn shell_quote_leaves_plain_words_and_quotes_the_rest() {
     assert_eq!(shell_quote("$(x)"), "'$(x)'");
 }
 
+/// A turn read through exec that failed before it said anything (the agent's usage limit) answers
+/// its own error, never the turn before's reply that `acp last` still prints (Leo's Cloud chat
+/// walkthrough, 2026-11-11: `chat send` answered "the turn ended failed" with reply "PONG-2350").
+#[test]
+fn a_failed_turn_read_through_exec_answers_its_error_not_the_last_reply() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+        exec_out(
+            "@@wait 0\n@@history\n{\"turns\":[{\"seq\":3,\"status\":\"failed\",\"endedAt\":9,\
+             \"error\":\"You've hit your weekly limit\"}]}\n\
+             @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"PONG-2350\"]}\n@@lastexit 0\n",
+        ),
+    ]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(exit, 1);
+    assert_eq!(error["code"], "chat.turn_failed");
+    assert_eq!(error["message"], "You've hit your weekly limit");
+    assert_eq!(error["details"]["turn"]["status"], "failed");
+    assert!(error["details"].get("reply").is_none(), "{error}");
+}
+
 #[test]
 fn a_reply_that_cannot_be_read_is_an_error_not_an_empty_reply() {
     let mut fake = Fake::new(vec![
@@ -902,22 +1248,60 @@ fn an_unanswered_read_of_the_turn_is_asked_again() {
     assert_eq!(fake.paused, NOT_STARTED_PAUSE);
 }
 
-/// READ_TRIES unanswered reads in a row are the machine not answering; a read the machine answers in between
-/// starts the count again.
+/// Unanswered reads are asked again, with backoff, until `--timeout` runs out: only then is the chat
+/// `chat.unreachable` (a fixed three tries failed a slow-but-working machine with most of the deadline left).
 #[test]
-fn reads_unanswered_read_tries_times_in_a_row_are_chat_unreachable() {
+fn unanswered_reads_are_asked_again_until_the_deadline() {
     let running = "@@wait 3\n@@history\n{\"turns\":[{\"seq\":3,\"status\":\"running\"}]}\n";
     let mut answers = vec![signed_in(), started(), exec_out(SENT), unanswered(), exec_out(running)];
-    answers.extend((0..READ_TRIES).map(|_| unanswered()));
+    answers.extend((0..40).map(|_| unanswered()));
     let mut fake = Fake::new(answers);
-    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    let began = fake.clock;
+    let Outcome::Failed { error, exit } =
+        run(&mut fake, &request(&["--prompt", "x", "--wait", "--timeout", "120"]))
     else {
         panic!("{:?}", fake.ran)
     };
-    assert_eq!((error["code"].as_str(), exit), (Some("chat.unreachable"), 1), "{error}");
-    assert!(error["message"].as_str().unwrap().contains("didn't answer in time"), "{error}");
+    // The deadline's own answer: the read that found it passed (`chat.unreachable`) or the wait that had none of it
+    // left (`chat.wait_timeout`), whichever came first.
+    let code = error["code"].as_str();
+    assert!(matches!(code, Some("chat.unreachable" | "chat.wait_timeout")), "{error}");
+    assert!(exit == 1 || exit == 3, "{exit}");
     assert_eq!(error["details"]["answer"]["session_id"], "sess-1");
-    assert_eq!(fake.ran.len(), 5 + READ_TRIES as usize, "{:?}", fake.ran);
+    // Far more than three reads, and the failure comes only once the deadline has passed.
+    assert!(fake.ran.len() > 5 + 3, "{:?}", fake.ran);
+    assert!(
+        fake.clock.duration_since(began) >= Duration::from_secs(120),
+        "{:?}",
+        fake.clock.duration_since(began)
+    );
+}
+
+/// The machine's daemon comes back 30 s into the wait (a receiver or acpmux that starts late): every read until then
+/// goes unanswered, and the reply is still read back inside `--timeout`.
+#[test]
+fn a_machine_that_answers_after_30_s_of_unanswered_reads_gets_its_reply_read() {
+    let mut answers = vec![signed_in(), started(), exec_out(SENT)];
+    // Each fake step takes 5 s; with the pauses between them, these reads span over 30 s.
+    answers.extend((0..5).map(|_| unanswered()));
+    answers.push(exec_out(REPLIED));
+    let mut fake = Fake::new(answers);
+    let Outcome::Done(answer) =
+        run(&mut fake, &request(&["--prompt", "x", "--wait", "--timeout", "120"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "4");
+    assert_eq!(answer["unanswered_reads"], 5);
+    let unanswered_span = Duration::from_secs(5 * 5) + fake.paused;
+    assert!(unanswered_span >= Duration::from_secs(30), "{unanswered_span:?}");
+}
+
+/// The pauses between unanswered reads grow from 2 s and stop growing at 15 s.
+#[test]
+fn unanswered_pauses_back_off_to_a_cap() {
+    let pauses: Vec<u64> = (1..=6).map(|n| unanswered_pause(n).as_secs()).collect();
+    assert_eq!(pauses, [2, 4, 8, 15, 15, 15]);
 }
 
 /// A read refused because the machine stopped, is gone or is not the caller's, or for its length, fails at once:
@@ -1717,9 +2101,17 @@ fn a_start_the_plans_running_cap_refuses_names_the_machines_and_how_to_make_room
     };
     assert_eq!(error["code"], "cloud.machine_cap");
     let message = error["message"].as_str().unwrap();
-    assert!(message.starts_with("this plan allows 5 active machines: "), "{message}");
     assert!(
-        message.contains("api (running): `cmux cloud start-chat --target machine:vm-a --prompt TEXT --json` or `cmux cloud pause-machine --target machine:vm-a`"),
+        message.starts_with(
+            "Cloud could not start a new machine: too many machines are running at once"
+        ),
+        "{message}"
+    );
+    // A paid plan has no machine count: the guard's number stays in the app's answer, out of the lead.
+    assert!(!message.contains("plan allows"), "{message}");
+    assert_eq!(error["details"]["app"]["message"], "this plan allows 5 active machines");
+    assert!(
+        message.contains("api (running): `cmux cloud start-chat --target vm:vm-a --prompt TEXT --json` or `cmux cloud pause-machine --target vm:vm-a`"),
         "{message}"
     );
     assert!(message.contains("web (paused)"), "{message}");
@@ -1728,7 +2120,7 @@ fn a_start_the_plans_running_cap_refuses_names_the_machines_and_how_to_make_room
     assert_eq!(error["details"]["cap"], "running");
     assert_eq!(
         error["details"]["machines"][1]["delete"],
-        "cmux cloud kill-machine --target machine:vm-b --confirm"
+        "cmux cloud kill-machine --target vm:vm-b --confirm"
     );
 }
 
@@ -1749,29 +2141,256 @@ fn a_new_machine_the_vm_apis_cap_failed_names_the_machines_and_how_to_delete_one
     };
     assert_eq!(error["code"], "cloud.machine_cap");
     let message = error["message"].as_str().unwrap();
-    assert!(message.starts_with(cap), "{message}");
     assert!(
-        message.contains("web (paused): `cmux cloud start-chat --target machine:vm-b --prompt TEXT --json` or `cmux cloud kill-machine --target machine:vm-b --confirm`"),
+        message
+            .starts_with("Cloud could not start a new machine: too many machines are kept at once"),
+        "{message}"
+    );
+    assert!(!message.contains("limit of 20"), "{message}");
+    assert!(
+        message.contains("web (paused): `cmux cloud start-chat --target vm:vm-b --prompt TEXT --json` or `cmux cloud kill-machine --target vm:vm-b --confirm`"),
         "{message}"
     );
     assert_eq!(error["details"]["cap"], "held");
+    assert_eq!(error["details"]["reason"], cap);
+}
+
+#[test]
+fn a_start_the_spending_cap_refuses_says_so_and_names_only_running_machines() {
+    let mut fake = Fake::new(vec![
+        listed_machines(json!([
+            {"machine_id": "vm-a", "title": "api", "status": "running"},
+            {"machine_id": "vm-b", "title": "web", "status": "paused"},
+        ])),
+        Ran {
+            code: 1,
+            stderr: json!({"code": "cloud.spend_cap.reached",
+                           "message": "this team is at its spending cap"})
+            .to_string(),
+            ..Ran::default()
+        },
+    ]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "hi"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.spend_cap");
+    let message = error["message"].as_str().unwrap();
+    assert!(
+        message
+            .starts_with("Cloud could not start a new machine: your team reached its spending cap"),
+        "{message}"
+    );
+    assert!(message.contains("nothing is lost"), "{message}");
+    assert!(message.contains("api (running)"), "{message}");
+    // A paused machine cannot start at the cap: never offered.
+    assert!(!message.contains("web (paused)"), "{message}");
+    assert_eq!(error["details"]["cap"], "spend");
 }
 
 #[test]
 fn only_a_cap_refusal_reads_as_a_cap() {
     use super::cap::{Cap, cap_of};
-    assert_eq!(cap_of("cmux.cloud.quota_exceeded", "x"), Some(Cap::Running));
-    assert_eq!(cap_of("cloud.quota.exceeded", "x"), Some(Cap::Running));
-    assert_eq!(cap_of("", "this plan allows 5 active machines"), Some(Cap::Running));
+    assert_eq!(cap_of("cmux.cloud.quota_exceeded", "x", None), Some(Cap::Running));
+    assert_eq!(cap_of("cloud.quota.exceeded", "x", None), Some(Cap::Running));
+    assert_eq!(cap_of("", "this plan allows 5 active machines", None), Some(Cap::Running));
     assert_eq!(
         cap_of(
             "cloud.provider.unavailable",
-            "VM API: this team has its limit of 20 machines (paused ones count); delete one to make another"
+            "VM API: this team has its limit of 20 machines (paused ones count); delete one to make another",
+            None
         ),
         Some(Cap::Held)
     );
-    assert_eq!(cap_of("cloud.provider.unavailable", "VM API: HTTP 429"), None);
-    assert_eq!(cap_of("app.unreachable", "no app"), None);
+    assert_eq!(
+        cap_of(
+            "cloud.quota.exceeded",
+            "this plan allows 200 machines in all, paused ones included; delete one first",
+            None
+        ),
+        Some(Cap::Held)
+    );
+    assert_eq!(cap_of("cloud.spend_cap.reached", "x", None), Some(Cap::Spend));
+    assert_eq!(cap_of("cmux.cloud.spend_cap_reached", "x", None), Some(Cap::Spend));
+    assert_eq!(cap_of("cloud.provider.unavailable", "VM API: HTTP 429", None), None);
+    assert_eq!(cap_of("app.unreachable", "no app", None), None);
+    // cmux-platform's `details.resource` decides over its words.
+    assert_eq!(cap_of("cloud.quota.exceeded", "any words", Some("machines")), Some(Cap::Held));
+    // The VM limit by its own code, whatever its words.
+    assert_eq!(cap_of("cloud.quota.vm_limit", "any words", None), Some(Cap::Held));
+    assert_eq!(cap_of("cmux.cloud.vm_limit", "any words", None), Some(Cap::Held));
+    assert_eq!(cap_of("cloud.quota.exceeded", "any words", Some("active")), Some(Cap::Running));
+    assert_eq!(
+        cap_of("cloud.quota.exceeded", "this plan keeps 200 saved snapshots", Some("saved")),
+        None
+    );
+    assert_eq!(
+        cap_of(
+            "cloud.quota.exceeded",
+            "a team keeps at most 50 environments",
+            Some("environments")
+        ),
+        None
+    );
+    assert_eq!(cap_of("cloud.spend_cap.reached", "x", Some("active")), Some(Cap::Spend));
+    // The app's string-only failure and a stage's reason carry cmux-platform's words, not its code.
+    assert_eq!(
+        cap_of(
+            "unavailable",
+            "could not create machine \"w\": this team has reached its spending cap; an admin can raise it",
+            None
+        ),
+        Some(Cap::Spend)
+    );
+    assert_eq!(
+        cap_of(
+            "",
+            "this team has spent 40.00 USD of its 40.00 USD spending cap; an admin can raise it",
+            None
+        ),
+        Some(Cap::Spend)
+    );
+}
+
+/// The held cap's refusal, with the machine the platform offers to free (`details.free_up`).
+fn held_refusal(free_up: Value) -> Ran {
+    Ran {
+        code: 1,
+        stderr: json!({"code": "cmux.cloud.quota_exceeded",
+                       "message": "VM API: this team has its limit of 3 machines (paused ones count)",
+                       "details": {"resource": "machines", "free_up": free_up}})
+        .to_string(),
+        ..Ran::default()
+    }
+}
+
+fn three_machines() -> Ran {
+    listed_machines(json!([
+        {"machine_id": "vm-a", "title": "api", "status": "running"},
+        {"machine_id": "vm-b", "title": "web", "status": "paused", "last_active_at": 20},
+        {"machine_id": "vm-c", "title": "old", "status": "paused", "last_active_at": 10},
+    ]))
+}
+
+/// The Cloud app's own records (`cloud.machine.list`): keep and last use on each; the kept one is
+/// used longest ago and is never the pick.
+fn records() -> Ran {
+    ok(json!({"machines": [
+        {"id": "vm-a", "name": "api", "status": "running", "keep": false, "last_active_at": 30},
+        {"id": "vm-b", "name": "web", "status": "paused", "keep": false, "last_active_at": 20},
+        {"id": "vm-c", "name": "old", "status": "paused", "keep": false, "last_active_at": 10},
+        {"id": "vm-k", "name": "pinned", "status": "paused", "keep": true, "last_active_at": 1},
+    ]}))
+}
+
+#[test]
+fn a_cap_refusal_offers_make_room_with_the_machine_the_platform_names() {
+    let free = json!({"machine": "vm-b", "name": "web", "reason": "never_used"});
+    let mut fake = Fake::new(vec![three_machines(), held_refusal(free)]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "hi"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.machine_cap");
+    let message = error["message"].as_str().unwrap();
+    assert!(
+        message.contains(
+            "Make room: `cmux cloud start-chat --prompt TEXT --json --make-room` deletes web first"
+        ),
+        "{message}"
+    );
+    assert_eq!(error["details"]["make_room"]["how"], "delete");
+    assert_eq!(
+        error["details"]["make_room"]["command"],
+        "cmux vm kill-machine --target vm:vm-b --confirm"
+    );
+    // Nothing was deleted without --make-room.
+    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
+}
+
+#[test]
+fn make_room_deletes_the_offered_machine_and_starts_again_once() {
+    let free = json!({"machine": "vm-b", "name": "web", "reason": "failed_create"});
+    let sent = exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n");
+    let mut fake = Fake::new(vec![
+        three_machines(),
+        held_refusal(free),
+        ok(json!({"deleted": true})),
+        three_machines(),
+        started(),
+        sent,
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "hi", "--make-room"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["session_id"], "sess-1");
+    assert_eq!(
+        fake.ran[2],
+        strings(&["cloud", "kill-machine", "--target", "machine:vm-b", "--confirm", "--json"])
+    );
+}
+
+#[test]
+fn make_room_with_nothing_named_archives_the_oldest_paused_machine_and_says_to_ask_again() {
+    let mut fake = Fake::new(vec![
+        three_machines(),
+        held_refusal(Value::Null),
+        records(),
+        ok(json!({"machine": {}})),
+    ]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--prompt", "hi", "--make-room"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.make_room_archiving");
+    assert_eq!(fake.ran[2][..4], strings(&["apps", "run", "cmux/cloud", "cloud.machine.list"]));
+    assert_eq!(
+        fake.ran[3],
+        strings(&["cloud", "archive-machine", "--target", "machine:vm-c", "--confirm", "--json"])
+    );
+    assert!(error["message"].as_str().unwrap().starts_with("archiving old:"), "{error}");
+}
+
+#[test]
+fn make_room_that_is_refused_says_so_and_starts_nothing() {
+    let refused = Ran {
+        code: 1,
+        stderr: json!({"code": "cloud.gesture_required", "message": "archive and delete needs a person"})
+            .to_string(),
+        ..Ran::default()
+    };
+    let mut fake = Fake::new(vec![three_machines(), held_refusal(Value::Null), records(), refused]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--prompt", "hi", "--make-room"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.make_room_failed");
+    assert_eq!(fake.ran.len(), 4, "{:?}", fake.ran);
+}
+
+#[test]
+fn make_room_deletes_only_a_machine_the_platform_names_by_id() {
+    use super::cap::{Cap, room, used_ms};
+    let listed = json!({"machines": [
+        {"machine_id": "vm-c", "title": "old", "status": "paused", "created_at": "2026-01-02T00:00:00Z"},
+        {"machine_id": "vm-s", "title": "scratch", "status": "running"},
+    ]});
+    // The running cap: only a named free_up.
+    assert_eq!(room(Cap::Running, &json!({}), &listed), None);
+    let named = room(Cap::Running, &json!({"free_up": {"machine": "vm-c", "name": null}}), &listed);
+    assert_eq!(
+        named.map(|room| (room.machine, room.name, room.archive)),
+        Some(("vm-c".into(), "old".into(), false))
+    );
+    // Never a delete from the refusal's words: with no id, only an archive is offered, and its
+    // machine is picked from the full records when it runs.
+    let offered = room(Cap::Held, &json!({}), &listed).unwrap();
+    assert!(offered.archive && offered.machine.is_empty(), "{offered:?}");
+    // A kept machine is never archived.
+    let kept = json!({"machines": [{"machine_id": "vm-c", "status": "paused", "keep": true}]});
+    assert_eq!(room(Cap::Held, &json!({}), &kept), None);
+    assert_eq!(used_ms(&json!({"created_at": "1970-01-01T00:00:01Z"})), Some(1000));
+    assert_eq!(used_ms(&json!({"last_active_at": 5, "created_at": 9})), Some(5));
 }
 
 #[test]
@@ -1817,17 +2436,12 @@ fn a_fresh_name_that_is_taken_or_unread_never_reaches_a_start_or_a_create() {
     for (list, mut listed, code) in lists {
         listed["account"] = json!({"signed_in": true});
         for (path, words) in paths {
-            let mut fake = Fake::new(vec![ok(listed.clone())]);
+            let mut fake = Fake::new(unloaded_lists(listed.clone()));
             let Outcome::Failed { error, exit } = run(&mut fake, &request(words)) else {
                 panic!("{list}, {path}: {:?}", fake.ran)
             };
             assert_eq!((error["code"].as_str(), exit), (Some(code), 75), "{list}, {path}: {error}");
-            assert_eq!(
-                fake.ran.len(),
-                1,
-                "{list}, {path}: nothing started or made: {:?}",
-                fake.ran
-            );
+            assert!(only_lists(&fake), "{list}, {path}: nothing started or made: {:?}", fake.ran);
         }
     }
 }
@@ -1836,7 +2450,7 @@ fn a_fresh_name_that_is_taken_or_unread_never_reaches_a_start_or_a_create() {
 /// (or a person's own machine) share one only by a negligible chance.
 #[test]
 fn a_fresh_name_has_sixteen_random_hex_characters() {
-    let mut runner = SelfRunner { globals: Vec::new() };
+    let mut runner = SelfRunner::new(&GlobalArgs::default());
     let names: Vec<String> = (0..64).map(|_| runner.fresh_name()).collect();
     for name in &names {
         let hex = name.strip_prefix("chat-").unwrap_or_else(|| panic!("{name}"));
@@ -1862,13 +2476,18 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
     let asked = Request {
         prompt: Some("And 2+3?".into()),
         agent: String::new(),
+        model: None,
         cwd: None,
         from_folder: None,
         login: None,
         environment: None,
+        account: None,
         machine: Machine::Target("vm-1".into()),
         wait: true,
         timeout: Duration::from_secs(60),
+        make_room: false,
+        until: None,
+        allow_large: false,
     };
     let Outcome::Done(answer) = send_to(&mut fake, &asked, "vm-1", "sess-1") else {
         panic!("{:?}", fake.ran)
@@ -1896,13 +2515,18 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
     let asked = |prompt: String, secs: u64| Request {
         prompt: Some(prompt),
         agent: String::new(),
+        model: None,
         cwd: None,
         from_folder: None,
         login: None,
         environment: None,
+        account: None,
         machine: Machine::Target("vm-1".into()),
         wait: true,
         timeout: Duration::from_secs(secs),
+        make_room: false,
+        until: None,
+        allow_large: false,
     };
     let big = big_prompt(200 * 1024);
     let piece = exec_out(&format!("@@size {}\n", big.len()));
@@ -2013,6 +2637,100 @@ fn a_late_creation_timeout_names_the_machine_to_ask_again_by() {
     );
 }
 
+/// `cloud list-machines` signed in as `user` on `team`, listing `machines` by id.
+fn listed_as(user: &str, team: Option<&str>, machines: &[&str]) -> Ran {
+    let rows: Vec<Value> =
+        machines.iter().map(|id| json!({"machine_id": id, "title": id})).collect();
+    ok(json!({"loaded": true, "account": {"signed_in": true, "user_id": user, "team_id": team},
+              "machines": rows}))
+}
+
+/// A sandboxed Run's `--account` (the fifth review of #39022): nothing starts on another account,
+/// and the prompt goes only to a machine the Run's own account lists, read after the start.
+#[test]
+fn an_account_run_starts_and_sends_only_on_that_account() {
+    let asked = request(&["--prompt", "secret", "--wait", "--account", "user:u1|team:t1"]);
+    assert_eq!(asked.account.as_deref(), Some("user:u1|team:t1"));
+    assert!(parse(&strings(&["--account", "team:t1"]), || Ok(String::new())).is_err());
+
+    // Another person (same team) at the start: nothing starts.
+    let mut fake = Fake::new(vec![listed_as("u2", Some("t1"), &["dev"])]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["code"], "cloud.account_changed");
+    assert_eq!(fake.ran.len(), 1, "{:?}", fake.ran);
+
+    // The app switched between the first list and the start: the machine is not the Run's
+    // account's, so nothing is sent, and the failure names the machine this run made.
+    let mut fake = Fake::new(vec![
+        listed_as("u1", Some("t1"), &[]),
+        started(),
+        listed_as("u2", None, &["vm-1"]),
+    ]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["code"], "cloud.account_changed");
+    assert_eq!(error["details"]["machine_id"], "vm-1");
+    assert_eq!(error["details"]["app_account"], "user:u2|personal");
+    assert!(fake.ran.iter().all(|ran| ran[1] != "exec"), "{:?}", fake.ran);
+
+    // The account's list shows the machine only on a later read: then the prompt goes.
+    let mut fake = Fake::new(vec![
+        listed_as("u1", Some("t1"), &[]),
+        started(),
+        listed_as("u1", Some("t1"), &[]),
+        listed_as("u1", Some("t1"), &["vm-1"]),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+        exec_out(
+            "@@wait 0\n@@history\n{\"turns\":[{\"seq\":3,\"status\":\"completed\",\"endedAt\":9}]}\n\
+             @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"done\"]}\n@@lastexit 0\n",
+        ),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(answer["reply"], "done");
+
+    // A list that never shows it: nothing is sent.
+    let mut answers = vec![listed_as("u1", Some("t1"), &[]), started()];
+    answers.extend((0..5).map(|_| listed_as("u1", Some("t1"), &["other"])));
+    let mut fake = Fake::new(answers);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["code"], "cloud.account_changed");
+    assert!(fake.ran.iter().all(|ran| ran[1] != "exec"), "{:?}", fake.ran);
+
+    // Without --account nothing extra is read.
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+    ]);
+    assert!(matches!(run(&mut fake, &request(&["--prompt", "x"])), Outcome::Done(_)));
+    assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
+}
+
+/// A Run's start names its machine (`--name sandbox-run_…`): when the app switched account between
+/// the first list and the start, nothing is sent, nothing is deleted here (a free name in one
+/// account's list proves nothing in another's: Codex's review of #39022 at 8c2c83b0), and the
+/// refusal names the account the app is on, where the Run's cleanup deletes its own machine.
+#[test]
+fn a_named_machine_on_another_account_gets_nothing_and_names_that_account() {
+    let asked = request(&[
+        "--prompt",
+        "secret",
+        "--wait",
+        "--name",
+        "sandbox-run_1",
+        "--account",
+        "user:u1|team:t1",
+    ]);
+    let made =
+        ok(json!({"machine_id": "vm-1", "machine_name": "sandbox-run_1", "session_id": "sess-1",
+                         "target": "machine:vm-1"}));
+    let mut fake =
+        Fake::new(vec![listed_as("u1", Some("t1"), &[]), made, listed_as("u2", None, &["vm-1"])]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["code"], "cloud.account_changed");
+    assert_eq!(error["details"]["app_account"], "user:u2|personal");
+    assert_eq!(fake.ran.len(), 3, "no send and no delete: {:?}", fake.ran);
+}
+
 /// A read the app could not get to the Cloud API at all is asked again, like one it did not answer in time.
 #[test]
 fn an_unreachable_read_of_the_turn_is_asked_again() {
@@ -2030,4 +2748,410 @@ fn an_unreachable_read_of_the_turn_is_asked_again() {
         panic!("{:?}", fake.ran)
     };
     assert_eq!(answer["unanswered_reads"], 1);
+}
+
+/// Leo (2026-11-09): "this no folder selected should be, like, good as well". A start with no
+/// `--cwd` and no `--from-folder` is a first-class one: the answer says the chat runs in a fresh
+/// folder of its own (`folder: fresh`), names that folder as the machine reports it (`cwd`, read in
+/// the send's own exec, so no extra round trip), and gives the way to a repository later
+/// (`follow_up.cd`). Nothing waits on a folder: the same steps as any start.
+#[test]
+fn a_folderless_start_is_fresh_and_reports_the_folder_the_machine_made() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out(
+            "@@cwd\n{\"sessions\":[{\"sessionId\":\"other\",\"cwd\":\"/home/cmux/work/api\"},\
+             {\"sessionId\":\"sess-1\",\"cwd\":\"/home/cmux/chats/peer-7\"}]}\n\
+             @@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n",
+        ),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "hi"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["folder"], "fresh");
+    assert_eq!(answer["cwd"], "/home/cmux/chats/peer-7");
+    assert_eq!(answer["follow_up"]["cd"], "cmux chat cd sess-1 DIR|--repo OWNER/NAME");
+    // start-session gets no folder, and the send reads where the chat runs in the same exec.
+    assert_eq!(
+        fake.ran[1],
+        strings(&["cloud", "start-session", "--name", "chat-fresh", "--agent", "claude", "--json"])
+    );
+    assert_eq!(fake.ran.len(), 3, "no step waits on a folder: {:?}", fake.ran);
+    assert!(fake.ran[2][5].contains("acp ls --live --machine local --json --fields sessionId,cwd"));
+}
+
+#[test]
+fn the_folder_kind_and_the_session_folder_read() {
+    assert_eq!(folder_kind(None, None), "fresh");
+    assert_eq!(folder_kind(Some("/home/cmux/work/api"), None), "given");
+    assert_eq!(folder_kind(None, Some("/Users/you/src/cmux")), "copied");
+    let rows = "[{\"id\":\"s-2\",\"cwd\":\"/root/chats/s-2\"}]".to_owned();
+    assert_eq!(session_cwd(Some(&rows), "s-2").as_deref(), Some("/root/chats/s-2"));
+    assert_eq!(session_cwd(Some(&rows), "s-3"), None);
+    assert_eq!(session_cwd(Some(&"not json".to_owned()), "s-2"), None);
+    assert_eq!(session_cwd(None, "s-2"), None);
+    // A start with no read (an older machine's ls) still answers: given keeps its --cwd.
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let given = request(&["--prompt", "hi", "--cwd", "/home/cmux/work/api"]);
+    let Outcome::Done(answer) = run(&mut fake, &given) else { panic!("{:?}", fake.ran) };
+    assert_eq!(answer["folder"], "given");
+    assert_eq!(answer["cwd"], "/home/cmux/work/api");
+}
+
+/// The carrier fault drill's start runs inside the drill's one `--timeout` deadline (`Request::until`), prompt or
+/// not: a start-session that answers past it ends the drill there, before the app's credential is asked, any
+/// carrier is dialed or anything is sent.
+#[test]
+fn a_drill_whose_start_answers_past_its_deadline_sends_nothing() {
+    use crate::carrier::fault::{FaultPlan, FaultSpec, Route};
+    let mut fake = Fake::new(vec![signed_in(), started()]);
+    fake.costs = vec![("start-session", Duration::from_secs(120))];
+    let asked = request(&["--prompt", "count", "--wait", "--timeout", "60"]);
+    let caps = json!({"routes": ["relay", "ssh"], "faults": ["kill-route"]});
+    let spec = FaultSpec { kill: Route::Relay, after_events: 3 };
+    let plan = FaultPlan::new(spec, vec![Route::Relay, Route::Ssh], &caps).unwrap();
+    let until = fake.now() + Duration::from_secs(60);
+    let global = GlobalArgs::default();
+    let Err(Outcome::Failed { error, .. }) =
+        fault::drill_source(&mut fake, &global, &asked, false, (&plan, &caps, until))
+    else {
+        panic!("a late start went on: {:?}", fake.ran)
+    };
+    assert_ne!(error["code"], "carrier_fault.no_credential", "{error}");
+    assert!(fake.called.is_empty(), "nothing after the start: {:?}", fake.called);
+    assert_eq!(fake.ran.len(), 2, "no exec, no send: {:?}", fake.ran);
+}
+
+/// The drill's prompt send past its deadline sends nothing: it never runs a step.
+#[test]
+fn a_drill_send_past_its_deadline_runs_nothing() {
+    let asked = request(&["--prompt", "count", "--wait"]);
+    // An app socket nobody serves: a send that ran a step would say so in its error, not the deadline.
+    let global = GlobalArgs {
+        app_socket: Some(std::path::PathBuf::from("/nonexistent/cmux-drill-test.sock")),
+        ..GlobalArgs::default()
+    };
+    let past = Instant::now() - Duration::from_millis(1);
+    let send = fault::prompt_send(
+        SelfRunner::new(&global),
+        &asked,
+        "count".into(),
+        ("vm-1".into(), "sess-1".into()),
+        past,
+    );
+    assert_eq!(send(), Err("--timeout ran out before the prompt was sent".to_owned()));
+}
+
+/// A stand-in `cmux` for the drill's real runner: it logs each step's words to `steps`, answers `cloud
+/// list-machines` signed in, and on `stall` (a verb) starts a child that sleeps far past any deadline, writing its
+/// pid to `child.pid`, and only after it ends writes `sent`: what the step would have done.
+#[cfg(target_os = "linux")]
+fn stalling_cmux(dir: &std::path::Path, stall: &str) -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = dir.display();
+    let script = format!(
+        "#!/bin/sh\n\
+         echo \"$*\" >> '{dir}/steps'\n\
+         case \"$*\" in\n\
+         *list-machines*) echo '{{\"result\":{{\"account\":{{\"signed_in\":true}},\"machines\":[{{\"title\":\"dev\"}}]}}}}' ;;\n\
+         *'cloud {stall}'*) sleep 600 & echo $! > '{dir}/child.pid'; wait; echo done > '{dir}/sent' ;;\n\
+         *) echo '{{\"result\":{{}}}}' ;;\n\
+         esac\n"
+    );
+    let path = std::path::PathBuf::from(format!("{dir}/cmux"));
+    std::fs::write(&path, script).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+/// Whether `pid` (read from `file`) still runs: a gone or zombie process does not.
+#[cfg(target_os = "linux")]
+fn still_runs(file: &std::path::Path) -> bool {
+    let pid =
+        std::fs::read_to_string(file).unwrap_or_else(|error| panic!("{}: {error}", file.display()));
+    let stat = std::fs::read_to_string(format!("/proc/{}/stat", pid.trim())).unwrap_or_default();
+    stat.rsplit_once(") ").is_some_and(|(_, rest)| !rest.starts_with('Z'))
+}
+
+/// Polls `still_runs` for up to 2 s: the killed group's processes go as soon as the kernel delivers SIGKILL.
+#[cfg(target_os = "linux")]
+fn gone(file: &std::path::Path) -> bool {
+    let until = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < until {
+        if !still_runs(file) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    false
+}
+
+/// A bounded step that exits at once but leaves a backgrounded grandchild holding its stdout answers right away
+/// with its own output, and the grandchild is killed with the step's group: neither the pipe nor the leftover
+/// outlives the step. Without it, reading the output waited on the grandchild, past any deadline.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_bounded_step_that_exits_leaving_a_grandchild_on_its_pipe_answers_and_leaves_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let pid_file = dir.path().join("child.pid");
+    let mut command = cmux_process::Command::new("sh");
+    command.arg("-c").arg(format!("sleep 600 & echo $! > '{}'; echo hi", pid_file.display()));
+    let began = Instant::now();
+    let ran = internal::bounded::output_by(command, began + Duration::from_secs(5));
+    let took = began.elapsed();
+    assert_eq!((ran.code, ran.stdout.as_str()), (0, "hi\n"), "{}", ran.stderr);
+    assert!(took < Duration::from_secs(3), "answered {took:?} after the step exited");
+    assert!(gone(&pid_file), "the step's grandchild outlived it");
+}
+
+/// The drill's real runner ends a start-session that stalls at the drill's deadline: the step's child (and the
+/// child it started, its process group) is killed there, the drill answers then, and nothing after it runs, so no
+/// prompt is sent. Without the bound the step waited for its child to finish, past any `--timeout`.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_drill_s_start_session_that_stalls_is_killed_at_the_deadline_and_nothing_is_sent() {
+    use crate::carrier::fault::{FaultPlan, FaultSpec, Route};
+    let dir = tempfile::tempdir().unwrap();
+    let cmux = stalling_cmux(dir.path(), "start-session");
+    let asked = request(&["--prompt", "count", "--wait", "--timeout", "2"]);
+    let caps = json!({"routes": ["relay", "ssh"], "faults": ["kill-route"]});
+    let spec = FaultSpec { kill: Route::Relay, after_events: 3 };
+    let plan = FaultPlan::new(spec, vec![Route::Relay, Route::Ssh], &caps).unwrap();
+    let global = GlobalArgs::default();
+    let began = Instant::now();
+    let until = began + Duration::from_secs(2);
+    let mut runner = SelfRunner::new(&global).running(cmux).until(until);
+    let answered = fault::drill_source(&mut runner, &global, &asked, false, (&plan, &caps, until));
+    let took = began.elapsed();
+    assert!(answered.is_err(), "a killed start went on");
+    assert!(took < Duration::from_secs(6), "answered {took:?} after a 2 s deadline");
+    assert!(gone(&dir.path().join("child.pid")), "the stalled step's child outlived the deadline");
+    assert!(!dir.path().join("sent").exists(), "the stalled step finished");
+    let steps = std::fs::read_to_string(dir.path().join("steps")).unwrap();
+    let after: Vec<&str> =
+        steps.lines().skip_while(|step| !step.contains("cloud start-session")).skip(1).collect();
+    assert!(after.is_empty(), "steps ran after the deadline: {after:?}");
+}
+
+/// The drill's prompt send whose `cloud exec` stalls is killed at the drill's deadline and never sends: the step's
+/// child goes with its process group, and the send answers the deadline then, not when the exec would have ended.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_drill_send_whose_exec_stalls_is_killed_and_never_sends() {
+    let dir = tempfile::tempdir().unwrap();
+    let cmux = stalling_cmux(dir.path(), "exec");
+    let asked = request(&["--prompt", "count", "--wait"]);
+    let began = Instant::now();
+    let send = fault::prompt_send(
+        SelfRunner::new(&GlobalArgs::default()).running(cmux),
+        &asked,
+        "count".into(),
+        ("vm-1".into(), "sess-1".into()),
+        // Room for one exec after the remote limit's grace and dispatch margin (`remote_script`).
+        began + Duration::from_millis(4_500),
+    );
+    let sent = std::thread::spawn(send).join().unwrap();
+    let took = began.elapsed();
+    assert!(sent.is_err(), "a killed send answered sent");
+    assert!(took < Duration::from_secs(8), "answered {took:?} after a 4.5 s deadline");
+    assert!(gone(&dir.path().join("child.pid")), "the stalled exec's child outlived the deadline");
+    assert!(!dir.path().join("sent").exists(), "the stalled exec finished");
+}
+
+/// A runner with a deadline gives each `cloud exec` what is left of it, less the KILL grace and the exec's dispatch,
+/// as the remote command's own limit (the machine's `timeout`, which kills the script's whole group there), so
+/// nothing runs on the machine past it; with too little left no exec is asked. A runner without one sends the
+/// script as it is.
+#[test]
+fn a_remote_exec_gets_the_deadline_s_remaining_budget() {
+    let mut fake = Fake::new(vec![exec_out("hi\n"), exec_out("hi\n")]);
+    assert_eq!(exec(&mut fake, "vm-1", "echo hi"), Ok("hi\n".to_owned()));
+    let command = |ran: &Vec<String>| {
+        let at = ran.iter().position(|word| word == "--command").unwrap();
+        ran[at + 1].clone()
+    };
+    assert_eq!(command(&fake.ran[0]), "echo hi", "no deadline: the script as it is");
+    fake.until = Some(fake.clock + Duration::from_millis(30_400));
+    assert_eq!(exec(&mut fake, "vm-1", "echo hi"), Ok("hi\n".to_owned()));
+    assert_eq!(command(&fake.ran[1]), "timeout -k 1 27 sh -c 'echo hi'");
+    fake.until = Some(fake.clock + Duration::from_millis(3_400));
+    assert!(
+        exec(&mut fake, "vm-1", "echo hi").is_err(),
+        "under a second left after the grace and the dispatch: nothing is asked"
+    );
+    assert_eq!(fake.ran.len(), 2);
+    // A send on such a runner bounds every exec of its run the same way.
+    let mut fake = Fake::new(vec![exec_out("@@history\n{\"turns\":[]}\n@@send\nd-1\n@@exit 0\n")]);
+    fake.until = Some(fake.clock + Duration::from_secs(60));
+    let asked = request(&["--prompt", "count"]);
+    let _ = send_to(&mut fake, &asked, "vm-1", "sess-1");
+    let first = command(&fake.ran[0]);
+    assert!(first.starts_with("timeout -k 1 57 sh -c "), "{first}");
+}
+
+/// The remote limit holds even when the exec reaches the machine late and the script ignores TERM: run as the
+/// machine runs it, after a 0.7 s dispatch, a script that writes a timestamp every 50 ms never writes one past the
+/// deadline, and nothing after. A budget that only the grace and the dispatch would fill sends nothing (the
+/// reviewer's 1.1 s budget, whose marker landed at 1.402 s, and 1.502 s with TERM ignored).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_remote_script_ends_by_the_deadline_when_it_starts_late_or_ignores_term() {
+    assert_eq!(internal::bounded::remote_script("true", Duration::from_millis(1_100)), None);
+    for (case, trap) in [("dispatch delay", ""), ("TERM ignored", "trap '' TERM; ")] {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("marker");
+        let budget = Duration::from_millis(4_500);
+        let deadline = std::time::SystemTime::now() + budget;
+        let script =
+            format!("{trap}while :; do date +%s%N >> '{}'; sleep 0.05; done", marker.display());
+        let wrapped = internal::bounded::remote_script(&script, budget).unwrap();
+        // The exec's way to the machine.
+        std::thread::sleep(Duration::from_millis(700));
+        let ran = cmux_process::Command::new("sh").arg("-c").arg(&wrapped).output().unwrap();
+        assert!(!ran.status.success(), "{case}: the limit ended it");
+        let stamps = std::fs::read_to_string(&marker).unwrap();
+        let last: u128 = stamps.lines().last().unwrap().trim().parse().unwrap();
+        let deadline = deadline.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        assert!(
+            last <= deadline,
+            "{case}: a stamp {} ms past the deadline",
+            (last - deadline) / 1_000_000
+        );
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(std::fs::read_to_string(&marker).unwrap(), stamps, "{case}: it wrote on");
+    }
+}
+
+/// The drill's app requests (its `auth.token`) stop at its deadline, however long the app keeps answering the
+/// liveness ping the request asks between read windows; past the deadline none is asked. Without it the request
+/// waited as long as the app lived.
+#[cfg(unix)]
+#[test]
+fn a_drill_s_slow_auth_token_stops_at_its_deadline() {
+    use std::io::{BufRead as _, Write as _};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("app.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            std::thread::spawn(move || {
+                let mut writer = stream.try_clone().unwrap();
+                let mut reader = std::io::BufReader::new(stream);
+                let mut line = String::new();
+                // The app is alive (it answers every ping) and never answers the request itself.
+                while reader.read_line(&mut line).is_ok_and(|read| read > 0) {
+                    if line.trim() == "ping" {
+                        let _ = writer.write_all(b"PONG\n");
+                    }
+                    line.clear();
+                }
+            });
+        }
+    });
+    let global = GlobalArgs { app_socket: Some(path), ..GlobalArgs::default() };
+    let began = Instant::now();
+    let mut runner = SelfRunner::new(&global).until(began + Duration::from_secs(1));
+    let answer = runner.app("auth.token", json!({}), Duration::from_millis(200));
+    let took = began.elapsed();
+    assert!(matches!(answer, Some(Err(_))), "{answer:?}");
+    assert!(took < Duration::from_secs(4), "answered {took:?} after a 1 s deadline");
+    assert_eq!(
+        runner.app("auth.token", json!({}), Duration::from_secs(30)),
+        Some(Err(internal::bounded::past_deadline())),
+        "past the deadline nothing is asked"
+    );
+}
+
+/// Turns the test below into its own child process.
+#[cfg(target_os = "linux")]
+const EXIT_CHILD: &str = "CMUX_TEST_DRILL_EXIT_CHILD";
+
+/// A step a thread still runs when the drill ends (a send it gave up on) is killed on the drill's exit path, before
+/// the process exits: a real process starts the step on its own thread, takes that path and exits with the thread
+/// still waiting, and the step's child is gone. Without it the process exited first and the step ran on.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_drill_s_exit_kills_a_step_its_threads_still_run() {
+    if let Some(dir) = std::env::var_os(EXIT_CHILD) {
+        let dir = std::path::PathBuf::from(dir);
+        let cmux = stalling_cmux(&dir, "exec");
+        std::thread::spawn(move || {
+            let until = Instant::now() + Duration::from_secs(600);
+            let mut runner = SelfRunner::new(&GlobalArgs::default()).running(cmux).until(until);
+            let _ = exec(&mut runner, "vm-1", "true");
+        });
+        let started = Instant::now();
+        while !dir.join("child.pid").exists() && started.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        internal::bounded::kill_steps();
+        std::process::exit(0);
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let ran = cmux_process::Command::new(std::env::current_exe().unwrap())
+        .arg("the_drill_s_exit_kills_a_step_its_threads_still_run")
+        .arg("--nocapture")
+        .env(EXIT_CHILD, dir.path())
+        .output()
+        .unwrap();
+    assert!(ran.status.success(), "{}", String::from_utf8_lossy(&ran.stderr));
+    assert!(gone(&dir.path().join("child.pid")), "the step outlived the drill's exit");
+    assert!(!dir.path().join("sent").exists(), "the step finished after the drill's exit");
+}
+
+/// A promptless start answers the chat tab's number on the machine's daemon as `daemon_tab` (start-session's
+/// `surface_id`), what the carrier fault drill attaches to; a start-session that names none leaves it out.
+#[test]
+fn a_promptless_start_answers_the_chat_s_daemon_tab() {
+    let mut named = started_value();
+    named["surface_id"] = json!("7");
+    for (started, tab) in [(named, json!(7)), (started_value(), Value::Null)] {
+        let mut fake = Fake::new(vec![signed_in(), ok(started), exec_out("@@cwd\n")]);
+        let Outcome::Done(answer) = run(&mut fake, &request(&[])) else { panic!("{:?}", fake.ran) };
+        assert_eq!(answer.get("daemon_tab").cloned().unwrap_or(Value::Null), tab);
+    }
+}
+
+/// A list the app never loaded says why (cmuxterm-hq run 43553290380): its refresh failed, and that failure
+/// reaches only the app's last Cloud error (`cloud.machines`' `last_error`), which `cloud.list_unread` now names.
+/// An app with no last error, or none that answers, refuses as before.
+#[test]
+fn an_unread_list_names_the_apps_last_cloud_error() {
+    let unread =
+        json!({"account": {"signed_in": true}, "loaded": false, "machines": [], "creating": []});
+    let why = "machine list failed: the cmux app did not answer in time";
+    let paths: [(&str, &[&str]); 2] = [
+        ("a fresh name", &["--prompt", "x"]),
+        ("--environment's name", &["--prompt", "x", "--environment", "env_1", "--name", "py-1"]),
+    ];
+    for (path, words) in paths {
+        for (stream, said) in [
+            (Some(Ok(json!({"loaded": false, "last_error": why}))), Some(why)),
+            (Some(Ok(json!({"loaded": false, "last_error": null}))), None),
+            (Some(Err(json!({"code": "policy_refused"}))), None),
+            (None, None),
+        ] {
+            let mut fake = Fake::new(unloaded_lists(unread.clone()));
+            fake.stream = stream;
+            let Outcome::Failed { error, exit } = run(&mut fake, &request(words)) else {
+                panic!("{path}: {:?}", fake.ran)
+            };
+            assert_eq!((error["code"].as_str(), exit), (Some("cloud.list_unread"), 75), "{path}");
+            assert_eq!(error["details"]["last_error"].as_str(), said, "{path}: {error}");
+            let message = error["message"].as_str().unwrap();
+            assert_eq!(message.contains(why), said.is_some(), "{path}: {message}");
+            assert!(
+                message.contains("run this command again")
+                    || message.contains("Run this command again")
+            );
+            assert_eq!(fake.called[0].0, "cloud.machines", "{path}");
+            assert!(only_lists(&fake), "{path}: nothing started or made: {:?}", fake.ran);
+        }
+    }
 }

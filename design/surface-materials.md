@@ -40,9 +40,9 @@ This page decides only which kind a surface is.
 | system-menu | native NSMenu | system | app menu bar; right-click menus a page hands to the App (rows and SF Symbols only) |
 | web-floating | **web** | host glass in a see-through Chromium agent pane; elsewhere the page glass at its level | menus, pickers (This Mac / Cloud / Remote, folder, model, mode, permissions), popovers, hover cards, slash / @ / emoji lists, tooltips in pages |
 | web-content | **web** | clear on the window material; docked bars at the chrome level | chat, New Tab, Settings, Home pages, markdown, diff, history, onboarding |
-| web-host | native shell, web content | real glass under or around the page's content | host glass, popups past a pane's edge (`WebPopupHost`, `DeclarativePopupHost`), toast and dialog pages, web cards, the sidebar's Updated card, Session Info's panel, icon picker, quick composer |
+| web-host | native shell, web content | real glass under or around the page's content | host glass, popups past a pane's edge (`WebPopupHost`, `DeclarativePopupHost`), the dialog page, web cards, the sidebar's Updated card, Session Info's panel, icon picker, quick composer |
 | sidebar-card | native | card veil | Update Ready, notices, Now Playing |
-| native-overlay | native | real glass | the floating native surfaces that exist today: palette, find bars, HUDs (which-key, zoom), drag ghosts, browser bubbles and cards, Chief pet, permission request, notifications panel, Home sheets. **A closed set.** |
+| native-overlay | native | real glass | the floating native surfaces that exist today: palette, toasts, find bars, HUDs (which-key, zoom), drag ghosts, browser bubbles and cards, Chief pet, permission request, notifications panel, Home sheets. **A closed set.** |
 | material-source | native | real glass | the shared glass itself and the hosts built on it: `Glass`, `GlassPanelView`, `OverlaySurface`, tooltip, hover card, find pill, shortcut chip |
 | scene-renderer | native | real glass or card veil | the Apps scene renderer, which draws the material each scene node names |
 | debug | native | real glass | Debug fixtures and playgrounds, never shipped |
@@ -65,6 +65,35 @@ What the rule means in practice:
 - **Window chrome and system menus stay native.** They are the frame that web content sits in.
 - Reduce Transparency is the one opaque path, for every kind (`overlay-surfaces.md`).
 
+## One floating material (2026-11-11)
+
+Leo, 2026-11-11, on the context card over the composer beside the model picker and the native menus:
+
+> Like, man, it's really f***ing ugly when it mixes like this, you know?
+
+> The whole point is to have things show through to show off the f***ing art. The point is, the
+> styles mix and they don't look good. So they need to look good.
+
+His reference is the account menu of a desktop chat app: one translucent surface, one radius, one row rhythm.
+
+- **Every floating web surface is one material**: menus, context menus, selects, popovers, pickers
+  (the model picker included), the combobox, the slash and @ lists, hover cards and the context
+  ring's card are all the menu glass level (`--ds-glass-menu-tint` 78%, `--ds-glass-menu-blur`),
+  one radius (`--ui-popup-radius`, the native popovers' 8 pt), one hairline and one drop. On the
+  App's glass each lays the same 40% veil of the theme surface (`--host-glass-fill`). No surface
+  sets a tint, blur, veil or radius of its own (`webviews/test/glass-levels.test.ts`).
+- **Translucent, never opaque.** The art shows through every surface the same way; the frost and
+  the veil keep text legible. A solid fill is never the fix (`design/menus.md`).
+- Removed private looks: the model menu's 92% tint and 10 px corner, the + menu's and New Tab
+  suggestions' 86%, the context card's popover level (70%, 24 px), and the model menus' private
+  veil (now everyone's). Gallery `ui.menu-material`: before, one, host-clear, host-veil (ships),
+  host-veil-light, dense.
+- The popover level stays for glass in the page that is not a popup: the composer, Session Info,
+  the running tray, side tabs.
+- Native NSMenus stay system-drawn (Lawrence 2026-10-23: "we don't want ANYTHING custom besides the
+  icons"). Host glass puts the web menus on the same App material, so the two meet; the web side
+  matches the native one, never the reverse.
+
 ## Inventory (2026-11-09, feat-cmux-next efdf71a9)
 
 `Sources/` is `Packages/macOS/CmuxNext/Sources/`; `W/` is `webviews/src/`.
@@ -75,14 +104,15 @@ What the rule means in practice:
 |---|---|---|---|
 | Window backdrop | window-chrome | real glass (regular or clear Liquid Glass, frosted, translucent tint, or opaque by setting) | `Sources/CmuxNextDesign/WindowMaterialView.swift` |
 | Titlebar, toolbar band | window-chrome | clear | `CmuxNextApp/Windows/TitlebarToolbarBand.swift` |
-| Sidebar | window-chrome | clear; real glass when it floats over content | `CmuxNextSidebar/Views/SidebarContainerView.swift` |
+| Sidebar | window-chrome | clear; real glass when it floats over content; the stuck project header's veil is the sidebar tone over a within-window blur | `CmuxNextSidebar/Views/SidebarContainerView.swift`, `SidebarStuckVeilView.swift` |
 | Tab strip | window-chrome | clear; one real glass panel in the glass tab style | `CmuxNextTabs/TabStripView.swift` |
 | Dock backdrop | window-chrome | real glass rim around the terminal's background | `CmuxNextLayout/Views/DockBackdropView.swift` |
 | Browser omnibar | window-chrome | real glass | `CmuxNextBrowser/UI/OmnibarViews.swift` |
 | Terminal pane | (content, native Metal) | clear on the window material | `CmuxNextTerminal` |
-| Sidebar cards | sidebar-card | card veil | `SidebarNoticeCardView`, `SidebarUpdateCardView`, `SidebarNowPlayingCardView` |
+| Sidebar cards | sidebar-card | card veil | `SidebarNoticeCardView`, `SidebarUpdateCardView`, `SidebarNowPlayingCardView`, app health's footer chip (`AppHealthIndicatorView`) |
 | Command palette | native-overlay | real glass | `CmuxNextPalette/PaletteContentView.swift` |
 | Tooltips, hover cards | material-source | real glass | `CmuxNextDesign/Tooltip/TooltipPanel.swift`, `HoverCards/HoverCardPanel.swift` |
+| Toasts | native-overlay | real glass (the toast role: Liquid Glass on macOS 26, the blur before it, opaque under Reduce Transparency) | `CmuxNextDesign/Toast/CmuxToastView.swift`, `CmuxToastOverlayHost.swift` |
 | Find bars (terminal, browser) | native-overlay | real glass (the find pill) | `CmuxNextDesign/FindPill/FindPillView.swift` |
 | Which-key HUD, pane zoom, shortcut chips | native-overlay | real glass | `WhichKeyOverlay.swift`, `PaneZoomIndicatorView.swift` |
 | Tab and link drag ghosts, drop overlay | native-overlay | real glass | `TabDragGhostPanel.swift`, `LinkDragGhost.swift`, `DropOverlayGlassRenderers.swift` |
@@ -100,7 +130,7 @@ What the rule means in practice:
 | Agent pane menus, popovers, comboboxes, hover cards, tooltips | host glass | `W/ui/Popover.tsx`, `Menu.tsx`, `ContextMenu.tsx`, `Combobox.tsx`, `Tooltip.tsx` → `AgentPaneView+HostGlass.swift` |
 | Session Info | host glass | `W/agent-session/acpmux/session-info/SessionInfo.tsx` |
 | Menu past a pane's edge | real glass panel with native rows | `CmuxNextDesign/Overlay/WebPopupHost.swift`, `DeclarativePopupHost.swift` |
-| Toasts, dialogs, web cards | real glass under the page | `CmuxToastPageView.swift`, `OverlayDialogCard.swift`, `WebCardPanel.swift` |
+| Dialogs, web cards | real glass under the page | `OverlayDialogCard.swift`, `WebCardPanel.swift` |
 | Sidebar's Updated card | real glass under the page, plus the page's own blur | `SidebarUpdatedCardHost.swift`, `W/pages/changelog/updateSurfaces.css` |
 
 ### Web
@@ -123,8 +153,8 @@ the host-glass menus around them. They are listed in `web_floating_pending`. The
 one, and it fails an entry once its surface is fixed, so the list only shrinks:
 
 - the feature tip (`W/ui/FeatureTip.tsx`);
-- the model picker's popup (`ModelPicker.tsx`): `modelPicker.css` already sets `--host-glass-fill`
-  for it, but the popup carries no mark;
+- the full model picker with its harness rail (`ModelPicker.tsx` `PickerDialog`). The quick model
+  menus are already on host glass with their 40% veil (`modelPicker.css`);
 - the slash, @ and emoji lists (`SlashMenu.tsx`, `Composer.tsx`, `MentionMenu.tsx`, `EmojiMenu.tsx`);
 - the in-pane palette menu (`PaletteMenu.tsx`);
 - New Tab's omni list (`NewTabPage.tsx`);
@@ -133,7 +163,7 @@ one, and it fails an entry once its surface is fixed, so the list only shrinks:
 
 The empty glass box before menus was the worst inconsistency, and cmux#39931 fixes it. The order
 for the rest:
-1. The feature tip and the model picker: one mark each, since the model picker already has its veil.
+1. The feature tip and the full model picker: one mark each, with the quick menus' 40% veil for the picker.
 2. The composer's lists. They sit next to the composer, which no filter may blur, and
    `data-glass-keeps-underlay` already handles that.
 3. The rest.

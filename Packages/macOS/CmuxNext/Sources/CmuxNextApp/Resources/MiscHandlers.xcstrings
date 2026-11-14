@@ -6483,127 +6483,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "حدّد جلسة acpmux المراد فتحها (session)."
+            "value": "حدّد جلسة cmux المراد فتحها (session)."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Navedite acpmux sesiju koju treba otvoriti (session)."
+            "value": "Navedite cmux sesiju koju treba otvoriti (session)."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Angiv den acpmux-session, der skal åbnes (session)."
+            "value": "Angiv den cmux-session, der skal åbnes (session)."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gib die zu öffnende acpmux-Sitzung an (session)."
+            "value": "Gib die zu öffnende cmux-Sitzung an (session)."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Name the acpmux session to open (session)."
+            "value": "Name the cmux session to open (session)."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Indica la sesión de acpmux que se abrirá (session)."
+            "value": "Indica la sesión de cmux que se abrirá (session)."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Indiquez la session acpmux à ouvrir (session)."
+            "value": "Indiquez la session cmux à ouvrir (session)."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Indica la sessione acpmux da aprire (session)."
+            "value": "Indica la sessione cmux da aprire (session)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "開くacpmuxセッションを指定してください(session)。"
+            "value": "開くcmuxセッションを指定してください(session)。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "សូមដាក់ឈ្មោះវគ្គ acpmux ដែលត្រូវបើក (session)។"
+            "value": "សូមដាក់ឈ្មោះវគ្គ cmux ដែលត្រូវបើក (session)។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "열 acpmux 세션을 지정하세요(session)."
+            "value": "열 cmux 세션을 지정하세요(session)."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Angi acpmux-økten som skal åpnes (session)."
+            "value": "Angi cmux-økten som skal åpnes (session)."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Podaj sesję acpmux do otwarcia (session)."
+            "value": "Podaj sesję cmux do otwarcia (session)."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Informe a sessão do acpmux a ser aberta (session)."
+            "value": "Informe a sessão do cmux a ser aberta (session)."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Укажите сеанс acpmux, который нужно открыть (session)."
+            "value": "Укажите сеанс cmux, который нужно открыть (session)."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ระบุเซสชัน acpmux ที่จะเปิด (session)"
+            "value": "ระบุเซสชัน cmux ที่จะเปิด (session)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Açılacak acpmux oturumunu belirtin (session)."
+            "value": "Açılacak cmux oturumunu belirtin (session)."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вкажіть сеанс acpmux, який потрібно відкрити (session)."
+            "value": "Вкажіть сеанс cmux, який потрібно відкрити (session)."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hãy chỉ định phiên acpmux cần mở (session)."
+            "value": "Hãy chỉ định phiên cmux cần mở (session)."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "请指定要打开的 acpmux 会话（session）。"
+            "value": "请指定要打开的 cmux 会话（session）。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "請指定要開啟的 acpmux 工作階段（session）。"
+            "value": "請指定要開啟的 cmux 工作階段（session）。"
           }
         }
       }
@@ -8325,127 +8325,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا يستطيع acpmux هذا إضافة الوكلاء أو إزالتهم من التطبيق. استخدم cmux harness add أو cmux harness doctor في طرفية."
+            "value": "لا يستطيع cmux هذا إضافة الوكلاء أو إزالتهم من التطبيق. استخدم cmux harness add أو cmux harness doctor في طرفية."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ovaj acpmux ne može dodavati ni uklanjati agente iz aplikacije. Koristi cmux harness add ili cmux harness doctor u terminalu."
+            "value": "Ovaj cmux ne može dodavati ni uklanjati agente iz aplikacije. Koristi cmux harness add ili cmux harness doctor u terminalu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne acpmux kan ikke tilføje eller fjerne agenter fra appen. Brug cmux harness add eller cmux harness doctor i en terminal."
+            "value": "Denne cmux kan ikke tilføje eller fjerne agenter fra appen. Brug cmux harness add eller cmux harness doctor i en terminal."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dieses acpmux kann in der App keine Agenten hinzufügen oder entfernen. Nutze cmux harness add oder cmux harness doctor im Terminal."
+            "value": "Dieses cmux kann in der App keine Agenten hinzufügen oder entfernen. Nutze cmux harness add oder cmux harness doctor im Terminal."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This acpmux cannot add or remove agents from the app. Use cmux harness add or cmux harness doctor in a terminal."
+            "value": "This cmux cannot add or remove agents from the app. Use cmux harness add or cmux harness doctor in a terminal."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este acpmux no puede añadir ni quitar agentes desde la app. Usa cmux harness add o cmux harness doctor en una terminal."
+            "value": "Este cmux no puede añadir ni quitar agentes desde la app. Usa cmux harness add o cmux harness doctor en una terminal."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cet acpmux ne peut pas ajouter ni supprimer d’agents depuis l’app. Utilisez cmux harness add ou cmux harness doctor dans un terminal."
+            "value": "Cet cmux ne peut pas ajouter ni supprimer d’agents depuis l’app. Utilisez cmux harness add ou cmux harness doctor dans un terminal."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questo acpmux non può aggiungere o rimuovere agenti dall’app. Usa cmux harness add o cmux harness doctor in un terminale."
+            "value": "Questo cmux non può aggiungere o rimuovere agenti dall’app. Usa cmux harness add o cmux harness doctor in un terminale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このacpmuxはアプリからエージェントを追加・削除できません。ターミナルでcmux harness addまたはcmux harness doctorを使ってください。"
+            "value": "このcmuxはアプリからエージェントを追加・削除できません。ターミナルでcmux harness addまたはcmux harness doctorを使ってください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux នេះមិនអាចបន្ថែម ឬលុបភ្នាក់ងារពីកម្មវិធីបានទេ។ ប្រើ cmux harness add ឬ cmux harness doctor ក្នុងស្ថានីយ។"
+            "value": "cmux នេះមិនអាចបន្ថែម ឬលុបភ្នាក់ងារពីកម្មវិធីបានទេ។ ប្រើ cmux harness add ឬ cmux harness doctor ក្នុងស្ថានីយ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 acpmux는 앱에서 에이전트를 추가하거나 제거할 수 없습니다. 터미널에서 cmux harness add 또는 cmux harness doctor를 사용하세요."
+            "value": "이 cmux는 앱에서 에이전트를 추가하거나 제거할 수 없습니다. 터미널에서 cmux harness add 또는 cmux harness doctor를 사용하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne acpmux kan ikke legge til eller fjerne agenter fra appen. Bruk cmux harness add eller cmux harness doctor i en terminal."
+            "value": "Denne cmux kan ikke legge til eller fjerne agenter fra appen. Bruk cmux harness add eller cmux harness doctor i en terminal."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ten acpmux nie może dodawać ani usuwać agentów z aplikacji. Użyj cmux harness add lub cmux harness doctor w terminalu."
+            "value": "Ten cmux nie może dodawać ani usuwać agentów z aplikacji. Użyj cmux harness add lub cmux harness doctor w terminalu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este acpmux não pode adicionar nem remover agentes pelo app. Use cmux harness add ou cmux harness doctor em um terminal."
+            "value": "Este cmux não pode adicionar nem remover agentes pelo app. Use cmux harness add ou cmux harness doctor em um terminal."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Этот acpmux не может добавлять или удалять агентов из приложения. Используйте cmux harness add или cmux harness doctor в терминале."
+            "value": "Этот cmux не может добавлять или удалять агентов из приложения. Используйте cmux harness add или cmux harness doctor в терминале."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux นี้เพิ่มหรือลบเอเจนต์จากแอปไม่ได้ ใช้ cmux harness add หรือ cmux harness doctor ในเทอร์มินัล"
+            "value": "cmux นี้เพิ่มหรือลบเอเจนต์จากแอปไม่ได้ ใช้ cmux harness add หรือ cmux harness doctor ในเทอร์มินัล"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu acpmux uygulamadan aracı ekleyemez veya kaldıramaz. Bir terminalde cmux harness add veya cmux harness doctor kullanın."
+            "value": "Bu cmux uygulamadan aracı ekleyemez veya kaldıramaz. Bir terminalde cmux harness add veya cmux harness doctor kullanın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Цей acpmux не може додавати чи видаляти агентів із застосунку. Використовуйте cmux harness add або cmux harness doctor у терміналі."
+            "value": "Цей cmux не може додавати чи видаляти агентів із застосунку. Використовуйте cmux harness add або cmux harness doctor у терміналі."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux này không thể thêm hoặc xóa tác tử từ ứng dụng. Dùng cmux harness add hoặc cmux harness doctor trong terminal."
+            "value": "cmux này không thể thêm hoặc xóa tác tử từ ứng dụng. Dùng cmux harness add hoặc cmux harness doctor trong terminal."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此 acpmux 无法在应用中添加或移除智能体。请在终端中使用 cmux harness add 或 cmux harness doctor。"
+            "value": "此 cmux 无法在应用中添加或移除智能体。请在终端中使用 cmux harness add 或 cmux harness doctor。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此 acpmux 無法在 App 中新增或移除代理。請在終端機中使用 cmux harness add 或 cmux harness doctor。"
+            "value": "此 cmux 無法在 App 中新增或移除代理。請在終端機中使用 cmux harness add 或 cmux harness doctor。"
           }
         }
       }
@@ -11670,6 +11670,661 @@
           "stringUnit": {
             "state": "translated",
             "value": "目前聚焦的終端機沒有執行可作為聊天開啟的代理工作階段。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.terminalChatNotAgentTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The focused tab is neither a terminal nor an agent chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス中のタブはターミナルでもエージェントチャットでもありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامة التبويب المركّز عليها ليست طرفية ولا محادثة وكيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokusirana kartica nije ni terminal ni razgovor s agentom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanen i fokus er hverken en terminal eller en agentchat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der fokussierte Tab ist weder ein Terminal noch ein Agent-Chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pestaña enfocada no es una terminal ni un chat de agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’onglet actif n’est ni un terminal ni un chat d’agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La scheda attiva non è né un terminale né una chat con un agente."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងដែលកំពុងផ្ដោតមិនមែនជា Terminal ឬការជជែកជាមួយភ្នាក់ងារទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포커스된 탭은 터미널도 에이전트 채팅도 아닙니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanen i fokus er verken en terminal eller en agentsamtale."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktywna karta nie jest ani terminalem, ani czatem z agentem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A aba em foco não é um terminal nem um chat de agente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Активная вкладка не является ни терминалом, ни чатом агента."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บที่โฟกัสอยู่ไม่ใช่เทอร์มินัลหรือแชทของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaktaki sekme ne bir terminal ne de bir ajan sohbeti."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Активна вкладка не є ні терміналом, ні чатом агента."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab đang được chọn không phải terminal cũng không phải cuộc trò chuyện với tác tử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前标签页既不是终端，也不是智能体聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前的分頁既不是終端機，也不是代理程式聊天。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.terminalChatNoTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No open terminal runs this chat's session."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットのセッションを実行している開いたターミナルはありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد طرفية مفتوحة تشغّل جلسة هذه المحادثة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijedan otvoreni terminal ne pokreće sesiju ovog razgovora."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen åben terminal kører denne chats session."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein geöffnetes Terminal führt die Sitzung dieses Chats aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ninguna terminal abierta ejecuta la sesión de este chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun terminal ouvert n’exécute la session de ce chat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun terminale aperto esegue la sessione di questa chat."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មាន Terminal ដែលបើកណាមួយកំពុងដំណើរការវគ្គរបស់ការជជែកនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅의 세션을 실행 중인 열린 터미널이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen åpen terminal kjører denne samtalens økt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Żaden otwarty terminal nie uruchamia sesji tego czatu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum terminal aberto executa a sessão deste chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ни один открытый терминал не выполняет сеанс этого чата."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีเทอร์มินัลที่เปิดอยู่ซึ่งรันเซสชันของแชทนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açık hiçbir terminal bu sohbetin oturumunu çalıştırmıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жоден відкритий термінал не виконує сеанс цього чату."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có terminal đang mở nào chạy phiên của cuộc trò chuyện này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有打开的终端在运行此聊天的会话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有開啟的終端機在執行此聊天的工作階段。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.terminalChatBusy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat is still working. Switch when its turn ends."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットはまだ作業中です。ターンが終わってから切り替えてください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تزال هذه المحادثة تعمل. بدّل عندما ينتهي دورها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj razgovor još radi. Prebacite kada se njegov potez završi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chat arbejder stadig. Skift, når dens tur er slut."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chat arbeitet noch. Wechsle, wenn sein Zug endet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat sigue trabajando. Cambia cuando termine su turno."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce chat travaille encore. Basculez quand son tour se termine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa chat sta ancora lavorando. Passa quando il suo turno finisce."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកនេះនៅតែកំពុងធ្វើការ។ ប្ដូរនៅពេលវេនរបស់វាបញ្ចប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅은 아직 작업 중입니다. 차례가 끝나면 전환하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chatten jobber fortsatt. Bytt når turen dens er over."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten czat wciąż pracuje. Przełącz, gdy skończy się jego tura."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat ainda está trabalhando. Alterne quando o turno dele terminar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот чат ещё работает. Переключитесь, когда его ход закончится."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทนี้ยังทำงานอยู่ สลับเมื่อรอบของมันจบลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbet hâlâ çalışıyor. Sırası bitince geçiş yapın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей чат ще працює. Перемкніться, коли його хід завершиться."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện này vẫn đang làm việc. Hãy chuyển khi lượt của nó kết thúc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天仍在工作。请在其回合结束后再切换。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天仍在工作。請在其回合結束後再切換。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.terminalChatStopFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The chat could not stop, so no terminal resumes its session."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットを停止できなかったため、ターミナルでセッションを再開しません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إيقاف المحادثة، لذا لن تستأنف أي طرفية جلستها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razgovor se nije mogao zaustaviti, pa nijedan terminal ne nastavlja njegovu sesiju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten kunne ikke stoppe, så ingen terminal genoptager dens session."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Chat konnte nicht anhalten, daher setzt kein Terminal seine Sitzung fort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El chat no pudo detenerse, así que ninguna terminal reanuda su sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chat n'a pas pu s'arrêter, aucun terminal ne reprend donc sa session."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La chat non si è potuta fermare, quindi nessun terminale ne riprende la sessione."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកមិនអាចឈប់បានទេ ដូច្នេះគ្មានទែមីណាល់ណាបន្តវគ្គរបស់វាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅을 멈출 수 없어 터미널에서 세션을 이어 가지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten kunne ikke stoppe, så ingen terminal gjenopptar økten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się zatrzymać czatu, więc żaden terminal nie wznawia jego sesji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível parar o chat, então nenhum terminal retoma a sessão dele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось остановить чат, поэтому ни один терминал не продолжит его сеанс."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถหยุดแชทได้ จึงไม่มีเทอร์มินัลใดทำเซสชันต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet durdurulamadı, bu yüzden hiçbir terminal oturumunu sürdürmüyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося зупинити чат, тож жоден термінал не продовжить його сеанс."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể dừng cuộc trò chuyện nên không terminal nào tiếp tục phiên của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法停止此聊天，因此没有终端恢复其会话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法停止此聊天，因此沒有終端機恢復其工作階段。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.terminalChatNoPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The chat stopped, but its workspace has no pane for the terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットは停止しましたが、そのワークスペースにはターミナル用のペインがありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توقفت المحادثة، لكن مساحة عملها لا تحتوي على جزء للطرفية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razgovor je zaustavljen, ali njegov radni prostor nema okno za terminal."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten stoppede, men dens arbejdsområde har ingen rude til terminalen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Chat hat angehalten, aber sein Workspace hat keinen Bereich für das Terminal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El chat se detuvo, pero su espacio de trabajo no tiene panel para la terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chat s'est arrêté, mais son espace de travail n'a aucun panneau pour le terminal."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La chat si è fermata, ma il suo spazio di lavoro non ha un riquadro per il terminale."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកបានឈប់ ប៉ុន្តែកន្លែងធ្វើការរបស់វាគ្មានផ្ទាំងសម្រាប់ទែមីណាល់ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅은 멈췄지만 해당 워크스페이스에 터미널을 열 패인이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten stoppet, men arbeidsområdet har ingen rute til terminalen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czat się zatrzymał, ale jego obszar roboczy nie ma panelu na terminal."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O chat parou, mas o espaço de trabalho dele não tem painel para o terminal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат остановлен, но в его рабочем пространстве нет панели для терминала."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทหยุดแล้ว แต่เวิร์กสเปซของมันไม่มีบานหน้าต่างสำหรับเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet durdu, ancak çalışma alanında terminal için bölme yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат зупинено, але в його робочому просторі немає панелі для термінала."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện đã dừng nhưng không gian làm việc của nó không có ô cho terminal."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天已停止，但其工作区没有可放终端的窗格。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天已停止，但其工作區沒有可放終端機的窗格。"
           }
         }
       }
@@ -16262,137 +16917,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "記憶檢查器"
-          }
-        }
-      }
-    },
-    "home.headerPanels.rightSidebar": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Right Sidebar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右サイドバー"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "الشريط الجانبي الأيمن"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Desna bočna traka"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Højre sidepanel"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rechte Seitenleiste"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Barra lateral derecha"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Barre latérale droite"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Barra laterale destra"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "របារចំហៀងខាងស្ដាំ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "오른쪽 사이드바"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Høyre sidefelt"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prawy pasek boczny"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Barra lateral direita"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Правая боковая панель"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แถบด้านข้างขวา"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sağ Kenar Çubuğu"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Права бічна панель"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thanh bên phải"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "右侧边栏"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "右側邊欄"
           }
         }
       }

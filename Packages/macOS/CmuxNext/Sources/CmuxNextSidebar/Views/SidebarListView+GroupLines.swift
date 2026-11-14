@@ -25,7 +25,8 @@ struct SidebarGroupLine: Equatable {
 extension SidebarListViewComponents {
     /// The list's lines. Rows a drag hides (`suppressed`) have none: a lifted
     /// group's line goes with its card (SidebarListLift). `current` places
-    /// each row where its view is now, the animation's start, so a new line
+    /// each row where its view is drawn now, the animation's start (mid-move
+    /// too: the model frame is already at the move's end), so a new line
     /// starts over its rows and moves with them (cx-ai79).
     ///
     /// Only the lines near the visible rows (`lineWindow`): a pass costs the rows on screen and the groups they sit in,
@@ -34,19 +35,32 @@ extension SidebarListViewComponents {
         let window = lineWindow()
         lineCover = window
         let (rows, edge) = lineRows(layout, around: window)
-        let background = model.groupHeaderDetails.background
-        let lines = SidebarGroupLine.lines(rows.filter { !suppressed.contains($0.key) }, colors: lineColors, nested: !legacyNestedRails) { row in
-            current ? rowViews[row.key]?.frame ?? frame(for: row) : frame(for: row)
-        }.filter { $0.group != edge }.map { line in
-            var line = line
-            line.background = background
-            return line
-        }
-        // `sidebar.showColors` off: every group draws as one with no color, its line unseen.
-        guard !model.showsColors else { return lines }
+        // `current` is where the lines are now: the slot's reach is only in the layout the lines move to.
+        let enrolling = current ? nil : enrollment(layout)
+        return styled(SidebarGroupLine.lines(rows.filter { !suppressed.contains($0.key) }, colors: lineColors, nested: !legacyNestedRails,
+                                             enrolling: enrolling) { row in
+            current ? rowViews[row.key]?.drawnFrame ?? frame(for: row) : frame(for: row)
+        }.filter { $0.group != edge })
+    }
+
+    /// The group a held drag's open slot joins and the slot's bottom (list coordinates): the group's rail reaches over
+    /// it, on the rows' spring, so the rail takes the row in as it enters and lets it go as it leaves (Leo 2026-11-08,
+    /// Chrome's groups: "that group enrollment animation is really nice"). Nil with no drag, no slot or a loose slot.
+    func enrollment(_ layout: SidebarLayout) -> (group: GroupID, bottom: CGFloat)? {
+        guard let gapY = layout.gapY, layout.gapHeight > 0, case let .position(position)? = shownDrag?.target,
+              let group = position.group else { return nil }
+        return (group, gapY + layout.gapHeight)
+    }
+
+    /// `lines` in the sidebar's settings: the header's `sidebar.groupHeader.background` look (Sections draws none), and
+    /// with `sidebar.showColors` off every group as one with no color, its line unseen. Every path that makes lines (a
+    /// rebuild, a fold, a lift) passes them through here, so none draws a look the headers do not.
+    func styled(_ lines: [SidebarGroupLine]) -> [SidebarGroupLine] {
+        let background = model.groupHeaderDetails.background, showsColors = model.showsColors
         return lines.map { line in
             var line = line
-            line.color = .none
+            line.background = background
+            if !showsColors { line.color = .none }
             return line
         }
     }
@@ -110,7 +124,7 @@ extension SidebarListViewComponents {
 
 extension SidebarGroupLine {
     /// Every open group in `rows` with shown members: its line from its header to the last member row's bottom,
-    /// Chrome's shape (Leo 2026-10-19): 2 pt (`SidebarStyle.groupBarWidth`), one capsule (`SidebarGroupLineShape`), a cut
+    /// Chrome's shape (Leo 2026-10-19): 2 pt (`SidebarStyle.groupBarWidth`), the katana on top and a round cap below (`SidebarGroupLineShape`), a cut
     /// (`SidebarStyle.groupLineCut`, never past the top of the row under the header) below the bar, or out of the bar's square corner when `joined` under the solid
     /// band (`joinsBar`); just left of the members' rows (`SidebarStyle.groupLineX`), so no row fill covers it
     /// (cx-q5jw: straight and unbroken, Edge style). `frame` places a row.
@@ -121,9 +135,12 @@ extension SidebarGroupLine {
     /// A group with no color (`blocks`, unless `sidebar.noColorGroup` is plain) draws its block instead: from its header's
     /// top to its last shown member's bottom, the header's width, a collapsed group's header alone (Leo 2026-11-05: "a
     /// grouped up thing", with no hue and no indent).
+    /// `enrolling`: a held drag's slot in a group (`SidebarListView.enrollment`): that group's line or block, and with
+    /// `nested` every drawn ancestor's, runs down to at least the slot's bottom, an empty group's from its header.
     static func lines(_ rows: [SidebarRow], colors: [GroupID: SidebarGroup], nested: Bool = true,
                       layout: SidebarGroupLineLayout = SidebarStyle.groupLineLayout, joinsBar: Bool = SidebarGroupLine.joinsBar,
                       blocks: Bool = SidebarNoColorGroupLook.tunable.value != .plain,
+                      enrolling: (group: GroupID, bottom: CGFloat)? = nil,
                       frame: (SidebarRow) -> CGRect) -> [SidebarGroupLine] {
         var headers: [(GroupID, SidebarRow)] = []
         // Groups drawn as their one member's row (`SidebarRow.standsForGroup`): a line along that row, no header.
@@ -190,13 +207,24 @@ extension SidebarGroupLine {
                                                              width: width, height: tail.maxY - head.minY),
                                     color: colors[id]?.tint ?? row.groupColor.map(GroupTint.palette) ?? .none, level: nested ? max(0, row.depth - 1) : 0)
         }
+        // The groups the slot enrolls into: its group and, nested, the ancestors whose rails hold it.
+        var reached = Set<GroupID>()
+        var enrolled = enrolling?.group
+        while let id = enrolled, reached.insert(id).inserted { enrolled = nested ? colors[id]?.parent : nil }
+        func reach(_ id: GroupID) -> CGFloat? { reached.contains(id) ? enrolling?.bottom : nil }
         return soleLines + headers.compactMap { id, header in
             if blocks, tint(id, last[id] ?? header).isNone {
                 let end = header.isCollapsed ? header : [lastAny[id], last[id]].compactMap { $0 }.max { $0.y < $1.y } ?? header
-                return block(id, frame(header), frame(end), level: nested ? header.depth : 0)
+                var tail = frame(end)
+                if !header.isCollapsed, let bottom = reach(id), bottom > tail.maxY { tail.size.height = bottom - tail.minY }
+                return block(id, frame(header), tail, level: nested ? header.depth : 0)
             }
-            guard !header.isCollapsed, let end = last[id], end.y > header.y else { return nil }
-            let head = frame(header), tail = frame(end)
+            guard !header.isCollapsed else { return nil }
+            let end = last[id].flatMap { $0.y > header.y ? $0 : nil }
+            guard end != nil || reach(id) != nil else { return nil }
+            let head = frame(header)
+            var tail = end.map(frame) ?? CGRect(x: head.minX, y: head.maxY, width: head.width, height: 0)
+            if let bottom = reach(id), bottom > tail.maxY { tail.size.height = bottom - tail.minY }
             // The header's bar fills its row: the line starts a cut under it, or joined, right where it ends. The cut is
             // at most the gap down to the row under the header, so the line never starts part way down that row
             // (Lawrence 2026-10-30, "alignment here is bad": a 6 pt cut under a 2.5 pt gap).
@@ -211,7 +239,7 @@ extension SidebarGroupLine {
             let x = layout == .inside ? max(head.minX, insideRail)
                 : head.minX
             return SidebarGroupLine(group: id, frame: CGRect(x: x, y: top, width: width, height: bottom - top),
-                                    color: colors[id]?.tint ?? end.groupColor.map(GroupTint.palette) ?? .none, level: nested ? header.depth : 0)
+                                    color: colors[id]?.tint ?? (end ?? header).groupColor.map(GroupTint.palette) ?? .none, level: nested ? header.depth : 0)
         }
     }
 }

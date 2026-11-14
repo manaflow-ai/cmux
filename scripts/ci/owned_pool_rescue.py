@@ -310,6 +310,19 @@ _POOL_READ_WHY = ("its secretless Linux jobs read vars.RUNNER_POOLS.linux (cmux#
                   "on a live Linux member; the queue janitor re-runs a job queued on a dead one, and no owned Mac is "
                   "involved for the rescue to move")
 UNRESCUED_WORKFLOW_PATHS = {
+    ".github/workflows/first-user-journey-ios.yml":
+        "feat-cmux-next only (main's copy only dispatches it), nightly and manual, no pull request: the walk takes "
+        "the screenshots lane's pick (an owned simulator mini when CI_IOS_OWNED allows) on attempt 1 and "
+        "retry_runs_on (Blacksmith macOS) from attempt 2, so a stuck or refused job ends at its 75-minute timeout "
+        "and the next night's run or a person's re-run takes Blacksmith",
+    ".github/workflows/ios-reliability-matrix.yml":
+        "feat-cmux-next only, with no copy on main to list in SIDE_WORKFLOW_PATHS yet: its phone cells take the kit "
+        "lane's pick (an owned simulator mini) on attempt 1 and Blacksmith macOS 26 from attempt 2, so a stuck or "
+        "refused job ends at its 60-minute timeout and a person's re-run lands on Blacksmith",
+    ".github/workflows/cloud-chat-proof.yml":
+        "a manual proof that never takes an owned pool: pick-proof-runner runs e2e_runner_pool.py with --owned 0 and "
+        "keeps only a Blacksmith macOS 26 label, because each proof job holds a Stack account pair; a re-run takes "
+        "the declared macos_26 pool, and the person re-dispatches",
     ".github/workflows/gateway-e2e.yml":
         "a manual proof (the inference gateway on an owned Mac on the tailnet): its mac job holds the dev stack pair "
         "and must stay on an owned Mac to reach the subscription router, so a Blacksmith rescue could only fail it; "

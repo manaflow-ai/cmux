@@ -1094,6 +1094,36 @@ fn an_owner_that_says_the_run_never_started_decides_the_state() {
     assert_eq!(failure_result(expired)["structuredContent"]["state"], "in_progress");
 }
 
+/// The app's `action.run` marks every refusal that changed nothing `not_run`, and says who
+/// refused in `data.state`. One the app decided (`rejected`: the agent chat cannot split) is the
+/// answer; a tool call that read `not_run` first told the agent to send it again.
+#[test]
+fn a_refusal_the_app_decided_is_rejected_for_a_tool_call() {
+    let refusal = |data: Value| CallFailure {
+        kind: FailureKind::Rejected,
+        error: json!({
+            "code": "unavailable",
+            "message": "splitDown unavailable: The agent chat can't be split.",
+            "data": data,
+        }),
+        idempotency_key: Some("k".into()),
+    };
+    let decided = failure_result(refusal(json!({
+        "action": "splitDown", "not_run": true, "state": "rejected",
+        "reason": "The agent chat can't be split.",
+    })));
+    assert_eq!(decided["structuredContent"]["state"], "rejected", "{decided}");
+    assert_eq!(decided["structuredContent"]["error"]["data"]["state"], "rejected");
+    assert_eq!(decided["structuredContent"]["idempotency_key"], "k");
+
+    // The app did not get to the request (the read barrier on a reconnecting daemon): send again.
+    let barrier = failure_result(refusal(json!({"not_run": true, "state": "not_run"})));
+    assert_eq!(barrier["structuredContent"]["state"], "not_run", "{barrier}");
+    // An app before it said who refused: `not_run` alone reads as it did.
+    let older = failure_result(refusal(json!({"not_run": true})));
+    assert_eq!(older["structuredContent"]["state"], "not_run", "{older}");
+}
+
 #[test]
 fn browser_repl_tools_come_from_the_browser_host_catalog() {
     let operations = browser_tools::catalog()["operations"].as_object().expect("operations");
@@ -1563,6 +1593,16 @@ fn code_mode_server(fake: Fake) -> Server<Fake> {
     server
 }
 
+/// The family names `cmux_exec`'s description lists ("Families: app, pane, ...").
+/// Names only: a count there would move the always-loaded description, and with it
+/// the chat's cached prompt, each time the app's action catalog changes (#39276).
+fn exec_families(listed: &Value) -> Vec<String> {
+    let text = listed["description"].as_str().unwrap();
+    let (_, rest) = text.split_once("Families: ").unwrap_or_else(|| panic!("{text}"));
+    let names = rest.split_once('.').map_or(rest, |(names, _)| names);
+    names.split(", ").map(str::to_owned).collect()
+}
+
 #[test]
 fn code_mode_lists_only_exec_and_a_script_reaches_every_tool() {
     let mut server = code_mode_server(Fake::with_actions());
@@ -1597,7 +1637,10 @@ fn code_mode_lists_only_exec_and_a_script_reaches_every_tool() {
         typo["error"]["message"], "unknown tool: cmux_exce; did you mean cmux_exec?",
         "{typo}"
     );
-    assert!(tools[0]["description"].as_str().unwrap().contains("app (3)"));
+    // The app's actions show as their family, by name only (no count).
+    let families = exec_families(&tools[0]);
+    assert!(families.iter().any(|family| family == "app"), "{families:?}");
+    assert!(families.iter().all(|family| !family.contains('(')), "{families:?}");
 
     // Docs returns a matching tool's schema, best match first: the daemon's
     // tool before the app action that does the same.

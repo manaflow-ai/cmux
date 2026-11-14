@@ -542,7 +542,7 @@ impl Mux {
                     }
                 }
                 let mut projection =
-                    mux.resource_effect_projection_locked(registry, &mut projected, result)?;
+                    mux.changed_state_projection_locked(registry, state, &mut projected, result)?;
                 if source_key != target_key {
                     for terminal in &terminals {
                         retarget_terminal_workspace(&mut projection.patch, terminal, &target_key);
@@ -554,7 +554,9 @@ impl Mux {
                     projection.result,
                     projection.changes,
                     projected,
-                ))
+                )
+                .projected(projection.restates_all)
+                .restating(projection.restated))
             },
         )?;
         if !commit.replayed

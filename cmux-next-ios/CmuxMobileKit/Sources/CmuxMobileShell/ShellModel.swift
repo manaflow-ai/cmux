@@ -141,6 +141,8 @@ final class ShellModel {
         self.lastOpen = lastOpen
         self.store = store
         self.auth = auth
+        // New Message names this account and its team by the Cloud's own ids, derived from the project.
+        ChiefSources.shared.stackProjectID = auth.stackProjectID
         self.settings = settings
         self.sidebar = sidebar
         terminalTabs.accountUserIDProvider = { [weak auth] in auth?.user?.id }
@@ -246,7 +248,7 @@ final class ShellModel {
             toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "That workspace is no longer open")
             return
         }
-        store.noteOpened(tabID: item.tabID, in: workspace.id)
+        store.requestOpen(tabID: item.tabID, in: workspace.id)
         store.markSeen(workspace.id)
         tab = .workspaces
         if workspacesPath.last?.id == workspace.id {
@@ -295,6 +297,8 @@ final class ShellModel {
             terminalTabs.artifactSourceProvider = { [weak live] tab, macID in live?.terminalArtifactSource(tabID: tab.id, macID: macID) }
             terminalTabs.uploaderProvider = { [weak live] tab, macID in live?.terminalUploader(tabID: tab.id, macID: macID) }
             terminalTabs.screenTextProvider = { [weak live] tab, macID in await live?.terminalScreenText(tabID: tab.id, macID: macID) }
+            // Grid cards and the close prompt's programs follow the Mac's output, not a timer.
+            live.onTerminalOutput = { [weak terminalTabs] tab, macID in terminalTabs?.macOutput(tabID: tab, macID: macID) }
             // Each change goes to its workspace's Mac over that Mac's own link.
             let backend = MultiMacWorkspaceBackend(coordinator: live)
             creator.backend = backend
@@ -464,7 +468,7 @@ final class ShellModel {
             guard let workspace = store.workspace(id: workspaceID) else { return }
             // The saved tab, never the Needs-you jump to a waiting agent
             // (that is for a user's tap, `WorkspacesList.openWorkspace`).
-            if let tabID { store.noteOpened(tabID: tabID, in: workspaceID) }
+            if let tabID { store.requestOpen(tabID: tabID, in: workspaceID) }
             tab = .workspaces
             workspacesPath = [workspace]
             // Its tabs come from its Mac: link it, as a tap on the row does.
@@ -551,13 +555,14 @@ final class ShellModel {
     /// The banner over Workspaces: no network first, then the live link (SPEC 7.4).
     var banner: ConnectionBannerState? {
         #if DEBUG
-        // Layout captures only: `-cmux-mobile-banner-demo pairing|pairing-reset|reconnecting`.
-        switch UserDefaults.standard.string(forKey: "cmux-mobile-banner-demo") {
+        // Layout captures only: `-cmux-mobile-banner-demo pairing|pairing-reset|reconnecting|signed-out`.
+        switch Self.bannerDemo {
         case "connected"?: return .connected
         case "reconnecting"?: return .reconnecting(to: "Mac Studio")
         case "offline"?: return .connectionFailed
         case "pairing"?: return .waitingForPairing(on: "Mac Studio")
         case "pairing-reset"?: return .waitingForPairingAfterNewKeys(on: "Mac Studio")
+        case "signed-out"?: return .signedOut
         default: break
         }
         #endif
@@ -570,6 +575,30 @@ final class ShellModel {
         case .failed(let reason)?: return .failed("Pairing failed: \(reason)", identity: live?.focusedMacID)
         default: return live?.banner
         }
+    }
+
+    #if DEBUG
+    static var bannerDemo: String? { UserDefaults.standard.string(forKey: "cmux-mobile-banner-demo") }
+    #endif
+
+    /// The banner has a button: live mode, or the DEBUG signed-out demo (its Sign in
+    /// signs out of the mock account, as a revoked session does, so the flow can be recorded).
+    var bannerHasAction: Bool {
+        #if DEBUG
+        if Self.bannerDemo == "signed-out" { return true }
+        #endif
+        return live != nil
+    }
+
+    /// The banner's one button: "Sign in" when the account's session was
+    /// revoked (sign-out here, which keeps this phone's keys and the Macs that
+    /// allowed it, and opens sign-in), else "Retry".
+    func bannerAction() {
+        if banner == .signedOut {
+            Task { await auth.signOut() }
+            return
+        }
+        live?.retryConnection()
     }
 
     /// Saves a team's color and emoji (and `PUT /prefs` when live).
@@ -768,6 +797,9 @@ extension ShellModel {
             tokens: DeviceHubAccountToken { try await auth.accessToken() }
         )
         let service = ScreenSharingService(configuration: configuration)
+        #if DEBUG
+        if let demo = ScreenSharingService.demoMode() { service.useDemo(demo) }
+        #endif
         screenSharing = service
         ScreenSharingService.current = service
     }

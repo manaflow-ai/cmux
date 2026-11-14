@@ -574,7 +574,8 @@ export class MockAcpmuxSocket {
               origin: "local",
               operations: [FORK_OP, ...Object.values(HANDOFF_OPS)],
               // The memory inbox (`memory_offer` records, `_acpmux/memory_resolve`).
-              features: ["queueApproval", "queueGet", "memory-inbox-v1"],
+              // The prompt coach (`coach_offer` and `coach` records, `_acpmux/prompt_coach`).
+              features: ["queueApproval", "queueGet", "memory-inbox-v1", "prompt-coach-v1"],
               handoff: { maxCapsuleBytes: 65536 },
               ...((globalThis as MockAuthGlobals).cmuxAcpmuxMockSessionAuth ? { features: ["sessionAuth"] } : {}),
               ...((globalThis as MockAuthGlobals).cmuxAcpmuxMockCapabilities
@@ -584,7 +585,14 @@ export class MockAcpmuxSocket {
           },
         };
       case FORK_OP:
-        return this.fork(target, Number(params.throughSeq));
+        // `live`: the whole chat as it is now; `harness` (and `model`): onto another harness, as a
+        // model switch in a started chat forks it in place (App.tsx `chat.switchModel`).
+        return this.fork(
+          target,
+          params.live === true ? Number.MAX_SAFE_INTEGER : Number(params.throughSeq),
+          typeof params.harness === "string" ? params.harness : undefined,
+          typeof params.model === "string" ? params.model : undefined,
+        );
       case "_acpmux/watch":
         return { sessions: this.sessions };
       // A session this daemon lists (mockFixture.ts `mockResolvable`), by link, id or HOST/NAME.
@@ -753,6 +761,25 @@ export class MockAcpmuxSocket {
         if (accepted.length || dismissed.length)
           this.emit(target, { mux: "memory_resolved", msg: { offerId, file, accepted, dismissed } });
         return { file, accepted, dismissed, wrote: accepted.length > 0 };
+      }
+      // The prompt coach's rewrite (acpmux prompt_coach.rs): no model call here; it logs the `coach`
+      // record the daemon would, the chat's first prompt with what the person said later, once.
+      case "_acpmux/prompt_coach": {
+        const coachId = String(params.coachId ?? "");
+        const own = this.events.filter((event) => event.sessionId === target);
+        const offer = own.find((event) => event.kind === "coach_offer" && event.msg?.coachId === coachId);
+        if (!offer || own.some((event) => event.kind === "coach" && event.msg?.coachId === coachId))
+          return { made: false };
+        const said = own
+          .filter((event) => event.kind === "user_message" && typeof event.msg?.text === "string")
+          .map((event) => String(event.msg?.text));
+        const firstPrompt = said[0] ?? "";
+        const rewrite = [firstPrompt, ...said.slice(1).map((text) => `- ${text}`)].join("\n");
+        this.emit(target, {
+          mux: "coach",
+          msg: { coachId, firstPrompt, rewrite, corrections: Number(offer.msg?.corrections ?? said.length - 1) },
+        });
+        return { made: true };
       }
       // A preset approval card's answer (hub/unattended_presets.rs): it counts only for the digest
       // the chat's latest request for that preset names, and records the decision in that chat.
@@ -1056,7 +1083,7 @@ export class MockAcpmuxSocket {
   }
 
   /// A new session holding `target`'s events through `throughSeq`, under its own sequence.
-  private fork(target: string, throughSeq: number): { sessionId: string } {
+  private fork(target: string, throughSeq: number, harness?: string, model?: string): { sessionId: string } {
     const source = this.sessions.find((entry) => entry.sessionId === target);
     if (!source || !Number.isFinite(throughSeq)) throw new Error(`cannot fork ${target}`);
     const sessionId = `mock-session-${this.sessions.length + 1}`;
@@ -1069,6 +1096,8 @@ export class MockAcpmuxSocket {
     const turns = this.events.filter((entry) => entry.sessionId === sessionId && entry.kind === "turn_result").length;
     const created = {
       ...source,
+      ...(harness ? { harness } : {}),
+      ...(model ? { model } : {}),
       sessionId,
       status: "idle",
       unread: false,

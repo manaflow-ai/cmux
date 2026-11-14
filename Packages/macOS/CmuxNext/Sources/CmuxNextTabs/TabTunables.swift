@@ -80,9 +80,18 @@ public nonisolated enum TabTunables {
     public static let pinnedGroupGap = points("pinnedGroupGap", "Pinned gap", help: "Extra space after the last pinned tab, for its divider. Default: the gap between two tabs plus the line.") {
         2 * Metrics.tabBackgroundInset + 1
     }
-    public static let contentTrailingInset = points("contentTrailingInset", "Tab trailing inset", help: "Inset of the close button from a tab's trailing edge.") { Metrics.space2 }
-    public static let closeButtonSize = points("closeButtonSize", "Close button size", help: "Side of a tab's close button.") { Metrics.space6 }
-    public static let closeGlyphSize = points("closeGlyphSize", "Close glyph size", help: "Side of the x inside the close button.") { Metrics.space4 - Metrics.space1 / 2 }
+    // @intent Lawrence 2026-11-13: "need to match the X icon on helium in terms of hover too (like roundness of it), should
+    // be applied to all densities". Helium's x on its 28 pt tab (2x captures of Helium 0.21.3.1): a 14 pt hover square 6 pt
+    // inside the pill's end, 8 pt of ink; the same shares of the tab at every density (`HeliumTabCloseButtonTests`).
+    public static let contentTrailingInset = points("contentTrailingInset", "Tab trailing inset", help: "Inset of the close button from a tab's trailing edge. Default: Helium's 6 on a 28 pt tab.") {
+        BrowserChromeTuning.value(.closeTrailing)
+    }
+    public static let closeButtonSize = points("closeButtonSize", "Close button size", help: "Side of a tab's close button (its hover square). Default: Helium's 14 on a 28 pt tab.") {
+        BrowserChromeTuning.value(.closeSize)
+    }
+    public static let closeGlyphSize = points("closeGlyphSize", "Close glyph size", help: "Side of the x's ink inside the close button. Default: Helium's 8 on a 28 pt tab.") {
+        BrowserChromeTuning.value(.closeInk)
+    }
     public static let iconTitleSpacing = points("iconTitleSpacing", "Icon to title", help: "Gap between a tab's icon and its title.") {
         Metrics.compactTabs ? Metrics.space2 : Metrics.space3
     }
@@ -104,6 +113,11 @@ public nonisolated enum TabTunables {
         "tabs.separators", .tabs, "Tab separators",
         help: "A short line between tabs and before +, hidden beside the selected tab.",
         default: true, code: "TabTunables.separators")
+    // @intent Lucas 2026-11-12 ("show the chevron on hover of the +"): on by default; off keeps the ⌄ shown.
+    public static let chevronOnHover = Tunable<Bool>.toggle(
+        "tabs.chevronOnHover", .tabs, "Pane type ⌄ only on hover",
+        help: "The ⌄ after the tab bar's + shows only while the + or the ⌄ is under the pointer or its menu is open; it keeps its place.",
+        default: true, code: "TabTunables.chevronOnHover")
     public static let pinnedDivider = Tunable<Bool>.toggle(
         "tabs.pinnedDivider", .tabs, "Pinned group divider",
         help: "A short line between the pinned tabs and the other tabs.",
@@ -175,17 +189,18 @@ public nonisolated enum TabTunables {
         help: "Prototype for a busy tab's indicator entering or leaving. Instant preserves the current behavior.",
         default: .instant, code: "TabTunables.loadingAnimation")
     // @intent Lawrence 2026-11-07 ("i still dont like these UIs", the tab bar's `+ ⌄ ⋮`): one look for the three
-    // trailing controls. Glyphs only is the default; the tab bar playground's Trailing Buttons page compares them.
+    // trailing controls. The split button (cmux classic's `+ ⌄`, Lucas 2026-11-11) is the default; the tab bar
+    // playground's Trailing Buttons page compares them.
     public static let trailingButtons = Tunable<TabTrailingButtons>.choice(
         "tabs.trailingButtons", .tabs, "Tab bar buttons",
         help: "How the tab bar's plus, pane-type chevron and More look and show hover.",
-        default: .glyphs, code: "TabTunables.trailingButtons")
+        default: .split, code: "TabTunables.trailingButtons")
     public static var all: [TunableDescriptor] {
         [compactTabWidth, scrollTabMinWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
             + [separators.descriptor, pinnedDivider.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, crowdedControls.descriptor,
                crowdedControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
-               hoverPreviews.descriptor, hoverCardEntrance.descriptor, loadingAnimation.descriptor, trailingButtons.descriptor] + VerticalTabTunables.all
+               hoverPreviews.descriptor, hoverCardEntrance.descriptor, loadingAnimation.descriptor, trailingButtons.descriptor, chevronOnHover.descriptor] + VerticalTabTunables.all
     }
 }

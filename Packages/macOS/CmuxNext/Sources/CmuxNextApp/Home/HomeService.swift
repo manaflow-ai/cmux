@@ -200,9 +200,9 @@ final class HomeService {
     /// A conversation the Home page selects once the inbox lists it (a new
     /// Chief's main conversation, a DM opened from the CLI).
     var pendingSelection: ConversationID?
-    /// Each chat's own bubble colours (`home.chatColors`), kept on this Mac, and the app's one Chat Colors… panel (its React page).
+    /// Each chat's own bubble colours (`home.chatColors`), kept on this Mac, and the app's one Chat Colors… panel (AppKit).
     @ObservationIgnored let chatColors = HomeChatColorStore(defaults: .standard)
-    @ObservationIgnored private(set) lazy var chatColorsPanel = HomeChatColorsService(store: chatColors, design: .shared)
+    @ObservationIgnored private(set) lazy var chatColorsPanel = HomeChatColorsPanel(store: chatColors, design: .shared)
     @ObservationIgnored var cloudLinker: HomeCloudLink?
     /// Each conversation tab's view, by tab id; released with the tab.
     @ObservationIgnored var tabViews: [String: HomeHostView] = [:]
@@ -237,7 +237,7 @@ final class HomeService {
             if self?.settleNotice != text { self?.settleNotice = text }
         }
         watchReplies()
-        chief.start()
+        DebugTimings.markLaunch("home.chief_owner_start"); chief.start()
         let local = services.machines.local
         let auth = services.cloud.auth
         let chief = chief
@@ -272,7 +272,7 @@ final class HomeService {
                 guard let self else { continue }
                 homeSource.connectionChanged(connection, chiefHome: chief.home)
                 homeInbox.connectionChanged(connection)
-                guard let connection else { continue }
+                guard let connection else { continue }; DebugTimings.markLaunch("home.chief_owner_connected")
                 reloadList(connection)
                 // Home opened before the owner answered, or the owner came back
                 // after a stop: start the host now if it does not run.
