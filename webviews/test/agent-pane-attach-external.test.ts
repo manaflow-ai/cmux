@@ -1,4 +1,4 @@
-// Leo, 2026-11-08 (a screenshot could not reach a chat from another app): "holy fuck. those NEED to
+// Leo, 2026-11-08 (a screenshot could not reach a chat from another app): "holy f***. those NEED to
 // be written down and FIXED and IMPROVED". The app's `attachExternal` command (Send to cmux Chat, an
 // image opened with cmux) makes the page take the files the host holds (`chat.attach.external`) and
 // put them into the composer as an unsent draft, as a drop's are: the chip says which app it came

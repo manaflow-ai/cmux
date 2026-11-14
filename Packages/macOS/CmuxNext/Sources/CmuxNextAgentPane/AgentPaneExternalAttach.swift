@@ -6,7 +6,7 @@ public import Foundation
 import UniformTypeIdentifiers
 
 /// The one route that puts files from another app into an agent chat's composer as an unsent draft
-/// (Leo, 2026-11-08, ask-a862e90c70: "holy fuck. those NEED to be written down and FIXED and
+/// (Leo, 2026-11-08, ask-a862e90c70: "holy f***. those NEED to be written down and FIXED and
 /// IMPROVED", on a screenshot that could not reach a chat from another app). Its doors: an image
 /// opened with cmux or dropped on its Dock icon, the Send to cmux Chat service, and later a capture
 /// shortcut and the Share menu; the App's `ExternalOpenController.attachToChat(_:from:)` brings them

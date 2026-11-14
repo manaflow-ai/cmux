@@ -1,4 +1,4 @@
-// Files another app sent to this chat (Leo, 2026-11-08: "holy fuck. those NEED to be written down
+// Files another app sent to this chat (Leo, 2026-11-08: "holy f***. those NEED to be written down
 // and FIXED and IMPROVED", on a screenshot that could not reach a chat from another app): the Send to
 // cmux Chat service, an image opened with cmux or dropped on its Dock icon. The host holds them and
 // sends the page `attachExternal`; the page takes them (`chat.attach.external`) and adds them to the
