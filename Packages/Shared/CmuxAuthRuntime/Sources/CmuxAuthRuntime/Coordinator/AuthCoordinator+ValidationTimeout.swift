@@ -126,11 +126,11 @@ extension AuthCoordinator {
         guard generation == sessionGeneration,
               tokenStoreWriteHighWater == storeWriteHighWater else {
             if clearedStaleRefreshToken, isAuthenticated {
-                clearAuthState(preservePendingCode: true)
+                clearAuthState(reason: "a validation raced a sign-out and cleared its stale refresh token", preservePendingCode: true)
             }
             throw CancellationError()
         }
-        clearAuthState(preservePendingCode: true)
+        clearAuthState(reason: "a validation finished after a sign-out began", preservePendingCode: true)
         throw CancellationError()
     }
 

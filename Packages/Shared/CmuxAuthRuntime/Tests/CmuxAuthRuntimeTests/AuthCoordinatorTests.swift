@@ -197,7 +197,7 @@ import Testing
         try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
         #expect(recorder.events == ["will-transition", "signed-in"])
 
-        coordinator.clearAuthState()
+        coordinator.clearAuthState(reason: "test")
         #expect(recorder.events == [
             "will-transition",
             "signed-in",

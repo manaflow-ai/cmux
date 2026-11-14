@@ -22,9 +22,16 @@ public protocol StackAuthTokenStoreProtocol: TokenStoreProtocol, Sendable {
     /// - Returns: Whether the tokens were cleared.
     @discardableResult
     func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool
+    /// How many reads failed with a storage error rather than finding the
+    /// token or definitively not finding it; see
+    /// ``AuthClient/tokenReadFailureCount()``. Monotonic.
+    func tokenReadFailureCount() async -> UInt64
 }
 
 extension StackAuthTokenStoreProtocol {
+    /// A store whose reads cannot fail (memory, explicit) reports none.
+    public func tokenReadFailureCount() async -> UInt64 { 0 }
+
     public func seed(accessToken: String, refreshToken: String) async {
         await setTokens(accessToken: accessToken, refreshToken: refreshToken)
     }
