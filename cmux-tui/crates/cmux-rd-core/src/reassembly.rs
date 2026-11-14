@@ -32,6 +32,8 @@ pub enum FrameLoss {
 #[derive(Debug)]
 struct Pending {
     first_seen_us: u64,
+    last_seen_us: u64,
+    highest_index: u16,
     last_nack_us: Option<u64>,
     flags: u8,
     count: u16,
@@ -122,6 +124,8 @@ impl Reassembler {
         let total = usize::from(header.count) + usize::from(header.fec_count);
         let entry = self.pending.entry(header.frame).or_insert_with(|| Pending {
             first_seen_us: now_us,
+            last_seen_us: now_us,
+            highest_index: header.index,
             last_nack_us: None,
             flags: header.flags,
             count: header.count,
@@ -139,6 +143,8 @@ impl Reassembler {
             && slot.is_none()
         {
             entry.shard_len = Some(payload.len());
+            entry.last_seen_us = now_us;
+            entry.highest_index = entry.highest_index.max(header.index);
             self.pending_bytes += payload.len();
             *slot = Some(payload.to_vec());
         }
@@ -180,10 +186,17 @@ impl Reassembler {
     }
 
     fn nack_at(p: &Pending, after_us: u64, retry_us: u64) -> u64 {
-        p.last_nack_us.map_or_else(
-            || p.first_seen_us.saturating_add(after_us),
-            |last| last.saturating_add(retry_us.max(1)),
-        )
+        // A large frame may still be arriving after the reorder grace. An
+        // observed gap can be requested now; its unseen tail only becomes
+        // a gap after arrivals stop for a grace period.
+        let observed_gap = p.shards.iter().take(Self::observed_data(p)).any(Option::is_none);
+        let gap_at =
+            if observed_gap { p.first_seen_us } else { p.last_seen_us }.saturating_add(after_us);
+        p.last_nack_us.map_or(gap_at, |last| gap_at.max(last.saturating_add(retry_us.max(1))))
+    }
+
+    fn observed_data(p: &Pending) -> usize {
+        (usize::from(p.highest_index) + 1).min(usize::from(p.count))
     }
 
     /// Takes the due NACKs that fit in one feedback packet. Only requests
@@ -195,7 +208,12 @@ impl Reassembler {
             .filter(|(_, p)| !Self::decodable(p) && now_us >= Self::nack_at(p, after_us, retry_us))
             .take(MAX_NACK_FRAMES)
             .map(|(&frame, p)| {
-                let indexes = (0..p.count)
+                let end = if now_us >= p.last_seen_us.saturating_add(after_us) {
+                    p.count
+                } else {
+                    Self::observed_data(p) as u16
+                };
+                let indexes = (0..end)
                     .filter(|&i| p.shards[usize::from(i)].is_none())
                     .take(MAX_NACK_INDEXES)
                     .collect();

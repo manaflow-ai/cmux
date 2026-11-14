@@ -187,6 +187,36 @@ fn missing_lists_absent_data_shards() {
 }
 
 #[test]
+fn nack_grace_does_not_request_the_unseen_tail_of_an_arriving_frame() {
+    let mut p = Packetizer::new(0, 256);
+    let sent = p.packetize(1, flags::KEYFRAME, &body(1, 1500, true), 0).expect("packetize");
+    let mut r = Reassembler::new(200_000);
+    let last = sent.datagrams.len() - 1;
+    for (i, d) in sent.datagrams[..last].iter().enumerate() {
+        let now = 25_000 + i as u64 * 4_000;
+        let (h, payload) = DatagramHeader::decode(d).expect("decode");
+        assert!(r.push(&h, payload, now).is_empty());
+        assert_eq!(r.next_nack_us(5_000, 50_000), Some(now + 5_000));
+        assert!(r.take_nacks(now + 3_999, 5_000, 50_000).is_empty());
+    }
+    let tail_due = 25_000 + (last as u64 - 1) * 4_000 + 5_000;
+    let requests = r.take_nacks(tail_due, 5_000, 50_000);
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].indexes, vec![last as u16]);
+
+    // A gap proven by a later shard is requested promptly, while shards
+    // beyond that later shard are still allowed to arrive normally.
+    let mut r = Reassembler::new(200_000);
+    for (i, now) in [(0, 0), (2, 6_000)] {
+        let (h, payload) = DatagramHeader::decode(&sent.datagrams[i]).expect("decode");
+        assert!(r.push(&h, payload, now).is_empty());
+    }
+    let requests = r.take_nacks(6_000, 5_000, 50_000);
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].indexes, vec![1]);
+}
+
+#[test]
 fn nack_deadlines_are_per_frame_and_only_sent_requests_start_retrying() {
     let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
     let mut r = Reassembler::new(1_000_000);
