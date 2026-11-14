@@ -777,6 +777,14 @@ const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string |
   return ids.length > 0 ? ids.join(" ") : undefined;
 };
 
+/// The transcript's own sets of rows that enter, fade in as the chat loads, or fade in from a late
+/// page of older history: read when the frames are drawn, so the render reads no ref itself.
+type RowFrameSources = {
+  entering: { readonly current: ReadonlySet<string> };
+  loadFade: { readonly current: LoadFadeWindow | undefined };
+  older: { readonly current: OlderRowFade | undefined };
+};
+
 /// What `drawRowFrames` draws the mounted rows' frames from: one object a transcript render hands it.
 type RowFramesView = {
   rows: readonly AcpmuxRow[];
@@ -790,13 +798,12 @@ type RowFramesView = {
   observer: ResizeObserver | undefined;
   queueDrawn: QueueDrawn;
   sentPromptIds: ReadonlySet<string>;
-  /// The rows that enter on their first mount; undefined while a session switch loads.
-  entering: ReadonlySet<string> | undefined;
+  /// Rows may enter (`RowFrameSources.entering`): not while a session switch loads.
+  enters: boolean;
   onEntered: (id: string) => void;
-  /// The rows that fade in as the chat loads; undefined while a session switch loads.
-  loadFade: LoadFadeWindow | undefined;
+  /// Rows may fade in as the chat loads (`RowFrameSources.loadFade`): not while a session switch loads.
+  loadFades: boolean;
   onLoadFaded: (id: string) => void;
-  older: OlderRowFade;
   onOlderShown: (id: string) => void;
   activeRowId: string | undefined;
   selectedRows: ReadonlySet<number>;
@@ -816,8 +823,11 @@ type RowFramesView = {
 /// Each mounted row's frame, its props worked out again only when its rows or inputs changed
 /// (conversation/rowFrameCache.ts): a streamed token redoes the live row's alone, and React skips
 /// every other frame on the element `cache` kept, whatever the rows in view.
-function drawRowFrames(cache: RowFrameCache, view: RowFramesView): React.ReactElement[] {
+function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: RowFramesView): React.ReactElement[] {
   const { rows, geometry, setSize } = view;
+  const entering = view.enters ? sources.entering.current : undefined;
+  const loadFade = view.loadFades ? sources.loadFade.current : undefined;
+  const older = sources.older.current;
   cache.begin([
     view.frameKey,
     view.registry,
@@ -851,9 +861,9 @@ function drawRowFrames(cache: RowFrameCache, view: RowFramesView): React.ReactEl
       inputs.tabStop = view.tabStopId === row.id;
       inputs.finalFooter = row.id === view.finalFooter;
       inputs.sendThinking = row.kind === THINKING && row.verbKey !== undefined && view.sentPromptIds.has(row.verbKey);
-      inputs.enter = view.entering?.has(frameId) ?? false;
-      inputs.loadFade = view.loadFade?.fades(row.id) ?? false;
-      inputs.older = view.older.has(row.id) ? view.older : undefined;
+      inputs.enter = entering?.has(frameId) ?? false;
+      inputs.loadFade = loadFade?.fades(row.id) ?? false;
+      inputs.older = older?.has(row.id) ? older : undefined;
       inputs.repository = view.githubRepository ?? view.rowRepositories?.(absoluteIndex);
       inputs.scope = view.scopeAt(absoluteIndex);
       // An open Worked-for row names every row under it (`disclosureControls`): drawn each time.
@@ -2600,6 +2610,12 @@ function TranscriptView({
   loadFade.current ??= new LoadFadeWindow();
   if (sessionChanged) loadFade.current.clear();
   loadFade.current.phase(loading);
+  /// What the row frames read their entrance and fades from (`drawRowFrames`): the refs, read there.
+  const [rowFrameSources] = useState<RowFrameSources>(() => ({
+    entering: enteringRows,
+    loadFade,
+    older: olderRows,
+  }));
   // The tick the reader opened this chat (a click into it, a restart's first load): what it held
   // before is history and never enters; only what happened after it does (openBreakpoint.ts).
   // One per open of a chat: the page's record of it is read here and written only on commit.
@@ -6703,7 +6719,7 @@ function TranscriptView({
   };
   // Each mounted row's frame, its props worked out again only for rows whose rows or inputs changed
   // (`drawRowFrames`): a streamed token redoes the live row's alone.
-  const rowFrames = drawRowFrames(rowFrameCache, {
+  const rowFrames = drawRowFrames(rowFrameCache, rowFrameSources, {
     rows,
     mountedRanges,
     geometry: layout.geometry,
@@ -6717,11 +6733,10 @@ function TranscriptView({
     sentPromptIds: sentPromptIdsForRender,
     // A session switch is a load, not a live arrival. The reset effect runs after this render, so
     // gate it here as well to avoid a reused row id animating once.
-    entering: !sessionChanged || tookSession ? enteringRows.current : undefined,
+    enters: !sessionChanged || tookSession,
     onEntered,
-    loadFade: sessionChanged ? undefined : loadFade.current,
+    loadFades: !sessionChanged,
     onLoadFaded,
-    older: olderRows.current!,
     onOlderShown,
     activeRowId: effectiveActiveRowId,
     selectedRows,

@@ -145,8 +145,11 @@ test("a streamed token compares no more frames with twice the rows mounted", asy
   );
   // The second view really mounts about twice the rows (about 30 and 60, as a god chat and a long-turn chat do).
   expect(many.mounted).toBeGreaterThanOrEqual(few.mounted * 1.6);
-  // The live row and the row over it (whose next drawn row is the live one), for each render a token takes:
-  // never the rows in view. Before, every mounted frame was compared on every render.
-  expect(many.perToken).toBeLessThanOrEqual(4);
-  expect(few.perToken).toBeLessThanOrEqual(4);
+  // The live row, the row over it (whose next drawn row is the live one) and the rows the roving tab
+  // stop moves between as the view follows, for each render a token takes: a few, never the rows in
+  // view, and no more with twice the rows. Before, every mounted frame was compared on every render
+  // (about 2 per mounted row per token).
+  expect(few.perToken).toBeLessThan(8);
+  expect(many.perToken).toBeLessThan(8);
+  expect(many.perToken).toBeLessThanOrEqual(few.perToken + 1);
 });
