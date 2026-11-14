@@ -40,6 +40,8 @@ export type EnvironmentInput = {
   projectLook?: ProjectRowLook;
   /// Opens the repository's and the branch's GitHub links (the web rows' `href`).
   onOpenUrl?: (url: string) => void;
+  onShareScreen?: () => void;
+  screenShareNote?: string;
 };
 
 export function environmentSection(
@@ -71,6 +73,15 @@ export function environmentSection(
     ...(machine.kind === "cloud" ? { subtitle: t("cloudRepository.lifetime") } : {}),
   });
   const cloudSession = machine.kind === "cloud" && summary?.sessionId;
+  if (input.onShareScreen) {
+    rows.push({
+      id: "screen-sharing",
+      symbol: "display",
+      title: t("sessionInfo.environment.screenSharing"),
+      action: actions.add("environment.screenSharing", input.onShareScreen),
+      ...(input.screenShareNote ? { subtitle: input.screenShareNote } : {}),
+    });
+  }
   if (cloudSession && input.cloudRepositoryAvailable) {
     rows.push({
       id: "cloud-default",

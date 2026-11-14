@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentActivity
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextChiefPetWiring
@@ -32,6 +33,8 @@ enum AgentSessionBindOutcome: Equatable {
 }
 
 extension AgentTabStore {
+    func shareScreen(of key: AgentTabKey, session: String?) -> AgentPaneActionRun { guard let registry = actionRegistry, let session, let (record, _) = record(for: key), let daemon = daemon(for: key) else { return .refused(Self.screenShareUnavailable) }; let host = hostKind(record, listedHere: daemon.isLocal); let lanes = AgentLaneStore.shared; let links = lanes.links(session); let kind = host == .local ? "local" : host == .chief ? "unsupported" : daemon.isLocal ? "remote" : MachineRegistry.isCloudMachineID(daemon.machineID) ? "cloud" : "remote"; return ScreenShareAction(localMachineID: MachineRegistry.localID, showsInApp: CmuxSignInOffer.signInReasons.contains).run(registry: registry, session: session, actualSession: sessions[key] ?? record.session ?? "", machineID: daemon.machineID, kind: kind, host: record.host, hostKind: host == .local ? "local" : host == .chief ? "chief" : "remote", peer: links?.peer, registryHost: Self.registryHost(of: daemon), localSummaryCurrent: lanes.live && links != nil, unavailable: Self.screenShareUnavailable) }
+    private static var screenShareUnavailable: String { String(localized: "screenShare.chat.unavailable", defaultValue: "Screen sharing is not available for this chat’s machine. Open Machines to check its connection.", table: "MiscHandlers", bundle: .module) }
     static let showcaseMachineName = MacName.captureName
 
     static func localMachineName(showcase: Bool, read: () async -> String) async -> String {
@@ -681,16 +684,7 @@ final class AgentTabStore {
         model.machineLink = machineLink
         model.onRunAction = { [weak self] id, arguments in
             guard let self, let registry = actionRegistry else { return .notRun }
-            // On this tab's pane: the New Tab page opens beside the tab that asked. Reconnect runs
-            // on the machine this tab's chat runs on, resolved here: the page never names a machine.
-            let target: ActionTargetRef
-            if id == "machine.reconnect" {
-                guard let machine = remoteMachineID(of: provisional, machine: scoped.machine) else { return .notRun }
-                target = ActionTargetRef(kind: .machine, id: machine)
-            } else {
-                target = ActionTargetRef(kind: .tab, id: resolve(provisional, machine: scoped.machine))
-            }
-            return registry.runPageAction(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user).onMachine(target.kind == .tab ? scoped.machine : nil), showsInApp: CmuxSignInOffer.signInReasons.contains)
+            return ScreenShareAction(localMachineID: MachineRegistry.localID, showsInApp: CmuxSignInOffer.signInReasons.contains).runPageAction(registry: registry, id: id, arguments: arguments, machine: scoped.machine, target: { if id == "machine.reconnect" { return self.remoteMachineID(of: provisional, machine: scoped.machine).map { ActionTargetRef(kind: .machine, id: $0) } }; return ActionTargetRef(kind: .tab, id: self.resolve(provisional, machine: scoped.machine)) }, screenShare: { self.shareScreen(of: self.resolvedKey(scoped), session: arguments["session"]) })
         }
         model.onShareOp = { [weak self] op, session in guard let self else { return nil }; return await shareOp?(resolve(provisional, machine: scoped.machine), op, session) }
         wireHeader(model, key: provisional, machine: scoped.machine)

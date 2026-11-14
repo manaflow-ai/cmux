@@ -1,0 +1,62 @@
+{
+  "envs": [
+    [
+      "light",
+      "none"
+    ],
+    [
+      "dark",
+      "none"
+    ]
+  ],
+  "shots": [
+    {
+      "name": "row-narrow",
+      "entry": "agent-pane.session-info-screen-sharing",
+      "variant": "row",
+      "widthName": "narrow",
+      "width": 280,
+      "height": 260
+    },
+    {
+      "name": "row-normal",
+      "entry": "agent-pane.session-info-screen-sharing",
+      "variant": "row",
+      "widthName": "normal",
+      "width": 360,
+      "height": 260
+    },
+    {
+      "name": "inline-narrow",
+      "entry": "agent-pane.session-info-screen-sharing",
+      "variant": "inline",
+      "widthName": "narrow",
+      "width": 280,
+      "height": 260
+    },
+    {
+      "name": "inline-normal",
+      "entry": "agent-pane.session-info-screen-sharing",
+      "variant": "inline",
+      "widthName": "normal",
+      "width": 360,
+      "height": 260
+    },
+    {
+      "name": "icon-narrow",
+      "entry": "agent-pane.session-info-screen-sharing",
+      "variant": "icon",
+      "widthName": "narrow",
+      "width": 280,
+      "height": 260
+    },
+    {
+      "name": "icon-normal",
+      "entry": "agent-pane.session-info-screen-sharing",
+      "variant": "icon",
+      "widthName": "normal",
+      "width": 360,
+      "height": 260
+    }
+  ]
+}
