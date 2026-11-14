@@ -3098,6 +3098,6 @@ bot re-run past an attempt cap (`run_attempt <= 3`, #22565), or one carrying att
 2026-11-14 cmux#42880's fast tier (run 43600399789, attempt 5) waited on `blacksmith-6vcpu-macos-26` with no runner
 (cmuxterm-hq#10952). It is inside the wrap now, `(vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER ||
 vars.MACOS_RUNNER_26 || <pool>)`, in cmux-next.yml (runs-on, `CMUX_NEXT_RUNNER`, `CMUX_NEXT_SIDE_ROUTE`),
-cmux-next-batch.yml and cmux-next-terminal.yml's bot re-run fallback. `tests/test_ci_rerun_attempt_route.py`
-evaluates every route of every workflow with an attempt cap at bot attempts 2 to 6, placement re-run or carried,
+cmux-next-batch.yml and cmux-next-terminal.yml's bot re-run fallback. `tests/test_ci_next_macos_cascade.py`
+`RerunPastTheAttemptCap` evaluates every route of every workflow with an attempt cap at bot attempts 2 to 6, placement re-run or carried,
 and refuses a Blacksmith macOS label for a route attempt 1 serves with an owned one.
