@@ -622,7 +622,11 @@ impl MediaEngine {
     /// Feedback of one stream: arrivals and loss feed the shared controller;
     /// NACKs, acks and recovery requests apply to that stream.
     fn on_feedback(&mut self, stream: u16, fb: &Feedback, now_us: u64, out: &mut Output) {
-        let settled = self.loss_meter.on_arrivals(fb.arrivals.iter().map(|a| a.transport_seq));
+        let settled = self.loss_meter.on_arrivals_at(
+            fb.arrivals.iter().map(|a| a.transport_seq),
+            now_us,
+            LossMeter::REORDER_GRACE_US,
+        );
         if let Some(lost) = settled {
             self.loss = 0.8 * self.loss + 0.2 * lost;
         }

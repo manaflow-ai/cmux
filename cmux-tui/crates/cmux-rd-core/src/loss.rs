@@ -8,12 +8,19 @@ use std::collections::{HashSet, VecDeque};
 pub struct LossMeter {
     order: VecDeque<u16>,
     arrived: HashSet<u16>,
+    /// Number of sent sequence entries waiting for the reorder grace before
+    /// they become a settled loss sample.
+    pending_settle_len: usize,
+    pending_settle_due_us: Option<u64>,
     sample_started_us: Option<u64>,
     sample_received: u64,
     sample_lost: u64,
 }
 
 impl LossMeter {
+    /// Maximum packet spread admitted by the screen-share jitter model.
+    pub const REORDER_GRACE_US: u64 = 25_000;
+
     pub fn reset_congestion_window(&mut self) {
         self.sample_started_us = None;
         self.sample_received = 0;
@@ -37,6 +44,7 @@ impl LossMeter {
     /// only after at least 20 packets have settled. An empty receipt cannot
     /// apply an earlier loss sample again. The caller supplies monotonic time.
     pub fn take_congestion_loss(&mut self, now_us: u64) -> Option<f64> {
+        self.settle_reordered(now_us);
         let total = self.sample_received.saturating_add(self.sample_lost);
         if total == 0 {
             return None;
@@ -55,17 +63,44 @@ impl LossMeter {
     /// Records arrivals; returns the loss fraction among datagrams this feedback settled
     /// (`None` when it settled none).
     pub fn on_arrivals(&mut self, seqs: impl IntoIterator<Item = u16>) -> Option<f64> {
+        self.on_arrivals_at(seqs, 0, 0)
+    }
+
+    /// Records receiver arrivals while allowing packets to arrive out of
+    /// order. Sequence gaps are settled only after `reorder_grace_us` has
+    /// elapsed since the newest arrival that extends the watermark.
+    pub fn on_arrivals_at(
+        &mut self,
+        seqs: impl IntoIterator<Item = u16>,
+        now_us: u64,
+        reorder_grace_us: u64,
+    ) -> Option<f64> {
+        let settled = self.settle_reordered(now_us);
         let mut any = false;
         for s in seqs {
             any = true;
             self.arrived.insert(s);
         }
-        if !any {
+        if any {
+            if let Some(last) = self.order.iter().rposition(|s| self.arrived.contains(s)) {
+                self.pending_settle_len = self.pending_settle_len.max(last + 1);
+                self.pending_settle_due_us = Some(now_us.saturating_add(reorder_grace_us));
+            }
+            if reorder_grace_us == 0 {
+                return self.settle_reordered(now_us).or(settled);
+            }
+        }
+        settled
+    }
+
+    /// Settles the current arrival watermark after its reorder grace.
+    pub fn settle_reordered(&mut self, now_us: u64) -> Option<f64> {
+        let due = self.pending_settle_due_us?;
+        if now_us < due || self.pending_settle_len == 0 {
             return None;
         }
-        let last = self.order.iter().rposition(|s| self.arrived.contains(s))?;
         let (mut received, mut lost) = (0u32, 0u32);
-        for _ in 0..=last {
+        for _ in 0..self.pending_settle_len {
             let Some(seq) = self.order.pop_front() else { break };
             if self.arrived.remove(&seq) {
                 received += 1;
@@ -73,6 +108,8 @@ impl LossMeter {
                 lost += 1;
             }
         }
+        self.pending_settle_len = 0;
+        self.pending_settle_due_us = None;
         self.sample_received = self.sample_received.saturating_add(u64::from(received));
         self.sample_lost = self.sample_lost.saturating_add(u64::from(lost));
         let total = received + lost;
@@ -105,6 +142,18 @@ mod tests {
         assert_eq!(m.on_arrivals(0..128), Some(0.0));
         assert_eq!(m.on_arrivals(128..256), Some(0.0));
         assert_eq!(m.on_arrivals(256..300), Some(0.0));
+    }
+
+    #[test]
+    fn jitter_reordering_settles_without_false_loss() {
+        let mut m = LossMeter::default();
+        for seq in 0..4 {
+            m.on_sent(seq);
+        }
+        assert_eq!(m.on_arrivals_at([0, 2, 3], 0, LossMeter::REORDER_GRACE_US), None);
+        assert_eq!(m.on_arrivals_at([1], 10_000, LossMeter::REORDER_GRACE_US), None);
+        assert_eq!(m.on_arrivals_at([], 34_999, LossMeter::REORDER_GRACE_US), None);
+        assert_eq!(m.on_arrivals_at([], 35_000, LossMeter::REORDER_GRACE_US), Some(0.0));
     }
 
     #[test]
