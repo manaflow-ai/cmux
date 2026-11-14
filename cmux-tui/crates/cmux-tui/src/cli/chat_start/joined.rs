@@ -32,7 +32,7 @@ pub(in crate::cli) const PREFIX: &str = "joined:";
 const START_DEADLINE: Duration = Duration::from_secs(120);
 
 /// How often the start's receipt is read while it waits.
-const RECEIPT_EVERY: Duration = Duration::from_secs(1);
+const RECEIPT_POLL: Duration = Duration::from_secs(1);
 
 /// What a refusal says to run next.
 const LIST: &str = "run `cmux machine list` for your machines and their ids";
@@ -360,7 +360,7 @@ pub(in crate::cli) fn run(global: &GlobalArgs, start: &Start, machine: &JoinedMa
 }
 
 /// The start's receipt once the machine answered: the session runs there. Read every
-/// [`RECEIPT_EVERY`] until [`START_DEADLINE`].
+/// [`RECEIPT_POLL`] until [`START_DEADLINE`].
 fn wait_started(enqueued: &Value) -> Result<Value, Value> {
     let Some(id) = enqueued.get_str("messageId").map(str::to_owned) else {
         return Err(error("acpmux.invalid_response", "acpmux's start answered no receipt", false));
@@ -387,7 +387,7 @@ fn wait_started(enqueued: &Value) -> Result<Value, Value> {
                     true,
                 ));
             }
-            Settled::Pending => std::thread::sleep(RECEIPT_EVERY),
+            Settled::Pending => std::thread::sleep(RECEIPT_POLL),
         }
         receipt = acp_json(&["session", "receipt", &id, "--json"], None)?;
     }
