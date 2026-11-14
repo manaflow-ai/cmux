@@ -21,7 +21,9 @@ After each save the test reads the section back from the running app's control s
 which `cmux app call apps.views` reads too: the words the window's mirror of the scene holds now) until
 the new token shows, and records how long that took. A token that does not show within `--timeout`
 seconds is a miss. Writes one `EXT_HOT_RELOAD {json}` line per pattern and `--json` with every round;
-exits 1 on any miss.
+exits 1 on any miss. `--roots` runs the whole sequence once per place the customize folder is (one launch
+each): under the step's TMPDIR, as edit-repaint.py had it, under /tmp, or under $HOME, and records the
+volume each is on, so a file system whose saves the watch never hears shows up as that root's misses.
 
 On a fleet Mac (builds the app, then runs this; the script launches an app, so it runs alone):
     cmux-ci run --class exclusive --label measure --script scripts/measure/ext-hot-reload.sh --ref <sha>
@@ -32,6 +34,7 @@ import os
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -126,20 +129,22 @@ def diagnostics(app, customize):
     return out
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--app", required=True)
-    parser.add_argument("--out", required=True)
-    parser.add_argument("--json", required=True)
-    parser.add_argument("--rounds", type=int, default=3, help="saves per pattern")
-    parser.add_argument("--timeout", type=float, default=10.0, help="seconds a save may take to show")
-    parser.add_argument("--patterns", default=",".join(PATTERNS))
-    opts = parser.parse_args()
-    os.makedirs(opts.out, exist_ok=True)
-    customize = os.path.join(opts.out, "customize")
+def volume(path):
+    """The mount a folder is on (`df`), so a run says which file system its saves were made on."""
+    try:
+        run = subprocess.run(["df", "-P", path], capture_output=True, text=True, timeout=10)
+        last = run.stdout.strip().splitlines()[-1].split()
+        return {"device": last[0], "mount": last[-1]}
+    except (OSError, IndexError, subprocess.TimeoutExpired) as error:
+        return {"error": str(error)}
+
+
+def run_root(opts, label, customize):
+    """One launched app whose customize folder is `customize`: install, then every pattern's rounds."""
     os.makedirs(customize, exist_ok=True)
-    app = BenchApp(opts.app, out=opts.out, env={"CMUX_CUSTOMIZE_DIR": customize})
-    result = {"host": os.uname().nodename, "app": opts.app, "timeout_s": opts.timeout, "patterns": {}}
+    out = os.path.join(opts.out, f"app-{label}")
+    app = BenchApp(opts.app, out=out, env={"CMUX_CUSTOMIZE_DIR": customize})
+    result = {"customize": customize, "volume": volume(customize), "patterns": {}}
     misses = 0
     main_path = os.path.join(customize, "main.js")
     manifest_path = os.path.join(customize, "cmux-app.json")
@@ -151,14 +156,13 @@ def main():
         write_in_place(manifest_path, json.dumps(manifest("Probe title 0"), indent=2))
         ms, last = wait_for(app, "token-install", 30)
         result["install"] = {"ms": ms}
-        print(f"ext-hot-reload: install: {json.dumps(result['install'])}", flush=True)
+        print(f"ext-hot-reload: {label}: install: {json.dumps(result['install'])}", flush=True)
         if ms is None:
             result["install"]["last_reply"] = last
             result["install"]["diagnostics"] = diagnostics(app, customize)
-            print("EXT_HOT_RELOAD " + json.dumps({"pattern": "install", "shown": False, "last_reply": last}),
-                  flush=True)
-            misses += 1
-            return misses
+            print("EXT_HOT_RELOAD " + json.dumps({"root": label, "pattern": "install", "shown": False,
+                                                  "last_reply": last}), flush=True)
+            return result, 1
         n = 0
         for pattern in opts.patterns.split(","):
             rows = []
@@ -179,22 +183,50 @@ def main():
                     misses += 1
                     row["last_reply"] = last
                 rows.append(row)
-                print(f"ext-hot-reload: {pattern} round {i}: {json.dumps(row)}", flush=True)
+                print(f"ext-hot-reload: {label}: {pattern} round {i}: {json.dumps(row)}", flush=True)
                 time.sleep(0.5)
             shown = [r["ms"] for r in rows if r["shown"]]
-            summary = {"pattern": pattern, "n": len(rows), "missed": len(rows) - len(shown)}
+            summary = {"root": label, "pattern": pattern, "n": len(rows), "missed": len(rows) - len(shown)}
             if shown:
                 summary.update(median_ms=round(statistics.median(shown), 1), max_ms=max(shown))
             result["patterns"][pattern]["summary"] = summary
             print("EXT_HOT_RELOAD " + json.dumps(summary), flush=True)
         if misses:
             result["diagnostics"] = diagnostics(app, customize)
+        return result, misses
+    finally:
+        app.stop()
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--app", required=True)
+    parser.add_argument("--out", required=True)
+    parser.add_argument("--json", required=True)
+    parser.add_argument("--rounds", type=int, default=3, help="saves per pattern")
+    parser.add_argument("--timeout", type=float, default=10.0, help="seconds a save may take to show")
+    parser.add_argument("--patterns", default=",".join(PATTERNS))
+    parser.add_argument("--roots", default="out,tmp",
+                        help="where the customize folder is, one launch each: `out` under --out (the step's "
+                             "TMPDIR, as edit-repaint.py had it), `tmp` under /tmp, `home` under $HOME")
+    opts = parser.parse_args()
+    os.makedirs(opts.out, exist_ok=True)
+    result = {"host": os.uname().nodename, "app": opts.app, "timeout_s": opts.timeout, "roots": {}}
+    misses = 0
+    try:
+        for label in opts.roots.split(","):
+            base = {"out": opts.out, "tmp": "/tmp", "home": os.path.expanduser("~")}[label]
+            customize = tempfile.mkdtemp(prefix="cmux-ext-hot-reload.", dir=base)
+            try:
+                result["roots"][label], missed = run_root(opts, label, os.path.join(customize, "customize"))
+            except SystemExit as error:  # a launch that failed (LaunchError) is this root's miss
+                result["roots"][label], missed = {"customize": customize, "launch_error": str(error)}, 1
+            misses += missed
     finally:
         result["misses"] = misses
         with open(opts.json, "w") as f:
             json.dump(result, f, indent=2)
         print("EXT_HOT_RELOAD_RESULT " + json.dumps({"misses": misses}), flush=True)
-        app.stop()
     return misses
 
 
