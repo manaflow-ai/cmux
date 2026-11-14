@@ -551,6 +551,60 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(bare.member("hasUnread") == .bool(false))
     }
 
+    /// https://github.com/manaflow-ai/cmux/issues/26306: a custom sidebar
+    /// had `agents[j].kind` but no name it could pass to `Image(...)` to draw
+    /// the agent mark the native tab shows.
+    @Test("Agent and tab icons project the bundled agent mark")
+    func agentIconFields() {
+        let builder = CustomSidebarDataContextBuilder()
+        let codex = CustomSidebarAgentSnapshot(
+            sessionId: "sess-4",
+            kind: "codex",
+            name: "Codex",
+            status: "working",
+            stateSince: nil,
+            lastActivityAt: Date(timeIntervalSince1970: 5),
+            title: nil,
+            panelId: nil,
+            surfaceId: nil,
+            workingDirectory: nil,
+            transcriptPath: nil,
+            pid: nil,
+            iconAssetName: "AgentIcons/Codex"
+        )
+        #expect(builder.agentValue(codex).member("icon") == .string("AgentIcons/Codex"))
+
+        let unknown = CustomSidebarAgentSnapshot(
+            sessionId: "sess-5",
+            kind: "mystery",
+            name: "Mystery",
+            status: "idle",
+            stateSince: nil,
+            lastActivityAt: Date(timeIntervalSince1970: 5),
+            title: nil,
+            panelId: nil,
+            surfaceId: nil,
+            workingDirectory: nil,
+            transcriptPath: nil,
+            pid: nil
+        )
+        #expect(builder.agentValue(unknown).member("icon") == nil)
+
+        let tab = CustomSidebarSurfaceSnapshot(
+            panelId: UUID(),
+            title: "claude",
+            isFocused: false,
+            isPinned: false,
+            directory: nil,
+            gitBranch: nil,
+            gitIsDirty: false,
+            listeningPorts: [],
+            agentIconAssetName: "AgentIcons/Claude"
+        )
+        #expect(builder.surfaceValue(tab).member("agentIcon") == .string("AgentIcons/Claude"))
+        #expect(builder.surfaceValue(minimalSurface(id: UUID())).member("agentIcon") == nil)
+    }
+
     @Test("Empty surface prompt is omitted like the workspace-level field")
     func surfaceEmptyPromptOmitted() {
         let builder = CustomSidebarDataContextBuilder()

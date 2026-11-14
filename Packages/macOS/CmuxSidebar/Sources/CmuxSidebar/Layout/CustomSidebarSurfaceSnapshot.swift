@@ -38,6 +38,10 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
     /// Whether this surface has an unread notification (`tabs[i].unread`,
     /// projected as `0`/`1` so it reads like the workspace-level count).
     public let hasUnreadNotification: Bool
+    /// The bundled agent mark the native tab shows, e.g. "AgentIcons/Codex";
+    /// `nil` when no agent runs there (`tabs[i].agentIcon`, which
+    /// `Image(...)` renders).
+    public let agentIconAssetName: String?
 
     /// Creates a surface snapshot from already-resolved leaf values.
     public init(
@@ -52,7 +56,8 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
         listeningPorts: [Int],
         latestSubmittedMessage: String? = nil,
         latestSubmittedAt: Date? = nil,
-        hasUnreadNotification: Bool = false
+        hasUnreadNotification: Bool = false,
+        agentIconAssetName: String? = nil
     ) {
         self.panelId = panelId
         self.surfaceId = surfaceId
@@ -66,5 +71,6 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
         self.latestSubmittedMessage = latestSubmittedMessage
         self.latestSubmittedAt = latestSubmittedAt
         self.hasUnreadNotification = hasUnreadNotification
+        self.agentIconAssetName = agentIconAssetName
     }
 }
