@@ -291,32 +291,29 @@ fn now_secs() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs())
 }
 
-/// The relay tickets of one session: the answer's own while it is fresh,
-/// then a ticket-only ask (a resume needs a ticket, never a grant).
+/// The relay ticket of one session: the answer's own while it is fresh.
+///
+/// A resume never asks the platform for another: any carrier ask starts a
+/// machine that cmux paused by itself (`CloudDO.relayScope` wakes it), and a
+/// resume runs before the app knows the carrier dropped, so it could wake a
+/// machine that idle-paused under it. Past its ticket the resume fails, the
+/// app holds the machine (its drop hold), and only a machine read showing it
+/// running, or the person opening it, dials again.
 struct Tickets {
-    platform: Arc<Platform>,
-    current: tokio::sync::Mutex<Option<(Zeroizing<String>, u64)>>,
+    ticket: Zeroizing<String>,
+    expires_at: u64,
 }
 
 impl Tickets {
-    fn new(platform: Arc<Platform>, answer: &RelayAnswer) -> Arc<Self> {
-        Arc::new(Self {
-            platform,
-            current: tokio::sync::Mutex::new(Some((answer.ticket.clone(), answer.expires_at))),
-        })
+    fn new(answer: &RelayAnswer) -> Arc<Self> {
+        Arc::new(Self { ticket: answer.ticket.clone(), expires_at: answer.expires_at })
     }
 
-    async fn ticket(&self) -> Result<String, CarrierError> {
-        let mut current = self.current.lock().await;
-        if let Some((ticket, expires_at)) = current.as_ref()
-            && now_secs() + TICKET_MARGIN_SECS < *expires_at
-        {
-            return Ok(ticket.to_string());
+    fn ticket(&self) -> Result<String, CarrierError> {
+        if now_secs() + TICKET_MARGIN_SECS < self.expires_at {
+            return Ok(self.ticket.to_string());
         }
-        let answer = self.platform.fetch(None).await?;
-        let ticket = answer.ticket.to_string();
-        *current = Some((answer.ticket, answer.expires_at));
-        Ok(ticket)
+        Err(CarrierError::transport("ticket", "the session's ticket expired; the app dials again"))
     }
 }
 
@@ -643,10 +640,10 @@ async fn attempt(
     // A machine that has not bound yet has no stored key; it binds within
     // seconds of its start, so the next attempt has it. Never unpinned.
     let daemon = answer.daemon_key.ok_or_else(no_daemon_key)?;
-    let tickets = Tickets::new(platform.clone(), &answer);
+    let tickets = Tickets::new(&answer);
     let credentials = RelayCredentialSource::callback(move || {
-        let tickets = tickets.clone();
-        async move { tickets.ticket().await }
+        let ticket = tickets.ticket();
+        async move { ticket }
     });
     let provider = RelayProvider::with_credentials(
         RelayClientConfig {

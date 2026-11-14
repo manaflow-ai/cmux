@@ -62,6 +62,11 @@ public final class LinkController {
     /// machine paused or gone, its daemon not the pinned one). The owner stops targeting it;
     /// until then the usual backoff applies.
     @ObservationIgnored public var onPermanentRefusal: (@MainActor (LinkError) -> Void)?
+    /// See ``LinkMachine/resumesByProbe``.
+    public var resumesByProbe: Bool {
+        get { machine.resumesByProbe }
+        set { machine.resumesByProbe = newValue }
+    }
     /// Runs right after a dial, in the same detached step (no main actor):
     /// the coordinator opens the channels it needs first (`auth`, `daemon`)
     /// and sends its setup batch, so the live list needs no main-actor turn
@@ -274,10 +279,12 @@ public final class LinkController {
                     }
                     if Self.authRefused(error) { self?.refreshTokenNextDial = true }
                     let current = !Task.isCancelled && generation == self?.machine.generation
-                    self?.send(.dialFailed(generation: generation, reason: Self.reason(error)))
+                    // A permanent refusal stops the dialing first (its handler un-targets the link),
+                    // so the failure below never starts the machine's immediate silent retry.
                     if current, CloudCarrierDialer.isPermanent(error), let refusal = error as? LinkError {
                         self?.onPermanentRefusal?(refusal)
                     }
+                    self?.send(.dialFailed(generation: generation, reason: Self.reason(error)))
                 }
             }
         case .scheduleRetry(let generation, let delay):

@@ -27,7 +27,11 @@ extension LiveCoordinator {
         // runs (``cloudDropHolds``): the controller asks before every dial, so its own retry after
         // the drop cannot start a machine that just idle-paused, and a held dial is skipped quietly
         // (not counted as a failed dial).
-        session.link.dialHeld = { [weak self] macID in self?.cloudDropHolds[macID] != nil }
+        // A refused machine never dials again before Retry, even from a retry already scheduled.
+        session.link.dialHeld = { [weak self] macID in
+            guard let self else { return false }
+            return self.cloudDropHolds[macID] != nil || self.cloudRefusals[macID] != nil
+        }
         session.link.endpoint = { [weak self] macID in
             guard let self, let teamID = self.registeredTeamID else { return nil }
             return LinkEndpoint(baseURL: self.api.baseURL, teamID: teamID, deviceID: self.identity.link, macDeviceID: macID)
@@ -48,6 +52,7 @@ extension LiveCoordinator {
             await Self.prepareLink(link, pairing: pairing, macID: macID, deviceID: deviceID, deviceName: deviceName)
         }
         if session.isCloud {
+            session.link.resumesByProbe = true
             session.link.onPermanentRefusal = { [weak self, weak session] error in
                 guard let self, let session, self.sessions[session.macID] === session else { return }
                 self.cloudRefused(session.macID, error)

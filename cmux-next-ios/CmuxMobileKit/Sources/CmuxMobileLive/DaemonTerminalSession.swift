@@ -199,6 +199,10 @@ public final class DaemonTerminalSession: TerminalSession {
     private var leaseTask: Task<Void, Never>?
     private var draining = false
     private var pendingSize: (columns: Int, rows: Int)?
+    /// The size was released because the link closes on purpose (`releaseBeforeLinkCloses`):
+    /// no size is sent on it until the link is kept (`reclaimSizeAfterKeptLink`) or a new attach,
+    /// so a resize queued or made in the meantime cannot claim the grid again before the close.
+    private var releasedForLinkClose = false
     /// The grid last asked for, put back after a reattach.
     private var lastSize: (columns: Int, rows: Int)?
     private var attached = false
@@ -374,10 +378,15 @@ public final class DaemonTerminalSession: TerminalSession {
     /// released first and answered, as `stop` does, so the machine does not hold this phone's grid
     /// for the dropped-link grace. Bounded by 2 s; the attach itself is left to the link's close.
     public func releaseBeforeLinkCloses(onlyThrough attach: UInt64? = nil) async {
-        guard let client, attached, sizeClaimed else { return }
+        guard let client, attached else { return }
         // A release from a session that has since given this terminal to another: only while the
         // terminal is still on the attach it had then (never its new one's claim).
         if let attach, attachSerial != attach { return }
+        // A size queued behind another request would claim the grid again after the release.
+        let queuedSize = outbox.contains { if case .size = $0 { true } else { false } }
+        outbox.removeAll { if case .size = $0 { true } else { false } }
+        releasedForLinkClose = true
+        guard sizeClaimed || queuedSize else { return }
         let surface = surface
         stopLeaseRefresh()
         sizeClaimed = false
@@ -389,6 +398,7 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The link survived a close that released this terminal's size (it was opened again
     /// meanwhile): a terminal still on screen claims its size again.
     public func reclaimSizeAfterKeptLink() {
+        releasedForLinkClose = false
         guard claimsSize, attached, !sizeClaimed, let size = lastSize else { return }
         enqueue(.size(columns: size.columns, rows: size.rows))
     }
@@ -721,6 +731,7 @@ public final class DaemonTerminalSession: TerminalSession {
             attachRetries = 0
             attached = true
             attachSerial &+= 1
+            releasedForLinkClose = false
             refusingInput = false
             everAttached = true
             handler?(.connection(.attached))
@@ -910,6 +921,8 @@ public final class DaemonTerminalSession: TerminalSession {
     // MARK: Outbox
 
     private func enqueue(_ item: Outgoing) {
+        // Released for a link closing on purpose: the size waits (`lastSize`) for the next attach.
+        if releasedForLinkClose, case .size = item { return }
         outbox.append(item)
         drain()
     }

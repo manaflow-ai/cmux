@@ -146,20 +146,22 @@ async fn a_ticket_only_ask_sends_an_empty_body_and_no_team_when_none() {
 }
 
 #[tokio::test]
-async fn a_fresh_ticket_is_reused_and_a_stale_one_is_asked_again() {
-    let platform = Arc::new(Platform::new("https://cloud-api.cmux.dev", None, MACHINE, "t".into()).unwrap());
+async fn a_fresh_ticket_is_reused_and_a_stale_one_ends_the_resume_without_an_ask() {
     let fresh = carrier_answer::parse_relay(&answer()).unwrap();
-    let tickets = Tickets::new(platform, &fresh);
-    assert_eq!(tickets.ticket().await.unwrap(), "tkt.1");
+    let tickets = Tickets::new(&fresh);
+    assert_eq!(tickets.ticket().unwrap(), "tkt.1");
+    assert_eq!(tickets.ticket().unwrap(), "tkt.1", "a fresh ticket is reused");
 
-    let (base, server) = serve_once(200, json!({"ok": true, "value": answer()})).await;
-    let platform = Arc::new(Platform::new(&base, None, MACHINE, "t".into()).unwrap());
+    // Review round 13: a stale ticket was replaced by a carrier ask, which
+    // starts a machine cmux idle-paused under the session. A resume past its
+    // ticket now fails (transport, so the app holds the machine and redials
+    // only after a read), and Tickets has no platform to ask at all.
     let mut stale = answer();
     stale["ticket"] = json!("tkt.old");
     stale["expires_at"] = json!(now_secs() + 5);
-    let tickets = Tickets::new(platform, &carrier_answer::parse_relay(&stale).unwrap());
-    assert_eq!(tickets.ticket().await.unwrap(), "tkt.1", "a ticket inside the margin is replaced");
-    assert!(server.await.unwrap().ends_with("\n{}"), "a ticket-only ask");
+    let tickets = Tickets::new(&carrier_answer::parse_relay(&stale).unwrap());
+    let error = tickets.ticket().unwrap_err();
+    assert!(matches!(error, CarrierError::Transport { .. }), "{error:?}");
 }
 
 /// A platform that names no daemon key yet: the dial asks again while its
