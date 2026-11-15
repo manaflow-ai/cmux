@@ -62,6 +62,7 @@ book_gates() {
   run_book pr05f_deep_page
   run_book pr05f_equal_entry
   run_book v2_pr03c_
+  run_book v2_pr03d_
 }
 run_group acpmux-book book_gates
 
@@ -75,6 +76,7 @@ run_group acpmux-client client_gates
 # acpmux-core (release)
 core_gates() {
   run_core replay_frame_gate
+  run_core replay_append_gate
   run_core replay_open_hold_gate
   run_core single_encode_gate
   run_core list_window_gate_measures_running_subscriptions_at_both_sizes
