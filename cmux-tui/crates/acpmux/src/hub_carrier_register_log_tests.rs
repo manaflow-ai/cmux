@@ -21,10 +21,10 @@ impl Tickets for Refusing {
         if n <= self.refusals {
             return Err(format!("the hub: refusal {n}"));
         }
-        Ok(serde_json::from_value(serde_json::json!({
+        serde_json::from_value(serde_json::json!({
             "relay": "nowhere", "slot": "slot", "ticket": "secret-ticket", "peers": [],
         }))
-        .map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())
     }
 
     async fn connect(&self, _peer: &str) -> Result<CarrierAnswer, String> {
