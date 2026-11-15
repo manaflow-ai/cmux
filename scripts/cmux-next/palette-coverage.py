@@ -322,7 +322,8 @@ def root_commands(text: str) -> list[str]:
     root_scopes skips those lines, so without this their verbs are never read (#38553 review F1)."""
     out = []
     for line in text.splitlines():
-        m = re.match(r"\s+(?:usage:?\s*)?cmux\s+([a-z][a-z0-9-]*)(?:\s|$)", line, re.I)
+        # Case-sensitive: `  cmux       Open the TUI` is the bare command and its description, no command `Open`.
+        m = re.match(r"\s+(?:[Uu]sage:?\s*|USAGE:?\s*)?cmux ([a-z][a-z0-9-]*)(?:\s|$)", line)
         if m and m.group(1) != "help":
             out.append(m.group(1))
     return list(dict.fromkeys(out))
@@ -353,7 +354,10 @@ def read_cli(binary: str) -> list[str]:
         return verb in actions or (words[0] in SCOPE_ALIASES and f"{SCOPE_ALIASES[words[0]]} {words[-1]}" in actions)
 
     code, root = run("help")
-    scopes, commands = root_scopes(root), root_commands(root)
+    scopes = root_scopes(root)
+    # Root help's quick-start lines (`cmux pane current neighbor right`) are examples of scopes with their own
+    # help; only a command no scope row names (`attach`, `relay`, `wg`) is read from root's usage lines.
+    commands = [c for c in root_commands(root) if c not in scopes]
     if code or not scopes:
         raise HelpFailed(f"`{binary} help` exited {code} with {len(scopes)} scopes")
     verbs: list[str] = []
@@ -366,8 +370,13 @@ def read_cli(binary: str) -> list[str]:
             # Only root help's usage lines for it (`cmux relay`, `cmux wg hub|dial`): its scope table is no verb table
             # of this command (reading it so made `workspace accounts`, `workspace acp`, ... verbs).
             got += [v for v, _ in usage_verbs(scope, root)]
-        if not got and scope in scopes and code:
-            raise HelpFailed(f"`{binary} help {scope}` and `{scope} --help` failed (exit {code}) and list no verbs")
+        # A scope's help page that fails or is empty stops the refresh, even if its output parses: a half-read
+        # page would drop that scope's mapped verbs (review at 71db212, F1). A scope that parses to no verbs from a
+        # good page (`cmux app <verb...>`: the export lists those) is fine. Root commands (`attach`) may have no
+        # help page of their own; root's usage line is theirs.
+        if scope in scopes and (code or not text.strip()):
+            raise HelpFailed(f"`{binary} help {scope}` (then `{scope} --help`) exited {code}"
+                             + ("" if text.strip() else " with no output"))
         verbs += got
     if not verbs:
         raise HelpFailed(f"`{binary}` help listed no verbs")
@@ -532,14 +541,17 @@ Prose: cmux workspace close --all closes them.
 
     def test_read_cli_reads_root_commands_and_refuses_failed_help(self):
         ok = self.fake_cli('case "$*" in\n'
-                           '  help) printf "USAGE\\n  cmux attach\\n  cmux wg hub|dial\\n  cmux tab list\\n'
+                           '  help) printf "USAGE\\n  cmux        Open the TUI\\n  cmux attach\\n  cmux wg hub|dial\\n  cmux tab list\\n'
                            '\\nAGENT\\n  tab   Tabs\\n  vm    Cloud machines\\n";;\n'
                            # F3: like a translated build, this help lists its verbs only in the C locale
                            '  "help tab") [ "$LC_ALL" = C ] && printf "  cmux tab pin\\n" || printf "  cmux tab-ja\\n";;\n'
                            '  "help vm") printf "  cmux vm ls\\n";;\n'
                            '  *) exit 2;;\nesac\n')
         got = read_cli(ok)
-        self.assertTrue({"attach", "wg hub", "wg dial", "tab pin", "tab list"} <= set(got), got)
+        self.assertTrue({"attach", "wg hub", "wg dial", "tab pin"} <= set(got), got)
+        # `cmux tab list` in root help is an example of a scope with its own help; `cmux   Open the TUI` names no
+        # command `Open` (a refresh against cmux-tui 70e5c08 added `Open accounts`, `Open acp`, ...).
+        self.assertFalse([v for v in got if v == "tab list" or v.startswith("Open")], got)
         # Root's scope table names scopes, not verbs of a root command: no `tab vm`, `wg tab`, `attach vm`.
         self.assertFalse([v for v in got if v.split(" ")[-1] in {"tab", "vm"}], got)
         failing = self.fake_cli('case "$*" in\n  help) printf "AGENT\\n  tab   Tabs\\n";;\n  *) exit 3;;\nesac\n')
@@ -547,6 +559,12 @@ Prose: cmux workspace close --all closes them.
             read_cli(failing)
         with self.assertRaises(HelpFailed):
             read_cli(self.fake_cli("exit 1\n"))
+        # Review at 71db212 F1: an empty page that exits 0, and a failing fallback that still prints a usage line.
+        root = '  help) printf "AGENT\\n  tab   Tabs\\n  vm    VMs\\n";;\n  "help vm") printf "  cmux vm ls\\n";;\n'
+        for case in ('  "help tab") exit 0;;\n  *) exit 0;;\n',
+                     '  "help tab") exit 2;;\n  "tab --help") printf "  cmux tab pin\\n"; exit 1;;\n'):
+            with self.subTest(case=case), self.assertRaises(HelpFailed):
+                read_cli(self.fake_cli('case "$*" in\n' + root + case + 'esac\n'))
 
     def test_refresh_writes_nothing_when_help_fails(self):
         before = KEEP.read_bytes()
