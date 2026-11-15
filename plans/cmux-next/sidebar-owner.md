@@ -1,5 +1,6 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-14 (conn-quiet): Sidebar-Look: Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up". This Mac's header draws no spinner while the local daemon connects for less than 10 s (a launch connect, a daemon restart or update handoff), the grace one list's "Connecting…" label already waits (`SidebarPlaceholderGrace.holdingConnectingLabels`); a lasting connect spins as before, failures show at once. `DaemonStartupFailureStateTests.thisMacsHeaderDrawsNoSpinnerForAConnectUnderTheGrace`.
 - 2026-11-14 (lane/sidebar-move-refusal-toast, #43233 with #43234): no more "The sidebar did not make this move."
   Leo, on that toast: "what am i seeing here"; on the refusals behind it: "the daemon shouldn't even refuse those".
   A stale op (a gone item, group, section or anchor) applies to the document as it is now (`sidebar_doc/stale.rs`),

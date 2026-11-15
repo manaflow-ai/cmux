@@ -2542,6 +2542,7 @@ class AttachSurfaceRequest:
     expected_terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     mode: Union[Literal['bytes', 'render'], None, MissingType] = field(default=MISSING)
     replay_history_rows: Union[int, None, MissingType] = field(default=MISSING)
+    replay_history_start: Union[int, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     snapshot: Union[str, None, MissingType] = field(default=MISSING)
     snapshot_images: Union[bool, MissingType] = field(default=MISSING)
@@ -6104,6 +6105,7 @@ class ResizedEvent(EventBase):
     rows: int
     colors: Union[TerminalColors, MissingType] = field(default=MISSING)
     data: Union[Base64, MissingType] = field(default=MISSING)
+    history_rows_omitted: Union[int, MissingType] = field(default=MISSING)
     kitty_graphics_state: Union[KittyGraphicsState, MissingType] = field(default=MISSING)
     kitty_image_aliases: Union[List[KittyImageAlias], MissingType] = field(default=MISSING)
     replay: Union[Base64, MissingType] = field(default=MISSING)
@@ -6398,6 +6400,7 @@ class VtStateEvent(EventBase):
     rows: int
     colors: Union[TerminalColors, MissingType] = field(default=MISSING)
     history_rows_omitted: Union[int, MissingType] = field(default=MISSING)
+    history_rows_skipped: Union[int, MissingType] = field(default=MISSING)
     kitty_graphics_state: Union[KittyGraphicsState, MissingType] = field(default=MISSING)
     kitty_image_aliases: Union[List[KittyImageAlias], MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})

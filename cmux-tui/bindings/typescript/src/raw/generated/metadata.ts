@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR f0e17f0a977e580be1c5f94c39d35c6426f0a32242c0da5a3f73912827061df9. */
+/* cmux-tui mux protocol 12, IR cb0daa422e27f7fc3c9c61a10a14024c2d3b24ca0cf48fb6388ec9f27778c548. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "f0e17f0a977e580be1c5f94c39d35c6426f0a32242c0da5a3f73912827061df9" as const;
+export const SDK_IR_SHA256 = "cb0daa422e27f7fc3c9c61a10a14024c2d3b24ca0cf48fb6388ec9f27778c548" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -101,6 +101,10 @@ export const COMMAND_METADATA = {
         "since": null,
         "capability": "attach-replay-history-rows-v1"
       },
+      "replay_history_start": {
+        "since": null,
+        "capability": "attach-replay-history-window-v1"
+      },
       "rows": {
         "since": null,
         "capability": "attach-initial-size"
@@ -174,7 +178,9 @@ export const COMMAND_METADATA = {
       "terminal_event": "detached"
     },
     "constraints": [
-      "replay_history_rows (bytes mode, no snapshot) limits the vt-state replay to the active area and that many of the newest history rows; the vt-state then carries history_rows_omitted."
+      "replay_history_rows (bytes mode, no snapshot) limits the vt-state replay to the active area and that many of the newest history rows; the vt-state then carries history_rows_omitted.",
+      "replay_history_start (with replay_history_rows) makes the vt-state replay hold that many history rows from that row (0: the oldest kept), then the active area, at most 10000 rows; the vt-state then carries history_rows_omitted and, when rows between the window and the active area are left out, history_rows_skipped. A window that reaches the active area, or a terminal with images or an alternate screen, gets the rows from that row down instead.",
+      "A byte viewer that declared attach-replay-history-window-v1 in set-client-info and attached with replay_history_rows gets resized replays of a window of the same size above the active area, with history_rows_omitted."
     ]
   },
   "bind-conversation-tab-session": {
@@ -16265,6 +16271,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint32"
+          }
+        },
+        "replay_history_start": {
+          "capability": "attach-replay-history-window-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
           }
         },
         "rows": {
@@ -33452,6 +33468,15 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "value": "resized"
         }
       },
+      "history_rows_omitted": {
+        "capability": "attach-replay-history-window-v1",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
       "kitty_graphics_state": {
         "nullable": false,
         "presence": "optional",
@@ -34655,6 +34680,15 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "history_rows_omitted": {
         "capability": "attach-replay-history-rows-v1",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "history_rows_skipped": {
+        "capability": "attach-replay-history-window-v1",
         "nullable": false,
         "presence": "optional",
         "type": {
