@@ -353,13 +353,7 @@ try {
   };
   const open = async (idle: number, mode?: RemoteTail, still = false): Promise<Round> => {
     remoteTail = mode;
-    // SNAP=dir (temporary, perf 24569 group 2): the measured round records a video and screenshots of the switch
-    // and of a wheel scroll up after it, for a look at what a person sees.
-    const snap = still ? process.env.SNAP : undefined;
-    const context = await browser.newContext({
-      viewport: { width: 1200, height: 800 },
-      ...(snap ? { recordVideo: { dir: snap, size: { width: 1200, height: 800 } } } : {}),
-    });
+    const context = await browser.newContext({ viewport: { width: 1200, height: 800 } });
     await addStabilityProbe(context, { boxes: false });
     const page = await context.newPage();
     const cdp = await cpuSession(page, true);
@@ -621,23 +615,6 @@ try {
       if (still) {
         await settledAt(page);
         [quiet] = await measureIdle([{ page, cdp }]);
-        if (snap) {
-          const tag = `${FIXTURE ?? "plain"}-${idle}`;
-          await page.screenshot({ path: path.join(snap, `switch-${tag}.png`) });
-          // A reader scrolling up from the latest message: twelve wheel ticks, 50 ms apart.
-          await page.mouse.move(600, 400);
-          for (let tick = 0; tick < 12; tick++) {
-            await page.mouse.wheel(0, -600);
-            // fixed-wait: the gap between a reader's wheel ticks.
-            await page.waitForTimeout(50);
-          }
-          await settledAt(page);
-          await page.screenshot({ path: path.join(snap, `scrolled-${tag}.png`) });
-          const top = await page.evaluate(() => document.querySelector(".acpmux-scroll")?.scrollTop ?? -1);
-          console.log(
-            `  snap ${tag}: scrolled up to scrollTop ${top}; the pane sent ${calls.map((c) => c.method).join(", ")}`,
-          );
-        }
       }
       return { ...got, sent, ...(quiet ? { quiet } : {}) };
     } finally {
