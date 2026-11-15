@@ -1,3 +1,6 @@
+//! The session host's carrier file (`carrier.json`): its flags, its grant config
+//! and who may write it.
+
 use std::os::unix::fs::PermissionsExt;
 
 use super::{carrier_args, trusted_text};

@@ -15,6 +15,7 @@
 
 pub mod fds;
 pub mod identity;
+mod old_host;
 pub mod procs;
 pub mod spawn;
 
@@ -54,6 +55,7 @@ const T_RETRY: u64 = 9;
 const T_ANNOUNCE: u64 = 10;
 const T_IDENTITY: u64 = 11;
 const T_PAUSE: u64 = 12;
+const T_HOST_LOOK: u64 = 13;
 
 struct Daemon {
     pid: u32,
@@ -108,6 +110,9 @@ pub struct LinuxPlatform {
     stop_deadline: TimerFd,
     retry: TimerFd,
     announce_timer: TimerFd,
+    host_look: TimerFd,
+    /// When [`Platform::build_changed`] found the adopted host on another build.
+    build_changed_at: Option<Instant>,
     /// The global addresses last seen (netlink filter).
     addresses: BTreeSet<(String, IpAddr)>,
     metadata: Box<dyn InstanceIdSource>,
@@ -193,6 +198,8 @@ impl LinuxPlatform {
             stop_deadline: TimerFd::new(Clock::Monotonic)?,
             retry: TimerFd::new(Clock::Monotonic)?,
             announce_timer: TimerFd::new(Clock::Monotonic)?,
+            host_look: TimerFd::new(Clock::Monotonic)?,
+            build_changed_at: None,
             addresses: global_address_set(interface_addresses()),
             metadata,
             identity,
@@ -214,6 +221,7 @@ impl LinuxPlatform {
         e.add(platform.stop_deadline.raw(), T_STOP)?;
         e.add(platform.retry.raw(), T_RETRY)?;
         e.add(platform.announce_timer.raw(), T_ANNOUNCE)?;
+        e.add(platform.host_look.raw(), T_HOST_LOOK)?;
         if let Some(identity) = &platform.identity {
             e.add(identity.raw(), T_IDENTITY)?;
         }
@@ -306,6 +314,8 @@ impl LinuxPlatform {
         spec.args.extend(carrier.iter().cloned());
         spec.set_env.extend(crate::turn_scope::environment(&paths)?);
         ensure_run_dir(&paths, &layout);
+        // Every spawn runs the installed build: nothing waits any more.
+        self.clear_host_deferred();
         let child = spawn::spawn_daemon_supervised(&spec, self.bootstrap.as_deref())?;
         let pid = child.id();
         // Track the child before anything else can fail, so a later error
@@ -466,6 +476,7 @@ impl LinuxPlatform {
             self.epoll.remove(fd.raw());
         }
         let _ = fs::remove_file(self.cfg.paths.at(DAEMON_PID_FILE));
+        self.clear_host_deferred();
         let lived_ms = daemon.started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
         eprintln!("cmux-host: session host {} exited after {lived_ms} ms", daemon.pid);
         Some(Exit::Daemon { lived_ms })
@@ -692,6 +703,10 @@ impl Platform for LinuxPlatform {
                         wakes.push(Wake::StopDeadline);
                     }
                     T_DAEMON => wakes.push(Wake::ProcessExit),
+                    T_HOST_LOOK => {
+                        self.host_look.drain();
+                        wakes.push(Wake::HostLook);
+                    }
                     _ => {}
                 }
             }
@@ -785,6 +800,14 @@ impl Platform for LinuxPlatform {
         self.daemon.as_ref().is_some_and(|daemon| daemon.carrier != want)
     }
 
+    fn build_changed(&mut self) -> bool {
+        self.adopted_build_changed()
+    }
+
+    fn look_host(&mut self) -> crate::machine::HostLook {
+        self.old_host_look()
+    }
+
     fn run(&mut self, action: &Action) -> io::Result<Option<Input>> {
         let paths = self.cfg.paths.clone();
         match action {
@@ -832,6 +855,11 @@ impl Platform for LinuxPlatform {
                 interval => self.announce_timer.arm_after(interval).map(|()| None),
             },
             Action::DisarmAnnounce => self.announce_timer.disarm().map(|()| None),
+            Action::ArmHostLook(ms) => {
+                self.host_look.arm_after(std::time::Duration::from_millis(*ms)).map(|()| None)
+            }
+            Action::MarkHostDeferred => self.mark_host_deferred(),
+            Action::ReplaceOldHost(why) => self.replace_old_host(*why),
             Action::RemoveDriverFile => identity::remove_driver_file(&paths).map(|()| None),
             Action::Ready => {
                 self.notify_ready();
@@ -841,6 +869,7 @@ impl Platform for LinuxPlatform {
             | Action::StopRoles
             | Action::CommitBind(_)
             | Action::Recheck
+            | Action::LookHost
             | Action::ParkRoles
             | Action::ShutdownRoles
             | Action::Notify(_)

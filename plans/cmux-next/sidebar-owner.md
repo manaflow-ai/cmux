@@ -1,5 +1,7 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-15 (minimal-mode-chrome): Sidebar-Look: user, 2026-11-15: "by default, all buttons should be visible, not fade into view on hover ... only when minimal mode is enabled, we should hide the buttons, spaces, and bottom left profile picture, and sidebar buttons and back/forth and plus buttons in sidebar, unless user is hovered on sidebar/hovered on tabbar". Minimal Mode (`sidebar.minimal`) now also hides the sidebar's New Workspace button, spaces, profile control, Search button and the toggle, Back and Forward until hover, as `sidebar.controlsOnHover` does (`SidebarSectionsPreferences.hidesControlsUntilHover`); off, they show. The tab bar's + and pins show at rest outside Minimal Mode. `SidebarControlsOnHoverTests.minimalModeFadesTheSidebarControlsInPlace`, `SidebarOpenTitlebarControlsTests.minimalModeHidesThemAtRestWithTheSidebarOpen`.
+- 2026-11-15 (plus-button): Sidebar-Look: Lawrence, 2026-11-15: "we should make the new tab plus button the standard for all plus buttons (abstract it into a component). and then we need to use the same plus button in the sidebar plus button". Every sidebar + is CmuxNextDesign's `PlusButtonLook` through `SidebarIconButton(plus:)`: New Workspace, a group's, a machine's and an empty group's +, the tab bar's New Tab + glyph (`Metrics.addGlyphExtent` at `addGlyphLineWidth`), ink (secondary, primary on hover, lit while pressed or while its menu is open) and hover plate (a tab's corner). The group, machine and empty-group + were the pack's 7 pt + at 0.75 pt; the Spaces strip's + was the pack's + at 35%/60% alpha and now strokes the same + (`PlusButtonLook.drawGlyph`). The guardrail `plus-button` refuses a hand-built +. Regression: `PlusButtonUnityTests`.
 - 2026-11-14 (conn-quiet): Sidebar-Look: Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up". This Mac's header draws no spinner while the local daemon connects for less than 10 s (a launch connect, a daemon restart or update handoff), the grace one list's "Connecting…" label already waits (`SidebarPlaceholderGrace.holdingConnectingLabels`); a lasting connect spins as before, failures show at once. `DaemonStartupFailureStateTests.thisMacsHeaderDrawsNoSpinnerForAConnectUnderTheGrace`.
 - 2026-11-14 (lane/sidebar-move-refusal-toast, #43233 with #43234): no more "The sidebar did not make this move."
   Leo, on that toast: "what am i seeing here"; on the refusals behind it: "the daemon shouldn't even refuse those".
@@ -19,6 +21,7 @@
   VoiceOver keep the real state. `SectionHeaderRowView.drawn`; regression:
   `DaemonStartupFailureStateTests.aDroppedLinkSaysNothingInItsHeaderUntilTheGrace`.
 
+- 2026-11-15 (device glyphs): Sidebar-Look: Leo asked for “nicer icons for stuff ... across all the remote related areas”. A machine with no icon of the person's own now draws the SF Symbol of the device its daemon says it is (`machine_symbol`, cmux-device-kind) in its sidebar header and on the hover card's machine line, where the globe drew before; a Cloud machine keeps the cloud. The glyph takes the slot and size the old icon had, so nothing moves.
 - 2026-11-14 (CMUX-383 Step B): Sidebar-Look: Leo asked for “Sidebar customization (look at BB and Herder)”. The existing sidebar surface and density now read the pinned Rust projection through Swift, applying section hide/order, same-section workspace grouping/order, and atomic cmux-next.json hot reload. Gallery variants cover default, hidden/reordered sections, and workspace grouping; the watcher test covers an editor-style atomic replace.
 
 - 2026-11-14 (ask-0a91bcfdb0, carved from #42277): a machine header has a screen button beside its +. Leo, verbatim:
@@ -1192,7 +1195,7 @@ Leo 2026-11-07, on the tab row's + beside the sidebar's: "decrease the size of t
 the size of the new workspace area button? Or I guess, like, probably do something in the middle". The sidebar's
 New Workspace drew the pack's `action.add` in a 14 pt box (an 8 pt + at 0.9 pt) and the tab row's + was 10 pt at
 1.4 pt. Both now draw the one + of `Metrics.addGlyphExtent` (9 pt at Compact) and `addGlyphLineWidth`
-(`SidebarIconButton.drawsAddGlyph`, `NSImage.addGlyph`); the button's frame and hover fill are unchanged, and the
+(then `SidebarIconButton.drawsAddGlyph`; since 2026-11-15 `PlusButtonLook`, see the top entry); the button's frame and hover fill are unchanged, and the
 chooser's chevron keeps its smaller menu-indicator size. Regression: `TabHoverCardProportionsTests`.
 
 ## The notice card's rows share one leading edge and show whole (2026-11-05)

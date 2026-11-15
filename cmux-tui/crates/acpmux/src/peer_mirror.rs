@@ -13,7 +13,10 @@
 //!   the dialer sends its takeover, which writes the mark off in its own turn,
 //!   and submits the walk's first unit (`after: None`) only once the mark
 //!   reads off. It never sends a first unit that names the current mark. The
-//!   rows the origin held stay until the walk's reconcile.
+//!   rows the origin held stay until the walk's reconcile. The wait ends on
+//!   the writer's handling of the takeover, never on the mark alone: held with
+//!   a leaving origin, the dialer starts again; replaced or followed by
+//!   another source's takeover, the mirror ends, refused.
 //! - **One unit in the queue.** Before each unit the dialer waits until the
 //!   origin is settled (no unit of it queued, in the writer or in the storage
 //!   retry, and the origin not leaving), so a unit is never refused as full
@@ -55,7 +58,19 @@ pub struct DialCounters {
     pub restarts: AtomicU64,
     /// Rows of another origin than the peer's own, not mirrored.
     pub foreign_rows: AtomicU64,
+    /// Mirrors ended because the link's frames waiting for them passed
+    /// [`MIRROR_INBOX_BYTES`]: a peer that sent past its credit.
+    pub inbox_overflows: AtomicU64,
+    /// Frame bytes read off the link and not yet handed to the client.
+    pub inbox_bytes: AtomicU64,
+    /// Origins handed back to v1's tee: a takeover as v1 applied over the mirror's.
+    pub hand_backs: AtomicU64,
 }
+
+/// The most frame bytes a link holds for its mirror: the client's credit
+/// window, which bounds what a peer may send ahead, and one frame more.
+pub const MIRROR_INBOX_BYTES: usize =
+    acpmux_client::wire::CREDIT_WINDOW_BYTES as usize + acpmux_client::wire::MAX_REPLAY_FRAME_BYTES;
 
 /// Why a mirror on a link ended.
 #[derive(Debug)]
@@ -132,6 +147,8 @@ struct Dial<'a> {
     last_sent: Option<MirrorMark>,
     /// Restarts since a unit last went in.
     restarts: u32,
+    /// [`MAX_UNIT_CHANGES`]; the cut tests take smaller units to reach more cuts.
+    unit_changes: usize,
 }
 
 impl<'a> Dial<'a> {
@@ -150,6 +167,7 @@ impl<'a> Dial<'a> {
             whole: false,
             last_sent: None,
             restarts: 0,
+            unit_changes: MAX_UNIT_CHANGES,
         }
     }
 
@@ -170,7 +188,11 @@ impl<'a> Dial<'a> {
         if let Some(mark) = resume {
             sub = sub.from_cursor_in_edition(mark.cursor, mark.edition);
             (self.cursor, self.edition, self.whole) = (mark.cursor, mark.edition, mark.whole);
-            self.counters.resumes.fetch_add(1, Ordering::Relaxed);
+            // A mark that is not whole goes on with a walk the link cut; only a
+            // whole one resumes the peer's changes.
+            if mark.whole {
+                self.counters.resumes.fetch_add(1, Ordering::Relaxed);
+            }
         } else {
             (self.cursor, self.edition, self.whole) = (0, 0, false);
         }
@@ -205,8 +227,12 @@ impl<'a> Dial<'a> {
         for change in batch {
             match change {
                 Change::Window(window) if window.sid == self.sid => {
-                    if let Some(end) = self.begin_walk().await {
-                        return Some(end);
+                    match self.begin_walk().await {
+                        Ok(true) => {}
+                        // Started again from the mark: the rest of this
+                        // subscription is not read.
+                        Ok(false) => return None,
+                        Err(end) => return Some(end),
                     }
                     (self.cursor, self.edition, self.whole) =
                         (window.cursor, window.edition, false);
@@ -245,9 +271,20 @@ impl<'a> Dial<'a> {
                     self.cursor = self.cursor.max(cursor.0);
                     self.whole = true;
                 }
-                // The client reopens at the head; its window walks.
+                // The serving end dropped the subscription and the client
+                // reopened it under `new_sid`: from the drop's cursor in the
+                // same edition when the drop names one, else as first asked
+                // (from the mark, or a walk). The marks sent so far stay.
                 Change::Dropped { sid, new_sid: Some(new_sid), .. } if sid == self.sid => {
                     self.sid = new_sid;
+                }
+                // A drop the client did not reopen. The list client reopens
+                // every drop of a subscription it holds, so this arm is a
+                // guard: no further frame comes on the sid, and the dialer
+                // starts again from the mark, sending nothing of this batch.
+                Change::Dropped { sid, new_sid: None, .. } if sid == self.sid => {
+                    self.restart().await;
+                    return None;
                 }
                 Change::Error { code, sid, .. }
                     if sid.as_deref().is_none_or(|sid| sid == self.sid) =>
@@ -266,8 +303,8 @@ impl<'a> Dial<'a> {
             return self.unit(Vec::new(), mark).await.err();
         }
         let mut changes = changes.into_iter();
-        for (n, chunk) in marks.chunks(MAX_UNIT_CHANGES).enumerate() {
-            let last = n + 1 == marks.len().div_ceil(MAX_UNIT_CHANGES);
+        for (n, chunk) in marks.chunks(self.unit_changes).enumerate() {
+            let last = n + 1 == marks.len().div_ceil(self.unit_changes);
             // A frame's last unit carries the frame's mark: a `whole` or a
             // resume's end after the last row moves it too.
             let unit_mark = if last { mark } else { chunk.last().copied().unwrap_or(mark) };
@@ -314,30 +351,51 @@ impl<'a> Dial<'a> {
     }
 
     /// A window: the walk's first unit names no mark, so the mark must be off
-    /// and the origin this source's before it goes in.
-    async fn begin_walk(&mut self) -> Option<DialEnd> {
+    /// and the origin this source's before it goes in. `Ok(false)` when the
+    /// takeover did not take effect and the dialer started again.
+    async fn begin_walk(&mut self) -> Result<bool, DialEnd> {
         self.counters.walks.fetch_add(1, Ordering::Relaxed);
         self.hub.wait_mirror_settled(self.origin).await;
         if self.hub.mirror_mark(self.origin).is_some()
             || self.hub.source(self.origin) != Some(Source::Mirror)
         {
-            if let Err(error) = self.hub.takeover(self.origin, Source::Mirror) {
-                return Some(DialEnd::Refused(error));
+            let origin = self.origin;
+            let before = self.hub.takeover_turns(origin);
+            if let Err(error) = self.hub.takeover(origin, Source::Mirror) {
+                return Err(DialEnd::Refused(error));
             }
             self.counters.takeovers.fetch_add(1, Ordering::Relaxed);
-            // The takeover's own turn writes the mark off; each writer turn
-            // wakes this wait.
-            let origin = self.origin;
-            self.hub
-                .wait_mirror_until(|hub| {
-                    hub.mirror_settled(origin)
-                        && hub.mirror_mark(origin).is_none()
-                        && hub.source(origin) == Some(Source::Mirror)
-                })
-                .await;
+            // The writer handles the takeover in a turn of its own, and each
+            // turn wakes this wait: it applies (the mark goes off) or is held
+            // with the origin. A takeover of another source queued right
+            // behind replaces this one and applies in its place.
+            self.hub.wait_mirror_until(|hub| hub.takeover_turns(origin) != before).await;
+            if self.hub.takeover_turns(origin).applied == before.applied {
+                // Held: the origin is leaving, or its record waits for the
+                // storage retry. The start again waits that out, then takes
+                // over or resumes as the mark says then.
+                self.restart().await;
+                return Ok(false);
+            }
+            match self.hub.source(origin) {
+                Some(Source::Mirror) if self.hub.mirror_mark(origin).is_none() => {}
+                // Another source's takeover applied after this one: the
+                // origin is that source's now, and this mirror ends.
+                Some(owner) if owner != Source::Mirror => {
+                    return Err(DialEnd::Refused(HubError::SourceRefused {
+                        origin: origin.to_owned(),
+                        incoming: Source::Mirror,
+                        owner,
+                    }));
+                }
+                _ => {
+                    self.restart().await;
+                    return Ok(false);
+                }
+            }
         }
         self.last_sent = None;
-        None
+        Ok(true)
     }
 
     /// Starts again from the mark, after a back-off when restarts come in a
@@ -365,6 +423,9 @@ impl<'a> Dial<'a> {
     }
 }
 
+#[cfg(test)]
+#[path = "peer_mirror_cut_tests.rs"]
+mod cut_tests;
 #[cfg(test)]
 #[path = "peer_mirror_tests.rs"]
 mod tests;
