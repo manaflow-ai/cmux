@@ -501,4 +501,19 @@ mod tests {
         let r = parse_response(b"HTTP/1.1 403 Forbidden\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n2\r\nde\r\n0\r\n\r\n").unwrap();
         assert_eq!((r.status, r.body.as_slice()), (403, &b"abcde"[..]));
     }
+
+    #[test]
+    fn a_plaintext_hub_is_reached_only_on_a_loopback_address() {
+        let local = Url::parse("http://localhost:8787/v1").unwrap();
+        let remote: std::net::SocketAddr = "203.0.113.7:8787".parse().unwrap();
+        let v4: std::net::SocketAddr = "127.0.0.1:8787".parse().unwrap();
+        let v6: std::net::SocketAddr = "[::1]:8787".parse().unwrap();
+        // A hosts file or resolver that sends `localhost` elsewhere gets no cleartext.
+        assert!(addresses(&local, vec![remote]).is_err());
+        assert_eq!(addresses(&local, vec![remote, v6, v4]).unwrap(), vec![v6, v4]);
+        // TLS checks the certificate; every address is tried, in the resolver's order.
+        let tls = Url::parse("https://hub.example").unwrap();
+        assert_eq!(addresses(&tls, vec![v6, remote]).unwrap(), vec![v6, remote]);
+        assert!(addresses(&tls, vec![]).is_err());
+    }
 }
