@@ -7,7 +7,7 @@ Leo 2026-11-01: "i need these hover previews to appear a hell of a lot faster th
 
 Launches the tagged app (a bench build: `debug.hover_cards` is registered only with CMUX_BENCH_HOOKS or in Debug),
 fills the sidebar to each --workspaces count, and for --samples rows per count moves the real pointer onto the row
-and reads `debug.hover_cards` until the row's card shows. The real pointer moves by the first route that works: the installed Nightly's Computer Use app
+and reads `debug.hover_cards` until the row's card shows. The real pointer moves by the first route that works: the newest NEXT nightly's Computer Use app
 (`--pointer-glide`, its own lasting Accessibility grant), then
 mouse moves this step posts itself (pointer-probe.swift; needs an Accessibility grant for this process, which a
 binary compiled per run never has), then CuaDriver's `move_cursor` (desktop scope, foreground delivery) through its
@@ -204,6 +204,57 @@ CUA_SCALE = 1.0
 # CGPreflightPostEventAccess false for the step's processes).
 HELPER_APP = os.environ.get("CMUX_BENCH_POINTER_APP",
                             "/Applications/cmux NEXT.app/Contents/Library/cmux Computer Use.app")
+# The installed Nightly is not updated on a bench host (cmux20-bench's is from 2026-10-28, before `--pointer-glide`),
+# so the step takes the helper from the newest NEXT nightly instead: same bundle id and Developer ID team, so the
+# same TCC grant covers it. Cached per build under /Users/Shared (a step's own HOME does not outlive the step).
+NIGHTLY_FEED = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
+HELPER_CACHE = "/Users/Shared/cmux-bench-pointer"
+HELPER_ID = "com.cmuxterm.cua"
+
+
+def nightly_helper():
+    """The newest NEXT nightly's "cmux Computer Use.app", cached by build number; RuntimeError naming why not."""
+    import re, shutil, urllib.request
+    feed = urllib.request.urlopen(NIGHTLY_FEED, timeout=30).read().decode("utf-8", "replace")
+    urls = re.findall(r'<enclosure url="([^"]+-(\d+)\.dmg)"', feed)
+    if not urls:
+        raise RuntimeError("the NEXT appcast names no dmg")
+    url, build = max(urls, key=lambda u: int(u[1]))
+    app = os.path.join(HELPER_CACHE, build, "cmux Computer Use.app")
+    if not os.path.isdir(app):
+        os.makedirs(HELPER_CACHE, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="hover-helper-", dir=HELPER_CACHE) as tmp:
+            dmg, mount = os.path.join(tmp, "nightly.dmg"), os.path.join(tmp, "mnt")
+            with urllib.request.urlopen(url, timeout=120) as body, open(dmg, "wb") as out:
+                shutil.copyfileobj(body, out, 1 << 20)
+            attach = subprocess.run(["hdiutil", "attach", "-nobrowse", "-readonly", "-noautoopen", "-mountpoint", mount,
+                                     dmg], capture_output=True, text=True, timeout=120)
+            if attach.returncode:
+                raise RuntimeError(f"hdiutil attach exit {attach.returncode}: {attach.stderr.strip()[-200:]}")
+            try:
+                found = [os.path.join(mount, n, "Contents/Library/cmux Computer Use.app") for n in os.listdir(mount)
+                         if n.endswith(".app")]
+                found = [p for p in found if os.path.isdir(p)]
+                if not found:
+                    raise RuntimeError(f"no cmux Computer Use.app in {os.path.basename(url)}")
+                staged = os.path.join(tmp, "cmux Computer Use.app")
+                copied = subprocess.run(["ditto", found[0], staged], capture_output=True, text=True, timeout=120)
+                if copied.returncode:
+                    raise RuntimeError(f"ditto exit {copied.returncode}: {copied.stderr.strip()[-200:]}")
+            finally:
+                subprocess.run(["hdiutil", "detach", "-force", mount], capture_output=True, timeout=60)
+            # Only the Developer ID build carries the identity the console grant was given to.
+            check = subprocess.run(["codesign", "-d", "-r-", staged], capture_output=True, text=True, timeout=60)
+            if f'identifier "{HELPER_ID}"' not in check.stdout + check.stderr or "leaf[subject.OU]" not in \
+                    check.stdout + check.stderr:
+                raise RuntimeError(f"helper in build {build} is not {HELPER_ID} under a Developer ID: "
+                                   f"{(check.stdout + check.stderr).strip()[-200:]}")
+            os.makedirs(os.path.dirname(app), exist_ok=True)
+            os.rename(staged, app)
+    for old in os.listdir(HELPER_CACHE):  # this cache's own older builds only
+        if old.isdigit() and old != build:
+            shutil.rmtree(os.path.join(HELPER_CACHE, old), ignore_errors=True)
+    return app, build
 
 
 def helper_glide(x0, y0, x1, y1, steps):
@@ -494,6 +545,13 @@ try:
     REPORT["macos"] = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
     REPORT["host"] = subprocess.run(["hostname", "-s"], capture_output=True, text=True).stdout.strip()
     REPORT["active_at_start"] = activate()
+    if opts.input == "real" and "CMUX_BENCH_POINTER_APP" not in os.environ:
+        try:
+            HELPER_APP, build = nightly_helper()
+            REPORT["pointer_helper"] = {"app": HELPER_APP, "nightly_build": build}
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+            REPORT["pointer_helper"] = {"app": HELPER_APP, "error": str(error)[-300:]}
+            REPORT["notes"].append(f"nightly helper unavailable, using the installed one: {str(error)[-300:]}")
     why = real_input_works() if opts.input == "real" else None
     if why:
         REPORT["notes"].append(f"real input fell back to synthetic: {why}")
