@@ -632,6 +632,11 @@ pub(super) fn click(
         && el.bool("AXEnabled") == Some(false)
         && !d.is_persons_app(&t)
     {
+        // Never made available: launch-list items and items that open or
+        // reveal documents or apps (they can run a denied app).
+        if let Some(why) = prime_block_of(&el) {
+            return Err(DesktopError::Unsupported(why.into()));
+        }
         let key = enable_menu_item(d, &t, &el, element_id)?;
         // Validation can change the item (its title, what it leads to):
         // the deny list and the protected apps are checked again.
@@ -645,6 +650,14 @@ pub(super) fn click(
         && spec.modifiers.is_empty()
         && spec.count <= 1;
     let available = if semantic { el.actions() } else { Vec::new() };
+    let has_press = press_actions(spec.button).iter().any(|a| available.iter().any(|x| x == a));
+    // In a scope only the item's own press may happen: no row select, no
+    // click at its center (its actions may not have been read in time).
+    if menu_key.is_some()
+        && let Err(why) = roles::primed_click(true, has_press)
+    {
+        return Err(scope_refusal(menu_key.take(), why));
+    }
     // An element in a row or cell that has no press action (a Finder file
     // name, System Settings' sidebar, table cells): a plain click selects
     // its row, so the row is selected through accessibility. Before the
@@ -666,17 +679,20 @@ pub(super) fn click(
         // In a scope: still live (not stopped, not past its bound, the
         // person did not switch to the app) and focus still on the target.
         if let Some(key) = menu_key.as_ref()
-            && let Err(why) = roles::primed_press(key.live(), focused_on_target(&t), false)
+            && let Err(why) =
+                roles::primed_press(key.live(), focused_on_target(&t), prime_block_of(&el).is_some())
         {
-            return Err(DesktopError::Unsupported(why.into()));
+            return Err(scope_refusal(menu_key.take(), why));
         }
         let before = el.value_text();
         let mut out = match el.perform(action) {
             Ok(()) => outcome_after(&route_name(action), before, &el),
-            Err(e) if menu_key.is_none() || roles::press_error_falls_back(e) => {
-                return Err(ax_error(e, &format!("element {element_id}")));
+            Err(e) if roles::press_error_falls_back(e) => {
+                let err = ax_error(e, &format!("element {element_id}"));
+                return Err(with_hand_back(err, menu_key.take()));
             }
-            // It may have run (a dialog the item opened holds it).
+            // A timeout or cannot-complete may come back after the press ran
+            // (a dialog it opened holds it): delivered, may have run.
             Err(_) => press_outcome(Err(super::sys::AX_CANNOT_COMPLETE), &route_name(action))?,
         };
         if menu_key.is_some() {
@@ -893,27 +909,54 @@ pub(super) fn press_keys(
         // shortcut is never primed, and a chord with no match keeps the
         // background rule.
         let mut primed: Option<super::activation::KeyInApp<'static>> = None;
+        let mut primed_items: Option<(Vec<(Ax, roles::ShortcutMatch)>, bool)> = None;
         if background && !d.is_persons_app(&t) {
-            let (first, _) = shortcut_matches(d, t.window.pid, combo, true);
+            let (first, first_complete) = shortcut_matches(d, t.window.pid, combo, true);
             let first_matches: Vec<roles::ShortcutMatch> =
                 first.iter().map(|(_, m)| m.clone()).collect();
-            if roles::needs_menu_validation(&first_matches)
-                && !chord_is_service(code, flags)
-                && let Some(key) = key_in_app(d, &t)
-            {
-                for (el, _) in &first {
-                    el.set_timeout(super::activation::AX_TIMEOUT_IN_SCOPE);
+            if roles::needs_menu_validation(&first_matches) && !chord_is_service(code, flags) {
+                // Never made available: launch-list items and items that
+                // open or reveal documents or apps; a posted chord would not
+                // reach them either, so the chord is refused.
+                if let Some(why) = first.iter().find_map(|(el, _)| prime_block_of(el)) {
+                    return Err(DesktopError::Unsupported(why.into()));
                 }
-                if key.wait_until(super::activation::VALIDATE_WAIT, &|| {
-                    first.iter().any(|(el, _)| el.bool("AXEnabled") != Some(false))
-                }) {
-                    primed = Some(key);
-                } else if key.end() == super::activation::Ended::HandBackFailed {
-                    super::activation::append_note(&mut notes, super::activation::HAND_BACK_FAILED);
+                if let Some(key) = key_in_app(d, &t) {
+                    for (el, _) in &first {
+                        el.set_timeout(super::activation::AX_TIMEOUT_IN_SCOPE);
+                    }
+                    if key.wait_until(super::activation::VALIDATE_WAIT, &|| {
+                        first.iter().any(|(el, _)| el.bool("AXEnabled") != Some(false))
+                    }) {
+                        primed = Some(key);
+                        primed_items = Some((first, first_complete));
+                    } else if key.end() == super::activation::Ended::HandBackFailed {
+                        super::activation::append_note(&mut notes, super::activation::HAND_BACK_FAILED);
+                    }
                 }
             }
         }
-        let (items, complete) = shortcut_matches(d, t.window.pid, combo, background);
+        // Primed: only the first pass's matches are read again (under the
+        // short timeout), not the whole menu bar; a stop, the bound or the
+        // person switching to the app ends it with nothing pressed.
+        let (items, complete) = match primed_items.take() {
+            Some((first, first_complete)) => {
+                if primed.as_ref().is_some_and(|k| !k.live()) {
+                    return Err(scope_refusal(primed.take(), roles::primed_press(false, true, false).unwrap_err()));
+                }
+                let mut complete = first_complete;
+                let again: Vec<(Ax, roles::ShortcutMatch)> = first
+                    .into_iter()
+                    .map(|(el, _)| {
+                        let (m, read_all) = shortcut_match_of(d, &el);
+                        complete &= read_all;
+                        (el, m)
+                    })
+                    .collect();
+                (again, complete)
+            }
+            None => shortcut_matches(d, t.window.pid, combo, background),
+        };
         let matches: Vec<roles::ShortcutMatch> = items.iter().map(|(_, m)| m.clone()).collect();
         // The layout and Services are read only when the rule needs them.
         let checks = roles::needs_key_checks(&matches, denies_any, background) && complete;
@@ -943,10 +986,12 @@ pub(super) fn press_keys(
             roles::ChordAction::PressItem(i) => {
                 let el = &items[i].0;
                 if let Some(key) = primed.as_ref() {
-                    if let Err(why) =
-                        roles::primed_press(key.live(), focused_on_target(&t), item_is_service(el))
-                    {
-                        return Err(DesktopError::Unsupported(why.into()));
+                    if let Err(why) = roles::primed_press(
+                        key.live(),
+                        focused_on_target(&t),
+                        prime_block_of(el).is_some(),
+                    ) {
+                        return Err(scope_refusal(primed.take(), why));
                     }
                     el.set_timeout(super::activation::AX_TIMEOUT_IN_SCOPE);
                 }
@@ -965,17 +1010,25 @@ pub(super) fn press_keys(
                 return Ok(out);
             }
             roles::ChordAction::Refuse(why) => {
+                if let Some(key) = primed.take()
+                    && key.end() == super::activation::Ended::HandBackFailed
+                {
+                    super::activation::append_note(&mut notes, super::activation::HAND_BACK_FAILED);
+                }
                 // A block that only stands because names are still loading
                 // says so, not "the deny list".
                 let blocking = matches.iter().find(|m| m.blocked);
                 if let Some(loading) =
                     roles::loading_instead(why, blocking.is_some_and(|m| m.unknown))
                 {
-                    return Err(DesktopError::Unsupported(loading.into()));
+                    return Err(DesktopError::Unsupported(with_notes(loading.into(), &notes)));
                 }
                 // Blocked because an item above it cannot be read: say so.
                 if why == roles::REFUSE_BLOCKED && blocking.is_some_and(|m| m.unplaced) {
-                    return Err(DesktopError::Unsupported(menus::UNREADABLE_ITEM_REFUSAL.into()));
+                    return Err(DesktopError::Unsupported(with_notes(
+                        menus::UNREADABLE_ITEM_REFUSAL.into(),
+                        &notes,
+                    )));
                 }
                 // Name the menu item only when it is the reason.
                 let item = (why == roles::REFUSE_BLOCKED)
@@ -984,7 +1037,7 @@ pub(super) fn press_keys(
                     .filter(|m| !m.title.is_empty())
                     .map(|m| format!(" (menu item {:?})", m.title))
                     .unwrap_or_default();
-                return Err(DesktopError::Unsupported(format!("{why}{item}")));
+                return Err(DesktopError::Unsupported(with_notes(format!("{why}{item}"), &notes)));
             }
             roles::ChordAction::Post => {
                 // Never post into a primed app: the scope ends first.
@@ -1028,6 +1081,36 @@ pub(super) fn press_keys(
     Ok(out)
 }
 
+/// A refusal inside a key-in-app scope: the scope ends first (the app is
+/// handed back), and a failed hand-back is said in the message.
+fn scope_refusal(key: Option<super::activation::KeyInApp<'static>>, why: &str) -> DesktopError {
+    with_hand_back(DesktopError::Unsupported(why.into()), key)
+}
+
+/// Ends the scope, if one is open, and adds a failed hand-back to `err`.
+fn with_hand_back(
+    err: DesktopError,
+    key: Option<super::activation::KeyInApp<'static>>,
+) -> DesktopError {
+    let failed = key.is_some_and(|k| k.end() == super::activation::Ended::HandBackFailed);
+    if !failed {
+        return err;
+    }
+    let add = |m: String| with_notes(m, super::activation::HAND_BACK_FAILED);
+    match err {
+        DesktopError::Unsupported(m) => DesktopError::Unsupported(add(m)),
+        DesktopError::Failed(m) => DesktopError::Failed(add(m)),
+        DesktopError::TargetNotFound(m) => DesktopError::TargetNotFound(add(m)),
+        DesktopError::StaleElement(m) => DesktopError::StaleElement(add(m)),
+        other => other,
+    }
+}
+
+/// `message` with `notes` after it, when there are any.
+fn with_notes(message: String, notes: &str) -> String {
+    if notes.is_empty() { message } else { format!("{message} ({notes})") }
+}
+
 /// Whether the chord is a Services shortcut (read from the pasteboard
 /// server's list; unread counts as one): never primed.
 fn chord_is_service(code: u16, flags: u64) -> bool {
@@ -1037,22 +1120,50 @@ fn chord_is_service(code: u16, flags: u64) -> bool {
     }
 }
 
-/// Whether `item` sits in the app's Services submenu (its parent menu's
-/// item is titled Services, the name AppKit gives it).
-fn item_is_service(item: &Ax) -> bool {
+/// Why a disabled menu item must not be made available through the
+/// key-in-app scope, if it must not: it runs a Service or another launch
+/// list item, or it opens or reveals documents or apps (File > Open runs
+/// whatever app the document names, which the item's title does not show).
+/// Read from the item's own place and key equivalent, with AppKit's
+/// localized titles.
+fn prime_block_of(item: &Ax) -> Option<&'static str> {
+    item.set_timeout(super::activation::AX_TIMEOUT_IN_SCOPE);
+    let mut ancestors = Vec::new();
+    let mut complete = true;
     let mut node = item.element("AXParent");
-    for _ in 0..8 {
-        let Some(n) = node else { return false };
+    for _ in 0..10 {
+        let Some(n) = node else { break };
         match n.string("AXRole").as_deref() {
-            Some("AXMenuItem") if n.string("AXTitle").as_deref() == Some("Services") => {
-                return true;
+            Some("AXMenuItem") | Some("AXMenuBarItem") => match n.attr("AXTitle") {
+                Ok(t) => ancestors.push(t.and_then(|t| t.as_string()).unwrap_or_default()),
+                Err(_) => complete = false,
+            },
+            Some("AXMenuBar") | Some("AXApplication") => break,
+            None => {
+                complete = false;
+                break;
             }
-            Some("AXMenuBar") | Some("AXApplication") | None => return false,
             _ => {}
         }
         node = n.element("AXParent");
     }
-    false
+    let title = item.string("AXTitle").unwrap_or_default();
+    let number = |name: &str| item.attr(name).ok().flatten().and_then(|v| v.as_f64()).map(|v| v as i64);
+    let key = keymap::menu_item_key(
+        item.string("AXMenuItemCmdChar").as_deref(),
+        number("AXMenuItemCmdVirtualKey"),
+        number("AXMenuItemCmdGlyph"),
+    );
+    let mods = number("AXMenuItemCmdModifiers").unwrap_or(0);
+    let opens_by_key = roles::is_open_key_equivalent(&key, mods);
+    item.set_timeout(super::ax::MESSAGE_TIMEOUT_SECONDS);
+    roles::prime_block(
+        &title,
+        complete.then_some(ancestors.as_slice()),
+        opens_by_key,
+        workspace::launch_submenu_titles(),
+        workspace::open_item_titles(),
+    )
 }
 
 /// Whether the target's app reports the target window as its focused
@@ -1460,35 +1571,10 @@ fn shortcut_matches(
                 }
             }
             if !key.is_empty() && keymap::menu_item_matches(combo, &key, mods.unwrap_or(0)) {
-                let enabled = match node.attr("AXEnabled") {
-                    Ok(v) => v.and_then(|v| v.as_bool()) != Some(false),
-                    Err(_) => {
-                        // Unknown: it may run at key time.
-                        complete = false;
-                        true
-                    }
-                };
-                let (title, blocked, checked, unknown, unplaced) = match text(&node, "AXTitle") {
-                    Ok(t) => {
-                        let t = t.unwrap_or_default();
-                        let check = d.menu_item_check_titled(&node, &t);
-                        let unknown = check == roles::ItemCheck::Unknown;
-                        let unplaced = check == roles::ItemCheck::Unplaced;
-                        (t, check != roles::ItemCheck::Allowed, true, unknown, unplaced)
-                    }
-                    // A title that cannot be read cannot be checked: blocked
-                    // while something is denied, and never pressed; with
-                    // nothing denied the key is posted, as Codex does (a
-                    // posted chord leaves no menu under the person's keys).
-                    Err(()) => {
-                        complete = false;
-                        (String::new(), d.denies_any(), false, false, false)
-                    }
-                };
-                found.push((
-                    node.clone(),
-                    roles::ShortcutMatch { title, enabled, blocked, checked, unknown, unplaced },
-                ));
+                let (m, read_all) = shortcut_match_of(d, &node);
+                complete &= read_all;
+                let enabled = m.enabled;
+                found.push((node.clone(), m));
                 if stop_at_enabled && enabled {
                     return (found, complete);
                 }
@@ -1505,6 +1591,40 @@ fn shortcut_matches(
         }
     }
     (found, complete)
+}
+
+/// One shortcut match read from its menu item: enabled, title, and its
+/// check against the deny list and the protected apps. The bool is false
+/// when a read failed (the walk is then incomplete).
+fn shortcut_match_of(d: &MacDesktop, node: &Ax) -> (roles::ShortcutMatch, bool) {
+    let mut read_all = true;
+    let enabled = match node.attr("AXEnabled") {
+        Ok(v) => v.and_then(|v| v.as_bool()) != Some(false),
+        Err(_) => {
+            // Unknown: it may run at key time.
+            read_all = false;
+            true
+        }
+    };
+    let title = node.attr("AXTitle").map(|v| v.and_then(|v| v.as_string()));
+    let (title, blocked, checked, unknown, unplaced) = match title {
+        Ok(t) => {
+            let t = t.unwrap_or_default();
+            let check = d.menu_item_check_titled(node, &t);
+            let unknown = check == roles::ItemCheck::Unknown;
+            let unplaced = check == roles::ItemCheck::Unplaced;
+            (t, check != roles::ItemCheck::Allowed, true, unknown, unplaced)
+        }
+        // A title that cannot be read cannot be checked: blocked while
+        // something is denied, and never pressed; with nothing denied the key
+        // is posted, as Codex does (a posted chord leaves no menu under the
+        // person's keys).
+        Err(_) => {
+            read_all = false;
+            (String::new(), d.denies_any(), false, false, false)
+        }
+    };
+    (roles::ShortcutMatch { title, enabled, blocked, checked, unknown, unplaced }, read_all)
 }
 
 /// Whether `row` is its table's only selected row (true when the table does

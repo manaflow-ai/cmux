@@ -478,8 +478,8 @@ impl Desktop for MacDesktop {
         Ok(self.windows_from(windows, &apps))
     }
 
-    /// One window from the window server and its app alone; the full list
-    /// asks every app with a window (tens of ms).
+    /// The app's on-screen windows, sheets, panels and popovers included:
+    /// one window server query.
     fn app_window_ids(&self, pid: u32) -> DResult<Vec<String>> {
         // One window server query; every layer (sheets, panels, popovers).
         let mut ids: Vec<String> = cgwindows::on_screen()
@@ -491,6 +491,8 @@ impl Desktop for MacDesktop {
         Ok(ids)
     }
 
+    /// One window from the window server and its app alone; the full list
+    /// asks every app with a window (tens of ms).
     fn window(&self, id: &str) -> DResult<Option<Window>> {
         let Ok(number) = id.parse::<u32>() else { return Ok(None) };
         let Some(cg) = cgwindows::by_id(number) else { return Ok(None) };

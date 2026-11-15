@@ -293,15 +293,64 @@ pub fn press_error_falls_back(code: i32) -> bool {
     matches!(code, -25201 | -25205 | -25206)
 }
 
+/// Why a disabled background menu item must not be made available, if it
+/// must not (pure, for tests): its place is in a launch list (Services,
+/// Open With, Share, Recent Items, Quick Actions, in AppKit's languages) or
+/// could not be read; its title is an open or reveal command
+/// (`open_titles`, English and AppKit's languages); or its key equivalent is
+/// AppKit's Open (Command-O) or Finder's Open (Command-Down), which holds in
+/// any language.
+pub fn prime_block(
+    title: &str,
+    ancestors: Option<&[String]>,
+    opens_by_key: bool,
+    launch_titles: &[String],
+    open_titles: &[String],
+) -> Option<&'static str> {
+    const LAUNCH: &str = "this menu item is in a launch list (Services, Open With, Share, Recent Items or Quick Actions); it is disabled while its app is in the background and is never made available there, so nothing was pressed. Use delivery foreground if it is allowed";
+    const OPENS: &str = "this menu item opens or reveals documents or apps, which can start another app (a denied one too); it is disabled while its app is in the background and is never made available there, so nothing was pressed. Use delivery foreground if it is allowed";
+    let Some(ancestors) = ancestors else { return Some(LAUNCH) };
+    if ancestors.iter().any(|t| launch_titles.contains(&submenu_title_key(t))) {
+        return Some(LAUNCH);
+    }
+    let key = submenu_title_key(title);
+    if opens_by_key || open_titles.iter().any(|o| key == *o || key.starts_with(&format!("{o} "))) {
+        return Some(OPENS);
+    }
+    None
+}
+
+/// Whether a menu item's key equivalent is AppKit's Open (Command-O) or
+/// Finder's Open (Command-Down): Command alone (no Shift, Option, Control).
+pub fn is_open_key_equivalent(key: &super::keymap::MenuItemKey, menu_mods: i64) -> bool {
+    use super::keymap::{MENU_CONTROL, MENU_NO_COMMAND, MENU_OPTION, MENU_SHIFT};
+    if menu_mods & (MENU_SHIFT | MENU_OPTION | MENU_CONTROL | MENU_NO_COMMAND) != 0 {
+        return false;
+    }
+    key.printable.is_some_and(|c| c.eq_ignore_ascii_case(&'o')) || key.codes.contains(&125)
+}
+
+/// What a click may do inside a key-in-app scope (pure, for tests): only
+/// the item's own press. Without a press action read (it may have timed
+/// out) nothing happens: no row select, no click at its center.
+pub fn primed_click(scope_open: bool, has_press: bool) -> Result<(), &'static str> {
+    if scope_open && !has_press {
+        return Err(
+            "the menu item's press action could not be read while it was being made available, so nothing was pressed",
+        );
+    }
+    Ok(())
+}
+
 /// Whether an item may be pressed inside a key-in-app scope (pure, for
 /// tests): the scope is still live (not stopped, within its bound, the
 /// person did not switch to the app), the app still reports the target as
-/// its focused window, and the item is not a Services item (a Service runs
-/// in another process against whatever the app hands it).
+/// its focused window, and the item is not one that is never made available
+/// ([`prime_block`]: launch lists, Services, open and reveal commands).
 pub fn primed_press(
     live: bool,
     focus_on_target: bool,
-    item_is_service: bool,
+    never_primed: bool,
 ) -> Result<(), &'static str> {
     if !live {
         return Err(
@@ -313,9 +362,9 @@ pub fn primed_press(
             "the target window stopped being its app's key window before the menu item was pressed (another window of the app took it), so nothing was pressed",
         );
     }
-    if item_is_service {
+    if never_primed {
         return Err(
-            "the shortcut runs a Services item, which is never run from a background app's menu: nothing was pressed",
+            "the menu item is a launch-list or open command (Services, Open With, Open...), which is never run from a background app's menu: nothing was pressed",
         );
     }
     Ok(())

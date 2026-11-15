@@ -25,7 +25,7 @@
 //! Gated: the records are undocumented (layout from cua-driver's
 //! `skylight.rs`, MIT, read as a reference) and the make-key pair uses the
 //! mouse-down/up record kinds, so the scope runs only on the macOS majors it
-//! was verified on live ([`VERIFIED_MAJORS`]) and never when
+//! was verified on live ([`VERIFIED`]: 26.6+ and 27.2+) and never when
 //! `CMUX_CU_BG_ACTIVATE=0` (in the worker's environment, or set for the user
 //! with `launchctl setenv CMUX_CU_BG_ACTIVATE 0` and then a cmux restart).
 //! Off, disabled background menu items are refused with the reason.
@@ -49,13 +49,14 @@ struct Calls {
     psn: ConnectionPsnFn,
 }
 
-/// The macOS majors the scope was verified on live (front app, key window,
-/// menu bar owner, the target's windows and panels, input source, cursor and
-/// z-order sampled every 1 ms with the person typing; Safari, TextEdit,
-/// Finder, VS Code): 26.6 and 27.2 guests. On both, the focus record plus
-/// the make-key pair validated the menus in 0.8-0.9 s and either alone did
-/// not within 5 s; nothing the person sees changed.
-pub(super) const VERIFIED_MAJORS: std::ops::RangeInclusive<u32> = 26..=27;
+/// The macOS versions the scope was verified on live (front app, key
+/// window, menu bar owner, the target's windows and panels, input source,
+/// cursor and z-order sampled every 1 ms with the person typing; Safari,
+/// TextEdit, Finder, VS Code): 26.6 and 27.2 guests. On both, the focus
+/// record plus the make-key pair validated the menus in 0.8-0.9 s and either
+/// alone did not within 5 s; nothing the person sees changed. Per major, the
+/// first verified minor: earlier minors run with the scope off.
+pub(super) const VERIFIED: &[(u32, u32)] = &[(26, 6), (27, 2)];
 
 /// The environment variable that turns the scope off (`0`).
 pub(super) const OFF_ENV: &str = "CMUX_CU_BG_ACTIVATE";
@@ -69,40 +70,47 @@ pub(super) const VALIDATE_WAIT: Duration = Duration::from_millis(1200);
 pub(super) const AX_TIMEOUT_IN_SCOPE: f32 = 0.25;
 const POLL: Duration = Duration::from_millis(20);
 
-/// Whether the scope may run: a verified macOS major and not switched off.
-/// Pure, for tests.
-pub(super) fn gate(os_version: &str, env: Option<&str>) -> bool {
-    if env.is_some_and(|v| v.trim() == "0") {
+/// Whether the scope may run (pure, for tests): a verified macOS major at
+/// or past its verified minor, and no off switch says `0`. `switches` are
+/// the values found (the worker's environment, the user's launchd
+/// environment); any `0` turns it off.
+pub(super) fn gate(os_version: &str, switches: &[&str]) -> bool {
+    if switches.iter().any(|v| v.trim() == "0") {
         return false;
     }
-    os_version
-        .split('.')
-        .next()
-        .and_then(|m| m.trim().parse::<u32>().ok())
-        .is_some_and(|m| VERIFIED_MAJORS.contains(&m))
+    let mut parts = os_version.split('.').map(|p| p.trim().parse::<u32>().ok());
+    let (Some(Some(major)), minor) = (parts.next(), parts.next().flatten().unwrap_or(0)) else {
+        return false;
+    };
+    VERIFIED.iter().any(|&(m, min)| m == major && minor >= min)
 }
 
-/// The off switch's value: the worker's own environment, else the per-user
-/// launchd environment (`launchctl setenv CMUX_CU_BG_ACTIVATE 0`). The
-/// Computer Use worker is started with a fixed environment (cmux Remote
-/// passes nothing of the daemon's on), so a variable set for the app never
-/// reaches it; the launchd one does, whatever started the worker.
-fn off_switch() -> Option<String> {
+/// The off switch's values: the worker's own environment and the user's
+/// launchd environment (`launchctl setenv CMUX_CU_BG_ACTIVATE 0` in a
+/// Terminal, then a cmux restart). cmux Remote starts the Computer Use worker
+/// with a fixed environment, so a variable set only for the app does not
+/// reach it; the launchd one does. Read once, at first use.
+fn off_switches() -> Vec<String> {
+    let mut out = Vec::new();
     if let Ok(v) = std::env::var(OFF_ENV) {
-        return Some(v);
+        out.push(v);
     }
-    let out =
-        std::process::Command::new("/bin/launchctl").args(["getenv", OFF_ENV]).output().ok()?;
-    let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    (!v.is_empty()).then_some(v)
+    if let Ok(o) = std::process::Command::new("/bin/launchctl").args(["getenv", OFF_ENV]).output() {
+        let v = String::from_utf8_lossy(&o.stdout).trim().to_string();
+        if !v.is_empty() {
+            out.push(v);
+        }
+    }
+    out
 }
 
 fn enabled() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
     *ON.get_or_init(|| {
+        let switches = off_switches();
         gate(
             &super::sys::sysctl_string(c"kern.osproductversion").unwrap_or_default(),
-            off_switch().as_deref(),
+            &switches.iter().map(String::as_str).collect::<Vec<_>>(),
         )
     })
 }
@@ -216,7 +224,11 @@ impl ScopeOs for Real {
 }
 
 /// Open scopes per app: the window they made key and how many share it.
-/// The map's lock is held only to read or update it.
+/// The map's lock is held only to read or update it. Per process: one
+/// Computer Use worker serves every session of a cmux app, so sessions never
+/// defocus under each other; two cmux apps (a release and a tagged build)
+/// driving the same target app at once are not coordinated (a shared lock
+/// per target pid would need a cleanup story for crashed holders; not done).
 pub(super) struct Registry {
     open: Mutex<HashMap<i32, (u32, usize)>>,
     /// Held while records are posted, so a joiner returns only after the

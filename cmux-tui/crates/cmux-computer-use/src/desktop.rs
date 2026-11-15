@@ -249,7 +249,9 @@ pub struct ActionOutcome {
     /// `xtest`, `uia_invoke`, `send_input`, `libei`, ...
     pub route: String,
     /// `confirmed` when the target's own state shows the effect,
-    /// `delivered` when the input was delivered but not verified.
+    /// `delivered` when the input was delivered but not verified,
+    /// `no_visible_change` when the engine watched the window through a real
+    /// settle wait and nothing it shows (or of the app's windows) changed.
     pub evidence: String,
     /// Where the agent cursor should be drawn (global points), when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]

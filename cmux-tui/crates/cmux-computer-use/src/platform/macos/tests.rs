@@ -111,19 +111,79 @@ fn a_press_that_may_have_run_is_not_clicked_again() {
     assert!(!roles::press_error_falls_back(-25200)); // failure
 }
 
-/// Review 1: the key-in-app scope runs only on the macOS majors verified
-/// live (26 and 27) and never with CMUX_CU_BG_ACTIVATE=0.
+/// Review 3 (8, 9): the scope runs only on the verified minors (26.6+,
+/// 27.2+; earlier minors and other majors run with it off), and any off
+/// switch that says 0 turns it off, whichever source says it.
 #[test]
 fn the_key_in_app_scope_is_gated() {
-    assert!(activation::gate("26.6.2", None));
-    assert!(activation::gate("26.0", Some("1")));
-    assert!(!activation::gate("26.6.2", Some("0")));
-    assert!(activation::gate("27.0.1", None));
-    assert!(activation::gate("27.2", None));
-    assert!(!activation::gate("27.2", Some("0")));
-    assert!(!activation::gate("28.0", None));
-    assert!(!activation::gate("15.7", None));
-    assert!(!activation::gate("", None));
+    use activation::gate;
+    assert!(gate("26.6.2", &[]));
+    assert!(gate("26.7", &[]));
+    assert!(gate("27.2", &[]));
+    assert!(gate("27.3.1", &[]));
+    assert!(!gate("26.5.1", &[]), "before the verified 26 minor");
+    assert!(!gate("27.0.1", &[]), "before the verified 27 minor");
+    assert!(!gate("28.0", &[]));
+    assert!(!gate("15.7", &[]));
+    assert!(!gate("", &[]));
+    assert!(!gate("27.2", &["0"]));
+    assert!(!gate("27.2", &["1", "0"]), "the worker says 1, launchd says 0: off");
+    assert!(!gate("27.2", &["0", "1"]));
+    assert!(gate("27.2", &["1"]));
+}
+
+/// Review 3 (2, 3, 5): a disabled background menu item is never made
+/// available when it sits in a launch list (Services, Open With, ... in
+/// AppKit's languages; or its place cannot be read), is an open or reveal
+/// command by title, or has AppKit's Open key equivalent (any language).
+#[test]
+fn launch_and_open_items_are_never_primed() {
+    let launch = vec!["services".to_string(), "open with".to_string(), "dienste".to_string()];
+    let open = vec!["open".to_string(), "open recent".to_string(), "show in finder".to_string()];
+    let up = |t: &[&str]| t.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let block = |title: &str, anc: Option<&[String]>, key: bool| {
+        roles::prime_block(title, anc, key, &launch, &open)
+    };
+    assert!(block("Select All", Some(&up(&["Edit"])), false).is_none());
+    assert!(block("Zoom In", Some(&up(&["View"])), false).is_none());
+    // Services in English and German; Open With's submenu.
+    assert!(block("Make New Sticky Note", Some(&up(&["Services", "TextEdit"])), false).is_some());
+    assert!(block("Neue Notiz", Some(&up(&["Dienste", "TextEdit"])), false).is_some());
+    assert!(block("Terminal", Some(&up(&["Open With", "File"])), false).is_some());
+    // Unreadable place: fail closed.
+    assert!(block("Select All", None, false).is_some());
+    // Open commands by title (ellipsis and case ignored) and by key.
+    assert!(block("Open\u{2026}", Some(&up(&["File"])), false).is_some());
+    assert!(block("Open in New Tab", Some(&up(&["File"])), false).is_some());
+    assert!(block("Show in Finder", Some(&up(&["File"])), false).is_some());
+    assert!(block("Öffnen", Some(&up(&["Ablage"])), true).is_some(), "Command-O in any language");
+    assert!(block("Opener", Some(&up(&["View"])), false).is_none(), "not a word prefix");
+}
+
+/// Review 3 (2, 3): AppKit's Open (Command-O) and Finder's Open
+/// (Command-Down) are recognized by key; with Shift, Option or Control, or
+/// another key, they are not.
+#[test]
+fn the_open_key_equivalent() {
+    use keymap::{MENU_OPTION, MENU_SHIFT, menu_item_key};
+    let o = menu_item_key(Some("O"), None, None);
+    assert!(roles::is_open_key_equivalent(&o, 0));
+    assert!(!roles::is_open_key_equivalent(&o, MENU_SHIFT));
+    assert!(!roles::is_open_key_equivalent(&o, MENU_OPTION));
+    let down = menu_item_key(None, Some(125), None);
+    assert!(roles::is_open_key_equivalent(&down, 0));
+    let a = menu_item_key(Some("A"), None, None);
+    assert!(!roles::is_open_key_equivalent(&a, 0));
+}
+
+/// Review 3 (1): inside a scope a click only presses the item: without a
+/// press action read (an actions read that timed out) nothing is posted,
+/// no row is selected and its center is not clicked.
+#[test]
+fn a_click_in_a_scope_never_falls_through_to_events() {
+    assert!(roles::primed_click(true, false).unwrap_err().contains("nothing was pressed"));
+    assert_eq!(roles::primed_click(true, true), Ok(()));
+    assert_eq!(roles::primed_click(false, false), Ok(()), "no scope: the usual path");
 }
 
 /// Review 2 (B, 3): inside a scope an item is pressed only while the scope
@@ -133,7 +193,7 @@ fn a_primed_press_needs_a_live_scope_on_the_target_and_no_service() {
     assert_eq!(roles::primed_press(true, true, false), Ok(()));
     assert!(roles::primed_press(false, true, false).is_err());
     assert!(roles::primed_press(true, false, false).is_err());
-    assert!(roles::primed_press(true, true, true).unwrap_err().contains("Services"));
+    assert!(roles::primed_press(true, true, true).unwrap_err().contains("never run"));
 }
 
 /// Review 2 (4): the person's front app is never entered; a scope on the
