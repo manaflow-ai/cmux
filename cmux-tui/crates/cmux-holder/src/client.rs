@@ -566,11 +566,40 @@ impl PendingClient {
     }
 }
 
+/// The holder's refusal of a connect whose link another connect took before
+/// the holder answered this one (ERROR `SUPERSEDED` about the HELLO, with no
+/// WELCOME before it). A holder that writes it runs, and it still runs every
+/// terminal: it read a later HELLO in the turn in which it read this one.
+/// Inside the [`io::Error`] of [`PendingClient::welcomed`];
+/// [`link_taken_before_the_answer`] finds it.
+#[derive(Debug)]
+struct LinkTaken(String);
+
+impl std::fmt::Display for LinkTaken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for LinkTaken {}
+
+/// Whether `error` is the holder's refusal of a connect whose link another
+/// connect took before the answer. Such a holder runs: a new connect can
+/// take its link. Any other refusal (a wrong token, no common version) says
+/// that the holder does not serve this daemon.
+pub fn link_taken_before_the_answer(error: &io::Error) -> bool {
+    error.get_ref().is_some_and(|inner| inner.is::<LinkTaken>())
+}
+
 /// The error a holder's refusal of the HELLO stands for.
 fn refusal(payload: &[u8]) -> io::Error {
     let code = In(payload.get(2..).unwrap_or_default()).u16().unwrap_or_default();
     if code == crate::holder::error_code::BAD_TOKEN {
         return io::Error::other("holder refused the token");
     }
-    io::Error::other(format!("holder refused the link (code {code}): {}", error_message(payload)))
+    let words = format!("holder refused the link (code {code}): {}", error_message(payload));
+    if code == crate::holder::error_code::SUPERSEDED {
+        return io::Error::other(LinkTaken(words));
+    }
+    io::Error::other(words)
 }

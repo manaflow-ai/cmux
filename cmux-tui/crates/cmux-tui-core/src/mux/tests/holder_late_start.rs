@@ -141,12 +141,14 @@ enum Order {
     AnswerEach(Vec<Held>),
     /// End each connect it holds, and go on listening.
     DropConnects,
+    /// Refuse each connect it holds with this code (an ERROR about the
+    /// HELLO, no WELCOME), end it, and go on listening.
+    RefuseHeld(u16),
     /// End each of the next connects it takes, this many, when it takes it.
     EndNext(usize),
-    /// Refuse each of the next connects it takes, this many, when it takes
-    /// it, as a holder does whose link another connect took before the
-    /// answer (an ERROR, no WELCOME), and end it.
-    RefuseNext(usize),
+    /// Refuse each of the next connects it takes, this many, with this code
+    /// when it takes it (an ERROR about the HELLO, no WELCOME), and end it.
+    RefuseNext(u16, usize),
     /// Say how many connects it took, after it took each one that waits.
     Count(mpsc::Sender<usize>),
     /// Stop: no holder serves the socket any more (its file stays).
@@ -170,7 +172,7 @@ impl StandIn {
             let mut answer: Option<Vec<Held>> = None;
             let mut answered = 0;
             let mut end_next = 0;
-            let mut refuse_next = 0;
+            let mut refuse_next = (0, 0);
             loop {
                 match listener.accept() {
                     Ok((stream, _)) => {
@@ -182,9 +184,9 @@ impl StandIn {
                         // An accepted socket takes the listener's mode on macOS.
                         stream.set_nonblocking(false).unwrap();
                         stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
-                        if refuse_next > 0 {
-                            refuse_next -= 1;
-                            refuse_as_taken(&stream);
+                        if refuse_next.1 > 0 {
+                            refuse_next.1 -= 1;
+                            refuse(&stream, refuse_next.0);
                             continue;
                         }
                         held.push(stream);
@@ -206,8 +208,14 @@ impl StandIn {
                         held.clear();
                         answered = 0;
                     }
+                    Ok(Order::RefuseHeld(code)) => {
+                        for stream in held.drain(..) {
+                            refuse(&stream, code);
+                        }
+                        answered = 0;
+                    }
                     Ok(Order::EndNext(count)) => end_next = count,
-                    Ok(Order::RefuseNext(count)) => refuse_next = count,
+                    Ok(Order::RefuseNext(code, count)) => refuse_next = (code, count),
                     Ok(Order::Count(reply)) => {
                         let _ = reply.send(connects);
                     }
@@ -281,22 +289,22 @@ fn welcome(stream: &UnixStream, listed: &[Held]) {
 }
 
 /// Answer the HELLO on `stream` with the frame a holder writes to a connect
-/// whose link another connect took: an ERROR about the HELLO with the code
-/// [`error_code::SUPERSEDED`], and no WELCOME before it.
-fn refuse_as_taken(stream: &UnixStream) {
+/// it refuses: an ERROR about the HELLO with `code`, and no WELCOME before
+/// it. [`error_code::SUPERSEDED`] is the code for a connect whose link
+/// another connect took, [`error_code::BAD_TOKEN`] the one for a daemon the
+/// holder does not serve.
+fn refuse(stream: &UnixStream, code: u16) {
     read_hello(stream);
-    let payload = Out::default()
-        .u16(Kind::Hello as u16)
-        .u16(error_code::SUPERSEDED)
-        .bytes(b"another daemon took this holder")
-        .0;
+    let payload =
+        Out::default().u16(Kind::Hello as u16).u16(code).bytes(b"refused by the stand-in").0;
     wire::send_all(stream.as_raw_fd(), &wire::encode(Kind::Error, 0, &payload), &[]).unwrap();
 }
 
 /// A failure limit for a start whose clock stands. Such a start ends only
-/// when the holder ends its connect. A start that waits on a connect the
-/// stand-in holds would never end: after [`START_LIMIT`] this lets the clock
-/// run, so the start ends by time and the test fails by an assert.
+/// when the holder ends or refuses its connect. A start that waits on a
+/// connect the stand-in holds would never end: after [`START_LIMIT`] this
+/// lets the clock run, so the start ends by time and the test fails by an
+/// assert.
 struct StartWatch {
     ended: mpsc::Sender<()>,
     thread: std::thread::JoinHandle<bool>,
@@ -756,6 +764,152 @@ fn an_ended_connect_of_a_late_holder_gets_one_new_connect_and_keeps_the_terminal
     session.end(mux, holder);
 }
 
+/// A holder that gave its link to another connect before it answered this
+/// daemon, long after the start: two connects waited at the holder (this
+/// daemon's, and one whose client is gone), and the holder read the other one
+/// last. The daemon gets the holder's refusal on the connect it kept, and no
+/// WELCOME. That is not a dead holder and not another daemon that runs: one
+/// new connect in the same ask, with no pause, and the terminal re-attaches
+/// on it.
+///
+/// A guard: this test passed when it was written.
+#[test]
+fn a_refused_kept_connect_of_a_late_holder_gets_one_new_connect_and_reattaches() {
+    let session = Session::new("holder-late-start-taken");
+    let holder = session.holder();
+    let clock = StepClock::new(STEP, AT_START);
+    let mux = session.start(&clock).unwrap();
+    assert_eq!(holder.connects(), 1);
+
+    clock.run(LATE_STEP, FAR);
+    // The clock stands at its limit: the start is over, and the late thread
+    // is in a wait on the connect the start made (a kept connect) that
+    // cannot end by time.
+    wait_until("the late thread waits far past the old bound", || clock.stands_in_a_wait());
+    assert_eq!(
+        (session.kept(&mux), holder.connects()),
+        ((true, TerminalLifecycle::Running, true, true), 1),
+        "((no end, lifecycle, adopting mark, tab), connects) before the refusal: the terminal \
+         waits on the one connect of the start"
+    );
+    let pauses_before_the_refusal = clock.pauses();
+
+    let shell = KeptShell::new();
+    holder.order(Order::RefuseHeld(error_code::SUPERSEDED));
+    holder.order(Order::Answer(Some(shell.listed())));
+    wait_until("the late thread did its work on the terminal", || session.late_work_done(&mux));
+    let resolved = mux.resolve_terminal(TERMINAL).unwrap().unwrap();
+    assert_eq!(
+        (
+            resolved.surface.is_some(),
+            resolved.terminal.lifecycle,
+            resolved.terminal.exit.is_none(),
+            resolved.terminal.incarnation.as_deref(),
+            mux.terminal_is_pending(TERMINAL),
+        ),
+        (true, TerminalLifecycle::Running, true, Some(INCARNATION), false),
+        "(runtime, lifecycle, no end, incarnation, adopting mark): a refusal on the kept \
+         connect must not end the terminal; the same shell, attached again"
+    );
+    assert_eq!(
+        (holder.connects(), clock.pauses()),
+        (2, pauses_before_the_refusal),
+        "(connects, pauses): one new connect for the one the holder refused, made in the ask \
+         that got the refusal, with no pause before it"
+    );
+    assert!(
+        !HolderService::for_root(&session.host_root).unwrap().gave_way(),
+        "the daemon gave way to another daemon: no link of its own was taken"
+    );
+    session.end(mux, holder);
+}
+
+/// Refusals in a row, long after the start: the kept connect, and then each
+/// of the next 2 connects. The first new connect is made in the ask that got
+/// the first refusal. Each later one is made after a pause, so a holder that
+/// refuses each connect cannot make the daemon connect in a loop with no
+/// pause. The terminal waits all that time, and re-attaches on the first
+/// connect the holder answers.
+#[test]
+fn each_refused_new_connect_of_a_late_holder_costs_one_pause_and_keeps_the_terminal() {
+    let session = Session::new("holder-late-start-taken-again");
+    let holder = session.holder();
+    let clock = StepClock::new(STEP, AT_START);
+    let mux = session.start(&clock).unwrap();
+
+    clock.run(LATE_STEP, FAR);
+    wait_until("the late thread waits far past the old bound", || clock.stands_in_a_wait());
+    let pauses_before_the_refusals = clock.pauses();
+
+    // The stand-in reads the order for the next connects first: the daemon
+    // makes its new connect only after the kept one is refused.
+    holder.order(Order::RefuseNext(error_code::SUPERSEDED, 2));
+    holder.order(Order::RefuseHeld(error_code::SUPERSEDED));
+    wait_until("the daemon makes a connect that the holder does not refuse", || {
+        holder.connects() >= 4
+    });
+    assert_eq!(
+        session.kept(&mux),
+        (true, TerminalLifecycle::Running, true, true),
+        "(no end, lifecycle, adopting mark, tab) after 3 refusals in a row: a holder that \
+         refuses a connect because another connect took its link still runs the shell"
+    );
+
+    let shell = KeptShell::new();
+    holder.order(Order::Answer(Some(shell.listed())));
+    wait_until("the late thread re-attaches the terminal", || session.late_work_done(&mux));
+    let resolved = mux.resolve_terminal(TERMINAL).unwrap().unwrap();
+    assert_eq!(
+        (
+            resolved.surface.is_some(),
+            resolved.terminal.lifecycle,
+            resolved.terminal.exit.is_none(),
+            resolved.terminal.incarnation.as_deref(),
+        ),
+        (true, TerminalLifecycle::Running, true, Some(INCARNATION)),
+        "(runtime, lifecycle, no end, incarnation): the same shell, attached again"
+    );
+    assert_eq!(
+        (holder.connects(), clock.pauses() - pauses_before_the_refusals),
+        (4, 2),
+        "(connects, pauses after the first refusal): the connect after the kept one comes \
+         with no pause, and each connect after a refused new connect comes after one pause"
+    );
+    session.end(mux, holder);
+}
+
+/// A holder that refuses the token of this daemon does not serve it: that
+/// refusal ends the terminals of the holder at the start, as before. Only
+/// the refusal for a link that another connect took keeps them.
+#[test]
+fn a_start_ends_a_terminal_whose_holder_refuses_the_token_of_the_daemon() {
+    let session = Session::new("holder-late-start-bad-token");
+    let holder = session.holder();
+    holder.order(Order::RefuseNext(error_code::BAD_TOKEN, 1));
+    // The stand-in read the order: it answers a count only after it.
+    assert_eq!(holder.connects(), 0);
+    let clock = StepClock::new(Duration::ZERO, AT_START);
+    let watch = StartWatch::of(&clock);
+    let mux = session.start(&clock).unwrap();
+    assert!(
+        !watch.ended_by_the_limit(),
+        "the start did not end with the holder's refusal: it waited to the failure limit of \
+         {START_LIMIT:?}"
+    );
+    let resolved = mux.resolve_terminal(TERMINAL).unwrap().unwrap();
+    assert_eq!(
+        (
+            resolved.terminal.lifecycle,
+            resolved.terminal.exit.is_some(),
+            mux.terminal_is_pending(TERMINAL),
+        ),
+        (TerminalLifecycle::Exited, true, false),
+        "(lifecycle, recorded end, adopting mark): a holder that refuses the token of this \
+         daemon does not run a shell for it"
+    );
+    session.end(mux, holder);
+}
+
 /// A holder that gave its link to another connect before it answered the
 /// one ask of the start: two connects waited at the holder (this daemon's,
 /// and one whose client is gone), and the holder read the other one last.
@@ -766,7 +920,7 @@ fn an_ended_connect_of_a_late_holder_gets_one_new_connect_and_keeps_the_terminal
 fn a_start_keeps_each_terminal_of_a_holder_that_gave_its_link_to_another_connect() {
     let session = Session::with_two_terminals("holder-late-start-first-taken");
     let holder = session.holder();
-    holder.order(Order::RefuseNext(1));
+    holder.order(Order::RefuseNext(error_code::SUPERSEDED, 1));
     // The stand-in read the order: it answers a count only after it.
     assert_eq!(holder.connects(), 0);
     // The clock does not move in the start, so the start's wait for the
@@ -785,8 +939,9 @@ fn a_start_keeps_each_terminal_of_a_holder_that_gave_its_link_to_another_connect
             (true, TerminalLifecycle::Running, true, true),
             (true, TerminalLifecycle::Running, true, true)
         ),
-        "(no end, lifecycle, adopting mark, tab) of each of the 2 terminals: a holder that \
-         refused the start's connect because another connect took its link still runs the shells"
+        "(no end, lifecycle, adopting mark, tab) of terminal {TERMINAL} and of terminal \
+         {SECOND_TERMINAL}: a holder that refused the start's connect because another connect \
+         took its link still runs the shells"
     );
 
     clock.run(LATE_STEP, FAR);
@@ -912,7 +1067,13 @@ fn a_start_keeps_a_terminal_whose_holder_ends_the_first_connect() {
     // The clock does not move in the start, so the start's wait for the
     // holder does not end by time: it ends when the holder ends the connect.
     let clock = StepClock::new(Duration::ZERO, AT_START);
+    let watch = StartWatch::of(&clock);
     let mux = session.start(&clock).unwrap();
+    assert!(
+        !watch.ended_by_the_limit(),
+        "the start did not end when the holder ended its connect: it waited on a connect \
+         that the stand-in held, to the failure limit of {START_LIMIT:?}"
+    );
     assert_eq!(
         session.kept(&mux),
         (true, TerminalLifecycle::Running, true, true),

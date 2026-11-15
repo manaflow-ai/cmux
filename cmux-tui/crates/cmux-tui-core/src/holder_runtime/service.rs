@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 use std::time::{Duration, Instant};
 
-use cmux_holder::client::PendingClient;
+use cmux_holder::client::{PendingClient, link_taken_before_the_answer};
 use cmux_holder::link::{HolderLink, LinkEnd, TerminalSink};
 use cmux_holder::{Listed, SpawnRequest};
 
@@ -98,7 +98,9 @@ pub(crate) enum HolderReach {
     /// The holder took the connect and did not answer while the caller
     /// waited. The connect stays open: the next ask waits on it again.
     Silent,
-    /// The holder ended the connect before its answer.
+    /// The holder ended the connect before its answer, or refused it
+    /// because another connect took its link in that time. Such a holder may
+    /// still run every terminal: a new connect asks it again.
     Dropped,
     /// No holder serves the socket, the holder refused this daemon, or the
     /// ask failed in another way.
@@ -197,6 +199,17 @@ impl HolderService {
                 | io::ErrorKind::ConnectionReset
                 | io::ErrorKind::BrokenPipe => {
                     eprintln!("cmux-tui: the terminal holder ended the connect: {error}");
+                    HolderReach::Dropped
+                }
+                // A holder that wrote this refusal runs: it gave its link
+                // to a connect that it read after this one (for example a
+                // connect of a daemon that is gone). It is not a holder
+                // that refuses this daemon, and not one that is gone.
+                _ if link_taken_before_the_answer(&error) => {
+                    eprintln!(
+                        "cmux-tui: the terminal holder gave its link to another connect \
+                         before its answer: {error}"
+                    );
                     HolderReach::Dropped
                 }
                 _ => {
@@ -597,6 +610,10 @@ impl HolderService {
                     if !std::mem::take(&mut kept) {
                         return Err(error);
                     }
+                    eprintln!(
+                        "cmux-tui: the terminal holder ended or refused the connect that \
+                         waited for its answer ({error}): one new connect"
+                    );
                     pending = hello()?;
                 }
             }

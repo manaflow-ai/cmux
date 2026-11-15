@@ -226,7 +226,12 @@ fn a_second_restart_while_the_holder_is_stopped_reattaches_the_terminal() {
         );
         std::thread::sleep(Duration::from_millis(50));
     };
-    assert_eq!(shell_pid(&daemon.socket, surface), shell, "the terminal got a new shell");
+    assert_eq!(
+        shell_pid(&daemon.socket, surface),
+        shell,
+        "the terminal got a new shell; the daemon's log:\n{}",
+        fs::read_to_string(&log).unwrap_or_default()
+    );
     screen_contains(&daemon.socket, surface, "kept-before-the-stop");
     send(&daemon.socket, surface, "typed-after-the-holder-ran");
     screen_contains(&daemon.socket, surface, "typed-after-the-holder-ran");
