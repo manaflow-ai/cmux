@@ -588,11 +588,10 @@ fn own_tree_a_port_allocation_makes_no_file_through_a_link_in_the_place_of_the_p
     assert_eq!((port, made), (Some(40_010), false));
 }
 
-/// An allocation gives the worktree's port with a named pipe in the place of the port lock.
-/// The two ends of the pipe are open here, so no open of it waits.
+/// A folder of [`folder_with_a_port_of_its_root`] with a named pipe in the place of the port
+/// lock, and the path of the pipe. No end of the pipe is open.
 #[cfg(unix)]
-#[test]
-fn own_tree_a_port_allocation_gives_the_port_with_a_named_pipe_in_the_place_of_the_port_lock() {
+fn folder_with_a_named_pipe_in_the_place_of_the_port_lock() -> (PathBuf, PathBuf) {
     use std::os::unix::ffi::OsStrExt as _;
     let top = folder_with_a_port_of_its_root();
     let lock_file = top.join("git-folder/cmux-worktree-ports.lock");
@@ -600,14 +599,59 @@ fn own_tree_a_port_allocation_gives_the_port_with_a_named_pipe_in_the_place_of_t
     // SAFETY: mkfifo(2) with a path that `name` keeps to the end of the call.
     let made = unsafe { libc::mkfifo(name.as_ptr(), 0o600) };
     assert_eq!(made, 0, "the test did not make the named pipe");
+    (top, lock_file)
+}
+
+/// Whether the thing at `path` is a named pipe.
+#[cfg(unix)]
+fn is_a_named_pipe(path: &Path) -> bool {
+    use std::os::unix::fs::FileTypeExt as _;
+    fs::symlink_metadata(path).is_ok_and(|named| named.file_type().is_fifo())
+}
+
+/// An allocation gives the worktree's port with a named pipe in the place of the port lock,
+/// and the pipe stays in its place. The two ends of the pipe are open here, so no open of it
+/// waits.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_port_allocation_gives_the_port_with_a_named_pipe_in_the_place_of_the_port_lock() {
+    let (top, lock_file) = folder_with_a_named_pipe_in_the_place_of_the_port_lock();
     let ends = OpenOptions::new().read(true).write(true).open(&lock_file).unwrap();
     let place = place_in(&top);
 
     let port = ports::allocate_within(&place.git_dir, &place.root, Duration::ZERO).ok().flatten();
 
     drop(ends);
+    let stays = is_a_named_pipe(&lock_file);
     fs::remove_dir_all(top).unwrap();
-    assert_eq!(port, Some(40_010));
+    assert_eq!((port, stays), (Some(40_010), true));
+}
+
+/// An allocation does not wait for the other end of a named pipe in the place of the port
+/// lock: with no end of the pipe open it gives the worktree's port, and the pipe stays in its
+/// place. The allocation runs on a thread of its own. `None`: it did not end in 10 s. The 10 s
+/// are not a time that the call is measured against: they only make a failed test from a call
+/// that waits with no end. The test opens the pipe for a read before the join, so an open that
+/// waits for that end goes on then.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_port_allocation_waits_for_no_end_of_a_named_pipe_in_the_place_of_the_port_lock() {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let (top, lock_file) = folder_with_a_named_pipe_in_the_place_of_the_port_lock();
+    let place = place_in(&top);
+
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let thread = std::thread::spawn(move || {
+        let _ = sender.send(ports::allocate_within(&place.git_dir, &place.root, Duration::ZERO));
+    });
+    let port = receiver.recv_timeout(Duration::from_secs(10)).ok();
+
+    let end = OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(&lock_file);
+    let joined = thread.join().is_ok();
+    drop(end);
+    let stays = is_a_named_pipe(&lock_file);
+    fs::remove_dir_all(top).unwrap();
+    assert_eq!((port.and_then(Result::ok).flatten(), stays, joined), (Some(40_010), true, true));
 }
 
 /// The free of a worktree's block takes the worktree out of the list when the port lock is free.
@@ -641,6 +685,27 @@ fn own_tree_a_port_free_writes_no_list_while_the_port_lock_is_held() {
     let after = fs::read_to_string(&list).unwrap_or_default();
     fs::remove_dir_all(top).unwrap();
     assert_eq!((ended.is_some(), after), (true, before));
+}
+
+/// The free of a worktree's block writes no list with a link in the place of the port lock:
+/// the list keeps its bytes, and no file is made where the link leads.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_port_free_writes_no_list_with_a_link_in_the_place_of_the_port_lock() {
+    let top = folder_with_a_link_in_its_git_folder_at("cmux-worktree-ports.lock");
+    let place = place_in(&top);
+    let root = place.root.to_string_lossy().into_owned();
+    let ports = json!({root: 40_010});
+    let list = place.git_dir.join("cmux-worktree-ports.json");
+    fs::write(&list, ports.to_string()).unwrap();
+    let before = fs::read_to_string(&list).unwrap();
+
+    ports::free(&place.git_dir, &place.root);
+
+    let after = fs::read_to_string(&list).unwrap_or_default();
+    let made = made_elsewhere(&top);
+    fs::remove_dir_all(top).unwrap();
+    assert_eq!((after, made), (before, false));
 }
 
 /// A log that has a second name is made new with no open of its file: the look at the name
