@@ -47,7 +47,7 @@ def conf(rows):
     scored = sum(c[k] for k in KEYS)
     pos = c["TP"] + c["FP"]
     neg = c["FN"] + c["TN"]
-    return {**{k: c[k] for k in KEYS}, "scored": scored, "no_action": c["no_action"], "unsupported": c["unsupported"],
+    return {**{k: c[k] for k in KEYS}, "scored": scored, "no_action": c["no_action"] + c["harness_aim"], "unsupported": c["unsupported"],
             "fp_rate": c["FP"] / pos if pos else None, "fn_rate": c["FN"] / neg if neg else None,
             "side_rate": c["SIDE"] / scored if scored else None,
             "effect_rate": (c["TP"] + c["FN"] + c["SIDE"]) / scored if scored else None}
@@ -69,7 +69,7 @@ def conf_row(label, c):
 
 
 CONF_HEAD = ["", "scored", "TP", "FP", "FN", "TN", "SIDE", "false-success rate", "false-failure rate", "side-effect rate",
-             "effect rate", "no action"]
+             "effect rate", "not scored"]
 
 
 def build(arms, agent_dirs, out, videos):
@@ -269,6 +269,31 @@ def repro_md(items):
     return "\n".join(lines)
 
 
+def fixup(rows):
+    """Re-derive what a refined judge or claim mapping says from what each row stored, so older rows count the
+    same as new ones: Safari cmd+a is correct only when the page's selection grew past 500 chars (a keydown alone
+    selected nothing in the background); a fg cell whose target could not be made frontmost and key is reported
+    as fg-unarranged; claims come from the stored result through truthmatrix_claims."""
+    import re as _re
+    for r in rows:
+        if r["app"] == "safari" and r["action"] == "press_key_chord_cmd_a" and r.get("truth") in ("correct", "wrong", "none"):
+            m = _re.search(r"selection (\S+) -> (\d+) chars", r.get("detail") or "")
+            if m:
+                r["truth"] = "correct" if int(m.group(2)) > 500 else ("wrong" if "meta+a" in (r.get("detail") or "") else "none")
+        if r["scene"] == "fg" and r.get("note"):
+            r["scene"] = "fg-unarranged"
+        if r.get("scored_call") and r["outcome"] not in ("unsupported", "no_action"):
+            r["claim"] = tc.claim_of(r["arm"], r["scored_call"])
+            r["outcome"] = tc.confusion_cell(r["claim"], r["truth"], r.get("expect_none"))
+            args = r["scored_call"].get("args") or {}
+            pts = [args.get(k) for k in ("x", "y", "from_x", "from_y", "to_x", "to_y") if isinstance(args.get(k), (int, float))]
+            if any(v < 0 for v in pts):
+                # the harness aimed outside the window (an element frame converted into the wrong space):
+                # not evidence about the tool's claim
+                r["outcome"] = "harness_aim"
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--in", dest="ins", action="append", required=True, help="ARM_LABEL=path/to/truth.jsonl (repeatable)")
@@ -279,21 +304,7 @@ def main():
     arms = {}
     for spec in a.ins:
         label, path = spec.split("=", 1)
-        rows = [r for r in load(path) if "outcome" in r]
-        for r in rows:  # Safari cmd+a: rows from before the threshold fix (Select All selects ~936 chars, not > 1000)
-            if r["app"] == "safari" and r["action"] == "press_key_chord_cmd_a" and r.get("truth") == "wrong":
-                import re as _re
-                m = _re.search(r"selection \S+ -> (\d+) chars", r.get("detail") or "")
-                if m and int(m.group(1)) > 500:
-                    r["truth"] = "correct"
-                    r["outcome"] = tc.confusion_cell(r["claim"], "correct")
-        for r in rows:  # a foreground cell whose target could not be made frontmost and key is not a fg cell
-            if r["scene"] == "fg" and r.get("note"):
-                r["scene"] = "fg-unarranged"
-        for r in rows:  # claims are re-derived from the stored result, so a refined mapping applies to old rows
-            if r.get("scored_call") and r["outcome"] not in ("unsupported",):
-                r["claim"] = tc.claim_of(r["arm"], r["scored_call"])
-                r["outcome"] = tc.confusion_cell(r["claim"], r["truth"], r.get("expect_none"))
+        rows = fixup([r for r in load(path) if "outcome" in r])
         arms.setdefault(label, []).extend(rows)
     print(build(arms, a.agent, a.out, a.video))
 
