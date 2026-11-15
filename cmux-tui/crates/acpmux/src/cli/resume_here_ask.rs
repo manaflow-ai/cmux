@@ -238,9 +238,9 @@ pub async fn follow(
                 }
                 let p = params.unwrap_or(Value::Null);
                 let mine = crate::cli::resolve::routed_id(&p).ok().as_deref() == Some(id);
-                let changes = m == method::MUX_PERMISSION_PENDING
-                    || (m == method::MUX_EVENT
-                        && p.get("kind").and_then(Value::as_str).is_some_and(|k| KINDS.contains(&k)));
+                // The attach's own records; its `permission_pending` beside each ask says the same.
+                let changes = m == method::MUX_EVENT
+                    && p.get("kind").and_then(Value::as_str).is_some_and(|k| KINDS.contains(&k));
                 if mine && changes {
                     let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
                     said(&mut ask, &pending_of(info.get("pending")));
@@ -295,7 +295,9 @@ pub(crate) fn start(id: &str) -> Prompt {
     let id = id.to_owned();
     Prompt(Some(tokio::spawn(async move {
         // Its own connection: the attach stream above owns the first one's notifications.
-        let Ok(client) = crate::daemon::connect(true).await else { return };
+        let unasked =
+            || println!("\x1b[2m-- a permission this turn asks for is answered in the chat\x1b[0m");
+        let Ok(client) = crate::daemon::connect(true).await else { return unasked() };
         let (asking, asked) = watch::channel(false);
         let (out, mut printed) = mpsc::unbounded_channel::<String>();
         let lines = stdin_lines(asked);
@@ -306,7 +308,11 @@ pub(crate) fn start(id: &str) -> Prompt {
                 let _ = std::io::stdout().flush();
             }
         });
-        let _ = follow(client, &id, lines, asking, out).await;
+        // A chat this daemon only mirrors (a peer's: its hold attach is local only) or a lost
+        // connection: say where it is answered instead.
+        if follow(client, &id, lines, asking, out).await.is_err() {
+            unasked();
+        }
     })))
 }
 
@@ -319,6 +325,11 @@ fn stdin_lines(mut asking: watch::Receiver<bool>) -> mpsc::Receiver<String> {
     std::thread::spawn(move || {
         let mut buf = [0u8; 4096];
         loop {
+            // The prompt ended (the turn did, before its decision was read): stop reading, so a
+            // line typed now stays for the harness.
+            if asking.has_changed().is_err() {
+                return;
+            }
             if !*asking.borrow_and_update() {
                 if handle.block_on(asking.changed()).is_err() {
                     return;
@@ -329,7 +340,7 @@ fn stdin_lines(mut asking: watch::Receiver<bool>) -> mpsc::Receiver<String> {
             let mut fd = libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 };
             // SAFETY: one valid pollfd for the duration of the call.
             let ready = unsafe { libc::poll(&mut fd, 1, 250) };
-            if ready <= 0 || !*asking.borrow() {
+            if ready <= 0 || !*asking.borrow() || asking.has_changed().is_err() {
                 continue;
             }
             // SAFETY: reads into `buf`, at most its length. In cooked mode one read is one line.
