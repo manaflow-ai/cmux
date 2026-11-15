@@ -87,13 +87,43 @@ import UIKit
         await Self.wait(2.2)
         #expect(Self.redraws(since) - away - unseen >= 2)
     }
+
+    /// The cell of a working row scrolled away is parked (its label unseen), then reused for a
+    /// new turn still in its quiet first 5 s, whose time draws nothing yet. Back on screen it
+    /// ticks once those seconds pass: the label notes that it is seen again even while its time
+    /// is empty, and a new turn does not keep the old turn's unseen state.
+    @Test func aReusedRowWithANewTurnTicksOnceItsQuietSecondsPass() async {
+        let list = HostedRowsController(since: Self.start(), rows: 200)
+        let window = Self.window(list)
+        defer { window.isHidden = true }
+        await Self.wait(1.2)
+        let view = list.collectionView
+        view.setContentOffset(CGPoint(x: 0, y: view.contentSize.height - view.bounds.height), animated: false)
+        view.layoutIfNeeded()
+        await Self.wait(0.3)
+
+        // A new turn, 1 s old, then back to the top: its time is empty until 5 s.
+        let since = Date().addingTimeInterval(-1)
+        WorkingLabel.redrawCounts[since] = 0
+        defer { WorkingLabel.redrawCounts[since] = nil }
+        list.since = since
+        view.reloadItems(at: [IndexPath(item: 0, section: 0)])
+        view.setContentOffset(.zero, animated: false)
+        view.layoutIfNeeded()
+        await Self.wait(7.2)
+        let ticks = Self.redraws(since)
+        print("WorkingLabelUnseenTickTests: reused row, new turn: \(ticks) redraws in 7.2 s")
+        #expect(view.indexPathsForVisibleItems.contains(IndexPath(item: 0, section: 0)), "the working row is on screen")
+        #expect(ticks >= 3, "a seen row past its quiet seconds redraws every second, got \(ticks) in 7.2 s")
+    }
 }
 
 /// A list like the transcript's: a collection view of hosted SwiftUI rows
 /// (`UIHostingConfiguration`), the first a working row in a reuse pool of its own.
 @MainActor
 final class HostedRowsController: UIViewController, UICollectionViewDataSource {
-    let since: Date
+    /// The working row's turn start; a new turn reconfigures the row in the same cell.
+    var since: Date
     let rows: Int
     let collectionView: UICollectionView
 
