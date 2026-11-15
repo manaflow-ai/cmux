@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 3d5aa4510bf553d836056175a290c24a6ac1d16e5a486e3ad6f71712aa8a902a.
+// cmux-tui mux protocol 12, IR f0e17f0a977e580be1c5f94c39d35c6426f0a32242c0da5a3f73912827061df9.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -693,6 +693,13 @@ pub struct ScreenClosedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScreenDeviceChangedEvent {
+    /// The authenticated worker screen UUID, or null when the worker is unavailable.
+    pub screen_device_id: Nullable<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ScreenRenamedEvent {
     pub entity: T::Screen,
     pub screen: T::Id,
@@ -1086,6 +1093,7 @@ pub enum Event {
     ScreenAdded(ScreenAddedEvent),
     ScreenChanged(ScreenChangedEvent),
     ScreenClosed(ScreenClosedEvent),
+    ScreenDeviceChanged(ScreenDeviceChangedEvent),
     ScreenRenamed(ScreenRenamedEvent),
     ScrollChanged(ScrollChangedEvent),
     SelectionChanged(SelectionChangedEvent),
@@ -1186,6 +1194,7 @@ impl Event {
             Self::ScreenAdded(_) => Some("screen-added"),
             Self::ScreenChanged(_) => Some("screen-changed"),
             Self::ScreenClosed(_) => Some("screen-closed"),
+            Self::ScreenDeviceChanged(_) => Some("screen-device-changed"),
             Self::ScreenRenamed(_) => Some("screen-renamed"),
             Self::ScrollChanged(_) => Some("scroll-changed"),
             Self::SelectionChanged(_) => Some("selection-changed"),
@@ -1285,6 +1294,7 @@ impl Event {
             Self::ScreenAdded(_) => Some(&SCREEN_ADDED_EVENT_METADATA),
             Self::ScreenChanged(_) => Some(&SCREEN_CHANGED_EVENT_METADATA),
             Self::ScreenClosed(_) => Some(&SCREEN_CLOSED_EVENT_METADATA),
+            Self::ScreenDeviceChanged(_) => Some(&SCREEN_DEVICE_CHANGED_EVENT_METADATA),
             Self::ScreenRenamed(_) => Some(&SCREEN_RENAMED_EVENT_METADATA),
             Self::ScrollChanged(_) => Some(&SCROLL_CHANGED_EVENT_METADATA),
             Self::SelectionChanged(_) => Some(&SELECTION_CHANGED_EVENT_METADATA),
@@ -1815,6 +1825,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("screen-closed") => match serde_json::from_value::<ScreenClosedEvent>(raw.clone()) {
             Ok(event) => Event::ScreenClosed(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("screen-device-changed") => match serde_json::from_value::<ScreenDeviceChangedEvent>(raw.clone()) {
+            Ok(event) => Event::ScreenDeviceChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

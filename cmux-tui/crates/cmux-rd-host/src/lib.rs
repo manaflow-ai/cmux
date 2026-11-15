@@ -11,6 +11,7 @@
 //!            stdin and stdout (src/serve.rs); macOS and Linux
 //!   connect  the viewer side of a hub session: bridges the pane's framed byte stream on a
 //!            private Unix socket to the secure link (src/connect.rs)
+//!   permissions  read-only Screen Recording and Accessibility snapshot as JSON (macOS)
 //!   encode-selftest --codec videotoolbox|x264|openh264 --workload marker|text [--width 1920 --height 1080 --frames 300]
 //!   openh264-install [--dir PATH]   the host enable flow's step: downloads Cisco's OpenH264
 //!            from Cisco into the per-user data directory (pinned SHA-256) and prints its path
@@ -54,6 +55,7 @@ mod marker;
 mod observe;
 #[cfg(all(feature = "bench", target_os = "linux"))]
 mod present;
+mod permissions;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod selftest;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
@@ -90,10 +92,14 @@ pub type Res<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 pub fn run_cli(args: &[String]) -> i32 {
     let Some(cmd) = args.first() else {
         eprintln!(
-            "usage: cmux-rd host|bench|observe|testapp|serve|connect|encode-selftest|openh264-install [--key value ...]"
+            "usage: cmux-rd host|bench|observe|testapp|serve|connect|permissions|encode-selftest|openh264-install [--key value ...]"
         );
         return 2;
     };
+    if cmd == "permissions" && args.len() != 1 {
+        eprintln!("cmux-rd permissions takes no arguments");
+        return 2;
+    }
     let opts = match args::Opts::parse(&args[1..]) {
         Ok(o) => o,
         Err(e) => {
@@ -118,6 +124,7 @@ pub fn run_cli(args: &[String]) -> i32 {
         "serve" => serve::run(&opts),
         #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
         "connect" => connect::run(),
+        "permissions" => permissions::run(),
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         "encode-selftest" => selftest::run(&opts),
         #[cfg(feature = "openh264")]

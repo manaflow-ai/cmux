@@ -90,6 +90,11 @@ selector. Session operations still require their separate routing and permission
 Default raw `identify` replies preserve the original field set. The
 `machine-identity-v1` capability advertises an explicit `machine_metadata: true`
 request, which adds `machine_id`, `machine_platform` and `machine_capabilities`.
+The enriched reply also includes the nullable `screen_device_id` UUID of the
+authenticated cmux Remote screen worker.
+Clients that consume the `screen-device-changed` subscription event echo
+`screen-device-identity-v1` in `set-client-info` to opt into its replay and
+live updates.
 False or omission keeps the legacy response; the option is not connection state.
 Malformed non-boolean values are refused. This is a raw command option, separate
 from the resource API's `catalog` option.
