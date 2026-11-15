@@ -3418,6 +3418,52 @@ public struct ProjectionStats: Equatable, Hashable {
     public init(bytesOut: UInt64, resets: UInt64) {
         self.bytesOut = bytesOut
         self.resets = resets
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ProjectionStats: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProjectionStats: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProjectionStats {
+        return
+            try ProjectionStats(
+                bytesOut: FfiConverterUInt64.read(from: &buf), 
+                resets: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ProjectionStats, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.bytesOut, into: &buf)
+        FfiConverterUInt64.write(value.resets, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionStats_lift(_ buf: RustBuffer) throws -> ProjectionStats {
+    return try FfiConverterTypeProjectionStats.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionStats_lower(_ value: ProjectionStats) -> RustBuffer {
+    return FfiConverterTypeProjectionStats.lower(value)
+}
+
+
+/**
  * One of the Mac's acpmux chats (`_acpmux/sessions`), as far as the pairing needs it.
  */
 public struct TerminalChatCandidate: Equatable, Hashable {
@@ -3473,25 +3519,12 @@ public struct TerminalChatCandidate: Equatable, Hashable {
 }
 
 #if compiler(>=6)
-extension ProjectionStats: Sendable {}
 extension TerminalChatCandidate: Sendable {}
 #endif
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public struct FfiConverterTypeProjectionStats: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProjectionStats {
-        return
-            try ProjectionStats(
-                bytesOut: FfiConverterUInt64.read(from: &buf), 
-                resets: FfiConverterUInt64.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: ProjectionStats, into buf: inout [UInt8]) {
-        FfiConverterUInt64.write(value.bytesOut, into: &buf)
-        FfiConverterUInt64.write(value.resets, into: &buf)
 public struct FfiConverterTypeTerminalChatCandidate: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalChatCandidate {
         return
@@ -3517,8 +3550,6 @@ public struct FfiConverterTypeTerminalChatCandidate: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeProjectionStats_lift(_ buf: RustBuffer) throws -> ProjectionStats {
-    return try FfiConverterTypeProjectionStats.lift(buf)
 public func FfiConverterTypeTerminalChatCandidate_lift(_ buf: RustBuffer) throws -> TerminalChatCandidate {
     return try FfiConverterTypeTerminalChatCandidate.lift(buf)
 }
@@ -3526,8 +3557,6 @@ public func FfiConverterTypeTerminalChatCandidate_lift(_ buf: RustBuffer) throws
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeProjectionStats_lower(_ value: ProjectionStats) -> RustBuffer {
-    return FfiConverterTypeProjectionStats.lower(value)
 public func FfiConverterTypeTerminalChatCandidate_lower(_ value: TerminalChatCandidate) -> RustBuffer {
     return FfiConverterTypeTerminalChatCandidate.lower(value)
 }
@@ -4430,6 +4459,90 @@ public enum ProjectionSegment: Equatable, Hashable {
      * The alternate screen's bytes, unchanged.
      */
     case raw(bytes: Data
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ProjectionSegment: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProjectionSegment: FfiConverterRustBuffer {
+    typealias SwiftType = ProjectionSegment
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProjectionSegment {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .paint(bytes: try FfiConverterData.read(from: &buf)
+        )
+        
+        case 2: return .reset(bytes: try FfiConverterData.read(from: &buf)
+        )
+        
+        case 3: return .alternate(on: try FfiConverterBool.read(from: &buf)
+        )
+        
+        case 4: return .raw(bytes: try FfiConverterData.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ProjectionSegment, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .paint(bytes):
+            writeInt(&buf, Int32(1))
+            FfiConverterData.write(bytes, into: &buf)
+            
+        
+        case let .reset(bytes):
+            writeInt(&buf, Int32(2))
+            FfiConverterData.write(bytes, into: &buf)
+            
+        
+        case let .alternate(on):
+            writeInt(&buf, Int32(3))
+            FfiConverterBool.write(on, into: &buf)
+            
+        
+        case let .raw(bytes):
+            writeInt(&buf, Int32(4))
+            FfiConverterData.write(bytes, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionSegment_lift(_ buf: RustBuffer) throws -> ProjectionSegment {
+    return try FfiConverterTypeProjectionSegment.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionSegment_lower(_ value: ProjectionSegment) -> RustBuffer {
+    return FfiConverterTypeProjectionSegment.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * One face of a terminal and chat pair.
  */
 
@@ -4533,30 +4646,12 @@ public enum TerminalChatSwap: Equatable, Hashable {
 }
 
 #if compiler(>=6)
-extension ProjectionSegment: Sendable {}
 extension TerminalChatSwap: Sendable {}
 #endif
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public struct FfiConverterTypeProjectionSegment: FfiConverterRustBuffer {
-    typealias SwiftType = ProjectionSegment
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProjectionSegment {
-        let variant: Int32 = try readInt(&buf)
-        switch variant {
-        
-        case 1: return .paint(bytes: try FfiConverterData.read(from: &buf)
-        )
-        
-        case 2: return .reset(bytes: try FfiConverterData.read(from: &buf)
-        )
-        
-        case 3: return .alternate(on: try FfiConverterBool.read(from: &buf)
-        )
-        
-        case 4: return .raw(bytes: try FfiConverterData.read(from: &buf)
 public struct FfiConverterTypeTerminalChatSwap: FfiConverterRustBuffer {
     typealias SwiftType = TerminalChatSwap
 
@@ -4579,28 +4674,6 @@ public struct FfiConverterTypeTerminalChatSwap: FfiConverterRustBuffer {
         }
     }
 
-    public static func write(_ value: ProjectionSegment, into buf: inout [UInt8]) {
-        switch value {
-        
-        
-        case let .paint(bytes):
-            writeInt(&buf, Int32(1))
-            FfiConverterData.write(bytes, into: &buf)
-            
-        
-        case let .reset(bytes):
-            writeInt(&buf, Int32(2))
-            FfiConverterData.write(bytes, into: &buf)
-            
-        
-        case let .alternate(on):
-            writeInt(&buf, Int32(3))
-            FfiConverterBool.write(on, into: &buf)
-            
-        
-        case let .raw(bytes):
-            writeInt(&buf, Int32(4))
-            FfiConverterData.write(bytes, into: &buf)
     public static func write(_ value: TerminalChatSwap, into buf: inout [UInt8]) {
         switch value {
         
@@ -4632,8 +4705,6 @@ public struct FfiConverterTypeTerminalChatSwap: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeProjectionSegment_lift(_ buf: RustBuffer) throws -> ProjectionSegment {
-    return try FfiConverterTypeProjectionSegment.lift(buf)
 public func FfiConverterTypeTerminalChatSwap_lift(_ buf: RustBuffer) throws -> TerminalChatSwap {
     return try FfiConverterTypeTerminalChatSwap.lift(buf)
 }
@@ -4641,8 +4712,6 @@ public func FfiConverterTypeTerminalChatSwap_lift(_ buf: RustBuffer) throws -> T
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeProjectionSegment_lower(_ value: ProjectionSegment) -> RustBuffer {
-    return FfiConverterTypeProjectionSegment.lower(value)
 public func FfiConverterTypeTerminalChatSwap_lower(_ value: TerminalChatSwap) -> RustBuffer {
     return FfiConverterTypeTerminalChatSwap.lower(value)
 }
