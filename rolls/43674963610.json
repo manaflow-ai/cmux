@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43674963610",
+  "recorded_at": "2026-11-15T04:14:49Z",
+  "reason": "cmux-tui fb78ddda5091 changes the image's cmux-tui (pinned 6786e2d1b615)",
+  "dry_run": false,
+  "cmux_tui": "fb78ddda50919263c4ff1884cba875b4fcea13e1",
+  "fixes": [
+    {
+      "sha": "fb78ddda50919263c4ff1884cba875b4fcea13e1",
+      "mergedAt": "2026-11-14T19:45:37-08:00",
+      "subject": "cmux-tui: extract workspace registry schema (#43425)"
+    },
+    {
+      "sha": "b9dd85c115cfb0f5b4e92394c628f0d35c2c1afa",
+      "mergedAt": "2026-11-14T19:45:16-08:00",
+      "subject": "acpmux: a network change probes every peer link at once and ends its backoff wait (#43318)"
+    },
+    {
+      "sha": "220a9b00491ea80d81b3b62391b27d0020883eb3",
+      "mergedAt": "2026-11-14T19:42:41-08:00",
+      "subject": "prediction: arm at a known prompt, so the first key of a command draws with the press (#43481)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T04:14:49Z",
+    "snapshot_id": "sh-3af968391a044206bcb582609cf4064a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43674963610): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "dc87a6d0a22c505af3927085ae0fec3666daa999",
+    "image": "cloud-native-auto-fb78ddda-43674963610-1",
+    "revision": "ci-43674963610-1",
+    "at": "2026-11-15T04:14:49Z"
+  },
+  "rolled_back": false
+}
