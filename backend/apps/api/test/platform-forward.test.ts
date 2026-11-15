@@ -23,7 +23,7 @@ const cloudMutation = cloudOps.find((o) => o.owner === "cloud:CloudDO" && o.clas
 const cloudRead = cloudOps.find((o) => o.owner === "cloud:CloudDO" && o.class === "read")!.name
 const stayingMutation = "user.ensure"
 
-type Seen = { url: string; method: string; body: string; protocols: string | null }
+type Seen = { url: string; method: string; body: string; protocols: string | null; capability: string | null }
 
 /** A stand-in for the platform Worker: records what reached it and answers 299. */
 const fakePlatform = (opts: { throws?: boolean } = {}) => {
@@ -32,7 +32,7 @@ const fakePlatform = (opts: { throws?: boolean } = {}) => {
     fetch: vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (opts.throws) throw new Error("platform down")
       const r = new Request(input as RequestInfo, init)
-      seen.push({ url: r.url, method: r.method, body: await r.text(), protocols: r.headers.get("Sec-WebSocket-Protocol") })
+      seen.push({ url: r.url, method: r.method, body: await r.text(), protocols: r.headers.get("Sec-WebSocket-Protocol"), capability: r.headers.get("x-cmux-cloud-capability") })
       return new Response("from platform", { status: 299, headers: { "x-from": "platform" } })
     })
   }
@@ -52,6 +52,8 @@ const read = (name: string, params: unknown = {}) => JSON.stringify({ op: name, 
 
 /** Each request as a fresh Request (a body is read once). */
 const requests: ReadonlyArray<readonly [string, () => Request]> = [
+  // The signed Cloud capability's mint (cmux-platform#1126 CloudCapabilityRoute.ts): the app asks it here at sign-in.
+  ["cloud capability mint", () => post("/v1/cloud/capability", "{}")],
   ["cloud bind", () => post("/v1/cloud/bind", "{}")],
   ["cloud keyset", () => new Request(`${ORIGIN}/v1/cloud/keyset`)],
   ["cloud acpmux", () => post(`/v1/cloud/machines/${VM}/acpmux/keyed-start`, "{}")],
@@ -100,7 +102,7 @@ describe("PLATFORM_SURFACES", () => {
 
 describe("cloud surface on", () => {
   it("forwards NEXT Cloud's machine routes and CloudDO ops with the body intact", async () => {
-    for (const [name, make] of requests.slice(0, 15)) {
+    for (const [name, make] of requests.slice(0, 16)) {
       const platform = fakePlatform()
       const original = make()
       const body = await original.clone().text()
@@ -112,6 +114,13 @@ describe("cloud surface on", () => {
       expect(platform.seen[0]!.method, name).toBe(original.method)
       expect(platform.seen[0]!.body, name).toBe(body)
     }
+  })
+
+  it("forwards a CloudDO op's signed Cloud capability header unchanged", async () => {
+    const platform = fakePlatform()
+    const res = await call(post("/v1/ops", op(cloudMutation), { "x-cmux-cloud-capability": "cc1.e30.c2ln" }), { PLATFORM: platform.fetcher, PLATFORM_SURFACES: "cloud" })
+    expect(res.status).toBe(299)
+    expect(platform.seen[0]!.capability).toBe("cc1.e30.c2ln")
   })
 
   it("keeps an op of an owner that stays, a malformed body, an unknown op and an op on the wrong endpoint here", async () => {
@@ -141,7 +150,7 @@ describe("cloud surface on", () => {
 
   it("stays here and logs when the PLATFORM binding is absent", async () => {
     const log = vi.spyOn(console, "error")
-    for (const [name, make] of requests.slice(0, 15)) {
+    for (const [name, make] of requests.slice(0, 16)) {
       const off = await call(make(), {})
       const on = await call(make(), { PLATFORM_SURFACES: "cloud" })
       expect(on.status, name).toBe(off.status)
