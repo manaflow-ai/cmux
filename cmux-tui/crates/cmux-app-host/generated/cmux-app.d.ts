@@ -184,6 +184,8 @@ declare namespace Cmux {
   type GitFileMatch = { path: string; matches: Array<number> }
   type GitFilesListResult = { root: string; folder: string; entries: Array<Cmux.GitFileEntry>; truncated: boolean }
   type GitFilesSearchResult = { root: string; search_root: string; results: Array<Cmux.GitFileMatch>; truncated: boolean; total_matches: number }
+  type GitFingerprintResult = { fingerprint: string; files_read: number; bytes_read: number }
+  type GitFingerprintScope = "uncommitted" | "unstaged" | "staged" | "branch"
   type GitIncludeReport = { copied: number; kept: number; outside: Array<string>; problems: Array<string> }
   type GitPatchPage = { offset: string; next_offset: string; total_bytes: string; revision: string; data_base64: string; complete: boolean }
   type GitPushResult = { root: string; remote: string; branch: string; upstream: string; pushed_commit: string; previous_remote_commit?: string; created_upstream: boolean; up_to_date: boolean }
@@ -499,7 +501,7 @@ declare namespace Cmux {
   type TerminalExitUnknown = { kind: "unknown"; reason: string }
   type TerminalHistoryResult = { start: string; next?: string | null; rows: Array<Cmux.RenderRow> }
   type TerminalLifecycle = "launching" | "running" | "exited"
-  type TerminalOutputReadResult = { text: string; start_offset: string; next_offset: string; complete: boolean }
+  type TerminalOutputReadResult = { text: string; start_offset: string; next_offset: string; complete: boolean; snapshot?: boolean; recovery?: string }
   type TerminalScreenResult = { text: string; revision?: string | null; osc_progress?: string | null; cols: number; rows: number; cursor_row: number; cursor_col: number; cursor_visible: boolean; extra?: Record<string, Cmux.JsonValue> }
   type TerminalSnapshot = { id: string /* terminal_… */; tab_id: string /* tab_… */ | null; tab_ids: Array<string /* tab_… */>; title: string; cwd?: string; cols: number; rows: number; running: boolean; lifecycle: Cmux.TerminalLifecycle; stream_revision?: string; exit?: Cmux.TerminalExit; extra?: Record<string, Cmux.JsonValue> }
   type TerminalStateResult = { state_base64: string; cols: number; rows: number }
@@ -1059,6 +1061,8 @@ interface CmuxGlobal {
       /** `git.files.search` (read, scope `git:read`) */
       search: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; query: string; limit?: number }, Cmux.GitFilesSearchResult>
     }
+    /** `git.fingerprint` (read, scope `git:read`) */
+    fingerprint: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; scope?: Cmux.GitFingerprintScope }, Cmux.GitFingerprintResult>
     /** `git.push` (mutation, scope `git:external`) */
     push: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; remote?: string; branch?: string; set_upstream?: boolean; expected_head?: string }, Cmux.MutationResult<Cmux.GitPushResult>>
     /** `git.status` (read, scope `git:read`) */
@@ -1745,7 +1749,7 @@ interface CmuxGlobal {
     /** `terminal.move` (mutation, scope `terminal:write`) */
     move: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; destination_workspace: unknown; destination_screen: unknown; destination_pane: unknown; index: number; expected_revision?: string }, Cmux.MutationResult<Cmux.TerminalSnapshot>>
     /** `terminal.output_read` (read, scope `terminal:read`) */
-    output_read: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; after?: string; max_bytes?: number }, Cmux.TerminalOutputReadResult>
+    output_read: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; after?: string; max_bytes?: number; recovery?: string }, Cmux.TerminalOutputReadResult>
     process: {
       /** `terminal.process.get` (read, scope `terminal:read`) */
       get: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string }, Cmux.ProcessInfoResult>

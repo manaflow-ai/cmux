@@ -28,6 +28,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `app.showMenuBarIcon` | boolean | `true` |  | Show Menu Bar Icon. A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit. |
 | `tabs.newTabTemplate` | string | `"minimal"` | `minimal`, `cards`, `default`, `threads`, `console`, `classic`, `terminal` | New Tab Template. The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it. |
 | `tabs.nativeNewTabPage` | boolean | `false` |  | Native New Tab Page. Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now. |
+| `tabs.newTabApp` | string |  |  | New Tab App. An extension that draws the whole New Tab page, by its id, such as "local/showcase-newtab". Unset, cmux draws its own page. If the extension is missing, hidden or fails, cmux draws its own page. Not used by the native New Tab page. |
 | `tabs.newTabPosition` | string | `"afterCurrent"` | `afterCurrent`, `end`, `start` | New Tab Position (Cmd-T). Where Cmd-T puts the new tab. New Tab to the Right in a tab's menu always puts it after that tab. |
 | `tabs.newTabButtonPosition` | string | `"end"` | `afterCurrent`, `end`, `start` | New Tab Position (+ Button). Where the + button after the last tab puts the new tab. Cmd-T follows New Tab Position (Cmd-T). |
 | `tabs.plusButton` | string | `"hover"` | `hover`, `always` | + Button Visibility. On Hover shows each tab bar's + only while the pointer is over that tab bar. |
@@ -161,8 +162,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `workspaces.freeing.idleMinutes` | real | `1440` | 60 to 43200 | Free Terminals After. A hibernated workspace's idle shells end after this many minutes without use (1440 is one day). |
 | `workspaces.freeing.agents` | boolean | `true` |  | Free Idle Agents. Also ends Claude Code and Codex sessions that wait for your next message. Opening the tab resumes the same session. |
 | `workspaces.freeing.runningCommands` | string | `"never"` | `never`, `relaunch` | Running Commands. What happens to a command that still runs in a workspace that frees its terminals. |
-| `agents.hiddenChats.discard` | boolean | `false` |  | Release Hidden Agent Chats. A chat you have not looked at for a while gives back its memory, and comes back where you left it when you open it. Chats that are working, waiting on you or holding a draft are never released. |
-| `agents.hiddenChats.discardAfterMinutes` | real | `15` | 1 to 1440 | Release Hidden Chats After. How many minutes a chat stays out of sight before its memory is given back. When the Mac runs low on memory, it happens sooner. |
 | `tasks.layout` | string | `"inbox"` | `list`, `board`, `inbox` | Tasks Layout. Inbox lists what needs you first, with the task beside it. Changes apply at once. |
 | `appearance.iconTheme` | string | `"default"` | `default`, `neko` | Icon Theme. The icon drawings used by cmux. |
 | `appearance.theme` | string |  |  | Theme. Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it. |

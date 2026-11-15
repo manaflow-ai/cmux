@@ -192,7 +192,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 18204e33ecb053396e5658b9343018bb912967dd4567e1cd86ed6eb5cd4b23b9
+// app-ffi-pin-checksum: dbe811f4412f54aa36dae84cfcdfce59379e3088ce522a2c84a7f6c3e77c2d18
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -255,6 +255,9 @@ let packageProducts: [Product] = [
     .library(name: "CmuxNextApp", targets: ["CmuxNextApp"]),
     .library(name: "CmuxNextFavicons", targets: ["CmuxNextFavicons"]),
     .library(name: "CmuxNextAppCore", targets: ["CmuxNextAppCore"]),
+    // The remote view pipeline (rd transport, decode, presenters) alone, for a standalone viewer
+    // that presents a cmux.rd/1 stream with the app's own code (a measurement harness's on-screen viewer).
+    .library(name: "CmuxNextRemoteView", targets: ["CmuxNextRemoteView"]),
 ] + uiLayerPreviewProducts
 
 let packageTargets: [Target] = uiLayerPreviewTargets + [
@@ -1645,6 +1648,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextMacScreen",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextComputerUse",
@@ -2479,6 +2483,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CCmuxAppFFI",
                 "CmuxNextActions",
+                "CmuxNextCloud",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextProcessEnvironment",
