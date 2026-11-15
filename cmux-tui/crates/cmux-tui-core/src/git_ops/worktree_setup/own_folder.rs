@@ -236,15 +236,17 @@ mod system {
         /// The folder at `path`, with its real path. Its links are resolved
         /// one time, and each folder of the path that this gives is then
         /// opened through its parent and refuses a link: the real path is
-        /// the path of the folder that is open.
+        /// the path of the folder that is open. With no open folder, the
+        /// kind is of the error that stopped this: of the read of the real
+        /// path, or of the open of a folder of that path.
         pub(super) fn open(path: &Path) -> (Result<PathBuf, io::ErrorKind>, Self) {
             let real = match std::fs::canonicalize(path) {
                 Ok(real) => real,
                 Err(error) => return (Err(error.kind()), Self(Err(error.kind()))),
             };
-            match Tree::open(&real).map(Tree::into_top) {
-                Some(top) => (Ok(real), Self(Ok(top))),
-                None => (Err(io::ErrorKind::NotFound), Self(Err(io::ErrorKind::NotFound))),
+            match Tree::opened(&real) {
+                Ok(tree) => (Ok(real), Self(Ok(tree.into_top()))),
+                Err(error) => (Err(error.kind()), Self(Err(error.kind()))),
             }
         }
 

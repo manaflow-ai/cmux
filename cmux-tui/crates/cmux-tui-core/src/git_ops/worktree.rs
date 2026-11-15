@@ -216,19 +216,26 @@ fn create(
 /// repository's git folder. No setup starts and no port is given when the
 /// folder that the worktree's `.git` file names is not the git folder that
 /// this repository keeps for the worktree
-/// ([`worktree_setup::Place::is_of`]): a line on stderr says so. The check
-/// is of the folder that the place opened, and the setup keeps that folder.
+/// ([`worktree_setup::Place::is_of`]): a line on stderr says so, or it gives
+/// the kind of the error of the open when the place did not open that
+/// folder. The check is of the folder that the place opened, and the setup
+/// keeps that folder.
 fn setup(mux: &Mux, attempt: &Attempt, common_dir: &Path) -> Value {
     let main = main_root(common_dir).map(Path::to_path_buf);
     let Some(git_dir) = admin_dir(&attempt.root) else { return json!({"state": "none"}) };
     let root = worktree_setup::resolved(&attempt.root);
     let place = worktree_setup::Place::new(root, main, &git_dir, common_dir);
     if !place.is_of(common_dir) {
+        let why = match place.not_opened() {
+            Some(kind) => format!("is not open ({kind})"),
+            None => format!(
+                "is not the git folder that {} keeps for this worktree",
+                common_dir.display()
+            ),
+        };
         eprintln!(
-            "cmux-tui: {}: no setup starts: the folder that the `.git` file names is not the \
-             git folder that {} keeps for this worktree",
-            attempt.root.display(),
-            common_dir.display()
+            "cmux-tui: {}: no setup starts: the folder that the `.git` file names {why}",
+            attempt.root.display()
         );
         return json!({"state": "none"});
     }
