@@ -8,7 +8,11 @@ name: nightly-next feed watch
 # feat-cmux-next pushes have waited for the feed (limit 30 minutes) and keeps one
 # `nightly-next-feed-stale` issue naming the stuck stage
 # (scripts/ci/nightly_next_feed_watch.py, tested by
-# tests/test_nightly_next_feed_watch.py). It also requests the continuation
+# tests/test_nightly_next_feed_watch.py). Once the feed's newest build is 2 hours
+# old while pushes wait, that issue carries a coordinator alarm naming the newest
+# failed nightly's first failing step and HTTP status line, once per stale episode
+# and at most hourly; cmuxterm-hq's base-red-watch pages the coordinator from it.
+# It also requests the continuation
 # run that publishes a build Apple accepted after its run stopped waiting, and
 # dispatches a current-tip build after 20 minutes without a publication when
 # no started nightly-next build has the tip or a commit containing it as its

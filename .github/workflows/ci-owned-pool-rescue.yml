@@ -98,6 +98,11 @@ on:
         required: false
         default: "0"
         type: string
+      rerun:
+        description: 1 to re-run run_id's failed and cancelled jobs as cmux-bot (cancelling it first if it still waits), so its Mac jobs are placed again
+        required: false
+        default: "0"
+        type: string
 
 permissions: {}
 
@@ -209,8 +214,18 @@ jobs:
           # room, and moves nothing while one names an owned pool (owned_pool_rescue.stall_destinations()).
           STALL_RUNNER: ${{ vars.MACOS_RUNNER_26 }}
           STALL_POOLS: ${{ vars.RUNNER_POOLS }}
+          # Not `on` (unset): cmux-next.yml's Mac fallbacks take CI_SIDE_LANE_RUNNER, so the stall move would only
+          # re-queue a job at the back of the owned side lane; it moves nothing (owned_pool_rescue.STALL_SWITCH_OFF).
+          # `pr-rescue`: a pull request run's re-run takes Blacksmith, so the move acts on pull request runs only.
+          STALL_BLACKSMITH_MACOS: ${{ vars.CI_BLACKSMITH_MACOS }}
+          # The side label a cmux-next bot re-run takes while that switch is off: a rescue never sends a job there
+          # while its queue is deeper than the one the job leaves (owned_pool_rescue.rerun_side_label()).
+          SIDE_LANE_RUNNER: ${{ vars.CI_SIDE_LANE_RUNNER }}
           WATCH_RUN_ID: ${{ inputs.run_id }}
           SWEEP: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && '1' || '' }}
           # 1: wait for ci-macos.yml's late-placement before calling the run ephemeral.
           LATE_PLACEMENT: ${{ inputs.late }}
+          # 1 with run_id: re-run that run's failed and cancelled jobs as cmux-bot, cancelling it first if it still
+          # waits, so its Mac jobs are placed again (owned_pool_rescue.rerun_named()).
+          RERUN: ${{ inputs.rerun }}
         run: python3 scripts/ci/owned_pool_rescue.py
