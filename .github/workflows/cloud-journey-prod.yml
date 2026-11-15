@@ -67,9 +67,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     # The cmux-tui build (warm from the rust cache) comes before the journey's own 25 minutes.
     timeout-minutes: 60
-    environment:
-      name: cmux-next-cloud-journey
-      deployment: false
+    environment: cmux-next-cloud-journey
     permissions:
       contents: read
       issues: write
@@ -190,9 +188,7 @@ jobs:
     if: github.repository_owner == 'manaflow-ai' && github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next') && inputs.preclaim
     runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 60
-    environment:
-      name: cmux-next-vm-image-dev
-      deployment: false
+    environment: cmux-next-vm-image-dev
     permissions:
       contents: read
     steps:
