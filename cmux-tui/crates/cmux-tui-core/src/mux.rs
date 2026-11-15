@@ -753,9 +753,9 @@ pub struct Mux {
     /// The terminals whose live facts changed (`mux/terminal_live.rs`).
     terminal_live: terminal_live::TerminalLiveLog,
     /// Pinned terminals' last lines and their publisher (`terminal-tail-pin-v1`).
-    terminal_tail_pins: terminal_tail_pins::TerminalTailPins,
+    terminal_tail_pins: Arc<terminal_tail_pins::TerminalTailPins>,
     /// The terminals that printed, for their workspaces' `ports` entries.
-    terminal_port_watch: terminal_port_watch::TerminalPortWatch,
+    terminal_port_watch: Arc<terminal_port_watch::TerminalPortWatch>,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     /// Per-client read marks. The shared unread marker above answers "does this terminal need
     /// attention on the shared console"; this map answers "has this client install seen this

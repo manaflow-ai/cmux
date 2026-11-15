@@ -11,6 +11,7 @@
 //! work with cmux quit and in safe mode.
 
 mod ask;
+mod library;
 mod render;
 #[cfg(test)]
 mod tests;
@@ -35,6 +36,7 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
   cmux customize save NAME [NOTE]             Save what is live as a profile: one file to keep or share
   cmux customize use NAME|FILE                Preview a profile, then apply or discard it
   cmux customize profiles                     The saved profiles
+  cmux customize library [VERB]               Everything you applied, kept as layers: list|on|off|order|export|import|remove
 
 You can also edit the files yourself (`cmux customize paths`): every save shows in cmux at
 once, an agent you ask next keeps your edits, and apply, discard and rollback work the same.
@@ -67,6 +69,7 @@ const VERBS: &[&str] = &[
     "save",
     "use",
     "profiles",
+    "library",
     "paths",
     "brief",
     "check",
@@ -99,6 +102,7 @@ pub(super) enum Request {
     Save { name: String, note: String },
     Use { source: String },
     Profiles,
+    Library(library::Request),
     Paths,
     Schema { section: Option<Section>, format: SchemaFormat },
 }
@@ -138,6 +142,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             none(Request::Generations)
         }
         "profiles" => none(Request::Profiles),
+        "library" | "lib" => library::parse(rest).map(Request::Library),
         "paths" => none(Request::Paths),
         "apply" => Ok(Request::Apply { note: (!rest.is_empty()).then(|| rest.join(" ")) }),
         "rollback" | "undo" | "switch" => match rest {
@@ -432,6 +437,7 @@ pub(super) fn execute(
             Answer::Using { name: profile.name, begun, status: customize.status()? }
         }
         Request::Profiles => Answer::Profiles(customize.profiles()?),
+        Request::Library(request) => library::execute(customize, request, origin, now_ms)?,
         Request::Paths => Answer::Paths(customize.roots().clone()),
         Request::Schema { section, format } => Answer::Schema(Schema::current(), section, format),
     })

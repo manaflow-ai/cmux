@@ -38,6 +38,11 @@ pub(in crate::cli) enum Answer {
     Profiles(Vec<Listed>),
     Paths(Roots),
     Schema(Schema, Option<Section>, super::SchemaFormat),
+    /// A `library` verb, rendered by `library.rs`.
+    Library {
+        json: Value,
+        human: String,
+    },
 }
 
 fn value(of: &impl serde::Serialize) -> Value {
@@ -93,6 +98,7 @@ impl Answer {
                 "language": "rust",
                 "source": cmux_customize::schema::rust(schema),
             }),
+            Answer::Library { json, .. } => json.clone(),
             Answer::Paths(roots) => json!({
                 "settings": roots.settings_file,
                 "keybindings": cmux_config::keybindings_path(&roots.settings_file),
@@ -160,6 +166,11 @@ impl Answer {
                     count(applied.changes.len(), "file")
                 ));
                 change_lines(&mut out, &applied.changes);
+                if let Some(name) = &applied.library {
+                    out.push_str(&format!(
+                        "saved to your library as {name} (`cmux customize library`)\n"
+                    ));
+                }
                 out.push_str("  cmux customize rollback        go back to how it was\n");
                 out.push_str(
                     "  cmux customize save NAME       keep this setup as a profile you can share\n",
@@ -225,6 +236,7 @@ impl Answer {
             Answer::Schema(schema, section, super::SchemaFormat::Schema) => {
                 schema_lines(&mut out, schema, *section);
             }
+            Answer::Library { human, .. } => out.push_str(human),
             Answer::Paths(_) => {
                 if let Some(paths) = self.json().as_object() {
                     for (name, path) in paths {

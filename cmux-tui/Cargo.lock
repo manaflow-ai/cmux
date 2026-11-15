@@ -40,6 +40,7 @@ dependencies = [
  "cmux-local-auth",
  "cmux-local-url",
  "cmux-mcp-connect",
+ "cmux-netwatch",
  "cmux-palette-ranker",
  "cmux-panic-log",
  "cmux-relay",
@@ -1795,6 +1796,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-netwatch"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-palette-eval"
 version = "0.1.0"
 dependencies = [
@@ -1949,6 +1958,7 @@ dependencies = [
  "cmux-build-identity",
  "cmux-json",
  "cmux-link",
+ "cmux-netwatch",
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
