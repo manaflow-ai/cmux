@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d7c8b2b5ed4fab2f1f0809997f1ea8682c0f4f4638c7c8f597cacdcdae3406b5.
+// cmux-tui mux protocol 12, IR 566e2042952c0c67b4a5746a12488f5ac809b887b8d1fd84d4bb6aad6e842d51.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1080,11 +1080,15 @@ pub struct IdentifyResult {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub machine_capabilities: Option<Vec<String>>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub machine_device: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub machine_id: Option<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub machine_name: Option<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub machine_platform: Option<MachinePlatform>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub machine_symbol: Option<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub min_api_revision: Optional<u32>,
     pub pid: u32,
