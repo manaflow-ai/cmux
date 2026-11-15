@@ -400,6 +400,20 @@ impl SummaryIndex {
             .is_some_and(|(key, _)| key.origin.as_ref() == origin)
     }
 
+    /// `origin`'s rows, in key order: a seek and the origin's own range, not a
+    /// walk of the index.
+    pub fn origin_rows<'a>(&'a self, origin: &'a str) -> impl Iterator<Item = &'a Summary> + 'a {
+        self.by_id
+            .range::<_, RowKey>((Included(&RowKey::new(origin, "")), Unbounded))
+            .take_while(move |(key, _)| key.origin.as_ref() == origin)
+            .map(|(_, row)| row.as_ref())
+    }
+
+    /// The chat ids of `origin`'s rows, in key order.
+    pub fn origin_chat_ids<'a>(&'a self, origin: &'a str) -> impl Iterator<Item = &'a str> + 'a {
+        self.origin_rows(origin).map(|row| row.chat_id.as_str())
+    }
+
     pub fn finish_origin_removal(&self, origin: &str) -> Self {
         let mut next = self.clone();
         next.leaving.remove(origin);

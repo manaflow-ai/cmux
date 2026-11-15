@@ -1,0 +1,12 @@
+{
+  "caption": "Buttons stay visible; Minimal Mode hides them until the pointer is over the sidebar or tab bar.",
+  "launch_args": ["--showcase"],
+  "frameInterval": 0.25,
+  "steps": [
+    {"title": "Open a workspace", "cmux": ["action", "run", "newTab", "--name", "Buttons", "--focus", "--cwd", "/tmp"], "wait": 1},
+    {"title": "Buttons show at rest", "cmux": ["sidebar", "disable-minimal-mode"], "wait": 1.5, "clip": true},
+    {"title": "Turn on Minimal Mode", "cmux": ["sidebar", "enable-minimal-mode"], "wait": 1.5, "clip": true},
+    {"title": "Turn Minimal Mode off again", "cmux": ["sidebar", "disable-minimal-mode"], "wait": 1.5}
+  ],
+  "crop": [0, 0, 1, 0.3]
+}

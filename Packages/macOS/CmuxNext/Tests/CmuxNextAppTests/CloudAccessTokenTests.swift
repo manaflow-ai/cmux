@@ -57,7 +57,10 @@ import Testing
         #expect(CloudAccessToken.failure(InstallAuthError.noSession) == .signedOut)
         #expect(CloudAccessToken.failure(InstallAuthError.transport(path: "/v1/auth/token", urlErrorCode: -1001)) == .unreachable)
         #expect(CloudAccessToken.failure(InstallAuthError.clientTooOld(minimumVersion: "3.0")) == .clientTooOld(minimumVersion: "3.0"))
-        #expect(CloudAccessToken.failure(InstallAuthError.unexpectedChallenge) == .badReply)
+        #expect(CloudAccessToken.failure(InstallAuthError.unexpectedChallenge) == .badReply("unexpected_challenge"))
+        #expect(CloudAccessToken.failure(InstallAuthError.malformedReply).detail == "malformed_reply")
+        // A local error is never "an answer cmux can't use": it names itself.
+        #expect(CloudAccessToken.failure(InstallAuthError.invalidPublicKey) == .local(InstallAuthError.invalidPublicKey.description))
         // A server or rate-limit status is the service's trouble, never "not a member".
         #expect(CloudAccessToken.failure(InstallAuthError.refused("http_503")) == .unreachable)
         #expect(CloudAccessToken.failure(InstallAuthError.refused("http_429")) == .unreachable)

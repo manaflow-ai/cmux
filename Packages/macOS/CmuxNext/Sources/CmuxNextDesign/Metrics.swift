@@ -111,10 +111,11 @@ public struct Metrics {
 
     /// A tab pill's height: the chrome row (``chromeRowHeight``), the Compact tabs option's tighter
     /// pill, or a set `tabHeight`; under `appearance.metrics.tabStripHeight` the bar's height less the
-    /// density's own room around its pill, so a taller bar has taller tabs.
+    /// density's own room around its pill, so a taller bar has taller tabs. The Compact tabs pill is
+    /// never taller than the row it tightens: its 22 pt token predates Compact's 20 pt Helium rows.
     public static var tabHeight: CGFloat {
         let metric = MetricTunables.tabHeight
-        let tab = metric.explicitValue ?? (compactTabs ? metric.value : chromeRowHeight)
+        let tab = metric.explicitValue ?? (compactTabs ? min(metric.value, chromeRowHeight) : chromeRowHeight)
         guard DesignSettings.shared.overrides[.tabStripHeight] != nil else { return tab }
         let strip = MetricTunables.tabStripHeight
         let densityStrip = scale(strip.tunable.resolve(tokens.resolve(compact: strip.compactValue, comfortable: strip.comfortable, token: strip.name)))

@@ -49,6 +49,18 @@ import Testing
         #expect(!warmup.isIdle(ChromiumWarmup.Policy()))
     }
 
+    /// Chromium starting at launch for agent chats is no reason for a web tab's spare window and page
+    /// (Home held both for nothing); any reach for a web tab is.
+    @Test func onlyAWebTabSignalMakesTheSpare() {
+        #expect(!ChromiumWarmup.signalsWebTab(.launch))
+        for reason in [ChromiumWarmup.Reason.restoredTab, .newTabMenu, .palette, .defaultEngine] {
+            #expect(ChromiumWarmup.signalsWebTab(reason))
+        }
+        #expect(!ChromiumWarmup.makesSpare(webTabsOpen: false, webTabIntent: false))
+        #expect(ChromiumWarmup.makesSpare(webTabsOpen: true, webTabIntent: false))
+        #expect(ChromiumWarmup.makesSpare(webTabsOpen: false, webTabIntent: true))
+    }
+
     @Test func theDefaultPolicy() {
         let policy = ChromiumWarmup.Policy()
         #expect(policy.launchPreloadDelay == .seconds(3))

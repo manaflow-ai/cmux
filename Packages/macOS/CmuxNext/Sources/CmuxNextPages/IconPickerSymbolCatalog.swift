@@ -1,6 +1,6 @@
 import CmuxNextDesign
-import CmuxNextSettings
-import Foundation
+public import CmuxNextSettings
+public import Foundation
 
 /// The SF Symbols catalog of the running system for the icon picker's Symbols tab
 /// (ICON-PICKER-ALL-EMOJI-AND-SF-SYMBOLS): the names this Mac draws in the system's order,
@@ -14,25 +14,25 @@ import Foundation
 /// Apple's symbol names, categories or keywords (SF Symbols license). Without
 /// `name_availability.plist` the names come from `symbol_order.plist`; with neither the
 /// catalog is empty and the page shows its empty state.
-nonisolated struct IconPickerSymbolCatalog: Equatable, Sendable {
-    nonisolated struct Category: Equatable, Sendable {
+public nonisolated struct IconPickerSymbolCatalog: Equatable, Sendable {
+    public nonisolated struct Category: Equatable, Sendable {
         /// The system's key (`objectsandtools`); the page localizes the title.
-        let key: String
+        public let key: String
         /// The SF Symbol that stands for the category (the page's jump bar).
-        let icon: String
+        public let icon: String
         /// Indices into ``IconPickerSymbolCatalog/names``, in name order.
-        let members: [Int]
+        public let members: [Int]
     }
 
-    var names: [String]
+    public var names: [String]
     /// Aligned with ``names``: the keywords joined by spaces ("" for none).
-    var keywords: [String]
-    var categories: [Category]
+    public var keywords: [String]
+    public var categories: [Category]
 
-    static let systemResources = URL(fileURLWithPath: "/System/Library/CoreServices/CoreGlyphs.bundle/Contents/Resources",
+    public static let systemResources = URL(fileURLWithPath: "/System/Library/CoreServices/CoreGlyphs.bundle/Contents/Resources",
                                      isDirectory: true)
     /// The catalog, read off the main actor (five plist reads, about 1 MB).
-    @concurrent static func load(resources: URL = systemResources) async -> IconPickerSymbolCatalog {
+    @concurrent public static func load(resources: URL = systemResources) async -> IconPickerSymbolCatalog {
         // concurrency-allow: @concurrent, so the file reads in read(resources:) never run on the main actor
         read(resources: resources)
     }
@@ -84,7 +84,7 @@ nonisolated struct IconPickerSymbolCatalog: Equatable, Sendable {
 
     /// The session event's catalog members: `symbols`, `symbolKeywords`, `symbolCategories`
     /// (webviews/src/pages/icon-picker/host.ts PickerSession).
-    var eventMembers: [String: JSONValue] {
+    public var eventMembers: [String: JSONValue] {
         [
             "symbols": .array(names.map(JSONValue.string)),
             "symbolKeywords": .array(keywords.map(JSONValue.string)),

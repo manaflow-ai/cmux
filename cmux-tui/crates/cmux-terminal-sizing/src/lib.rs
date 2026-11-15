@@ -570,8 +570,26 @@ impl TerminalSizingEngine {
                         values.into_iter().max().expect("non-empty")
                     }
                 };
-                let cols = pick(viewports.iter().map(|size| size.cols).collect());
+                let mut cols = pick(viewports.iter().map(|size| size.cols).collect());
                 let rows = pick(viewports.iter().map(|size| size.rows).collect());
+                if smallest {
+                    // The phone floor: a counting phone or tablet (one that
+                    // shows the terminal now) never gets a grid narrower than
+                    // itself; a narrower desktop view clips instead. Columns
+                    // only: a shorter desktop pane cut at the bottom would
+                    // hide the prompt and cursor rows, and a phone's rows
+                    // swing with its keyboard (docs/shared-terminal-sizing.md).
+                    if let Some(floor) = counting
+                        .iter()
+                        .filter(|entry| entry.participant.device_kind.is_handheld())
+                        .filter_map(|entry| {
+                            entry.participant.viewport.map(|viewport| viewport.cols)
+                        })
+                        .min()
+                    {
+                        cols = cols.max(floor);
+                    }
+                }
                 let owners = counting
                     .iter()
                     .filter(|entry| {
