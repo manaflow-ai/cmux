@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43708250445",
+  "recorded_at": "2026-11-15T11:25:30Z",
+  "reason": "cmux-tui 545ac0141151 changes the image's cmux-tui (pinned 1ce306b20032)",
+  "dry_run": false,
+  "cmux_tui": "545ac01411513bb945f863a34279e21d86258d9b",
+  "fixes": [
+    {
+      "sha": "545ac01411513bb945f863a34279e21d86258d9b",
+      "mergedAt": "2026-11-15T03:02:58-08:00",
+      "subject": "Toggle Terminal and Chat: read a harness's approval dialog off a terminal's screen (Rust, step A) (#43612)"
+    },
+    {
+      "sha": "4878331b2c7b5c51f18df2f89f59d6650699445f",
+      "mergedAt": "2026-11-15T03:02:01-08:00",
+      "subject": "Toggle Terminal and Chat: a terminal waiting on a chat's turn shows its permission and takes the answer (#43582)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T11:25:30Z",
+    "snapshot_id": "sh-8036c16135344ff9b915ce7a65cfdfa6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43708250445): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e09bbcb406dc3f6aee328ab9e5aabd5a2f03b8ea",
+    "image": "cloud-native-auto-545ac014-43708250445-1",
+    "revision": "ci-43708250445-1",
+    "at": "2026-11-15T11:25:30Z"
+  },
+  "rolled_back": false
+}
