@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43705983229",
+  "recorded_at": "2026-11-15T10:59:08Z",
+  "reason": "cmux-tui f9c59a3ea7fd changes the image's cmux-tui (pinned 3ca1a16e3e98)",
+  "dry_run": false,
+  "cmux_tui": "f9c59a3ea7fda92b0fe5bff27020d0f778061546",
+  "fixes": [
+    {
+      "sha": "54dcf042377efe67123e1b01c2a143b8af141146",
+      "mergedAt": "2026-11-15T02:26:38-08:00",
+      "subject": "Cloud start: the daemon names a signed-out agent (sign_in_required) and signs it in before a session (#43641)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T10:59:08Z",
+    "snapshot_id": "sh-86c3837836bc4be7a332f42eee7aa354",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43705983229): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ef15e548fac38999c8f4b167e2878ca7a2a761fd",
+    "image": "cloud-native-auto-f9c59a3e-43705983229-1",
+    "revision": "ci-43705983229-1",
+    "at": "2026-11-15T10:59:08Z"
+  },
+  "rolled_back": false
+}
