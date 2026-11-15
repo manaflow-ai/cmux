@@ -22,6 +22,8 @@ use serde_json::{Value, json};
 /// The most requests the server held at once on one connection with their answers not sent.
 struct Served {
     most_in_flight: AtomicUsize,
+    /// Requests of each `cmd`, all connections together.
+    asked: std::sync::Mutex<std::collections::BTreeMap<String, usize>>,
 }
 
 /// Serves `fs.*` lines on `socket` over `home`, each answer `rtt` after its request came.
@@ -29,7 +31,8 @@ fn serve_with_rtt(socket: &Path, home: &Path, rtt: Duration) -> Arc<Served> {
     let listener = UnixListener::bind(socket).unwrap();
     let service: &'static FsService =
         Box::leak(Box::new(FsService::new(Roots::new([home.to_path_buf()]))));
-    let served = Arc::new(Served { most_in_flight: AtomicUsize::new(0) });
+    let served =
+        Arc::new(Served { most_in_flight: AtomicUsize::new(0), asked: Default::default() });
     let shared = served.clone();
     std::thread::spawn(move || {
         for connection in listener.incoming() {
@@ -57,6 +60,7 @@ fn serve_with_rtt(socket: &Path, home: &Path, rtt: Duration) -> Arc<Served> {
                     let request: Value = serde_json::from_str(&line).unwrap();
                     let id = request["id"].clone();
                     let cmd = request["cmd"].as_str().unwrap_or_default().to_string();
+                    *served.asked.lock().unwrap().entry(cmd.clone()).or_default() += 1;
                     let reply = if cmd == "identify" {
                         json!({"id": id, "ok": true, "data": {"capabilities": [
                             fs_ops::FS_CAPABILITY, fs_ops::FS_SYMLINK_CAPABILITY,
@@ -240,4 +244,60 @@ fn a_bench_of_folders_shaped_like_leos() {
     let briefs = root.path().join("briefs");
     plain_folder(&briefs, scaled(11_800), scaled(600), 4, 32 << 20);
     bench_row("briefs-shape", &briefs, rtt, rounds);
+}
+
+/// The bench of 2026-11-15 at 100 ms a round trip: making the folders took 26 of a 20,000-file
+/// folder's 32 s at a quarter of its size, five requests one after another for each new folder
+/// (is it a symlink, its listing, is it there, is its parent there, make it). A chat's copy
+/// goes to a new folder, so nothing in it is the machine's: each folder is one `fs.mkdir`, and
+/// nothing is asked of a folder or a file before it is written.
+#[test]
+fn a_copy_into_a_new_folder_makes_each_folder_with_one_request_and_asks_nothing_else() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let local = root.join("folder");
+    // 40 folders of 2 files, and 10 of them with a folder below.
+    plain_folder(&local, 80, 40, 0, 0);
+    for index in 0..10 {
+        let deeper = local.join(format!("d{index:04}/inner"));
+        std::fs::create_dir_all(&deeper).unwrap();
+        std::fs::write(deeper.join("x.txt"), "x\n").unwrap();
+    }
+    let (_sockets, socket, home) = machine(&root);
+    let served = serve_with_rtt(&socket, &home, Duration::from_millis(1));
+    let remote = home.join("work/folder");
+
+    let (summary, _) = push(&socket, &local, &remote);
+
+    assert_eq!(summary["written"], 90, "{summary}");
+    assert_eq!(files_below(&local), files_below(&remote));
+    let asked = served.asked.lock().unwrap().clone();
+    let count = |cmd: &str| asked.get(cmd).copied().unwrap_or(0);
+    assert_eq!(count("fs.mkdir"), 50 + 1, "{asked:?}");
+    // The root's own checks and the manifest's read only, none per folder or file.
+    assert!(count("fs.stat") + count("fs.list") <= 8, "{asked:?}");
+}
+
+/// After the change above each new folder was still one `fs.mkdir` round trip, one after
+/// another: 6 of the bench's 12 s for the 20,000-file folder (at a quarter of its size). They
+/// now go together once the push knows every folder, so 60 folders at 200 ms a round trip are
+/// made in a few round trips, not 60.
+#[test]
+fn new_folders_cross_a_slow_link_together() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let local = root.join("folder");
+    plain_folder(&local, 60, 60, 0, 0);
+    let (_sockets, socket, home) = machine(&root);
+    let rtt = Duration::from_millis(200);
+    serve_with_rtt(&socket, &home, rtt);
+    let remote = home.join("work/folder");
+
+    let (summary, timings) = push(&socket, &local, &remote);
+
+    assert_eq!(summary["written"], 60, "{summary}");
+    assert_eq!(files_below(&local), files_below(&remote));
+    let prepare =
+        Duration::from_millis(timings["prepare"].as_u64().expect("the push's stage times"));
+    assert!(prepare < rtt * 20, "making 60 folders took {prepare:?}");
 }
