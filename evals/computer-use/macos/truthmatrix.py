@@ -53,6 +53,17 @@ LAB_APP = "CU Eval Fixture"
 ACTING = {"click", "type_text", "press_key", "hotkey", "scroll", "drag", "set_value", "perform_action",
           "invoke_menu", "repl"}
 LATE_DEFAULT = 3.5
+# Aside has one tool (repl); its observation calls (titles set by aside_arm.py) are not actions
+ASIDE_OBSERVE = {"Read window", "Screenshot", "List windows", "List apps", "Read Python windows"}
+
+
+def is_acting(call):
+    if call["tool"] not in ACTING:
+        return False
+    if call["tool"] == "repl":
+        t = (call.get("args") or {}).get("title") or ""
+        return t not in ASIDE_OBSERVE and not t.startswith("Get ")
+    return True
 
 
 def fixture_bin(bundle):
@@ -180,12 +191,14 @@ class Scene(bm.Scene):
         time.sleep(0.8)
 
     def front_target(self, pid, title):
+        s = {}
         for _ in range(30):
             bm.probe("raise", pid, title)
             s = bm.probe("state")
             if s.get("front_pid") == pid and (s.get("key_window_title") or "").startswith(title):
                 return True
             time.sleep(0.15)
+        self.last_front = f"front {s.get('front_name')!r} pid {s.get('front_pid')}, key window {s.get('key_window_title')!r}"
         return False
 
 
@@ -1002,7 +1015,7 @@ def run_cell(arm, scene, app, cell, w, rep, scene_kind, ctx, out, late):
             note = "person could not be made frontmost"
     else:
         if not scene.front_target(ctx["pid"], ctx["title"] if not lab else lab_window_for(cell.name)):
-            note = "target could not be made frontmost and key"
+            note = "target could not be made frontmost and key: " + getattr(scene, "last_front", "")
     arm.calls = []
     read = cell.read or (lambda c: lab.state())
     err = None
@@ -1035,7 +1048,7 @@ def run_cell(arm, scene, app, cell, w, rep, scene_kind, ctx, out, late):
         except Exception as e:
             err = f"{type(e).__name__}: {e}"
             detail = traceback.format_exc()[-600:]
-    acts = [x for x in arm.calls[pre_calls:] if x["tool"] in ACTING] if not (err or "").startswith("pre:") else []
+    acts = [x for x in arm.calls[pre_calls:] if is_acting(x)] if not (err or "").startswith("pre:") else []
     scored = acts[-1] if acts else None
     claim = claim_of(arm.id, scored) if scored else None
     t_result = (scored or {}).get("t1") or time.time()
