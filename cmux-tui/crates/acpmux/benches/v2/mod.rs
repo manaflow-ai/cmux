@@ -31,1040 +31,11 @@ pub struct GateRow {
 
 /// One row for every measure a gate writes, and one placeholder for each PR whose gates have not
 /// landed. A done-when line that a test holds (a kill at every byte, a wrong magic) has no row.
-pub const GATE_ROWS: &[GateRow] = &[
-    GateRow {
-        pr: "1",
-        name: "v2.pr01.append_time",
-        done_when: "Append is O(row): time per append within 1.2x at 2M rows against 40.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "1",
-        name: "v2.pr01.append_bytes",
-        done_when: "Append is O(row): bytes written per append within 1.2x at 2M rows against 40.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "1",
-        name: "v2.pr01.first_window",
-        done_when: "First window read (open, window and fill): under 5 ms, 1.2x at 2M rows against 40.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: Some(5_000_000.0),
-    },
-    GateRow {
-        pr: "1b",
-        name: "v2.pr01b.cold_first_append",
-        done_when: "PR 1's gates still pass with the record layout: the first append to a book just opened within 1.2x at 2M rows against 40.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "1b",
-        name: "v2.pr01b.torn_open",
-        done_when: "Work at open 1.2x, 2M rows against 40: an open that cuts off a torn record.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "2",
-        name: "v2.pr02.translate_line",
-        done_when: "Translate cost per line is at most 1.2x god against small.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "2",
-        name: "v2.pr02.translate_line_full_state",
-        done_when: "Translate cost with the bounded open state is at most 1.2x god against small.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "2",
-        name: "v2.pr02.jsonl_peak_rss",
-        done_when: "The 1.1 GB JSONL shape stays under 64 MB RSS and within 1.2x god against small.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "2b",
-        name: "v2.pr02b.translate_line_queue_full",
-        done_when: "fold(a ++ b) == apply(fold(a), b) holds for the queue as for the rows, over 10k random splits. For every settled group in every interleaving, the rows in sight are the group row and out, nothing else. The state is inside its bound with 1,024 entries waiting.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "3",
-        name: "v2.pr03.chat_actor_killed_mid_turn",
-        done_when: "The actor killed mid-turn 50 times: the replay settles every row once.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "3c",
-        name: "v2.pr03c.fold_window",
-        done_when: "A window at the end of a chat whose last turn folded 100,000 rows stays within 1.2x of one folded 10 rows, with the same reply size.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "3d",
-        name: "v2.pr03d.turns_page",
-        done_when: "One page of turns at the newest end of the god chat stays within 1.2x of one from the small chat, with the same reply.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "3c",
-        name: "v2.pr03c.blob_range",
-        done_when: "A bounded 256 KB range of a 100 MB body stays within 1.2x of one from a 300 KB body, for settled and open bodies.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "3c",
-        name: "v2.pr03c.window_folds",
-        done_when: "A window at the end of a chat of 100,000 folded turns, against 10: 1.2x. Window time and reads of folds.idx (one search a read, at both sizes). The same rows in the window on both sides.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "3c",
-        name: "v2.pr03c.first_window",
-        done_when: "First `window` within 50 ms of `sub`, 1.2x. From `sub` on a cold chat to the window taken by the handle; cold on both sides, the book's lock free.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: Some(50_000_000.0),
-    },
-    GateRow {
-        pr: "3c",
-        name: "v2.pr03c.resume_missed",
-        done_when: "Resume from a cursor costs O(missed). The same records missed on both sides; time and bytes read.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "3c",
-        name: "v2.pr03c.subscribed_rss",
-        done_when: "RSS with the god chat subscribed within 1.2x of small. The same largest input on both sides, the rise read against a counter of bytes held, `malloc_trim(0)` before the baseline.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "3c",
-        name: "v2.pr03c.append_behind_page",
-        done_when: "An append that waits behind a cold `page` read: its wait 1.2x on the best p95 of five rounds, as each sample holds a cold read, and 2x on the p95 of all samples. Runs of their own, alternated. The cold segment read is paid on both sides; bytes read and minor faults printed beside the time. Sampled in a child process whose allocator keeps fixed thresholds, so an actor arena's trim (faults that follow the thread, not the chat's length) is not read as god's cost.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "3c",
-        name: "v2.pr03c.queue_window",
-        done_when: "A window with 64 prompts of 100 KB waiting, against 64 of 16 KB (the head read's bound, so both sides fill each head's one read and both windows carry the same bytes), each on a cold actor: 1.2x. Window time and bytes read. A probe prints the 1 KB and 1 MB sides.",
-        // Best p95 time ratio 0.984, 0.965 and 0.945 in three runs, bytes read 1.000; the probe
-        // (`queue_window_sizes_probe`) has 1 MB within 1.013 of 16 KB on time and 1.000 on bytes.
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "3c",
-        name: "v2.pr03c.prompt_blob_next",
-        done_when: "The last 256 KB of a waiting prompt of 100 MB, read on by `next`, against 300 KB: 1.2x. Per request, from a `next` token; the 1 MiB scan bound is a counter test.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "3a3",
-        name: "v2.pr03a3.actor_line",
-        done_when: "One settled line through the actor at 40 rows and 2M rows: best p95 1.2x, aggregate p95 2x.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "3a3",
-        name: "v2.pr03a3.checkpoint_open",
-        done_when: "Open at the checkpoint reads no row suffix; at 40 rows and 2M rows best p95 1.2x, aggregate p95 2x.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "3a",
-        name: "v2.pr03a.source_read_bounds",
-        done_when: "A 1 GB growth reads one chunk and holds reads one byte at 40 rows and 2M rows. A 10 MB line appended in 100 pieces is read once when its newline arrives.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "3b",
-        name: "v2.pr03b.catchup_peak_rss",
-        done_when: "The god chat caught up from nothing over the v1 source: the most bytes the actor's thread holds at once (the test allocator's count, over its first chunk's, in any stretch of the same length or at the end) within 1.2x of small, after one catch-up nobody measures; god's resident anonymous bytes grow at most 64 KiB from the stretch a quarter of the way through to its last (no small side: what the thread count cannot see); one chunk held, the bytes read within 1.2x of the log, and the book equal to what translate gives. Resident size's rise is printed, not gated: glibc's held free pages and rows.idx's page cache move it.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "3b",
-        name: "v2.pr03b.tee_append_added",
-        done_when: "The hook's time inside v1's append (write_record_locked), god home against small, books on, each chat's book caught up first: best p95 of five rounds 1.2x, every sample's p95 2x. Rounds alternate.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "3b",
-        name: "v2.pr03b.append_on_off",
-        done_when: "v1's append p95 in the god home with books on (god side) against off (small side): 1.2x, the hook's own time inside it. Rounds alternate.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "3b",
-        name: "v2.pr03b.catchup_ack",
-        done_when: "v1's ack p95 of an agent host's line (tap.rs append_logged(..).1) on a live chat while the god chat catches up from nothing, against the same with no catch-up: 1.2x. Rounds alternate.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "4",
-        name: "v2.pr04.byte_credit_drop_resume",
-        done_when: "1 GB of events to a stopped reader: RSS stays under the connection budget; the reader resumes with no row lost or repeated.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "4",
-        name: "v2.pr04.credit_without_read_drop",
-        done_when: "A reader that sends credit without reading gets dropped on that sid; the connection stays up and another sid remains ordered.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "4",
-        name: "v2.pr04.offer_256_subscriptions",
-        done_when: "Offering one frame to 256 subscriptions costs at most 1.2x the one-subscription case.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "4",
-        name: "v2.pr04.list_resume_end",
-        done_when: "A list resume that missed nothing ends with one empty end frame, and no live op precedes the end mark.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "4",
-        name: "v2.pr04.not_fed_bytes",
-        done_when: "A subscriber that is not fed retains zero frame bytes through the god run.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "4",
-        name: "v2.pr04.chat_stopped_reader",
-        done_when: "A chat stream to a stopped reader: RSS under the connection budget, and it resumes with no row lost or repeated. Peak row: small streams 16 MiB and god 1 GiB, each resets its mark before its last 8 MiB, the rise less the baseline; the two sides sample stretches of the same length.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "4b",
-        name: "v2.pr04b.mirror_v1_rows",
-        done_when: "A live mirror with rows: v1 converts 20 live rows with 11,000 closed rows beside them within 1.2x of 20 alone for received bytes and client time.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "6e",
-        name: "v2.pr06.hold_attach",
-        done_when: "A hold attach on the god chat costs at most 1.2x the same hold attach on the small chat, without reading the chat log.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "5",
-        name: "v2.pr05.first_list_window",
-        done_when: "First list window from a running hub: best p95 within 1.2x at 11,000 sessions against 20, all-sample p95 within 2x.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5",
-        name: "v2.pr05.summary_change",
-        done_when: "A summary change copies one tree path: best p95 within 3.7x, all-sample p95 within 6.2x, and god best p95 at most 10 microseconds.",
-        measured: true,
-        ratio: 3.7,
-        ratio_all: Some(6.2),
-        god_max: Some(10_000.0),
-    },
-    GateRow {
-        pr: "5b",
-        name: "v2.pr05b.start_first_window",
-        done_when: "From exec to the first list window out of the snapshot: under 200 ms at 11,000 sessions, 1.2x against 20.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: Some(200_000_000.0),
-    },
-    GateRow {
-        pr: "5b",
-        name: "v2.pr05b.start_rss",
-        done_when: "Bounded list storage: start rss, measured at 20 and 11,000 sessions.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5b",
-        name: "v2.pr05b.hot_rss",
-        done_when: "Cold rows leave the hot maps at startup and compaction install; retained RSS at 11,000 stays within 1.2x of 20 at the same writer phase.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5b",
-        name: "v2.pr05b.apply_during_compaction",
-        done_when: "At 11,000 sessions, the complete writer turn during compaction stays within 1.2x of outside compaction, including group sync and install.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5b",
-        name: "v2.pr05b.page_first",
-        done_when: "Bounded list storage: page first, measured at 20 and 11,000 sessions.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5b",
-        name: "v2.pr05b.page_first_bytes",
-        done_when: "Physical page first bytes include all seeks: 15.4x (256/20 rows per block), at most 64 KiB plus 19 fixture rows of at most 160 bytes (decision 110).",
-        measured: true,
-        ratio: 15.4,
-        ratio_all: None,
-        god_max: Some((64 * 1024 + 19 * 160) as f64),
-    },
-    GateRow {
-        pr: "5b",
-        name: "v2.pr05b.page_first_filter",
-        done_when: "Bounded list storage: page first filter, measured at 20 and 11,000 sessions.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5b",
-        name: "v2.pr05b.page_middle",
-        done_when: "Bounded list storage: page middle, measured at 20 and 11,000 sessions.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5b",
-        name: "v2.pr05b.page_middle_bytes",
-        done_when: "Physical page middle bytes include all seeks: 15.4x (256/20 rows per block), at most 64 KiB plus 9 fixture rows of at most 160 bytes (decision 110).",
-        measured: true,
-        ratio: 15.4,
-        ratio_all: None,
-        god_max: Some((64 * 1024 + 9 * 160) as f64),
-    },
-    GateRow {
-        pr: "5b",
-        name: "v2.pr05b.page_middle_filter",
-        done_when: "Bounded list storage: page middle filter, measured at 20 and 11,000 sessions.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5b",
-        name: "v2.pr05b.page_last",
-        done_when: "True last-key page: 14.9x best, 24.8x all-sample, and 400 microseconds; the derived bound accounts for different terminal stride phases (decision 110).",
-        measured: true,
-        ratio: 14.9,
-        ratio_all: Some(24.8),
-        god_max: Some(400_000.0),
-    },
-    GateRow {
-        pr: "5b",
-        name: "v2.pr05b.page_last_bytes",
-        done_when: "Physical page last bytes include all seeks: 15.4x (256/20 rows per block), at most 64 KiB plus 0 fixture rows of at most 160 bytes (decision 110).",
-        measured: true,
-        ratio: 15.4,
-        ratio_all: None,
-        god_max: Some((64 * 1024) as f64),
-    },
-    GateRow {
-        pr: "5b",
-        name: "v2.pr05b.page_last_filter",
-        done_when: "True last-key page: 14.9x best, 24.8x all-sample, and 400 microseconds; the derived bound accounts for different terminal stride phases (decision 110).",
-        measured: true,
-        ratio: 14.9,
-        ratio_all: Some(24.8),
-        god_max: Some(400_000.0),
-    },
-    GateRow {
-        pr: "5c",
-        name: "v2.pr05c.tee_change",
-        done_when: "A v1 list-changing update reaches the v2 index with one mark and one summary op within 1.2x against 20 sessions.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5c",
-        name: "v2.pr05c.stream_chunk",
-        done_when: "100,000 streamed text chunks produce zero tee marks and keep append p95 within 1.2x of v1 without the tee.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5c",
-        name: "v2.pr05c.walk_rss",
-        done_when: "The startup reconciliation walk's RSS at 11,000 sessions stays within one page of the 20-session run.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5c",
-        name: "v2.pr05c.live_view",
-        done_when: "The live view pages 20 live chats through 11,000 sessions within 1.2x and tracks close/reopen state changes.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5c",
-        name: "v2.pr05c.keyed_page",
-        done_when: "A keyed page of 100 closed chats returns provider rows and missing/unknown keys within 1.2x at 11,000 sessions.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5c",
-        name: "v2.pr05c.replay_frame",
-        done_when: "A full 1 MiB ring replay uses frames no larger than 256 KiB, each ending at an operation boundary.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: Some((256 * 1024) as f64),
-    },
-    GateRow {
-        pr: "5c",
-        name: "v2.pr05c.replay_append",
-        done_when: "Writer append p95 beside a full replay of its own ring stays within 1.2x of append beside the same replay of another hub's ring; the probe prints both against no replay.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5c",
-        name: "v2.pr05c.replay_open_hold",
-        done_when: "An append overlapping the open copy of a full ring replay stays under 1 ms p95.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: Some(1_000_000.0),
-    },
-    GateRow {
-        pr: "5c",
-        name: "v2.pr05c.single_encode",
-        done_when: "A change sent to 100 list subscribers is encoded once, with no subscriber-side deep clone or re-encode.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: Some(1.0),
-    },
-    GateRow {
-        pr: "5e",
-        name: "v2.pr05e.kin_table_change",
-        done_when: "A parent move path-copies tables at 20 versus 11,000 hot rows; unchanged relations write zero paths.",
-        measured: true,
-        ratio: 3.7,
-        ratio_all: Some(6.2),
-        god_max: Some(10_000.0),
-    },
-    GateRow {
-        pr: "5e",
-        name: "v2.pr05e.folder_change",
-        done_when: "A folder move path-copies tables at 20 versus 11,000 hot rows.",
-        measured: true,
-        ratio: 3.7,
-        ratio_all: Some(6.2),
-        god_max: Some(10_000.0),
-    },
-    GateRow {
-        pr: "5e",
-        name: "v2.pr05e.sibling_insert",
-        done_when: "A parent with 5,000 children gains one against a parent with five, under the tree-height bound.",
-        measured: true,
-        ratio: 6.350435609064215,
-        ratio_all: Some(10.58405934844036),
-        god_max: Some(10_000.0),
-    },
-    GateRow {
-        pr: "5e",
-        name: "v2.pr05e.family_page",
-        done_when: "The same first page of 50 hot descendants over four depths with 20 versus 11,000 unrelated rows reads at most limit plus one.",
-        measured: true,
-        ratio: 1.2,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5e",
-        name: "v2.pr05e.family_page_after",
-        done_when: "The same anchored family page and cursor depth with 20 versus 11,000 unrelated rows reads at most limit plus one plus the bounded climb.",
-        measured: true,
-        ratio: 1.2,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5e",
-        name: "v2.pr05e.folder_page",
-        done_when: "The same page of 50 folder rows with 20 versus 11,000 unrelated rows reads at most limit plus one.",
-        measured: true,
-        ratio: 1.2,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5e",
-        name: "v2.pr05e.random_replay",
-        done_when: "After 10,000 randomized starts, forks, moves, closes, residency transitions and deletes, tables equal a fresh build from hot rows.",
-        measured: true,
-        ratio: 1.2,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "5e",
-        name: "v2.pr05e.cold_continuation",
-        done_when: "An explicit cold folder walk progresses through every candidate with each request inside the sparse-read and 256 KiB bounds.",
-        measured: true,
-        ratio: 15.4,
-        ratio_all: None,
-        god_max: Some(256.0 * 1024.0),
-    },
-    GateRow {
-        pr: "5f",
-        name: "v2.pr05f.apply_newest",
-        done_when: "A chat made newest in its folder is a persistent path copy: at 2,000 folders against 5, tree-rule ratio 5.7, all-sample ratio 9.4, and under 10 microseconds.",
-        measured: true,
-        ratio: 5.7,
-        ratio_all: Some(9.4),
-        god_max: Some(10_000.0),
-    },
-    GateRow {
-        pr: "5g",
-        name: "v2.pr05g.open_damage",
-        done_when: "1,000 seeded random damages across snapshot heads, checkpoints, log generations and edition markers rebuild at open without a daemon failure and match a first start after the source walk.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5h",
-        name: "v2.pr05h.hub_row_submit",
-        done_when: "The tee's turn for one changed hub row (its mark drained to one submit) with 2,048 book rows and 11,000 closed rows against one book row and an empty index: p95 within 1.2x, the sides alternating rounds.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5g",
-        name: "v2.pr05g.rebuild_cost",
-        done_when: "A rebuild walk costs at most 1.2x a first start at 11,000 sessions against 20.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5f",
-        name: "v2.pr05f.apply_move",
-        done_when: "A chat moved between folders copies two persistent paths: at 2,000 folders against 5, tree-rule ratio 5.7, all-sample ratio 9.4, and under 10 microseconds.",
-        measured: true,
-        ratio: 5.7,
-        ratio_all: Some(9.4),
-        god_max: Some(10_000.0),
-    },
-    GateRow {
-        pr: "5f",
-        name: "v2.pr05f.first_window",
-        done_when: "The first folders window stays within 1.2x at 2,000 folders against 5.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5f",
-        name: "v2.pr05f.deep_page",
-        done_when: "A deep folders page stays within 1.2x at 2,000 folders against 5.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5f",
-        name: "v2.pr05f.serving_window",
-        done_when: "The folders serving window returns three rows within 1.2x at 2,000 folders against 5, with pooled samples within 2x.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5f",
-        name: "v2.pr05f.serving_page",
-        done_when: "A deep folders page returning three rows stays within 1.2x at 2,000 folders against 5, with pooled samples within 2x.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5f",
-        name: "v2.pr05f.equal_entry",
-        done_when: "An equal folder entry produces zero folder operations.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "5f",
-        name: "v2.pr05f.tail_replay",
-        done_when: "A live folders sid reads 100 retained steps within 1.2x at 2,000 folders against 5, with pooled samples within 2x.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5d",
-        name: "v2.pr05d.origin_state_ops",
-        done_when: "A peer down, stale and connected transition writes three origin records and no row operations; god 500 rows stays within 1.2x of 20.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5d",
-        name: "v2.pr05d.removed_origin_batch",
-        done_when: "Removing a peer with 500 rows emits one origin op and removes rows in bounded batches; god stays within 1.2x of 20.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5d",
-        name: "v2.pr05d.submit_time",
-        done_when: "One summary preparation and enqueue costs at most 1.2x at 11,000 live rows against 20; pooled god p95 stays within 2x.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "6a",
-        name: "v2.pr06.client_chat_held",
-        done_when: "Bytes the client core holds for one chat sub after its window and 10,000 deltas: a chat of 100,000 rows with a 1 MB open row within 1.2x of a chat of 100 rows.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "6a",
-        name: "v2.pr06.client_chat_change",
-        done_when: "p95 from `received` to `next_change` for one settled row of the same size: the god chat within 1.2x of the small one, rounds alternating, the same samples a side.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "6",
-        name: "v2.pr06.thin_store_geometry",
-        done_when: "DOM mutation probe on open: blank to settled and nothing else. Zero visible-row shifts not caused by input, across open, reconnect, restart and page-up. Scroll-up settle 1.2x.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    // Measured by the web bench harness (webviews/bench/page-row-store.bench.ts), which the Linux
-    // gate script does not run.
-    GateRow {
-        pr: "6c",
-        name: "v2.pr06.page_store_apply",
-        done_when: "p95 for the page's row store to take one batch holding one settled row op: a chat of 100,000 rows within 1.2x of one of 100, rounds alternating, the same samples a side.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "6c",
-        name: "v2.pr06.page_store_text",
-        done_when: "p95 for the page's row store to take one batch holding one text op on an open row whose body is 200 KB, within 1.2x of one whose body is 1 KB.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "6c",
-        name: "v2.pr06.page_store_held",
-        done_when: "The rows and row bytes the page's row store holds after paging through a chat of 20,000 rows against one of 200: at the store's cap or under it.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "7",
-        name: "v2.pr07.mirror_connect_bytes",
-        done_when: "The sidebar's mirror of the live view (`rows: \"v1\"`, 8 wanted closed keys) through the C entry points, 20 live on both sides and 11k closed beside them on god: bytes received on the list stream from connect to idle (`whole`), 1.2x.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "7",
-        name: "v2.pr07.mirror_connect_rows_wall",
-        done_when: "The same mirror and fixtures: connect to the last row delivered as a change, 1.2x, and under 200 ms.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: Some(200_000_000.0),
-    },
-    GateRow {
-        pr: "7b",
-        name: "v2.pr07b.info_rows_wall",
-        done_when: "100 rows by key (`_acpmux/info` with `sessionIds`): wall time within 1.2x with 11k closed beside them against the same 100 alone.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "7b",
-        name: "v2.pr07b.info_rows_bytes",
-        done_when: "100 rows by key (`_acpmux/info` with `sessionIds`): reply bytes within 1.2x with 11k closed beside them against the same 100 alone.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "7b",
-        name: "v2.pr07b.ls_bytes",
-        done_when: "`acpmux ls`, bytes received: 20 live chats with 11k closed beside them against 20 live alone, 1.2x.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "7b",
-        name: "v2.pr07b.ls_wall",
-        done_when: "`acpmux ls`, wall time: 20 live chats with 11k closed beside them against 20 live alone, 1.2x.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "7b",
-        name: "v2.pr07b.pending_bytes",
-        done_when: "`acpmux pending`, bytes received: 20 live chats with 11k closed beside them against 20 live alone, 1.2x.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "7b",
-        name: "v2.pr07b.pending_wall",
-        done_when: "`acpmux pending`, wall time: 20 live chats with 11k closed beside them against 20 live alone, 1.2x.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "7b",
-        name: "v2.pr07b.send_tag_dry_run_bytes",
-        done_when: "`acpmux send --tag --dry-run`, bytes received: 20 live chats with 11k closed beside them against 20 live alone, 1.2x.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "7b",
-        name: "v2.pr07b.send_tag_dry_run_wall",
-        done_when: "`acpmux send --tag --dry-run`, wall time: 20 live chats with 11k closed beside them against 20 live alone, 1.2x.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "7b",
-        name: "v2.pr07b.mcp_ls_bytes",
-        done_when: "the MCP `ls` tool, bytes received: 20 live chats with 11k closed beside them against 20 live alone, 1.2x.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "7b",
-        name: "v2.pr07b.mcp_ls_wall",
-        done_when: "the MCP `ls` tool, wall time: 20 live chats with 11k closed beside them against 20 live alone, 1.2x.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "7c",
-        name: "v2.pr07c.update_plan_bytes",
-        done_when: "the agent update plan's thread counts (cmux-tui-core), bytes received: 20 live chats with 11k closed beside them against 20 live alone, 1.2x.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    // Best round, with every sample's p95 beside it: a round is 20 runs over a socket (about
-    // 0.6 ms each), and a shared runner's one slow round is not the list's.
-    GateRow {
-        pr: "7c",
-        name: "v2.pr07c.update_plan_wall",
-        done_when: "the agent update plan's thread counts (cmux-tui-core), wall time: 20 live chats with 11k closed beside them against 20 live alone, best p95 of five rounds 1.2x, every sample's p95 2x.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "8",
-        name: "v2.pr08.reconnect_30",
-        done_when: "30 link clients with a subscription and a saved cursor reconnect at once at 11k chats and 500 live, in two storms: to the daemon they left, nothing missed (one empty frame marked end to each), and to a restarted daemon whose new peer store has every saved cursor under its floor (a window to each). RSS rise under 20 MB over a trimmed baseline in both. A peak row: only the absolute bound applies.",
-        measured: true,
-        ratio: f64::INFINITY,
-        ratio_all: None,
-        god_max: Some(20.0 * 1024.0 * 1024.0),
-    },
-    GateRow {
-        pr: "8",
-        name: "v2.pr08.v1_ack_peers_on_off",
-        done_when: "v1's ack p95 on 30 links during the reconnect, peers on against off: 1.2x, rounds alternating.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "8",
-        name: "v2.pr08.fanout_30",
-        done_when: "One local change to 30 peer subscribers, submit to the last link's slot, 11k chats and 500 live against 20 live: 1.2x. Encoded once, zero secret scans and zero extra parses (counters).",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "8",
-        name: "v2.pr08.mirror_apply",
-        done_when: "One mirrored frame's unit (10 changes and its mark) from the queue through the writer's append, sync and publish: p95 within 1.2x with 11k chats and 16,000 rows held for 30 origins, against 20 chats and one origin. Rounds alternate. At most two units per origin are unapplied (one in the storage retry, one in the slot), joined into one append.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "8",
-        name: "v2.pr08.mirror_local_row",
-        done_when: "A local row's submit-to-publish p95 while a unit of the largest size (MAX_UNIT_CHANGES, 512 changes; the dialer cuts a peer's frame of up to 5,242 into such units) applies in the same writer turn: within 1.2x with 11k chats and 16,000 rows held for 30 origins, against 20 chats and one origin. Rounds alternate.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "8",
-        name: "v2.pr08.mirror_local_row_thirty",
-        done_when: "A local row's submit-to-publish p95 while 30 origins each queue a unit of 512 changes before one writer turn, 11k chats and 16,000 rows held: at most 10 ms under the turn's cap (MAX_TURN_UNIT_CHANGES, 2,048 changes), and the same with the cap lifted for comparison.",
-        measured: false,
-        ratio: f64::INFINITY,
-        ratio_all: None,
-        god_max: Some(10_000_000.0),
-    },
-    GateRow {
-        pr: "8",
-        name: "v2.pr08.dial_resume",
-        done_when: "A dial's resume with nothing missed into a hub reopened from its store, from the dial to the frame that ends it, and the link's bytes: a peer of 500 live rows with 11k closed beside them against none, rounds alternating, two hubs over a pipe, the serving side the real connection in peer role. One empty frame marked end, no walk; bytes equal but for the cursor's digits.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "8",
-        name: "v2.pr08.edition_walk",
-        done_when: "A walk in a new edition, from the dial to whole, and the link's bytes: 500 live rows with 11k closed beside them against none, bytes under 200 KB; no index the writer publishes in the walk lacks a live row or holds it closed.",
-        measured: true,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "9",
-        name: "v2.pr09.chat_actor_start",
-        done_when: "Listen within 100 ms of exec and a prompt accepted within 50 ms, with 527 chats and a 4 GB store, 1.2x against one small chat.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "10",
-        name: "v2.pr10.stop_exit_socket_handoff",
-        done_when: "Stop under 1 s with 200 requests in flight and a stuck agent host, 50 runs. Restart gap seen by a client under 1 s.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "11",
-        name: "v2.pr11.act_send_rows",
-        done_when: "Daemon killed mid-send 50 times: zero lost and zero doubled prompts.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "12",
-        name: "v2.pr12.follow_driver_views",
-        done_when: "Toggle 100 times mid-turn: one harness process throughout, no row lost or doubled.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "13",
-        name: "v2.pr13.defaults_kill_list",
-        done_when: "Every gate above green on god and small. Leo's nightly: a day of his use under 300 MB RSS, restart to steady under 20 s with zero movement.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-];
+/// The rows live in `rows/`, one file per row of the design doc's PR table; this file holds none.
+pub const GATE_ROWS: &[GateRow] = &rows::ALL;
+
+#[path = "rows/mod.rs"]
+mod rows;
 
 pub fn god() -> Shape {
     let mut shape = Shape::god();
@@ -1337,12 +308,12 @@ mod tests {
     }
 
     /// Every gate name the acpmux crates' sources hold (and `cmux-tui-core`'s, whose list
-    /// callers' gates are row 7c's), with the file that holds it. This file is left out: its
-    /// rows are what the names are checked against. `v2.pr99` is the made-up PR the report's own
-    /// tests use.
+    /// callers' gates are row 7c's), with the file that holds it. This file and the row files
+    /// are left out: their rows are what the names are checked against. `v2.pr99` is the made-up
+    /// PR the report's own tests use.
     fn names_in_sources() -> Vec<(String, PathBuf)> {
         let crates = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
-        let registry = Path::new(env!("CARGO_MANIFEST_DIR")).join("benches/v2/mod.rs");
+        let registry = Path::new(env!("CARGO_MANIFEST_DIR")).join("benches/v2");
         let mut files = Vec::new();
         for entry in fs::read_dir(&crates).unwrap() {
             let path = entry.unwrap().path();
@@ -1359,7 +330,7 @@ mod tests {
         let pattern = regex::Regex::new(NAME_IN_SOURCE).unwrap();
         let mut names = Vec::new();
         for file in files {
-            if file == registry {
+            if file.starts_with(&registry) {
                 continue;
             }
             let text = fs::read_to_string(&file).unwrap_or_else(|e| panic!("{file:?}: {e}"));
@@ -1424,9 +395,10 @@ mod tests {
         assert!(!spells("v2.pr01.append", "v2.pr01.append_time"));
     }
 
-    /// The nightly's gate script. Read at build time, so a change to the script is an input of
-    /// this crate's tests and the pull request that makes it runs them.
-    const GATE_SCRIPT: &str = include_str!("../../../../../scripts/cmux-next/run-v2-gates.sh");
+    /// The repository's root, where the nightly's gate script and its lines are.
+    fn repository() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
+    }
 
     /// A crate and one of its test targets: `lib`, or a test binary's name.
     type Target = (String, String);
@@ -1692,24 +664,98 @@ mod tests {
         assert!(!reports("v2.pr99.silent"));
     }
 
-    /// A row is marked measured only when the nightly can write it. The nightly starts the gate
-    /// tests the script names and no others, so a marked row whose test has no line there fails
-    /// the nightly's "no measure" step on base, after the pull request that marked it merged.
-    #[test]
-    fn a_measured_row_has_a_gate_script_line() {
-        let filters = gate_script_filters(GATE_SCRIPT);
-        assert!(filters.len() >= 20, "the scan read too few gate script lines: {filters:?}");
+    /// The gate script's group table: each `.gates` group word and the runner it starts.
+    fn gate_groups(script: &str) -> HashMap<String, String> {
+        let entry = regex::Regex::new(r"^\s*\[([a-z0-9-]+)\]=(run_[a-z_]+)$").unwrap();
+        script
+            .lines()
+            .filter_map(|line| entry.captures(line))
+            .map(|found| (found[1].to_owned(), found[2].to_owned()))
+            .collect()
+    }
+
+    /// Every line of `scripts/cmux-next/v2-gates.d`, as its file's prefix (`pr03d` for
+    /// `pr03d.gates`) and the target and filter the script runs it with. A line is `GROUP FILTER`
+    /// after a `#` comment is cut; a line of another shape or an unknown group fails by name.
+    fn gate_lines() -> Vec<(String, Target, String)> {
+        let root = repository();
+        let script_path = root.join("scripts/cmux-next/run-v2-gates.sh");
+        let script =
+            fs::read_to_string(&script_path).unwrap_or_else(|e| panic!("{script_path:?}: {e}"));
+        let groups = gate_groups(&script);
+        assert_eq!(groups.len(), 6, "the gate script's group table: {groups:?}");
+        let dir = root.join("scripts/cmux-next/v2-gates.d");
+        let mut files: Vec<PathBuf> = fs::read_dir(&dir)
+            .unwrap_or_else(|e| panic!("{dir:?}: {e}"))
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        files.sort();
+        let mut lines = Vec::new();
+        for file in files {
+            let prefix = file.file_stem().and_then(|stem| stem.to_str()).unwrap_or_default();
+            assert!(
+                file.extension().is_some_and(|extension| extension == "gates"),
+                "{file:?} is not a .gates file"
+            );
+            let text = fs::read_to_string(&file).unwrap_or_else(|e| panic!("{file:?}: {e}"));
+            for (number, line) in text.lines().enumerate() {
+                let words: Vec<&str> =
+                    line.split('#').next().unwrap_or_default().split_whitespace().collect();
+                if words.is_empty() {
+                    continue;
+                }
+                let [group, filter] = words[..] else {
+                    panic!("{file:?}:{}: a gate line is GROUP FILTER: {line:?}", number + 1)
+                };
+                let runner = groups.get(group).unwrap_or_else(|| {
+                    panic!("{file:?}:{}: {group} is not a gate group", number + 1)
+                });
+                lines.push((prefix.to_owned(), runner.clone(), filter.to_owned()));
+            }
+        }
+        let as_script: String =
+            lines.iter().map(|(_, runner, filter)| format!("{runner} {filter}\n")).collect();
+        let filters = gate_script_filters(&format!("{script}\n{as_script}"));
+        assert_eq!(filters.len(), lines.len(), "the script itself names gates: {filters:?}");
+        lines
+            .into_iter()
+            .zip(filters)
+            .map(|((prefix, _, _), (target, filter))| (prefix, target, filter))
+            .collect()
+    }
+
+    /// Every source that names a gate, with its text.
+    fn gate_sources() -> Vec<(PathBuf, String)> {
         let mut files: Vec<PathBuf> =
             names_in_sources().into_iter().map(|(_, file)| file).collect();
         files.sort();
         files.dedup();
-        let texts: Vec<(PathBuf, String)> = files
+        files
             .into_iter()
             .map(|file| {
                 let text = fs::read_to_string(&file).unwrap_or_else(|e| panic!("{file:?}: {e}"));
                 (file, text)
             })
-            .collect();
+            .collect()
+    }
+
+    /// Whether a gate line starts a test that writes this row.
+    fn runs_row(sources: &[(&Path, Source<'_>)], row: &str, target: &Target, filter: &str) -> bool {
+        sources.iter().any(|(file, source)| {
+            target_of(file).as_ref() == Some(target)
+                && source.reaches(row).iter().any(|function| function.contains(filter))
+        })
+    }
+
+    /// A row is marked measured only when the nightly can write it. The nightly starts the gate
+    /// tests the script's lines name and no others, so a marked row whose test has no line fails
+    /// the nightly's "no measure" step on base, after the pull request that marked it merged.
+    #[test]
+    fn a_measured_row_has_a_gate_script_line() {
+        let filters: Vec<(Target, String)> =
+            gate_lines().into_iter().map(|(_, target, filter)| (target, filter)).collect();
+        assert!(filters.len() >= 20, "the scan read too few gate script lines: {filters:?}");
+        let texts = gate_sources();
         let sources: Vec<(&Path, Source<'_>)> =
             texts.iter().map(|(file, text)| (file.as_path(), Source::read(text))).collect();
         for row in GATE_ROWS.iter().filter(|row| row.measured) {
@@ -1730,10 +776,86 @@ mod tests {
             }
             assert!(
                 run,
-                "{} is marked measured and scripts/cmux-next/run-v2-gates.sh runs no test that \
-                 writes it: add a line for one of {writers:?}",
+                "{} is marked measured and no line of scripts/cmux-next/v2-gates.d runs a test \
+                 that writes it: add a line to its prefix's .gates file for one of {writers:?}",
                 row.name
             );
+        }
+    }
+
+    /// A gate line goes in the file of the prefix whose row its test writes, so a PR that adds a
+    /// gate edits only its own row's file. A gate that writes no row (one that prints what it
+    /// observes) goes in the file of the prefix its filter spells.
+    #[test]
+    fn a_gate_line_runs_a_test_that_writes_a_row_of_its_files_prefix() {
+        let texts = gate_sources();
+        let sources: Vec<(&Path, Source<'_>)> =
+            texts.iter().map(|(file, text)| (file.as_path(), Source::read(text))).collect();
+        let spelled = |filter: &str, prefix: &str| {
+            regex::Regex::new(&format!(r"(^|[^a-z0-9]){prefix}($|[^a-z0-9])"))
+                .unwrap()
+                .is_match(filter)
+        };
+        for (prefix, target, filter) in gate_lines() {
+            let rows = rows::GROUPS
+                .iter()
+                .find(|(group, _)| *group == prefix)
+                .unwrap_or_else(|| panic!("{prefix}.gates names no row file in rows/mod.rs"))
+                .1;
+            if rows.iter().any(|row| runs_row(&sources, row.name, &target, &filter)) {
+                continue;
+            }
+            let writes_a_row =
+                GATE_ROWS.iter().any(|row| runs_row(&sources, row.name, &target, &filter));
+            assert!(
+                !writes_a_row && spelled(&filter, &prefix),
+                "v2-gates.d/{prefix}.gates runs {filter} on {target:?}, and no test it starts \
+                 writes a v2.{prefix}.* row: move the line to the file of the row it writes"
+            );
+        }
+    }
+
+    /// Each row file holds only its own prefix's rows, and every file in `rows/` is listed.
+    #[test]
+    fn a_row_file_holds_only_its_own_prefix() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("benches/v2/rows");
+        let mut files: Vec<String> = fs::read_dir(&dir)
+            .unwrap_or_else(|e| panic!("{dir:?}: {e}"))
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name != "mod.rs")
+            .collect();
+        files.sort();
+        let mut listed: Vec<String> =
+            rows::GROUPS.iter().map(|(prefix, _)| format!("{prefix}.rs")).collect();
+        listed.sort();
+        assert_eq!(files, listed, "every file in benches/v2/rows is listed in rows/mod.rs");
+        for (prefix, rows) in rows::GROUPS {
+            for row in *rows {
+                assert!(
+                    row.name.starts_with(&format!("v2.{prefix}.")),
+                    "rows/{prefix}.rs holds {}: move it to the file of its own prefix",
+                    row.name
+                );
+            }
+        }
+        assert_eq!(GATE_ROWS.len(), rows::GROUPS.iter().map(|(_, rows)| rows.len()).sum::<usize>());
+    }
+
+    /// The shared registry file holds no row, so two v2 PRs never edit one file for their rows:
+    /// a row put back in `mod.rs` fails here by its line.
+    #[test]
+    fn the_registry_file_holds_no_row() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("benches/v2");
+        let row = regex::Regex::new(r"^\s*GateRow \{").unwrap();
+        for file in [root.join("mod.rs"), root.join("rows/mod.rs")] {
+            let text = fs::read_to_string(&file).unwrap_or_else(|e| panic!("{file:?}: {e}"));
+            for (number, line) in text.lines().enumerate() {
+                assert!(
+                    !row.is_match(line),
+                    "{file:?}:{} holds a gate row: put it in rows/PREFIX.rs",
+                    number + 1
+                );
+            }
         }
     }
 

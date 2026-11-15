@@ -20,6 +20,13 @@ if ! [[ ( "$tools_block" == *'screen-eval-window-id'* && "$tools_block" == *'win
   echo "FAIL: tools-only does not compile screen-eval-window-id"
   fail=1
 fi
+# scene.swift's Scene is @MainActor and top-level code without `await` is nonisolated, so constructing it
+# there is a compile error (in Swift 5 mode too) that stops tools-only (exit 4).
+scene="$root/screen-stream-eval/scene.swift"
+if grep -q '^@MainActor$' "$scene" && grep -qE '^let [a-z]+ = Scene\(\)' "$scene"; then
+  echo "FAIL: scene.swift constructs its @MainActor Scene in nonisolated top-level code"
+  fail=1
+fi
 if ! grep -q 'screen-eval-window-id' "$root/screen-stream-eval/README.md" ||
    ! grep -q 'apple-high.*apple-standard' "$root/screen-stream-eval/README.md"; then
   echo "FAIL: prebuilt README omits the Apple helper or targets"
