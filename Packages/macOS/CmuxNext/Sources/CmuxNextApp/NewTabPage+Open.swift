@@ -308,11 +308,11 @@ extension NewTabPage {
         let list = services.newTabActions.request
         // Cmd-T took the prepared page: it takes this tab's context, already laid out.
         if let spare = services.newTabSpares.claimNative(key), let model = spare.model {
-            model.adopt(page: page, actions: actions, paletteActions: list)
+            model.adopt(page: page, actions: actions, paletteActions: list, chats: services.agentTabs.pageChats.chats)
             closeFrame.scheduleFrame { closeFrame.scheduleFrameFromMain { [weak model] in model?.loadPaletteActions() } }
             return spare
         }
-        let model = NativeNewTabModel(page: page, actions: actions, paletteActions: list)
+        let model = NativeNewTabModel(page: page, actions: actions, paletteActions: list, chats: services.agentTabs.pageChats.chats)
         closeFrame.scheduleFrame { closeFrame.scheduleFrameFromMain { [weak model] in model?.loadPaletteActions() } }
         let host = NativeNewTabView.hosted(model)
         // The page counts as shown (leaving it ends the hold) only once its field exists: until then
@@ -330,13 +330,12 @@ extension NewTabPage {
     private static func nativeActions(_ key: String, cwd: String?, pane: PaneController) -> NativeNewTabActions {
         NativeNewTabActions(
             submit: { [weak pane] text, kind, search in
-                guard let pane else { return }
-                guard submitNative(text, kind: kind, search: search, cwd: cwd, in: pane, page: key) else { return }
-                closingPage(key, in: pane)()
+                if let pane, submitNative(text, kind: kind, search: search, cwd: cwd, in: pane, page: key) { closingPage(key, in: pane)() }
             },
             jump: { [weak pane] target, id in if let services = pane?.services { jump(target, id: id, services: services) } },
-            action: { [weak pane] id in pane?.services.palette.runCommand(ActionID(rawValue: id), relativeTo: pane?.view.window) }
-        )
+            action: { [weak pane] id in pane?.services.palette.runCommand(ActionID(rawValue: id), relativeTo: pane?.view.window) },
+            openChat: { [weak pane] chat in pane?.services.agentTabs.pageChats.open?(chat) }, start: { [weak pane] harness, folder in
+                if let pane, pane.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: folder, harness: harness))) { closingPage(key, in: pane)() } })
     }
 
     /// What a native submit opens: an empty field makes the kind as it is; a terminal runs the text; a

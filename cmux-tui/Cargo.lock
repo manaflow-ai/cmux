@@ -2279,6 +2279,7 @@ dependencies = [
  "core-foundation 0.10.1",
  "crossbeam-channel",
  "crossterm",
+ "dhat",
  "diffy",
  "flate2",
  "fs4",
