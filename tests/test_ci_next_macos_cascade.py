@@ -2765,8 +2765,8 @@ def route_at(expression: str, event: str, attempt: int, switch: str, placed: int
 
 
 def rescue_env(**overrides: str) -> dict:
-    return env(CI_BLACKSMITH_MACOS=RESCUE, GITHUB_EVENT_NAME="pull_request", GITHUB_WORKFLOW_REF=CMUX_NEXT_REF,
-               **overrides)
+    return env(**{"CI_BLACKSMITH_MACOS": RESCUE, "GITHUB_EVENT_NAME": "pull_request",
+                  "GITHUB_WORKFLOW_REF": CMUX_NEXT_REF, **overrides})
 
 
 class BlacksmithPrRescue(unittest.TestCase):
@@ -2812,8 +2812,9 @@ class BlacksmithPrRescue(unittest.TestCase):
             with self.subTest(workflow=name):
                 text = path.read_text()
                 self.assertNotIn(RESCUE, text)
-                reads = SWITCH_READ.findall(text)
-                self.assertEqual(len(reads), len(SWITCH_COMPARED.findall(text)),
+                code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+                reads = SWITCH_READ.findall(code)
+                self.assertEqual(len(reads), len(SWITCH_COMPARED.findall(code)),
                                  f"{name} reads vars.CI_BLACKSMITH_MACOS other than as == / != 'on'")
                 for where, expression in rerun_routes(path).items():
                     for event, attempt in itertools.product(("push", "schedule", "workflow_dispatch",
