@@ -69,3 +69,17 @@ The fork's embedder tests (`tests/cmux_embedder/cmux_embedder_preload157.inc`, c
 `preload157-omnibox` and `preload157-net`) measure Enter -> first contentful paint in Chromium
 with the same `CefFrame::LoadURL` call cmux makes, cold and prerendered. Run them on the GUI
 worker with `scripts/cef/test-embedder-step.sh <package> <sources> <fork ref> preload157-omnibox preload157-net`.
+
+### Results (2026-11-15, cef-157.0.0-cmux.51 arm64, fork b1cef88, tests 07ddaa65)
+
+Enter -> first contentful paint, shared slots on fleet capture minis (cmux21, cmuxs-mac-mini-3):
+
+| Case | Cold | Preconnect only | Prerendered |
+| --- | --- | --- | --- |
+| Local server, 600 ms response | 645.7 ms | - | 49.6 ms |
+| Public sites, median of 8 (example.com, Wikipedia, HN, iana.org; round 0 is warm-up) | 137.3 / 125.4 ms | 99.1 ms | 68.3 ms (8/8 activated) |
+
+Preconnect saves about a fifth (the connection setup); prerender halves a warm site and removes the
+server time of a slow one (a cold Wikipedia load: 513.5 ms -> 78.6 ms). A page restored from the
+back/forward cache and the next page after an activation both still run script and send console
+messages (checked in `preload157-omnibox`).
