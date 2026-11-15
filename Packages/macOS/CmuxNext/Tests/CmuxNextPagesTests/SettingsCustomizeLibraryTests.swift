@@ -7,11 +7,7 @@ import Testing
 /// `cmux --json customize library` run with the name as its own argument, a change runs only on the
 /// person's gesture, and a refusal comes back as the CLI's envelope for the page to word.
 @MainActor @Suite struct SettingsCustomizeLibraryTests {
-    final class Runs: @unchecked Sendable {
-        var arguments: [[String]] = []
-        var configFiles: [String?] = []
-        var answer: (Int32, Data, Data) = (0, Data(#"{"library":{"entries":[],"conflicts":[]}}"#.utf8), Data())
-    }
+    typealias Runs = SettingsCustomizeLibraryRuns
 
     static let page = PageCallContext(page: "cmux.settings")
     static let click = PageCallContext(page: "cmux.settings", userGesture: true, gestureEvent: 1)
@@ -90,4 +86,12 @@ import Testing
         #expect(answer["code"]?.stringValue == "customize.library")
         #expect(answer["message"]?.stringValue == "a preview is open")
     }
+}
+
+/// What the fake CLI saw and answers. At file scope so it isn't main-actor isolated: the runner
+/// closure is `@Sendable` and runs off the main actor. Each test runs its calls one at a time.
+final class SettingsCustomizeLibraryRuns: @unchecked Sendable {
+    var arguments: [[String]] = []
+    var configFiles: [String?] = []
+    var answer: (Int32, Data, Data) = (0, Data(#"{"library":{"entries":[],"conflicts":[]}}"#.utf8), Data())
 }

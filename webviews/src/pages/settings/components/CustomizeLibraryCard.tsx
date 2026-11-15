@@ -37,18 +37,21 @@ export function CustomizeLibraryCard() {
   const [refusal, setRefusal] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const read = query.data ?? null;
-  const run = async (change: LibraryRun) => {
+  // The store never rejects (a failed call answers a refusal), so the busy state always ends.
+  const run = (change: LibraryRun) => {
     setBusy(true);
     setRefusal(null);
-    try {
-      const answer = await store.customizeLibrary(change);
-      if (answer.library)
-        queryClient.setQueryData<LibraryRead>(LIBRARY_KEY, { library: answer.library, refusal: null });
-      setRefusal(answer.refusal);
-    } finally {
-      setBusy(false);
-      setRemoving(null);
-    }
+    return store
+      .customizeLibrary(change)
+      .then((answer) => {
+        if (answer.library)
+          queryClient.setQueryData<LibraryRead>(LIBRARY_KEY, { library: answer.library, refusal: null });
+        setRefusal(answer.refusal);
+      })
+      .finally(() => {
+        setBusy(false);
+        setRemoving(null);
+      });
   };
   const actions: LibraryActions = {
     onToggle: (name, on) => void run({ verb: on ? "on" : "off", name }),
