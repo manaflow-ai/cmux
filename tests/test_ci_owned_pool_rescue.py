@@ -2407,7 +2407,8 @@ class LongQueueOnWatchedRun(unittest.TestCase):
         self.assertIn("cancel", api.calls)
         self.assertIn("rerun-failed", api.calls)
         self.assertGreaterEqual(api.first_cancel, rescue.STALL_QUEUE_SECONDS)
-        self.assertIn("waited 40 min for a runner", text)
+        self.assertIn(f"min for a runner on `{GUI}`", text)
+        self.assertIn(f"attempt 2 takes {SIDE}", text)
 
     def test_a_long_queue_stays_when_the_side_queue_is_deeper(self):
         api, text = self.follow(depth_snapshot())
