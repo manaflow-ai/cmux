@@ -1,4 +1,3 @@
-import { isAppID } from "../../apps/appId";
 import { seedLastPicks } from "./lastPick";
 import type { AcpmuxSnapshot } from "./model";
 import { MAX_NEW_TAB_ENTRIES, omnibarContext, type OmnibarContext, type OmnibarRow } from "./omnibar";
@@ -173,8 +172,9 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
       : {}),
     layout: object.layout === "a" ? "a" : "b",
     ...(template ? { template } : {}),
-    // An app id by the manifest's own pattern (apps/appId.ts): what `tabs.newTabApp` holds.
-    ...(isAppID(object.app) ? { app: object.app } : {}),
+    // `tabs.newTabApp`, which the app sends only when it is an app id by the manifest's own
+    // pattern (Swift NewTabAppSetting.isValidID), so the page does not check the rule again.
+    ...(typeof object.app === "string" && object.app ? { app: object.app } : {}),
     ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
     ...(isStartableProject(typeof object.startedProject === "string" ? object.startedProject : undefined)
       ? { startedProject: object.startedProject as string }

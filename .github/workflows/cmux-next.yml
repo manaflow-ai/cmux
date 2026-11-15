@@ -218,8 +218,6 @@ on:
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
-      # gen-settings-sources.py copies the manifest app id pattern out of it.
-      - cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json
       - scripts/cmux-next/gen-phone-lane-fields.py
       - cmux-tui/spec/sdk-schema.json
       - scripts/ci/cargo-test-selected.sh
@@ -562,8 +560,6 @@ on:
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
-      # gen-settings-sources.py copies the manifest app id pattern out of it.
-      - cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json
       - scripts/cmux-next/gen-phone-lane-fields.py
       - cmux-tui/spec/sdk-schema.json
       - scripts/ci/cargo-test-selected.sh

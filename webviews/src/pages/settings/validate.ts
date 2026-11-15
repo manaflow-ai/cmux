@@ -1,6 +1,5 @@
 // Portable value checks per row kind. The daemon is the authority; the mock provider uses
 // these to behave like it, and the page uses them to refuse a bad field value before sending.
-import { isAppID } from "../../apps/appId";
 import { parseThemeSpec } from "./themeSpec";
 import type { Domains } from "./ops";
 import type { SchemaRow } from "./schema";
@@ -156,7 +155,10 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       : "expected a list of preset names and rules, each with a label and a program or match";
   }
   if (row.validation === "domain:app_id") {
-    return isAppID(value) ? null : "expected an app id, publisher/name in lowercase letters, digits and -";
+    // The manifest's own id pattern, which the export carries on the row.
+    return typeof value === "string" && row.pattern !== undefined && new RegExp(row.pattern).test(value)
+      ? null
+      : "expected an app id, publisher/name in lowercase letters, digits and -";
   }
   if (row.validation === "domain:search_template") {
     return isSearchTemplate(value) ? null : "expected a web address with %s or {searchTerms}, or empty";
