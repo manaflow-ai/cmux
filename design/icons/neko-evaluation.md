@@ -85,7 +85,7 @@ Gallery variants: `{earfold,tailterm,whisker}-{light,dark}`. Three monochrome, n
 alter copy/retry/speak (3/6 actions); More, bookmark, pin and spinner/status marks remain shared.
 The nine original SVGs and source-geometry manifest live in `neko-candidates/round2/`. They use the
 shared token names and compare against both the token family and actual transcript row. These
-experiments remain gallery-only. Scores are pending the same real 1x/2x capture review as round 1.
+experiments remain gallery-only. Their capture scores are below (Round 2 capture score).
 
 ## License survey
 
