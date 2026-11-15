@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 3d5aa4510bf553d836056175a290c24a6ac1d16e5a486e3ad6f71712aa8a902a.
+// cmux-tui mux protocol 12, IR 1b93fe599f104b67189581466f707dfcde72b8c0b236f5c5305219b4b03907bb.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1758,6 +1758,23 @@ pub struct DetachClientRequest {
 
 #[rustfmt::skip]
 pub type DetachClientResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeviceSetupRequest {
+    /// Turn on the agents permission (the person's click in the app).
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub allow_agents: Option<bool>,
+    /// A device id, name or address, as \`cmux device list\` shows it.
+    pub device: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub dry_run: Option<bool>,
+    /// setup (every step) or start (reach, login item and start).
+    pub verb: String,
+}
+
+#[rustfmt::skip]
+pub type DeviceSetupResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -4890,6 +4907,10 @@ impl CmuxClient {
             self.require_capability_field("detach-client", "shared-sizing-v1")?;
         }
         self.execute(&DETACH_CLIENT_METADATA, &request)
+    }
+
+    pub fn device_setup(&mut self, request: DeviceSetupRequest) -> Result<CmuxStream> {
+        self.execute_stream(&DEVICE_SETUP_METADATA, &request)
     }
 
     pub fn export_layout(&mut self, request: ExportLayoutRequest) -> Result<T::ExportLayoutResult> {

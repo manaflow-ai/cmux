@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3d5aa4510bf553d836056175a290c24a6ac1d16e5a486e3ad6f71712aa8a902a. */
+/* cmux-tui mux protocol 12, IR 1b93fe599f104b67189581466f707dfcde72b8c0b236f5c5305219b4b03907bb. */
 
 
 import type * as T from "./types.js";
@@ -287,6 +287,15 @@ export type DetachedEvent = { event: "detached" } & {
   "scope"?: string;
   "surface": T.Id;
   "view"?: string;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type DeviceSetupStepEvent = { event: "device-setup-step" } & {
+  "detail": string;
+  "device": string;
+  "fix": string;
+  "state": string;
+  "step": string;
 };
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
@@ -793,6 +802,7 @@ export type KnownCmuxEvent =
   | ConversationTypingEvent
   | DaemonShutdownEvent
   | DetachedEvent
+  | DeviceSetupStepEvent
   | EmptyEvent
   | FeedReportsChangedEvent
   | FeedViewChangedEvent

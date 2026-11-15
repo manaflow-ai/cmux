@@ -11129,3 +11129,15 @@ stops the host.
 `{"cmd":"remote-host-app"}`. The verified app's own credentials for cmux
 Remote's app socket: `{socket, secret, host_pid}`. The host admits only that
 app process; the secret is never logged or journaled.
+
+### device-setup
+
+`{"cmd":"device-setup","device":NAME,"verb":"setup"|"start","allow_agents"?:bool,"dry_run"?:bool}`.
+`cmux device setup|start` for the app's set-up and "Start cmux on <Mac>" buttons: it installs,
+keeps running and starts cmux NIGHTLY on a Mac that is already the person's, over its ssh route.
+Only the verified app connection may send it (`origin.forbidden` otherwise); it runs on a wait
+worker, off the connection's dispatcher. Each step streams as a `device-setup-step` event
+([events.md](events.md#device-setup-step)) carrying the step line `cmux device setup --json`
+prints; the reply's data is the summary line `{device, summary, changed, failed}`. It never quits
+or replaces a running app and never turns sharing on; `allow_agents` turns on "My agents can turn
+screen sharing and control on my machines" and nothing else does.
