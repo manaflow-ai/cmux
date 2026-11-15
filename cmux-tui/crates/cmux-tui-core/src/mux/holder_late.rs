@@ -8,12 +8,15 @@
 //! here for the holder's answer.
 //!
 //! The thread waits on the connect the start made, for as long as the holder
-//! is silent: no timer ends a terminal. When the holder answers, each
-//! terminal re-attaches as it does in the start pass (or ends, when the
-//! holder does not run it). A terminal ends without an answer only when no
-//! holder serves the socket any more (a refused connect, a missing socket,
-//! or a holder that refuses this daemon). The person can close the tab of a
-//! terminal that waits; the holder ends that shell when it answers.
+//! is silent: no timer ends a terminal. A holder that ends the connect
+//! before its answer gets a new connect after a pause ([`RECONNECT_INITIAL`],
+//! doubled up to [`RECONNECT_MAX`]), each time it does so. When the holder
+//! answers, each terminal re-attaches as it does in the start pass (or
+//! ends, when the holder does not run it). A terminal ends without an
+//! answer only when no holder can be asked any more (a refused connect, a
+//! missing socket, a holder that refuses this daemon, or another error of
+//! the ask). The person can close the tab of a terminal that waits; the
+//! holder ends that shell when it answers.
 
 use super::*;
 use crate::holder_runtime::{HolderReach, HolderService};
@@ -122,6 +125,8 @@ impl Mux {
         clock: &dyn HolderClock,
         late: &[String],
     ) {
+        // The terminals that no longer wait: re-attached, or ended.
+        let mut done = Vec::new();
         for terminal_id in late {
             let row = self
                 .workspace_registry
@@ -153,9 +158,12 @@ impl Mux {
             };
             if !waits {
                 self.clear_adopting_marker(terminal_id);
+                done.push(terminal_id.clone());
             }
         }
-        self.forget_late_holder_terminals(late);
+        // A terminal kept for the next start stays in the set: its creation
+        // stays pending, and nothing waits for it.
+        self.forget_late_holder_terminals(&done);
         self.release_unclaimed_holder_terminals(options);
         self.settle_creations_after_late_holder(clock);
     }

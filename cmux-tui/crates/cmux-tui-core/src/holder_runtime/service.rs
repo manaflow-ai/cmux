@@ -100,7 +100,8 @@ pub(crate) enum HolderReach {
     Silent,
     /// The holder ended the connect before its answer.
     Dropped,
-    /// No holder serves the socket, or the holder refused this daemon.
+    /// No holder serves the socket, the holder refused this daemon, or the
+    /// ask failed in another way.
     Absent,
 }
 
@@ -242,8 +243,10 @@ impl HolderService {
             Ok(connected) => connected,
             Err(_) if launch => {
                 self.launch()?;
-                // A new holder listens now: a connect that still waits on
-                // the old one is void.
+                // A holder listens now: a new one, or the one that did not
+                // answer (a launch that lost to it also returns `Ok`). The
+                // kept connect is dropped either way and one new connect
+                // asks.
                 drop(self.pending.lock().recover_poison().take());
                 self.connect(patience)?
             }

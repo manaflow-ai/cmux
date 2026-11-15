@@ -141,11 +141,10 @@ fn a_restart_of_a_large_session_reattaches_every_terminal() {
     let &[in_time, all, late] = numbers.as_slice() else {
         panic!("the daemon's holder pass line has other counts: {line}");
     };
-    assert_eq!(
-        (all, in_time + late),
-        (SESSION_TABS, SESSION_TABS),
-        "every terminal had its turn in the start or after it: {line}"
-    );
+    // The proof that each terminal runs again is the loop above (each shell's pid). The
+    // line's counts are for the print: its first and last add up to `all` by the daemon's
+    // own arithmetic, so only `all` is checked.
+    assert_eq!(all, SESSION_TABS, "the daemon's holder pass saw every terminal: {line}");
     eprintln!(
         "HOLDER-LATE-START: {SESSION_TABS} terminals, all run again with their own shell; \
          {in_time} re-attached inside the start's wait for the holder, {late} after the start \

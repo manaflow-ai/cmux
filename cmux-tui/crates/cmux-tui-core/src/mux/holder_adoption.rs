@@ -17,18 +17,24 @@
 //!
 //! The pass asks the holder one time ([`HolderPass`]) and gives it one
 //! deadline for all its terminals together (`holder_late::ADOPTION_BOUND`).
-//! A holder that took the connect and did not answer in that time may still
-//! run every shell: its terminals are not ended. They stay `adopting` and
-//! re-attach after the start, when the holder answers (mux/holder_late.rs).
-//! So does a terminal whose turn in the pass came after the deadline. A
-//! terminal ends at a start only when the holder answered and does not run
-//! it, or when no holder serves the socket.
+//! A holder that took the connect and did not answer in that time, or that
+//! ended the connect before its answer, may still run every shell: its
+//! terminals are not ended. They stay `adopting` and re-attach after the
+//! start, when the holder answers (mux/holder_late.rs). So does a terminal
+//! whose turn in the pass came after the deadline. A terminal ends at a
+//! start only when the holder answered and does not run it, or when no
+//! holder can be asked (a refused connect, a missing socket, a holder that
+//! refuses this daemon, or another error of the ask).
+//!
+//! A start does not wait for a creation that a crash interrupted when its
+//! terminal is kept, for the late thread or for the next start
+//! (`Mux::late_holder_terminals`): such a creation stays pending.
 
 use super::*;
 #[cfg(unix)]
 use crate::holder_runtime::{HolderReach, HolderService};
 #[cfg(unix)]
-use crate::mux::holder_late::{ADOPTION_BOUND, HolderClock};
+use crate::mux::holder_late::{ADOPTION_BOUND, HolderClock, holder_clock};
 
 /// One start's dealings with the terminal holder: one ask, and one deadline
 /// for the ask and every re-attach together.
@@ -83,7 +89,7 @@ impl Mux {
     #[cfg(unix)]
     pub(in crate::mux) fn holder_pass(&self, options: &SurfaceOptions) -> HolderPass {
         HolderPass {
-            clock: crate::mux::holder_late::holder_clock(options.terminal_host_root.as_deref()),
+            clock: holder_clock(options.terminal_host_root.as_deref()),
             deadline: None,
             reach: None,
             in_time: 0,
@@ -112,21 +118,27 @@ impl Mux {
             match pass.reach(host_root) {
                 HolderReach::Linked if !pass.past_deadline() => {
                     pass.in_time += 1;
-                    return self.adopt_from_reached_holder_or_end(terminal, options).map(drop);
+                    if self.adopt_from_reached_holder_or_end(terminal, options)? {
+                        // Kept for the next start: this start does not wait
+                        // for a creation of it either.
+                        self.keep_holder_terminal(&terminal.terminal_id);
+                    }
+                    return Ok(());
                 }
-                HolderReach::Linked | HolderReach::Silent => {
+                // A holder that ended the connect before its answer may
+                // still run the shell, as a silent one: the late thread
+                // connects again, and only a refused connect ends the
+                // terminal.
+                HolderReach::Linked | HolderReach::Silent | HolderReach::Dropped => {
                     // The tab shows adopting until the late thread
                     // re-attaches the terminal.
                     self.set_pending_terminal(&terminal.terminal_id, PendingTerminal::Adopting);
-                    self.late_holder_terminals
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .insert(terminal.terminal_id.clone());
+                    self.keep_holder_terminal(&terminal.terminal_id);
                     pass.late.push(terminal.terminal_id.clone());
                     return Ok(());
                 }
                 // No holder runs its shell, as before this start.
-                HolderReach::Dropped | HolderReach::Absent => {}
+                HolderReach::Absent => {}
             }
         }
         #[cfg(not(unix))]
@@ -161,9 +173,9 @@ impl Mux {
 
     /// The end of the pass's holder part. With every terminal re-attached or
     /// ended in time, the holder ends the terminals whose row ended
-    /// (`release_unclaimed_holder_terminals`). With a terminal kept, or a
-    /// holder that has not answered, the late thread does both after the
-    /// start.
+    /// (`release_unclaimed_holder_terminals`). With a terminal kept for the
+    /// late thread, or a holder that has not answered, the late thread does
+    /// both after the start.
     #[cfg(unix)]
     pub(in crate::mux) fn finish_holder_pass(
         self: &Arc<Self>,
@@ -189,11 +201,21 @@ impl Mux {
             HolderReach::Linked if pass.late.is_empty() => {
                 self.release_unclaimed_holder_terminals(options);
             }
-            HolderReach::Linked | HolderReach::Silent => {
+            HolderReach::Linked | HolderReach::Silent | HolderReach::Dropped => {
                 self.adopt_late_holder_terminals(options.clone(), pass.clock, pass.late);
             }
-            HolderReach::Dropped | HolderReach::Absent => {}
+            HolderReach::Absent => {}
         }
+    }
+
+    /// Put `terminal_id` with the terminals this start does not wait for
+    /// (`late_holder_terminals`).
+    #[cfg(unix)]
+    fn keep_holder_terminal(&self, terminal_id: &str) {
+        self.late_holder_terminals
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(terminal_id.to_string());
     }
 
     #[cfg(not(unix))]
@@ -267,9 +289,8 @@ impl Mux {
         else {
             return false;
         };
-        crate::holder_runtime::HolderService::may_run(host_root)
-            && crate::holder_runtime::HolderService::for_root(host_root)
-                .is_ok_and(|service| service.lists(id.as_bytes()))
+        HolderService::may_run(host_root)
+            && HolderService::for_root(host_root).is_ok_and(|service| service.lists(id.as_bytes()))
     }
 
     /// After the startup pass re-attached every terminal it could: end the
@@ -281,7 +302,7 @@ impl Mux {
     #[cfg(unix)]
     pub(in crate::mux) fn release_unclaimed_holder_terminals(&self, options: &SurfaceOptions) {
         let Some(host_root) = options.terminal_host_root.as_deref() else { return };
-        if !crate::holder_runtime::HolderService::may_run(host_root) {
+        if !HolderService::may_run(host_root) {
             return;
         }
         let ended = |id: &[u8; 16]| -> bool {
@@ -292,7 +313,7 @@ impl Mux {
                 matches!(row.lifecycle, TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned)
             })
         };
-        match crate::holder_runtime::HolderService::for_root(host_root) {
+        match HolderService::for_root(host_root) {
             Ok(service) => service.release_unclaimed(ended),
             Err(error) => eprintln!("cmux-tui: reach the terminal holder: {error}"),
         }
@@ -315,8 +336,8 @@ impl Mux {
         // A row a previous owner left adopting (it stopped mid-adoption)
         // re-attaches like a running one.
         if !matches!(terminal.lifecycle, TerminalLifecycle::Running | TerminalLifecycle::Adopting)
-            || !crate::holder_runtime::HolderService::may_run(&host_root)
-            || !crate::holder_runtime::HolderService::for_root(&host_root)?.lists(id.as_bytes())
+            || !HolderService::may_run(&host_root)
+            || !HolderService::for_root(&host_root)?.lists(id.as_bytes())
         {
             return Ok(false);
         }

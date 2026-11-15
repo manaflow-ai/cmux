@@ -870,10 +870,11 @@ pub struct Mux {
     /// Lets a start's adoption threads go before the owner says ready: a
     /// creation the crash interrupted waits on its host's adoption.
     startup_adoptions_released: AtomicBool,
-    /// Terminals the start kept for a terminal holder that was late
-    /// (mux/holder_late.rs), by host id, until the late thread re-attached
-    /// or ended them. A creation that waits on one of them does not hold the
-    /// start back. A leaf lock.
+    /// Terminals the start kept, by host id: for a terminal holder that was
+    /// late (mux/holder_late.rs), until the late thread re-attached or ended
+    /// them, or for the next start (the holder runs the shell and the
+    /// re-attach failed), for the life of this owner. A creation that waits
+    /// on one of them does not hold the start back. A leaf lock.
     late_holder_terminals: Mutex<HashSet<String>>,
     /// The laps of this owner's open (registry, restore, adoption), until the owner's start
     /// takes them, and the start line with the laps after ready (mux/startup_record.rs).

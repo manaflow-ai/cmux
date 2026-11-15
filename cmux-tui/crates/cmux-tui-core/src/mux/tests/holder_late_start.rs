@@ -48,13 +48,21 @@ struct Steps {
     moved: Duration,
     step: Duration,
     limit: Duration,
+    pauses: usize,
+    asks_at_limit: usize,
 }
 
 impl StepClock {
     fn new(step: Duration, limit: Duration) -> Arc<Self> {
         Arc::new(Self {
             start: Instant::now(),
-            steps: Mutex::new(Steps { moved: Duration::ZERO, step, limit }),
+            steps: Mutex::new(Steps {
+                moved: Duration::ZERO,
+                step,
+                limit,
+                pauses: 0,
+                asks_at_limit: 0,
+            }),
         })
     }
 
@@ -62,11 +70,27 @@ impl StepClock {
         self.steps.lock().unwrap().moved
     }
 
+    /// How many pauses the daemon made by this clock. The late thread makes
+    /// one after each wait that ended with no answer.
+    fn pauses(&self) -> usize {
+        self.steps.lock().unwrap().pauses
+    }
+
+    /// Whether the late thread is in a wait that cannot end by time: the
+    /// clock stands at its limit and the thread asked it there two times.
+    /// (A wait that began before the limit can end at the first ask there;
+    /// the thread then pauses, and its next wait begins at the limit, with
+    /// the second ask.)
+    fn stands_in_a_wait(&self) -> bool {
+        self.steps.lock().unwrap().asks_at_limit >= 2
+    }
+
     /// Let the clock go on to `limit`, `step` at each ask.
     fn run(&self, step: Duration, limit: Duration) {
         let mut steps = self.steps.lock().unwrap();
         steps.step = step;
         steps.limit = limit;
+        steps.asks_at_limit = 0;
     }
 }
 
@@ -74,6 +98,9 @@ impl HolderClock for StepClock {
     fn now(&self) -> Instant {
         let mut steps = self.steps.lock().unwrap();
         let now = self.start + steps.moved;
+        if steps.moved == steps.limit {
+            steps.asks_at_limit += 1;
+        }
         steps.moved = (steps.moved + steps.step).min(steps.limit);
         now
     }
@@ -86,6 +113,7 @@ impl HolderClock for StepClock {
         {
             let mut steps = self.steps.lock().unwrap();
             steps.moved = (steps.moved + pause).min(steps.limit);
+            steps.pauses += 1;
         }
         std::thread::sleep(Duration::from_millis(1));
     }
@@ -557,16 +585,21 @@ fn a_terminal_reattaches_when_its_late_holder_answers() {
     let mux = session.start(&clock).unwrap();
 
     clock.run(LATE_STEP, FAR);
-    wait_until("the late thread waits far past the old bound", || clock.moved() >= FAR);
+    wait_until("the late thread waits far past the old bound", || clock.stands_in_a_wait());
+    assert_eq!(clock.moved(), FAR);
     assert_eq!(session.kept(&mux), (true, TerminalLifecycle::Running, true, true));
+    // The clock stands at its limit, so the wait that the late thread is in
+    // cannot end by time, and the count of its pauses stands with it.
+    let waits_without_answer = clock.pauses();
 
     let shell = KeptShell::new();
     holder.order(Order::Answer(Some(shell.listed())));
     wait_until("the late thread re-attaches the terminal", || session.late_work_done(&mux));
     assert_eq!(
-        clock.moved(),
-        FAR,
-        "the terminal re-attached in the wait in which the holder answered: no later wait began"
+        clock.pauses(),
+        waits_without_answer,
+        "the terminal re-attached in the wait in which the holder answered: no wait ended \
+         without the answer after it"
     );
     let resolved = mux.resolve_terminal(TERMINAL).unwrap().unwrap();
     assert_eq!(
@@ -585,9 +618,11 @@ fn a_terminal_reattaches_when_its_late_holder_answers() {
 }
 
 /// A holder that ends the connect while the late thread waits on it (it
-/// restarted its listener): one new connect, and the terminal is kept.
+/// restarted its listener): one new connect for that end, and the terminal
+/// is kept. (A holder that ends each new connect gets a new one each time,
+/// after a pause that grows; no test here covers that.)
 #[test]
-fn an_ended_connect_of_a_late_holder_is_made_again_one_time() {
+fn an_ended_connect_of_a_late_holder_gets_one_new_connect_and_keeps_the_terminal() {
     let session = Session::new("holder-late-start-eof");
     let holder = session.holder();
     let clock = StepClock::new(STEP, AT_START);
@@ -685,6 +720,7 @@ fn a_start_with_a_kept_terminal_of_an_interrupted_creation_does_not_fail() {
         (true, TerminalLifecycle::Adopting, true, true),
         "(no end, lifecycle, adopting mark, tab): kept for the next start"
     );
+    assert_eq!(unsettled_creations(&mux), 1, "the creation waits for the next start too");
     session.end(mux, holder);
 }
 
