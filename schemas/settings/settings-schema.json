@@ -1861,6 +1861,29 @@
 
         ],
         "groups" : [
+
+        ],
+        "id" : "keys",
+        "lead" : [
+          "keys"
+        ],
+        "symbol" : "key",
+        "title" : {
+          "key" : "settings.category.keys",
+          "text" : "Keys"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
           {
             "key" : "settings.group.mobile",
             "rows" : [
@@ -2216,6 +2239,7 @@
       {
         "categories" : [
           "accounts",
+          "keys",
           "mobile",
           "devices"
         ],
