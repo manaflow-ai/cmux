@@ -246,11 +246,17 @@ export function watchChatSnapshot(
       Math.max(0, due),
     );
   };
-  const observer = new view.MutationObserver(() => {
+  const changed = () => {
     changedAt = performance.now();
     schedule();
-  });
+  };
+  const observer = new view.MutationObserver(changed);
   observer.observe(root, { subtree: true, childList: true, characterData: true, attributes: true });
+  // A resize can change no markup (the rows and composer follow the viewport in CSS), and a copy is
+  // drawn only at the size it was written at (shared.ts `fitsDocument`): a pane resized after the
+  // last write left a copy the next launch refused ("size 868x712, drawn at 528x512" in the
+  // relaunch-shift bench), and the chat opened from nothing, its chips filling in after the attach.
+  view.addEventListener("resize", changed);
   const now = () => {
     if (timer !== undefined) view.clearTimeout(timer);
     write();
@@ -266,6 +272,7 @@ export function watchChatSnapshot(
   return () => {
     stopped = true;
     observer.disconnect();
+    view.removeEventListener("resize", changed);
     if (timer !== undefined) view.clearTimeout(timer);
     doc.removeEventListener("visibilitychange", hidden);
     view.removeEventListener(SNAPSHOT_WRITE_EVENT, now);
