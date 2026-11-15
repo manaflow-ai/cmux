@@ -187,7 +187,9 @@ all of GitHub's ~27,600 refs. `-q` still prints errors and the hook's output. Th
   add gates/tests in CI, but you have to run them yourself"). This rule is about CI only; it does not remove
   regression tests. Each fix still gets a regression test that fails without it; each agent runs its own
   regression tests itself on the fleet (cmux-ci, nx-remote) before and after the fix, and says the result in
-  the commit. Do not move a test into CI to have it run for you.
+  the commit. Do not move a test into CI to have it run for you. One exception: the tab switch check
+  (`cmux-next-tab-switch.yml`, advisory until the remount fix passes it), which Leo asked for on 2026-11-15:
+  "it should be instant even under load ... we should've had CI for this a long time ago".
 - `// perf-hot: <budget> <path-id>` marks a per-frame, per-key or per-switch function; the pre-push hook names
   its bench ([perf-hot-benches.json](scripts/cmux-next/perf-hot-benches.json)). Mark new hot paths the same way.
 - Read [OWNERS.md](plans/cmux-next/OWNERS.md) before you change an owned area, and tell the owner.
