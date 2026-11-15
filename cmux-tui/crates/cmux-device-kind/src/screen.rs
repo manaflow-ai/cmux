@@ -10,7 +10,9 @@ use serde::Serialize;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ScreenRoute {
-    /// A Mac's screen through the device hub (cmux Remote's screen worker on that Mac).
+    /// A screen through the device hub: a Mac's (cmux Remote's screen worker on that Mac) or a
+    /// Linux desktop's (`cmux-rd linux-host`). The hub only lists a machine once it registered;
+    /// `cmux_window_rules::screen_share::plan` refuses one it does not list.
     Hub,
     /// A Cloud machine's desktop.
     Cloud,
@@ -21,8 +23,8 @@ pub enum ScreenRoute {
 #[serde(rename_all = "kebab-case")]
 pub enum NoScreen {
     Offline,
-    NoDisplay,
-    Linux,
+    /// A headless Linux server or VM: it has no desktop to share.
+    NoDesktop,
     Phone,
     Unknown,
 }
@@ -37,14 +39,14 @@ pub enum Screen {
 
 /// The offer for a machine of `kind` (its OS when the kind says nothing), connected or not.
 ///
-/// - a Mac: View through the device hub while it is connected, else offline;
+/// - a Mac or a Linux desktop: View through the device hub while it is connected, else offline;
 /// - a Cloud machine: View its desktop (opening it resumes a paused machine);
-/// - a Linux server or VM: no display to share;
-/// - a Linux desktop: cmux does not share a Linux screen yet;
+/// - a headless Linux server or VM: it has no desktop to share;
 /// - an iPhone or iPad: it cannot share its screen;
-/// - a kind nothing tells: its OS decides as above, else the machine is listed as unknown.
+/// - a kind nothing tells: a Mac by its OS as above; anything else (a Linux one may be a desktop
+///   or a server) is listed as unknown, so no row gets a button that may be dead.
 pub fn offer(kind: DeviceKind, os: Option<&str>, connected: bool) -> Screen {
-    let mac = || {
+    let hub = || {
         if connected {
             Screen::View { route: ScreenRoute::Hub }
         } else {
@@ -57,14 +59,13 @@ pub fn offer(kind: DeviceKind, os: Option<&str>, connected: bool) -> Screen {
         | DeviceKind::MacMini
         | DeviceKind::IMac
         | DeviceKind::MacStudio
-        | DeviceKind::MacPro => mac(),
+        | DeviceKind::MacPro
+        | DeviceKind::LinuxDesktop => hub(),
         DeviceKind::Cloud => Screen::View { route: ScreenRoute::Cloud },
-        DeviceKind::LinuxServer => none(NoScreen::NoDisplay),
-        DeviceKind::LinuxDesktop => none(NoScreen::Linux),
+        DeviceKind::LinuxServer => none(NoScreen::NoDesktop),
         DeviceKind::IPhone | DeviceKind::IPad => none(NoScreen::Phone),
         DeviceKind::Generic => match os.map(str::to_ascii_lowercase).as_deref() {
-            Some("macos" | "darwin") => mac(),
-            Some("linux") => none(NoScreen::Linux),
+            Some("macos" | "darwin") => hub(),
             Some("ios" | "ipados" | "android") => none(NoScreen::Phone),
             _ => none(NoScreen::Unknown),
         },
