@@ -30,8 +30,10 @@ mod code_mode;
 mod computer_use_gate;
 mod config;
 mod cua_recovery;
+mod customize_library_tool;
 mod customize_tools;
 mod keybinding_tools;
+mod keys_tools;
 mod live_code_tools;
 mod messages;
 mod open_tool;
@@ -43,6 +45,7 @@ mod settings_tools;
 mod terminal_talk_tools;
 #[cfg(test)]
 mod tests;
+mod tool_list;
 mod transport;
 mod upstream;
 mod upstream_listing;
@@ -827,33 +830,7 @@ impl<B: Backend> Server<B> {
     /// [`Self::list`] from the actions and proxied tools as last read,
     /// asking nothing again.
     fn listed(&self) -> Vec<Value> {
-        let mut tools =
-            v2_tools::tools().iter().map(v2_tools::V2Tool::descriptor_json).collect::<Vec<_>>();
-        tools
-            .extend(browser_tools::tools().iter().map(browser_tools::BrowserTool::descriptor_json));
-        tools.push(action_tools::window_list_tool());
-        tools.push(super::agents::snapshot_tool());
-        tools.extend(agent_tools::TOOLS.iter().map(agent_tools::AgentTool::descriptor_json));
-        tools.extend(agent_dispatch_tools::descriptors());
-        tools.push(workflow_tools::descriptor());
-        tools.extend(cloud_repo_tools::descriptors());
-        tools.extend(chat_tools::descriptors());
-        tools.extend(live_code_tools::descriptors());
-        tools.push(super::agents_doctor::mcp_tool());
-        tools.push(agent_wait_tool::descriptor());
-        tools.push(agent_events_tool::descriptor());
-        tools.extend(terminal_talk_tools::descriptors());
-        tools.push(render_tool::descriptor());
-        tools.push(open_tool::descriptor());
-        tools.extend(video_tools::descriptors());
-        tools.extend(remote_tools::TOOLS.iter().map(remote_tools::RemoteTool::descriptor_json));
-        tools
-            .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
-        tools.extend(automation_tools::descriptors());
-        tools.extend(customize_tools::descriptors());
-        tools.extend(
-            keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
-        );
+        let mut tools = tool_list::first_party();
         tools.extend(self.actions.iter().map(ActionTool::descriptor_json));
         for proxied in &self.upstreams {
             let taken = tools
@@ -1092,6 +1069,9 @@ impl<B: Backend> Server<B> {
         if let Some(result) = self.call_video(name, &arguments) {
             return Ok(result);
         }
+        if keys_tools::owns(name) {
+            return Ok(self.call_keys(name, &arguments));
+        }
         if name == open_tool::NAME {
             if !self.actions_loaded {
                 self.refresh_actions();
@@ -1108,6 +1088,9 @@ impl<B: Backend> Server<B> {
             return Ok(tool.call(&self.backend, &arguments));
         }
         if let Some(result) = automation_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = customize_library_tool::call(&self.backend, name, &arguments) {
             return Ok(result);
         }
         if let Some(result) = customize_tools::call(&self.backend, name, &arguments) {

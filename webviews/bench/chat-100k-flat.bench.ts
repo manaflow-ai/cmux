@@ -45,7 +45,14 @@ const CPU_FLOOR_PCT = Number(process.env.CPU_FLOOR_PCT ?? 1);
 const HIDDEN = process.env.HIDDEN !== "0";
 const PROFILE = process.env.PROFILE;
 const GROW_BATCH = Number(process.env.GROW_BATCH ?? 400);
+const REPEAT = Math.max(1, Number(process.env.REPEAT ?? 3));
 const CASES = process.env.CASES ?? "all";
+// CPU settle: once a launch's chats are loaded or grown, its renderers are sampled every second until two samples in
+// a row are at most SETTLE_PCT of a core (a 1 s sample counts 10 ms ticks, so a 1 % threshold would be one tick of
+// noise) or SETTLE_MAX_S pass. That time is the row cpu_settle_s, kept out of ratio_max, and the idle windows start
+// after it: a burst's drain is read as a time, not folded into the idle CPU.
+const SETTLE_PCT = Number(process.env.SETTLE_PCT ?? 2);
+const SETTLE_MAX_S = Number(process.env.SETTLE_MAX_S ?? 60);
 // A grown-many run's rows carry their own prefix: the perf cron stores them from a part of their own.
 const ROW = CASES === "grown-many" ? "chat_100k_flat.grown_many" : "chat_100k_flat";
 if (!["all", "main", "grown-many"].includes(CASES)) {
@@ -116,10 +123,15 @@ function cpuTicks(pids: number[]): number {
   }
   return ticks;
 }
+const median = (values: number[]) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+};
 const pssMB = (pid: number) =>
   Number(/^Pss:\s+(\d+) kB/m.exec(fs.readFileSync(`/proc/${pid}/smaps_rollup`, "utf8"))?.[1] ?? 0) / 1024;
 
-type Launch = { name: string; idlePct: number; streamPct: number; mb: number; renderers: number };
+type Launch = { name: string; idlePct: number; streamPct: number; mb: number; renderers: number; settleS: number };
 
 const releases: (() => unknown)[] = [];
 const release = async () => {
@@ -165,7 +177,7 @@ try {
     name: string,
     chat: Template,
     count: number,
-    { profile, grow = 0 }: { profile?: string; grow?: number } = {},
+    { profile, grow = 0, runGrow = 0 }: { profile?: string; grow?: number; runGrow?: number } = {},
   ): Promise<Launch> => {
     // The stand-in daemon for this launch: `count` chats of `chat`, and what streamed into each since.
     const sessions = Array.from({ length: count }, (_, index) => ({
@@ -284,6 +296,70 @@ try {
         });
         pages.push({ page, cdp: await context.newCDPSession(page) });
       }
+      if (runGrow > 0) {
+        // Running: the newest chat starts one turn that never ends and takes `runGrow` cycles of a reply chunk, a tool
+        // call and its completed update into it, GROW_BATCH records at a time, a frame apart: a coordinator's turn that
+        // steers keep open for hours.
+        const began = performance.now();
+        const id = sessionId(count - 1);
+        emit(id, "mux", "user_message", { text: "Coordinate the lanes" });
+        emit(id, "mux", "turn_started", {});
+        setStatus(id, "running");
+        const update = (u: Record<string, unknown>) => ({
+          method: "session/update",
+          params: { sessionId: "agent-1", update: u },
+        });
+        for (let step = 1, batch = 0; step <= runGrow; step++) {
+          emit(
+            id,
+            "in",
+            "agent_message_chunk",
+            update({
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: `Running step ${step}: checking the lane. ` },
+            }),
+          );
+          const call = `run-${step}`;
+          emit(
+            id,
+            "in",
+            "tool_call",
+            update({
+              sessionUpdate: "tool_call",
+              toolCallId: call,
+              title: `glaeda-gh status pr ${step}`,
+              kind: "execute",
+              status: "in_progress",
+              rawInput: { command: `glaeda-gh status pr ${step}` },
+            }),
+          );
+          emit(
+            id,
+            "in",
+            "tool_call_update",
+            update({
+              sessionUpdate: "tool_call_update",
+              toolCallId: call,
+              status: "completed",
+              content: [{ type: "content", content: { type: "text", text: `checks SUCCESS: ${step} passed` } }],
+            }),
+          );
+          batch += 3;
+          if (batch >= GROW_BATCH) {
+            batch = 0;
+            // fixed-wait: one frame between batches, so the page applies them as it would a fast stream.
+            await Bun.sleep(16);
+          }
+        }
+        const lastText = `Running step ${runGrow}:`;
+        await pages.at(-1)!.page.waitForFunction((text) => document.body.textContent?.includes(text), lastText, {
+          timeout: 900_000,
+          polling: 1000,
+        });
+        console.log(
+          `  ${name}: ran ${runGrow} steps into one open turn in ${((performance.now() - began) / 1000).toFixed(1)} s`,
+        );
+      }
       if (grow > 0) {
         // Grown: each chat takes `grow` finished turns live, GROW_BATCH records at a time, a frame apart.
         const began = performance.now();
@@ -321,8 +397,34 @@ try {
           `  ${name}: grew ${grow} turns a chat live in ${((performance.now() - began) / 1000).toFixed(1)} s`,
         );
       }
-      // The pages' own settling (read-ahead, fonts, the first paints) is not idle.
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      const window = async (seconds: number, during?: () => Promise<void>) => {
+        const pids = renderers(root);
+        const from = cpuTicks(pids);
+        const began = performance.now();
+        if (during) await during();
+        else await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+        const elapsed = (performance.now() - began) / 1000;
+        return ((cpuTicks(pids) - from) / TICK_HZ / elapsed) * 100;
+      };
+      // The pages' own settling (read-ahead, fonts, the first paints, and after a burst its drain) is not idle: it is
+      // timed from the last record in to the first of two quiet seconds.
+      const settleFrom = performance.now();
+      const settleSamples: number[] = [];
+      let settleS = SETTLE_MAX_S;
+      for (let quietSince = -1; (performance.now() - settleFrom) / 1000 < SETTLE_MAX_S;) {
+        const sampleFrom = performance.now();
+        const pct = await window(1);
+        settleSamples.push(pct);
+        if (pct > SETTLE_PCT) quietSince = -1;
+        else if (quietSince < 0) quietSince = sampleFrom;
+        else {
+          settleS = (quietSince - settleFrom) / 1000;
+          break;
+        }
+      }
+      console.log(
+        `  ${name}: CPU settled in ${settleS.toFixed(1)} s${settleS >= SETTLE_MAX_S ? " (cap)" : ""}; samples ${settleSamples.map((v) => v.toFixed(1)).join(", ")}`,
+      );
       for (const { page } of pages) await settledAt(page).catch(() => undefined);
       if (HIDDEN) {
         // A chat tab that is not shown: its document turns hidden, as CEF's WasHidden makes it in the app.
@@ -334,70 +436,85 @@ try {
           });
         await new Promise((resolve) => setTimeout(resolve, 2000));
       }
-      const window = async (seconds: number, during?: () => Promise<void>) => {
-        const pids = renderers(root);
-        const from = cpuTicks(pids);
-        const began = performance.now();
-        if (during) await during();
-        else await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
-        const elapsed = (performance.now() - began) / 1000;
-        return ((cpuTicks(pids) - from) / TICK_HZ / elapsed) * 100;
-      };
       const shownProfiler = pages.at(-1)!.cdp;
-      if (profile) {
-        await shownProfiler.send("Profiler.enable");
-        await shownProfiler.send("Profiler.start");
+      // Each reading is the median of REPEAT windows, so one noisy window on a shared runner cannot set the run's max
+      // (single windows swung the worst ratio 3.1x to 15.8x between runs of the same commit). Only the first window of
+      // each kind is profiled.
+      const idleWindows: number[] = [];
+      for (let round = 0; round < REPEAT; round++) {
+        if (profile && round === 0) {
+          await shownProfiler.send("Profiler.enable");
+          await shownProfiler.send("Profiler.start");
+        }
+        idleWindows.push(await window(IDLE_S));
+        if (profile && round === 0) {
+          const { profile: cpu } = (await shownProfiler.send("Profiler.stop")) as { profile: unknown };
+          fs.mkdirSync(profile, { recursive: true });
+          fs.writeFileSync(path.join(profile, `${name}-idle.cpuprofile`), JSON.stringify(cpu));
+        }
       }
-      const idlePct = await window(IDLE_S);
-      if (profile) {
-        const { profile: cpu } = (await shownProfiler.send("Profiler.stop")) as { profile: unknown };
-        fs.mkdirSync(profile, { recursive: true });
-        fs.writeFileSync(path.join(profile, `${name}-idle.cpuprofile`), JSON.stringify(cpu));
-      }
-      // Streaming: the shown chat (the newest) runs a turn whose reply arrives TPS chunks a second.
+      const idlePct = median(idleWindows);
+      // Streaming: the shown chat (the newest) gets a reply of TPS chunks a second for STREAM_S seconds, REPEAT times.
+      // In a running launch the reply goes into the open turn; otherwise each round is a turn of its own.
       const shown = sessionId(count - 1);
       const shownCdp = pages.at(-1)!.cdp;
-      emit(shown, "mux", "user_message", { text: "Stream a reply" });
-      emit(shown, "mux", "turn_started", {});
-      setStatus(shown, "running");
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      if (profile) {
-        await shownCdp.send("Profiler.enable");
-        await shownCdp.send("Profiler.start");
-      }
+      const streamWindows: number[] = [];
       let sent = 0;
-      const streamPct = await window(STREAM_S, async () => {
-        const began = performance.now();
-        const total = Math.ceil(TPS * STREAM_S);
-        while (sent < total) {
-          const due = Math.min(total, Math.floor(((performance.now() - began) / 1000) * TPS) + 1);
-          for (; sent < due; sent++)
-            emit(shown, "in", "agent_message_chunk", {
-              method: "session/update",
-              params: {
-                sessionId: "agent-1",
-                update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `word${sent} ` } },
-              },
-            });
-          // fixed-wait: the wall-clock pacing of the stream itself.
-          await Bun.sleep(5);
+      for (let round = 0; round < REPEAT; round++) {
+        if (runGrow === 0) {
+          emit(shown, "mux", "user_message", { text: `Stream a reply ${round + 1}` });
+          emit(shown, "mux", "turn_started", {});
+          setStatus(shown, "running");
+          await new Promise((resolve) => setTimeout(resolve, 300));
         }
-      });
-      if (profile) {
-        const { profile: cpu } = (await shownCdp.send("Profiler.stop")) as { profile: unknown };
-        fs.mkdirSync(profile, { recursive: true });
-        const file = path.join(profile, `${name}-streaming.cpuprofile`);
-        fs.writeFileSync(file, JSON.stringify(cpu));
-        console.log(`chat-100k-flat: CPU profile of ${name} streaming: ${file}`);
+        if (profile && round === 0) {
+          await shownCdp.send("Profiler.enable");
+          await shownCdp.send("Profiler.start");
+        }
+        streamWindows.push(
+          await window(STREAM_S, async () => {
+            const began = performance.now();
+            const total = sent + Math.ceil(TPS * STREAM_S);
+            const from = sent;
+            while (sent < total) {
+              const due = Math.min(total, from + Math.floor(((performance.now() - began) / 1000) * TPS) + 1);
+              for (; sent < due; sent++)
+                emit(shown, "in", "agent_message_chunk", {
+                  method: "session/update",
+                  params: {
+                    sessionId: "agent-1",
+                    update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `word${sent} ` } },
+                  },
+                });
+              // fixed-wait: the wall-clock pacing of the stream itself.
+              await Bun.sleep(5);
+            }
+          }),
+        );
+        if (profile && round === 0) {
+          const { profile: cpu } = (await shownCdp.send("Profiler.stop")) as { profile: unknown };
+          fs.mkdirSync(profile, { recursive: true });
+          const file = path.join(profile, `${name}-streaming.cpuprofile`);
+          fs.writeFileSync(file, JSON.stringify(cpu));
+          console.log(`chat-100k-flat: CPU profile of ${name} streaming: ${file}`);
+        }
+        if (runGrow === 0) {
+          emit(shown, "mux", "turn_result", { status: "completed" });
+          setStatus(shown, "ready");
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
       }
-      emit(shown, "mux", "turn_result", { status: "completed" });
-      setStatus(shown, "ready");
+      const streamPct = median(streamWindows);
+      console.log(
+        `  ${name}: idle windows ${idleWindows.map((v) => v.toFixed(2)).join(", ")}; streaming ${streamWindows.map((v) => v.toFixed(2)).join(", ")}`,
+      );
       await new Promise((resolve) => setTimeout(resolve, 1000));
       for (const { cdp } of pages) await cdp.send("HeapProfiler.collectGarbage");
       await new Promise((resolve) => setTimeout(resolve, 1500));
       const pids = renderers(root);
       const mb = pids.reduce((sum, pid) => sum + pssMB(pid), 0);
-      const row: Launch = { name, idlePct, streamPct, mb, renderers: pids.length };
+      const row: Launch = { name, idlePct, streamPct, mb, renderers: pids.length, settleS };
+      perfRow({ name: `${ROW}.${name}.cpu_settle_s`, p50: settleS, p95: settleS, unit: "s" });
       console.log(`${name} | ${row.renderers} | ${idlePct.toFixed(2)} | ${streamPct.toFixed(2)} | ${mb.toFixed(1)}`);
       perfRow({ name: `${ROW}.${name}.idle_cpu_pct`, p50: idlePct, p95: idlePct, unit: "pct", clock: "cpu" });
       perfRow({
@@ -426,6 +543,10 @@ try {
     const longOne = await runLaunch("long_x1", long, 1, { profile: PROFILE });
     const grownOne = await runLaunch("grown_x1", small, 1, { profile: PROFILE, grow: long.turns });
     pairs.push(["long_x1", longOne, emptyOne], ["grown_x1", grownOne, emptyOne]);
+    // Running: one chat whose single open turn takes about ROWS records live (a chunk, a tool call and its update per
+    // step), the coordinator chat that never finishes its turn.
+    const runningOne = await runLaunch("running_x1", small, 1, { profile: PROFILE, runGrow: Math.ceil(ROWS / 3) });
+    pairs.push(["running_x1", runningOne, emptyOne]);
   }
   const emptyMany = await runLaunch(`empty_x${CHATS}`, small, CHATS);
   if (CASES !== "grown-many") pairs.push([`long_x${CHATS}`, await runLaunch(`long_x${CHATS}`, long, CHATS), emptyMany]);
@@ -446,6 +567,19 @@ try {
   console.log(`chat-100k-flat: worst ratio ${max.toFixed(2)}x (${worst}); target 1.2x`);
   const maxRow = `${ROW}.ratio_max`;
   perfRow({ name: maxRow, p50: max, p95: max, unit: "x", target: 1.2, floor: 0.05 });
+  // The longest CPU settle of a long, grown or running launch, beside the empty launches' own: a number of its own,
+  // read against its own target in the goal record, never in ratio_max.
+  const [slowest, settleMax] = pairs
+    .map(([label, big]) => [label, big.settleS] as [string, number])
+    .reduce((a, b) => (b[1] > a[1] ? b : a));
+  const emptySettle = Math.max(...pairs.map(([, , base]) => base.settleS));
+  console.log(
+    `chat-100k-flat: longest CPU settle ${settleMax.toFixed(1)} s (${slowest}); empty ${emptySettle.toFixed(1)} s`,
+  );
+  perfRow({ name: `${ROW}.cpu_settle_s_max`, p50: settleMax, p95: settleMax, unit: "s" });
+  // What a long chat adds to the empty chats' own settle, the number the goal reads (target 2 s).
+  const excess = Math.max(0, settleMax - emptySettle);
+  perfRow({ name: `${ROW}.cpu_settle_excess_s`, p50: excess, p95: excess, unit: "s", target: 2 });
 } finally {
   await release();
 }
