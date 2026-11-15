@@ -590,11 +590,7 @@ pub(super) fn click(
     with_hand_back_flag(click_inner(d, target, spec))
 }
 
-fn click_inner(
-    d: &MacDesktop,
-    target: &PointerTarget,
-    spec: &ClickSpec,
-) -> DResult<ActionOutcome> {
+fn click_inner(d: &MacDesktop, target: &PointerTarget, spec: &ClickSpec) -> DResult<ActionOutcome> {
     let t = d.target(target.window_id())?;
     // menu_item: open the menu, press the item, close it, in this call.
     if let Some(value) = spec.menu_item.as_deref() {

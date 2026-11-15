@@ -293,7 +293,12 @@ impl Registry {
 
     /// Takes `pid`'s lock for a scope entry, ahead of input waiting for it.
     pub(super) fn lock_pid_for_entry(&self, pid: i32) -> PidLock<'_> {
-        *self.entering.lock().unwrap_or_else(std::sync::PoisonError::into_inner).entry(pid).or_insert(0) += 1;
+        *self
+            .entering
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entry(pid)
+            .or_insert(0) += 1;
         let lock = self.lock_pid(pid);
         let mut entering = self.entering.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(n) = entering.get_mut(&pid) {
