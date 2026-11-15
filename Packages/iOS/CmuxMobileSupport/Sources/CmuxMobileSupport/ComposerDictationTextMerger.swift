@@ -146,7 +146,7 @@ public struct ComposerDictationTextMerger: Sendable {
                     isFinal: isUtteranceFinal
                 )
                 if let insertionAfterIndex {
-                    let insertionIndex = phrases[..<insertionAfterIndex + 1]
+                    let insertionIndex = phrases[..<(insertionAfterIndex + 1)]
                         .indices
                         .filter { !removedIndices.contains($0) }
                         .count
