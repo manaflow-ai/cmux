@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43694281877",
+  "recorded_at": "2026-11-15T08:30:49Z",
+  "reason": "cmux-tui a7e9879b0941 changes the image's cmux-tui (pinned 8352b832154b)",
+  "dry_run": false,
+  "cmux_tui": "a7e9879b09411f5252536c3778d14e1913180130",
+  "fixes": [
+    {
+      "sha": "a7e9879b09411f5252536c3778d14e1913180130",
+      "mergedAt": "2026-11-15T00:08:25-08:00",
+      "subject": "cmux remote exec, cp and connect reach another of your machines over your own carrier (#43305)"
+    },
+    {
+      "sha": "97fce24de36edf86ec2c14c77020231970797e43",
+      "mergedAt": "2026-11-15T07:56:28Z",
+      "subject": "cmux-tui: extract session guard lease coordinator (next-no-huge-files) (#43500)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T08:30:49Z",
+    "snapshot_id": "sh-ab9c6a317a5e41c0b7c7b0fb77422195",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43694281877): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e15979b98c7a367bfe6d28a33cbf24fad6393986",
+    "image": "cloud-native-auto-a7e9879b-43694281877-1",
+    "revision": "ci-43694281877-1",
+    "at": "2026-11-15T08:30:49Z"
+  },
+  "rolled_back": false
+}
