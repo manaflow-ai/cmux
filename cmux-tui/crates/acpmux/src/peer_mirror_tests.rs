@@ -1,6 +1,6 @@
 //! The dialer against a real serving connection in peer role, over a pipe.
 use super::*;
-use acpmux_book::index::SummaryIndex;
+use acpmux_book::index::{OriginState, SummaryIndex};
 use acpmux_core::conn::{HubSource, Role};
 use std::collections::BTreeMap;
 
@@ -198,4 +198,122 @@ async fn a_walk_larger_than_a_unit_arrives_in_bounded_units() {
     assert_eq!(counts.out_of_order + counts.join_refused + counts.held + counts.full, 0);
     assert_eq!(counts.rows_over_bound, 0);
     link.end();
+}
+
+/// A hub whose writer turns only while `open` is set: a test holds the
+/// writer between two pieces of work so both land in one turn.
+fn gated_hub() -> (Arc<Hub>, Arc<std::sync::atomic::AtomicBool>) {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    let open = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let turning = open.clone();
+    tokio::spawn(async move {
+        loop {
+            if turning.load(Ordering::Acquire) {
+                writer.turn();
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    });
+    (Arc::new(hub), open)
+}
+
+/// A stale mark the peer's edition does not hold, so the dial is answered
+/// with a window and the dialer sends a takeover.
+async fn put_stale_mark(local: &Hub, rows: usize) -> MirrorMark {
+    let mut after = None;
+    let mut mark = MirrorMark { cursor: 0, edition: 999_999, whole: false };
+    for start in (0..rows.max(1)).step_by(MAX_UNIT_CHANGES) {
+        mark.cursor += 1;
+        mark.whole = start + MAX_UNIT_CHANGES >= rows;
+        let changes = (start..rows.min(start + MAX_UNIT_CHANGES))
+            .map(|n| {
+                let mut stale = row(&format!("stale-{n:05}"), "stale", 1);
+                stale.origin = ORIGIN.to_owned();
+                UnitChange::Summary(Box::new(stale))
+            })
+            .collect();
+        let unit = MirrorUnit { origin: ORIGIN.to_owned(), after, changes, mark };
+        local.submit_unit(Source::Mirror, unit).unwrap();
+        let want = mark;
+        until("the stale unit applied", || local.mirror_mark(ORIGIN) == Some(want)).await;
+        after = Some(mark);
+    }
+    mark
+}
+
+/// The way out of the takeover wait (c): another source's takeover queued right
+/// behind the dialer's replaces it, and the origin is that source's. The
+/// dialer does not wait for a mark that will not go off under its source: it
+/// ends, refused, and v1 keeps the origin.
+#[tokio::test]
+async fn another_sources_takeover_behind_the_dialers_ends_the_mirror() {
+    let peer = hub();
+    let (local, open) = gated_hub();
+    peer.submit(row("a", "a1", 1)).unwrap();
+    until("the peer holds its row", || peer.snapshot().len() == 1).await;
+    put_stale_mark(&local, 0).await;
+    open.store(false, Ordering::Release);
+    let link = dial(&peer, &local);
+    until("the dialer sent its takeover", || link.counters.takeovers.load(Ordering::Relaxed) == 1)
+        .await;
+    local.takeover(ORIGIN, Source::V1).unwrap();
+    open.store(true, Ordering::Release);
+    let end = tokio::time::timeout(WAIT, link.dialing).await.expect("the dialer ended").unwrap();
+    assert!(
+        matches!(end, Ok(DialEnd::Refused(HubError::SourceRefused { owner: Source::V1, .. }))),
+        "refused for v1: {end:?}"
+    );
+    assert_eq!(local.source(ORIGIN), Some(Source::V1));
+    assert_eq!(local.mirror_counts().out_of_order, 0, "no unit went in");
+    link.serving.abort();
+}
+
+/// The way out (c) for a held takeover: the origin's removal lands in the
+/// same writer turn, before it, so the origin is leaving and the writer holds
+/// the takeover. The dialer starts again rather than waiting on a mark that
+/// stays where it is; the start again waits the leaving out and walks.
+#[tokio::test]
+async fn a_takeover_held_with_a_leaving_origin_starts_the_dialer_again() {
+    let peer = hub();
+    let (local, open) = gated_hub();
+    peer.submit(row("a", "a1", 1)).unwrap();
+    until("the peer holds its row", || peer.snapshot().len() == 1).await;
+    // Enough rows that leaving takes many turns.
+    put_stale_mark(&local, MAX_UNIT_CHANGES * 8).await;
+    open.store(false, Ordering::Release);
+    let link = dial(&peer, &local);
+    until("the dialer sent its takeover", || link.counters.takeovers.load(Ordering::Relaxed) == 1)
+        .await;
+    local.origin(ORIGIN, OriginState::Removed, 1).unwrap();
+    open.store(true, Ordering::Release);
+    until("the takeover was held", || local.takeover_turns(ORIGIN).held >= 1).await;
+    until("the dialer started again", || link.counters.restarts.load(Ordering::Relaxed) >= 1).await;
+    until("the leaving ended", || !local.snapshot().is_origin_leaving(ORIGIN)).await;
+    until("a second walk began", || link.counters.walks.load(Ordering::Relaxed) >= 2).await;
+    assert!(!link.dialing.is_finished(), "the mirror runs on");
+    assert_eq!(local.mirror_counts().out_of_order, 0);
+    link.end();
+}
+
+/// A takeover refused at the bound on origins ends the mirror, refused,
+/// instead of leaving the dialer waiting for a takeover that never applies.
+#[tokio::test]
+async fn a_takeover_refused_at_the_origin_bound_ends_the_mirror() {
+    let peer = hub();
+    let local = hub();
+    peer.submit(row("a", "a1", 1)).unwrap();
+    until("the peer holds its row", || peer.snapshot().len() == 1).await;
+    for n in 0..acpmux_core::hub::MAX_ORIGINS {
+        local.takeover(&format!("full-{n:03}"), Source::V1).unwrap();
+    }
+    until("the origins are full", || {
+        local.source(&format!("full-{:03}", acpmux_core::hub::MAX_ORIGINS - 1)).is_some()
+    })
+    .await;
+    let link = dial(&peer, &local);
+    let end = tokio::time::timeout(WAIT, link.dialing).await.expect("the dialer ended").unwrap();
+    assert!(matches!(end, Ok(DialEnd::Refused(HubError::OriginLimit))), "{end:?}");
+    assert_eq!(local.takeover_turns(ORIGIN).refused, 1);
+    assert!(titles(&local).is_empty());
+    link.serving.abort();
 }

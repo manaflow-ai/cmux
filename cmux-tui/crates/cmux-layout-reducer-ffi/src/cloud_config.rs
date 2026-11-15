@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use cmux_cloud_config::{agent_key, auth, config, identity};
+use cmux_cloud_config::{agent_key, auth, config, identity, install_key_slots};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
@@ -208,6 +208,24 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             }
             let request: Request = read(request)?;
             json!({ "account": identity::install_key_account(&request.user) })
+        }
+        // The items of one install key (`install_key_slots`): `{slots, current, next}` from the
+        // accounts the Keychain listed, and `replacement`, where a rotation puts the fresh key
+        // from the statuses of the deletes it made (null: none stayed, make no key now).
+        b"cloud_identity_install_key_slots" => {
+            #[derive(Deserialize)]
+            struct Request {
+                account: String,
+                #[serde(default)]
+                accounts: Vec<String>,
+                #[serde(default)]
+                deletes: Vec<install_key_slots::Delete>,
+            }
+            let request: Request = read(request)?;
+            let mut answer = json!(install_key_slots::slots(&request.account, &request.accounts));
+            answer["replacement"] =
+                json!(install_key_slots::replacement(&request.account, &request.deletes));
+            answer
         }
         b"cloud_identity_share_origin" => {
             #[derive(Default, Deserialize)]

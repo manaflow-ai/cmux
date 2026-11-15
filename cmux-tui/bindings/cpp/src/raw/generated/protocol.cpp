@@ -4629,6 +4629,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("machine_capabilities", std::move(encoded).value());
     }
+    if (value.machine_device) {
+        auto encoded = encode_value(*value.machine_device);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("machine_device", std::move(encoded).value());
+    }
     if (value.machine_id) {
         auto encoded = encode_value(*value.machine_id);
         if (!encoded) return std::move(encoded).error();
@@ -4644,6 +4649,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("machine_platform", std::move(encoded).value());
     }
+    if (value.machine_symbol) {
+        auto encoded = encode_value(*value.machine_symbol);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("machine_symbol", std::move(encoded).value());
+    }
     if (!value.min_api_revision.is_absent()) {
         auto encoded = encode_value(value.min_api_revision);
         if (!encoded) return std::move(encoded).error();
@@ -4658,6 +4668,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
     auto encoded_registry_id = encode_value(value.registry_id);
     if (!encoded_registry_id) return std::move(encoded_registry_id).error();
     object.emplace("registry_id", std::move(encoded_registry_id).value());
+    if (!value.screen_device_id.is_absent()) {
+        auto encoded = encode_value(value.screen_device_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("screen_device_id", std::move(encoded).value());
+    }
     auto encoded_session = encode_value(value.session);
     if (!encoded_session) return std::move(encoded_session).error();
     object.emplace("session", std::move(encoded_session).value());
@@ -4822,6 +4837,12 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         result.machine_capabilities = std::move(decoded).value();
     }
+    const Json* field_machine_device = value.find("machine_device");
+    if (field_machine_device) {
+        auto decoded = decode_value<std::string>(*field_machine_device);
+        if (!decoded) return std::move(decoded).error();
+        result.machine_device = std::move(decoded).value();
+    }
     const Json* field_machine_id = value.find("machine_id");
     if (field_machine_id) {
         auto decoded = decode_value<std::string>(*field_machine_id);
@@ -4839,6 +4860,12 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
         auto decoded = decode_value<MachinePlatform>(*field_machine_platform);
         if (!decoded) return std::move(decoded).error();
         result.machine_platform = std::move(decoded).value();
+    }
+    const Json* field_machine_symbol = value.find("machine_symbol");
+    if (field_machine_symbol) {
+        auto decoded = decode_value<std::string>(*field_machine_symbol);
+        if (!decoded) return std::move(decoded).error();
+        result.machine_symbol = std::move(decoded).value();
     }
     const Json* field_min_api_revision = value.find("min_api_revision");
     if (field_min_api_revision) {
@@ -4876,6 +4903,16 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_registry_id);
         if (!decoded) return std::move(decoded).error();
         result.registry_id = std::move(decoded).value();
+    }
+    const Json* field_screen_device_id = value.find("screen_device_id");
+    if (field_screen_device_id) {
+        if (field_screen_device_id->is_null()) {
+            result.screen_device_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_screen_device_id);
+            if (!decoded) return std::move(decoded).error();
+            result.screen_device_id = Field<std::string>(std::move(decoded).value());
+        }
     }
     const Json* field_session = value.find("session");
     if (!field_session) {
@@ -41611,6 +41648,49 @@ Result<ScreenClosedEvent> Codec<ScreenClosedEvent>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<ScreenDeviceChangedEvent>::encode(const ScreenDeviceChangedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("screen-device-changed")));
+    if (value.screen_device_id) {
+        auto encoded = encode_value(*value.screen_device_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("screen_device_id", std::move(encoded).value());
+    } else {
+        object.emplace("screen_device_id", Json(nullptr));
+    }
+    return Json(std::move(object));
+}
+
+Result<ScreenDeviceChangedEvent> Codec<ScreenDeviceChangedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ScreenDeviceChangedEvent result{};
+    const Json* field_screen_device_id = value.find("screen_device_id");
+    if (!field_screen_device_id) {
+        return make_error(ErrorCode::decode, "missing required field 'screen_device_id'");
+    }
+    if (field_screen_device_id) {
+        if (field_screen_device_id->is_null()) {
+            result.screen_device_id.reset();
+        } else {
+            auto decoded = decode_value<std::string>(*field_screen_device_id);
+            if (!decoded) return std::move(decoded).error();
+            result.screen_device_id = std::move(decoded).value();
+        }
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("screen-device-changed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<ScreenRenamedEvent>::encode(const ScreenRenamedEvent& value) {
     (void)value;
     Json::Object object;
@@ -45927,6 +46007,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "screen-device-changed") {
+        auto decoded = decode_value<ScreenDeviceChangedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "screen-renamed") {
         auto decoded = decode_value<ScreenRenamedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -46642,7 +46727,7 @@ constexpr std::array<CommandMetadata, 301> kCommands{{
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 93> kEvents{{
+constexpr std::array<EventMetadata, 94> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"agent-inventory-changed", 12U, "agent-inventory-watch-v1", "control", "emitted"},
@@ -46705,6 +46790,7 @@ constexpr std::array<EventMetadata, 93> kEvents{{
     {"screen-added", 7U, "", "subscribe-deltas", "emitted"},
     {"screen-changed", 12U, "screen-metadata-v1", "subscribe-deltas", "emitted"},
     {"screen-closed", 7U, "", "subscribe-deltas", "emitted"},
+    {"screen-device-changed", 12U, "screen-device-identity-v1", "subscribe", "emitted"},
     {"screen-renamed", 7U, "", "subscribe-deltas", "emitted"},
     {"scroll-changed", 6U, "", "subscribe,attach-byte,attach-render,attach-browser", "emitted"},
     {"selection-changed", 12U, "tree-selection-deltas-v1", "subscribe-deltas", "emitted"},

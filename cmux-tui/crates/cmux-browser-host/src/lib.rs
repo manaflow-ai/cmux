@@ -12,6 +12,8 @@
 
 pub mod automation_input;
 pub mod cdp;
+#[cfg(unix)]
+pub mod cli;
 pub mod cookie_backups;
 pub mod driver;
 mod egress_devtools;

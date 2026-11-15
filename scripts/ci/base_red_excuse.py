@@ -2279,6 +2279,89 @@ def generated_stale_host(log: str) -> str | None:
     return GENERATED_HOSTS[match.group(1)]
 
 
+# A 'catalog' verdict the base fails too (2026-11-15, cmux#43469 at 7562e83f, run 43697059936): the FFI re-pin of
+# #43603 added app.menu.run, so the action catalog checks failed on every head and on feat-cmux-next alike. A PR's
+# shared check printed its green host's 'catalog' verdict and was refused, since base pushes never run the shared check
+# (they check generated files in 'cmux-next generated files', base tier) and so no base verdict carries its name. It
+# is the base's when: its one error line is the host's 'catalog' verdict (generated_catalog_host); the host job's
+# whole log (unplaced_signature, as pr_only_step_verdict reads it: a green host's every failing test and error line is
+# a continue-on-error check's) names at least one failing test and none unnamed, and every failing test (by name,
+# digits kept) and error line in it is one ONE red base 'cmux-next generated files' fails, in the window (BASE_WINDOW
+# verdicts within BASE_WINDOW_HOURS of the newest; a pass ends it, pr_only_step_verdict's rule); and the PR changes
+# none of the catalog's inputs (CATALOG_INPUTS: judge-action-exports.sh's GENERATOR_INPUTS and its own scripts).
+# Anything else stays the PR's own.
+GENERATED_CATALOG = re.compile(r"^##\[error\]\s*The action catalog checks fail on (swift-test|daemon-test) with fresh "
+                               r"exports too: a catalog failure, not stale files\.")
+GENERATED_BASE_JOB = "cmux-next generated files"
+CATALOG_INPUTS = ("Packages/", "plans/cmux-next/", "scripts/cmux-next/regenerate-action-contracts.sh",
+                  "scripts/cmux-next/judge-action-exports.sh", "scripts/cmux-next/check-action-surfaces.sh")
+
+
+def shared_catalog_host(repo: str, job: dict, github) -> str | None:
+    """generated_catalog_host of the shared generated-files check JOB's log: its one read."""
+    return generated_catalog_host(github.log(repo, job))
+
+
+def generated_catalog_host(log: str) -> str | None:
+    """The host job name of a shared generated-files check whose one red is its host's 'catalog' verdict; else None."""
+    lines = [text for text in test_reds.lines_of(log) if text.startswith("##[error]")
+             and not text.startswith("##[error]Process completed with exit code")]
+    if len(lines) != 1 or not (match := GENERATED_CATALOG.match(lines[0])):
+        return None
+    return GENERATED_HOSTS[match.group(1)]
+
+
+def shared_catalog_verdict(repo: str, base: str, sha: str, name: str, job: dict, host: str, github,
+                           evidence: "Evidence", base_jobs: dict, job_reads: dict, suites: "SuiteChecks",
+                           run_reads: dict) -> str:
+    """The audit line for the shared generated-files check JOB (NAME) whose one red is HOST's 'catalog' verdict, when
+    the base fails that catalog the same way (the rule above); raises Refused naming what differs."""
+    why = f"'{name}': its one red is the 'catalog' verdict of '{host}'"
+    found = [other for other in base_run_jobs(repo, {"id": job.get("run_id")}, github) if other.get("name") == host]
+    if len(found) != 1:
+        raise Refused(f"{why}, and run {job.get('run_id')} has {len(found)} jobs of that name; nothing to compare")
+    mine = unplaced_base_evidence(repo, found[0], github)
+    if mine.unnamed:
+        raise Refused(f"{why}; its log reports more failed tests than it names ({mine.unnamed[0][:200]})")
+    if not mine.tests:
+        raise Refused(f"{why}, and its log names no failing test; nothing to compare with the base")
+    if mine.crashes:
+        raise Refused(f"{why}, and its log shows a crash ({sorted(mine.crashes)[0][:200]}); never a base red")
+    workflow_info = run_reads.get(("run-record", job["run_id"]))
+    if not isinstance(workflow_info, dict):
+        workflow_info = rest_run(repo, job["run_id"], github, run_reads)
+    workflow = workflow_info.get("workflow_id")
+    if not isinstance(workflow, int):
+        raise Refused(f"{why}; run {job['run_id']} came back without its workflow_id; nothing to compare")
+    newest, read, closest = None, 0, None
+    for run, theirs_job in base_verdicts(repo, workflow, GENERATED_BASE_JOB, github, evidence, base_jobs, job_reads,
+                                         suites):
+        newest = newest or created(run)
+        if read >= BASE_WINDOW or (newest and created(run)
+                                   and newest - created(run) > timedelta(hours=BASE_WINDOW_HOURS)):
+            break
+        read += 1
+        if theirs_job.get("conclusion") != "failure":
+            raise Refused(f"{why}; '{GENERATED_BASE_JOB}' passed in {base} run {run['id']}, so an older red of it "
+                          "never counts" + (f" ({closest})" if closest else ""))
+        theirs = unplaced_base_evidence(repo, theirs_job, github)
+        tests, errors = set(mine.tests) - set(theirs.tests), set(mine.errors) - set(theirs.errors)
+        if theirs.unnamed or tests or errors:
+            closest = closest or (f"{base} run {run['id']} does not fail: "
+                                  + "; ".join(sorted(tests) + sorted(errors))[:400])
+            continue
+        number, paths = pr_paths_once(repo, base, sha, github, run_reads)
+        if touched := [path for path in paths if path.startswith(CATALOG_INPUTS)]:
+            raise Refused(f"{why}, which {base} run {run['id']}'s '{GENERATED_BASE_JOB}' fails too, but #{number} "
+                          f"changes the action catalog's inputs ({', '.join(touched[:5])[:300]}): it may be the PR's")
+        url = run.get("html_url") or f"https://github.com/{repo}/actions/runs/{run['id']}"
+        return (f"excused '{name}': its one red is the 'catalog' verdict of '{host}', whose failing tests and error "
+                f"lines all fail in {base} run {run['id']}'s red '{GENERATED_BASE_JOB}' ({url}), and #{number} "
+                f"changes none of the action catalog's inputs: {'; '.join(sorted(mine.tests))[:400]}")
+    raise Refused(f"{why}; no red '{GENERATED_BASE_JOB}' of {base} in the window fails all its failing tests and "
+                  f"error lines" + (f": {closest}" if closest else ""))
+
+
 def no_verdict(log: str) -> str | None:
     """The line where a compile check says it gave no verdict, if it does."""
     return next((text for text in lines_of(log) if NO_VERDICT.match(text)), None)
@@ -4238,7 +4321,7 @@ GUARD_WORKFLOWS = {
                          "release-compile", "swift-exports-cache", "cmux-scheme-compile", "crash-ends-app",
                          "dev-landing-compile", "release-compile-revert", "compile-status"), _PRODUCT),
         **dict.fromkeys(("request-nightly-next", "request-cmux-next-dev-publish", "pr-red-checks",
-                         "push-attribution"), _PUBLISH),
+                         "push-attribution", "same-tree-status-daemon", "same-tree-status-scheme"), _PUBLISH),
     },
 }
 GUARD_JOBS_FILE = Path(__file__).with_name("base_red_guard_jobs.json")
@@ -6952,6 +7035,11 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 and (job.get("run_id"), host) in pr_only):
             audit.append(f"excused '{name}': its one red is the 'stale' verdict of '{host}', whose regeneration "
                          "failed only on base reds (excused above)")
+            continue
+        if (name == GENERATED_VERDICT_JOB and job.get("conclusion") == "failure" and not refused_at_setup(job)
+                and (host := shared_catalog_host(repo, job, github)) is not None):
+            audit.append(shared_catalog_verdict(repo, base, sha, name, job, host, github, evidence, base_jobs,
+                                                job_reads, suites, run_reads))
             continue
         if job.get("conclusion") != "failure":
             if (cut := cut_short_web_verdict(repo, base, name, job, github, run_reads, evidence)) is not None:

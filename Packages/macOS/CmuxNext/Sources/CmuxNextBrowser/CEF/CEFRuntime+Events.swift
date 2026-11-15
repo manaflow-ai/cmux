@@ -162,6 +162,8 @@ extension CEFRuntime {
                 CEFEventTrace.record(browser, event)
                 #endif
                 tab.handle(event)
+            } else if let browser = event.browserID, orphans.keepEarly(event, browser: browser) {
+                // A tab a page opened, before cmux adopted it: its tab replays this (`adoptChromiumTab`).
             } else if let browser = event.browserID, event.isLoadEvent {
                 // A load event of a browser no tab owns is dropped: the trace says so (lead on STATUS 8457).
                 BrowserLifecycleTrace.shared.record(BrowserTabID(rawValue: "browser-\(browser)"), "cef-load-event-without-tab")
@@ -448,7 +450,7 @@ extension CEFRuntime {
 extension CEFShimEvent {
     var browserID: Int32? {
         switch self {
-        case .address(let b, _), .title(let b, _), .favicon(let b, _), .loadingState(let b, _, _, _),
+        case .address(let b, _), .title(let b, _), .favicon(let b, _), .loadingState(let b, _, _, _, _),
              .loadStart(let b, _, _), .loadEnd(let b, _), .loadError(let b, _, _, _, _), .progress(let b, _),
              .fullscreen(let b, _), .findResult(let b, _, _, _), .closeRequested(let b), .popup(let b, _, _, _),
              .afterCreated(let b, _, _, _), .beforeClose(let b), .chromeCommand(let b, _), .devToolsResult(let b, _, _, _), .tab(_, let b, _, _),

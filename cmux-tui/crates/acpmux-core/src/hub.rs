@@ -43,7 +43,10 @@ pub use acpmux_book::index::MirrorMark;
 mod peer_tests;
 pub use compaction::CompactionStats;
 use history::{History, PeerHistory};
-pub use mirror::{MAX_FRAME_CHANGES, MAX_UNIT_CHANGES, MirrorCounts, MirrorUnit, UnitChange};
+pub use mirror::{
+    MAX_FRAME_CHANGES, MAX_TURN_UNIT_CHANGES, MAX_UNIT_CHANGES, MirrorCounts, MirrorUnit,
+    TakeoverTurns, UnitChange,
+};
 pub use origins::{MAX_ORIGINS, Source, refused_held_rows};
 
 pub use crate::wire::{DeltaFrame, Window};
@@ -209,20 +212,37 @@ impl UpdateQueue {
 
     #[cfg(test)]
     fn take_batch(&self) -> Vec<(UpdateKey, PendingUpdate)> {
-        self.take_batch_limit(256)
+        self.take_batch_limit(256, MAX_TURN_UNIT_CHANGES)
     }
 
-    fn take_batch_limit(&self, limit: usize) -> Vec<(UpdateKey, PendingUpdate)> {
+    /// At most `limit` updates, and units of at most `unit_changes` changes
+    /// together (one unit at least): an origin's unit past that count waits in
+    /// its slot, with what queued behind it, for the next turn.
+    fn take_batch_limit(
+        &self,
+        limit: usize,
+        unit_changes: usize,
+    ) -> Vec<(UpdateKey, PendingUpdate)> {
         let Ok(mut pending) = self.pending.lock() else { return Vec::new() };
         let mut batch = Vec::new();
+        let mut changes = 0;
+        let mut waiting = Vec::new();
         while batch.len() < limit {
             let Some((key, mut updates)) = pending.controls.pop_first() else { break };
+            if let Some(PendingUpdate::Unit { unit, .. }) = updates.front() {
+                if changes > 0 && changes + unit.changes.len() > unit_changes {
+                    waiting.push((key, updates));
+                    continue;
+                }
+                changes += unit.changes.len();
+            }
             let Some(update) = updates.pop_front() else { continue };
             if !updates.is_empty() {
                 pending.controls.insert(key.clone(), updates);
             }
             batch.push((key, update));
         }
+        pending.controls.extend(waiting);
         let keys: Vec<_> = pending.rows.keys().take(limit - batch.len()).cloned().collect();
         batch.extend(keys.into_iter().filter_map(|key| {
             pending.rows.remove(&key).map(|value| (UpdateKey::Row(key.0), value))
@@ -733,7 +753,13 @@ impl Hub {
             disk::HydrationState::Loading
         };
         let (hydrated_tx, hydrated_rx) = tokio::sync::watch::channel(state);
-        let sources = Arc::new(ArcSwap::from_pointee(HashMap::new()));
+        // Decision 264: a stored mark is the record of who held the origin.
+        // Every takeover as v1 writes it off before a v1 row goes in, so an
+        // origin whose mark is on opens as the mirror's: v1's tee stands aside
+        // for it, and the first dial resumes from the mark.
+        let sources: HashMap<String, Source> =
+            index.mirror_marks().map(|mark| (mark.origin, Source::Mirror)).collect();
+        let sources = Arc::new(ArcSwap::from_pointee(sources));
         let rebuild_requested = Arc::new(AtomicBool::new(false));
         let rebuild_count = Arc::new(AtomicU64::new(rebuilds));
         let rebuild_fenced = Arc::new(AtomicU64::new(0));
@@ -990,6 +1016,22 @@ impl Hub {
             |_| (Arc::new(AtomicBool::new(true)), Arc::new(AtomicBool::new(false))),
             |history| history.snapshot_open_control(),
         )
+    }
+
+    /// Copies one bounded replay span while holding the history mutex.
+    ///
+    /// This is test-only instrumentation for the replay cause probe: it models
+    /// the old lock-coupled copier so the probe can show the cost of sharing
+    /// the writer's history lock. Production replay never calls this path.
+    #[cfg(test)]
+    pub(crate) fn probe_history_locked_copy(
+        &self,
+        cursor: u64,
+        through: u64,
+        max_bytes: usize,
+    ) -> Option<u64> {
+        let history = self.history.lock().ok()?;
+        history.after_frame(cursor, through, max_bytes).map(|span| span.last_seq)
     }
 
     pub fn set_page_provider(&self, provider: Arc<dyn PageProvider>) {
@@ -1738,6 +1780,13 @@ impl HubWriter {
                 self.log_errors.fetch_add(1, Ordering::Relaxed);
             }
         }
+    }
+
+    /// One writer turn, for a caller that drives the writer itself in place
+    /// of [`Self::run`]: a test that orders the writer's turns against other
+    /// work (a dialer's takeover and an origin's removal in one turn).
+    pub fn turn(&mut self) {
+        self.process_batch();
     }
 
     /// Disk writes, group syncs and hydration run off runtime workers.

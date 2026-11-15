@@ -93,3 +93,16 @@ async fn host_health_follows_the_file_fresh_stale_invalid_and_gone() {
     let health = host_health().await;
     assert!(health.get("problems").is_none(), "{health}");
 }
+
+/// `host_health` says what kind of device this machine is, a kind with a glyph (Leo 2026-11-14:
+/// "nicer icons ... across all the remote related areas"): this machine's own, as
+/// `cmux-device-kind` reads it.
+#[tokio::test]
+async fn host_health_names_this_device_kind() {
+    let health = host_health().await;
+    let device = health["device"].as_str().unwrap_or_else(|| panic!("no device: {health}"));
+    let kind = cmux_device_kind::DeviceKind::parse(device);
+    assert_eq!(kind.as_str(), device, "{health}");
+    assert_eq!(kind, cmux_device_kind::this_device().kind);
+    assert_eq!(health["deviceSymbol"].as_str(), Some(kind.symbol()), "{health}");
+}
