@@ -70,10 +70,14 @@ final class ProtoPicks {
 
     private let defaults: UserDefaults
     private static let prefix = "cmuxMobile.proto.taskLaunch."
+    private static var didReset = false
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        if CommandLine.arguments.contains("-cmux-proto-reset") {
+        // Once per launch: SwiftUI makes this again on each redraw of the screen that holds it
+        // (only the first is kept), and a reset each time wiped the picks just saved.
+        if CommandLine.arguments.contains("-cmux-proto-reset"), !Self.didReset {
+            Self.didReset = true
             for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(Self.prefix) { defaults.removeObject(forKey: key) }
         }
         let agentID = defaults.string(forKey: Self.prefix + "agent") ?? ProtoAgent.all[0].id
