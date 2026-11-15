@@ -363,7 +363,7 @@ impl HubWriter {
                 self.origins.releasing = true;
                 let result = self.dispatch_update(key, update);
                 self.origins.releasing = false;
-                if result.is_err() {
+                if let Err(HubError::Log(_)) = result {
                     self.log_errors.fetch_add(1, Ordering::Relaxed);
                 }
                 used += 1;

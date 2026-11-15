@@ -4,7 +4,7 @@
 use super::{CALL_TIMEOUT, list_threads, threads};
 use crate::server::agent_session_attach::agent_session_link::AcpmuxLink;
 use acpmux::test_support::list_daemon::{
-    self, ListDaemon, Serves, bound_away, emit, insert, seed_down_peer,
+    self, ListDaemon, Serves, bound_away, emit, emit_with_all, insert, seed_down_peer,
 };
 use serde_json::{Value, json};
 use std::path::Path;
@@ -185,11 +185,12 @@ fn v2_pr07c_update_plan() {
         god_wall.push(gw);
         god_bytes.push(gb);
     }
-    for (measure, small, god, unit) in
-        [("bytes", &small_bytes, &god_bytes, "bytes"), ("wall", &small_wall, &god_wall, "ns")]
-    {
-        let name = format!("v2.pr07c.update_plan_{measure}");
-        let (small, god) = emit(&name, small, god, unit);
-        assert!(god.saturating_mul(100) <= small.saturating_mul(120), "{name}: {god} vs {small}");
-    }
+    let name = "v2.pr07c.update_plan_bytes";
+    let (small, god) = emit(name, &small_bytes, &god_bytes, "bytes");
+    assert!(god.saturating_mul(100) <= small.saturating_mul(120), "{name}: {god} vs {small}");
+    // Wall time: the best round within 1.2x, and every sample's p95 within 2x of it.
+    let name = "v2.pr07c.update_plan_wall";
+    let (small, god, god_all) = emit_with_all(name, &small_wall, &god_wall, "ns");
+    assert!(god.saturating_mul(100) <= small.saturating_mul(120), "{name}: {god} vs {small}");
+    assert!(god_all <= small.saturating_mul(2), "{name}: every sample {god_all} vs {small}");
 }
