@@ -31,6 +31,8 @@ struct MacScreenHomeSnapshot: Equatable {
         var macScreenShared: Bool
         /// This Mac's access to it.
         var access: MacScreenAccess
+        /// The hub's online word is current (this Mac's own hub link is up); false: `online` may be stale.
+        var onlineKnown = true
     }
 
     /// Your Devices: a note (signed out, loading, none shared) or the list.
@@ -110,9 +112,8 @@ struct MacScreenHomeSnapshot: Equatable {
                         : L.t("macScreen.home.devicesLoading", "Loading your devices…"))
                 } else {
                     devices = .list(listed.map { device in
-                        Device(id: device.id, name: device.name, isPhone: device.platform == .ios, online: device.online,
-                               macScreenShared: device.macScreenShared,
-                               access: MacScreenAccess(hub.scope(host: device.id, viewer: hub.identity.id)))
+                        Self.device(device, access: MacScreenAccess(hub.scope(host: device.id, viewer: hub.identity.id)),
+                                    hubConnected: hub.connection == .connected)
                     })
                 }
                 if hub.thisDevice != nil {
@@ -122,7 +123,7 @@ struct MacScreenHomeSnapshot: Equatable {
                                       screenRecordingGranted: home.host.screenRecordingGranted,
                                       accessibilityGranted: home.host.accessibilityGranted,
                                       session: hubHost.session, lastError: hubHost.lastError,
-                                      showFirstUse: !source.store.hasSharedBefore && !hubHost.isSharing)
+                                      showFirstUse: Self.showsFirstUse(store: source.store, isSharing: hubHost.isSharing))
                 }
             } else {
                 devices = source.box.startupMessage.map(Devices.note) ?? Self.setupDevices(configured: source.box.configured)
@@ -131,6 +132,18 @@ struct MacScreenHomeSnapshot: Equatable {
         if let shortcuts = home.systemShortcuts {
             keyboard = Keyboard(enabled: shortcuts.enabled, needsAccessibility: shortcuts.needsAccessibility)
         }
+    }
+
+    /// One hub device as the page shows it.
+    static func device(_ device: HubDevice, access: MacScreenAccess, hubConnected: Bool) -> Device {
+        Device(id: device.id, name: device.name, isPhone: device.platform == .ios, online: device.online,
+               macScreenShared: device.macScreenShared, access: access)
+    }
+
+    /// Whether the page opens with the first-use steps.
+    @MainActor
+    static func showsFirstUse(store: MacScreenStore, isSharing: Bool) -> Bool {
+        !store.hasSharedBefore && !isSharing
     }
 
     /// The devices the page lists: every other Mac, online or not, sharing or not, so the page can say how to

@@ -158,6 +158,7 @@ public final class MacScreenPages {
                 let viewers = hubViewers
                 let target = viewers.first(where: { $0.phase.sessionID == ticket.sessionId }) ?? viewers.first(where: { $0.accepts(ticket) })
                 target?.accept(ticket)
+                if case .streaming = target?.phase { viewerStarted() }
             }
         case let .sessionDenied(id):
             for viewer in hubViewers where viewer.phase.sessionID == id { viewer.denied() }
@@ -177,13 +178,22 @@ public final class MacScreenPages {
         tabs.values.sorted { $0.key < $1.key }.compactMap { $0.pane?.model.hub }
     }
 
+    /// This Mac started viewing or controlling another Mac: the first-use guide is done.
+    func viewerStarted() {
+    }
+
+    /// The hub says whether this Mac allows Mac Screen; on, the first-use guide is done.
+    func hostSharingChanged(_ on: Bool) {
+    }
+
     /// Device tabs take their device's name from the hub (renames show live).
     private func watchDeviceNames() {
         namesWatch?.cancel()
         guard let hub else { return }
         namesWatch = Task { [weak self] in
-            for await names in ObservationStream({ hub.devices.map { [$0.id, $0.name, $0.online ? "1" : "0"] } }) {
+            for await names in ObservationStream({ hub.devices.map { [$0.id, $0.name, $0.online ? "1" : "0", $0.macScreenShared ? "1" : "0"] } }) {
                 guard let self else { return }
+                hostSharingChanged(names.first { $0[0] == hub.identity.id }?[3] == "1")
                 if store.rememberDeviceNames(Dictionary(names.map { ($0[0], $0[1]) }, uniquingKeysWith: { _, last in last })) {
                     refreshDeviceTitles()
                 }
