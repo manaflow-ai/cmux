@@ -273,6 +273,36 @@ class CheckerTests(unittest.TestCase):
         self.assertNotIn("judged without the pin", out)
         self.assertIn("cmux_demo_new", out)
         self.assertIn("1 awaiting the pin", out)
+        # A developer's full clone (prepush-gate runs this on it) must not become shallow from the fetch.
+        self.assertEqual(self.fx.git("rev-parse", "--is-shallow-repository"), "false")
+
+    def test_a_shallow_checkout_like_ci_fetches_the_pin(self) -> None:
+        # The push run's own state: a fetch-depth 2 clone whose pin names an older commit it does not hold.
+        pinned = self.fx.commit("pinned source")
+        self.fx.commit("later")
+        tip = self.fx.commit("tip")
+        upstream = Path(tempfile.mkdtemp(prefix="ffi-caller-ratchet-origin-"))
+        self.addCleanup(shutil.rmtree, upstream, True)
+        origin = upstream / "origin.git"
+        self.fx.git("clone", "-q", "--bare", str(self.fx.dir), str(origin))
+        subprocess.run(["git", "-C", str(origin), "config", "uploadpack.allowAnySHA1InWant", "true"], check=True,
+                       env=self.fx.env)
+        shallow = upstream / "shallow"
+        subprocess.run(["git", "clone", "-q", "--depth=2", f"file://{origin}", str(shallow)], check=True,
+                       env=self.fx.env)
+        self.assertEqual(subprocess.run(["git", "-C", str(shallow), "rev-parse", "HEAD"], capture_output=True,
+                                        text=True, check=True).stdout.strip(), tip)
+        self.assertNotEqual(subprocess.run(["git", "-C", str(shallow), "cat-file", "-e", pinned],
+                                           capture_output=True).returncode, 0)
+        (shallow / PIN).parent.mkdir(parents=True, exist_ok=True)
+        (shallow / PIN).write_text(json.dumps({"url": f"https://example.com/cmux-app-ffi-{pinned}/x.zip"}))
+        (shallow / HEADER).write_text(NEW_EXPORT_HEADER)
+        result = subprocess.run([sys.executable, "-I", str(SCRIPT), "--repo", str(shallow)], capture_output=True,
+                                text=True)
+        out = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, out)
+        self.assertNotIn("judged without the pin", out)
+        self.assertIn("1 awaiting the pin", out)
 
     def test_a_repo_that_is_no_git_repo_judges_as_before(self) -> None:
         self.fx.pin(self.fx.commit("pinned source"))

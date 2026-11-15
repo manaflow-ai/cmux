@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
+import os
 import re
 import subprocess
 import sys
@@ -190,12 +191,19 @@ def pinned_exports(tree: Tree) -> tuple[str, dict[str, str] | None]:
         found = exported(Tree(tree.repo, sha))
     except SystemExit:  # Tree.git: the commit is not here, or --repo is no git repo
         # A shallow checkout (CI's push run, fetch-depth 2) often lacks the pinned commit; judging without it made
-        # the baseline test skip on feat-cmux-next while every PR failed it (#43920, 2026-11-15). Fetch it once.
+        # the baseline test skip on feat-cmux-next while every PR failed it (#43920, 2026-11-15). Fetch it once:
+        # --depth=1 only into a clone that is already shallow (a depth fetch would make a full clone shallow and
+        # break its merge-base reads); never prompt for credentials, and give up after 30 s.
+        repo = str(tree.repo)
+        env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_SSH_COMMAND": "ssh -o BatchMode=yes"}
         try:
-            fetched = subprocess.run(["git", "-C", str(tree.repo), "fetch", "-q", "--depth=1", "--no-tags", "origin",
-                                      sha], capture_output=True, timeout=120)
+            shallow = subprocess.run(["git", "-C", repo, "rev-parse", "--is-shallow-repository"], capture_output=True,
+                                     text=True, timeout=30).stdout.strip() == "true"
+            fetched = subprocess.run(["git", "-C", repo, "fetch", "-q", "--no-tags", *(["--depth=1"] if shallow else []),
+                                      "origin", sha], capture_output=True, stdin=subprocess.DEVNULL, env=env,
+                                     timeout=30)
             found = exported(Tree(tree.repo, sha)) if fetched.returncode == 0 else None
-        except (SystemExit, subprocess.TimeoutExpired):
+        except (SystemExit, subprocess.TimeoutExpired, OSError):
             found = None
         if found is None:
             return f"git cannot read the pinned source of {tag}", None
