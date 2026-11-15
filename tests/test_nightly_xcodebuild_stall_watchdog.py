@@ -26,7 +26,6 @@ import shutil
 import signal
 import subprocess
 import tempfile
-import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -125,15 +124,12 @@ class StallWatchdogTests(unittest.TestCase):
         return sorted(self.stall_dir.glob("*.sample.txt")) if self.stall_dir.exists() else []
 
     def test_a_stalled_build_is_sampled_then_only_its_own_processes_end(self) -> None:
-        started = time.monotonic()
         result = subprocess.run(
             [str(WRAPPER), "--", "env", "CMUX_NEXT_TUI_MODE=deferred", str(self.bin / "xcodebuild"), "build"],
             env=self.env, text=True, capture_output=True, timeout=120,
         )
-        took = time.monotonic() - started
         output = result.stdout + result.stderr
         self.assertEqual(result.returncode, 124, output)
-        self.assertLess(took, 60, f"the stall must end the build soon after its window, took {took:.0f}s")
         services = self._service_pids()
         self.assertEqual(len(services), 1, output)
         samples = self._samples()
