@@ -2293,9 +2293,10 @@ actions: read lets the same-tree cmux-tui fetch read the artifacts runs.
 
 ## note-242
 
-Above `daemon-test: statuses` in `.github/workflows/cmux-next.yml`.
+Was above `daemon-test: statuses` in `.github/workflows/cmux-next.yml`.
 
-statuses: write reports a same-tree mode result on the tested commit.
+Moved (STATUS_FROM_OUTSIDE, note-352): the same-tree status is posted by
+`same-tree-status-daemon` and `same-tree-status-scheme`, outside the tested jobs.
 
 ## note-243
 
@@ -2445,10 +2446,10 @@ its agents (shutdown never starts one), then delete the home.
 
 ## note-264
 
-Above `daemon-test: Report the same-tree result on the tested commit` in `.github/workflows/cmux-next.yml`.
+Was above `daemon-test: Report the same-tree result on the tested commit`.
 
-Same-tree mode: the result goes on the commit the run was for (a push,
-or the pull request head), whichever ref the dispatch ran on.
+Moved (STATUS_FROM_OUTSIDE, note-352): the same-tree status is posted by
+`same-tree-status-daemon` and `same-tree-status-scheme`, outside the tested jobs.
 
 ## note-265
 
@@ -2883,10 +2884,10 @@ concurrency group is no red here: the newer push's run carries the verdict
 
 ## note-327
 
-Above `crash-ends-app: Report the same-tree result on the tested commit` in `.github/workflows/cmux-next.yml`.
+Was above `crash-ends-app: Report the same-tree result on the tested commit`.
 
-Same-tree mode: the result goes on the commit the run was for (a push,
-or the pull request head), whichever ref the dispatch ran on.
+Moved (STATUS_FROM_OUTSIDE, note-352): the same-tree status is posted by
+`same-tree-status-daemon` and `same-tree-status-scheme`, outside the tested jobs.
 
 ## note-328
 
@@ -3111,6 +3112,23 @@ scans every workflow file and evaluates each route expression; add a regression 
 introduced so a direct label cannot return silently during a later attempt.
 
 ## note-352
+
+Above `same-tree-status-daemon:` and `same-tree-status-scheme:` in `.github/workflows/cmux-next.yml`.
+
+STATUS_FROM_OUTSIDE: a same-tree run's `(same-tree)` statuses are posted by a job of their own that runs
+`if: always()` after the tested jobs, never by a step of the tested job. A step dies with its job's runner:
+on 2026-11-15 run 43666282494 (cmux#43368 at 9cc846fc) lost its Mac runner ("The self-hosted runner lost
+communication with the server"), no step ran, and the required `cmux-next daemon tests (same-tree)` never
+posted. The scheme compile's post sat in `crash-ends-app`, whose `permissions: {}` refused every post and which
+a DEV daily skips. `scripts/ci/cmux_next_same_tree_status.py` judges `toJSON(needs)` with needs_verdict.py's
+rule and always posts one status with a reason: success, failure (the job and its first error annotation),
+or error `no verdict: ...` (a lost runner, a cancel, a job skipped because one it needs was red, named). A
+failed tree posts `same-tree cmux-tui unavailable: <reason>` unless same-tree-cmux-tui re-dispatched or
+handed the tree over. A post GitHub refuses three times is the reporter's red. Pattern page: cmuxterm-hq
+`docs/handbook/status-posted-by-the-job-it-reports.md`; detector:
+`tests/test_cmux_next_same_tree_status_never_silent.py` `test_no_status_is_posted_from_inside_the_job_it_reports`.
+
+## note-353
 
 Above `checks: Connection states wait or offer an action` in `.github/workflows/cmux-next.yml`.
 

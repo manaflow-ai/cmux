@@ -207,7 +207,7 @@ jobs:
 
       # A phone connection state waits QuietStatusGate's 10 s or carries an action (cmux-next.yml's checks job runs
       # the same check with its shrink-only --base ratchet; that workflow does not run on a phone-only change).
-      # Why: docs/ci/cmux-next-workflow-notes.md#note-352
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-353
       - name: Connection states wait or offer an action
         run: python3 -I scripts/cmux-next/check-connection-notices.py --root "$GITHUB_WORKSPACE"
 
