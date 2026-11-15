@@ -576,7 +576,9 @@ def lex_cache_dir(repo: Path) -> Path | None:
     the .git entry, not a git process (check() runs a fixed number of them)."""
     try:
         dot = repo / ".git"
-        if dot.is_dir():
+        if not dot.exists() and (repo / "objects").is_dir() and (repo / "HEAD").is_file():
+            common = repo  # a clone with no work tree (a bare mirror): REPO is its git dir, the common dir
+        elif dot.is_dir():
             common = dot
         else:
             gitdir = Path(dot.read_text().split("gitdir:", 1)[1].strip())

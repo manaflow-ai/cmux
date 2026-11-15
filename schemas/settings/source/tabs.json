@@ -281,7 +281,7 @@
           },
           "help": {
             "key": "settings.tabs.plusButton.help",
-            "text": "On Hover shows each tab bar's + only while the pointer is over that tab bar."
+            "text": "In Minimal Mode, On Hover shows each tab bar's + only while the pointer is over that tab bar. Outside Minimal Mode the + always shows."
           },
           "kind": "choice",
           "swift_owner": "PlusButtonSetting",
