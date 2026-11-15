@@ -50,6 +50,7 @@ mod run;
 mod settings;
 mod skew;
 mod space;
+mod try_cmd;
 mod version;
 pub(super) mod wait;
 
@@ -201,6 +202,8 @@ pub(super) enum AppCommand {
     Nightly(nightly::Command),
     /// `cmux live start|stop|status`: edit cmux's web UI while it runs (app/live.rs).
     Live(live::Command),
+    /// `cmux app try <PR|branch|sha>|undo|status`: another commit's cmux in this app (app/try_cmd.rs).
+    Try(try_cmd::Command),
 }
 
 /// Whether `args` (after the global options) is the classic `cmux identify`,
@@ -302,6 +305,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("open", _) => parse_open(rest)?,
         ("keybinding", _) => keybinding::parse(rest)?,
         ("app", Some("call")) => call::parse(rest)?,
+        ("app", Some("try")) => AppCommand::Try(try_cmd::parse(rest.get(1..).unwrap_or_default())?),
         ("app", Some("ping")) => call("system.ping", json!({})),
         ("app", Some("identify")) => call("system.identify", json!({})),
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
@@ -846,6 +850,10 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
     if let AppCommand::Live(command) = &command {
         return Ran::Done(live::run(command));
     }
+    // `status`, `undo` and a try into `--app` need no app answering.
+    if let AppCommand::Try(command) = &command {
+        return Ran::Done(try_cmd::run(global, command));
+    }
     let mut stream = match connect_command(global) {
         Ok(stream) => stream,
         Err(error) => return Ran::Done(super::wire::print_local_error(&error, global.output, 3)),
@@ -974,6 +982,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Version => return Ran::Done(version::run(global)),
         AppCommand::Nightly(command) => return Ran::Done(nightly::run(global, &command)),
         AppCommand::Live(command) => return Ran::Done(live::run(&command)),
+        AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, &command)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {
