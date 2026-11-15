@@ -27,12 +27,25 @@ struct CmuxDialogSafeDefaultLayoutTests {
         #expect(CmuxDialogSpec.Layout(alertFor: Self.spec.buttons.filter { $0.role != .destructive }) == .standard)
     }
 
-    /// The card lays the buttons out (``CmuxDialogView``: the quiet row); the dialog itself
-    /// gives no button a key glyph in this layout, while Return and Escape still answer.
-    @Test func noButtonShowsAKeyAndReturnAndEscapeStillAnswer() {
-        let dialog = CmuxDialogPresentation(id: 1, spec: Self.spec, activeLook: nil)
-        for button in Self.spec.buttons {
-            #expect(dialog.hint(for: button) == nil, "\(button.id) draws a key glyph")
+    /// Hiding a shortcut's visual decoration must not hide its accessibility help (#33235).
+    @Test(arguments: [CmuxDialogSpec.Layout.safeDefault, .standard])
+    func keyHelpSurvivesTheLayoutAndReturnAndEscapeStillAnswer(_ layout: CmuxDialogSpec.Layout) {
+        var spec = Self.spec
+        spec.layout = layout
+        let dialog = CmuxDialogPresentation(id: 1, spec: spec, activeLook: nil)
+        let card = CmuxDialogView(dialog: dialog)
+        #expect(card.buttonViews.count == spec.buttons.count)
+        let help = ["keep": "Return", "cancel": "Escape"]
+        for view in card.buttonViews {
+            #expect(view.accessibilityLabel() == view.button.title)
+            #expect(view.accessibilityHelp() == help[view.button.id])
+            #expect(view.attributedTitle.string == view.button.title)
+            let hasKeycap = view.subviews.contains { $0 is CmuxDialogKeycapView }
+            #expect(hasKeycap == (layout == .standard && help[view.button.id] != nil))
+            view.retitle("Updated \(view.button.title)")
+            #expect(view.accessibilityLabel() == view.button.title)
+            #expect(view.accessibilityHelp() == help[view.button.id])
+            #expect(view.attributedTitle.string == view.button.title)
         }
         var pressed: [String] = []
         dialog.onPress = { pressed.append($0) }
