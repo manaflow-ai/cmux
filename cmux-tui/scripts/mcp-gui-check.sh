@@ -354,8 +354,11 @@ start_chat gui-claude-manual claude
 for _ in $(seq 1 60); do [ -s "$D/entry.env" ] && break; perl -e 'select(undef,undef,undef,0.5)'; done
 got=$( [ -s "$D/entry.env" ] && python3 "$D/serve-as.py" "$CMUX" "$D/entry.env" "$CMUX_NEXT_CONFIG_FILE" 2>&1 )
 keys=$(tr '\n' ' ' < "$D/entry.env" 2>/dev/null)
-grep -q "^CMUX_AGENT_SESSION=$(session_id gui-claude-manual)$" "$D/entry.env" 2>/dev/null && [ "$got" = off ]
-rc=$?; check "agent chat [claude], answer off, mcp.enabled true, the person's own stdio cmux entry: it starts with the chat's keys ($keys) and is the off server ($got)" $rc
+# The chat's session: the one whose Claude MCP config acpmux wrote last (`run/mcp/<session>.json`).
+chat=$(ls -t "$ACPMUX_HOME"/run/mcp/ 2>/dev/null | head -1); chat=${chat%.json}
+info=$(session_id gui-claude-manual)
+grep -q "^CMUX_AGENT_SESSION=$chat$" "$D/entry.env" 2>/dev/null && [ -n "$chat" ] && [ "$got" = off ]
+rc=$?; check "agent chat [claude], answer off, mcp.enabled true, the person's own stdio cmux entry: it starts with the chat's keys ($keys; the chat: $chat; session info: ${info:-none}) and is the off server ($got)" $rc
 rm -f "$CLAUDE_CONFIG_DIR/.claude.json"
 cp "$D/settings-on.json" "$CMUX_NEXT_CONFIG_FILE"
 
