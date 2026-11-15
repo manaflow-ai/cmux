@@ -874,7 +874,7 @@ impl RelayIncoming for Incoming {
             drop(listener);
             let gate = self.carrier.consent.read().unwrap_or_else(|e| e.into_inner()).clone();
             let wait = self.carrier.timings.handshake;
-            crate::consent_grant_service::serve(gate, from, link, wait).await;
+            crate::consent_grant_service::serve(gate, from, Box::new(link), wait).await;
             return;
         }
         if named_service(&first) == Some(Ok(CircuitService::CmuxTuiSession)) {

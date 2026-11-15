@@ -733,10 +733,9 @@ fn lock_waiting(authority: &Authority) -> Result<HeldLock> {
 fn read_text(path: &Path) -> String {
     use std::io::Read;
     let mut text = String::new();
-    match crate::config::private_state_file(path) {
-        Ok(mut file) if file.read_to_string(&mut text).is_ok() => text,
-        _ => String::new(),
-    }
+    let read = crate::config::private_state_file(path)
+        .is_ok_and(|mut file| file.read_to_string(&mut text).is_ok());
+    if read { text } else { String::new() }
 }
 
 /// A file of the authority as `T`; missing or unreadable reads as none, which pins nothing.
