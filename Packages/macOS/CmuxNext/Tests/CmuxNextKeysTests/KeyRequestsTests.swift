@@ -87,7 +87,7 @@ struct KeyRequestsTests {
     @Test func bannersFollowTheRequestsAndTheStreamCarriesOnlyARevision() async throws {
         let requests = KeyRequests()
         var posted: [String] = [], withdrawn: [String] = [], revisions: [Int] = []
-        requests.onAdded = { posted.append(KeyRequestBanners.title($0) + " | " + KeyRequestBanners.body($0)) }
+        requests.onAdded = { posted.append($0.bannerTitle + " | " + $0.bannerBody) }
         requests.onEnded = { withdrawn.append($0) }
         let stop = requests.watch { revisions.append($0) }
         let first = requests.add(name: "DEPLOY_KEY", purpose: "staging deploys", hosts: [], ttl: nil, requester: "CLAUDE_CODE_SESSION_ID=4f2a9c1e-77b0") { _ in }
@@ -98,7 +98,7 @@ struct KeyRequestsTests {
         requests.finish(second, .declined)
         #expect(withdrawn == [first, second])
         #expect(revisions == [1, 2], "the watch stopped")
-        #expect(KeyRequestBanners.isBanner(KeyRequestBanners.prefix + second))
+        #expect(KeyRequests.isBanner(KeyRequests.bannerPrefix + second))
         // The page's stream sends the revision only.
         let page = SettingsKeys(requests: requests, cli: { nil })
         var events: [JSONValue] = []
@@ -117,9 +117,9 @@ struct KeyRequestsTests {
         #expect(throws: (any Error).self) { try KeyRequestParams(["name": "lower", "purpose": "x"]) }
         #expect(throws: (any Error).self) { try KeyRequestParams(["name": "OK", "purpose": "  "]) }
         #expect(throws: (any Error).self) { try KeyRequestParams(["name": .string(String(repeating: "A", count: 81)), "purpose": "x"]) }
-        #expect(KeyRequestBanners.actorLabel("CLAUDE_CODE_SESSION_ID=4f2a9c1e-77b0") == "Claude Code · 4f2a9c1e")
-        #expect(KeyRequestBanners.actorLabel("user=you") == "you")
-        #expect(KeyRequestBanners.actorLabel("unknown") == nil)
+        #expect(KeyRequests.actorLabel("CLAUDE_CODE_SESSION_ID=4f2a9c1e-77b0") == "Claude Code · 4f2a9c1e")
+        #expect(KeyRequests.actorLabel("user=you") == "you")
+        #expect(KeyRequests.actorLabel("unknown") == nil)
     }
 
     // MARK: The CLI

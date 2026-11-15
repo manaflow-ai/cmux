@@ -7,21 +7,22 @@ import Foundation
 /// `keys.request`: what `cmux keys request NAME --purpose TEXT [--hosts ...] [--ttl ...]` sends
 /// (cmux-tui cli/key_broker.rs). The agent asks the person for a key it cannot make itself; the
 /// request waits in Settings > Keys (``KeyRequests``, design/settings-keys.md) behind one banner
-/// that never takes focus (``KeyRequestBanners``), and a click on it opens Settings > Keys. The
+/// that never takes focus (``KeyRequests/postBanners(on:)``), and a click on it opens Settings > Keys. The
 /// person types the value there; it goes only to `cmux keys put` on stdin (``SettingsKeys``), and
 /// this answers the agent `{stored: true, name}`: never the value. Decline answers code
 /// `declined`. The CLI waits with no deadline of its own; the request ends as cancelled when its
 /// connection drops (Ctrl-C), when the same agent or another asks again for the same name, when
 /// 16 others wait, or after ``KeyRequests/longestWait``.
-package enum KeyRequestControl {
-    package static func method(requests: KeyRequests) -> ControlMethod {
-        ControlMethod.async("keys.request") { call in
+extension KeyRequests {
+    /// The `keys.request` control method, answered from this list.
+    package var controlMethod: ControlMethod {
+        let requests = self
+        return ControlMethod.async("keys.request") { call in
             let ask = try KeyRequestParams(call.params)
             let id = KeyRequests.newID()
             // A closed connection (Ctrl-C) ends the request: nobody waits for the answer.
-            let token = ControlConnectionClosures.shared.add(call.connection) { [weak requests] in
-                MainDelivery().run { requests?.abandon(id) }
-            }
+            let abandon: @MainActor @Sendable () -> Void = { [weak requests] in requests?.abandon(id) }
+            let token = ControlConnectionClosures.shared.add(call.connection) { MainDelivery().run(abandon) }
             defer { ControlConnectionClosures.shared.remove(token) }
             switch await requests.ask(ask, id: id) {
             case .stored(let name): return .object(["stored": .bool(true), "name": .string(name)])
@@ -76,34 +77,23 @@ package nonisolated struct KeyRequestParams: Sendable, Equatable {
 
 /// The banner of a key request: "<agent> asks for a key", then "NAME: purpose". One per request,
 /// withdrawn when it ends; a click opens Settings > Keys (the App's banner click routes ids with
-/// ``prefix`` to ``settingsRoute``). Posting never moves focus.
-package enum KeyRequestBanners {
-    package static let prefix = "cmux.keys.request."
-    package static let settingsRoute = "#/settings/keys"
+/// ``bannerPrefix`` to ``settingsRoute``). Posting never moves focus.
+extension KeyRequests {
+    package nonisolated static let bannerPrefix = "cmux.keys.request."
+    package nonisolated static let settingsRoute = "#/settings/keys"
 
-    /// Posts each new request's banner on `notifier` and withdraws it when the request ends. Answers `requests`.
-    @discardableResult
-    package static func attach(_ requests: KeyRequests, to notifier: DesktopNotifier) -> KeyRequests {
-        requests.onAdded = { [weak notifier] request in
-            notifier?.post(id: prefix + request.id, title: title(request), body: body(request), surface: nil, workspace: nil,
-                           defaultSound: true)
+    /// Posts each new request's banner on `notifier` and withdraws it when the request ends. Answers self.
+    package func postBanners(on notifier: DesktopNotifier) -> KeyRequests {
+        onAdded = { [weak notifier] request in
+            notifier?.post(id: Self.bannerPrefix + request.id, title: request.bannerTitle, body: request.bannerBody, surface: nil,
+                           workspace: nil, defaultSound: true)
         }
-        requests.onEnded = { [weak notifier] id in notifier?.withdraw([prefix + id]) }
-        return requests
+        onEnded = { [weak notifier] id in notifier?.withdraw([Self.bannerPrefix + id]) }
+        return self
     }
 
     /// Whether banner `id` is a key request's.
-    package static func isBanner(_ id: String) -> Bool { id.hasPrefix(prefix) }
-
-    package static func title(_ request: KeyRequests.Request) -> String {
-        let agent = actorLabel(request.requester)
-            ?? String(localized: "keys.request.someone", defaultValue: "An agent", table: "Keys", bundle: .module)
-        return String(format: String(localized: "keys.request.title", defaultValue: "%@ asks for a key", table: "Keys", bundle: .module), agent)
-    }
-
-    package static func body(_ request: KeyRequests.Request) -> String {
-        "\(request.name): " + (request.purpose.count > 200 ? String(request.purpose.prefix(199)) + "…" : request.purpose)
-    }
+    package nonisolated static func isBanner(_ id: String) -> Bool { id.hasPrefix(bannerPrefix) }
 
     /// Who asked, as the CLI names it (`CLAUDE_CODE_SESSION_ID=…`, `user=leo`), for a person:
     /// the agent's product and the start of its session id, or the user's name (keys.ts `actorLabel`).
@@ -121,5 +111,19 @@ package enum KeyRequestBanners {
         case "ACPMUX_SESSION": return "acpmux · \(short)"
         default: return value.isEmpty ? text : value
         }
+    }
+}
+
+extension KeyRequests.Request {
+    /// "<agent> asks for a key".
+    package var bannerTitle: String {
+        let agent = KeyRequests.actorLabel(requester)
+            ?? String(localized: "keys.request.someone", defaultValue: "An agent", table: "Keys", bundle: .module)
+        return String(format: String(localized: "keys.request.title", defaultValue: "%@ asks for a key", table: "Keys", bundle: .module), agent)
+    }
+
+    /// "NAME: purpose", the purpose cut at 200 characters.
+    package var bannerBody: String {
+        "\(name): " + (purpose.count > 200 ? String(purpose.prefix(199)) + "…" : purpose)
     }
 }

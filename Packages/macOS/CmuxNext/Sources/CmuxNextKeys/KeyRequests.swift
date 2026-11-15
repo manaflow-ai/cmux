@@ -3,7 +3,7 @@ import CmuxNextWakeups
 import Observation
 
 /// The key requests agents sent with `cmux keys request NAME` (control method `keys.request`,
-/// ``KeyRequestControl``) that wait for the person in Settings > Keys (design/settings-keys.md).
+/// ``controlMethod``) that wait for the person in Settings > Keys (design/settings-keys.md).
 /// Leo, 2026-11-15: "letting agents safely write keys and store them or enter them jnto whatever".
 ///
 /// In memory only, never written anywhere: a request names a key and why, never a value. Bounded
@@ -119,15 +119,16 @@ package final class KeyRequests {
     /// Adds `ask` as request `id` and waits for its end. A cancel of the calling task (the request's
     /// deadline) or ``abandon(_:)`` (the asker's connection closed) ends it as cancelled.
     package func ask(_ ask: KeyRequestParams, id: String = KeyRequests.newID()) async -> Outcome {
-        await withTaskCancellationHandler {
+        let abandon: @MainActor @Sendable () -> Void = { [weak self] in self?.abandon(id) }
+        return await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<Outcome, Never>) in
                 guard !Task.isCancelled else { return continuation.resume(returning: .cancelled) }
                 add(id: id, name: ask.name, purpose: ask.purpose, hosts: ask.hosts, ttl: ask.ttl, requester: ask.requester) { outcome in
                     continuation.resume(returning: outcome)
                 }
             }
-        } onCancel: { [weak self] in
-            MainDelivery().run { self?.abandon(id) }
+        } onCancel: {
+            MainDelivery().run(abandon)
         }
     }
 

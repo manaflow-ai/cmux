@@ -164,7 +164,7 @@ final class NotificationCenterService {
         desktop.onOpen = { [weak self] id, surface in
             if id == IPhonePairNotices.id { try? self?.services?.settingsWindow.show(section: nil, route: IPhonePairNotices.settingsRoute); return }
             if let request = AppBrowserPasskeyHost.requestID(banner: id) { self?.onPasskeyBanner?(request); return }
-            if KeyRequestBanners.isBanner(id) { try? self?.services?.settingsWindow.show(section: nil, route: KeyRequestBanners.settingsRoute); return }
+            if KeyRequests.isBanner(id) { try? self?.services?.settingsWindow.show(section: nil, route: KeyRequests.settingsRoute); return }
             if self?.services?.agentTabs.pageChats.openNotice(banner: id) == true { return }
             if self?.attention.show(banner: id) == true { return }
             self?.open(surface: surface.map(SurfaceID.init(rawValue:)))

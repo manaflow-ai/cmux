@@ -13,7 +13,7 @@ Surfaces:
 - Settings > Keys (`webviews/src/pages/settings/components/KeysCard.tsx`, rows in `keys.ts`, gallery
   `pages.settings-keys` in `keys.gallery.ts`). Sidebar: Accounts and Devices > Keys, symbol `key`,
   after Accounts. Deep link `#/settings/keys`.
-- The request banner (`CmuxNextKeys/KeyRequestControl.swift`, ``KeyRequestBanners``).
+- The request banner (`CmuxNextKeys/KeyRequests+Control.swift`, ``KeyRequests/postBanners(on:)``).
 - The control method `keys.request` and the page ops `cmux.settings.keys.list|answer|decline|revoke`
   (`SettingsKeys.swift`, ``KeyRequests``, ``KeysCLI``).
 

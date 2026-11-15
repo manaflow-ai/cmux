@@ -89676,7 +89676,7 @@
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "For %@"
+            "value": "Gjelder %@"
           }
         },
         "pl": {
@@ -91626,7 +91626,7 @@
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Active"
+            "value": "En service"
           }
         },
         "it": {
