@@ -1977,8 +1977,8 @@ function TranscriptView({
     // (`onAnchor`, once per rested scroll): Toggle Terminal and Chat reads it on the next key.
     if (next !== followingRef.current && onFollowingAnchorRef.current)
       queueMicrotask(() => {
-        const here = anchorHereRef.current();
-        if (here) onFollowingAnchorRef.current?.(here.anchor);
+        const here = anchorHereRef.current(!next);
+        if (here) onFollowingAnchorRef.current?.(next ? null : here.anchor);
       });
     followingRef.current = next;
     onFollowingChange?.(next);
@@ -5581,7 +5581,9 @@ function TranscriptView({
   );
   /// Where the reader rests now; undefined before the chat opens (its offset is not the reader's)
   /// and while hidden with no place seen. `deferred`: hidden, so it is the place last seen.
-  const anchorHere = (): { anchor: ScrollAnchor | null; deferred: boolean } | undefined => {
+  /// `rowEvenAtLatest`: the row at the top of the view even before a scroll leaves the latest message
+  /// (following stopped on a key, the scroll comes next), so the place reads as not the latest.
+  const anchorHere = (rowEvenAtLatest = false): { anchor: ScrollAnchor | null; deferred: boolean } | undefined => {
     const node = ref.current;
     if (!node || !didOpenAtLatest.current) return undefined;
     // A hidden pane (Home shown in its place) has no viewport: nothing it reads is where the reader is.
@@ -5593,7 +5595,9 @@ function TranscriptView({
     const index = visibleLayoutRange(placed, logicalTop, 0, 0).first;
     const row = shown[index];
     const anchor: ScrollAnchor | null =
-      scrolledTo.current.atLatest || !row ? null : { rowId: row.id, offset: logicalTop - placed.geometry.topAt(index) };
+      (scrolledTo.current.atLatest && !rowEvenAtLatest) || !row
+        ? null
+        : { rowId: row.id, offset: logicalTop - placed.geometry.topAt(index) };
     return { anchor, deferred };
   };
   const anchorHereRef = useRef(anchorHere);
