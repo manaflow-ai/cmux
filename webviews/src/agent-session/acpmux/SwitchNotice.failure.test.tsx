@@ -190,7 +190,7 @@ test("an agent not signed in on this Mac is named, and Sign in runs its login", 
   expect(sentence(container)).toBe("Cursor isn't signed in on this machine.");
   expect(sentence(container)).not.toContain("agent_session");
   expect(details(container)?.textContent).toContain("Authentication required");
-  await press(container, "Sign in to Cursor…");
+  await press(container, "Sign in to Cursor");
   await press(container, "Retry");
   expect(ran).toEqual(["signIn", "retry"]);
 });
@@ -209,8 +209,8 @@ test("another machine with no sign-in for the agent says where to sign in, and r
   const container = installDom();
   const ran: string[] = [];
   await renderSignIn(container, ran, { elsewhere: true, runsLogin: true });
-  expect(buttons(container)).not.toContain("Sign in to Cursor…");
+  expect(buttons(container)).not.toContain("Sign in to Cursor");
   expect(container.querySelector(".acpmux-host-error-hint")?.textContent).toBe(
-    "Sign it in on that machine, then Retry.",
+    "Sign it in on this machine, then Retry.",
   );
 });

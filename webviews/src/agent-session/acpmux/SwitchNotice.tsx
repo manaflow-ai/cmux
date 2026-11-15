@@ -24,8 +24,10 @@ export type SwitchNoticeAction = StartRefusalAction | "install";
 /// An agent that is not signed in on the machine (hq#11225) is named ("Cursor isn't signed in on
 /// this machine."), and its sign-in leads: on another machine the machine's own sign-in card
 /// (CloudSignIn.tsx: Sign in to Cursor, Grok's code, Gemini's key) inside this card, on this Mac
-/// Sign in to <agent>, its login in a terminal tab. Retry then starts it signed in. A machine with
-/// no sign-in for it says where to sign in instead.
+/// Sign in to <agent>, its login in a terminal tab (no ellipsis: it runs at once, as Install does).
+/// Retry then starts it signed in, and stays beside the sign-in while the card shows its page,
+/// code or key (styles.css). A machine with no sign-in for it says to sign it in on this machine,
+/// the chat's, as its first line names it.
 /// The sentence is always plain words (startFailure.ts): an agent that is not installed says so and
 /// offers Install, other failures read as a failed turn's do, and the agent's raw words wait under
 /// Details with Copy error.
@@ -90,7 +92,7 @@ export function SwitchNotice({
               onClick={() => onAction(action)}
             >
               {action === "signIn"
-                ? t("picker.signInTo", { harness: switching.name })
+                ? t("switch.action.signInTo", { harness: switching.name })
                 : t(
                     action === "install"
                       ? "switch.action.install"
