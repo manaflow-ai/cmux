@@ -133,6 +133,16 @@ struct MacScreenAppKitViewTests {
         pages.tabClosed("home")
     }
 
+    /// Macs are listed whether or not they are online or sharing; a phone only when it shares (never, today).
+    @Test func listsEveryMacButOnlySharingPhones() {
+        let devices = [
+            HubDevice(id: "mac-offline", name: "Office", platform: .macos, macScreenShared: true, online: false),
+            HubDevice(id: "mac-off", name: "Studio", platform: .macos, macScreenShared: false, online: true),
+            HubDevice(id: "phone", name: "Phone", platform: .ios, macScreenShared: false, online: true),
+        ]
+        #expect(MacScreenHomeSnapshot.listed(devices).map(\.id) == ["mac-offline", "mac-off"])
+    }
+
     @Test func connectCardButtonsAskTheHubAndTheCardFollows() async throws {
         let pane = MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: viewDeviceID) { nil }, name: "Studio", preferences: ScreenPreferences())
         let window = window(pane.view)

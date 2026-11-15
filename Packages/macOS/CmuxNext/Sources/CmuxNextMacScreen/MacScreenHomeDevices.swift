@@ -103,7 +103,7 @@ struct MacScreenHomeSnapshot: Equatable {
     init(home: MacScreenHomeView) {
         if let source = home.devices {
             if let hub = source.box.hub {
-                let listed = hub.otherDevices
+                let listed = Self.listed(hub.otherDevices)
                 if listed.isEmpty {
                     devices = .note(hub.status == .ready || hub.status == .idle
                         ? L.t("macScreen.home.noSharedDevices", "None of your other devices share Mac Screen. On the Mac you want to see, turn on Allow Mac Screen on this Mac.")
@@ -131,6 +131,11 @@ struct MacScreenHomeSnapshot: Equatable {
         if let shortcuts = home.systemShortcuts {
             keyboard = Keyboard(enabled: shortcuts.enabled, needsAccessibility: shortcuts.needsAccessibility)
         }
+    }
+
+    /// The devices the page lists.
+    static func listed(_ devices: [HubDevice]) -> [HubDevice] {
+        devices
     }
 
     /// What the home page says while Mac Screen cannot work: it needs a
