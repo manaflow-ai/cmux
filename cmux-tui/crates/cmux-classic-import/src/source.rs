@@ -281,8 +281,8 @@ impl RunningProbe {
     fn is_alive(pid: u32) -> bool {
         let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
         // SAFETY: signal 0 performs only the existence and permission check.
-        unsafe { libc::kill(pid, 0) == 0 }
-        || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+        let signalled = unsafe { libc::kill(pid, 0) == 0 };
+        signalled || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
     }
 
     #[cfg(not(unix))]
