@@ -399,6 +399,42 @@ class HotApplyRust(unittest.TestCase):
         self.assertEqual(self.sha(), self.old)
 
 
+SHIM = "a3bead27e6599480e2d2654816f9ecdff99ecaf2"  # cmux#43239's remote browser host: Rust plus csrc/rb_shim.mm and .h
+
+
+class NativeSources(unittest.TestCase):
+    """C, Objective-C and Zig inside cmux-tui ride the Rust part: the tree build compiles them."""
+
+    @classmethod
+    def setUpClass(cls):
+        git_history.require_history(ROOT, [SHIM], depth=2)
+
+    def test_a_companion_s_objective_c_shim_is_not_left_for_a_nightly(self):
+        tmp = Path(tempfile.mkdtemp(prefix="hot-apply-native-"))
+        try:
+            env = dict(os.environ, CMUX_HOT_APPLY_STATE_DIR=str(tmp / "state"),
+                       CMUX_HOT_APPLY_TUI_BASE=(tmp / "tree").as_uri())  # nothing published: plan only
+            base = run_git("rev-parse", f"{SHIM}^").stdout.strip()
+            done = subprocess.run([sys.executable, str(SCRIPT), "plan", SHIM, "--base", base, "--app", str(tmp / "none")],
+                                  capture_output=True, text=True, env=env)
+            plan = json.loads(done.stdout)
+            self.assertEqual(plan["parts"], ["rust"], done.stderr)
+            left = [p for paths in plan["left"].values() for p in paths]
+            self.assertFalse([p for p in left if p.endswith((".mm", ".h"))], plan["left"])
+        finally:
+            subprocess.run(["rm", "-rf", str(tmp)])
+
+    def test_only_cmux_tui_native_sources_count(self):
+        spec = importlib.util.spec_from_file_location("hot_apply_native_under_test", SCRIPT)
+        hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_native_under_test"] = hot
+        spec.loader.exec_module(hot)
+        self.assertTrue(hot.NATIVE_IN_TUI.match("cmux-tui/crates/cmux-remote-browser-host/csrc/rb_shim.mm"))
+        self.assertTrue(hot.NATIVE_IN_TUI.match("cmux-tui/bindings/zig/src/resource.zig"))
+        self.assertFalse(hot.NATIVE_IN_TUI.match("ghostty/src/main.zig"))
+        self.assertFalse(hot.NATIVE_IN_TUI.match("Sources/CmuxNextApp/Bridge.m"))
+
+
 class WebCache(unittest.TestCase):
     """web_bundles(): a web key's bundles fetched once, checked on each use, bounded."""
 
