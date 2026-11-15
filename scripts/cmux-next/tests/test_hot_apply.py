@@ -545,6 +545,34 @@ class TreeKey(unittest.TestCase):
         self.assertEqual(hot._tree_key(ROOT, ADOPTED), ADOPTED_KEY)
 
 
+FFI ="2c58afdd5f8ac95146fed0cc3c472aee5af31562"  # cmux#43373: cmux-tui/bindings/rust, which the app links
+
+
+class LiveFrom(unittest.TestCase):
+    """`live-from SHA`: the app commits that can take SHA's daemon build live, for the signed Mac live update file."""
+
+    @classmethod
+    def setUpClass(cls):
+        git_history.require_history(ROOT, [FIX, FFI], depth=4)
+
+    def live_from(self, sha, limit):
+        done = subprocess.run([sys.executable, str(SCRIPT), "live-from", sha, "--max", str(limit)],
+                              capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
+
+    def test_a_daemon_only_commit_reaches_back_past_itself(self):
+        out = self.live_from(FIX, 3)
+        self.assertEqual(out["live_from"][0], FIX)
+        self.assertEqual(len(out["live_from"]), 3)
+        self.assertIsNone(out["floor"])  # no FFI change within the limit
+
+    def test_a_commit_that_changes_rust_the_app_links_is_its_own_floor(self):
+        out = self.live_from(FFI, 5)
+        self.assertEqual((out["live_from"], out["floor"]), ([FFI], FFI))
+        self.assertTrue(all(p.startswith("cmux-tui/bindings/rust/") for p in out["floor_paths"]), out["floor_paths"])
+
+
 class WebCache(unittest.TestCase):
     """web_bundles(): a web key's bundles fetched once, checked on each use, bounded."""
 
