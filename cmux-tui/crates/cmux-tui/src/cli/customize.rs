@@ -138,7 +138,10 @@ pub(super) enum Request {
     Profiles,
     Library(library::Request),
     Paths,
-    Schema { section: Option<Section>, format: SchemaFormat },
+    Schema {
+        section: Option<Section>,
+        format: SchemaFormat,
+    },
 }
 
 /// How `customize schema` answers: the schema, or the SDK types written from it.
