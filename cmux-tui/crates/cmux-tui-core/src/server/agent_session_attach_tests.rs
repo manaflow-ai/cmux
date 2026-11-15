@@ -1452,7 +1452,7 @@ fn unbound_store_tab(mux: &Arc<Mux>, harness: &str) -> SurfaceId {
 fn a_new_chat_signs_its_agent_in_on_this_machine_without_a_session() {
     let fake = FakeAcpmux::start("login-machine");
     let mux = mux_with(&fake, "asa-login-machine");
-    mux.set_agent_start_host(Arc::new(|| crate::server::AgentStartHost::Allowed));
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::Allowed));
     let identity = run(&mux, json!({"cmd":"identify"}));
     assert!(
         identity["capabilities"]
@@ -1534,7 +1534,7 @@ fn a_new_chat_signs_its_agent_in_on_this_machine_without_a_session() {
 fn a_new_chats_sign_in_is_gated_as_a_start_is() {
     let fake = FakeAcpmux::start("login-machine-gate");
     let mux = mux_with(&fake, "asa-login-machine-gate");
-    mux.set_agent_start_host(Arc::new(|| crate::server::AgentStartHost::OwnerCloud));
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
     let surface = unbound_store_tab(&mux, "grok");
     let mut client = Client::connect(&mux, "login-machine-gate");
     let start = json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"grok"});
