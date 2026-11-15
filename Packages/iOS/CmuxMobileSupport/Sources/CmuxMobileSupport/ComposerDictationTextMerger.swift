@@ -99,10 +99,34 @@ public struct ComposerDictationTextMerger: Sendable {
         let validTiming = startTime.map { $0.isFinite && $0 >= 0 } == true
             && endTime.map { $0.isFinite && $0 > (startTime ?? 0) } == true
         if validTiming, let startTime {
+            // A cumulative result from the beginning of the recording can
+            // include a finalized phrase whose own result had no segment
+            // timing. Remove that committed prefix before replacing the
+            // timed hypotheses, otherwise it would be duplicated.
+            if startTime <= 0 {
+                let cumulativeUntimedFinals = cumulativeUntimedFinalPhraseIndices(
+                    in: transcript
+                )
+                if !cumulativeUntimedFinals.isEmpty {
+                    phrases = phrases.enumerated().compactMap { index, phrase in
+                        cumulativeUntimedFinals.contains(index) ? nil : phrase
+                    }
+                }
+            }
             // Retain only phrases wholly before this result. Speech may send a
             // cumulative final covering multiple previously separate phrases.
-            while let last = phrases.last, last.endTime.map({ $0 > startTime }) ?? true {
-                phrases.removeLast()
+            while let last = phrases.last {
+                if let endTime = last.endTime {
+                    guard endTime > startTime else { break }
+                    phrases.removeLast()
+                } else if last.isFinal {
+                    // Apple can mark a result final without exposing usable
+                    // segment timing. Keep that committed phrase when a later
+                    // timed result starts after it.
+                    break
+                } else {
+                    phrases.removeLast()
+                }
             }
         } else if phrases.last?.isFinal == false {
             // Untimed partials revise only the provisional phrase. A finished
@@ -117,6 +141,27 @@ public struct ComposerDictationTextMerger: Sendable {
             isFinal: isUtteranceFinal
         ))
         return merged(base: base, transcript: phrases.map(\.text).joined(separator: " "))
+    }
+
+    private func cumulativeUntimedFinalPhraseIndices(in transcript: String) -> Set<Int> {
+        var prefix = ""
+        var indices = Set<Int>()
+        for (index, phrase) in phrases.enumerated() {
+            prefix = prefix.isEmpty ? phrase.text : prefix + " " + phrase.text
+            guard phrase.isFinal, phrase.endTime == nil else { continue }
+            if transcriptStarts(with: prefix, in: transcript) {
+                indices.insert(index)
+            }
+        }
+        return indices
+    }
+
+    private func transcriptStarts(with prefix: String, in transcript: String) -> Bool {
+        let candidate = transcript.drop(while: \.isWhitespace)
+        guard candidate.hasPrefix(prefix) else { return false }
+        guard candidate.count > prefix.count else { return true }
+        let boundary = candidate.index(candidate.startIndex, offsetBy: prefix.count)
+        return candidate[boundary].isWhitespace || candidate[boundary].isPunctuation
     }
 
     /// Creates a merger.

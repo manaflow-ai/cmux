@@ -117,6 +117,22 @@ import Testing
                               isUtteranceFinal: true) == "A B. C.")
     }
 
+    @Test func finalizedUntimedPhraseSurvivesLaterTimedResult() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "A", startTime: nil, endTime: nil,
+                          isUtteranceFinal: true)
+        #expect(merger.merged(base: "", transcript: "B", startTime: 3, endTime: 4,
+                              isUtteranceFinal: true) == "A B")
+    }
+
+    @Test func cumulativeTimedFinalReplacesFinalizedUntimedPrefix() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "A", startTime: nil, endTime: nil,
+                          isUtteranceFinal: true)
+        #expect(merger.merged(base: "", transcript: "A B", startTime: 0, endTime: 4,
+                              isUtteranceFinal: true) == "A B")
+    }
+
     @Test func untimedCorrectionCannotKeepStaleTimingAndDuplicateItself() {
         var merger = ComposerDictationTextMerger()
         _ = merger.merged(base: "", transcript: "A", startTime: 0, endTime: 1.5)
