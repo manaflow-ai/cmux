@@ -17,12 +17,33 @@ impl Mux {
             self.workspace_registry.lock().unwrap().interrupted_resource_creation_recoveries()?;
         let mut pending = false;
         for recovery in recoveries {
+            // A creation whose terminal waits for a late terminal holder
+            // stays pending and does not count here: the start does not wait
+            // for that holder, and the late thread settles the creation when
+            // the terminal re-attached or ended (mux/holder_late.rs).
+            let late = self.creation_waits_on_late_holder(&recovery.intent);
             pending |= matches!(
                 self.settle_resource_creation(recovery, None)?,
                 ResourceCreationSettlement::Pending
-            );
+            ) && !late;
         }
         Ok(pending)
+    }
+
+    /// Whether the terminal that the creation `intent` reserved is one the
+    /// start kept for a late terminal holder.
+    fn creation_waits_on_late_holder(&self, intent: &Value) -> bool {
+        let Some(terminal_id) = intent
+            .get("terminal_reservation")
+            .and_then(|reservation| reservation.get("terminal_id"))
+            .and_then(Value::as_str)
+        else {
+            return false;
+        };
+        self.late_holder_terminals
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(terminal_id)
     }
 
     pub(super) fn reconcile_interrupted_resource_creation(

@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 use std::time::{Duration, Instant};
 
+use cmux_holder::client::PendingClient;
 use cmux_holder::link::{HolderLink, LinkEnd, TerminalSink};
 use cmux_holder::{Listed, SpawnRequest};
 
@@ -40,6 +41,11 @@ pub(crate) struct HolderService {
     /// caller that holds a surface lock may wait for it: a surface's kill
     /// and acknowledgements use [`Self::open_link`] only.
     connecting: Mutex<()>,
+    /// A connect the holder took and did not answer while its caller waited
+    /// ([`Self::connect`]): the next connect waits on it again, so a holder
+    /// that is slow to answer gets one connect from this daemon and not one
+    /// for each wait. Read and written under `connecting` only.
+    pending: Mutex<Option<PendingClient>>,
     next_chan: AtomicU32,
     /// Terminals this daemon runs on the holder, for a re-adoption after a
     /// holder crash.
@@ -80,6 +86,23 @@ const RELINK_HEALTHY: Duration = Duration::from_secs(10);
 /// First and longest wait before a relink after a link that ended sooner.
 const RELINK_INITIAL: Duration = Duration::from_millis(10);
 const RELINK_MAX: Duration = Duration::from_secs(5);
+/// How long a connect waits for the holder's answer when its caller gives no
+/// bound of its own.
+const CONNECT_WAIT: Duration = Duration::from_secs(10);
+
+/// What one ask of the holder found ([`HolderService::reach`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HolderReach {
+    /// The holder answered: its link is open.
+    Linked,
+    /// The holder took the connect and did not answer while the caller
+    /// waited. The connect stays open: the next ask waits on it again.
+    Silent,
+    /// The holder ended the connect before its answer.
+    Dropped,
+    /// No holder serves the socket, or the holder refused this daemon.
+    Absent,
+}
 
 impl HolderService {
     /// The service of `host_root`, made on first use. One per root in the
@@ -104,6 +127,7 @@ impl HolderService {
             token,
             link: Mutex::default(),
             connecting: Mutex::new(()),
+            pending: Mutex::default(),
             next_chan: AtomicU32::new(1),
             live: Mutex::default(),
             claiming: RwLock::new(()),
@@ -139,6 +163,13 @@ impl HolderService {
         socket_path(host_root)
     }
 
+    /// For a test that stands in for a holder: this service connects no
+    /// more, so the end of the stand-in's link starts no real holder.
+    #[cfg(test)]
+    pub(crate) fn retire_for_test(&self) {
+        self.superseded.store(true, Ordering::Release);
+    }
+
     /// The live link: connects to a running holder, else starts one. A link
     /// made after a lost one hands every live terminal to the new holder.
     pub(crate) fn link(self: &Arc<Self>) -> io::Result<Arc<HolderLink>> {
@@ -151,9 +182,49 @@ impl HolderService {
         self.link.lock().recover_poison().link.clone().filter(|link| link.is_open())
     }
 
+    /// Ask the holder for its link without starting one, and wait for its
+    /// answer only while `left` is not zero (`left` is asked before each read
+    /// of the socket and bounds that read). Says how the ask ended; a
+    /// [`HolderReach::Silent`] holder keeps the connect, and a later ask (or
+    /// any other use of the link) waits on the same one.
+    pub(crate) fn reach(self: &Arc<Self>, left: &dyn Fn() -> Duration) -> HolderReach {
+        match self.link_or_launch_while(false, Some(left)) {
+            Ok(_) => HolderReach::Linked,
+            Err(error) => match error.kind() {
+                io::ErrorKind::TimedOut => HolderReach::Silent,
+                io::ErrorKind::UnexpectedEof
+                | io::ErrorKind::ConnectionReset
+                | io::ErrorKind::BrokenPipe => {
+                    eprintln!("cmux-tui: the terminal holder ended the connect: {error}");
+                    HolderReach::Dropped
+                }
+                _ => {
+                    eprintln!("cmux-tui: no terminal holder to reach: {error}");
+                    HolderReach::Absent
+                }
+            },
+        }
+    }
+
+    /// Whether another daemon of the session took the holder: this daemon is
+    /// on its way out and does not reach the holder again.
+    pub(crate) fn gave_way(&self) -> bool {
+        self.superseded.load(Ordering::Acquire)
+    }
+
     /// [`Self::link`]; with `launch` false a holder that does not run is not
     /// started (a restart only asks whether one kept terminals).
     fn link_or_launch(self: &Arc<Self>, launch: bool) -> io::Result<Arc<HolderLink>> {
+        self.link_or_launch_while(launch, None)
+    }
+
+    /// [`Self::link_or_launch`], waiting for the holder's answer while
+    /// `patience` is not zero instead of [`CONNECT_WAIT`].
+    fn link_or_launch_while(
+        self: &Arc<Self>,
+        launch: bool,
+        patience: Option<&dyn Fn() -> Duration>,
+    ) -> io::Result<Arc<HolderLink>> {
         if let Some(link) = self.open_link() {
             return Ok(link);
         }
@@ -167,11 +238,14 @@ impl HolderService {
             ));
         }
         let had_link = self.link.lock().recover_poison().link.is_some();
-        let (link, listed) = match self.connect() {
+        let (link, listed) = match self.connect(patience) {
             Ok(connected) => connected,
             Err(_) if launch => {
                 self.launch()?;
-                self.connect()?
+                // A new holder listens now: a connect that still waits on
+                // the old one is void.
+                drop(self.pending.lock().recover_poison().take());
+                self.connect(patience)?
             }
             Err(error) => return Err(error),
         };
@@ -489,12 +563,45 @@ impl HolderService {
         }
     }
 
-    fn connect(self: &Arc<Self>) -> io::Result<(Arc<HolderLink>, Vec<Listed>)> {
+    /// Connect to the holder, or go on with the connect an earlier wait left
+    /// pending, and wait for its answer: [`CONNECT_WAIT`], or while
+    /// `patience` is not zero. A wait that times out keeps the connect for
+    /// the next call. A kept connect that ended while nobody waited on it is
+    /// replaced with one new connect. Called under `connecting`.
+    fn connect(
+        self: &Arc<Self>,
+        patience: Option<&dyn Fn() -> Duration>,
+    ) -> io::Result<(Arc<HolderLink>, Vec<Listed>)> {
+        let deadline = Instant::now() + CONNECT_WAIT;
+        let wait = || deadline.saturating_duration_since(Instant::now());
+        let left: &dyn Fn() -> Duration = match patience {
+            Some(patience) => patience,
+            None => &wait,
+        };
+        let hello = || PendingClient::hello(&self.socket, &self.token, cmux_holder::wire::VERSION);
+        let (mut pending, mut kept) = match self.pending.lock().recover_poison().take() {
+            Some(pending) => (pending, true),
+            None => (hello()?, false),
+        };
+        loop {
+            match pending.welcomed(left) {
+                Ok(()) => break,
+                Err(error) if error.kind() == io::ErrorKind::TimedOut => {
+                    *self.pending.lock().recover_poison() = Some(pending);
+                    return Err(error);
+                }
+                Err(error) => {
+                    if !std::mem::take(&mut kept) {
+                        return Err(error);
+                    }
+                    pending = hello()?;
+                }
+            }
+        }
         let weak = Arc::downgrade(self);
         let linked_at = Instant::now();
-        HolderLink::connect(
-            &self.socket,
-            &self.token,
+        HolderLink::from_pending(
+            pending,
             Box::new(move |end| {
                 let Some(service) = weak.upgrade() else { return };
                 if end == LinkEnd::Superseded {
