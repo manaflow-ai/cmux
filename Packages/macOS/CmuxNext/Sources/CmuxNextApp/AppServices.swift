@@ -29,6 +29,7 @@ import CmuxNextHibernation
 import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextKeepAwake
+import CmuxNextKeys
 import CmuxNextLiveCode
 import CmuxNextPalette
 import CmuxNextAccounts
@@ -165,7 +166,7 @@ final class AppServices {
         return self.cloud.auth.isSignedIn ? MachineJoinService.app(self) : nil
     }).following(account: { [weak self] in self?.cloud.auth.accountKey })
     /// Signing in enrolls this Mac on the hub; signing out leaves only that join (acpmux does both).
-    private(set) lazy var signInEnroll = CloudSignInEnroll.overAcpmux(auth: cloud.auth, buildTag: environment.tag, windows: chatsFeed?.windows) { [weak self] in self.flatMap(QuitAgents.environment) }
+    private(set) lazy var signInEnroll = CloudSignInEnroll.overAcpmux(auth: cloud.auth, identity: cloud.installIdentity, buildTag: environment.tag, windows: chatsFeed?.windows) { [weak self] in self.flatMap(QuitAgents.environment) }
     /// This Mac's join consent (Settings > Devices' switches, the one-time sheet): all labs.machineJoin still gates.
     private(set) lazy var joinConsent = JoinConsentModel.app(self)
     /// The app's latest key or mouse input and whether it was the person's (HID system), over the app's one
@@ -389,6 +390,8 @@ final class AppServices {
     let terminalDelegate = TerminalHostDelegate()
     /// Attention rings, banners, sounds and dismissal (plans/cmux-next/notifications.md).
     let notifications = NotificationCenterService()
+    /// Agents' `cmux keys request`s waiting for the person in Settings > Keys, each behind one banner (CmuxNextKeys).
+    private(set) lazy var keyRequests = KeyRequests().postBanners(on: notifications.desktop)
     /// Email verification AutoFill (`browser.verificationAutofill.enabled`, off by default): a code
     /// or link from Mail.app offered in the prompt bar of a page of the sender's own site
     /// (plans/cmux-next/email-verification-autofill/DESIGN.md). Built on the first page that waits,

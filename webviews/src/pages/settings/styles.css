@@ -959,6 +959,44 @@ mark {
   align-items: center;
 }
 
+/* Settings > Keys (design/settings-keys.md): a request is a row with its name, purpose and asker
+   over one line of field, Store and Decline (the Accounts paste form's field, at row width); a
+   key's state uses the Devices status dot. Names and commands are in the mono face. */
+.keys-name,
+.keys-code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-detail);
+}
+
+.keys-request {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.keys-purpose {
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.keys-answer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.keys-answer > .keys-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 320px;
+}
+
+.keys-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .host-footer,
 .host-actions {
   display: flex;
@@ -2364,4 +2402,75 @@ button.menu-disclosure {
 .personalization-more-links {
   display: flex;
   gap: 4px;
+}
+
+/* A search no setting matches (AskCmuxRow.tsx): the words become a wish for the Customize chat.
+   One row under "No settings match.", a hover fill on its own box like a result row, the words
+   quoted under the action; Return in the search does the same. */
+.ask-cmux {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  width: 100%;
+  margin-top: var(--ds-space-2);
+  padding: var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-md);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: start;
+}
+
+.ask-cmux:hover {
+  background: var(--input-bg);
+}
+
+.ask-cmux:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.ask-cmux-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ask-cmux-title {
+  font-weight: 600;
+}
+
+.ask-cmux-words {
+  overflow: hidden;
+  color: var(--muted-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ask-cmux > svg:last-child {
+  color: var(--soft-text);
+}
+
+.ask-cmux[data-look="button"] {
+  width: fit-content;
+  border: 1px solid var(--border);
+}
+
+.ask-cmux[data-look="button"] .ask-cmux-words,
+.ask-cmux[data-look="link"] .ask-cmux-words,
+.ask-cmux[data-look="link"] > svg {
+  display: none;
+}
+
+.ask-cmux[data-look="link"] {
+  width: fit-content;
+  padding: 0;
+  color: var(--cmux-accent);
+}
+
+.ask-cmux[data-look="link"]:hover {
+  background: transparent;
+  text-decoration: underline;
 }

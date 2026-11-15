@@ -55,13 +55,14 @@ pub use snapshot::{
     snapshot_version, tag as snapshot_tag,
 };
 pub use terminal::{
-    Callbacks, ClearHistoryOutcome, CommandOutput, ClipboardLocation, ClipboardReadFn, ClipboardReadRequest,
-    HistoryPage, HistoryPages, HistorySnapshot, KittyGraphicsLimits, KittyImageIdCursors,
-    KittyReplayState, MAX_CLIPBOARD_READ_BYTES, MarkerError, NotifyFn, ProgramStatusEvent,
-    ProgramStatusFn, ProgramStatusKind, ProgramStatusReport, ProgramStatusState, PtyWriteFn, Rgb,
-    SNAPSHOT_CONTINUATION_MAX_BYTES, Screen, Scrollbar, SelectionPoint, SelectionRange, Terminal,
-    TerminalColorOverrides, TerminalPointerSemanticSnapshot, TrackedScreenPoint, VtReplay,
-    VtReplayTail, VtReplayWindow, parse_color, parse_palette_entry,
+    Callbacks, ClearHistoryOutcome, ClipboardLocation, ClipboardReadFn, ClipboardReadRequest,
+    CommandOutput, HistoryPage, HistoryPages, HistorySnapshot, KittyGraphicsLimits,
+    KittyImageIdCursors, KittyReplayState, MAX_CLIPBOARD_READ_BYTES, MarkerError, NotifyFn,
+    ProgramStatusEvent, ProgramStatusFn, ProgramStatusKind, ProgramStatusReport,
+    ProgramStatusState, PtyWriteFn, Rgb, SNAPSHOT_CONTINUATION_MAX_BYTES, Screen, Scrollbar,
+    SelectionPoint, SelectionRange, Terminal, TerminalColorOverrides,
+    TerminalPointerSemanticSnapshot, TrackedScreenPoint, VtReplay, VtReplayTail, VtReplayWindow,
+    parse_color, parse_palette_entry,
 };
 
 pub(crate) fn check(result: ghostty_vt_sys::GhosttyResult) -> std::result::Result<(), Error> {

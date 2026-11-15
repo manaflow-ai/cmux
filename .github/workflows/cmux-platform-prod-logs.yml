@@ -1,0 +1,81 @@
+name: cmux-platform production logs
+
+# Why did cmux-platform refuse that machine? This reads one UTC window of cmux-platform-production's (or staging's)
+# persisted Workers Logs for one exact machine (vm_...) or team (team_...). cmux-platform's own worker-log-read.yml
+# gets HTTP 403 on every production query (its deploy credential has no observability read; run 43721494003), and
+# no agent could read those lines without a person's dashboard login. The platform Workers share cmux-api's account
+# (cmux-platform-production binds cmux-api's Durable Objects), so this is cmux-api-prod-logs.yml with the same
+# credentials and guards: the public log and summary contain only row_count and a private HQ issue pointer, never row
+# bodies or a public Actions artifact, and the reader verifies that HQ is private before querying.
+# Dispatch only, from feat-cmux-next. Existing credentials only: Cloudflare read and the HQ-only issues-write App
+# token used by cmux-api-prod-logs.yml. A mint, privacy-check or upload failure has no public fallback.
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: "Worker to read"
+        type: choice
+        options: [cmux-platform-production, cmux-platform-staging]
+        default: cmux-platform-production
+      id:
+        description: "One exact machine (vm_...) or team (team_...) id. Missing or conflicting identities are never kept."
+        required: true
+      start:
+        description: "UTC window start, e.g. 2026-11-15T13:20:00Z (empty: 30 minutes ago)"
+        required: false
+        default: ""
+      minutes:
+        description: "window length in minutes (1-60)"
+        required: false
+        default: "30"
+      needles:
+        description: "Required comma-separated search terms within the exact id scope; stored hashed"
+        required: true
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-platform-prod-logs-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  logs:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    environment: cmux-next-production
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The platform reader imports cmux-api-prod-logs.py's private store writer and projection helpers.
+          sparse-checkout: |
+            scripts/cmux-next/cmux-platform-prod-logs.py
+            scripts/cmux-next/cmux-api-prod-logs.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Mint the private HQ issue store token
+        id: hq-token
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: cmuxterm-hq
+          permission-issues: write
+      - name: Query the window
+        # Service, id and needles come from the event file, not env: step env is echoed into the public log.
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          HQ_GH_TOKEN: ${{ steps.hq-token.outputs.token }}
+          FROM: ${{ inputs.start }}
+          MINUTES: ${{ inputs.minutes }}
+        run: |
+          set -euo pipefail
+          from="${FROM:-}"
+          [ -n "$from" ] || from="$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:00Z)"
+          printf '%s\n' "$CLOUDFLARE_API_TOKEN" | python3 -I scripts/cmux-next/cmux-platform-prod-logs.py \
+            --from "$from" --minutes "${MINUTES:-30}" --from-event "$GITHUB_EVENT_PATH" | tee "$RUNNER_TEMP/log-pointer.json"
+          cat "$RUNNER_TEMP/log-pointer.json" >> "$GITHUB_STEP_SUMMARY"
