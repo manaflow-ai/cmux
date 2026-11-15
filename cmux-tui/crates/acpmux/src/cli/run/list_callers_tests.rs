@@ -432,3 +432,29 @@ async fn v2_pr07b_callers() {
     drop(god.v2);
     drop(small.v2);
 }
+
+// PROBE (diagnostic, not for merge): one round of `ls` on the small daemon alone, then round one
+// of `v2_pr07b_callers` as it runs (small and god in turn), each sample in order.
+#[ignore = "diagnostic probe of ls_wall round one"]
+#[tokio::test(flavor = "multi_thread")]
+async fn probe_ls_round1_small_alone() {
+    let us = |samples: &[u128]| {
+        samples.iter().map(|ns| (ns / 1_000).to_string()).collect::<Vec<_>>().join(",")
+    };
+    let small = gate_daemon(0).await;
+    let small_proxy = counted(small.path.clone()).await;
+    let mut alone = Vec::new();
+    for _ in 0..20 {
+        alone.push(gate_run("ls", &small_proxy).await.0);
+    }
+    eprintln!("PROBE ls_alone side=small us=[{}]", us(&alone));
+    let god = gate_daemon(11_000).await;
+    let god_proxy = counted(god.path.clone()).await;
+    let (mut sw, mut gw) = (Vec::new(), Vec::new());
+    for _ in 0..20 {
+        sw.push(gate_run("ls", &small_proxy).await.0);
+        gw.push(gate_run("ls", &god_proxy).await.0);
+    }
+    eprintln!("PROBE ls_round1_samples side=god us=[{}]", us(&gw));
+    eprintln!("PROBE ls_round1_samples side=small us=[{}]", us(&sw));
+}
