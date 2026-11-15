@@ -88,6 +88,10 @@ Start under load (tests/start_under_load_bench.rs):
 FAKE_BOOT_CPU_MS=<ms>: before it reads its first line, the agent spends that much CPU time (not
 wall time), as a real harness spends CPU loading its code: on a busy machine a harness that gets
 little of the CPU takes much longer to start.
+
+Exactly-once across restarts (tests/durable_agents/restart_exactly_once.rs):
+FAKE_WIRE_LOG=<path>: append one JSON line {"pid", "id", "method", "session"} for every line the
+agent reads (a response has "method": null), so a test counts what reached the agent itself.
 """
 import base64
 import hashlib
@@ -1752,6 +1756,21 @@ def own_pri():
     return int(out.stdout.strip() or "0")
 
 
+def wire_log(msg):
+    """FAKE_WIRE_LOG: record a line this agent read, one O_APPEND write per line."""
+    path = os.environ.get("FAKE_WIRE_LOG")
+    if not path:
+        return
+    params = msg.get("params") if isinstance(msg.get("params"), dict) else {}
+    line = json.dumps({"pid": os.getpid(), "id": msg.get("id"), "method": msg.get("method"),
+                       "session": params.get("sessionId")}) + "\n"
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    try:
+        os.write(fd, line.encode())
+    finally:
+        os.close(fd)
+
+
 def main():
     global LAST_MCP_SERVERS, LAST_DIRS
     # `--fake-login` (the terminal sign-in): sign in and exit.
@@ -1782,6 +1801,7 @@ def main():
         if not line:
             continue
         msg = json.loads(line)
+        wire_log(msg)
         if "method" not in msg:
             p = pending.get(msg.get("id"))
             if p:

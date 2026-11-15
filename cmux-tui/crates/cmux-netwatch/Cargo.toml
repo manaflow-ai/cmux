@@ -1,0 +1,15 @@
+[package]
+name = "cmux-netwatch"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Notices when this computer's network changes (the kernel's routing messages), for every link that redials: cmux-remote's machine link and acpmux's peer links"
+
+[lints]
+workspace = true
+
+[dependencies]
+libc.workspace = true
+tokio = { workspace = true, features = ["sync"] }
