@@ -153,6 +153,27 @@ class ShippedAcpmuxCarriesItsFeaturesTests(unittest.TestCase):
         script = "\n".join(lines)
         self.assertIn("acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml", script)
 
+    def test_the_apps_acpmux_carries_the_hub_carrier(self):
+        """The app's acpmux is the cmux binary (bin/acpmux aliases bin/cmux), which took acpmux with no features:
+        a joined Mac on 64821ccc5 ran no hub carrier and logged nothing about it (2026-11-15)."""
+        import tomllib
+        manifest = tomllib.loads((ROOT / "cmux-tui/crates/cmux-tui/Cargo.toml").read_text())
+        unix = manifest["target"]["cfg(unix)"]["dependencies"].get("acpmux", {})
+        self.assertIn("hub-carrier", unix.get("features", []), "cmux-tui's unix acpmux lacks the hub carrier")
+
+    def test_every_shipping_script_builds_acpmux_with_its_features(self):
+        scripts = [*sorted((ROOT / "scripts/ci/nightly-steps").glob("*.sh")), ROOT / "scripts/ci/macos-cross.sh"]
+        found = 0
+        for path in scripts:
+            lines = path.read_text().splitlines()
+            for n, line in enumerate(lines, 1):
+                if not re.search(r"-p acpmux --bin acpmux\b", line):
+                    continue
+                found += 1
+                text = line + (lines[n] if line.rstrip().endswith("\\") and n < len(lines) else "")
+                self.assertIn("acpmux-build-features.sh", text, f"{path.relative_to(ROOT)}:{n} builds acpmux without its features")
+        self.assertGreaterEqual(found, 3)
+
 
 class TreeKeyTests(unittest.TestCase):
     def test_shipping_helpers_change_published_artifact_key(self):
