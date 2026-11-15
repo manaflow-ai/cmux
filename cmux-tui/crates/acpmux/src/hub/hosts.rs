@@ -805,6 +805,8 @@ impl Hub {
         }
         self.restart_unproven(session, proven);
         self.save_meta(session);
+        // Adopted and recovered: a prompt to this chat waits for no other host (`wait_adopted`).
+        self.chat_adopted(&session.id);
         Ok(())
     }
 
