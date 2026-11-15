@@ -334,6 +334,82 @@ class NightlyTourTests(unittest.TestCase):
             late = self.commit(repo, "late", t0 + day + (clips.CLIP_REANNOUNCE_DAYS + 1) * day, {"README": "l\n"})
             self.assertEqual(clips.plan(tip, late, Path(tmp, "t2"), exists=lambda url: False, root=repo), [])
 
+    def failing_four_then_a_newer_one(self, tmp):
+        """Four highlights whose tours fail, then a newer one added before the previous tip (the nightly of
+        2026-11-15: four failing specs held all four slots and omnibar-preload was never planned)."""
+        day = 86400
+        repo = self.history(tmp)
+        t0 = 1_800_000_000
+        self.commit(repo, "root", t0, {"README": "r\n"})
+        files = {}
+        for name in ("f1", "f2", "f3", "f4"):
+            files.update(self.highlight(name))
+        self.commit(repo, "four failing", t0 + day, files)
+        self.commit(repo, "newer", t0 + 2 * day, self.highlight("newer"))
+        previous = self.commit(repo, "previous tip", t0 + 2 * day + 60, {"README": "p\n"})
+        tip = self.commit(repo, "tip", t0 + 3 * day, {"README": "t\n"})
+        return repo, previous, tip
+
+    def test_a_spec_whose_tour_failed_leaves_its_slot_to_one_not_tried(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, previous, tip = self.failing_four_then_a_newer_one(tmp)
+            digest = clips.spec_digest("f1", repo / "release-notes/next/clips")
+            failed = {clips.failed_url(name, "after"): {"tip": "a" * 40, "spec": digest} for name in ("f1", "f2", "f3", "f4")}
+            with mock.patch("sys.stdout"):
+                before = clips.plan(previous, tip, Path(tmp, "t0"), limit=4, exists=lambda url: False, root=repo)
+                rows = clips.plan(previous, tip, Path(tmp, "t"), limit=4, exists=lambda url: False, root=repo,
+                                  marker=failed.get)
+            # With no markers: oldest first, the newer one waits behind the four.
+            self.assertEqual([r["id"] for r in before], ["f1", "f2", "f3", "f4"])
+            # The one never tried goes first; the failed ones still take the slots left, in their order.
+            self.assertEqual([r["id"] for r in rows], ["newer", "f1", "f2", "f3"])
+
+    def test_a_repaired_spec_is_planned_as_never_tried(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, previous, tip = self.failing_four_then_a_newer_one(tmp)
+            # The markers name the spec the tours failed with; f1's spec has been repaired since.
+            old = {clips.failed_url(name, "after"): {"spec": "0" * 64} for name in ("f1",)}
+            digest = clips.spec_digest("f2", repo / "release-notes/next/clips")
+            old.update({clips.failed_url(name, "after"): {"spec": digest} for name in ("f2", "f3", "f4")})
+            with mock.patch("sys.stdout"):
+                rows = clips.plan(previous, tip, Path(tmp, "t"), limit=2, exists=lambda url: False, root=repo,
+                                  marker=old.get)
+            self.assertEqual([r["id"] for r in rows], ["f1", "newer"])
+
+    def test_publish_auto_marks_each_clip_whose_tour_failed_with_its_tip_and_spec(self):
+        def render_tour(clip_id, tour_dir, out, keep):
+            raise clips.ClipError("the tour did not run every step")
+        put = mock.Mock()
+        module = mock.Mock(put_files=put)
+        with tempfile.TemporaryDirectory() as tmp:
+            specs = Path(tmp, "clips")
+            specs.mkdir()
+            (specs / "better.json").write_text(json.dumps(SPEC))
+            with mock.patch.object(clips, "render_tour", render_tour), \
+                    mock.patch.object(clips, "pr_media_module", lambda: module):
+                problems = clips.publish_auto([{"id": "better", "roles": ["after", "before"]}], Path(tmp), Path(tmp),
+                                              tip="c" * 40, specs=specs)
+                self.assertEqual(len(problems), 2)
+                (_, _, markers, _), _ = put.call_args
+                self.assertEqual(sorted(markers), ["whats-new/better/clip-auto-after.failed.json",
+                                                   "whats-new/better/clip-auto-before.failed.json"])
+                marker = json.loads(markers["whats-new/better/clip-auto-after.failed.json"].read_text())
+        self.assertEqual(marker, {"tip": "c" * 40, "spec": clips.spec_digest("better", specs)})
+        self.assertEqual(clips.failed_url("better", "after"),
+                         clips.URL_PREFIX + "better/clip-auto-after.failed.json")
+
+    def test_a_spec_carries_its_harness_fixture_and_the_tour_fills_in_the_checkout(self):
+        fixture = {"harnesses": {"fake": {"argv": ["/usr/bin/python3", "{repo}/agent.py"]}}}
+        self.assertEqual(clips.spec_problems({**SPEC, "harnessFixture": fixture}), [])
+        self.assertTrue(clips.spec_problems({**SPEC, "harnessFixture": ["fake"]}))
+        tour = clips.tour_from_spec({**SPEC, "harnessFixture": fixture}, "T")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp, "t.json")
+            path.write_text(json.dumps(tour))
+            loaded = clips.tour_module().load_tour(path)
+        argv = loaded["harness_fixture"]["harnesses"]["fake"]["argv"]
+        self.assertEqual(argv, ["/usr/bin/python3", str(SCRIPT.parents[3] / "agent.py")])
+
     def test_write_tours_makes_the_route_jobs_plan_into_tours_and_drops_a_row_with_no_spec(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
