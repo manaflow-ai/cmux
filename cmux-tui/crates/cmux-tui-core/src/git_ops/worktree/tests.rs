@@ -12,6 +12,26 @@ fn new_folder(name: &str) -> PathBuf {
     top
 }
 
+/// The names of the entries of `folder`, in their order.
+fn names_in(folder: &Path) -> Vec<String> {
+    let name = |entry: std::fs::DirEntry| entry.file_name().to_string_lossy().into_owned();
+    let mut names: Vec<String> = std::fs::read_dir(folder)
+        .map(|entries| entries.flatten().map(name).collect())
+        .unwrap_or_default();
+    names.sort();
+    names
+}
+
+/// What `setup` answers for the new work tree `root` of the repository whose git folder is
+/// `common`. No recipe is saved and the repository has none, so a setup that starts gives the
+/// work tree its block of ports only.
+fn setup_of(root: PathBuf, common: &Path) -> Value {
+    let (branch, base) = ("cmux/new".to_string(), "main".to_string());
+    let attempt = Attempt { root, branch, base, base_commit: String::new() };
+    let mux = Mux::new("worktree-setup-place", crate::SurfaceOptions::default());
+    setup(&mux, &attempt, common)
+}
+
 /// The setup of a new work tree starts only in a git folder of the repository that made the
 /// work tree: a folder in the `worktrees` folder of the repository's git folder. A `.git` file
 /// that names a folder of a different place gives no setup, and that folder gets no file.
@@ -36,6 +56,79 @@ fn own_tree_a_setup_starts_only_in_a_folder_of_this_repository() {
     names.sort();
     std::fs::remove_dir_all(top).unwrap();
     assert_eq!((reply, names), (json!({"state": "none"}), Vec::new()));
+}
+
+/// The names that the git folder of a repository has after the setup of a work tree gave the
+/// work tree its block of ports.
+const WITH_PORTS: [&str; 3] = ["cmux-worktree-ports.json", "cmux-worktree-ports.lock", "worktrees"];
+
+/// The setup of a new work tree starts in the git folder that git makes for it: a folder in
+/// the `worktrees` folder of the repository's git folder. The work tree gets its block of
+/// ports, and the ports file is in the repository's git folder.
+#[test]
+fn own_tree_a_setup_starts_in_the_git_folder_of_a_new_work_tree() {
+    let top = new_folder("setup-own-place");
+    let (common, root) = (top.join("main/.git"), top.join("new"));
+    let admin = common.join("worktrees/new");
+    for folder in [&admin, &root] {
+        std::fs::create_dir_all(folder).unwrap();
+    }
+    std::fs::write(root.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
+
+    let reply = setup_of(root, &common);
+
+    let names = names_in(&common);
+    std::fs::remove_dir_all(top).unwrap();
+    assert_eq!(
+        (&reply["state"], reply["port"].is_u64(), names),
+        (&json!("none"), true, WITH_PORTS.map(String::from).to_vec())
+    );
+}
+
+/// The same with a `worktrees` folder that is a link to a folder of a different place: a
+/// person can keep the folder so, and git then makes the git folder of a new work tree in the
+/// folder that the link names.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_setup_starts_in_a_worktrees_folder_that_is_a_link() {
+    let top = new_folder("setup-linked-place");
+    let (common, kept, root) = (top.join("main/.git"), top.join("kept"), top.join("new"));
+    for folder in [&common, &kept.join("new"), &root] {
+        std::fs::create_dir_all(folder).unwrap();
+    }
+    std::os::unix::fs::symlink(&kept, common.join("worktrees")).unwrap();
+    let admin = common.join("worktrees/new");
+    std::fs::write(root.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
+
+    let reply = setup_of(root, &common);
+
+    let names = names_in(&common);
+    std::fs::remove_dir_all(top).unwrap();
+    assert_eq!(
+        (&reply["state"], reply["port"].is_u64(), names),
+        (&json!("none"), true, WITH_PORTS.map(String::from).to_vec())
+    );
+}
+
+/// The `.git` entry of a new work tree names its git folder by a path from the root of the
+/// file system, or by a path from the work tree. An entry that names no folder gives no git
+/// folder.
+#[test]
+fn own_tree_a_new_git_entry_names_the_git_folder_of_the_work_tree() {
+    let top = new_folder("git-entry-names");
+    let (admin, whole, part, none) =
+        (top.join("admin"), top.join("whole"), top.join("part"), top.join("none"));
+    for folder in [&admin, &whole, &part, &none] {
+        std::fs::create_dir_all(folder).unwrap();
+    }
+    std::fs::write(whole.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
+    std::fs::write(part.join(".git"), "gitdir: ../admin\n").unwrap();
+    std::fs::write(none.join(".git"), "gitdir: ../not-there\n").unwrap();
+
+    let found = (admin_dir(&whole), admin_dir(&part), admin_dir(&none));
+
+    std::fs::remove_dir_all(&top).unwrap();
+    assert_eq!(found, (Some(admin), Some(top.join("part/../admin")), None));
 }
 
 /// The `.git` entry of a new work tree is read as a file that cmux keeps is read: a regular
