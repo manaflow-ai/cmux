@@ -1290,6 +1290,67 @@ fn cmux_setup_mcp_never_writes_an_agents_own_config() {
     assert!(world.take_mcp_calls().is_empty());
 }
 
+/// A `cmux` entry an older cmux wrote into an agent's own config (it runs `cmux mcp serve`) is
+/// named with the exact line that removes it, and only `--remove CLIENT`, which Settings' Remove
+/// button runs on the person's click, takes it out, through the agent's own CLI, naming the line
+/// that puts it back. A server of the person's named `cmux`, and an entry with settings cmux would
+/// not put back, stay.
+#[test]
+fn cmux_setup_mcp_names_a_leftover_cmux_entry_and_removes_it_only_on_request() {
+    let world = World::new("mcpleftover").with_fake_mcp_clients().with_shipped_cli();
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}}));
+    let claude_json = world.home.join(".claude.json");
+    let codex_toml = world.home.join(".codex").join("config.toml");
+    std::fs::create_dir_all(codex_toml.parent().unwrap()).unwrap();
+    std::fs::write(
+        &claude_json,
+        r#"{"mcpServers":{"cmux":{"type":"stdio","command":"/Applications/cmux.app/Contents/Resources/bin/cmux","args":["mcp","serve"],"env":{}}}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        &codex_toml,
+        "[mcp_servers.cmux]\ncommand = \"npx\"\nargs = [\"-y\", \"cmux\", \"mcp\", \"serve\"]\n",
+    )
+    .unwrap();
+    let report = world.json(&["setup", "mcp"]);
+    let leftover = |i: usize| report["clients"][i]["leftover"].clone();
+    assert_eq!(leftover(0)["remove"], "claude mcp remove --scope user cmux", "{report}");
+    assert_eq!(leftover(1)["remove"], "codex mcp remove cmux", "{report}");
+    assert!(world.take_mcp_calls().is_empty(), "reading removed something");
+    // Removing, on request: through each agent's own CLI, with the line that puts it back.
+    let removed = world.json(&["setup", "mcp", "--remove", "claude"]);
+    assert_eq!(removed["state"], "changed", "{removed}");
+    assert_eq!(
+        removed["undo"],
+        "claude mcp add --scope user cmux -- /Applications/cmux.app/Contents/Resources/bin/cmux mcp serve"
+    );
+    assert_eq!(world.take_mcp_calls(), ["claude mcp remove --scope user cmux"]);
+    let removed = world.json(&["setup", "mcp", "--remove", "codex"]);
+    assert_eq!(removed["undo"], "codex mcp add cmux -- npx -y cmux mcp serve", "{removed}");
+    assert_eq!(world.take_mcp_calls(), ["codex mcp remove cmux"]);
+    // Nothing left: nothing named, nothing removed.
+    let after = world.json(&["setup", "mcp"]);
+    assert_eq!(after["clients"][0]["leftover"], Value::Null, "{after}");
+    assert_eq!(world.json(&["setup", "mcp", "--remove", "claude"])["state"], "ok");
+    assert!(world.take_mcp_calls().is_empty());
+    // An entry with a setting cmux would not put back: named, never removed.
+    std::fs::write(
+        &codex_toml,
+        "[mcp_servers.cmux]\ncommand = \"/x/cmux\"\nargs = [\"mcp\", \"serve\"]\ncwd = \"/w\"\n",
+    )
+    .unwrap();
+    let kept = world.json(&["setup", "mcp", "--remove", "codex"]);
+    assert_eq!(kept["state"], "needs_user", "{kept}");
+    assert_eq!(kept["user_action"]["command"], "codex mcp remove cmux");
+    assert!(world.take_mcp_calls().is_empty());
+    // A server of the person's own named cmux is no leftover.
+    std::fs::write(&codex_toml, "[mcp_servers.cmux]\ncommand = \"/usr/bin/my-tool\"\nargs = []\n")
+        .unwrap();
+    assert_eq!(world.json(&["setup", "mcp"])["clients"][1]["leftover"], Value::Null);
+    world.json(&["setup", "mcp", "--remove", "codex"]);
+    assert!(world.take_mcp_calls().is_empty());
+}
+
 /// The report the app reads (the fixture CmuxNext's tests read too): each installed agent and
 /// whether it gets cmux's server in cmux.
 #[test]

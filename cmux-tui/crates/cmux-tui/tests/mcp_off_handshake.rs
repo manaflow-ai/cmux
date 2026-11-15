@@ -50,3 +50,72 @@ fn cmux_mcp_serve_while_off_completes_the_handshake_and_names_the_setting() {
     let status = child.wait().unwrap();
     assert!(status.success(), "{status}");
 }
+
+/// The first answer of `cmux mcp serve` started with `env` and the settings in `settings`: the
+/// `initialize` result's instructions, and how many tools `tools/list` offers.
+fn serve_with(settings: &str, env: &[(&str, &str)]) -> (String, usize) {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("cmux-next.json");
+    std::fs::write(&config, settings).unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+    command
+        .args(["--app-socket", dir.path().join("no-app.sock").to_str().unwrap(), "mcp", "serve"])
+        .env_clear()
+        .env("HOME", dir.path())
+        .env("PATH", "/usr/bin:/bin")
+        .env("LC_ALL", "C")
+        .env("CMUX_NEXT_CONFIG_FILE", &config)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let mut child = command.spawn().unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut ask = |id: u64, method: &str, params: Value| -> Value {
+        let line = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
+        writeln!(stdin, "{line}").unwrap();
+        stdin.flush().unwrap();
+        let mut answer = String::new();
+        stdout.read_line(&mut answer).unwrap();
+        serde_json::from_str(&answer).unwrap()
+    };
+    let init = ask(1, "initialize", json!({"protocolVersion": "2025-06-18", "capabilities": {}}));
+    let list = ask(2, "tools/list", json!({}));
+    drop(stdin);
+    let _ = child.kill();
+    let _ = child.wait();
+    (
+        init["result"]["instructions"].as_str().unwrap_or_default().to_owned(),
+        list["result"]["tools"].as_array().map(Vec::len).unwrap_or_default(),
+    )
+}
+
+/// An agent chat follows the person's answer: a `cmux` entry an older cmux wrote into the
+/// person's own Claude Code or Codex config starts `cmux mcp serve` in every chat, with the chat's
+/// `CMUX_AGENT_SESSION`, and while `agents.cmuxMcp` is not on it is the off server. A Chief turn
+/// (its preset's `CMUX_MCP_TOOLS`) is served either way, and with the yes a chat is served.
+#[test]
+fn an_agent_chat_gets_cmux_tools_only_with_the_persons_yes_and_the_chief_always() {
+    let chat = [("CMUX_AGENT_SESSION", "chat-1")];
+    let chief = [("CMUX_AGENT_SESSION", "chief-1"), ("CMUX_MCP_TOOLS", "agents_snapshot")];
+    for settings in [r#"{"agents": {"cmuxMcp": "off"}}"#, r#"{"agents": {"cmuxMcp": "ask"}}"#, "{}"]
+    {
+        let (instructions, tools) = serve_with(settings, &chat);
+        assert!(instructions.contains("agents.cmuxMcp on --confirm"), "{settings}: {instructions}");
+        assert_eq!(tools, 1, "{settings}: the off server's one tool");
+        let (instructions, _) = serve_with(settings, &chief);
+        assert!(
+            !instructions.contains("agents.cmuxMcp on --confirm"),
+            "{settings}: {instructions}"
+        );
+    }
+    let (instructions, _) = serve_with(r#"{"agents": {"cmuxMcp": "on"}}"#, &chat);
+    assert!(!instructions.contains("agents.cmuxMcp on --confirm"), "{instructions}");
+    // `"mcp": {"enabled": true}` alone does not stand for the person's answer in a chat.
+    let (instructions, _) =
+        serve_with(r#"{"agents": {"cmuxMcp": "off"}, "mcp": {"enabled": true}}"#, &chat);
+    assert!(instructions.contains("agents.cmuxMcp on --confirm"), "{instructions}");
+}

@@ -416,6 +416,9 @@ fn codex_wrapper_gives_codex_one_server_named_cmux() {
             assert_eq!(cmux["enabled"].as_bool(), Some(true), "{argv:?}");
             assert_eq!(cmux["env"]["CMUX_NEXT_CONFIG_FILE"].as_str(), settings_file.to_str());
             assert!(cmux["env"]["CMUX_TUI_SOCKET"].as_str().is_some(), "{argv:?}");
+            // A `cmux` entry `cmux acp desktop link` wrote carries the acpmux server's guest mode,
+            // which Codex merges into this server: it is always sent empty.
+            assert_eq!(cmux["env"]["ACPMUX_MCP_GUEST"].as_str(), Some(""), "{argv:?}");
         }
     }
 }
