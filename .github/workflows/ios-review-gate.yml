@@ -392,8 +392,10 @@ jobs:
             --out "$RESULTS/device-plan-mismatch.json"
       # CmuxMobileLinkFFI.xcframework is built only when what it is built from changes
       # (.github/scripts/ios_link_ffi_key.py): each job built it from scratch,
-      # about 3 minutes of a Mac (run 43652999096). A pull request only
-      # reads the cache; other events save what they built.
+      # about 3 minutes of a Mac (run 43652999096). It lives in cmux NEXT's
+      # R2 bucket: the Blacksmith Macs' GitHub store kept no save for a later
+      # run (runs 43708277177 to 43721191135). Every run reads it with no
+      # credential; seed-link-ffi below writes it on feat-cmux-next.
       - name: The framework's inputs
         id: ffi-key
         if: env.UDID != ''
@@ -408,38 +410,72 @@ jobs:
       - name: Restore the framework built from the same inputs
         id: ffi
         if: env.UDID != '' && steps.ffi-key.outputs.key != ''
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          # The key names the Xcode build and the runner; the Linux writer
+          # is not the Mac that built it.
+          CI_CACHE_R2_NAMESPACE: ios-link-ffi
         with:
-          path: |
-            cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
-            cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift
+          backend: r2
+          # One directory per entry: the framework and its generated Swift.
+          path: ${{ runner.temp }}/link-ffi
           key: ios-link-ffi-xcframework-${{ steps.ffi-key.outputs.key }}
+      - name: Put the restored framework in place
+        id: ffi-place
+        if: env.UDID != '' && steps.ffi.outputs.cache-hit == 'true'
+        # An incomplete entry builds the framework instead of failing the leg.
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          test -d "$RUNNER_TEMP/link-ffi/CmuxMobileLinkFFI.xcframework"
+          test -f "$RUNNER_TEMP/link-ffi/CmuxMobileLinkFFI.swift"
+          kit=cmux-next-ios/CmuxMobileKit
+          rm -rf "$kit/Frameworks/CmuxMobileLinkFFI.xcframework"
+          mkdir -p "$kit/Frameworks" "$kit/Sources/CmuxMobileLinkFFI"
+          cp -R "$RUNNER_TEMP/link-ffi/CmuxMobileLinkFFI.xcframework" "$kit/Frameworks/"
+          cp "$RUNNER_TEMP/link-ffi/CmuxMobileLinkFFI.swift" "$kit/Sources/CmuxMobileLinkFFI/"
       # cmux-next-ios/rust pins the same toolchain as cmux-tui.
       - name: Set up pinned Rust
-        if: env.UDID != '' && steps.ffi.outputs.cache-hit != 'true'
+        if: env.UDID != '' && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success')
         uses: ./.github/actions/setup-cmux-tui-rust
       - name: Cache cargo
-        if: env.UDID != '' && steps.ffi.outputs.cache-hit != 'true'
+        if: env.UDID != '' && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success')
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
           workspaces: cmux-next-ios/rust
           key: ios-review-gate
       - name: Build CmuxMobileLinkFFI.xcframework
-        if: env.UDID != '' && steps.ffi.outputs.cache-hit != 'true'
+        if: env.UDID != '' && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success')
         env:
           JOBS: "6"
         run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
-      - name: Save the framework for later runs
-        if: env.UDID != '' && steps.ffi-key.outputs.key != '' && steps.ffi.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
-        # Another job saving the same key first is not a failure.
+      # This job holds the agent pass's token, never the bucket's write
+      # credentials: one leg hands what it built to seed-link-ffi.
+      - name: Stage the framework for the cache writer
+        id: ffi-out
+        if: env.UDID != '' && steps.ffi-key.outputs.key != '' && steps.ffi.outputs.cache-hit != 'true' && github.event_name == 'push' && matrix.family == 'iphone'
         continue-on-error: true
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        env:
+          FFI_KEY: ${{ steps.ffi-key.outputs.key }}
+        run: |
+          set -euo pipefail
+          kit=cmux-next-ios/CmuxMobileKit
+          out="$RUNNER_TEMP/link-ffi-out"
+          mkdir -p "$out/framework"
+          cp -R "$kit/Frameworks/CmuxMobileLinkFFI.xcframework" "$out/framework/"
+          cp "$kit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift" "$out/framework/"
+          printf '%s\n' "$FFI_KEY" > "$out/key"
+      - name: Hand the framework to the cache writer
+        if: steps.ffi-out.outcome == 'success' && steps.ffi.outputs.cache-hit != 'true' && github.event_name == 'push'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          path: |
-            cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
-            cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift
-          key: ios-link-ffi-xcframework-${{ steps.ffi-key.outputs.key }}
+          name: ios-link-ffi-framework
+          path: ${{ runner.temp }}/link-ffi-out
+          retention-days: 1
+          if-no-files-found: ignore
       - name: Build the app and the gate for testing
         if: env.UDID != ''
         working-directory: cmux-next-ios
@@ -648,6 +684,66 @@ jobs:
           name: review-gate-asc
           path: asc-*.json
           retention-days: 3
+
+  # Writes the framework a leg built into cmux NEXT's R2 bucket, which the
+  # legs read with no credential. The write credentials live in the
+  # next-cache-writer environment (feat-cmux-next only), held by this Linux
+  # job alone (tests/test_ci_pull_request_caches_are_read_only.py).
+  seed-link-ffi:
+    needs: reviewer-path
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
+    # A seed that fails never turns the push run red; the report does not need it.
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    env:
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+      # r2-cache.sh saves nothing without it.
+      CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+      CI_CACHE_R2_NAMESPACE: ios-link-ffi
+    steps:
+      - name: Fetch the framework a leg built
+        id: fetched
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ios-link-ffi-framework
+          path: ${{ runner.temp }}/link-ffi
+      - name: The framework's key
+        id: staged
+        if: steps.fetched.outcome == 'success'
+        run: |
+          set -euo pipefail
+          key="$(head -c 128 "$RUNNER_TEMP/link-ffi/key" | tr -d '[:space:]')"
+          if [[ "$key" =~ ^[0-9a-f]{64}$ ]] && [ -d "$RUNNER_TEMP/link-ffi/framework/CmuxMobileLinkFFI.xcframework" ] \
+              && [ -f "$RUNNER_TEMP/link-ffi/framework/CmuxMobileLinkFFI.swift" ]; then
+            echo "key=$key" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::the handed-off framework is incomplete; nothing saved"
+          fi
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.staged.outputs.key != ''
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/cache-save
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+          sparse-checkout-cone-mode: false
+      - name: Save the framework for later runs
+        if: steps.staged.outputs.key != ''
+        # Another run saving the same key first is not a failure.
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: ${{ runner.temp }}/link-ffi/framework
+          key: ios-link-ffi-xcframework-${{ steps.staged.outputs.key }}
 
   report:
     needs: [plan, lint, reviewer-path, asc-validate]

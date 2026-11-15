@@ -94,7 +94,8 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help=(
             "Directory containing cmux-tui-, cmux-tui-hook- and (macOS, Linux) "
-            "cmux-tui-agent-screen-detection-<rust-target> binaries."
+            "cmux-tui-agent-screen-detection-<rust-target> binaries, and "
+            "(Linux, Windows) cmux-tui-host-<rust-target>."
         ),
     )
     parser.add_argument(
@@ -212,9 +213,12 @@ def package_platforms(
         # The Windows package also ships cmux-tui-host.exe, the small
         # per-terminal host the daemon spawns instead of re-exec'ing the large
         # cmux-tui.exe, so Defender's per-terminal first-child image scan stays
-        # cheap (cx-1vlzr). It is a Windows-only concern.
+        # cheap (cx-1vlzr). The Linux packages ship bin/cmux-tui-host too: a
+        # Linux daemon runs every terminal host from that exact sibling of its
+        # own executable, else from its own large binary, which costs every
+        # idle terminal its relocated data (host_exe/linux.rs, CMUX-571).
         host_files: list[str] = []
-        if target["os"] == "win32":
+        if target["os"] in ("win32", "linux"):
             host_src = binaries_dir / f"cmux-tui-host-{target['rust_target']}{ext}"
             if not host_src.is_file():
                 raise SystemExit(f"missing host binary: {host_src}")

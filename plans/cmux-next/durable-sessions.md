@@ -269,7 +269,7 @@ tree pushes):
 - `dead`: true only for `exited`.
 - `host_record_version`: the unreadable record's version when `unadoptable`.
 - `end` (only when `exited`): `{kind: "exited", code}` | `{kind: "signaled", signal, core_dumped}` |
-  `{kind: "host_lost", reason, detail}` | `{kind: "launch_failed", detail}`. `reason` is one of
+  `{kind: "host_lost", reason, detail, launch_failure?}` | `{kind: "launch_failed", detail}`. `reason` is one of
   `missing_record, incarnation_mismatch, dead_before_adoption, died_during_adoption,
   died_without_exit_status, missing_exit_receipt, session_shutdown, unadoptable_host_ended,
   owner_gone, restart_exhausted, restart_failed, other`. `owner_gone` is a host that ended its
@@ -278,7 +278,9 @@ tree pushes):
   30, 60 s; five attempts per 10 min), and ends as `restart_exhausted` once they are used, or
   `restart_failed` when a respawn launch fails. A failed launch is first tried again (at most 3
   more tries, by the same backoff; the tab reads `adopting` meanwhile, `terminal_respawn/retry.rs`);
-  one that found no free PTY is not. The owner start respawns committed respawnable
+  one that found no free PTY is not: its `restart_failed` end has the optional member
+  `launch_failure: "pty_capacity_exhausted"` (from a code word in the stored detail, so a later
+  owner gives it too; an end stored before that member has none). The owner start respawns committed respawnable
   losses an earlier owner never ran (also `session_shutdown` and `owner_gone`).
   Terminals with a runtime use its end; surfaceless ones use their durable receipt.
 - Swift: `TabSnapshot/TabModel.terminalState`, `.end` (`TerminalTabEnd`), `.hostRecordVersion`;

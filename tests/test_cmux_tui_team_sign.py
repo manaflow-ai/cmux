@@ -201,6 +201,11 @@ class TeamSignedWorkflow(unittest.TestCase):
         request = jobs["request-team-signed-tree"]
         self.assertTrue(request["continue-on-error"])
         self.assertIn("refs/heads/feat-cmux-next", request["if"])
+        # A push whose tree another run published (the same-key owner wait) asks too: run 43725236906,
+        # #43724's own merge, skipped the request when it read publish-tree's result.
+        self.assertEqual(request["needs"], ["tree-preflight", "publish-tree-tested"])
+        self.assertIn("needs.publish-tree-tested.result != 'failure'", request["if"])
+        self.assertNotIn("needs.publish-tree.result", request["if"])
         run = request["steps"][0]["run"]
         self.assertIn("--ref nightly-next", run)
         # A push whose key is signed already dispatches nothing; one that does names the key's group.

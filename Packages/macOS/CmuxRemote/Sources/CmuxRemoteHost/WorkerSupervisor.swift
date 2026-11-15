@@ -181,7 +181,7 @@ final class ScreenWorkerSupervisor: Sendable {
         }
         reader.name = "remote-screen-worker-read"
         reader.start()
-        launch.lifetime.watch(child, name: "remote-screen-worker-watch") { [self] status in
+        launch.lifetime.watch(child) { [self] status in
             // Remove this generation before exited() can spawn its replacement (and reuse its PID).
             if status >= 0 { launch.lifetime.reaped(child) }
             exited(generation: generation, status: status, ranFor: Date().timeIntervalSince(started), channel: channel)
@@ -342,7 +342,7 @@ final class ComputerUseWorkers: Sendable {
             _ = shutdown(channel.writeDescriptor, SHUT_WR)
             finish()
         }
-        launch.lifetime.watch(child, name: "remote-cu-worker-watch") { [self] status in
+        launch.lifetime.watch(child) { [self] status in
             if status >= 0 { launch.lifetime.reaped(child) }
             logger.notice("Computer Use worker pid=\(child.pid, privacy: .public) exited status=\(status, privacy: .public)")
             state.withLock { _ = $0.removeValue(forKey: child.lifetimeID) }

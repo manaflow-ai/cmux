@@ -125,6 +125,8 @@ public final class DaemonUpdateBoard {
             String(localized: "agentPane.daemonUpdate.offline", defaultValue: "Offline; it will update when it's back", bundle: .module)
         case .updated(let build):
             String(format: String(localized: "agentPane.daemonUpdate.updated", defaultValue: "Updated to %@", bundle: .module), build)
+        case .kept(let kept):
+            keptLine(kept)
         case .failed(let reason, _) where AcpmuxPeerUpdateReply.linkLost(reason):
             String(localized: "agentPane.daemonUpdate.noAnswer", defaultValue: "Didn't answer", bundle: .module)
         case .failed(let reason, false):
@@ -136,6 +138,25 @@ public final class DaemonUpdateBoard {
         case .cleared:
             // Never on the board: `apply` drops the target.
             ""
+        }
+    }
+
+    /// The line of a machine that refused the build and kept its own: that it kept it, and why.
+    /// Never "updated" (a host keeping a newer commit answers `current`, #43770).
+    nonisolated static func keptLine(_ kept: DaemonUpdateOutcome.Kept) -> String {
+        switch kept {
+        case .newerInstalled:
+            String(localized: "agentPane.daemonUpdate.kept.newerInstalled", defaultValue: "Kept its build: newer build installed", bundle: .module)
+        case .ownBuild:
+            String(localized: "agentPane.daemonUpdate.kept.ownBuild", defaultValue: "Kept its build: it runs a build with local changes",
+                   bundle: .module)
+        case .restartWindow(let next?):
+            String(format: String(localized: "agentPane.daemonUpdate.kept.restartWindowUntil",
+                                  defaultValue: "Kept its build: restarted recently; next update after %@ UTC", bundle: .module),
+                   next)
+        case .restartWindow(nil):
+            String(localized: "agentPane.daemonUpdate.kept.restartWindow", defaultValue: "Kept its build: restarted recently",
+                   bundle: .module)
         }
     }
 

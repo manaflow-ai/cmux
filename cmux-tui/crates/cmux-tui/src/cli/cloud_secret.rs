@@ -129,7 +129,7 @@ fn valid_name(name: &str) -> Result<(), UsageError> {
         "RPS2", "NULLCMD", "READNULLCMD", "HISTCHARS", "WATCHFMT", "PERIOD", "KEYTIMEOUT", "SAVEHIST", "STTY",
         "PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONINSPECT", "PYTHONUSERBASE", "PYTHONSAFEPATH",
         "OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN",
-        "GOOGLE_GEMINI_BASE_URL", "GROK_MODELS_BASE_URL", "GROK_MODELS_LIST_URL",
+        "GOOGLE_GEMINI_BASE_URL", "GROK_MODELS_BASE_URL", "GROK_MODELS_LIST_URL", "GROK_XAI_API_BASE_URL",
     ];
     let reserved = RESERVED.contains(&upper.as_str())
         || [
@@ -406,6 +406,7 @@ mod tests {
             "set GOOGLE_GEMINI_BASE_URL",
             "set GROK_MODELS_BASE_URL",
             "set grok_models_list_url",
+            "set GROK_XAI_API_BASE_URL",
             "set A-B",
             "set API_KEY --repo ../x",
             "set API_KEY --repo owner",

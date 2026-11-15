@@ -231,14 +231,18 @@ impl RemoteHostSupervisor {
 
     /// One request to the host, starting it first when it is wanted and none runs.
     pub(crate) fn call(&self, method: &str, params: Value) -> Result<Value, String> {
-        let _starting = lock(&self.inner.starting);
-        capture::require_open(&self.inner)?;
-        // Nothing turned on (Computer Use off or Legacy, and signed out of Screen Sharing):
-        // no host starts for a request, so an off switch never runs cmux Remote.
-        if !lock(&self.inner.config).wanted() {
-            return Err("cmux Remote is off: turn on Computer Use (Upstream driver) or sign in for Screen Sharing".into());
-        }
-        let connection = Inner::ensure_locked(&self.inner, None)?;
+        // Held only for admission and start: the request itself never serializes other calls.
+        // A capture that begins later is fenced by the host's own child admission.
+        let connection = {
+            let _starting = lock(&self.inner.starting);
+            capture::require_open(&self.inner)?;
+            // Nothing turned on (Computer Use off or Legacy, and signed out of Screen Sharing):
+            // no host starts for a request, so an off switch never runs cmux Remote.
+            if !lock(&self.inner.config).wanted() {
+                return Err("cmux Remote is off: turn on Computer Use (Upstream driver) or sign in for Screen Sharing".into());
+            }
+            Inner::ensure_locked(&self.inner, None)?
+        };
         connection.call(method, params)
     }
 
@@ -355,7 +359,7 @@ impl Inner {
                 && let Some(record) = read_record(&paths.record())
                 && capture_platform::record_exited(&record)
             {
-                capture_platform::group_absent(record.pid)?;
+                capture_platform::exited_group_absent(&record)?;
             }
             if let Some(record) = read_record(&paths.record()) {
                 match Self::adopt(this, &record) {
@@ -386,7 +390,7 @@ impl Inner {
                     Err(_)
                         if !matches!(*lock(&this.capture), capture_lease::Admission::Open)
                             && (!capture_platform::record_exited(&record)
-                                || capture_platform::group_absent(record.pid).is_err()) =>
+                                || capture_platform::exited_group_absent(&record).is_err()) =>
                     {
                         return Err("remote_host_identity_unverified".into());
                     }
