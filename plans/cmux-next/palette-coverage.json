@@ -1806,7 +1806,7 @@
     },
     {
       "verb": "setup tailnet",
-      "reason": "keep: setup an agent runs for the person (`cmux setup`, from an agent): serves this machine to the person's other machines over Tailscale"
+      "reason": "keep: setup an agent runs for the person (`cmux setup`, from an agent): serves this machine to the person's other machines (`cmux host enable`)"
     },
     {
       "verb": "setup trust",
