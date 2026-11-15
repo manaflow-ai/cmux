@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextDesign
 import CmuxNextPages
 @testable import CmuxNextSettings
+import CmuxNextServer
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -484,5 +485,88 @@ import Testing
         }
         #expect(try await !off.value)
         #expect(h.recorder.sets.suffix(2) == ["device true", "device false"])
+    }
+}
+
+/// Control from this Mac (`remote_control`) signs a grant that turns another machine's Control on, and a
+/// key trust (`grantor_trust`) lets another Mac do that here: both widen like `join_consent`, so an on (a
+/// trust) needs the person's own HID click in the page, spent once, then Touch ID or the password. An off
+/// (Not Now, Remove) takes any input with no prompt.
+extension SettingsWideningSwitchPersonGateTests {
+    enum ConsentOp: String, CaseIterable {
+        case remoteControl = "cmux.settings.devices.remote_control"
+        case grantorTrust = "cmux.settings.devices.grantor_trust"
+
+        var flag: String { self == .remoteControl ? "on" : "trusted" }
+        var set: String { self == .remoteControl ? "control" : "trust" }
+        var reason: String { self == .remoteControl ? RemoteControlStrings.confirmReason : JoinConsentStrings.grantorTrustReason }
+    }
+
+    private func wire(_ h: Harness) {
+        let recorder = h.recorder
+        h.page.setRemoteControl = { _, on in recorder.sets.append("control \(on)"); return nil }
+        h.page.trustGrantor = { _, trusted in recorder.sets.append("trust \(trusted)"); return nil }
+    }
+
+    /// The page's call for `op` with `value` on `event`; true when it was refused as not the person's.
+    private func refused(_ h: Harness, _ op: ConsentOp, _ value: Bool, _ event: NSEvent) async throws -> Bool {
+        h.ledger.record(event)
+        do {
+            _ = try await h.page.call(op.rawValue, params: .object(["id": .string("m1"), op.flag: .bool(value)]),
+                                      context: PageCallContext(page: PageDescriptor.settings.id, userGesture: true, gestureEvent: event.timestamp))
+            return false
+        } catch let error as PageError where error.code == PageNativeOp.userOnlyCode {
+            return true
+        }
+    }
+
+    /// RED before this change: neither op existed (the page's call failed as an unknown op). Now a posted
+    /// click turns neither on and asks nothing, and the same posted click turns both off.
+    @Test func aPostedClickNeitherSignsAGrantNorTrustsAKeyButTurnsBothOff() async throws {
+        let owner = FakeOwner()
+        owner.answer = true
+        let h = try await make(owner: owner)
+        defer { h.cleanUp() }
+        wire(h)
+        for op in ConsentOp.allCases {
+            #expect(try await refused(h, op, true, h.posted()), "a posted click turned \(op) on")
+        }
+        #expect(h.recorder.sets.isEmpty && owner.reasons.isEmpty, "nothing reached the signer or acpmux, nothing asked")
+        for op in ConsentOp.allCases {
+            #expect(try await !refused(h, op, false, h.posted()))
+        }
+        #expect(h.recorder.sets == ["control false", "trust false"], "off takes any input")
+        #expect(owner.reasons.isEmpty, "an off asks nothing")
+    }
+
+    /// The person's own click asks Touch ID or the password; a cancel leaves it off, a success turns it on,
+    /// and a click is spent once.
+    @Test func thePersonsClickAsksAndOnlyASuccessSignsOrTrusts() async throws {
+        let owner = FakeOwner()
+        let h = try await make(owner: owner)
+        defer { h.cleanUp() }
+        wire(h)
+        for op in ConsentOp.allCases {
+            owner.answer = false
+            #expect(try await refused(h, op, true, h.click(0)), "a cancelled confirm turned \(op) on")
+            #expect(owner.reasons.last == op.reason)
+            owner.answer = true
+            let click = try h.click(0)
+            #expect(try await !refused(h, op, true, click))
+            #expect(h.recorder.sets.last == "\(op.set) true")
+            #expect(try await refused(h, op, true, click), "the same click again")
+        }
+        #expect(h.recorder.sets == ["control true", "trust true"])
+    }
+
+    /// Without the owner's confirm (a Mac that can't ask), nothing is ever signed or trusted.
+    @Test func noConfirmMeansNoGrantAndNoTrust() async throws {
+        let h = try await make(owner: nil)
+        defer { h.cleanUp() }
+        wire(h)
+        for op in ConsentOp.allCases {
+            #expect(try await refused(h, op, true, h.click(0)))
+        }
+        #expect(h.recorder.sets.isEmpty)
     }
 }

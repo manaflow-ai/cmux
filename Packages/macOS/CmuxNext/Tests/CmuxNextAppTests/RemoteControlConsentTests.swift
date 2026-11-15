@@ -1,0 +1,213 @@
+@testable import CmuxNextServer
+import CmuxNextSettings
+import Foundation
+import Testing
+
+/// Settings > Devices' "Control from this Mac" (contract: signed remote Control/Screen consent grants):
+/// one switch per machine the person owns, read when drawn (no timer), signed with this Mac's key only for
+/// the machine the row names, both surfaces at once, and the target's one-time ask shown with its words.
+@MainActor @Suite(.serialized) struct RemoteControlConsentTests {
+    @MainActor final class Fake {
+        var calls: [(method: String, params: [String: Any])] = []
+        var signs: [String] = []
+        /// What `_acpmux/consent_remote_status` answers.
+        var status: [String: Any] = Fake.answer(control: false)
+        /// What `_acpmux/consent_remote_set` answers.
+        var setAnswer: [String: Any] = ["ok": true]
+        var hasKey = true
+        let now = Date(timeIntervalSince1970: 1_794_781_800)
+
+        static func answer(machineId: String = "m_1", nodeKey: String = "Tk9ERQ==", account: String = "user_abc", control: Bool,
+                           pinned: Bool? = true, log: [[String: Any]] = []) -> [String: Any] {
+            var answer: [String: Any] = ["ok": true, "machineId": machineId, "nodeKey": nodeKey, "account": account, "host": "mini-7",
+                                         "control": control, "screen": control, "grantLog": log,
+                                         "self": ["account": "user_abc", "grantor": "mac-0011223344556677", "words": ["amber", "birch", "cedar", "delta"]]]
+            answer["grantor"] = pinned.map { ["pinned": $0] as [String: Any] } ?? NSNull()
+            return answer
+        }
+
+        func services() -> RemoteControlConsentServices {
+            RemoteControlConsentServices(
+                call: { [self] method, params in
+                    calls.append((method, params))
+                    switch method {
+                    case "_acpmux/consent_remote_status": return .success(status)
+                    case "_acpmux/consent_remote_set": return .success(setAnswer)
+                    default: return .failure(RemoteControlCallError("unknown"))
+                    }
+                },
+                sign: { [self] account, machineId, nodeKey, on, name in
+                    signs.append("\(account) \(machineId) \(nodeKey) \(on) \(name)")
+                    guard hasKey else { return nil }
+                    let change = on ? "on" : "off"
+                    return ["v": 1, "grantor": "mac-0011223344556677", "account": account, "machineId": machineId, "nodeKey": nodeKey,
+                            "control": change, "screen": change]
+                },
+                thisMacName: { "Studio" },
+                now: { [self] in now })
+        }
+
+        var methods: [String] { calls.map(\.method) }
+    }
+
+    static let mini = JoinedMachine(id: "m_1", name: "mini-7", state: .online, platform: "macos", meshPeerId: "Tk9ERQ==")
+
+    /// Waits (bounded) for the store's reads, which run as their own tasks, to land.
+    private static func settle(_ done: @MainActor () -> Bool) async throws {
+        for _ in 0..<10_000 where !done() { await Task.yield() }
+        try #require(done())
+    }
+
+    private static func page(_ store: RemoteControlConsentStore, _ machines: [JoinedMachine], thisMac: String? = nil) throws -> [String: Any] {
+        let data = try #require(store.pageData(machines: machines, thisMac: thisMac))
+        return try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    private static func rows(_ page: [String: Any]) -> [[String: Any]] { page["rows"] as? [[String: Any]] ?? [] }
+
+    /// Only machines the person owns that can take a grant get a row (not revoked, with a mesh id), never
+    /// this Mac itself; nothing is read until the page draws, and a drawn row reads once.
+    @Test func rowsAreTheOwnedJoinedMachinesAndReadOnlyWhenDrawn() async throws {
+        let fake = Fake()
+        let store = RemoteControlConsentStore(services: fake.services())
+        #expect(fake.calls.isEmpty, "nothing reads before the page draws")
+        let machines = [Self.mini,
+                        JoinedMachine(id: "m_2", name: "gone", state: .revoked, meshPeerId: "R09ORQ=="),
+                        JoinedMachine(id: "m_3", name: "no-mesh", state: .online),
+                        JoinedMachine(id: "m_self", name: "Studio", state: .online, meshPeerId: "U0VMRg==")]
+        let first = try Self.page(store, machines, thisMac: "m_self")
+        #expect(first["title"] as? String == RemoteControlStrings.title)
+        #expect(first["this_mac_words"] is NSNull)
+        #expect(Self.rows(first).map { $0["id"] as? String } == ["m_1"])
+        #expect(Self.rows(first).first?["status"] as? String == "unknown")
+        try await Self.settle { store.entries["m_1"] != nil }
+        #expect(fake.methods == ["_acpmux/consent_remote_status"])
+        #expect(fake.calls.first?.params["daemonId"] as? String == "Tk9ERQ==")
+        let second = try Self.page(store, machines, thisMac: "m_self")
+        #expect(second["this_mac_words"] as? [String] == ["amber", "birch", "cedar", "delta"])
+        let row = try #require(Self.rows(second).first)
+        #expect(row["status"] as? String == "off" && row["on"] as? Bool == false && row["online"] as? Bool == true)
+        #expect(row["words"] is NSNull)
+        #expect(fake.methods.count == 1, "a known row is not read again until the page shows again")
+        store.pageShown()
+        _ = try Self.page(store, machines, thisMac: "m_self")
+        try await Self.settle { fake.methods.count == 2 }
+    }
+
+    /// RED-first: the platform supplies the machine list, so a row could name another machine than the one
+    /// that answers. Before signing, the answer's machine id and node key must equal the row's; on a
+    /// mismatch nothing is signed or sent.
+    @Test func aMismatchedMachineOrNodeKeyIsRefusedBeforeSigning() async throws {
+        let fake = Fake()
+        let store = RemoteControlConsentStore(services: fake.services())
+        fake.status = Fake.answer(machineId: "m_other", control: false)
+        #expect(await store.set(Self.mini, on: true) == RemoteControlStrings.mismatch("mini-7"))
+        fake.status = Fake.answer(nodeKey: "T1RIRVI=", control: false)
+        #expect(await store.set(Self.mini, on: true) == RemoteControlStrings.mismatch("mini-7"))
+        #expect(fake.signs.isEmpty, "nothing was signed")
+        #expect(!fake.methods.contains("_acpmux/consent_remote_set"))
+        let row = try #require(Self.rows(try Self.page(store, [Self.mini])).first)
+        #expect(row["status"] as? String == "error" && row["detail"] as? String == RemoteControlStrings.mismatch("mini-7"))
+    }
+
+    /// A target enrolled under another account would refuse the grant anyway: nothing is signed for it.
+    @Test func aMachineUnderAnotherAccountGetsNoGrant() async {
+        let fake = Fake()
+        let store = RemoteControlConsentStore(services: fake.services())
+        fake.status = Fake.answer(account: "user_other", control: false)
+        #expect(await store.set(Self.mini, on: true) == RemoteControlStrings.otherAccount("mini-7"))
+        #expect(fake.signs.isEmpty)
+    }
+
+    /// One switch sets Control and Screen sharing together, signed for the account `self` names, sent to
+    /// the row's node key, then read again; an off signs an off for both.
+    @Test func aSetSignsBothSurfacesForTheStatusAccountAndReadsAgain() async throws {
+        let fake = Fake()
+        let store = RemoteControlConsentStore(services: fake.services())
+        #expect(await store.set(Self.mini, on: true) == nil)
+        #expect(fake.signs == ["user_abc m_1 Tk9ERQ== true Studio"])
+        #expect(fake.methods == ["_acpmux/consent_remote_status", "_acpmux/consent_remote_set", "_acpmux/consent_remote_status"])
+        let sent = try #require(fake.calls[1].params["grant"] as? [String: any Sendable])
+        #expect(fake.calls[1].params["daemonId"] as? String == "Tk9ERQ==")
+        #expect(sent["control"] as? String == "on" && sent["screen"] as? String == "on")
+        #expect(await store.set(Self.mini, on: false) == nil)
+        #expect(fake.signs.last == "user_abc m_1 Tk9ERQ== false Studio")
+        let off = try #require(fake.calls[4].params["grant"] as? [String: any Sendable])
+        #expect(off["control"] as? String == "off" && off["screen"] as? String == "off")
+    }
+
+    /// The first grant to a machine that has not trusted this Mac's key leaves an ask there: the row shows
+    /// the words to check on that machine. Once it trusts the key, the row is a plain switch again.
+    @Test func anUnpinnedTargetShowsTheAskWithTheWords() async throws {
+        let fake = Fake()
+        let store = RemoteControlConsentStore(services: fake.services())
+        fake.status = Fake.answer(control: false, pinned: false)
+        fake.setAnswer = ["ok": false, "reason": "grant.unpinned", "error": "not trusted yet", "words": ["amber", "birch", "cedar", "delta"]]
+        #expect(await store.set(Self.mini, on: true) == nil)
+        let row = try #require(Self.rows(try Self.page(store, [Self.mini])).first)
+        #expect(row["status"] as? String == "ask_pending")
+        #expect(row["words"] as? [String] == ["amber", "birch", "cedar", "delta"])
+        #expect(row["detail"] as? String == RemoteControlStrings.askPending("mini-7", words: ["amber", "birch", "cedar", "delta"]))
+        fake.status = Fake.answer(control: true, pinned: true, log: [["at": 1_794_781_500_000, "event": "grant", "by": "mac-0011223344556677",
+                                                                       "surface": "control", "name": "Studio"]])
+        fake.setAnswer = ["ok": true]
+        #expect(await store.set(Self.mini, on: true) == nil)
+        let on = try #require(Self.rows(try Self.page(store, [Self.mini])).first)
+        #expect(on["status"] as? String == "on" && on["on"] as? Bool == true)
+        #expect((on["detail"] as? String)?.hasPrefix(RemoteControlStrings.onFrom(RemoteControlStrings.thisMac)) == true)
+        #expect((on["log"] as? [[String: Any]])?.count == 1)
+    }
+
+    /// An unreachable machine shows Offline; a refusal other than the ask shows the target's own line; no key, no grant.
+    @Test func offlineRefusedAndKeylessRows() async throws {
+        let fake = Fake()
+        let store = RemoteControlConsentStore(services: fake.services())
+        fake.status = ["ok": false, "reason": "machine.unreachable", "error": "no route"]
+        _ = try Self.page(store, [Self.mini])
+        try await Self.settle { store.entries["m_1"] != nil }
+        let offline = try #require(Self.rows(try Self.page(store, [Self.mini])).first)
+        #expect(offline["status"] as? String == "offline" && offline["online"] as? Bool == false)
+        #expect(await store.set(Self.mini, on: true) == RemoteControlStrings.offline)
+        #expect(fake.signs.isEmpty)
+        fake.status = Fake.answer(control: false)
+        fake.setAnswer = ["ok": false, "reason": "grant.expired", "error": "the grant expired"]
+        #expect(await store.set(Self.mini, on: true) == "the grant expired")
+        fake.hasKey = false
+        #expect(await store.set(Self.mini, on: true) == RemoteControlStrings.noKey)
+    }
+
+    /// A machine that leaves the list is forgotten with what it showed.
+    @Test func aMachineThatLeavesIsForgotten() async throws {
+        let fake = Fake()
+        let store = RemoteControlConsentStore(services: fake.services())
+        _ = try Self.page(store, [Self.mini])
+        try await Self.settle { store.entries["m_1"] != nil }
+        #expect(Self.rows(try Self.page(store, [])).isEmpty)
+        #expect(store.entries.isEmpty)
+    }
+
+    /// The block (and every set from the page) exists only while devices_join shows: this Mac joined, with
+    /// labs.machineJoin on. This Mac's own row, and a machine the list doesn't name, are never set.
+    @Test func theBlockAndItsSetsNeedTheJoinBlockShown() async throws {
+        let fake = Fake()
+        var services = fake.services()
+        var shown = false
+        services.shown = { shown }
+        services.thisMac = { "m_self" }
+        services.machines = { [Self.mini, JoinedMachine(id: "m_self", name: "Studio", state: .online, meshPeerId: "U0VMRg==")] }
+        let store = RemoteControlConsentStore(services: services)
+        #expect(store.hostJSON == .null)
+        #expect(await store.set(id: "m_1", on: true) == RemoteControlStrings.notOwned)
+        #expect(fake.calls.isEmpty && fake.signs.isEmpty)
+        shown = true
+        guard case .object(let block) = store.hostJSON, case .array(let rows) = block["rows"] else {
+            Issue.record("devices_control is not an object with rows")
+            return
+        }
+        #expect(rows.count == 1)
+        #expect(await store.set(id: "m_self", on: true) == RemoteControlStrings.notOwned)
+        #expect(await store.set(id: "m_9", on: true) == RemoteControlStrings.notOwned)
+        #expect(await store.set(id: "m_1", on: true) == nil)
+        #expect(fake.signs == ["user_abc m_1 Tk9ERQ== true Studio"])
+    }
+}
