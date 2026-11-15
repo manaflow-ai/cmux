@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43744188002",
+  "recorded_at": "2026-11-15T18:14:02Z",
+  "reason": "cmux-tui b49692d1d6bc changes the image's cmux-tui (pinned 0eb01a21a1e1)",
+  "dry_run": false,
+  "cmux_tui": "b49692d1d6bc7f3860f4223da5eadda874ece5ff",
+  "fixes": [
+    {
+      "sha": "b49692d1d6bc7f3860f4223da5eadda874ece5ff",
+      "mergedAt": "2026-11-15T09:43:07-08:00",
+      "subject": "Agent chat: a ```chart fence (small JSON) draws natively through Vega-Lite (#43688)"
+    },
+    {
+      "sha": "8e5b923ffc55e9a917afac5bc80ce12eeea91434",
+      "mergedAt": "2026-11-15T09:41:49-08:00",
+      "subject": "carrier: a chat streams through 5 s and 60 s machine drops; the chaos probe names the chat dial's story (#43835)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T18:14:02Z",
+    "snapshot_id": "sh-f801e5ec245c4c58b0fab7a609df2b1a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43744188002): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "964751149034b81c5c977882656da497f94ac07b",
+    "image": "cloud-native-auto-b49692d1-43744188002-1",
+    "revision": "ci-43744188002-1",
+    "at": "2026-11-15T18:14:02Z"
+  },
+  "rolled_back": false
+}
