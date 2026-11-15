@@ -16,10 +16,23 @@ run_group() {
   printf 'v2 gate group %s: %d seconds\n' "$name" "$((SECONDS - started))"
 }
 
+# A filter that fails after writing its rows: every line its run appended gets
+# "gate_failed":true, and the v2 home reads those rows red with their numbers.
 run() {
+  local before=0
+  [[ -f $V2_GATE_OUT ]] && before=$(wc -l <"$V2_GATE_OUT")
   if ! "$@"; then
     failed=1
+    mark_failed "$before"
   fi
+}
+
+mark_failed() {
+  local marked
+  [[ -f $V2_GATE_OUT ]] && marked=$(mktemp) || return 0
+  sed "$(($1 + 1)),\$ s/}[[:space:]]*\$/,\"gate_failed\":true}/" "$V2_GATE_OUT" >"$marked" \
+    && cat "$marked" >"$V2_GATE_OUT"
+  rm -f "$marked"
 }
 
 run_book() {
@@ -36,6 +49,10 @@ run_core() {
 
 run_acpmux_lib() {
   run cargo test --profile gate -p acpmux --lib "$1" -- --ignored --nocapture --test-threads=1
+}
+
+run_tui_core_lib() {
+  run cargo test --profile gate -p cmux-tui-core --lib "$1" -- --ignored --nocapture --test-threads=1
 }
 
 run_acpmux_test() {
@@ -65,6 +82,7 @@ run_group acpmux-book book_gates
 # acpmux-client (release)
 client_gates() {
   run_client v2_pr06_client_chat
+  run_client v2_pr04b_mirror_v1_rows_gate
 }
 run_group acpmux-client client_gates
 
@@ -81,6 +99,8 @@ core_gates() {
   run_core pr05d_origin_state_ops
   run_core pr05d_removed_origin_batch
   run_core pr05d_submit_time
+  run_core pr08_mirror_apply
+  run_core pr08_mirror_local_row
   run_core v2_pr03c_
   run_core v2_pr04_chat_stopped_reader
 }
@@ -97,15 +117,24 @@ acpmux_lib_gates() {
   run_acpmux_lib hub_row_submit_gate
   run_acpmux_lib v2_pr08_reconnect_30
   run_acpmux_lib v2_pr08_fanout_30
+  run_acpmux_lib v2_pr08_dial_resume
+  run_acpmux_lib v2_pr08_edition_walk
   run_acpmux_lib v2_pr03b_tee_append_added
   run_acpmux_lib v2_pr03b_append_on_off
   run_acpmux_lib v2_pr03b_catchup_ack
+  run_acpmux_lib v2_pr03b_catchup_peak_rss
   run_acpmux_lib hold_attach_gate
   # Row 7b: rows by key, and the CLI and MCP list callers.
   run_acpmux_lib v2_pr07b_info_rows
   run_acpmux_lib v2_pr07b_callers
 }
 run_group acpmux-lib acpmux_lib_gates
+
+# cmux-tui-core's list callers (row 7c), against an agent service in the test's process.
+tui_core_lib_gates() {
+  run_tui_core_lib v2_pr07c_update_plan
+}
+run_group cmux-tui-core-lib tui_core_lib_gates
 
 # acpmux integration gates use the same gate profile and one v2_connection
 # test binary.
