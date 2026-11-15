@@ -249,7 +249,7 @@ pub(crate) fn restart_window_check() -> String {
   acpmux_age=$((acpmux_now - acpmux_rs)); [ "$acpmux_age" -lt "$acpmux_ws" ] || return 1
   case "$("$HOME/.local/bin/acpmux" --json daemon status 2>/dev/null)" in *'"pid": null'*|*'"pid":null'*) return 1;; *'"pid":'*) ;; *) return 1;; esac
   acpmux_nx=$((acpmux_rs + acpmux_ws))
-  # The case stays out of a $( ): macOS's sh (bash 3.2) refuses the whole script otherwise.
+  # The case stays out of a $( ): the macOS sh (bash 3.2) refuses the whole script otherwise.
   case "$(uname -s 2>/dev/null)" in Linux*) acpmux_nt=$(date -u -d "@$acpmux_nx" +%H:%MZ 2>/dev/null);; *) acpmux_nt=$(date -u -r "$acpmux_nx" +%H:%MZ 2>/dev/null);; esac
   [ -n "$acpmux_nt" ] || acpmux_nt='?'
   acpmux_why="restart window: last update restart $((acpmux_age / 60)) min ago; next after $acpmux_nt (--now restarts it now)"
