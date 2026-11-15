@@ -2,6 +2,7 @@
 //! actual 20/11k workloads used by the v2 registry, rather than unit-test fixtures or estimates.
 
 use super::*;
+use acpmux_book::gate_rounds::{self, all_p95, best_p95, p95};
 use acpmux_book::index::{SortedSnapshot, SummaryIndex};
 use acpmux_client::wire::{ListKey, ListView, Page, PageResult, PageSide, Sub, Window};
 use acpmux_core::hub::Hub as CoreHub;
@@ -9,29 +10,15 @@ use serde_json::json;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-fn p95(values: &[u128]) -> u128 {
-    let mut values = values.to_vec();
-    values.sort_unstable();
-    values[((values.len() * 95).div_ceil(100)).saturating_sub(1)]
-}
-
-fn measures(rounds: &[Vec<u128>]) -> (u128, u128) {
-    let best = rounds.iter().map(|round| p95(round)).min().unwrap_or(0);
-    let all = {
-        let values: Vec<_> = rounds.iter().flat_map(|round| round.iter().copied()).collect();
-        p95(&values)
-    };
-    (best, all)
-}
-
 fn emit(
     name: &str,
     small_rounds: &[Vec<u128>],
     god_rounds: &[Vec<u128>],
     unit: &str,
 ) -> (u128, u128, u128) {
-    let (small_p95, _) = measures(small_rounds);
-    let (god_p95, god_p95_all) = measures(god_rounds);
+    gate_rounds::report(name, &[("small", small_rounds), ("god", god_rounds)]);
+    let small_p95 = best_p95(small_rounds);
+    let (god_p95, god_p95_all) = (best_p95(god_rounds), all_p95(god_rounds));
     let line = json!({
         "name": name,
         "small_p95": small_p95,
@@ -613,8 +600,8 @@ async fn hub_row_submit_breakdown() {
             "breakdown": "hub_row_submit",
             "book_rows": book,
             "closed_rows": closed,
-            "turn_p95": measures(&turns).0,
-            "drain_p95": measures(&drains).0,
+            "turn_p95": best_p95(&turns),
+            "drain_p95": best_p95(&drains),
         });
         eprintln!("{line}");
         side.close().await;
