@@ -35,7 +35,10 @@ import Testing
     }
 
     @Test func storingOneIncognitoStartURLInvalidatesOnlyThatRow() async throws {
-        let daemon = DaemonService()
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let daemon = services.daemon
+        let cache = services.cache
         let firstSurface = SurfaceID(rawValue: 71)
         let secondSurface = SurfaceID(rawValue: 72)
         let paneID = PaneID(rawValue: 7)
@@ -50,32 +53,30 @@ import Testing
         let workspace = WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 7), key: workspaceKey, name: "incognito", screens: [screen])
         daemon.store.apply(snapshot: DaemonTree(registryID: "incognito-start-url", workspaces: [workspace]))
 
-        let service = BrowserTabService(daemon: daemon,
-                                        cef: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks()))
+        let service = cache.browserTabs
         let surfaces = [firstSurface, secondSurface]
         var nextSurface = 0
         service.create = { _, _, _, _, _, _, _, _ in
             defer { nextSurface += 1 }
             return surfaces[nextSurface]
         }
-        let pageInstalls = PageInstallCounter()
-        service.onIncognitoStartURLStored = { tabID in
-            pageInstalls.bump([tabID], installed: false)
-        }
         let firstTab = try #require(daemon.store.tab(surface: firstSurface))
         let secondTab = try #require(daemon.store.tab(surface: secondSurface))
+        let paneModel = try #require(daemon.store.pane(paneID))
 
         let firstRow = Counter()
-        withObservationTracking({ _ = pageInstalls.generation(of: firstTab.id) }) { firstRow.value += 1 }
-        _ = try await service.open(BrowserEngineChoice(engine: .webkit), in: paneID, on: daemon,
-                                   url: "https://first.example", incognito: true)
+        withObservationTracking({ _ = cache.incognitoDisplay(firstTab) }) { firstRow.value += 1 }
+        _ = try await service.open(BrowserEngineChoice(engine: .webkit), in: paneModel,
+                                   url: "https://first.example", incognito: true, activate: false)
         #expect(firstRow.value == 1, "the row did not hear its own stored start URL")
+        #expect(cache.incognitoDisplay(firstTab).title == "first.example")
+        #expect(cache.incognitoDisplay(firstTab).url == "https://first.example")
 
         let otherTabRow = Counter()
-        withObservationTracking({ _ = pageInstalls.generation(of: firstTab.id) }) { otherTabRow.value += 1 }
-        _ = try await service.open(BrowserEngineChoice(engine: .webkit), in: paneID, on: daemon,
-                                   url: "https://second.example", incognito: true)
+        withObservationTracking({ _ = cache.incognitoDisplay(firstTab) }) { otherTabRow.value += 1 }
+        _ = try await service.open(BrowserEngineChoice(engine: .webkit), in: paneModel,
+                                   url: "https://second.example", incognito: true, activate: false)
         #expect(otherTabRow.value == 0, "another tab's stored start URL invalidated this row")
-        #expect(pageInstalls.generation(of: secondTab.id) == 1)
+        #expect(cache.incognitoDisplay(secondTab).title == "second.example")
     }
 }
