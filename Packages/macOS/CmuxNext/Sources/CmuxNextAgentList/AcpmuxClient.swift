@@ -1,5 +1,5 @@
 import CAcpmuxClientFFI
-import Foundation
+public import Foundation
 import CmuxNextCompat
 
 /// crash-allow: all mutable state is confined to the private utility queue; C handles never escape it.

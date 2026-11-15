@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 import CmuxNextAgentActivity
 
 /// Drives an `AcpmuxClient` over the existing serial socket connection. It
