@@ -98,22 +98,25 @@ import UIKit
         defer { window.isHidden = true }
         await Self.wait(1.2)
         let view = list.collectionView
+        let first = IndexPath(item: 0, section: 0)
+        let parked = view.cellForItem(at: first)
         view.setContentOffset(CGPoint(x: 0, y: view.contentSize.height - view.bounds.height), animated: false)
         view.layoutIfNeeded()
         await Self.wait(0.3)
 
-        // A new turn, 1 s old, then back to the top: its time is empty until 5 s.
+        // A new turn, 1 s old, then back to the top (the scroll dequeues the parked cell from
+        // the working row's own pool): its time is empty until 5 s.
         let since = Date().addingTimeInterval(-1)
         WorkingLabel.redrawCounts[since] = 0
         defer { WorkingLabel.redrawCounts[since] = nil }
         list.since = since
-        view.reloadItems(at: [IndexPath(item: 0, section: 0)])
         view.setContentOffset(.zero, animated: false)
         view.layoutIfNeeded()
+        #expect(parked != nil && view.cellForItem(at: first) === parked, "the working row came back in its parked cell")
         await Self.wait(7.2)
         let ticks = Self.redraws(since)
         print("WorkingLabelUnseenTickTests: reused row, new turn: \(ticks) redraws in 7.2 s")
-        #expect(view.indexPathsForVisibleItems.contains(IndexPath(item: 0, section: 0)), "the working row is on screen")
+        #expect(view.indexPathsForVisibleItems.contains(first), "the working row is on screen")
         #expect(ticks >= 3, "a seen row past its quiet seconds redraws every second, got \(ticks) in 7.2 s")
     }
 }
