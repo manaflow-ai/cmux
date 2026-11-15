@@ -2679,8 +2679,7 @@ jobs:
           read -ra peers <<< "$NIGHTLY_PUBLISH_PEERS"
           python3 "$check" "${peers[@]}"
 
-      - &x33
-        name: Build nightly app (Release)
+      - name: Build nightly app (Release)
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
         env:
           IMPORT_VARIANT: ${{ needs.decide.outputs.import_variant }}
