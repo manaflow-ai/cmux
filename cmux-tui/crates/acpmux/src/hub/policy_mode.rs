@@ -310,6 +310,20 @@ impl Hub {
                 self.remote_floor_cancel(s, "remote.full_access_ended");
             }
         }
+        // A Web turn the owner's phone drove in a mode that does not ask, in a chat no policy
+        // holds (a chat started on this machine): with the phone removed or its setting off, the
+        // floor no longer lets it go on (`remote_floor_breach`). It ends now, as the held ones do.
+        let floored: Vec<Arc<Session>> = self
+            .sessions()
+            .into_iter()
+            .filter(|s| !held.iter().any(|h| Arc::ptr_eq(h, s)))
+            .filter(|s| s.turn().is_some_and(|t| t.control == Control::Web))
+            .filter(|s| self.remote_floor_breach(s).is_some())
+            .collect();
+        for s in &floored {
+            tracing::warn!(session = %s.id, "a phone's Full access ended: its turn in a mode that does not ask ends");
+            self.remote_floor_cancel(s, "remote.full_access_ended");
+        }
         futures::future::join_all(held.iter().map(|s| self.follow_policy(s))).await;
         // After the move: a turn that began before it ran in the wider mode.
         for s in &held {

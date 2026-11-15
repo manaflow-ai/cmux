@@ -144,6 +144,21 @@ fn launch_sign_in_and_identity_rules_answer_here() {
     assert_eq!(own["user"], "u");
     let (_, key) = call(c"cloud_identity_install_key", &json!({"user": "u"}));
     assert!(key["account"].as_str().unwrap().starts_with("install-key-"));
+    let (_, slots) = call(
+        c"cloud_identity_install_key_slots",
+        &json!({"account": "install-key-a", "accounts": ["install-key-a.2", "install-key-b", "install-key-a"]}),
+    );
+    assert_eq!(
+        slots,
+        json!({"slots": ["install-key-a", "install-key-a.2"], "current": "install-key-a.2",
+               "next": "install-key-a.3", "replacement": null})
+    );
+    let (_, rotated) = call(
+        c"cloud_identity_install_key_slots",
+        &json!({"account": "install-key-a", "deletes": [
+            {"account": "install-key-a", "status": -25244}, {"account": "install-key-a.2", "status": 0}]}),
+    );
+    assert_eq!(rotated["replacement"], "install-key-a.2");
     let (_, share) = call(
         c"cloud_identity_share_origin",
         &json!({"url": "https://Cloud-API.cmux.dev/x", "folders": ["install-share-h.example", "x"]}),

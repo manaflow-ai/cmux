@@ -54,6 +54,7 @@ GATE = "vars.CI_QUOTA_HOLD != '1'"
 # completion and that the nightly must not compete with during the hold.
 HOLD_GATED: dict[str, tuple[str, ...]] = {
     "gallery-advisory.yml": (),
+    "cmux-next-hot-verify.yml": ("plan",),
     "pr-checks.yml": ("link", "size", "ui-review"),
 }
 
@@ -66,6 +67,7 @@ HOLD_GATED: dict[str, tuple[str, ...]] = {
 DRAFT_SKIPPED: dict[str, tuple[str, ...]] = {
     "cmux-next-fast-gates.yml": (),
     "gallery-advisory.yml": (),
+    "cmux-next-hot-verify.yml": ("plan",),
     "pr-checks.yml": ("link", "size", "ui-review"),
 }
 # Checks a merger reads as a pass when skipped; they must never skip drafts.

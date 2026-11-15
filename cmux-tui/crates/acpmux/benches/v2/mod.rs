@@ -4,7 +4,9 @@
 //! file. The line format is `{"name":"v2.prNN.measure","small_p95":N,"god_p95":N,"unit":"ns"}`.
 //! This home joins those files with the registry, computes the ratio and verdict, and prints the
 //! JSON consumed by `quality-report.py --god-small`. A missing placeholder remains skipped; an
-//! unknown name or a measured row with no input is an error.
+//! unknown name or a measured row with no input is an error. `run-v2-gates.sh` adds
+//! `"gate_failed":true` to every line a gate filter wrote before its test failed; that row reads
+//! red with its numbers kept.
 
 use acpmux::god_fixture::Shape;
 use serde_json::{Value, json};
@@ -991,6 +993,33 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
+        pr: "8",
+        name: "v2.pr08.mirror_local_row_thirty",
+        done_when: "A local row's submit-to-publish p95 while 30 origins each queue a unit of 512 changes before one writer turn, 11k chats and 16,000 rows held: at most 10 ms under the turn's cap (MAX_TURN_UNIT_CHANGES, 2,048 changes), and the same with the cap lifted for comparison.",
+        measured: false,
+        ratio: f64::INFINITY,
+        ratio_all: None,
+        god_max: Some(10_000_000.0),
+    },
+    GateRow {
+        pr: "8",
+        name: "v2.pr08.dial_resume",
+        done_when: "A dial's resume with nothing missed into a hub reopened from its store, from the dial to the frame that ends it, and the link's bytes: a peer of 500 live rows with 11k closed beside them against none, rounds alternating, two hubs over a pipe, the serving side the real connection in peer role. One empty frame marked end, no walk; bytes equal but for the cursor's digits.",
+        measured: true,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "8",
+        name: "v2.pr08.edition_walk",
+        done_when: "A walk in a new edition, from the dial to whole, and the link's bytes: 500 live rows with 11k closed beside them against none, bytes under 200 KB; no index the writer publishes in the walk lacks a live row or holds it closed.",
+        measured: true,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
         pr: "9",
         name: "v2.pr09.chat_actor_start",
         done_when: "Listen within 100 ms of exec and a prompt accepted within 50 ms, with 527 chats and a 4 GB store, 1.2x against one small chat.",
@@ -1060,6 +1089,8 @@ struct Measure {
     god_p95: f64,
     god_p95_all: Option<f64>,
     unit: Option<String>,
+    /// The gate's test failed after writing this measure.
+    gate_failed: bool,
 }
 
 fn registered_names() -> HashSet<&'static str> {
@@ -1098,12 +1129,15 @@ fn parse_measure(value: Value, source: &Path) -> Result<Measure, String> {
         .and_then(Value::as_str)
         .filter(|unit| !unit.is_empty())
         .ok_or_else(|| format!("{source:?}: {name} has no unit"))?;
+    // Only `true` marks the row: the home took any other value before the mark existed.
+    let gate_failed = object.get("gate_failed").and_then(Value::as_bool).unwrap_or(false);
     Ok(Measure {
         name: name.to_string(),
         small_p95,
         god_p95,
         god_p95_all,
         unit: Some(unit.to_string()),
+        gate_failed,
     })
 }
 
@@ -1160,6 +1194,7 @@ fn measured_row(row: &GateRow, measure: &Measure) -> Value {
     };
     let ratio_all = measure.god_p95_all.map(|value| value / measure.small_p95);
     let failures = [
+        (measure.gate_failed, "the gate's test failed after writing this measure"),
         (ratio > row.ratio, "god p95 exceeds the row's ratio"),
         (
             row.ratio_all.is_some_and(|limit| ratio_all.is_none_or(|value| value > limit)),
@@ -1637,6 +1672,7 @@ mod tests {
             god_p95: god,
             god_p95_all: all,
             unit: Some("ns".to_owned()),
+            gate_failed: false,
         }
     }
 
@@ -1672,6 +1708,7 @@ mod tests {
                 god_p95: god,
                 god_p95_all: None,
                 unit: Some("bytes".to_owned()),
+                gate_failed: false,
             };
             assert_eq!(measured_row(row, &measure(4000.0, 47_870.0))["status"], "ok");
             assert_eq!(measured_row(row, &measure(1000.0, 15_401.0))["status"], "red");
@@ -1757,5 +1794,78 @@ mod zero_baseline_tests {
     #[test]
     fn zero_small_and_nonzero_god_is_red() {
         assert_eq!(zero_measure(1.0).get("status"), Some(&json!("red")));
+    }
+}
+
+#[cfg(test)]
+mod gate_failed_tests {
+    use super::*;
+
+    fn kin_line(mark: Option<Value>) -> Value {
+        let mut line = json!({"name": "v2.pr05e.kin_table_change", "small_p95": 1000,
+            "god_p95": 1100, "god_p95_all": 1200, "unit": "ns"});
+        if let Some(mark) = mark {
+            line["gate_failed"] = mark;
+        }
+        line
+    }
+
+    fn kin_row(line: Value) -> Value {
+        let row = GATE_ROWS.iter().find(|row| row.name == "v2.pr05e.kin_table_change").unwrap();
+        measured_row(row, &parse_measure(line, Path::new("fixture")).unwrap())
+    }
+
+    #[test]
+    fn a_marked_line_reads_red_with_its_numbers_kept() {
+        let row = kin_row(kin_line(Some(json!(true))));
+        assert_eq!(row["status"], "red");
+        assert_eq!(row["reason"], "the gate's test failed after writing this measure");
+        assert_eq!(row["small_p95"], 1000.0);
+        assert_eq!(row["god_p95"], 1100.0);
+        assert_eq!(row["ratio"], 1.1);
+    }
+
+    #[test]
+    fn a_line_without_the_mark_reads_as_before() {
+        for mark in [None, Some(json!(false)), Some(json!("yes")), Some(Value::Null)] {
+            let row = kin_row(kin_line(mark.clone()));
+            assert_eq!(row["status"], "ok", "{mark:?}");
+            assert_eq!(row["reason"], "within the row's bounds", "{mark:?}");
+        }
+    }
+
+    /// The gate script with a stand-in cargo (scripts/cmux-next/tests/run-v2-gates.test.sh): a
+    /// filter that wrote a line and failed, one that wrote a line and passed, one that failed with
+    /// no line. The home reads the file the script left.
+    #[cfg(unix)]
+    #[test]
+    fn the_gate_script_marks_a_failed_filters_rows_red() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let measures = tempfile::NamedTempFile::new().unwrap();
+        let status = std::process::Command::new("bash")
+            .arg(root.join("scripts/cmux-next/tests/run-v2-gates.test.sh"))
+            .arg(measures.path())
+            .status()
+            .unwrap();
+        assert!(status.success(), "run-v2-gates.test.sh failed: {status}");
+        let (value, missing) = report_value(&[measures.path().to_path_buf()], true).unwrap();
+        assert!(missing);
+        let rows = value["rows"].as_array().unwrap();
+        let status_of = |name: &str| {
+            let row = rows.iter().find(|row| row["name"] == name).unwrap();
+            (row["status"].clone(), row["reason"].clone())
+        };
+        assert_eq!(
+            status_of("v2.pr05e.kin_table_change"),
+            (json!("red"), json!("the gate's test failed after writing this measure"))
+        );
+        assert_eq!(
+            status_of("v2.pr05e.sibling_insert"),
+            (json!("ok"), json!("within the row's bounds"))
+        );
+        assert_eq!(
+            status_of("v2.pr05e.family_page"),
+            (json!("failed"), json!("the gate did not report a measure"))
+        );
     }
 }
