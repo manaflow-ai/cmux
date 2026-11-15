@@ -101,6 +101,8 @@ impl Hub {
                 }
                 self.save_meta(session);
                 self.mark_terminal_driven(session, &family);
+                drop(_turn);
+                self.follow_terminal(session);
             }
             return Ok(self.released(session, &family, &id).await);
         }
@@ -256,6 +258,64 @@ impl Hub {
     /// Tags `session` as a chat whose prompts go into the terminal that runs its conversation: a
     /// client keeps its composer on and shows no View Only banner (webviews `bridgedWatch`). The
     /// tags only say so; what lets a prompt through is the daemon's own `Watching::terminal`.
+    /// Follows the terminal `session`'s watch is bound to: once its process exits, the chat is a
+    /// watch as any other again (`terminal_ended`), Take Over and Continue in New Chat back. One
+    /// thread per terminal-driven chat, blocked on the kernel's exit event (pidfd, kqueue), no
+    /// timer; none where the kernel has no such event (that terminal is then found gone when the
+    /// chat next sends, `bridge.rs`).
+    pub(super) fn follow_terminal(self: &Arc<Self>, session: &Arc<Session>) {
+        let Some(driver) = session.meta().watching.and_then(|w| w.terminal) else { return };
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
+        let (hub, session) = (self.clone(), session.clone());
+        let pid = driver.pid;
+        let spawned =
+            std::thread::Builder::new().name("acpmux-terminal-exit".into()).spawn(move || {
+                // A later process under the same pid is not the terminal: its start time says so.
+                let ours = || crate::adopt_live::pid_start_ms(pid) == driver.started;
+                match crate::daemon::owner_exit::wait_process_exit(pid, ours) {
+                    Ok(()) => {
+                        runtime.spawn(async move { hub.terminal_ended(&session, pid).await });
+                    }
+                    Err(error) => {
+                        tracing::debug!(pid, %error, "the terminal's exit is not followed")
+                    }
+                }
+            });
+        if let Err(error) = spawned {
+            tracing::warn!(pid, %error, "cannot follow the terminal's exit");
+        }
+    }
+
+    /// The terminal process `pid` a chat's watch was bound to is gone: the binding and its tags go,
+    /// so the chat is a watch as any other (read-only, Take Over). Under the watch's turn gate,
+    /// since a watched batch writes its state back whole.
+    pub(super) async fn terminal_ended(&self, session: &Session, pid: u32) {
+        let _turn = session.turn_lock.lock().await;
+        let cleared = {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            match m.watching.as_mut() {
+                Some(w) if w.terminal.as_ref().is_some_and(|d| d.pid == pid) => {
+                    w.terminal = None;
+                    true
+                }
+                _ => false,
+            }
+        };
+        if cleared {
+            self.save_meta(session);
+            self.unmark_terminal_driven(session);
+        }
+    }
+
+    /// Takes off what `mark_terminal_driven` put on, once no terminal drives the chat.
+    pub(super) fn unmark_terminal_driven(&self, session: &Session) {
+        let driven =
+            session.meta().tags.get(TERMINAL_TAG).is_some_and(|t| t.value == TERMINAL_TAG_VALUE);
+        if driven {
+            self.set_tags(session, None, &["bridge".to_owned(), TERMINAL_TAG.to_owned()], None);
+        }
+    }
+
     fn mark_terminal_driven(&self, session: &Session, family: &str) {
         let mut tags = serde_json::Map::new();
         tags.insert("bridge".into(), json!(family));
