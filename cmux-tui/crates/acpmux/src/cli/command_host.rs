@@ -191,6 +191,11 @@ pub enum PeerCmd {
         /// commit than this one (the machine refuses that otherwise).
         #[arg(long)]
         allow_downgrade: bool,
+        /// Restart the daemon even when an update restarted it in the last
+        /// hour. Without it the machine refuses inside that hour, in its own
+        /// install step, and nothing is changed.
+        #[arg(long)]
+        now: bool,
     },
     /// Copy this binary to a machine you added (or every one with --all) and restart
     /// its daemon. The previous binary is kept and put back when the

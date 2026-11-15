@@ -338,16 +338,16 @@ fn keep(dir: &Path, target: &str, bytes: &[u8]) -> Result<()> {
 /// alone and restarts one that is not, so an update stopped between the
 /// install and the restart is finished by the next run (review of #24232). A
 /// build whose daemon was rolled back is marked, so the next run leaves it
-/// alone; when the mark cannot be written, the row says so. A daemon an
-/// update restarted within `restart_window` seconds (this timer's or a `host
-/// update` from another machine: one stamp on the host) is left alone, and
-/// nothing is installed: the first run after the window brings the newest
-/// build.
+/// alone; when the mark cannot be written, the row says so. Unless `now`, a
+/// daemon an update restarted within the host's restart window (this timer's
+/// or a `host update` from another machine: one stamp on the host) is left
+/// alone, and nothing is installed: the first run after the window brings
+/// the newest build.
 pub(super) fn apply(
     remote: &dyn Remote,
     plan: &Plan,
     target: &'static str,
-    restart_window: Option<u64>,
+    now: bool,
 ) -> PeerUpdate {
     let (dir, installed) = match &plan.step {
         Step::Current(build) => (&plan.dir, build.as_deref()),
@@ -361,7 +361,7 @@ pub(super) fn apply(
         // it pulls a bad build back); only pushes from elsewhere are refused.
         allow_downgrade: true,
         caller: None,
-        restart_window,
+        now,
     };
     let mut up = update_peer(&plan.lease.fence(remote), &opts);
     up.target.get_or_insert(target);
@@ -476,7 +476,7 @@ pub(crate) async fn self_update(channel: &str, now: bool, json_out: bool) -> Res
         }
         Prepared::Ready(plan) => plan,
     };
-    let up = apply(&LocalRemote, &plan, paths.target, super::restart_window(now));
+    let up = apply(&LocalRemote, &plan, paths.target, now);
     let name = crate::hand::pair::hostname();
     if json_out {
         print_json(&json!({

@@ -9,9 +9,9 @@ use super::host_auto_update::take_auto_update_off;
 use super::host_hold::{Holds, holds_path, now_ms};
 use super::{
     IN_PLACE, LockLost, MIGRATING, NEWER_INSTALLED, NewerInstalled, OLD_SYSTEMD_UNITS, REFUSED,
-    REMOTE_HOME, RESTORE_PREV, Remote, RemoteOut, SYSTEMD_UNIT, SshRemote, connect_peer, daemon_unit,
-    launchd_reload, linux_restart, lock_updates, migrate, migrate_back, old_unit_check,
-    push_update, run, ssh_host,
+    REMOTE_HOME, RESTORE_PREV, Remote, RemoteOut, RestartWindow, SYSTEMD_UNIT, SshRemote,
+    connect_peer, daemon_unit, launchd_reload, linux_restart, lock_updates, migrate, migrate_back,
+    old_unit_check, push_update, run, ssh_host,
 };
 use crate::cli::output::print_json;
 use crate::client::Client;
@@ -38,6 +38,8 @@ fn launchd_restart() -> String {
 /// hand-written unit writes them there (`10-migrated.conf`, `host_migrate.rs`:
 /// the home unless it is `~/.acpmux` as written, the socket always), and
 /// every script reads them back here, as systemd gives them to the daemon.
+/// The unit's `ACPMUX_UPDATE_RESTART_WINDOW_SECS` goes to `$acpmux_rw`, for
+/// the restart window ([`restart_window_check`]).
 /// When the unit sets either, the pair replaces what the script inherited; a
 /// unit that sets neither leaves the inherited pair. So a status read or a
 /// check reaches the daemon the unit runs, from an ssh session and from
@@ -70,8 +72,8 @@ acpmux_word() {
   done
   [ -n "$acpmux_any" ]
 }
-acpmux_set=; acpmux_h=; acpmux_s=
-while acpmux_word; do case $acpmux_w in ACPMUX_HOME=?*) acpmux_h=${acpmux_w#ACPMUX_HOME=}; acpmux_set=1 ;; ACPMUX_SOCKET=?*) acpmux_s=${acpmux_w#ACPMUX_SOCKET=}; acpmux_set=1 ;; esac; done
+acpmux_set=; acpmux_h=; acpmux_s=; acpmux_rw=
+while acpmux_word; do case $acpmux_w in ACPMUX_HOME=?*) acpmux_h=${acpmux_w#ACPMUX_HOME=}; acpmux_set=1 ;; ACPMUX_SOCKET=?*) acpmux_s=${acpmux_w#ACPMUX_SOCKET=}; acpmux_set=1 ;; ACPMUX_UPDATE_RESTART_WINDOW_SECS=?*) acpmux_rw=${acpmux_w#ACPMUX_UPDATE_RESTART_WINDOW_SECS=} ;; esac; done
 if [ -n "$acpmux_set" ]; then
   unset ACPMUX_HOME ACPMUX_SOCKET
   if [ -n "$acpmux_h" ]; then export ACPMUX_HOME="$acpmux_h"; fi
@@ -173,33 +175,35 @@ const UNAME: &str = "ACPMUX_UNAME=";
 
 /// What `host update` reads before it changes anything: `uname -sm` (and
 /// whether the host is a cmux Cloud VM), the daemon's status, with `if_idle` its sessions (only from a daemon that
-/// runs: `ls` would start one), and whether a hand-written unit it runs
-/// under can be moved ([`migrate`], dry).
-fn probe_script(if_idle: bool) -> String {
+/// runs: `ls` would start one), whether a hand-written unit it runs
+/// under can be moved ([`migrate`], dry), and whether the host's restart
+/// window holds the daemon (none with `now`): the same check its install
+/// step keeps ([`restart_window_check`]).
+fn probe_script(if_idle: bool, now: bool) -> String {
     let ls = if if_idle {
         r#"case "$s" in *'"pid":'*) ~/.local/bin/acpmux --json ls 2>/dev/null;; esac"#
     } else {
         ":"
     };
     format!(
-        "echo \"{UNAME}$(uname -sm)\"\necho \"{CLOCK}$(date +%s)\"\necho \"{RESTARTED}$(cat {REMOTE_HOME}/{RESTART_STAMP} 2>/dev/null)\"\n{}[ -z \"$acpmux_cloud\" ] || echo {CLOUD_VM}\n{APP_MANAGED_CHECK}echo; echo {PROBE_SPLIT}\ns=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); printf '%s\\n' \"$s\"; echo; echo {PROBE_SPLIT}\n{ls}\necho; echo {PROBE_SPLIT}\n{}{}",
+        "echo \"{UNAME}$(uname -sm)\"\nn={}\n{}if acpmux_window; then echo \"{WINDOW}$acpmux_why\"; fi\n{}[ -z \"$acpmux_cloud\" ] || echo {CLOUD_VM}\n{APP_MANAGED_CHECK}echo; echo {PROBE_SPLIT}\ns=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); printf '%s\\n' \"$s\"; echo; echo {PROBE_SPLIT}\n{ls}\necho; echo {PROBE_SPLIT}\n{}{}",
+        u8::from(now),
+        restart_window_check(),
         cloud_vm_check(),
         daemon_unit(),
         migrate(true)
     )
 }
 
-/// Start [`probe_script`]'s line with the host's clock (`date +%s`) and its
-/// line with the last update restart's ([`RESTART_STAMP`]).
-const CLOCK: &str = "ACPMUX_CLOCK=";
-const RESTARTED: &str = "ACPMUX_RESTARTED=";
+/// Starts [`probe_script`]'s line with why the restart window holds the daemon.
+const WINDOW: &str = "ACPMUX_WINDOW=";
 
 /// The file in [`REMOTE_HOME`], beside `update.owner`, that holds when (by
 /// the host's `date +%s`) an update last restarted the daemon there, whichever
 /// update it was: `host self-update` (its timer), `host update` from another
-/// machine, or the app's update queue. Every update reads it under the host's
-/// update lock, so the restart window ([`RESTART_WINDOW_SECS`]) holds across
-/// all of them.
+/// machine, `host setup`, or the app's update queue. Every update reads it
+/// under the host's update lock, so the restart window
+/// ([`restart_window_check`]) holds across all of them.
 pub(crate) const RESTART_STAMP: &str = "update.restarted";
 
 /// An update restarts a host's running daemon at most once in this many
@@ -210,49 +214,55 @@ pub(crate) const RESTART_STAMP: &str = "update.restarted";
 /// newest build.
 pub(crate) const RESTART_WINDOW_SECS: u64 = 60 * 60;
 
-/// Sets the window in seconds instead of [`RESTART_WINDOW_SECS`]; 0 turns it off.
+/// The file in [`REMOTE_HOME`] that sets the window in seconds instead of
+/// [`RESTART_WINDOW_SECS`] (0 turns it off); else the daemon unit's
+/// [`RESTART_WINDOW_ENV`], else the host shell's.
+pub(crate) const RESTART_WINDOW_FILE: &str = "update.restart-window";
+
+/// The host's environment variable that sets the window in seconds; 0 turns it off.
 pub(crate) const RESTART_WINDOW_ENV: &str = "ACPMUX_UPDATE_RESTART_WINDOW_SECS";
 
-/// The restart window an update keeps: none with `now` (a person's `--now`),
-/// else [`RESTART_WINDOW_ENV`]'s or [`RESTART_WINDOW_SECS`].
-pub(crate) fn restart_window(now: bool) -> Option<u64> {
-    if now {
-        return None;
-    }
-    let secs = std::env::var(RESTART_WINDOW_ENV)
-        .ok()
-        .and_then(|v| v.trim().parse::<u64>().ok())
-        .unwrap_or(RESTART_WINDOW_SECS);
-    (secs > 0).then_some(secs)
+/// The reason code of an update the restart window left alone.
+pub(crate) const RESTART_WINDOW: &str = "restartWindow";
+
+/// Shell defining `acpmux_window`, which runs on the host: true, with why
+/// in `$acpmux_why`, when an update restarted its running daemon less than
+/// the window ago ([`RESTART_STAMP`], by the host's clock); and
+/// `acpmux_window_refuses`, which prints [`REFUSED`] [`RESTART_WINDOW`] and
+/// why on stderr as well. The host decides it all, whatever the pusher
+/// checked: the window is the host's ([`RESTART_WINDOW_FILE`], then the
+/// daemon unit's [`RESTART_WINDOW_ENV`] from [`SERVICE_ENV`], then the
+/// shell's, else [`RESTART_WINDOW_SECS`]); `$n` 1 (`--now`) turns the check
+/// off; a stamp from the host's future (its clock went back) never holds it
+/// off for good; and a daemon that does not answer has nothing to wake. A
+/// rollback never runs it: it puts `acpmux.prev` back without an install.
+pub(crate) fn restart_window_check() -> String {
+    format!(
+        r#"acpmux_window() {{
+  [ "$n" != 1 ] || return 1
+  acpmux_rs=$(cat {REMOTE_HOME}/{RESTART_STAMP} 2>/dev/null | tr -cd '0-9'); [ -n "$acpmux_rs" ] || return 1
+  acpmux_now=$(date +%s); [ "$acpmux_rs" -le "$acpmux_now" ] || return 1
+  acpmux_ws=$(cat {REMOTE_HOME}/{RESTART_WINDOW_FILE} 2>/dev/null | tr -cd '0-9')
+  [ -n "$acpmux_ws" ] || acpmux_ws=$(printf '%s' "${{acpmux_rw-}}" | tr -cd '0-9')
+  [ -n "$acpmux_ws" ] || acpmux_ws=$(printf '%s' "${{{RESTART_WINDOW_ENV}-}}" | tr -cd '0-9')
+  [ -n "$acpmux_ws" ] || acpmux_ws={RESTART_WINDOW_SECS}
+  acpmux_age=$((acpmux_now - acpmux_rs)); [ "$acpmux_age" -lt "$acpmux_ws" ] || return 1
+  case "$("$HOME/.local/bin/acpmux" --json daemon status 2>/dev/null)" in *'"pid": null'*|*'"pid":null'*) return 1;; *'"pid":'*) ;; *) return 1;; esac
+  acpmux_nx=$((acpmux_rs + acpmux_ws))
+  acpmux_nt=$(case "$(uname -s 2>/dev/null)" in Linux*) date -u -d "@$acpmux_nx" +%H:%MZ;; *) date -u -r "$acpmux_nx" +%H:%MZ;; esac 2>/dev/null) || acpmux_nt='?'
+  acpmux_why="restart window: last update restart $((acpmux_age / 60)) min ago; next after $acpmux_nt (--now restarts it now)"
+}}
+acpmux_window_refuses() {{
+  acpmux_window || return 1
+  echo "{REFUSED}{RESTART_WINDOW}"
+  echo "$acpmux_why" >&2
+}}
+"#
+    )
 }
 
-/// Why an update leaves the daemon alone: an update restarted it `restarted`
-/// (by the host's `clock`) less than `window` seconds ago. None with no
-/// window, no stamp, or a stamp from the host's future (its clock went back:
-/// never a host held off updates for good).
-fn in_restart_window(
-    window: Option<u64>,
-    clock: Option<u64>,
-    restarted: Option<u64>,
-) -> Option<String> {
-    let (window, clock, restarted) = (window?, clock?, restarted?);
-    let age = clock.checked_sub(restarted)?;
-    if age >= window {
-        return None;
-    }
-    let next = restarted.saturating_add(window);
-    let next = i64::try_from(next)
-        .ok()
-        .and_then(|at| chrono::DateTime::from_timestamp(at, 0))
-        .map_or_else(|| "?".to_owned(), |at| at.format("%H:%MZ").to_string());
-    Some(format!(
-        "restart window: last update restart {} min ago; next after {next} (--now restarts it now)",
-        age / 60
-    ))
-}
-
-/// Writes [`RESTART_STAMP`]: the host's clock, beside and renamed, owner-only.
-fn stamp_restart() -> String {
+/// Writes [`RESTART_STAMP`] on the host: its clock, beside and renamed, owner-only.
+pub(crate) fn stamp_restart() -> String {
     let stamp = format!("{REMOTE_HOME}/{RESTART_STAMP}");
     format!("(umask 077 && date +%s > {stamp}.$$ && mv -f {stamp}.$$ {stamp})")
 }
@@ -273,10 +283,8 @@ struct Probe {
     busy: Option<Vec<String>>,
     /// Why its hand-written unit cannot be moved: a reason code and a message.
     refused: Option<(String, String)>,
-    /// The host's clock, in seconds since 1970.
-    clock: Option<u64>,
-    /// When an update last restarted its daemon ([`RESTART_STAMP`]), by that clock.
-    restarted: Option<u64>,
+    /// Why the host's restart window holds its daemon ([`restart_window_check`]).
+    window: Option<String>,
 }
 
 impl Probe {
@@ -320,14 +328,8 @@ impl Probe {
             parts[0].lines().find_map(|l| l.strip_prefix(APP_MANAGED)).map(str::to_owned);
         let uname = parts[0].lines().find_map(|l| l.strip_prefix(UNAME)).unwrap_or_default();
         let uname = uname.trim().to_owned();
-        let secs = |key: &str| {
-            parts
-                .first()
-                .and_then(|p| p.lines().find_map(|l| l.strip_prefix(key)))
-                .and_then(|v| v.trim().parse().ok())
-        };
-        let (clock, restarted) = (secs(CLOCK), secs(RESTARTED));
-        Some(Probe { uname, cloud_vm, app_managed, build, busy, refused, clock, restarted })
+        let window = parts[0].lines().find_map(|l| l.strip_prefix(WINDOW)).map(str::to_owned);
+        Some(Probe { uname, cloud_vm, app_managed, build, busy, refused, window })
     }
 }
 
@@ -630,7 +632,7 @@ impl PeerUpdate {
                 format!("kept: {error}")
             }
             Outcome::Current => format!("current ({})", self.build.as_deref().unwrap_or("?")),
-            Outcome::Busy if self.reason.as_deref() == Some("restartWindow") => {
+            Outcome::Busy if self.reason.as_deref() == Some(RESTART_WINDOW) => {
                 format!("left alone: {error}")
             }
             Outcome::Busy => format!("busy, left alone: {error}"),
@@ -657,9 +659,9 @@ pub(crate) struct UpdateOptions {
     pub allow_downgrade: bool,
     /// The session this command runs in, and its daemon.
     pub caller: Option<Caller>,
-    /// Restart a running daemon only when no update restarted it in this many
-    /// seconds ([`RESTART_STAMP`]); None restarts it whenever (`--now`).
-    pub restart_window: Option<u64>,
+    /// Restart a running daemon even inside the host's restart window
+    /// (`--now`); without it the host refuses ([`restart_window_check`]).
+    pub now: bool,
 }
 
 /// The session `host update` runs in: its `ACPMUX_SESSION_ID`, and the
@@ -730,7 +732,7 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     let remote = &ServiceEnv(remote);
     let up = PeerUpdate::new();
     let caller = opts.caller.as_ref();
-    let probe = match remote.exec(&probe_script(opts.if_idle), None) {
+    let probe = match remote.exec(&probe_script(opts.if_idle, opts.now), None) {
         Ok(out) => match Probe::parse(&out, caller) {
             Some(probe) => probe,
             None => {
@@ -823,13 +825,14 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     if let Some((reason, why)) = &probe.refused {
         return up.end(Outcome::Failed, reason, why.clone());
     }
-    // A running daemon an update restarted within the window (this host's
+    // A running daemon an update restarted within the host's window (its
     // timer, or a `host update` from any machine) is left alone, nothing
-    // installed; a daemon that does not answer has nothing to wake.
+    // installed. The host's install step refuses it too (`push_update`), for
+    // a pusher that never asks; asking first only saves the copy.
     if probe.build.is_some()
-        && let Some(why) = in_restart_window(opts.restart_window, probe.clock, probe.restarted)
+        && let Some(why) = probe.window.clone()
     {
-        return up.end(Outcome::Busy, "restartWindow", why);
+        return up.end(Outcome::Busy, RESTART_WINDOW, why);
     }
     // The host's install step refuses a binary of an older commit than its
     // own (`downgrade_check`); ask first, so a refused push copies nothing.
@@ -840,8 +843,12 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     }
     // From here on the peer changes.
     let running = probe.build.as_deref().and_then(build_commit);
-    let version = match push_update(remote, &binary, running, opts.allow_downgrade) {
+    let version = match push_update(remote, &binary, running, opts.allow_downgrade, opts.now) {
         Ok(version) => version,
+        // The host's install step kept its restart window: nothing changed.
+        Err(e) if e.is::<RestartWindow>() => {
+            return up.end(Outcome::Busy, RESTART_WINDOW, e.to_string());
+        }
         // The host keeps a binary of a newer commit (`downgrade_check`):
         // nothing changed, as `--keep-newer` leaves one.
         Err(e) if e.is::<NewerInstalled>() => {
@@ -872,7 +879,7 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     // sessions again right before the restart, and put the binary back
     // rather than restart under it.
     if opts.if_idle {
-        let again = match remote.exec(&probe_script(true), None) {
+        let again = match remote.exec(&probe_script(true, opts.now), None) {
             Ok(out) => Some(out),
             Err(e) if e.is::<LockLost>() => {
                 return up.end(Outcome::Failed, "lockLost", e.to_string());
