@@ -1202,6 +1202,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_permissions_are_job_scoped.py
 
+      - name: Validate pull_request tailnet joins are opt-in and same-repo only
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_tailnet_oidc_pr_gate.py
+
       - name: Validate triage radar scoring
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_triage_radar.py
