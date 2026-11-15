@@ -10,13 +10,14 @@ public import Foundation
 /// 1194 ms against 45 ms for the same copy relaunched (scripts/measure/nightly-fresh-launch.sh).
 /// Sparkle 2's installer puts a staged update in place with a rename on the same volume
 /// (`SUPlainInstaller`, `swapItemAtURL`), so the files the pre-warm ran are the files the first
-/// launch after the update runs. Measured (nightly-fresh-launch arms=extra, pool mini, 3 rounds): a copy
-/// pre-warmed this way and then renamed reached Home's first page in 2584 ms against 4507 ms for a cold
-/// copy and 3934 ms for one only `gktool scan`ned, as Sparkle does.
+/// launch after the update runs. Measured (nightly-fresh-launch arms=prewarm, pool mini, 3 rounds): a copy
+/// pre-warmed this way and then renamed reached Home's first page in 1281 ms against 4688 ms for a cold
+/// copy and 3984 ms for one only `gktool scan`ned, as Sparkle does (a full launch first: 1303 ms).
 ///
 /// What runs, one after another, each stopped after `timeout`: the staged app's executable with
 /// ``argument`` (`CmuxNextApp.main()` exits on it before anything else, so exec, dyld and static
-/// initializers run and nothing more), then the bundled `cmux` and `cmux-tui` with `--version`.
+/// initializers run and nothing more), then the bundled `cmux` and `cmux-tui` with `--version`, then
+/// each Chromium helper app with `--version` (the first loads the CEF framework, about 1.4 s).
 /// Nothing is written, verified or skipped: Gatekeeper, quarantine and the code signature checks
 /// run as they always do, only earlier.
 public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
@@ -78,6 +79,17 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         }
         for name in Self.bundledExecutables {
             let executable = bundle.appending(path: "Contents/Resources/bin").appending(path: name)
+            if files.isExecutableFile(atPath: executable.path) { runs.append(Run(executable: executable, arguments: ["--version"])) }
+        }
+        // Each Chromium helper app (`<App> Helper (Kind).app`, named after its bundle): with no `--type` it loads the
+        // CEF framework and returns (CEFShim/src/helper_main.mm), so the framework's first load is paid here too.
+        let frameworks = bundle.appending(path: "Contents/Frameworks")
+        let helpers = ((try? files.contentsOfDirectory(at: frameworks, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [])
+            .filter { $0.pathExtension == "app" && $0.lastPathComponent.contains(" Helper") }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        for helper in helpers {
+            let name = helper.deletingPathExtension().lastPathComponent
+            let executable = helper.appending(path: "Contents/MacOS").appending(path: name)
             if files.isExecutableFile(atPath: executable.path) { runs.append(Run(executable: executable, arguments: ["--version"])) }
         }
         return runs

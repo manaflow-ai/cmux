@@ -11,20 +11,28 @@ import Testing
 @MainActor @Suite(.serialized) struct StagedUpdatePrewarmTests {
     static let bundleID = "com.cmuxterm.app.debug.staged-update-prewarm"
 
-    /// Writes `<root>/<a>/<b>/<name>.app` with an Info.plist naming `id` and `build`, its executable and the bundled
-    /// executables `bins`, each a script that appends its name and arguments to `<root>/ran.txt`.
+    /// Writes `<root>/<a>/<b>/<name>.app` with an Info.plist naming `id` and `build`, its executable, the bundled
+    /// executables `bins` and the Chromium helper apps `helpers` (plus a framework that is no helper), each a script
+    /// that appends its name and arguments to `<root>/ran.txt`.
     @discardableResult
     static func stage(_ root: URL, _ a: String, _ b: String, id: String = bundleID, build: String,
-                      bins: [String] = StagedUpdatePrewarm.bundledExecutables) throws -> URL {
+                      bins: [String] = StagedUpdatePrewarm.bundledExecutables,
+                      helpers: [String] = ["cmux Helper (GPU)", "cmux Helper"]) throws -> URL {
         let app = root.appending(path: "\(a)/\(b)/cmux.app")
         let files = FileManager.default
         try files.createDirectory(at: app.appending(path: "Contents/MacOS"), withIntermediateDirectories: true)
         try files.createDirectory(at: app.appending(path: "Contents/Resources/bin"), withIntermediateDirectories: true)
+        try files.createDirectory(at: app.appending(path: "Contents/Frameworks/Sparkle.framework"), withIntermediateDirectories: true)
         let info: NSDictionary = ["CFBundleIdentifier": id, "CFBundleVersion": build, "CFBundleExecutable": "cmux"]
         try info.write(to: app.appending(path: "Contents/Info.plist"))
         let log = root.appending(path: "ran.txt").path
-        for script in [app.appending(path: "Contents/MacOS/cmux")] + bins.map({ app.appending(path: "Contents/Resources/bin/\($0)") }) {
-            let name = script.deletingLastPathComponent().lastPathComponent == "MacOS" ? "app" : script.lastPathComponent
+        let helperScripts = try helpers.map { helper in
+            let folder = app.appending(path: "Contents/Frameworks/\(helper).app/Contents/MacOS")
+            try files.createDirectory(at: folder, withIntermediateDirectories: true)
+            return folder.appending(path: helper)
+        }
+        for script in [app.appending(path: "Contents/MacOS/cmux")] + bins.map({ app.appending(path: "Contents/Resources/bin/\($0)") }) + helperScripts {
+            let name = script.path.hasSuffix(".app/Contents/MacOS/cmux") && !script.path.contains("Helper") ? "app" : script.lastPathComponent
             try "#!/bin/sh\necho \"\(name) $*\" >> '\(log)'\n".write(to: script, atomically: true, encoding: .utf8)
             try files.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
         }
@@ -56,14 +64,15 @@ import Testing
         #expect(StagedUpdatePrewarm(installation: root.appending(path: "missing"), bundleIdentifier: Self.bundleID, build: "200").stagedBundle() == nil)
     }
 
-    @Test func runsAreTheExecutableThenEachBundledExecutableThatIsThere() throws {
+    @Test func runsAreTheExecutableThenEachBundledExecutableThenEachHelperThatIsThere() throws {
         let root = try Self.temporary()
         defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
         let full = try Self.stage(root, "u1", "x1", build: "200")
         let prewarm = StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "200")
         #expect(prewarm.runs(bundle: full).map { "\($0.executable.lastPathComponent) \($0.arguments.joined(separator: " "))" }
-            == ["cmux \(StagedUpdatePrewarm.argument)", "cmux --version", "cmux-tui --version"])
-        let bare = try Self.stage(root, "u2", "x2", build: "201", bins: [])
+            == ["cmux \(StagedUpdatePrewarm.argument)", "cmux --version", "cmux-tui --version",
+                "cmux Helper (GPU) --version", "cmux Helper --version"])
+        let bare = try Self.stage(root, "u2", "x2", build: "201", bins: [], helpers: [])
         #expect(prewarm.runs(bundle: bare).map(\.arguments) == [[StagedUpdatePrewarm.argument]])
     }
 
@@ -73,7 +82,8 @@ import Testing
         try Self.stage(root, "u1", "x1", build: "200")
         let line = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "200").perform(work: BackgroundWork())
         let ran = try String(contentsOf: root.appending(path: "ran.txt"), encoding: .utf8).split(separator: "\n")
-        #expect(ran == ["app \(StagedUpdatePrewarm.argument)", "cmux --version", "cmux-tui --version"])
+        #expect(ran == ["app \(StagedUpdatePrewarm.argument)", "cmux --version", "cmux-tui --version",
+                        "cmux Helper (GPU) --version", "cmux Helper --version"])
         #expect(line.hasPrefix("launch pre-warm of 200 (cmux.app): cmux exit 0"), "\(line)")
         let none = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "300").perform(work: BackgroundWork())
         #expect(none.contains("no staged bundle of 300"))
