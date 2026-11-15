@@ -25,13 +25,22 @@ struct RemoteTerminalFilePreviewRoute: Equatable {
     /// A mirrored tmux pane rides the mirror's ControlMaster socket as is. It
     /// skips the managed-SSH option merge, which would swap a caller-owned
     /// ControlPath for `ControlPath=none` whenever an agent socket is set.
+    /// `ControlMaster=no` alone still falls back to a fresh connection when the
+    /// socket is gone, so the failing ProxyCommand makes that fallback fail
+    /// closed. ssh tries the mux socket before it runs any ProxyCommand.
     init(host: RemoteTmuxHost) {
         destination = host.destination
         port = host.port
         identityFile = host.identityFile
-        sshOptions = ["ControlPath=\(host.controlSocketPath)"]
+        sshOptions = [
+            "ControlPath=\(host.controlSocketPath)",
+            Self.muxOnlyProxyCommand,
+        ]
         displayTarget = host.port.map { "\(host.destination):\($0)" } ?? host.destination
     }
+
+    /// Only reached when no master answers on the ControlPath.
+    static let muxOnlyProxyCommand = "ProxyCommand=/usr/bin/false"
 }
 
 /// Owns remote click downloads and discards completions whose source terminal has changed.

@@ -49,8 +49,8 @@ extension Workspace: TerminalLinkOpenContainer {
     }
 
     /// A mirrored tmux pane has no `remoteConfiguration`, so its files are read over
-    /// the mirror's own ControlMaster. The file transport never opens a master
-    /// (`ControlMaster=no`, `BatchMode=yes`), so a click never prompts for auth.
+    /// the mirror's own ControlMaster. A click never opens a new connection or
+    /// prompts for auth: without a live master the read fails closed.
     private func remoteTmuxFilePreviewRoute(for surfaceID: UUID) -> RemoteTerminalFilePreviewRoute? {
         guard let sessionMirror = remoteTmuxSessionMirror,
               !sessionMirror.connection.exited,

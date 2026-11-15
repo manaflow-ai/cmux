@@ -66,9 +66,13 @@ struct RemoteTmuxMirrorFilePreviewTests {
         #expect(route.port == 2222)
         #expect(route.identityFile == "/tmp/id_test")
         #expect(route.displayTarget == "me@devbox:2222")
-        // Only the mirror's socket: the file transport adds ControlMaster=no
-        // and BatchMode=yes, so a click rides the live master and never prompts.
-        #expect(route.sshOptions == ["ControlPath=\(harness.host.controlSocketPath)"])
+        // The mirror's socket, plus a ProxyCommand that fails if no master
+        // answers on it. The file transport adds ControlMaster=no and
+        // BatchMode=yes, so a click rides the live master or fails closed.
+        #expect(route.sshOptions == [
+            "ControlPath=\(harness.host.controlSocketPath)",
+            "ProxyCommand=/usr/bin/false",
+        ])
         let arguments = ProcessSSHFileExplorerTransport.sshArguments(
             connection: SSHFileExplorerConnection(
                 destination: route.destination,
@@ -81,6 +85,9 @@ struct RemoteTmuxMirrorFilePreviewTests {
         #expect(arguments.contains("ControlPath=\(harness.host.controlSocketPath)"))
         #expect(arguments.contains("ControlMaster=no"))
         #expect(arguments.contains("BatchMode=yes"))
+        // A config ProxyJump or ProxyCommand can't take over, since OpenSSH
+        // keeps the first value and command-line options come first.
+        #expect(arguments.contains("ProxyCommand=/usr/bin/false"))
     }
 
     @Test func mirrorPaneResolvesToItsPanelAndOpensBesideItsWindowTab() throws {
