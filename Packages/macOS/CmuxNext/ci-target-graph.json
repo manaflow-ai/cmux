@@ -536,6 +536,7 @@
         "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextIcons",
+        "CmuxNextPages",
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
@@ -1124,6 +1125,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDevices",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextWakeups"
       ],
@@ -1583,8 +1585,11 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextMacScreenTests",
       "targets": [
+        "CmuxNextCompat",
+        "CmuxNextControl",
         "CmuxNextMacScreen",
-        "CmuxNextRemoteView"
+        "CmuxNextRemoteView",
+        "CmuxNextSettings"
       ],
       "packages": [],
       "reads": [
@@ -1978,11 +1983,13 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextServer",
       "targets": [
+        "CmuxNextActions",
         "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextIcons",
         "CmuxNextPages",
+        "CmuxNextPalette",
         "CmuxNextRemote",
         "CmuxNextSettings",
         "CmuxNextWakeups"

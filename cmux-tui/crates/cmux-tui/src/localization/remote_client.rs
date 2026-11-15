@@ -82,6 +82,8 @@ pub(crate) struct RemoteClientMessages {
     pub(super) wireguard_config_invalid: &'static str,
     pub(super) wireguard_start_failed: &'static str,
     pub wireguard_hub_conflict: &'static str,
+    pub via_machine_conflict: &'static str,
+    pub acpmux_socket_unknown: &'static str,
     pub wireguard_hub_token_needs_hub: &'static str,
     pub stdin_claimed_twice: &'static str,
     pub hub_token_invalid: &'static str,
@@ -318,6 +320,9 @@ through an in-process WireGuard peer (owner-only wg-quick file; no root)
   --wireguard-hub PATH  dial ws routes through a running `cmux wg hub` socket
 instead; exclusive with --wireguard-config
   --wireguard-hub-token-stdin  read that hub's client token as one line on stdin
+  --via-machine MACHINE  dial a loopback ws route (ws://127.0.0.1:PORT/) on another
+of your machines through your own carrier (acpmux), with no inbound port; MACHINE
+is an acpmux peer name or its node key (`acpmux machine status --json`, wgPublicKey)
   --ssh-binary PATH  --remote-binary PATH  --ssh-arg ARG  --no-install
   --ssh-forced-command  the SSH key's forced command already runs remote-link,
 so the client never runs remote-probe or an install over it
@@ -485,6 +490,8 @@ for up to two relay fallbacks
     wireguard_config_invalid: "WireGuard config is not a valid wg-quick file: {error}",
     wireguard_start_failed: "could not start the in-process WireGuard tunnel: {error}",
     wireguard_hub_conflict: "--wireguard-config and --wireguard-hub cannot be combined; one link owns a tunnel or dials through a hub, not both",
+    via_machine_conflict: "--via-machine carries the route through another machine; it cannot be combined with --wireguard-config or --wireguard-hub",
+    acpmux_socket_unknown: "--via-machine needs this machine's acpmux, and its socket could not be found (set ACPMUX_SOCKET)",
     wireguard_hub_token_needs_hub: "--wireguard-hub-token-stdin needs --wireguard-hub",
     stdin_claimed_twice: "only one input can come from stdin: --wireguard-hub-token-stdin and --invite-file - cannot be combined",
     hub_token_invalid: "the WireGuard hub token on stdin must be one line of 1 to 255 bytes",
@@ -593,6 +600,9 @@ ID とセッション:
   --wireguard-hub パス  実行中の `cmux wg hub` ソケット経由で ws ルートに接続します。
 --wireguard-config とは併用できません
   --wireguard-hub-token-stdin  そのハブのクライアントトークンを標準入力から 1 行で読みます
+  --via-machine マシン  自分の別のマシンのループバック ws ルート (ws://127.0.0.1:ポート/) に
+自分のキャリア (acpmux) 経由で接続します。受信ポートは不要です。マシンは acpmux のピア名か
+そのノード鍵です (`acpmux machine status --json` の wgPublicKey)
   --ssh-binary パス  --remote-binary パス  --ssh-arg 引数  --no-install
   --ssh-forced-command  SSH 鍵の強制コマンドがすでに remote-link を実行するため、
 その接続では remote-probe もインストールも実行しません
@@ -757,6 +767,8 @@ ID とセッション:
     wireguard_config_invalid: "WireGuard 設定は有効な wg-quick ファイルではありません: {error}",
     wireguard_start_failed: "プロセス内 WireGuard トンネルを開始できませんでした: {error}",
     wireguard_hub_conflict: "--wireguard-config と --wireguard-hub は併用できません。1 つのリンクはトンネルを所有するかハブ経由で接続するかのどちらかです",
+    via_machine_conflict: "--via-machine は別のマシン経由でルートを運びます。--wireguard-config や --wireguard-hub とは併用できません",
+    acpmux_socket_unknown: "--via-machine にはこのマシンの acpmux が必要ですが、そのソケットが見つかりません (ACPMUX_SOCKET を設定してください)",
     wireguard_hub_token_needs_hub: "--wireguard-hub-token-stdin には --wireguard-hub が必要です",
     stdin_claimed_twice: "標準入力から読めるのは 1 つだけです。--wireguard-hub-token-stdin と --invite-file - は併用できません",
     hub_token_invalid: "標準入力の WireGuard ハブトークンは 1 から 255 バイトの 1 行である必要があります",

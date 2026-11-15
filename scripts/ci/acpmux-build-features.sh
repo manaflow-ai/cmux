@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Shipping features for the selected acpmux source tree and target. Older pinned
 # trees have no tailnet or hub-carrier feature. Runtime enrollment remains explicitly opt-in.
+# A third argument names the package that depends on acpmux (acpmux-standalone
+# passes `acpmux`): each feature is then printed as `acpmux/<feature>`.
 set -euo pipefail
 manifest=${1:?acpmux Cargo.toml}
 target=${2:?Rust target triple}
+dep=${3:-}
 has_feature() {
   awk -v name="$1" '
     /^\[features\][[:space:]]*$/ { features=1; next }
@@ -26,5 +29,6 @@ case "$target" in
     ;;
 esac
 if [[ -n "$features" ]]; then
+  [[ -z "$dep" ]] || features="$dep/${features//,/,$dep/}"
   printf '%s\n' "--features=$features"
 fi

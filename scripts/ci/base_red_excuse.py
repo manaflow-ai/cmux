@@ -1873,16 +1873,20 @@ def step_errors(view: FailedView) -> set[tuple[str, str]]:
 # step's own: UNPLACED) has no section per step, so no line can be charged to the step that failed. Seen on
 # 2026-11-11 on 'cmux-next checks (god files, concurrency, crash safety, l10n)' (cmux#40954) and 'CmuxMobileKit tests
 # (macOS swift test, iOS simulator)' (cmux#40598, #40664): every red in those jobs was refused, the base's own too.
-# Such a red is compared whole instead, on both sides alike, and excused only on identity with one red base verdict
+# Such a red is compared whole instead, on both sides alike, and excused only when it is within one red base verdict
 # for the job: the newest, or an older one in the window the placed comparison reads (BASE_WINDOW, BASE_WINDOW_HOURS;
-# a green verdict ends it), each alone: exactly the head's failed steps (by the jobs API), exactly the same failing-test
-# lines and error lines (numbers masked) the same number of times each, read from the whole log less the runner's echo
-# of each script, with at least one. Counts, not sets: a whole log may take in a passing step's expected `✘ Test` or
-# error line (#40542's Codex BLOCKs), so a head whose failing step newly prints a line the base printed only from a
-# passing step prints it once more than the base, and is refused. Any line the head prints more or less often than
-# the base breaks identity: a subset either way is never enough. Not covered by counts: a PR that both stops a passing
-# step's line and makes its failing step print that same line; it must change two steps to look the same, and the
-# failed steps must still be the base's. Failing tests are counted by name with their digits (test2() is not test3()).
+# a green verdict ends it), each alone: every failed step of the head (by the jobs API, (name, conclusion)), every
+# failing-test line and every error line (numbers masked), each as often as that verdict has it or less, read from the
+# whole log less the runner's echo of each script, with at least one. Counts, not sets: a whole log may take in a
+# passing step's expected `✘ Test` or error line (#40542's Codex BLOCKs), so a head whose failing step newly prints a
+# line the base printed only from a passing step prints it once more than the base, and is refused. A line the head
+# prints more often than the base, or that the base never prints, is the head's own. The base may fail more: a verdict
+# that fails the head's reds and others besides still proves the head's are the base's (cmux#43251 at fe4918f2 on
+# 2026-11-15: 'cmux-next checks' failed 2 script tests, base run 43676446747 those 2 and 3 more, and identity refused
+# it). Not covered by counts: a PR that both stops a passing step's line and makes its failing step print that same
+# line; it must change two steps to look the same, and the failed steps must still be the base's. Failing tests are
+# counted by name with their digits (test2() is not test3()). A log that says tests failed and names none (unnamed) is
+# never compared, on either side.
 # The app FFI pin's red (FFI_PIN_ERROR) is never excused by identity: its rules read the PR's paths, which a whole-log
 # identity cannot stand in for, and its error masks the pinned sha. ffi_pin_step_a judges it first, from this
 # signature as from a placed one (#40542 left every unplaced pin red refused, the base's own too: cmux#41086 on
@@ -1987,18 +1991,25 @@ def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, f
         if said:
             raise Refused(f"'{name}': {why}; compared whole, {side} log reports more failed tests than it names "
                           f"({said[0][:200]}), so no failure can be told from another")
-    if head.steps != found.steps:
+    # Within, not equal (the rule above): each of the head's counts at most the base's; what the base fails besides
+    # is the base's.
+    if head.steps - found.steps:
         raise Refused(f"'{name}': {why}; compared whole, its failed steps ({step_keys_text(head.steps)}) are "
                       f"not {where}'s ({step_keys_text(found.steps)})")
     for what, mine, theirs in (("failing tests", head.tests, found.tests), ("error lines", head.errors, found.errors)):
-        if mine != theirs:
-            more, fewer = sorted((mine - theirs).elements()), sorted((theirs - mine).elements())
+        if more := sorted((mine - theirs).elements()):
+            fewer = sorted((theirs - mine).elements())
             raise Refused(f"'{name}': {why}; compared whole, its {what} are not {where}'s"
-                          + (f": more on this head: {'; '.join(more)[:500]}" if more else "")
+                          f": more on this head: {'; '.join(more)[:500]}"
                           + (f"; more on the base: {'; '.join(fewer)[:300]}" if fewer else ""))
     said = sorted(head.tests) or sorted(head.errors)
     said_why = ("its log does not map onto its steps" if why == UNPLACED_WHY
                 else "its failed steps name no failing test or error line")
+    besides = sum(((found.steps - head.steps) + (found.tests - head.tests) + (found.errors - head.errors)).values())
+    if besides:
+        return (f"excused '{name}': {said_why}, so it was compared whole: its failed steps "
+                f"({step_keys_text(head.steps)[:200]}), failing tests and error lines, each as often or less, are "
+                f"within those of {where}, which fails {besides} more besides: {'; '.join(said)[:400]}")
     return (f"excused '{name}': {said_why}, so it was compared whole: the same failed steps "
             f"({step_keys_text(head.steps)[:200]}), failing tests and error lines, as often each, as {where}: "
             f"{'; '.join(said)[:400]}")
@@ -2266,6 +2277,89 @@ def generated_stale_host(log: str) -> str | None:
     if len(lines) != 1 or not (match := GENERATED_STALE.match(lines[0])):
         return None
     return GENERATED_HOSTS[match.group(1)]
+
+
+# A 'catalog' verdict the base fails too (2026-11-15, cmux#43469 at 7562e83f, run 43697059936): the FFI re-pin of
+# #43603 added app.menu.run, so the action catalog checks failed on every head and on feat-cmux-next alike. A PR's
+# shared check printed its green host's 'catalog' verdict and was refused, since base pushes never run the shared check
+# (they check generated files in 'cmux-next generated files', base tier) and so no base verdict carries its name. It
+# is the base's when: its one error line is the host's 'catalog' verdict (generated_catalog_host); the host job's
+# whole log (unplaced_signature, as pr_only_step_verdict reads it: a green host's every failing test and error line is
+# a continue-on-error check's) names at least one failing test and none unnamed, and every failing test (by name,
+# digits kept) and error line in it is one ONE red base 'cmux-next generated files' fails, in the window (BASE_WINDOW
+# verdicts within BASE_WINDOW_HOURS of the newest; a pass ends it, pr_only_step_verdict's rule); and the PR changes
+# none of the catalog's inputs (CATALOG_INPUTS: judge-action-exports.sh's GENERATOR_INPUTS and its own scripts).
+# Anything else stays the PR's own.
+GENERATED_CATALOG = re.compile(r"^##\[error\]\s*The action catalog checks fail on (swift-test|daemon-test) with fresh "
+                               r"exports too: a catalog failure, not stale files\.")
+GENERATED_BASE_JOB = "cmux-next generated files"
+CATALOG_INPUTS = ("Packages/", "plans/cmux-next/", "scripts/cmux-next/regenerate-action-contracts.sh",
+                  "scripts/cmux-next/judge-action-exports.sh", "scripts/cmux-next/check-action-surfaces.sh")
+
+
+def shared_catalog_host(repo: str, job: dict, github) -> str | None:
+    """generated_catalog_host of the shared generated-files check JOB's log: its one read."""
+    return generated_catalog_host(github.log(repo, job))
+
+
+def generated_catalog_host(log: str) -> str | None:
+    """The host job name of a shared generated-files check whose one red is its host's 'catalog' verdict; else None."""
+    lines = [text for text in test_reds.lines_of(log) if text.startswith("##[error]")
+             and not text.startswith("##[error]Process completed with exit code")]
+    if len(lines) != 1 or not (match := GENERATED_CATALOG.match(lines[0])):
+        return None
+    return GENERATED_HOSTS[match.group(1)]
+
+
+def shared_catalog_verdict(repo: str, base: str, sha: str, name: str, job: dict, host: str, github,
+                           evidence: "Evidence", base_jobs: dict, job_reads: dict, suites: "SuiteChecks",
+                           run_reads: dict) -> str:
+    """The audit line for the shared generated-files check JOB (NAME) whose one red is HOST's 'catalog' verdict, when
+    the base fails that catalog the same way (the rule above); raises Refused naming what differs."""
+    why = f"'{name}': its one red is the 'catalog' verdict of '{host}'"
+    found = [other for other in base_run_jobs(repo, {"id": job.get("run_id")}, github) if other.get("name") == host]
+    if len(found) != 1:
+        raise Refused(f"{why}, and run {job.get('run_id')} has {len(found)} jobs of that name; nothing to compare")
+    mine = unplaced_base_evidence(repo, found[0], github)
+    if mine.unnamed:
+        raise Refused(f"{why}; its log reports more failed tests than it names ({mine.unnamed[0][:200]})")
+    if not mine.tests:
+        raise Refused(f"{why}, and its log names no failing test; nothing to compare with the base")
+    if mine.crashes:
+        raise Refused(f"{why}, and its log shows a crash ({sorted(mine.crashes)[0][:200]}); never a base red")
+    workflow_info = run_reads.get(("run-record", job["run_id"]))
+    if not isinstance(workflow_info, dict):
+        workflow_info = rest_run(repo, job["run_id"], github, run_reads)
+    workflow = workflow_info.get("workflow_id")
+    if not isinstance(workflow, int):
+        raise Refused(f"{why}; run {job['run_id']} came back without its workflow_id; nothing to compare")
+    newest, read, closest = None, 0, None
+    for run, theirs_job in base_verdicts(repo, workflow, GENERATED_BASE_JOB, github, evidence, base_jobs, job_reads,
+                                         suites):
+        newest = newest or created(run)
+        if read >= BASE_WINDOW or (newest and created(run)
+                                   and newest - created(run) > timedelta(hours=BASE_WINDOW_HOURS)):
+            break
+        read += 1
+        if theirs_job.get("conclusion") != "failure":
+            raise Refused(f"{why}; '{GENERATED_BASE_JOB}' passed in {base} run {run['id']}, so an older red of it "
+                          "never counts" + (f" ({closest})" if closest else ""))
+        theirs = unplaced_base_evidence(repo, theirs_job, github)
+        tests, errors = set(mine.tests) - set(theirs.tests), set(mine.errors) - set(theirs.errors)
+        if theirs.unnamed or tests or errors:
+            closest = closest or (f"{base} run {run['id']} does not fail: "
+                                  + "; ".join(sorted(tests) + sorted(errors))[:400])
+            continue
+        number, paths = pr_paths_once(repo, base, sha, github, run_reads)
+        if touched := [path for path in paths if path.startswith(CATALOG_INPUTS)]:
+            raise Refused(f"{why}, which {base} run {run['id']}'s '{GENERATED_BASE_JOB}' fails too, but #{number} "
+                          f"changes the action catalog's inputs ({', '.join(touched[:5])[:300]}): it may be the PR's")
+        url = run.get("html_url") or f"https://github.com/{repo}/actions/runs/{run['id']}"
+        return (f"excused '{name}': its one red is the 'catalog' verdict of '{host}', whose failing tests and error "
+                f"lines all fail in {base} run {run['id']}'s red '{GENERATED_BASE_JOB}' ({url}), and #{number} "
+                f"changes none of the action catalog's inputs: {'; '.join(sorted(mine.tests))[:400]}")
+    raise Refused(f"{why}; no red '{GENERATED_BASE_JOB}' of {base} in the window fails all its failing tests and "
+                  f"error lines" + (f": {closest}" if closest else ""))
 
 
 def no_verdict(log: str) -> str | None:
@@ -4227,7 +4321,7 @@ GUARD_WORKFLOWS = {
                          "release-compile", "swift-exports-cache", "cmux-scheme-compile", "crash-ends-app",
                          "dev-landing-compile", "release-compile-revert", "compile-status"), _PRODUCT),
         **dict.fromkeys(("request-nightly-next", "request-cmux-next-dev-publish", "pr-red-checks",
-                         "push-attribution"), _PUBLISH),
+                         "push-attribution", "same-tree-status-daemon", "same-tree-status-scheme"), _PUBLISH),
     },
 }
 GUARD_JOBS_FILE = Path(__file__).with_name("base_red_guard_jobs.json")
@@ -6942,6 +7036,11 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             audit.append(f"excused '{name}': its one red is the 'stale' verdict of '{host}', whose regeneration "
                          "failed only on base reds (excused above)")
             continue
+        if (name == GENERATED_VERDICT_JOB and job.get("conclusion") == "failure" and not refused_at_setup(job)
+                and (host := shared_catalog_host(repo, job, github)) is not None):
+            audit.append(shared_catalog_verdict(repo, base, sha, name, job, host, github, evidence, base_jobs,
+                                                job_reads, suites, run_reads))
+            continue
         if job.get("conclusion") != "failure":
             if (cut := cut_short_web_verdict(repo, base, name, job, github, run_reads, evidence)) is not None:
                 audit.append(cut)
@@ -7093,7 +7192,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         why_whole = UNPLACED_WHY if view is UNPLACED else BARE_WHY
         if view is UNPLACED or bare:
             # An unplaced head is read per step first (update-branch alone: by_step refuses a land), then compared
-            # whole with the base (#41129, carried forward): identity with one red base verdict. So is a placed head
+            # whole with the base (#41129, carried forward): within one red base verdict. So is a placed head
             # whose failed sections name nothing to compare (BARE_WHY).
             try:
                 audit.append(by_step())
@@ -7103,7 +7202,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             except Refused as why:
                 per_step = why
             try:
-                # Why: UnplacedSignature (compared whole, excused only on identity with the newest red base verdict)
+                # Why: UnplacedSignature (compared whole, excused only within one red base verdict of the window)
                 if got.unplaced is None:
                     raise Refused(f"'{name}': {why_whole}; nothing is compared with the base")
                 # A pin red ffi_pin_step_a did not excuse or set aside raised there; one it set aside leaves the
@@ -7114,7 +7213,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                     raise Refused(f"'{name}': {UNPLACED_WHY}, and its app FFI pin is red where no pin rule covers it; "
                                   "nothing is compared with the base")
                 # The window the placed comparison reads (BASE_WINDOW verdicts within BASE_WINDOW_HOURS of the newest,
-                # a green one ends it): identity with any one red verdict in it, never a mix of several. cmux#41086 at
+                # a green one ends it): within any one red verdict in it, never a mix of several. cmux#41086 at
                 # 5d0fb077: the newest base run had one more failing test than the head (a pre-push gate flake).
                 newest, read, seen, newest_job = created(base_run), 1, [], base_job
                 while True:

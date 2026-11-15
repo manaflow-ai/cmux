@@ -5,7 +5,7 @@
 mod access_cli;
 mod acpmux;
 mod agent_cli;
-mod carrier_tunnel;
+pub(crate) mod carrier_tunnel;
 mod cloud_fs;
 mod control;
 mod daemon_entry;

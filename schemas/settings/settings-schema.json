@@ -4810,7 +4810,7 @@
       },
       "help" : {
         "key" : "settings.tabs.plusButton.help",
-        "text" : "On Hover shows each tab bar's + only while the pointer is over that tab bar."
+        "text" : "In Minimal Mode, On Hover shows each tab bar's + only while the pointer is over that tab bar. Outside Minimal Mode the + always shows."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.plusButton",
@@ -24421,7 +24421,7 @@
         },
         {
           "title" : {
-            "key" : null,
+            "key" : "settings.choice.neko",
             "text" : "Neko"
           },
           "value" : "neko"
@@ -60376,7 +60376,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.controlsOnHover.help",
-        "text" : "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show."
+        "text" : "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show unless Minimal Mode is on."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.controlsOnHover",
@@ -60656,7 +60656,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.minimal.help",
-        "text" : "Workspace rows show only their icon, name and unread mark, and section titles become thin lines."
+        "text" : "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Workspace rows show only their icon, name and unread mark, and section titles become thin lines."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.minimal",
@@ -60684,7 +60684,7 @@
       "section" : "appearance",
       "summary" : {
         "key" : "settings.sidebar.minimal.summary",
-        "text" : "Rows show only icon, name and unread mark"
+        "text" : "Buttons show on hover; rows show icon, name and unread mark"
       },
       "surfaces" : {
         "cli" : {
@@ -64749,7 +64749,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 400,
+      "default" : 1300,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -66170,7 +66170,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 1500,
+      "default" : 1300,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",

@@ -66,6 +66,16 @@ impl OscCollector {
             // the next ESC or byte >= 0x80 is skipped at once.
             if self.state == OscState::Ground && self.utf8_continuations == 0 {
                 index = index.saturating_add(find_esc_or_high(rest));
+                // A whole valid UTF-8 code point on the ground moves nothing
+                // but the UTF-8 bounds, which it leaves at the continuation
+                // range: jump it instead of stepping each byte.
+                let skip = utf8_code_point_len(bytes.get(index..).unwrap_or_default());
+                if skip > 0 {
+                    index = index.saturating_add(skip);
+                    self.utf8_min = 0x80;
+                    self.utf8_max = 0xbf;
+                    continue;
+                }
             }
             let Some(&byte) = bytes.get(index) else { break };
             index = index.saturating_add(1);
@@ -223,6 +233,21 @@ fn utf8_sequence_bounds(byte: u8) -> (u8, u8, u8) {
         0xf4 => (3, 0x80, 0x8f),
         _ => (0, 0, 0),
     }
+}
+
+/// Length of the complete, valid UTF-8 multibyte code point at the start of
+/// `bytes` (the bounds `utf8_sequence_bounds` gives its lead byte), or 0.
+fn utf8_code_point_len(bytes: &[u8]) -> usize {
+    let Some(&lead) = bytes.first() else { return 0 };
+    let (continuations, min, max) = utf8_sequence_bounds(lead);
+    let len = usize::from(continuations).saturating_add(1);
+    let Some(tail) = bytes.get(1..len) else { return 0 };
+    let mut tail = tail.iter();
+    match tail.next() {
+        Some(second) if (min..=max).contains(second) => {}
+        _ => return 0,
+    }
+    if tail.all(|byte| (0x80..=0xbf).contains(byte)) { len } else { 0 }
 }
 
 /// Index of the first ESC or byte >= 0x80 in `bytes`, or its length. Whole
@@ -788,6 +813,15 @@ mod tests {
         let stream = adversarial_output();
         for at in 0..=stream.len() {
             let chunks: [&[u8]; 3] = [&stream[..at], b"", &stream[at..]];
+            assert_eq!(collect(&chunks, fast), collect(&chunks, reference), "split at {at}");
+        }
+        // Whole code points the scan jumps, next to C1 framing, truncated
+        // and overlong sequences it steps.
+        let utf8 = "é→✓日本語│🙂\u{9d}9;c1 é\u{9c}".as_bytes().iter().copied();
+        let stream: Vec<u8> =
+            utf8.chain(*b"\xe0\x80\x9d\xc3\x1b]9;x\xf0\x9f\x99\x07\xed\xa0\x80").collect();
+        for at in 0..=stream.len() {
+            let chunks: [&[u8]; 2] = [&stream[..at], &stream[at..]];
             assert_eq!(collect(&chunks, fast), collect(&chunks, reference), "split at {at}");
         }
         let alphabet = b"\x1b\x07\x18\x1a\x9c\x9d\x90\x80\xbf\xc3\xe0\xed\xf0\xf4]P\\9;1A ";

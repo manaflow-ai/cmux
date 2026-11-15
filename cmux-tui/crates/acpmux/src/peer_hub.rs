@@ -18,7 +18,7 @@ impl Peer {
     }
 
     /// Whether this peer has a hub path: the daemon runs the carrier or may start it (joined,
-    /// with the WireGuard transport's key lock: the carrier never takes the lock itself), and
+    /// and the node key is not the cmux link's: `HubCarrierSlot::for_daemon`), and
     /// the peer names a hub `daemonId` or the running carrier has a route for it.
     pub(crate) fn has_hub_path(&self) -> bool {
         self.hub_carrier.get().is_some_and(|(slot, daemon)| {

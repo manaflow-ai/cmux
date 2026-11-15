@@ -352,7 +352,7 @@ Params: none.
 Result:
 
 ```text
-object{app:"cmux-tui",version:string,build_commit?:string|null,build_id?:string|null,cli_path?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32,session_id?:string,machine_id?:string,machine_platform?:object{os:string,arch:string},machine_capabilities?:array<string>,machine_name?:string,registry_id:string,generation:string,workspace_revision:uint64}
+object{app:"cmux-tui",version:string,build_commit?:string|null,build_id?:string|null,cli_path?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32,session_id?:string,machine_id?:string,machine_platform?:object{os:string,arch:string},machine_device?:string,machine_symbol?:string,machine_capabilities?:array<string>,screen_device_id?:string|null,machine_name?:string,registry_id:string,generation:string,workspace_revision:uint64}
 ```
 
 `machine_id` is the opaque owner ID returned by `machine.list`, persisted with the
@@ -362,7 +362,16 @@ must leave the machine owner unknown rather than derive an ID from other fields.
 `machine_platform` and `machine_capabilities` describe that owner using the same
 source as its native `machine.list` snapshot. Machine capabilities are separate
 from protocol features in `capabilities`. Older owners may omit the new fields;
-clients retain unknown platform and an empty capability list.
+clients retain unknown platform and an empty capability list. `machine_device` is the
+kind of device the owner runs on (`macbook`, `mac-mini`, `linux-server`, `generic`; the
+`cmux-device-kind` crate's list, from `sysctl hw.model` on a Mac and the desktop, DMI and
+virtualization facts on Linux) and `machine_symbol` the SF Symbol that kind draws; clients draw
+the symbol by that name and treat an unknown or absent kind as `generic`.
+
+With `machine-identity-v1`, `screen_device_id` is the independently generated
+UUID of the authenticated cmux Remote screen worker. It is present only in an
+enriched reply and is `null` when that worker is unavailable; it is unrelated to
+`machine_id`, joined ids, host names, and display names.
 
 With `revisions: true` the reply also carries `build_time`: unix seconds of the
 source commit the daemon was built from, or null when unknown. A client that
@@ -9093,9 +9102,50 @@ active area whole and at most that many of the newest history rows above it
 `history_rows_omitted` (uint64): the history rows older than its first row
 that it left out, 0 when the history fit. A viewer that wants older rows
 attaches again without the field (whole history, as before), typically only
-when its reader scrolls up to them. `resized` replays and attaches without
-the field are unchanged; a client must not send the field to a server that
-does not advertise the capability.
+when its reader scrolls up to them. Attaches without the field are
+unchanged; a client must not send the field to a server that does not
+advertise the capability.
+
+Servers advertising `attach-replay-history-window-v1` also accept
+`replay_history_start` (uint64, only with `replay_history_rows`): the Mac
+keeps the scrollback and the viewer holds a window of it. The first
+`vt-state` rebuilds the history rows `[replay_history_start,
+replay_history_start + replay_history_rows)` (row 0 is the oldest row kept;
+at most 10,000 rows), then the active area, and carries
+`history_rows_omitted` (the rows above the window) and `history_rows_skipped`
+(the rows between the window and the active area, left out). A window that
+comes within its own size of the active area, or a terminal with Kitty images,
+an alternate screen or a prompt clear waiting for the shell, gets the rows
+from `replay_history_start` down to the active area instead, with no
+`history_rows_skipped`. A viewer that scrolls attaches again with the window
+moved, so its memory and each replay stay bounded and it still reaches the
+oldest row. A viewer that also declares the capability in `set-client-info`
+and attached with `replay_history_rows` gets its window in every `resized`
+replay (the newest `replay_history_rows` rows; a window's rows are numbered
+again after a reflow), with `history_rows_omitted`, instead of the whole
+history; a viewer that does not declare it gets the whole history there, as
+before.
+
+Servers advertising `attach-output-coalesce-v1` coalesce the `output` events
+of a `mode:"bytes"` PTY attach that gets the replay stream (no snapshot) when
+the connection declared the same capability in `set-client-info` before
+attaching. Such an attach gets at most one `output` event per interval, as a
+browser coalesces a page's work to one frame per display refresh:
+`output_coalesce_ms` (uint32, 1 to 1000; default one 60 Hz frame, 16.667 ms;
+0 turns coalescing off for this attach). The bytes that arrive within one
+interval of the last event go out as one event at the interval's end,
+concatenated in order. The first bytes after an idle interval go out at once
+(a keypress echo is not delayed). An event never holds more than about 1 MiB:
+past that the held bytes go out at once. Any other attach event (`resized`,
+`colors-changed`, an `output` with `colors`, `detached`) first sends the held
+bytes, so stream order is unchanged. A viewer that cannot read that fast
+backs up the connection and gets `overflow` and reattaches, as without the
+capability. The attach's `scroll-changed` events follow the same interval:
+at most one per interval, carrying the newest position, the first after an
+idle interval at once; `notification` events are never held. A connection
+that did not declare the capability gets one `output` per PTY read and every
+`scroll-changed`, as before, and the field changes nothing for it; render
+mode and snapshot attaches ignore the field.
 
 Browser attach requires `browser-pointer-frame-guard-v1` in both the server's `identify` response and the client's earlier `set-client-info` request. This prevents an older client from rendering browser frames that it cannot address with an authoritative sequence. PTY attach does not require this capability.
 
@@ -9112,6 +9162,8 @@ Params:
 | `snapshot_local_history` | `bool` | default false | `terminal-snapshot-local-history-v1`; only with `snapshot` |
 | `snapshot_images` | `bool` | default false | Ignored: the former `terminal-snapshot-images-v1`; GHOSTSNP carries the images |
 | `replay_history_rows` | `uint32` | default null (whole history) | `attach-replay-history-rows-v1`; bytes mode without `snapshot` |
+| `replay_history_start` | `uint64` | default null (the newest rows) | `attach-replay-history-window-v1`; only with `replay_history_rows` |
+| `output_coalesce_ms` | `uint32` | default null (16.667 ms when coalescing) | `attach-output-coalesce-v1` declared in `set-client-info`; 0 to 1000, 0 is off; bytes mode without `snapshot`; ignored without the capability |
 
 Result:
 
@@ -9127,6 +9179,7 @@ Errors:
 | `browser attach requires client capability browser-pointer-frame-guard-v1; ...` | The client did not advertise guarded pointer support |
 | `bad attach mode <mode>` | `mode` is not `"bytes"` or `"render"` |
 | `attach-surface cols and rows must be supplied together` | Only one initial dimension is supplied |
+| `invalid: output_coalesce_ms <n> is over 1000` | A connection with `attach-output-coalesce-v1` asked for a longer interval |
 | `render attach requires protocol 7` | Server does not implement render mode |
 | terminal error string | VT replay generation fails |
 | thread spawn error string | Server cannot create the attach writer thread |
@@ -10179,6 +10232,20 @@ An observation attachment gets `agent_session.read_only`, and a teammate's or
 link guest's attachment `agent_session.not_trusted`: only the chat's owner signs
 its agent in. The code and key are never logged.
 
+`agent-session-login-machine-v1` (advertised with `agent-session-login-v1`): a
+new chat that has no session yet (its start was refused
+`agent_session.sign_in_required`) signs its agent in on this machine. A step for
+a tab with no attachment that is an unbound agent tab of this store (the tab
+`agent-session-start` would start) takes the same fields plus an optional
+`vm_kind`, and sends acpmux's `_acpmux/agent_login/<op>` with no `sessionId`:
+the sign-in is this machine's own and no chat restarts. It is gated exactly as
+`agent-session-start`: a trusted carrier only (a teammate's or link guest's
+link is refused), the same host check (on a Cloud VM only the caller's
+`vm_kind:"owner"` lets it run, else `agent_session.host_unverified`; a team VM
+`agent_session.team_vm_blocked`). Any other tab with no attachment (one with a
+session, one of another store) is still `agent_session.not_attached`. The step
+runs on a worker; answers and refusals are as above.
+
 ### agent-session-btw
 
 `agent-session-btw-v1` (advertised with `agent-session-attach-v1`): the
@@ -10318,7 +10385,15 @@ whatever the daemon default is. It must then be in a mode that acpmux's
 remote table (`_acpmux/web_modes`) says asks before acting: a family that
 table refuses (Codex, opencode) is refused, and a session that starts in a
 mode that does not ask moves to its family's asking default; otherwise it is
-ended and the answer is `agent_session.not_asking`. When nothing listens on
+ended and the answer is `agent_session.not_asking`. A harness (or, with
+none named, a default) that acpmux's catalog does not have is not installed
+on this machine: `agent_session.harness_missing` with
+`data: {reason: "agent.not_installed", harness}` (`harness` only when it is a
+valid harness id). A `session/new` acpmux refuses for the route the agent's
+profile binds (`data.reason` `route.unavailable`, `route.not_found` or
+`route.invalid`: the cmux router harness on a machine with no signed-in local
+router, such as a Cloud machine) answers `agent_session.route_unavailable`
+with `data: {reason, harness}`, never acpmux's message (hq#11225). When nothing listens on
 the acpmux socket the daemon starts acpmux once (one start at a time), as
 `cmux acp` does, and answers `agent_session.acpmux_unavailable` if it still
 cannot connect (always, while acpmux is down, under `ACPMUX_SOCKET`). At

@@ -85,30 +85,54 @@ pub(super) fn error_text(result: &Value) -> Option<String> {
     Some(text)
 }
 
-/// Where the current endpoint comes from: acpmux, or a test's.
-pub(super) type EndpointSource = Arc<dyn Fn() -> Option<acpmux::cua_socket::Socket> + Send + Sync>;
+/// Where the current endpoint comes from: acpmux, or a test's. `Ok(None)`: acpmux
+/// publishes none. `Err`: why it could not be read (said in the final error).
+pub(super) type EndpointSource =
+    Arc<dyn Fn() -> Result<Option<acpmux::cua_socket::Socket>, String> + Send + Sync>;
 
 /// The endpoint the running acpmux would give a new local session now. Read on
-/// its own thread: a call may run inside another runtime.
+/// its own thread: a call may run inside another runtime. Every failure says why:
+/// on 2026-11-14 each read failed after an update relaunch, the
+/// proxy kept the old launch's token for all five tries, and the final error
+/// still said it had used "the current endpoint".
 pub(super) fn acpmux_endpoint() -> EndpointSource {
     Arc::new(|| {
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::Builder::new()
             .name("cmux-mcp-cua-endpoint".into())
             .spawn(move || {
-                let runtime =
-                    tokio::runtime::Builder::new_current_thread().enable_all().build().ok();
-                let answer = runtime.and_then(|runtime| {
-                    runtime
+                let answer = match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Err(error) => Err(format!("no runtime to ask acpmux: {error}")),
+                    Ok(runtime) => match runtime
                         .block_on(tokio::time::timeout(ASK_TIMEOUT, acpmux::cua_socket::current()))
-                        .ok()?
-                        .ok()?
-                });
+                    {
+                        Err(_) => {
+                            Err(format!("acpmux did not answer in {} s", ASK_TIMEOUT.as_secs()))
+                        }
+                        Ok(answer) => answer.map_err(|error| format!("acpmux refused: {error:#}")),
+                    },
+                };
                 let _ = tx.send(answer);
             })
-            .ok()?;
-        rx.recv_timeout(ASK_TIMEOUT + Duration::from_secs(1)).ok().flatten()
+            .map_err(|error| format!("no thread to ask acpmux: {error}"))?;
+        rx.recv_timeout(ASK_TIMEOUT + Duration::from_secs(1))
+            .map_err(|_| format!("acpmux did not answer in {} s", ASK_TIMEOUT.as_secs()))?
     })
+}
+
+/// What the last endpoint read left the proxy with, for the final error: `None` when it
+/// moved to (or already had) the endpoint acpmux gives now.
+pub(super) fn endpoint_note(
+    read: &Result<Option<acpmux::cua_socket::Socket>, String>,
+) -> Option<String> {
+    match read {
+        Ok(Some(_)) => None,
+        Ok(None) => Some("acpmux publishes no Computer Use endpoint".to_owned()),
+        Err(why) => Some(format!("reading the current endpoint from acpmux failed: {why}")),
+    }
 }
 
 /// Whether `spec` is the legacy driver's proxy with a socket: the only
@@ -196,11 +220,23 @@ pub(super) fn without_person_advice(text: &str) -> String {
 
 /// What the agent gets when recovery ran out: what failed, what this server
 /// tried, and what to do. Never "ask the person to toggle Computer Use".
-pub(super) fn gave_up(last: &str, tries: usize, restarted: bool, waited: Duration) -> Value {
+/// `endpoint`: what kept the proxy off the current endpoint ([`endpoint_note`]), none when
+/// it had it.
+pub(super) fn gave_up(
+    last: &str,
+    tries: usize,
+    restarted: bool,
+    waited: Duration,
+    endpoint: Option<&str>,
+) -> Value {
     let restart = if restarted { ", asked cmux to restart its Computer Use helper" } else { "" };
+    let with = match endpoint {
+        None => " with the current endpoint".to_owned(),
+        Some(why) => format!(" but kept its old endpoint ({why})"),
+    };
     let message = format!(
         "cmux-cua: the cmux Computer Use helper did not answer. cmux reconnected {tries} times \
-         over {:.0} s with the current endpoint{restart}, and it still did not answer: {}. \
+         over {:.0} s{with}{restart}, and it still did not answer: {}. \
          The call did not run. Retry in a minute; if it still fails, run `cmux setup \
          computer-use` and follow its step (it names a missing macOS permission when there \
          is one).",
@@ -208,7 +244,8 @@ pub(super) fn gave_up(last: &str, tries: usize, restarted: bool, waited: Duratio
         without_person_advice(last),
     );
     json!({"code": "upstream.failed", "message": message, "details": {"recovery": {
-        "tries": tries, "helperRestartRequested": restarted}}, "retryable": true})
+        "tries": tries, "helperRestartRequested": restarted, "endpoint": endpoint}},
+        "retryable": true})
 }
 
 #[cfg(test)]
@@ -229,10 +266,25 @@ mod tests {
         let cleaned = without_person_advice(SEEN);
         assert!(!cleaned.contains("toggle"), "{cleaned}");
         assert!(cleaned.ends_with("during initial connection"), "{cleaned}");
-        let message = gave_up(SEEN, 5, true, Duration::from_secs(7));
+        let message = gave_up(SEEN, 5, true, Duration::from_secs(7), None);
         let text = message["message"].as_str().unwrap();
         assert!(!text.to_ascii_lowercase().contains("toggle"), "{text}");
         assert!(!text.contains("Settings > Computer Use"), "{text}");
+    }
+
+    /// 2026-11-14: every endpoint read failed, so the proxy kept
+    /// the old launch's token, and the final error must say so, not "the current endpoint".
+    #[test]
+    fn a_failed_endpoint_read_is_named_in_the_final_error() {
+        let read = Err("acpmux refused: only a proven acpmux session may ask".to_owned());
+        let note = endpoint_note(&read);
+        let message = gave_up(SEEN, 5, true, Duration::from_secs(58), note.as_deref());
+        let text = message["message"].as_str().unwrap();
+        assert!(!text.contains("with the current endpoint"), "{text}");
+        assert!(text.contains("only a proven acpmux session may ask"), "{text}");
+        assert!(endpoint_note(&Ok(None)).unwrap().contains("publishes no"));
+        let now = acpmux::cua_socket::Socket { path: "/now.sock".into(), token: "now".into() };
+        assert_eq!(endpoint_note(&Ok(Some(now))), None);
     }
 
     #[test]

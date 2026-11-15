@@ -388,8 +388,9 @@ fn keeping_refusal_does_not_clear_it() {
 fn child_exit_while_ready_goes_idle_with_exited_refusal() {
     let mut machine = ready();
     assert_eq!(machine.reduce(exit(1, 0)), vec![Effect::CancelRefresh, Effect::Release(1)]);
-    assert_eq!(machine.state(), &State::Idle { last_end: Some(exited()), alive: None });
-    assert_eq!(machine.refusal(), Some(LinkError::helper_not_running("cmux carrier serve exited")));
+    let status = LinkError::helper_not_running("cmux carrier serve exited with status 0");
+    assert_eq!(machine.state(), &State::Idle { last_end: Some(status.clone()), alive: None });
+    assert_eq!(machine.refusal(), Some(status), "the end names the exit status");
     // The listener failing for good names itself, not only the exit.
     let mut listener = ready();
     listener.reduce(refusal_line(1, "socket", Some("accept failed")));
@@ -398,6 +399,45 @@ fn child_exit_while_ready_goes_idle_with_exited_refusal() {
         listener.refusal(),
         Some(LinkError::helper_not_running("cmux carrier serve stopped listening: accept failed"))
     );
+}
+
+/// cloud-chat-replies-staging 2026-11-15T02:32:30Z: the link ended for 3
+/// minutes with only "cmux carrier serve exited". A ready child's exit
+/// names its status and its last stderr line that was not an event, and a
+/// signal's 128 + n, so the next such row says which exit it was.
+#[test]
+fn a_ready_childs_exit_names_its_status_and_last_stderr_line() {
+    let mut machine = ready();
+    let tail = "thread 'main' panicked at serve.rs:1\n  note: backtrace\n\n";
+    assert_eq!(machine.reduce(Event::StderrEnded { child: 1, stderr: tail.to_owned() }), vec![]);
+    assert!(machine.is_ready(), "in ready the exit follows the end of stderr");
+    machine.reduce(exit(1, 101));
+    assert_eq!(
+        machine.refusal(),
+        Some(LinkError::helper_not_running(
+            "cmux carrier serve exited with status 101; its last stderr line: note: backtrace"
+        ))
+    );
+    let mut killed = ready();
+    killed.reduce(exit(1, 128 + 9));
+    assert_eq!(
+        killed.refusal(),
+        Some(LinkError::helper_not_running("cmux carrier serve exited with status 137"))
+    );
+    let mut unknown = ready();
+    unknown.reduce(exit(1, -1));
+    assert_eq!(
+        unknown.refusal(),
+        Some(LinkError::helper_not_running("cmux carrier serve exited with an unknown status"))
+    );
+    // A long line is clipped.
+    let mut long = ready();
+    long.reduce(Event::StderrEnded { child: 1, stderr: "x".repeat(400) });
+    long.reduce(exit(1, 0));
+    let Some(LinkError::HelperNotRunning { reason }) = long.refusal() else {
+        panic!("helper not running")
+    };
+    assert!(reason.ends_with(&format!("{}…", "x".repeat(300))), "{reason}");
 }
 
 #[test]

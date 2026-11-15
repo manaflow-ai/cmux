@@ -356,7 +356,8 @@ async fn gate_daemon(closed: usize) -> Daemon {
 }
 
 /// One caller's run through the v2 list on a new client of `proxy`: its wall time and the bytes
-/// the daemon sent.
+/// the daemon sent. Past the clock, the run's connections end (`Counted::settled`) before the
+/// bytes are read, so they are all the daemon sent.
 async fn gate_run(caller: &str, proxy: &Counted) -> (u128, u128) {
     let client = Client::connect(&proxy.path).await.unwrap();
     let via = || Via::List(proxy.path.clone());
@@ -389,6 +390,7 @@ async fn gate_run(caller: &str, proxy: &Counted) -> (u128, u128) {
         let sessions = reply["structuredContent"]["sessions"].as_array().map(Vec::len);
         assert_eq!(sessions, Some(20), "the gate's MCP ls lists its 20 live chats");
     }
+    proxy.settled().await.unwrap();
     // The client's initialize reply is counted too, alike on both sides.
     (wall, u128::from(proxy.bytes.load(Ordering::Relaxed) - before))
 }
@@ -403,6 +405,7 @@ async fn v2_pr07b_callers() {
     let god = gate_daemon(11_000).await;
     let (small_proxy, god_proxy) =
         (counted(small.path.clone()).await, counted(god.path.clone()).await);
+    let fds = list_daemon::open_fds();
     for caller in ["ls", "pending", "send_tag_dry_run", "mcp_ls"] {
         let (mut small_wall, mut small_bytes, mut god_wall, mut god_bytes) =
             (Vec::new(), Vec::new(), Vec::new(), Vec::new());
@@ -420,7 +423,11 @@ async fn v2_pr07b_callers() {
             small_bytes.push(sb);
             god_wall.push(gw);
             god_bytes.push(gb);
+            list_daemon::assert_fds_given_back(&format!("v2.pr07b.{caller}"), fds);
         }
+        // Round one's samples, where a cost a fixture builds up would land first.
+        let (small_one, god_one) = (&small_wall[0], &god_wall[0]);
+        eprintln!("v2.pr07b.{caller}_wall round 1: small {small_one:?} god {god_one:?}");
         for (measure, small, god, unit) in
             [("bytes", &small_bytes, &god_bytes, "bytes"), ("wall", &small_wall, &god_wall, "ns")]
         {

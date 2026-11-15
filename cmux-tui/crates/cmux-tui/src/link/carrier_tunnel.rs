@@ -84,7 +84,7 @@ fn keeper(
 /// from it, never from this process's environment: launchd starts `serve`
 /// without the app's `CMUX_TUI_STATE_DIR`, which a Nightly or tagged build sets
 /// to its own directory. None for a link on any other state directory.
-pub(super) fn hub_socket(state_dir: &Path) -> Option<PathBuf> {
+pub(crate) fn hub_socket(state_dir: &Path) -> Option<PathBuf> {
     if state_dir.file_name()? != "link" {
         return None;
     }

@@ -109,9 +109,10 @@ copy exists and the folder holds something else now, which is the case for a fai
 extension whose last change broke it. The copies are on disk, so rollback works after a daemon
 restart.
 
-Shipped apps (first-party, samples, `CMUX_APPS_DIRS`) are read in place from their folders and
-change only with cmux or that folder, so no earlier version of theirs is on disk to keep:
-`apps.rollback` answers `apps.rollback.unsupported` for them.
+Shipped apps (first-party, samples) and `CMUX_APPS_DIRS` apps are read in place from their
+folders and change only with cmux or that folder (a `CMUX_APPS_DIRS` save reloads like a local
+one), so no earlier version of theirs is on disk to keep: `apps.rollback` answers
+`apps.rollback.unsupported` for them.
 
 ## Budget ladder: Slowed and Paused
 

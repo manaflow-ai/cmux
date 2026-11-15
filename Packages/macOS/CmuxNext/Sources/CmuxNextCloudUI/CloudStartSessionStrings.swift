@@ -181,6 +181,15 @@ public struct CloudStartSessionStrings {
         return String(format: text, asked.machine, asked.agent, asked.command)
     }
 
+    /// A start that chose to give the machine this Mac's Codex login, and the login did not arrive (`why`: the
+    /// transfer's fixed text, never provider output). `macSignedIn`: this Mac holds a Codex sign-in to give.
+    public static func codexNotDelivered(_ why: String, macSignedIn: Bool, _ asked: Asked) -> String {
+        let text = macSignedIn
+            ? String(localized: "cloud.startSession.codexNotDelivered", defaultValue: "%2$@ on %1$@ didn't get your Codex sign-in from this Mac (%4$@), so the chat didn't start: without it, its first turn fails on a missing OPENAI_API_KEY. Run `%3$@` again. To use your team's Codex instead, run it with --login none.", table: "CloudSessions", bundle: .module)
+            : String(localized: "cloud.startSession.codexNoMacLogin", defaultValue: "%2$@ on %1$@ has no sign-in, and this Mac has no Codex ChatGPT sign-in to give it (%4$@). Run `codex login` on this Mac, then run `%3$@` again. To use your team's Codex instead, run it with --login none.", table: "CloudSessions", bundle: .module)
+        return String(format: text, asked.machine, asked.agent, asked.command, why)
+    }
+
     public static func notInChat(_ asked: Asked) -> String {
         String(format: String(localized: "cloud.startSession.notInChat", defaultValue: "Couldn't find the chat this agent runs in, so nobody can be asked to start %2$@ on Cloud machine %1$@. Run `%3$@` from an agent's shell in a cmux chat, or ask the person to run it.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
     }
