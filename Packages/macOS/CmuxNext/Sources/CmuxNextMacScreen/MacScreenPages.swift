@@ -50,11 +50,16 @@ public final class MacScreenPages {
     public let approval = MacScreenApprovalPrompt()
     /// The device hub while this app is signed in to one (the app sets it on
     /// sign-in and clears it on sign-out): the user's devices, and the session
-    /// pushes Mac Screen follows.
+    /// pushes Mac Screen follows. Observed (it lives in ``hubBox``): action
+    /// reasons (`macScreen.shareThisMac`), the palette and `action describe` read
+    /// it inside an observation, and a plain property kept the launch-time
+    /// "Sign in to cmux to share this Mac." after the hub came up (CMUX-572).
     public var hub: DeviceHub? {
-        didSet {
-            guard hub !== oldValue else { return }
-            hubBox.hub = hub
+        get { hubBox.hub }
+        set {
+            let oldValue = hubBox.hub
+            guard newValue !== oldValue else { return }
+            hubBox.hub = newValue
             hubChanged(from: oldValue)
         }
     }
