@@ -2385,6 +2385,37 @@ class DeeperDestination(unittest.TestCase):
         self.assertIn("rerun-failed", api.calls)
 
 
+class LongQueueOnWatchedRun(unittest.TestCase):
+    """A refusals-only watch acts on a long queue too, not only on a refusal: a job queued STALL_QUEUE_SECONDS on an
+    owned label moves like a stall when its re-run's label has a shallower queue (deeper_queue())."""
+
+    PAYLOAD = DeeperDestination.PAYLOAD
+
+    def follow(self, snapshot):
+        clock = Clock()
+        api = FakeAPI(clock, gui_daemon_tests, snapshot=snapshot)
+        target = rescue.target_from_event(self.PAYLOAD, "manaflow-ai/cmux")
+        target = dataclasses.replace(target, refusals_only=True)
+        logs: list[str] = []
+        with unittest.mock.patch("sys.stdout", io.StringIO()):
+            result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                                   log=logs.append, side_seconds=30, side_label=SIDE)
+        return api, "\n".join(logs + [result])
+
+    def test_a_long_queue_moves_to_a_shallower_side_queue(self):
+        api, text = self.follow(depth_snapshot(source=3, destination=0, destination_oldest=0))
+        self.assertIn("cancel", api.calls)
+        self.assertIn("rerun-failed", api.calls)
+        self.assertGreaterEqual(api.first_cancel, rescue.STALL_QUEUE_SECONDS)
+        self.assertIn("waited 40 min for a runner", text)
+
+    def test_a_long_queue_stays_when_the_side_queue_is_deeper(self):
+        api, text = self.follow(depth_snapshot())
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn(f"{SIDE} has 61 queued (oldest 203 min), deeper than {GUI}'s 1 queued", text)
+
+
 class SideLanes(unittest.TestCase):
     def test_every_side_workflow_is_watched_like_a_pull_request(self):
         for path in sorted(rescue.SIDE_WORKFLOW_PATHS):
