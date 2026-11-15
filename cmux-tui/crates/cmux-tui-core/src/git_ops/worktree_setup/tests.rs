@@ -540,3 +540,17 @@ fn own_tree_the_log_of_a_setup_that_does_not_start_is_made_new_with_a_second_nam
         (KEPT, false, true)
     );
 }
+
+/// A write of a JSON file that fails at its open gives the error of that open.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_json_write_gives_the_error_of_its_open() {
+    let top = folder_with_a_git_folder();
+    // A folder that is not there: the open of the `.partial` file gives `NotFound`.
+    let path = top.join("no-such-folder").join(STATUS_FILE);
+
+    let written = write_status(&path, &Status::default());
+
+    fs::remove_dir_all(top).unwrap();
+    assert_eq!(written.map_err(|error| error.kind()), Err(std::io::ErrorKind::NotFound));
+}
