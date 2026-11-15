@@ -12,8 +12,8 @@ use super::answer::{
 use super::client::{Marks, PARK_REDIAL, classify, park_until, pinned_daemon, resume_outcome};
 use super::contract::{
     Failure, Phase, PhaseTimes, PhasesOf, StdinLine, Step, Vmk, answer_line, connected_line,
-    detail_code, failure_line, parse_deadline, phases_line, route_line, served_line, serving_line,
-    stdin_line,
+    detail_code, failure_line, parse_deadline, phases_line, regrant_line, route_line, served_line,
+    serving_line, stdin_line,
 };
 use super::{
     DialArgs, DialService, ServeArgs, desktop_failure, parse, parse_key, parse_serve,
@@ -374,6 +374,28 @@ fn serve_stdin_lines_are_a_token_or_refused() {
     }
     let long = format!(r#"{{"access_token":"{}"}}"#, "a".repeat(8193));
     assert!(matches!(stdin_line(long.as_bytes()), StdinLine::Invalid(_)));
+}
+
+#[test]
+fn a_regrant_stdin_line_is_only_true_and_its_answer_is_marked() {
+    assert_eq!(stdin_line(br#"{"regrant":true}"#), StdinLine::Regrant);
+    for bad in [&br#"{"regrant":false}"#[..], br#"{"regrant":"yes"}"#, br#"{"regrant":1}"#] {
+        assert!(
+            matches!(stdin_line(bad), StdinLine::Invalid(_)),
+            "{}",
+            String::from_utf8_lossy(bad)
+        );
+    }
+    let ok: Value = serde_json::from_str(regrant_line(Ok(Some(Vmk::Owner))).trim()).unwrap();
+    assert_eq!(ok, json!({"ok": true, "route": "carrier", "vmk": "owner", "regrant": true}));
+    let none: Value = serde_json::from_str(regrant_line(Ok(None)).trim()).unwrap();
+    assert_eq!(none, json!({"ok": true, "route": "carrier", "regrant": true}));
+    let failed: Value =
+        serde_json::from_str(regrant_line(Err(("ticket", "cmux-platform answered 403"))).trim())
+            .unwrap();
+    assert_eq!(failed["ok"], false);
+    assert_eq!(failed["error_code"], "ticket");
+    assert_eq!(failed["regrant"], true);
 }
 
 #[test]

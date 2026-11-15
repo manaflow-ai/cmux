@@ -26,6 +26,11 @@
 //!   child.
 //! - A [`ChildId`] is issued (the epoch the child was spawned in), never read
 //!   from a pid, an inode or a path.
+//! - A regrant ([`Event::Regrant`], cmux#40201 F1) asks only a ready child:
+//!   one `{"regrant":true}` stdin line at a time, which every regrant asked
+//!   meanwhile joins. Its answer line publishes the fresh caller before the
+//!   waiters get it; leaving `ready` (an exit, a stop, a park) answers them
+//!   with none, and every other state answers at once with none.
 //!
 //! Ported from the app's Swift reducer (cmux#38309); the tests
 //! (`serve_machine_tests.rs`) are its tests, one for one.
@@ -285,26 +290,53 @@ pub(crate) enum Event {
         ok: bool,
     },
     StopDeadline(ChildId),
+    /// The app asks the ready child for a fresh grant (waiter `waiter`).
+    Regrant {
+        waiter: WaiterId,
+    },
+    /// The `{"regrant":true}` line went out to `child` (`ok`), or could not.
+    RegrantWritten {
+        child: ChildId,
+        ok: bool,
+    },
+    /// The child's answer to a regrant: the fresh grant's `vmk`, or
+    /// `refused` (that dial failed).
+    RegrantLine {
+        child: ChildId,
+        vmk: Option<String>,
+        refused: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Effect {
     ClaimSocket(Epoch),
     ReadToken(Epoch, ReadId),
-    Spawn { child: ChildId, env: Env },
+    Spawn {
+        child: ChildId,
+        env: Env,
+    },
     Hold(ChildId),
     Release(ChildId),
     ArmReadyDeadline(Epoch),
     CancelReadyDeadline,
     ArmRefresh(Epoch, Option<String>),
     CancelRefresh,
-    WriteToken { child: ChildId, token: String },
+    WriteToken {
+        child: ChildId,
+        token: String,
+    },
     CloseStdin(ChildId),
     ArmStopDeadline(ChildId),
     Terminate(ChildId),
     TerminateAfterGrace(ChildId),
     Resume(Vec<WaiterId>, Result<String, LinkError>),
     Publish(Caller),
+    /// Write `{"regrant":true}` to the child's stdin.
+    WriteRegrant(ChildId),
+    /// Answer these regrant waiters: the fresh caller, or None (refused, no
+    /// ready child, or the child is gone).
+    Regranted(Vec<WaiterId>, Option<Caller>),
 }
 
 /// One serve's lifecycle (module docs).
@@ -319,6 +351,9 @@ pub(crate) struct ServeMachine {
     /// Connects parked until the launch, or the ready child's token read,
     /// answers.
     waiters: Vec<WaiterId>,
+    /// Regrants waiting for the ready child's answer line; empty in every
+    /// other state.
+    regrants: Vec<WaiterId>,
     last_read: ReadId,
 }
 
@@ -329,6 +364,7 @@ impl ServeMachine {
             state: State::Idle { last_end: None, alive: None },
             epoch: 0,
             waiters: Vec::new(),
+            regrants: Vec::new(),
             last_read: 0,
         }
     }
@@ -463,6 +499,17 @@ impl ServeMachine {
                 }
                 _ => Vec::new(),
             },
+            Event::Regrant { waiter } => self.regrant(waiter),
+            Event::RegrantWritten { child, ok } => {
+                if ok || !matches!(self.state, State::Ready(_, owned, _) if owned == child) {
+                    return Vec::new();
+                }
+                // A child that takes no stdin line is gone, as for a token.
+                self.gone(child, true)
+            }
+            Event::RegrantLine { child, vmk, refused } => {
+                self.regrant_line(child, vmk.as_deref(), refused)
+            }
         }
     }
 
@@ -539,6 +586,7 @@ impl ServeMachine {
             None => self.state = State::Stopped(reason),
         }
         effects.extend(self.resume_all(Err(closed())));
+        effects.extend(self.answer_regrants(None));
         if let Some(child) = child {
             effects.push(Effect::ArmStopDeadline(child));
         }
@@ -560,6 +608,7 @@ impl ServeMachine {
             effects.extend([Effect::CloseStdin(child), Effect::Release(child)]);
         }
         effects.extend(self.resume_all(Err(closed())));
+        effects.extend(self.answer_regrants(None));
         if let Some(child) = child {
             effects.push(Effect::ArmStopDeadline(child));
         }
@@ -761,10 +810,51 @@ impl ServeMachine {
             effects.extend([Effect::CloseStdin(child), Effect::ArmStopDeadline(child)]);
         }
         effects.push(Effect::Release(child));
+        effects.extend(self.answer_regrants(None));
         if !self.waiters.is_empty() {
             effects.extend(self.launch(exiting));
         }
         effects
+    }
+
+    /// The app's regrant: a ready child gets one `{"regrant":true}` line,
+    /// which the regrants that come before its answer join; any other state
+    /// answers at once with none.
+    fn regrant(&mut self, waiter: WaiterId) -> Vec<Effect> {
+        let State::Ready(_, child, _) = self.state else {
+            return vec![Effect::Regranted(vec![waiter], None)];
+        };
+        self.regrants.push(waiter);
+        if self.regrants.len() > 1 {
+            return Vec::new();
+        }
+        vec![Effect::WriteRegrant(child)]
+    }
+
+    /// The ready child's regrant answer: the fresh caller becomes the answer
+    /// and is published before the waiters get it; a refused dial answers
+    /// none and keeps the answer the child had.
+    fn regrant_line(&mut self, child: ChildId, vmk: Option<&str>, refused: bool) -> Vec<Effect> {
+        let caller = (!refused).then(|| Caller::of_vmk(vmk));
+        let mut effects = Vec::new();
+        match &mut self.state {
+            State::Ready(_, owned, ready) if *owned == child => {
+                if let Some(caller) = caller {
+                    ready.answer = Some(caller);
+                    effects.push(Effect::Publish(caller));
+                }
+            }
+            _ => return effects,
+        }
+        effects.extend(self.answer_regrants(caller));
+        effects
+    }
+
+    fn answer_regrants(&mut self, caller: Option<Caller>) -> Vec<Effect> {
+        if self.regrants.is_empty() {
+            return Vec::new();
+        }
+        vec![Effect::Regranted(std::mem::take(&mut self.regrants), caller)]
     }
 
     fn resume_all(&mut self, result: Result<String, LinkError>) -> Vec<Effect> {

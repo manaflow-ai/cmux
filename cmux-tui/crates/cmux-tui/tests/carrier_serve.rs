@@ -518,6 +518,49 @@ fn each_connected_connection_says_the_grant_s_vmk() {
     assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
 }
 
+/// cmux#40201 F1: a held session keeps its first dial's grant, so after an
+/// owner shares the machine a teammate's later connections still say `team`.
+/// `{"regrant":true}` asks the platform for a fresh grant at once: its line
+/// says `owner`, and every connection after it rides the regranted session.
+#[test]
+fn a_regrant_line_asks_a_fresh_grant_for_a_held_session() {
+    let asked = Arc::new(AtomicUsize::new(0));
+    let world = world_signed(200, asked.clone(), "mux-control", DaemonKey::Real, Some("team"));
+    let socket = socket_path(&world);
+    let mut child = serve(&world, &socket);
+    let (ready, mut stderr) = first_line(&mut child);
+    assert_eq!(ready["ok"], true, "{ready}");
+    let mut first = open(&socket);
+    ask(&mut first, 1);
+    assert_served(&mut stderr, Some("team"));
+
+    // The owner shares the machine: the platform's grants say owner now,
+    // but a connection on the held session keeps the old grant's answer.
+    world.set_vmk(Some("owner"));
+    let mut second = open(&socket);
+    ask(&mut second, 2);
+    assert_served(&mut stderr, Some("team"));
+    assert_eq!(asked.load(Ordering::SeqCst), 1, "the held session asked nothing");
+
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(b"{\"regrant\":true}\n").unwrap();
+    stdin.flush().unwrap();
+    let regranted: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+    assert_eq!(
+        regranted,
+        json!({"ok": true, "route": "carrier", "vmk": "owner", "regrant": true}),
+        "the regrant dialed with a fresh grant"
+    );
+    assert_eq!(asked.load(Ordering::SeqCst), 2, "one fresh grant");
+    let mut third = open(&socket);
+    ask(&mut third, 3);
+    assert_served(&mut stderr, Some("owner"));
+    assert_eq!(asked.load(Ordering::SeqCst), 2, "later connections ride the regranted session");
+    let _ = ask(&mut first, 4);
+    drop(stdin);
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
+}
+
 #[test]
 fn an_overlong_last_stdin_line_is_refused_before_serve_exits() {
     let world = world(200, Arc::new(AtomicUsize::new(0)));

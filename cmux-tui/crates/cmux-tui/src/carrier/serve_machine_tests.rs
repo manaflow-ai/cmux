@@ -805,3 +805,110 @@ fn p2_old_childs_refusal_does_not_end_new_link() {
     assert_eq!(machine.reduce(refusal_line(1, "socket", Some("accept failed"))), vec![]);
     assert_eq!(machine.refusal(), None);
 }
+
+// Regrant (cmux#40201 F1): a share changes the person's grant under the same
+// credential, and the ready child's held session keeps its first dial's vmk.
+
+fn regrant(waiter: WaiterId) -> Event {
+    Event::Regrant { waiter }
+}
+
+fn regrant_line(child: ChildId, vmk: Option<&str>, refused: bool) -> Event {
+    Event::RegrantLine { child, vmk: vmk.map(str::to_owned), refused }
+}
+
+#[test]
+fn a_regrant_asks_the_ready_child_once_and_publishes_before_answering() {
+    let mut machine = ready();
+    machine.reduce(ok_line(1, Some("team")));
+    assert_eq!(machine.reduce(regrant(5)), vec![Effect::WriteRegrant(1)]);
+    assert_eq!(machine.reduce(Event::RegrantWritten { child: 1, ok: true }), vec![]);
+    assert_eq!(machine.reduce(regrant(6)), vec![], "a regrant asked meanwhile joins the line out");
+    assert_eq!(
+        machine.reduce(regrant_line(1, Some("owner"), false)),
+        vec![Effect::Publish(Caller::Owner), Effect::Regranted(vec![5, 6], Some(Caller::Owner))],
+        "the link moves before the waiters hear"
+    );
+    assert_eq!(machine.answer(), Some(Caller::Owner));
+    assert!(machine.is_ready());
+    assert_eq!(machine.reduce(regrant(7)), vec![Effect::WriteRegrant(1)], "the next asks again");
+    assert_eq!(
+        machine.reduce(regrant_line(1, None, false)),
+        vec![Effect::Publish(Caller::Unknown), Effect::Regranted(vec![7], Some(Caller::Unknown))],
+        "a fresh grant without vmk is never owner"
+    );
+}
+
+#[test]
+fn a_refused_regrant_answers_none_and_keeps_the_answer() {
+    let mut machine = ready();
+    machine.reduce(ok_line(1, Some("team")));
+    machine.reduce(regrant(5));
+    assert_eq!(machine.reduce(regrant_line(1, None, true)), vec![Effect::Regranted(vec![5], None)]);
+    assert_eq!(machine.answer(), Some(Caller::Team));
+    assert_eq!(machine.refusal(), None, "a refused regrant is not a refused connection");
+}
+
+#[test]
+fn a_regrant_with_no_ready_child_answers_none_at_once() {
+    for (name, state) in every_state() {
+        if name == "ready" {
+            continue;
+        }
+        let mut machine = state;
+        let before = machine.state().clone();
+        assert_eq!(machine.reduce(regrant(9)), vec![Effect::Regranted(vec![9], None)], "{name}");
+        assert_eq!(machine.state(), &before, "{name}");
+    }
+    let mut stopped = ready();
+    stopped.reduce(Event::Stop);
+    assert_eq!(stopped.reduce(regrant(9)), vec![Effect::Regranted(vec![9], None)]);
+}
+
+#[test]
+fn leaving_ready_answers_pending_regrants_with_none() {
+    let mut exited = ready();
+    exited.reduce(regrant(5));
+    assert_eq!(
+        exited.reduce(exit(1, 0)),
+        vec![Effect::CancelRefresh, Effect::Release(1), Effect::Regranted(vec![5], None)]
+    );
+    for ending in [Event::Stop, Event::Park, Event::AccountEnded] {
+        let mut machine = ready();
+        machine.reduce(regrant(5));
+        let effects = machine.reduce(ending.clone());
+        assert!(effects.contains(&Effect::Regranted(vec![5], None)), "{ending:?}: {effects:?}");
+        assert_eq!(
+            machine.reduce(regrant_line(1, Some("owner"), false)),
+            vec![],
+            "{ending:?}: a late answer goes to no one"
+        );
+    }
+}
+
+#[test]
+fn a_regrant_line_that_did_not_go_out_ends_the_child() {
+    let mut machine = ready();
+    machine.reduce(regrant(5));
+    assert_eq!(
+        machine.reduce(Event::RegrantWritten { child: 1, ok: false }),
+        vec![
+            Effect::CancelRefresh,
+            Effect::CloseStdin(1),
+            Effect::ArmStopDeadline(1),
+            Effect::Release(1),
+            Effect::Regranted(vec![5], None),
+        ]
+    );
+    assert_eq!(machine.state(), &State::Idle { last_end: Some(exited()), alive: Some(1) });
+}
+
+#[test]
+fn a_regrant_line_from_a_previous_child_is_ignored() {
+    let mut machine = relaunched_ready();
+    assert_eq!(machine.reduce(regrant(5)), vec![Effect::WriteRegrant(3)]);
+    assert_eq!(machine.reduce(regrant_line(1, Some("owner"), false)), vec![]);
+    assert_eq!(machine.reduce(Event::RegrantWritten { child: 1, ok: false }), vec![]);
+    assert_eq!(machine.answer(), None);
+    assert!(machine.is_ready());
+}

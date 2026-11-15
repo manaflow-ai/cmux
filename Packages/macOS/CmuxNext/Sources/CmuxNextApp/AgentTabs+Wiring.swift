@@ -384,11 +384,8 @@ extension AgentTabStore {
             let socket = await services.machines.local.connection?.endpoint?.socketPath
             guard let refused = await CloudCLICall(cli: services.bundledCLI).shareChatWithMe(machine: session.machineID, signedIn: services.cloud.auth,
                                                                                              socket: socket) else {
-                // The link's teammate answer moves only on a new carrier dial (each connection is one): a round trip on a fresh one before Retry reads it (#40218).
-                if let (tab, _) = services.locateTab(key.key, onMachine: key.machine), let daemon = try? services.machines.agentDaemon(forTab: tab), !daemon.isLocal {
-                    let client = AgentSessionAttachClient(surface: tab.surface.rawValue, endpoint: AgentTabRemoteHost.endpoint(on: daemon))
-                    _ = try? await client.folders(); await client.close()
-                }
+                // The carrier's held session keeps its first grant's teammate answer: a fresh grant before the retried start reads it (cmux#40201 F1).
+                await session.appLink.regrant()
                 return .shared
             }
             return .refused(code: refused.code, message: refused.code == "not_signed_in" ? CloudStrings.signInFirst : refused.message)

@@ -43,6 +43,10 @@ public struct CloudCarrierResolver: CloudLinkResolver {
         await serve?.observeOwnership(update)
     }
 
+    public func regrant(_ key: CloudLinkKey, unlessAnsweredWithin fresh: Duration) async -> CloudCallerOwnership? {
+        await serve?.regrant(unlessAnsweredWithin: fresh)
+    }
+
     /// Stops the session's `carrier serve` for good (machine removed, sign-out, quit): a later `open` fails closed.
     public func close(_ key: CloudLinkKey) async { await serve?.stop() }
 
@@ -73,6 +77,12 @@ public actor CloudCarrierServe {
     /// The current child's latest connected answer: `owner` or `team` by its `vmk`, `unknown` for a line
     /// without one (never owner). Nil until that child answered once; a new child starts with none.
     private(set) var answer: CloudCallerOwnership?
+    /// When ``answer`` last came (a connection's or a regrant's `publish` line).
+    private var answeredAt: ContinuousClock.Instant?
+    /// ``regrant(unlessAnsweredWithin:)`` calls waiting for the supervisor's `regranted` line, by waiter id.
+    private var regrants: [UInt64: AsyncStream<CloudCallerOwnership?>.Continuation] = [:]
+    /// How long a regrant waits for its answer: one dial, whose ticket and handshake fit well inside it.
+    static let regrantDeadline: Duration = .seconds(30)
     private var ownershipObserver: (@Sendable (CloudCallerOwnership) async -> Void)?
     /// The last ownership hand-off: each waits for the one before, so answers arrive in order.
     private var publishing: Task<Void, Never>?
@@ -106,6 +116,34 @@ public actor CloudCarrierServe {
                 waiters.removeValue(forKey: waiter)?.resume(throwing: Self.exited)
             }
         }
+    }
+
+    /// Asks the ready serve child for a fresh grant (cmux#40201 F1): its held session answers every connection
+    /// with its first dial's `vmk`, so a teammate an owner shared the machine with stays `team` until it is
+    /// gone. The supervisor sends serve `{"regrant":true}`, which retires that session and dials once with a
+    /// fresh grant; its answer becomes ``answer`` and reaches the live link (the ownership observer) before
+    /// this returns it. `fresh`: an answer younger than this is current enough, and nothing is asked. Nil when
+    /// no child is ready, its dial was refused, or no answer came within ``regrantDeadline``.
+    public func regrant(unlessAnsweredWithin fresh: Duration = .zero) async -> CloudCallerOwnership? {
+        guard !stopped, !connector.isFenced, let supervisor else { return nil }
+        if let answeredAt, let answer, answeredAt.duration(to: .now) < fresh { return answer }
+        lastWaiter &+= 1
+        let waiter = lastWaiter
+        let (answers, continuation) = AsyncStream.makeStream(of: CloudCallerOwnership?.self, bufferingPolicy: .bufferingNewest(1))
+        regrants[waiter] = continuation
+        guard supervisor.writeInput(line: Self.line(["regrant": waiter])) else {
+            regrants.removeValue(forKey: waiter)?.finish()
+            return nil
+        }
+        let answered = try? await withDeadline(Self.regrantDeadline, label: "carrier regrant") { () -> CloudCallerOwnership? in
+            for await answer in answers { return answer }
+            return nil
+        }
+        regrants.removeValue(forKey: waiter)?.finish()
+        guard let caller = answered ?? nil else { return nil }
+        // The supervisor's `publish` line came first: the live link has this answer once its hand-off ran.
+        await publishing?.value
+        return caller
     }
 
     /// Ends the serve for good: its child stops, and every connect waiting resumes closed.
@@ -166,8 +204,17 @@ public actor CloudCarrierServe {
         } else if let state = object["state"] as? [String: Any] {
             refusal = stopped ? Self.closed : (state["refusal"] as? [String: Any]).flatMap(CloudLinkError.init(wire:))
             answer = (state["answer"] as? String).flatMap(CloudCallerOwnership.init(rawValue:))
+            if answer == nil { answeredAt = nil }
+        } else if let ids = object["regranted"] as? [UInt64] {
+            let caller = (object["answer"] as? String).flatMap(CloudCallerOwnership.init(rawValue:))
+            for id in ids {
+                guard let waiter = regrants.removeValue(forKey: id) else { continue }
+                waiter.yield(caller)
+                waiter.finish()
+            }
         } else if let word = object["publish"] as? String, let caller = CloudCallerOwnership(rawValue: word) {
             answer = caller
+            answeredAt = .now
             let (previous, observer) = (publishing, ownershipObserver)
             // task-owner: one observer call, after the one before it
             publishing = Task {
@@ -203,8 +250,12 @@ public actor CloudCarrierServe {
         if let held { connector.streams?.release(held) }
         held = nil
         answer = nil
+        answeredAt = nil
         refusal = stopped ? Self.closed : Self.exited
         finish(.failure(stopped ? Self.closed : Self.exited))
+        let waiting = regrants
+        regrants = [:]
+        for waiter in waiting.values { waiter.yield(nil); waiter.finish() }
     }
 
     private func finish(_ result: Result<String, CloudLinkError>) {

@@ -22,6 +22,11 @@
 //! it keep it until they end, and the last one closes it. Nothing here
 //! waits on stdin, and stdin never waits on the slot.
 //!
+//! Regrant: [`Slot::retire`] (serve's `{"regrant":true}` stdin line) takes
+//! the held session out of the slot as another person's credential would,
+//! so a grant that changed under the same person (a share) is asked again:
+//! a held session's `vmk` is its dial's grant's, and nothing else refreshes it.
+//!
 //! Idle close: when a session's last stream ends, it is closed once it has
 //! carried no stream for [`DEFAULT_IDLE`] (one timer per idle spell, which
 //! does nothing if a stream started meanwhile). A machine nothing uses
@@ -253,6 +258,21 @@ impl Slot {
             let lease = self.lease(&held);
             *guard = Some(held);
             return Ok(Stream { mux, vmk, lease, dialed: true, opened: Duration::ZERO });
+        }
+    }
+
+    /// The held session takes no new stream: the person's grant changed, and
+    /// its `vmk` is the old grant's. The next connection dials with a fresh
+    /// grant. Streams already on it keep it until they end; one with none
+    /// left is closed here, after the slot's lock is let go. A dial in flight
+    /// holds the lock, so the session it brings is the one retired.
+    pub(super) async fn retire(&self) {
+        let gone = self.held.lock().await.take();
+        if let Some(gone) = gone {
+            gone.retired.store(true, Ordering::Release);
+            if gone.streams.load(Ordering::Acquire) == 0 {
+                gone.close().await;
+            }
         }
     }
 

@@ -15,6 +15,10 @@ pub(crate) enum AppLine {
         waiter: WaiterId,
         keep_refusal: bool,
     },
+    /// `{"regrant":W}`: ask the ready child for a fresh grant.
+    Regrant {
+        waiter: WaiterId,
+    },
     Park,
     Stop,
     AccountEnded,
@@ -31,6 +35,9 @@ pub(crate) fn app_line(text: &str) -> Option<AppLine> {
     if let Some(waiter) = value.get("connect").and_then(Value::as_u64) {
         let keep_refusal = value.get("keep_refusal").and_then(Value::as_bool).unwrap_or(false);
         return Some(AppLine::Connect { waiter, keep_refusal });
+    }
+    if let Some(waiter) = value.get("regrant").and_then(Value::as_u64) {
+        return Some(AppLine::Regrant { waiter });
     }
     if value.get("park").is_some() {
         return Some(AppLine::Park);
@@ -119,6 +126,16 @@ pub(crate) fn publish_line(caller: Caller) -> String {
     json!({ "publish": caller.word() }).to_string()
 }
 
+/// `{"regranted":[W…],"answer":"owner"|"team"|"unknown"|null}`: the regrant
+/// waiters' answer, null when there is none (refused, no ready child, or it
+/// is gone).
+pub(crate) fn regranted_line(waiters: &[WaiterId], caller: Option<Caller>) -> String {
+    json!({ "regranted": waiters, "answer": caller.map(Caller::word) }).to_string()
+}
+
+/// The regrant line `carrier serve` reads on stdin.
+pub(crate) const REGRANT_LINE: &str = "{\"regrant\":true}\n";
+
 /// `{"state":{"refusal":E|null,"answer":…|null}}`: what the app reads
 /// between lines.
 pub(crate) fn state_line(refusal: Option<&LinkError>, answer: Option<Caller>) -> String {
@@ -134,7 +151,8 @@ pub(crate) fn token_line(token: &str) -> String {
 }
 
 /// One stderr line of `child` as its event: the ready line (checked with
-/// `check`), a connection's `ok` line, or a refusal. None for anything else.
+/// `check`), a connection's `ok` line, a refusal, or (either one marked
+/// `"regrant":true`) a regrant's answer. None for anything else.
 pub(crate) fn serve_event(
     child: ChildId,
     text: &str,
@@ -142,7 +160,11 @@ pub(crate) fn serve_event(
 ) -> Option<Event> {
     let value: Value = serde_json::from_str(text).ok()?;
     let str_of = |key: &str| value.get(key).and_then(Value::as_str).map(str::to_owned);
-    if value.get("ok")?.as_bool()? {
+    let ok = value.get("ok")?.as_bool()?;
+    if value.get("regrant").and_then(Value::as_bool) == Some(true) {
+        return Some(Event::RegrantLine { child, vmk: str_of("vmk").filter(|_| ok), refused: !ok });
+    }
+    if ok {
         return Some(match str_of("socket").filter(|socket| !socket.is_empty()) {
             Some(socket) => {
                 let policy = check(&socket).err();

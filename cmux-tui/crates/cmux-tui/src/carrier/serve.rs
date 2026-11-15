@@ -41,7 +41,13 @@
 //!   the platform (see `dial --answer-fd`), but only while the credential
 //!   current when it arrived is still current: one handed over for another
 //!   person is dropped and that dial asks. A later one replaces one no dial
-//!   took. Blank lines are skipped; any other line is refused with one
+//!   took. `{"regrant":true}` says the person's grant changed under the
+//!   same credential (a share): the held session takes no new stream, a
+//!   handed-over answer is dropped, and one dial with a fresh grant runs at
+//!   once; when it ends, stderr gets its ok line (the new grant's `vmk`) or
+//!   its failure line, with `"regrant":true` (cmux#40201 F1: the held
+//!   session's `vmk` is otherwise its first dial's for as long as it lives).
+//!   Blank lines are skipped; any other line is refused with one
 //!   `bad_request` line and changes nothing.
 //! - One session per machine ([`held`]): the first accepted connection
 //!   dials it, exactly as `dial` does (a fresh grant, the required daemon
@@ -109,6 +115,9 @@ struct Shared {
     log: Arc<dyn Fn(String) + Send + Sync>,
     /// The ssh backup carrier's pieces, for every dial.
     ssh: Arc<super::ssh::SshSetup>,
+    /// stdin's `{"regrant":true}`: the serve loop runs one [`regrant`] (in
+    /// its own task set), and asks that come while one waits are one ask.
+    regrant: tokio::sync::Notify,
 }
 
 /// `cmux carrier serve …`: the exit code.
@@ -139,6 +148,7 @@ pub(super) fn run(args: &[String]) -> i32 {
         http: source,
         identity,
         prefetched: Arc::new(Prefetched::for_identity(who)),
+        regrant: tokio::sync::Notify::new(),
         log: Arc::new(move |line| {
             if let Some(path) = &connect_log {
                 route_log::append(path, &line);
@@ -171,6 +181,9 @@ async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
         tokio::select! {
             () = &mut ended => break 0,
             Some(_) = tasks.join_next(), if !tasks.is_empty() => {}
+            () = shared.regrant.notified() => {
+                tasks.spawn(regrant(shared.clone()));
+            }
             accepted = listener.listener().accept() => match accepted {
                 Ok((stream, _)) => {
                     backoff.reset();
@@ -271,6 +284,8 @@ async fn read_stdin(shared: &Shared) {
             // next connection ([`held`]).
             StdinLine::Token(token) => shared.http.replace_credential(token),
             StdinLine::Answer(answer) => shared.prefetched.put(*answer),
+            // The serve loop runs it in its task set ([`Shared::regrant`]).
+            StdinLine::Regrant => shared.regrant.notify_one(),
             StdinLine::Invalid(why) => reply(&contract::failure_line(BAD_REQUEST, Some(why))),
         }
     }
@@ -289,20 +304,7 @@ async fn connection(
     _permit: OwnedSemaphorePermit,
 ) {
     let accepted = Instant::now();
-    let plan = client::DialPlan {
-        machine: shared.machine.clone(),
-        source: shared.source.clone(),
-        identity: shared.identity.clone(),
-        deadline,
-        prefetched: shared.prefetched.clone(),
-        log: shared.log.clone(),
-        phases: shared.log.clone(),
-        fresh_sessions: Default::default(),
-        progress: None,
-        ssh: shared.ssh.clone(),
-        ssh_refusal: super::ssh::SshRefusal::default(),
-        drill: false,
-    };
+    let plan = dial_plan(&shared, deadline);
     let plan = &plan;
     let outcome = tokio::select! {
         outcome = shared.session.stream(deadline, move || client::dial(plan)) => outcome,
@@ -348,4 +350,47 @@ async fn connection(
         _ = stopped.wait_for(|stopped| *stopped) => {}
     }
     lease.end().await;
+}
+
+/// One dial of this machine, as serve dials for a connection.
+fn dial_plan(shared: &Shared, deadline: Instant) -> client::DialPlan {
+    client::DialPlan {
+        machine: shared.machine.clone(),
+        source: shared.source.clone(),
+        identity: shared.identity.clone(),
+        deadline,
+        prefetched: shared.prefetched.clone(),
+        log: shared.log.clone(),
+        phases: shared.log.clone(),
+        fresh_sessions: Default::default(),
+        progress: None,
+        ssh: shared.ssh.clone(),
+        ssh_refusal: super::ssh::SshRefusal::default(),
+        drill: false,
+    }
+}
+
+/// `{"regrant":true}`: the person's grant changed under the same credential
+/// (a share). The held session takes no new stream (its `vmk` is its dial's
+/// grant's), a handed-over answer is dropped (its grant is as old), and one
+/// dial with a fresh grant runs now, within serve's deadline. Its line is
+/// the new grant's `vmk`, or why it failed, marked `"regrant":true`. The
+/// session it dialed is held for the connections after it.
+async fn regrant(shared: Arc<Shared>) {
+    shared.session.retire().await;
+    shared.prefetched.clear();
+    let now = Instant::now();
+    let deadline = now.checked_add(shared.deadline).unwrap_or(now);
+    let plan = dial_plan(&shared, deadline);
+    let plan = &plan;
+    match shared.session.stream(deadline, move || client::dial(plan)).await {
+        Ok(held::Stream { mux, vmk, lease, .. }) => {
+            reply(&contract::regrant_line(Ok(vmk)));
+            mux.close().await;
+            lease.end().await;
+        }
+        Err(held::Refused { failure, .. }) => {
+            reply(&contract::regrant_line(Err((failure.step.error_code(), &failure.detail))));
+        }
+    }
 }

@@ -209,6 +209,16 @@ public actor CloudLinkSession {
         }
     }
 
+    /// Asks the live link for a fresh grant (``CloudLinkResolver/regrant(_:unlessAnsweredWithin:)``): a share
+    /// changes the caller's answer under the same credential, and the carrier's held session keeps the old
+    /// one (cmux#40201 F1). Returns the link's answer after it; nothing is asked while no link is up.
+    @discardableResult
+    public func regrant(unlessAnsweredWithin fresh: Duration = .zero) async -> CloudCallerOwnership {
+        guard currentLinkSocket != nil else { return callerOwnership }
+        _ = await resolver.regrant(key, unlessAnsweredWithin: fresh)
+        return callerOwnership
+    }
+
     /// Applies a link change. Returns the ticket id of the link it ended (its
     /// connection must close), or nil. `up`, another machine, a change of an
     /// older carrier generation, and a `down` while a connect is in flight
