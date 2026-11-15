@@ -10,8 +10,8 @@ use acpmux_book::index::{Summary, SummaryIndex};
 use serde_json::json;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::time::timeout;
@@ -40,7 +40,7 @@ fn p95(samples: &[u128]) -> u128 {
 fn p50(samples: &[u128]) -> u128 {
     let mut sorted = samples.to_vec();
     sorted.sort_unstable();
-    sorted[((sorted.len() + 1) / 2).saturating_sub(1)]
+    sorted[sorted.len().div_ceil(2).saturating_sub(1)]
 }
 
 fn best_p95(rounds: &[Vec<u128>]) -> u128 {
@@ -174,31 +174,33 @@ fn timed_append(
     hub: &Hub,
     mut writer: HubWriter,
     target: u64,
-    offset: usize,
+    sample_id: u64,
     permit: &AtomicBool,
-) -> Result<(HubWriter, u128, usize), crate::hub::HubError> {
+) -> Result<(HubWriter, u128, usize, u64), crate::hub::HubError> {
     // Both sides append on the test's calling thread, as the original
     // baseline did. Moving only the replay writer through a blocking worker
     // measured a different execution path and cache handoff.
     let start = Instant::now();
     permit.store(true, Ordering::Release);
-    writer.apply(summary(format!("append-{offset}"), target + 1, true))?;
+    let event = writer.apply(summary(format!("append-{sample_id}"), target + 1, true))?;
+    assert_eq!(event.seq, target + 1, "timed append became a no-op");
     // Observe completed copy work before stopping either side's clock.
     let copies_during = hub.history_raw_copies();
-    Ok((writer, start.elapsed().as_nanos().max(1), copies_during))
+    Ok((writer, start.elapsed().as_nanos().max(1), copies_during, event.seq))
 }
 
 fn append_round() -> Vec<u128> {
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
-    let target = fill_ring(&hub, &mut writer, true);
+    let mut target = fill_ring(&hub, &mut writer, true);
     // Same fan-out as the replay side; no raw copies.
     let _receiver = hub.subscribe_replay(&Sub::new("replay", "list"), target).unwrap();
     let mut samples = Vec::with_capacity(SAMPLES);
     for offset in 0..SAMPLES {
         let permit = AtomicBool::new(false);
-        let (next, elapsed, _) =
-            timed_append(&hub, writer, target + offset as u64, offset, &permit).unwrap();
+        let (next, elapsed, _, seq) =
+            timed_append(&hub, writer, target, offset as u64, &permit).unwrap();
         writer = next;
+        target = seq;
         samples.push(elapsed);
     }
     samples
@@ -208,8 +210,8 @@ async fn append_replay_sample(
     hub: Arc<Hub>,
     writer: HubWriter,
     target: u64,
-    offset: usize,
-) -> (HubWriter, u128, usize) {
+    sample_id: u64,
+) -> (HubWriter, u128, usize, u64) {
     let cursor = first_retained_cursor(&hub, target);
     let receiver = hub.subscribe_replay(&Sub::new("replay", "list"), cursor).unwrap();
     let stop = Arc::new(AtomicBool::new(false));
@@ -248,29 +250,12 @@ async fn append_replay_sample(
         copy_task.await.unwrap();
         panic!("raw replay copier did not start");
     }
-    let result = timed_append(&hub, writer, target, offset, &permit);
+    let result = timed_append(&hub, writer, target, sample_id, &permit);
     permit.store(true, Ordering::Release);
     stop.store(true, Ordering::Release);
     copy_task.await.unwrap();
-    let (writer, elapsed, copies_during) = result.unwrap();
-    (writer, elapsed, copies_during)
-}
-
-async fn append_replay_round() -> (Vec<u128>, Vec<usize>) {
-    let (hub, mut writer) = Hub::new(SummaryIndex::new());
-    let target = fill_ring(&hub, &mut writer, true);
-    let hub = Arc::new(hub);
-    let mut samples = Vec::with_capacity(SAMPLES);
-    let mut copies = Vec::with_capacity(SAMPLES);
-    for offset in 0..SAMPLES {
-        let current = target + offset as u64;
-        let (next, elapsed, copy_count) =
-            append_replay_sample(hub.clone(), writer, current, offset).await;
-        writer = next;
-        samples.push(elapsed);
-        copies.push(copy_count);
-    }
-    (samples, copies)
+    let (writer, elapsed, copies_during, seq) = result.unwrap();
+    (writer, elapsed, copies_during, seq)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -308,16 +293,17 @@ impl ReplayProbeControl {
     }
 }
 
-type ReplayProbeSample = (HubWriter, u128, usize, bool);
+type ReplayProbeSample = (HubWriter, u128, usize, bool, u64);
 
 fn timed_append_armed(
     mut writer: HubWriter,
     target: u64,
-    offset: usize,
+    sample_id: u64,
     active: &AtomicBool,
     before_clock: impl FnOnce(),
     after_clock: impl FnOnce(),
-) -> Result<(HubWriter, u128), crate::hub::HubError> {
+    clock: Option<&Mutex<Option<(Instant, Instant)>>>,
+) -> Result<(HubWriter, u128, u64), crate::hub::HubError> {
     // Arm the proof flag before any permit release, then start the clock only
     // after the copier is ready. The flag itself is outside the timed path;
     // the after-clock hook releases the copier at the clock boundary.
@@ -325,19 +311,26 @@ fn timed_append_armed(
     before_clock();
     let started = Instant::now();
     after_clock();
-    let result = writer.apply(summary(format!("probe-append-{offset}"), target + 1, true));
-    let elapsed = started.elapsed().as_nanos().max(1);
+    let result = writer.apply(summary(format!("probe-append-{sample_id}"), target + 1, true));
+    let ended = Instant::now();
+    let elapsed = ended.duration_since(started).as_nanos().max(1);
     active.store(false, Ordering::Release);
-    result.map(|_| (writer, elapsed))
+    if let Some(clock) = clock {
+        *clock.lock().unwrap() = Some((started, ended));
+    }
+    result.map(|event| {
+        assert_eq!(event.seq, target + 1, "timed append became a no-op");
+        (writer, elapsed, event.seq)
+    })
 }
 
 fn timed_append_plain(
     writer: HubWriter,
     target: u64,
-    offset: usize,
+    sample_id: u64,
     active: &AtomicBool,
-) -> Result<(HubWriter, u128), crate::hub::HubError> {
-    timed_append_armed(writer, target, offset, active, || {}, || {})
+) -> Result<(HubWriter, u128, u64), crate::hub::HubError> {
+    timed_append_armed(writer, target, sample_id, active, || {}, || {}, None)
 }
 
 async fn wait_for_count(count: &AtomicUsize) {
@@ -350,44 +343,40 @@ async fn wait_for_count(count: &AtomicUsize) {
     assert!(started.is_ok(), "probe copier did not start");
 }
 
-/// Runs a replay copier beside an append, returning `None` when the copier did
-/// not overlap the timed append. The caller retakes that sample rather than
-/// asserting on a racy observation.
-async fn append_replay_unobserved_sample(
-    hub: Arc<Hub>,
+/// Runs one replay copier beside an append. The same function is used for the
+/// own-ring and foreign-ring sides; only the replay hub and target differ.
+/// A timestamp pair from each copied span proves overlap after the copier joins.
+async fn append_replay_sample_with_intervals(
     writer: HubWriter,
     target: u64,
-    offset: usize,
+    sample_id: u64,
+    replay_hub: Arc<Hub>,
+    replay_target: u64,
 ) -> ReplayProbeSample {
-    let cursor = first_retained_cursor(&hub, target);
-    let receiver = hub.subscribe_replay(&Sub::new("probe", "list"), cursor).unwrap();
+    let cursor = first_retained_cursor(&replay_hub, replay_target);
+    let receiver = replay_hub.subscribe_replay(&Sub::new("probe", "list"), cursor).unwrap();
     let stop = Arc::new(AtomicBool::new(false));
-    let active = Arc::new(AtomicBool::new(false));
-    let overlap = Arc::new(AtomicBool::new(false));
-    let (permit, waiting) = hub.history_raw_copy_control();
+    let (permit, waiting) = replay_hub.history_raw_copy_control();
     permit.store(false, Ordering::Release);
     waiting.store(false, Ordering::Release);
-    hub.reset_history_raw_copies();
+    replay_hub.reset_history_raw_copies();
+    let intervals = Arc::new(Mutex::new(Vec::<(Instant, Instant)>::new()));
+    let copy_intervals = intervals.clone();
     let copy_stop = stop.clone();
-    let copy_active = active.clone();
-    let copy_overlap = overlap.clone();
     let copy_task = tokio::task::spawn_blocking(move || {
         let mut replay_cursor = cursor;
         while !copy_stop.load(Ordering::Acquire) || replay_cursor != cursor {
             receiver.reposition(replay_cursor);
+            let started = Instant::now();
             let Some(RawRead::Span(span)) =
-                receiver.try_next_raw(Some(target), MAX_REPLAY_FRAME_BYTES)
+                receiver.try_next_raw(Some(replay_target), MAX_REPLAY_FRAME_BYTES)
             else {
-                panic!("probe retained replay copy lost its span");
+                panic!("replay probe retained replay copy lost its span");
             };
-            replay_cursor = if span.last_seq >= target { cursor } else { span.last_seq };
-            if copy_active.load(Ordering::Acquire) {
-                copy_overlap.store(true, Ordering::Release);
-            }
+            let ended = Instant::now();
+            copy_intervals.lock().unwrap().push((started, ended));
+            replay_cursor = if span.last_seq >= replay_target { cursor } else { span.last_seq };
             drop(span);
-            if copy_active.load(Ordering::Acquire) {
-                copy_overlap.store(true, Ordering::Release);
-            }
             std::thread::yield_now();
         }
     });
@@ -397,103 +386,35 @@ async fn append_replay_unobserved_sample(
         }
     })
     .await;
-    assert!(started.is_ok(), "probe raw copier did not enter its copy");
-    // Release the permit before the timed interval. The appending thread does
-    // not read or write the history's permit/counter while its clock runs.
-    hub.reset_history_raw_copies();
+    assert!(started.is_ok(), "replay probe copier did not enter its copy");
+    let clock = Mutex::new(None);
     let result = timed_append_armed(
         writer,
         target,
-        offset,
-        &active,
+        sample_id,
+        &AtomicBool::new(false),
         || {
-            // `waiting` is raised by RawCopyPermit inside try_next_raw. Once
-            // active is armed, releasing this permit starts the real copy at
-            // the measured clock boundary without reading a counter in it.
-            if waiting.load(Ordering::Acquire) {
-                overlap.store(true, Ordering::Release);
-            }
+            // Permit release is outside the append clock. The copier's
+            // timestamp pair is checked only after it has joined.
             permit.store(true, Ordering::Release);
         },
         || {},
+        Some(&clock),
     )
     .unwrap();
     stop.store(true, Ordering::Release);
     copy_task.await.unwrap();
-    let copies = hub.history_raw_copies();
-    let (writer, elapsed) = result;
-    (writer, elapsed, copies, copies > 0 && overlap.load(Ordering::Acquire))
-}
-
-async fn append_foreign_hub_sample(
-    writer: HubWriter,
-    target: u64,
-    offset: usize,
-    foreign: Arc<Hub>,
-    foreign_target: u64,
-) -> ReplayProbeSample {
-    let cursor = first_retained_cursor(&foreign, foreign_target);
-    let receiver = foreign.subscribe_replay(&Sub::new("foreign-probe", "list"), cursor).unwrap();
-    let stop = Arc::new(AtomicBool::new(false));
-    let active = Arc::new(AtomicBool::new(false));
-    let overlap = Arc::new(AtomicBool::new(false));
-    let (permit, waiting) = foreign.history_raw_copy_control();
-    permit.store(false, Ordering::Release);
-    waiting.store(false, Ordering::Release);
-    foreign.reset_history_raw_copies();
-    let copy_stop = stop.clone();
-    let copy_active = active.clone();
-    let copy_overlap = overlap.clone();
-    let copy_task = tokio::task::spawn_blocking(move || {
-        let mut replay_cursor = cursor;
-        while !copy_stop.load(Ordering::Acquire) || replay_cursor != cursor {
-            receiver.reposition(replay_cursor);
-            let Some(RawRead::Span(span)) =
-                receiver.try_next_raw(Some(foreign_target), MAX_REPLAY_FRAME_BYTES)
-            else {
-                panic!("foreign probe retained replay copy lost its span");
-            };
-            replay_cursor = if span.last_seq >= foreign_target { cursor } else { span.last_seq };
-            if copy_active.load(Ordering::Acquire) {
-                copy_overlap.store(true, Ordering::Release);
-            }
-            drop(span);
-            if copy_active.load(Ordering::Acquire) {
-                copy_overlap.store(true, Ordering::Release);
-            }
-            std::thread::yield_now();
-        }
-    });
-    let started = timeout(Duration::from_secs(20), async {
-        while !waiting.load(Ordering::Acquire) {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await;
-    assert!(started.is_ok(), "foreign probe copier did not enter its copy");
-    foreign.reset_history_raw_copies();
-    let result = timed_append_armed(
-        writer,
-        target,
-        offset,
-        &active,
-        || {
-            // `waiting` is raised by RawCopyPermit inside try_next_raw. Once
-            // active is armed, releasing this permit starts the real copy at
-            // the measured clock boundary without reading a counter in it.
-            if waiting.load(Ordering::Acquire) {
-                overlap.store(true, Ordering::Release);
-            }
-            permit.store(true, Ordering::Release);
-        },
-        || {},
-    )
-    .unwrap();
-    stop.store(true, Ordering::Release);
-    copy_task.await.unwrap();
-    let copies = foreign.history_raw_copies();
-    let (writer, elapsed) = result;
-    (writer, elapsed, copies, copies > 0 && overlap.load(Ordering::Acquire))
+    let copies = replay_hub.history_raw_copies();
+    let (writer, elapsed, seq) = result;
+    let Some((clock_start, clock_end)) = *clock.lock().unwrap() else {
+        panic!("timed replay append did not record its clock");
+    };
+    let overlap = intervals
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|(copy_start, copy_end)| *copy_start < clock_end && *copy_end > clock_start);
+    (writer, elapsed, copies, overlap && copies > 0, seq)
 }
 
 async fn append_locked_hub_sample(
@@ -529,12 +450,12 @@ async fn append_locked_hub_sample(
     });
     wait_for_count(&copies).await;
     copies.store(0, Ordering::Release);
-    let result = timed_append_plain(writer, target, offset, &active).unwrap();
+    let result = timed_append_plain(writer, target, offset as u64, &active).unwrap();
     stop.store(true, Ordering::Release);
     copy_task.await.unwrap();
     let count = copies.load(Ordering::Acquire);
-    let (writer, elapsed) = result;
-    (writer, elapsed, count, count > 0 && overlap.load(Ordering::Acquire))
+    let (writer, elapsed, seq) = result;
+    (writer, elapsed, count, count > 0 && overlap.load(Ordering::Acquire), seq)
 }
 
 async fn append_private_sample(
@@ -543,7 +464,7 @@ async fn append_private_sample(
     target: u64,
     offset: usize,
     reuse: bool,
-) -> (HubWriter, u128, usize) {
+) -> (HubWriter, u128, usize, u64) {
     let stop = Arc::new(AtomicBool::new(false));
     let active = Arc::new(AtomicBool::new(false));
     let overlap = Arc::new(AtomicBool::new(false));
@@ -574,13 +495,13 @@ async fn append_private_sample(
     });
     wait_for_count(&copies).await;
     copies.store(0, Ordering::Release);
-    let result = timed_append_plain(writer, target, offset, &active).unwrap();
+    let result = timed_append_plain(writer, target, offset as u64, &active).unwrap();
     stop.store(true, Ordering::Release);
     copy_task.await.unwrap();
     let count = copies.load(Ordering::Acquire);
     assert!(count > 0 && overlap.load(Ordering::Acquire), "private probe must overlap its copier");
     let _ = hub;
-    (result.0, result.1, count)
+    (result.0, result.1, count, result.2)
 }
 
 async fn append_spin_sample(
@@ -588,7 +509,7 @@ async fn append_spin_sample(
     writer: HubWriter,
     target: u64,
     offset: usize,
-) -> (HubWriter, u128, usize) {
+) -> (HubWriter, u128, usize, u64) {
     let stop = Arc::new(AtomicBool::new(false));
     let active = Arc::new(AtomicBool::new(false));
     let overlap = Arc::new(AtomicBool::new(false));
@@ -608,18 +529,18 @@ async fn append_spin_sample(
     });
     wait_for_count(&spins).await;
     spins.store(0, Ordering::Release);
-    let result = timed_append_plain(writer, target, offset, &active).unwrap();
+    let result = timed_append_plain(writer, target, offset as u64, &active).unwrap();
     stop.store(true, Ordering::Release);
     spin_task.await.unwrap();
     let count = spins.load(Ordering::Acquire);
     assert!(count > 0 && overlap.load(Ordering::Acquire), "spin probe must overlap its spinner");
     let _ = hub;
-    (result.0, result.1, count)
+    (result.0, result.1, count, result.2)
 }
 
 async fn append_probe_round(control: ReplayProbeControl) -> (Vec<u128>, Vec<usize>, usize) {
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
-    let target = fill_ring(&hub, &mut writer, true);
+    let mut target = fill_ring(&hub, &mut writer, true);
     let hub = Arc::new(hub);
     let foreign = if matches!(control, ReplayProbeControl::ForeignHub) {
         let (foreign, mut foreign_writer) = Hub::new(SummaryIndex::new());
@@ -632,52 +553,74 @@ async fn append_probe_round(control: ReplayProbeControl) -> (Vec<u128>, Vec<usiz
     let mut proof = Vec::with_capacity(SAMPLES);
     let mut retakes = 0;
     for offset in 0..SAMPLES {
-        let current = target + offset as u64;
         let mut tries = 0;
         loop {
+            let sample_id = (offset as u64) + (tries as u64) * SAMPLES as u64;
             let attempt = match control {
                 ReplayProbeControl::AsIs => {
-                    let (next, elapsed, observed) =
-                        append_replay_sample(hub.clone(), writer, current, offset).await;
-                    (next, elapsed, observed, true)
+                    let (next, elapsed, observed, seq) =
+                        append_replay_sample(hub.clone(), writer, target, sample_id).await;
+                    (next, elapsed, observed, true, seq)
                 }
                 ReplayProbeControl::NoSharedClock => {
-                    append_replay_unobserved_sample(hub.clone(), writer, current, offset).await
+                    append_replay_sample_with_intervals(
+                        writer,
+                        target,
+                        sample_id,
+                        hub.clone(),
+                        target,
+                    )
+                    .await
                 }
                 ReplayProbeControl::PrivateReuse => {
-                    let (next, elapsed, observed) =
-                        append_private_sample(hub.clone(), writer, current, offset, true).await;
-                    (next, elapsed, observed, true)
+                    let (next, elapsed, observed, seq) = append_private_sample(
+                        hub.clone(),
+                        writer,
+                        target,
+                        sample_id as usize,
+                        true,
+                    )
+                    .await;
+                    (next, elapsed, observed, true, seq)
                 }
                 ReplayProbeControl::PrivateFresh => {
-                    let (next, elapsed, observed) =
-                        append_private_sample(hub.clone(), writer, current, offset, false).await;
-                    (next, elapsed, observed, true)
+                    let (next, elapsed, observed, seq) = append_private_sample(
+                        hub.clone(),
+                        writer,
+                        target,
+                        sample_id as usize,
+                        false,
+                    )
+                    .await;
+                    (next, elapsed, observed, true, seq)
                 }
                 ReplayProbeControl::SpinOnly => {
-                    let (next, elapsed, observed) =
-                        append_spin_sample(hub.clone(), writer, current, offset).await;
-                    (next, elapsed, observed, true)
+                    let (next, elapsed, observed, seq) =
+                        append_spin_sample(hub.clone(), writer, target, sample_id as usize).await;
+                    (next, elapsed, observed, true, seq)
                 }
                 ReplayProbeControl::ForeignHub => {
                     let Some((foreign, foreign_target)) = foreign.as_ref() else {
                         panic!("foreign probe setup");
                     };
-                    append_foreign_hub_sample(
+                    append_replay_sample_with_intervals(
                         writer,
-                        current,
-                        offset,
+                        target,
+                        sample_id,
                         foreign.clone(),
                         *foreign_target,
                     )
                     .await
                 }
                 ReplayProbeControl::LockedHub => {
-                    append_locked_hub_sample(hub.clone(), writer, current, offset).await
+                    append_locked_hub_sample(hub.clone(), writer, target, sample_id as usize).await
                 }
             };
-            let (next, elapsed, observed, overlapped) = attempt;
+            let (next, elapsed, observed, overlapped, seq) = attempt;
             writer = next;
+            if seq != 0 {
+                target = seq;
+            }
             if overlapped {
                 samples.push(elapsed);
                 proof.push(observed);
@@ -756,7 +699,7 @@ async fn replay_append_cause_probe() {
 
 async fn replay_open_round(verbose: bool) -> Vec<u128> {
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
-    let target = fill_ring(&hub, &mut writer, verbose);
+    let mut target = fill_ring(&hub, &mut writer, verbose);
     let hub = Arc::new(hub);
     let mut samples = Vec::with_capacity(SAMPLES);
     for offset in 0..SAMPLES {
@@ -780,9 +723,9 @@ async fn replay_open_round(verbose: bool) -> Vec<u128> {
         }
         let started = Instant::now();
         permit.store(true, Ordering::Release);
-        writer
-            .apply(summary(format!("open-{offset}"), target + offset as u64 + 1, verbose))
-            .unwrap();
+        let event = writer.apply(summary(format!("open-{offset}"), target + 1, verbose)).unwrap();
+        assert_eq!(event.seq, target + 1, "replay open append became a no-op");
+        target = event.seq;
         samples.push(started.elapsed().as_nanos().max(1));
         drop(open_task.await.unwrap());
     }
@@ -804,12 +747,12 @@ async fn replay_frame_gate() {
 async fn replay_append_gate() {
     // Small side: append on one hub beside a full replay of another hub.
     let (small_app, mut small_writer) = Hub::new(SummaryIndex::new());
-    let small_target = fill_ring(&small_app, &mut small_writer, true);
+    let mut small_target = fill_ring(&small_app, &mut small_writer, true);
     let (foreign_replay, mut foreign_replay_writer) = Hub::new(SummaryIndex::new());
     let foreign_replay_target = fill_ring(&foreign_replay, &mut foreign_replay_writer, true);
     // God side: append beside a replay of the same hub's ring.
     let (own_hub, mut own_writer) = Hub::new(SummaryIndex::new());
-    let own_target = fill_ring(&own_hub, &mut own_writer, true);
+    let mut own_target = fill_ring(&own_hub, &mut own_writer, true);
     let small_app = Arc::new(small_app);
     let foreign_replay = Arc::new(foreign_replay);
     let own_hub = Arc::new(own_hub);
@@ -824,20 +767,24 @@ async fn replay_append_gate() {
             small_target,
             foreign_replay.clone(),
             foreign_replay_target,
+            round,
             true,
         )
         .await;
-        small_writer = small.1;
+        small_writer = small.2;
+        small_target = small.1;
         let (god, god_copies, god_retakes) = append_replay_gate_round(
             own_hub.clone(),
             own_writer,
             own_target,
             own_hub.clone(),
             own_target,
+            round,
             false,
         )
         .await;
-        own_writer = god.1;
+        own_writer = god.2;
+        own_target = god.1;
         let small_samples = small.0;
         let god_samples = god.0;
         let small_p95 = p95(&small_samples);
@@ -880,29 +827,29 @@ async fn append_replay_gate_round(
     target: u64,
     replay_hub: Arc<Hub>,
     replay_target: u64,
+    round: usize,
     foreign: bool,
-) -> ((Vec<u128>, HubWriter), usize, usize) {
+) -> ((Vec<u128>, u64, HubWriter), usize, usize) {
     let mut samples = Vec::with_capacity(SAMPLES);
     let mut copies = 0;
     let mut retakes = 0;
+    let mut current = target;
     for offset in 0..SAMPLES {
-        let current = target + offset as u64;
         let mut tries = 0;
         loop {
-            let attempt = if foreign {
-                append_foreign_hub_sample(
-                    writer,
-                    current,
-                    offset,
-                    replay_hub.clone(),
-                    replay_target,
-                )
-                .await
-            } else {
-                append_replay_unobserved_sample(appender.clone(), writer, current, offset).await
-            };
-            let (next, elapsed, observed, overlapped) = attempt;
+            let sample_id = (round * SAMPLES * 64 + offset * 64 + tries) as u64;
+            let replay_source = if foreign { replay_hub.clone() } else { appender.clone() };
+            let attempt = append_replay_sample_with_intervals(
+                writer,
+                current,
+                sample_id,
+                replay_source,
+                replay_target,
+            )
+            .await;
+            let (next, elapsed, observed, overlapped, seq) = attempt;
             writer = next;
+            current = seq;
             if overlapped {
                 samples.push(elapsed);
                 copies += observed;
@@ -915,9 +862,11 @@ async fn append_replay_gate_round(
             }
         }
     }
-    ((samples, writer), copies, retakes)
+    ((samples, current, writer), copies, retakes)
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "release gate; run with --release --ignored --nocapture"]
 async fn replay_open_hold_gate() {
     let god_rounds = [replay_open_round(true).await];
     let god = best_p95(&god_rounds);
