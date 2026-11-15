@@ -184,6 +184,23 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 "transient": request.refusal_code.as_deref().map(identity::is_transient),
             })
         }
+        // The device hub identity's items (`device_identity_slots`): `{accounts, current}` from
+        // the accounts the Keychain listed, and `replacement`, the generation a new identity goes
+        // in from the statuses of the deletes a renewal made (none made: generation 1).
+        b"cloud_identity_device_slots" => {
+            use cmux_cloud_config::device_identity_slots as slots;
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                accounts: Vec<String>,
+                #[serde(default)]
+                deletes: Vec<slots::Delete>,
+            }
+            let request: Request = read(request)?;
+            let mut answer = json!(slots::slots(&request.accounts));
+            answer["replacement"] = json!(slots::replacement(&request.deletes));
+            answer
+        }
         b"cloud_identity_install_key" => {
             #[derive(Deserialize)]
             struct Request {
