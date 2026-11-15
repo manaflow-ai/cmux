@@ -443,7 +443,10 @@ fn pages_of(records: &[EventRecord]) -> Vec<Vec<EventRecord>> {
 /// in the same segment.
 #[test]
 fn with_the_setting_off_every_reader_reads_the_plain_files_as_before() {
-    let (_home, sessions, store) = chat(1500);
+    let home = tempfile::tempdir().unwrap();
+    let sessions = home.path().join("sessions");
+    let store = store(&sessions);
+    // The hook goes in before the first record: the chat's every roll-over calls it.
     let sealed = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     let seen = sealed.clone();
     Store::on_segment_sealed(
@@ -452,7 +455,7 @@ fn with_the_setting_off_every_reader_reads_the_plain_files_as_before() {
             seen.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }),
     );
-    for seq in 1501..=1600 {
+    for seq in 1..=1600 {
         store.append(ID, &record(seq)).unwrap();
     }
     store.close_log(ID);
