@@ -1472,6 +1472,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_app_review_gate.py
 
+      - name: Validate CmuxMobileLinkFFI.xcframework reuse by input key
+        if: ${{ !cancelled() && matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_link_ffi_key.py
+
       - name: Validate TestFlight upload argument expansion
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_upload_array_expansion.py
