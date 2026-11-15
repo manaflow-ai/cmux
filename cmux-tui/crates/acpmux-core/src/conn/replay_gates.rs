@@ -11,7 +11,7 @@ use serde_json::json;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::time::timeout;
@@ -35,6 +35,12 @@ fn p95(samples: &[u128]) -> u128 {
     let mut sorted = samples.to_vec();
     sorted.sort_unstable();
     sorted[((sorted.len() * 95).saturating_add(99) / 100).saturating_sub(1)]
+}
+
+fn p50(samples: &[u128]) -> u128 {
+    let mut sorted = samples.to_vec();
+    sorted.sort_unstable();
+    sorted[((sorted.len() + 1) / 2).saturating_sub(1)]
 }
 
 fn best_p95(rounds: &[Vec<u128>]) -> u128 {
@@ -265,6 +271,348 @@ async fn append_replay_round() -> (Vec<u128>, Vec<usize>) {
         copies.push(copy_count);
     }
     (samples, copies)
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ReplayProbeControl {
+    AsIs,
+    NoSharedClock,
+    PrivateReuse,
+    PrivateFresh,
+    SpinOnly,
+    ForeignHub,
+}
+
+impl ReplayProbeControl {
+    const ALL: [Self; 6] = [
+        Self::AsIs,
+        Self::NoSharedClock,
+        Self::PrivateReuse,
+        Self::PrivateFresh,
+        Self::SpinOnly,
+        Self::ForeignHub,
+    ];
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::AsIs => "a_as_is",
+            Self::NoSharedClock => "b_no_shared_clock",
+            Self::PrivateReuse => "d1_private_reuse",
+            Self::PrivateFresh => "d2_private_fresh",
+            Self::SpinOnly => "e_spin_only",
+            Self::ForeignHub => "f_foreign_hub",
+        }
+    }
+}
+
+fn timed_append_plain(
+    mut writer: HubWriter,
+    target: u64,
+    offset: usize,
+    active: &AtomicBool,
+) -> Result<(HubWriter, u128), crate::hub::HubError> {
+    // The active flag is armed before the clock and cleared after it. Copiers
+    // use it only to prove overlap; it is not part of the timed append path.
+    active.store(true, Ordering::Release);
+    let started = Instant::now();
+    let result = writer.apply(summary(format!("probe-append-{offset}"), target + 1, true));
+    let elapsed = started.elapsed().as_nanos().max(1);
+    active.store(false, Ordering::Release);
+    result.map(|_| (writer, elapsed))
+}
+
+async fn wait_for_count(count: &AtomicUsize) {
+    let started = timeout(Duration::from_secs(20), async {
+        while count.load(Ordering::Acquire) == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    assert!(started.is_ok(), "probe copier did not start");
+}
+
+async fn append_replay_unobserved_sample(
+    hub: Arc<Hub>,
+    writer: HubWriter,
+    target: u64,
+    offset: usize,
+) -> (HubWriter, u128, usize) {
+    let cursor = first_retained_cursor(&hub, target);
+    let receiver = hub.subscribe_replay(&Sub::new("probe", "list"), cursor).unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let active = Arc::new(AtomicBool::new(false));
+    let overlap = Arc::new(AtomicBool::new(false));
+    let (permit, waiting) = hub.history_raw_copy_control();
+    permit.store(false, Ordering::Release);
+    waiting.store(false, Ordering::Release);
+    hub.reset_history_raw_copies();
+    let copy_stop = stop.clone();
+    let copy_active = active.clone();
+    let copy_overlap = overlap.clone();
+    let copy_task = tokio::task::spawn_blocking(move || {
+        let mut replay_cursor = cursor;
+        while !copy_stop.load(Ordering::Acquire) || replay_cursor != cursor {
+            receiver.reposition(replay_cursor);
+            let Some(RawRead::Span(span)) =
+                receiver.try_next_raw(Some(target), MAX_REPLAY_FRAME_BYTES)
+            else {
+                panic!("probe retained replay copy lost its span");
+            };
+            replay_cursor = if span.last_seq >= target { cursor } else { span.last_seq };
+            drop(span);
+            if copy_active.load(Ordering::Acquire) {
+                copy_overlap.store(true, Ordering::Release);
+            }
+            std::thread::yield_now();
+        }
+    });
+    let started = timeout(Duration::from_secs(20), async {
+        while !waiting.load(Ordering::Acquire) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    assert!(started.is_ok(), "probe raw copier did not enter its copy");
+    // The permit is released before the timed interval. The appending thread
+    // does not read or write the history's permit/counter while its clock runs.
+    hub.reset_history_raw_copies();
+    permit.store(true, Ordering::Release);
+    let result = timed_append_plain(writer, target, offset, &active).unwrap();
+    stop.store(true, Ordering::Release);
+    copy_task.await.unwrap();
+    let copies = hub.history_raw_copies();
+    assert!(
+        copies > 0 && overlap.load(Ordering::Acquire),
+        "unobserved probe must overlap a raw copy"
+    );
+    (result.0, result.1, copies)
+}
+
+async fn append_foreign_hub_sample(
+    writer: HubWriter,
+    target: u64,
+    offset: usize,
+    foreign: Arc<Hub>,
+    foreign_target: u64,
+) -> (HubWriter, u128, usize) {
+    let cursor = first_retained_cursor(&foreign, foreign_target);
+    let receiver = foreign.subscribe_replay(&Sub::new("foreign-probe", "list"), cursor).unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let active = Arc::new(AtomicBool::new(false));
+    let overlap = Arc::new(AtomicBool::new(false));
+    let (permit, waiting) = foreign.history_raw_copy_control();
+    permit.store(false, Ordering::Release);
+    waiting.store(false, Ordering::Release);
+    foreign.reset_history_raw_copies();
+    let copy_stop = stop.clone();
+    let copy_active = active.clone();
+    let copy_overlap = overlap.clone();
+    let copy_task = tokio::task::spawn_blocking(move || {
+        let mut replay_cursor = cursor;
+        while !copy_stop.load(Ordering::Acquire) || replay_cursor != cursor {
+            receiver.reposition(replay_cursor);
+            let Some(RawRead::Span(span)) =
+                receiver.try_next_raw(Some(foreign_target), MAX_REPLAY_FRAME_BYTES)
+            else {
+                panic!("foreign probe retained replay copy lost its span");
+            };
+            replay_cursor = if span.last_seq >= foreign_target { cursor } else { span.last_seq };
+            drop(span);
+            if copy_active.load(Ordering::Acquire) {
+                copy_overlap.store(true, Ordering::Release);
+            }
+            std::thread::yield_now();
+        }
+    });
+    let started = timeout(Duration::from_secs(20), async {
+        while !waiting.load(Ordering::Acquire) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    assert!(started.is_ok(), "foreign probe copier did not enter its copy");
+    foreign.reset_history_raw_copies();
+    permit.store(true, Ordering::Release);
+    let result = timed_append_plain(writer, target, offset, &active).unwrap();
+    stop.store(true, Ordering::Release);
+    copy_task.await.unwrap();
+    let copies = foreign.history_raw_copies();
+    assert!(copies > 0 && overlap.load(Ordering::Acquire), "foreign probe must overlap a raw copy");
+    (result.0, result.1, copies)
+}
+
+async fn append_private_sample(
+    hub: Arc<Hub>,
+    writer: HubWriter,
+    target: u64,
+    offset: usize,
+    reuse: bool,
+) -> (HubWriter, u128, usize) {
+    let stop = Arc::new(AtomicBool::new(false));
+    let active = Arc::new(AtomicBool::new(false));
+    let overlap = Arc::new(AtomicBool::new(false));
+    let copies = Arc::new(AtomicUsize::new(0));
+    let copy_stop = stop.clone();
+    let copy_count = copies.clone();
+    let copy_active = active.clone();
+    let copy_overlap = overlap.clone();
+    let copy_task = tokio::task::spawn_blocking(move || {
+        let source = vec![0x5a_u8; 1024 * 1024];
+        let mut reused = Vec::with_capacity(64 * 1024);
+        while !copy_stop.load(Ordering::Acquire) {
+            if reuse {
+                reused.clear();
+                reused.extend_from_slice(&source[..64 * 1024]);
+                std::hint::black_box(&reused);
+            } else {
+                let mut fresh = Vec::with_capacity(64 * 1024);
+                fresh.extend_from_slice(&source[..64 * 1024]);
+                std::hint::black_box(&fresh);
+            }
+            copy_count.fetch_add(1, Ordering::Release);
+            if copy_active.load(Ordering::Acquire) {
+                copy_overlap.store(true, Ordering::Release);
+            }
+            std::thread::yield_now();
+        }
+    });
+    wait_for_count(&copies).await;
+    copies.store(0, Ordering::Release);
+    let result = timed_append_plain(writer, target, offset, &active).unwrap();
+    stop.store(true, Ordering::Release);
+    copy_task.await.unwrap();
+    let count = copies.load(Ordering::Acquire);
+    assert!(count > 0 && overlap.load(Ordering::Acquire), "private probe must overlap its copier");
+    let _ = hub;
+    (result.0, result.1, count)
+}
+
+async fn append_spin_sample(
+    hub: Arc<Hub>,
+    writer: HubWriter,
+    target: u64,
+    offset: usize,
+) -> (HubWriter, u128, usize) {
+    let stop = Arc::new(AtomicBool::new(false));
+    let active = Arc::new(AtomicBool::new(false));
+    let overlap = Arc::new(AtomicBool::new(false));
+    let spins = Arc::new(AtomicUsize::new(0));
+    let spin_stop = stop.clone();
+    let spin_count = spins.clone();
+    let spin_active = active.clone();
+    let spin_overlap = overlap.clone();
+    let spin_task = tokio::task::spawn_blocking(move || {
+        while !spin_stop.load(Ordering::Acquire) {
+            std::hint::spin_loop();
+            spin_count.fetch_add(1, Ordering::Release);
+            if spin_active.load(Ordering::Acquire) {
+                spin_overlap.store(true, Ordering::Release);
+            }
+        }
+    });
+    wait_for_count(&spins).await;
+    spins.store(0, Ordering::Release);
+    let result = timed_append_plain(writer, target, offset, &active).unwrap();
+    stop.store(true, Ordering::Release);
+    spin_task.await.unwrap();
+    let count = spins.load(Ordering::Acquire);
+    assert!(count > 0 && overlap.load(Ordering::Acquire), "spin probe must overlap its spinner");
+    let _ = hub;
+    (result.0, result.1, count)
+}
+
+async fn append_probe_round(control: ReplayProbeControl) -> (Vec<u128>, Vec<usize>) {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    let target = fill_ring(&hub, &mut writer, true);
+    let hub = Arc::new(hub);
+    let foreign = if matches!(control, ReplayProbeControl::ForeignHub) {
+        let (foreign, mut foreign_writer) = Hub::new(SummaryIndex::new());
+        let foreign_target = fill_ring(&foreign, &mut foreign_writer, true);
+        Some((Arc::new(foreign), foreign_target))
+    } else {
+        None
+    };
+    let mut samples = Vec::with_capacity(SAMPLES);
+    let mut proof = Vec::with_capacity(SAMPLES);
+    for offset in 0..SAMPLES {
+        let current = target + offset as u64;
+        let (next, elapsed, observed) = match control {
+            ReplayProbeControl::AsIs => {
+                append_replay_sample(hub.clone(), writer, current, offset).await
+            }
+            ReplayProbeControl::NoSharedClock => {
+                append_replay_unobserved_sample(hub.clone(), writer, current, offset).await
+            }
+            ReplayProbeControl::PrivateReuse => {
+                append_private_sample(hub.clone(), writer, current, offset, true).await
+            }
+            ReplayProbeControl::PrivateFresh => {
+                append_private_sample(hub.clone(), writer, current, offset, false).await
+            }
+            ReplayProbeControl::SpinOnly => {
+                append_spin_sample(hub.clone(), writer, current, offset).await
+            }
+            ReplayProbeControl::ForeignHub => {
+                let Some((foreign, foreign_target)) = foreign.as_ref() else {
+                    assert!(false, "foreign probe setup");
+                    return (Vec::new(), Vec::new());
+                };
+                append_foreign_hub_sample(writer, current, offset, foreign.clone(), *foreign_target)
+                    .await
+            }
+        };
+        writer = next;
+        samples.push(elapsed);
+        proof.push(observed);
+    }
+    (samples, proof)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "release probe; run with --profile gate --ignored --nocapture"]
+async fn replay_append_cause_probe() {
+    // Controls are intentionally run in one process with baseline/control
+    // rounds alternating. (a) is the current gate. (b) moves the permit and
+    // counter observation outside the clock. (d1)/(d2) isolate copy traffic
+    // from fresh-allocation cost using private memory. (e) leaves only a
+    // spinner. (f) copies a second hub's snapshot, avoiding shared data.
+    for control in ReplayProbeControl::ALL {
+        let mut baseline = Vec::with_capacity(ROUNDS);
+        let mut god = Vec::with_capacity(ROUNDS);
+        let mut proof = Vec::with_capacity(ROUNDS);
+        for round in 0..ROUNDS {
+            let outside = append_round();
+            let (inside, evidence) = append_probe_round(control).await;
+            eprintln!(
+                "REPLAY_APPEND_PROBE control={} round={} small_p50={} small_p95={} god_p50={} god_p95={} proof_min={} proof_total={}",
+                control.label(),
+                round + 1,
+                p50(&outside),
+                p95(&outside),
+                p50(&inside),
+                p95(&inside),
+                evidence.iter().copied().min().unwrap_or(0),
+                evidence.iter().sum::<usize>()
+            );
+            baseline.push(outside);
+            god.push(inside);
+            proof.push(evidence);
+        }
+        let small_p50 = p50(&baseline.iter().flatten().copied().collect::<Vec<_>>());
+        let god_p50 = p50(&god.iter().flatten().copied().collect::<Vec<_>>());
+        let small_p95 = best_p95(&baseline);
+        let god_p95 = best_p95(&god);
+        let ratio = (god_p95 as f64) / (small_p95.max(1) as f64);
+        eprintln!(
+            "REPLAY_APPEND_PROBE_SUMMARY control={} small_p50={} small_p95={} god_p50={} god_p95={} best_ratio={ratio:.3}",
+            control.label(),
+            small_p50,
+            small_p95,
+            god_p50,
+            god_p95
+        );
+        assert!(proof.iter().all(|round| round.iter().sum::<usize>() > 0));
+    }
 }
 
 async fn replay_open_round(verbose: bool) -> Vec<u128> {
