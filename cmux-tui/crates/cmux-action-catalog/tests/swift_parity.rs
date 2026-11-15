@@ -23,12 +23,7 @@ fn repo() -> PathBuf {
 /// docs/ci/app-ffi-release.md). The exports are written from the pinned catalog, so they gain
 /// these rows with the re-pin, which takes them off this list (#38644, #41954, and the catalog
 /// request rows).
-const AWAITING_REPIN: &[&str] = &[
-    "terminal.fixLastCommand",
-    "terminal.sendLastOutputToChat",
-    "terminal.sendSelectionToChat",
-    "workspace.unpinFromSpace",
-];
+const AWAITING_REPIN: &[&str] = &[];
 
 /// Each id on [`AWAITING_REPIN`] is a catalog action that `export` (one of the exports' action
 /// lists) does not have yet: once the export has it, it comes off the list.

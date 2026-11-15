@@ -14,6 +14,10 @@ import GhosttyNextKit
 extension TerminalSurfaceView {
     public override func keyDown(with event: NSEvent) { // perf-hot: 1ms terminal-key (every key typed into a terminal)
         if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.hop("app.key.terminal") }
+        // Return starts the next command: the last one's Fix chip goes (one compare while none shows).
+        if event.keyCode == 36 || event.keyCode == 76, let host = superview as? TerminalHostView, host.offersFix {
+            host.commandSubmitted()
+        }
         if TerminalClipboardRequests.isPasteChord(event), !clipboardRequests.userPasteInProgress {
             return clipboardRequests.asUserPaste { keyDown(with: event) }
         }

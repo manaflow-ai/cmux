@@ -53,6 +53,7 @@ extension TerminalSurfaceView {
             model.progress = progress
         case .commandFinished(let result):
             model.lastCommand = result
+            (superview as? TerminalHostView)?.commandFinished(result)
         case .childExited:
             model.hasExited = true
         case .secureInput(let mode):

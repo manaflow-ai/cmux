@@ -38,8 +38,12 @@ public final class AgentPaneModel {
     /// opening an existing chat only while this holds (`NewTabSparePool.takeConnectedSpare`).
     @ObservationIgnored public internal(set) var clientReady = false
     /// A push that waits for the page's client (``AgentPaneView/attachExternal(_:claimed:)``): the old
-    /// host runs a script at once, so a page still loading would miss it. Runs once, on `pane.clientReady`.
+    /// host runs a script at once, so a page still loading would miss it. Runs once, on `pane.clientReady`;
+    /// a later attach replaces it (the page takes what ``droppedPaths`` holds then).
     @ObservationIgnored var whenClientReady: (@MainActor () -> Void)?
+    /// Page actions asked for before ``clientReady`` that each must reach the page (Send to Chat appends,
+    /// ``AgentPaneView/appendToDraft(_:focus:)``), run in order when the page says it is ready.
+    @ObservationIgnored var clientReadyWaiters: [@MainActor () -> Void] = []
     /// The page's finish sound (`pane.finishSound`), with its own gap between sounds.
     @ObservationIgnored let finishSound = AgentPaneFinishSound()
 
@@ -543,9 +547,12 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .clientReady(let ready):
             clientReady = ready
-            if ready, let waiting = whenClientReady {
+            if ready {
+                let waiting = whenClientReady, waiters = clientReadyWaiters
                 whenClientReady = nil
-                waiting()
+                clientReadyWaiters = []
+                waiting?()
+                for waiter in waiters { waiter() }
             }
             return AgentPaneReply.success()
         case .framePacing(let intervals):

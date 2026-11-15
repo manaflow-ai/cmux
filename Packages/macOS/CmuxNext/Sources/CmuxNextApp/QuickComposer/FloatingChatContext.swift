@@ -5,7 +5,7 @@ import Foundation
 /// The floating chat's Include focused tab (cx-b9qi): what the user is looking at in cmux, the
 /// focused tab of the active main window (the floating panel never becomes one). A terminal gives
 /// its selection, else the text it shows; a page its title, URL and selection, as New Agent Chat
-/// seeds from a tab (``AgentTabSeed``). Nil from an agent tab, an empty pane or no window.
+/// seeds from a tab (``AgentPaneSeed/browserDraft(title:url:selection:)``). Nil from an agent tab, an empty pane or no window.
 enum FloatingChatContext {
     @MainActor static func focused(in services: AppServices?) async -> AgentPaneQuickContext? {
         guard let pane = services?.windows.active?.focusedPane else { return nil }
@@ -20,8 +20,8 @@ enum FloatingChatContext {
             return trimmed(view.viewportText()).map { AgentPaneQuickContext(name: title, text: $0) }
         case .browser(let entry):
             let page = entry.tab
-            let selection = try? await page.evaluate(AgentTabSeed.selectionScript, world: .isolated, gesture: .cmux).stringValue
-            guard let text = AgentTabSeed.browserDraft(title: page.state.title, url: page.state.url, selection: selection) else { return nil }
+            let selection = try? await page.evaluate(AgentPaneSeed.selectionScript, world: .isolated, gesture: .cmux).stringValue
+            guard let text = AgentPaneSeed.browserDraft(title: page.state.title, url: page.state.url, selection: selection) else { return nil }
             let name = trimmed(page.state.title) ?? title
             return AgentPaneQuickContext(name: trimmed(selection) == nil ? name : selectionName(name),
                                          text: text.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -41,6 +41,6 @@ enum FloatingChatContext {
 
     private static func trimmed(_ text: String?) -> String? {
         guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
-        return text.count > AgentTabSeed.selectionLimit ? String(text.prefix(AgentTabSeed.selectionLimit)) + "…" : text
+        return text.count > AgentPaneSeed.selectionLimit ? String(text.prefix(AgentPaneSeed.selectionLimit)) + "…" : text
     }
 }
