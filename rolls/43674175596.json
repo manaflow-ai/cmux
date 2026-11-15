@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43674175596",
+  "recorded_at": "2026-11-15T03:59:32Z",
+  "reason": "cmux-tui b6236a4e4ea6 changes the image's cmux-tui (pinned 8a2f772e6e59)",
+  "dry_run": false,
+  "cmux_tui": "b6236a4e4ea648236cef9d0ca2ffa4ed78fe0693",
+  "fixes": [
+    {
+      "sha": "b6236a4e4ea648236cef9d0ca2ffa4ed78fe0693",
+      "mergedAt": "2026-11-14T19:33:56-08:00",
+      "subject": "acpmux: regression test for bursts of doubled cross-session messages (#43473)"
+    },
+    {
+      "sha": "8789be7f2a59ce468613ead351f311cd5be89803",
+      "mergedAt": "2026-11-14T19:32:55-08:00",
+      "subject": "Extensions: honor manifest activation, so an app runs with no view open (#43018)"
+    },
+    {
+      "sha": "a0212d0c584ba920808b96b5f8d8d87c485c8c4e",
+      "mergedAt": "2026-11-14T19:32:09-08:00",
+      "subject": "cmux keys: connect a provider once, mint scoped expiring keys, audit and revoke (#43442)"
+    },
+    {
+      "sha": "bcf2458dd8f6f23d30ae06b87a44bce878999df5",
+      "mergedAt": "2026-11-14T19:31:05-08:00",
+      "subject": "rd: keep Windows frames flowing and measure loopback delivery (#42954)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T03:59:32Z",
+    "snapshot_id": "sh-148bacb2fc5a4d4aaf8868c4f3418047",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43674175596): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "704f25fa2ccf59075026d94d75a5db329287c5ee",
+    "image": "cloud-native-auto-b6236a4e-43674175596-1",
+    "revision": "ci-43674175596-1",
+    "at": "2026-11-15T03:59:32Z"
+  },
+  "rolled_back": false
+}
