@@ -28,6 +28,7 @@ Usage:
   web-ota-pointer.py verify --pointer POINTER --keys KEYS [--channel C] [--purpose P [--allow-expired]]
       print the payload
   web-ota-pointer.py newer --pointer NEW --keys KEYS [--current CURRENT]  exit 0 when NEW moves forward
+      [--tree-key K --current-tree-key K2]  exit 3 (keep) when K == K2: the same source tree
   web-ota-pointer.py same-build --pointer NEW --current CURRENT --keys KEYS
       exit 0 when CURRENT is a signed file of the same build (all but published_at and expires_at
       equal), 1 otherwise: a write-once file someone published with other contents
@@ -57,6 +58,9 @@ LINUX_RELEASE = "cmux-linux-release"
 FILES = "https://files.cmux.com/cmux-tui/"
 # The fields a re-sign of one build changes; same-build ignores them.
 SIGNING_TIME_FIELDS = ("published_at", "expires_at")
+# `newer --tree-key`: a published file of the same source tree is kept only while it has this long
+# to live (the Cloud machine file lives 30 days, cmux-machine-channel.py LIFETIME).
+TREE_KEEP_MIN_SECONDS = 7 * 24 * 3600
 
 
 def fail(message):
@@ -271,7 +275,9 @@ def main(argv):
     n.add_argument("--pointer", required=True)
     n.add_argument("--keys", required=True)
     n.add_argument("--current")
-    b = sub.add_parser("same-build")
+    n.add_argument("--tree-key", help="the source tree key of NEW's commit (cmux_tui_tree_key.py)")
+    n.add_argument("--current-tree-key", help="the source tree key of CURRENT's commit; equal to --tree-key: keep")
+    b =sub.add_parser("same-build")
     for name in ("--pointer", "--current", "--keys"):
         b.add_argument(name, required=True)
     args = parser.parse_args(argv[1:])
@@ -314,6 +320,20 @@ def run(args):
         if same_key or new["committed_at"] <= current["committed_at"]:
             print(f"the published pointer ({current['commit'][:12]}) is current; keeping it", file=sys.stderr)
             return SKIP
+        # The same source tree (cmux_tui_tree_key.py, a hash of every build input) is the same code:
+        # a newer commit that changed nothing the build reads (a push that adopts an earlier commit's
+        # published tree), or the fat build of the commit whose thin build the channel names, keeps the
+        # published pointer, so no machine updates to identical code. Only while
+        # the published file has more than TREE_KEEP_MIN_SECONDS to live: a machine refuses an
+        # expired file, so a channel that sat on one tree that long is re-signed by the next push.
+        if args.tree_key and args.tree_key == args.current_tree_key:
+            left = current.get("expires_at", float("inf")) - time.time()
+            if left > TREE_KEEP_MIN_SECONDS:
+                print(f"the published pointer ({current['commit'][:12]}) has the same tree {args.tree_key[:12]}; "
+                      "keeping it", file=sys.stderr)
+                return SKIP
+            print(f"the published pointer has the same tree but expires in {int(left)} s; re-signing it",
+                  file=sys.stderr)
     elif args.command == "same-build":
         keys = load_keys(args.keys)
         new = verified_payload(args.pointer, keys)

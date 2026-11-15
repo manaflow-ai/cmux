@@ -693,8 +693,10 @@ impl Peer {
     /// A connection to the peer ended: what the peer kept for it is gone.
     pub(crate) fn link_ended(&self) {
         self.features.lock_or_recover().clear();
-        self.end_mirror();
+        // The epoch moves first: the mirror that ends with its inbox sees the link gone, and
+        // leaves the origin to the next link (`peer_dialer.rs`).
         self.link_epoch.fetch_add(1, Ordering::SeqCst);
+        self.end_mirror();
         self.github_revoked.notify_waiters();
     }
 
