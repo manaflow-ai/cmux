@@ -60,6 +60,7 @@ struct NewTabSpareVisibilityTests {
             pool.retarget(window)
             pool.prewarm()
             pool.start()
+            pool.wantSpares() // as the session's first New Tab open: a launch makes no spare
             try await PasswordManagerRouteTests.until({ pool.spare != nil })
             let view = try #require(pool.spare?.view), host = try #require(view.superview)
             // The first remembered cover also uses the injected snapshot, with no compositor.

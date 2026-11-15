@@ -125,6 +125,8 @@ class Driver:
         return self.call("debug.key", {"key": key, "modifiers": modifiers or []})
 
     def wait_spare(self, seconds: float = 20) -> bool:
+        # A launch makes no spare until the session's first New Tab open: ask for it as that open does (once per session).
+        self.call("debug.new_tab", {"action": "want_spare"})
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
             spares = self.call("debug.new_tab", {"action": "state"}).get("spares") or []

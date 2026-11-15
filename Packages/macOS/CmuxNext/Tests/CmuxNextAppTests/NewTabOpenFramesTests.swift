@@ -53,6 +53,7 @@ struct NewTabOpenFramesTests {
             pool.retarget(window)
             pool.prewarm()
             pool.start()
+            pool.wantSpares() // as the session's first New Tab open: a launch makes no spare
             try await PasswordManagerRouteTests.until({ pool.spare != nil }, report: { "no spare was parked" })
             let spare = try #require(pool.spare?.view)
             let before = made.count

@@ -24,6 +24,7 @@ import WebKit
 /// key-down straight through `debug.key`'s dispatch, with no wait for a key hold: a person who types at the click, while a Chromium page's focus
 /// grant still waits. Returns the page's `page_ready` at the click and whether the window held each key; with `probe`, only the report; without `tab`, the focused pane's tabs.
 /// `drop_spare` drops the prewarmed spare, so the next opening loads cold; with `slow`, WebKit's setup is also marked slow.
+/// `want_spare`: as the session's first New Tab open (a launch makes no spare), for scripts that wait for a ready spare.
 @MainActor
 enum DebugNewTab {
     static func handle(_ params: [String: JSONValue], _ services: AppServices?) async -> JSONValue {
@@ -53,6 +54,7 @@ enum DebugNewTab {
             // The next opening loads cold, as after memory pressure (scripts/ci/frame-pacing/golden.py).
             services.newTabSpares.dropAll(); if params["slow"]?.boolValue == true { services.newTabSpares.webKit.markSlow() } // `slow`: as a spare that took over 1 s
             return await state(services)
+        case "want_spare": services.newTabSpares.wantSpares(); return await state(services)
         case "capacity":
             // How many spares the pool keeps (A/B of one against two on one build).
             services.newTabSpares.capacity = params["count"]?.intValue ?? 1
@@ -63,7 +65,7 @@ enum DebugNewTab {
             services.newTabSpares.retarget(window)
             return await state(services)
         default:
-            return .object(["error": .string("unknown action; use state, open_and_type, open_and_leave, field, open_tab, capacity")])
+            return .object(["error": .string("unknown action; use state, open_and_type, open_and_leave, field, open_tab, capacity, want_spare")])
         }
     }
 
