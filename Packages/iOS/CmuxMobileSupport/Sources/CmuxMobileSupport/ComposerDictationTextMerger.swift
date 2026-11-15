@@ -80,6 +80,11 @@ public struct ComposerDictationTextMerger: Sendable {
         var isFinal: Bool
     }
 
+    private struct PhraseMatch {
+        var index: Int
+        var range: Range<String.Index>
+    }
+
     private var phrases: [Phrase] = []
 
     /// Reset speech history when starting a new recording.
@@ -94,25 +99,29 @@ public struct ComposerDictationTextMerger: Sendable {
         isUtteranceFinal: Bool = false
     ) -> String {
         guard !transcript.allSatisfy(\.isWhitespace) else {
-            return merged(base: base, transcript: phrases.map(\.text).joined(separator: " "))
+            return merged(base: base, transcript: phraseTranscript)
         }
         let validTiming = startTime.map { $0.isFinite && $0 >= 0 } == true
             && endTime.map { $0.isFinite && $0 > (startTime ?? 0) } == true
         if validTiming, let startTime {
             var removedIndices = Set<Int>()
             var replacementText = String(transcript.drop(while: \.isWhitespace))
+            var insertionAfterIndex: Int?
             // A cumulative result from the beginning of the recording can
             // include a finalized phrase whose own result had no segment
             // timing. A final replaces that committed prefix; a partial keeps
             // it and contributes only the new provisional tail.
             if startTime <= 0 {
-                let matches = cumulativeUntimedFinalPhraseMatches(
-                    in: transcript
-                )
+                let allMatches = phraseMatches(in: transcript)
+                let untimedFinalMatches = allMatches.filter { match in
+                    let phrase = phrases[match.index]
+                    return phrase.isFinal && phrase.endTime == nil
+                }
                 if isUtteranceFinal {
-                    removedIndices.formUnion(matches.indices)
-                } else if !matches.prefix.isEmpty {
-                    replacementText = transcriptAfterPrefix(matches.prefix, in: transcript)
+                    removedIndices.formUnion(untimedFinalMatches.map(\.index))
+                } else if !allMatches.isEmpty {
+                    replacementText = transcriptWithoutMatches(allMatches, in: transcript)
+                    insertionAfterIndex = untimedFinalMatches.last?.index
                 }
             }
             // Remove every overlapping timed hypothesis, even when an
@@ -134,7 +143,16 @@ public struct ComposerDictationTextMerger: Sendable {
                     endTime: endTime,
                     isFinal: isUtteranceFinal
                 )
-                if let firstRemoved = removedIndices.min() {
+                if let insertionAfterIndex {
+                    let insertionIndex = phrases[..<insertionAfterIndex + 1]
+                        .indices
+                        .filter { !removedIndices.contains($0) }
+                        .count
+                    phrases = phrases.enumerated().compactMap { index, phrase in
+                        removedIndices.contains(index) ? nil : phrase
+                    }
+                    phrases.insert(replacement, at: insertionIndex)
+                } else if let firstRemoved = removedIndices.min() {
                     let insertionIndex = phrases[..<firstRemoved]
                         .indices
                         .filter { !removedIndices.contains($0) }
@@ -165,36 +183,72 @@ public struct ComposerDictationTextMerger: Sendable {
                 isFinal: isUtteranceFinal
             ))
         }
-        return merged(base: base, transcript: phrases.map(\.text).joined(separator: " "))
+        return merged(base: base, transcript: phraseTranscript)
     }
 
-    private func cumulativeUntimedFinalPhraseMatches(
-        in transcript: String
-    ) -> (indices: Set<Int>, prefix: String) {
-        var prefix = ""
-        var indices = Set<Int>()
-        for (index, phrase) in phrases.enumerated() {
-            guard phrase.isFinal, phrase.endTime == nil else { continue }
-            let candidate = prefix.isEmpty ? phrase.text : prefix + " " + phrase.text
-            guard transcriptStarts(with: candidate, in: transcript) else { break }
-            prefix = candidate
-            indices.insert(index)
+    private var phraseTranscript: String {
+        phrases.reduce(into: "") { result, phrase in
+            guard !phrase.text.isEmpty else { return }
+            if result.isEmpty || phrase.text.first?.isPunctuation == true {
+                result += phrase.text
+            } else {
+                result += " " + phrase.text
+            }
         }
-        return (indices, prefix)
     }
 
-    private func transcriptAfterPrefix(_ prefix: String, in transcript: String) -> String {
-        let candidate = transcript.drop(while: \.isWhitespace)
-        guard candidate.hasPrefix(prefix) else { return String(candidate) }
-        return String(candidate.dropFirst(prefix.count).drop(while: \.isWhitespace))
+    private func phraseMatches(in transcript: String) -> [PhraseMatch] {
+        let candidate = String(transcript.drop(while: \.isWhitespace))
+        var searchStart = candidate.startIndex
+        var matches: [PhraseMatch] = []
+        for (index, phrase) in phrases.enumerated() {
+            guard let range = phraseRange(
+                for: phrase.text,
+                in: candidate,
+                from: searchStart
+            ) else { continue }
+            matches.append(PhraseMatch(index: index, range: range))
+            searchStart = range.upperBound
+        }
+        return matches
     }
 
-    private func transcriptStarts(with prefix: String, in transcript: String) -> Bool {
-        let candidate = transcript.drop(while: \.isWhitespace)
-        guard candidate.hasPrefix(prefix) else { return false }
-        guard candidate.count > prefix.count else { return true }
-        let boundary = candidate.index(candidate.startIndex, offsetBy: prefix.count)
-        return candidate[boundary].isWhitespace || candidate[boundary].isPunctuation
+    private func phraseRange(
+        for text: String,
+        in transcript: String,
+        from start: String.Index
+    ) -> Range<String.Index>? {
+        guard !text.isEmpty else { return nil }
+        var searchStart = start
+        while searchStart < transcript.endIndex,
+              let range = transcript.range(of: text, range: searchStart..<transcript.endIndex) {
+            let startsAtBoundary = range.lowerBound == transcript.startIndex
+                || transcript[transcript.index(before: range.lowerBound)].isWhitespace
+                || transcript[transcript.index(before: range.lowerBound)].isPunctuation
+            let endsAtBoundary = range.upperBound == transcript.endIndex
+                || transcript[range.upperBound].isWhitespace
+                || transcript[range.upperBound].isPunctuation
+            if startsAtBoundary && endsAtBoundary {
+                return range
+            }
+            searchStart = transcript.index(after: range.lowerBound)
+        }
+        return nil
+    }
+
+    private func transcriptWithoutMatches(
+        _ matches: [PhraseMatch],
+        in transcript: String
+    ) -> String {
+        let candidate = String(transcript.drop(while: \.isWhitespace))
+        var result = ""
+        var cursor = candidate.startIndex
+        for match in matches {
+            result += candidate[cursor..<match.range.lowerBound]
+            cursor = match.range.upperBound
+        }
+        result += candidate[cursor...]
+        return result.trimmingCharacters(in: .whitespaces)
     }
 
     /// Creates a merger.

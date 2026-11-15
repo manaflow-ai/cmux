@@ -173,6 +173,24 @@ import Testing
                               isUtteranceFinal: true) == "new C")
     }
 
+    @Test func cumulativePartialAfterTimedHistoryKeepsUntimedPhraseOrder() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "old", startTime: 0, endTime: 1,
+                          isUtteranceFinal: true)
+        _ = merger.merged(base: "", transcript: "new", startTime: nil, endTime: nil,
+                          isUtteranceFinal: true)
+        #expect(merger.merged(base: "", transcript: "new C", startTime: 0, endTime: 3)
+            == "new C")
+    }
+
+    @Test func cumulativePartialWithPunctuationKeepsAdjacency() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "A", startTime: nil, endTime: nil,
+                          isUtteranceFinal: true)
+        #expect(merger.merged(base: "", transcript: "A, B", startTime: 0, endTime: 2)
+            == "A, B")
+    }
+
     @Test func untimedCorrectionCannotKeepStaleTimingAndDuplicateItself() {
         var merger = ComposerDictationTextMerger()
         _ = merger.merged(base: "", transcript: "A", startTime: 0, endTime: 1.5)
