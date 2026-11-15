@@ -4,11 +4,12 @@
 //! wait for the holder, and the terminal must re-attach when the holder
 //! answers.
 //!
-//! A stand-in for the holder takes each connect, holds it and counts it, and
-//! answers only when the test says so. The start and the late thread wait by
-//! a clock the test steps ([`StepClock`]), so a result here is a count of
-//! asks and never a time: the waits in these tests are waits for an event,
-//! and their only limit is a failure limit.
+//! A stand-in for the holder takes each connect, holds it (or ends it, when
+//! the test says so) and counts it, and answers only when the test says so.
+//! The start and the late thread wait by a clock the test steps
+//! ([`StepClock`]), so a result here is a count of asks and never a time:
+//! the waits in these tests are waits for an event, and their only limit is
+//! a failure limit.
 
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::fs::PermissionsExt;
@@ -103,6 +104,8 @@ enum Order {
     Answer(Option<Held>),
     /// End each connect it holds, and go on listening.
     DropConnects,
+    /// End each of the next connects it takes, this many, when it takes it.
+    EndNext(usize),
     /// Say how many connects it took, after it took each one that waits.
     Count(mpsc::Sender<usize>),
     /// Stop: no holder serves the socket any more (its file stays).
@@ -125,14 +128,19 @@ impl StandIn {
             let mut connects = 0;
             let mut answer: Option<Option<Held>> = None;
             let mut answered = 0;
+            let mut end_next = 0;
             loop {
                 match listener.accept() {
                     Ok((stream, _)) => {
+                        connects += 1;
+                        if end_next > 0 {
+                            end_next -= 1;
+                            continue;
+                        }
                         // An accepted socket takes the listener's mode on macOS.
                         stream.set_nonblocking(false).unwrap();
                         stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
                         held.push(stream);
-                        connects += 1;
                         continue;
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
@@ -150,6 +158,7 @@ impl StandIn {
                         held.clear();
                         answered = 0;
                     }
+                    Ok(Order::EndNext(count)) => end_next = count,
                     Ok(Order::Count(reply)) => {
                         let _ = reply.send(connects);
                     }
@@ -676,5 +685,45 @@ fn a_start_with_a_kept_terminal_of_an_interrupted_creation_does_not_fail() {
         (true, TerminalLifecycle::Adopting, true, true),
         "(no end, lifecycle, adopting mark, tab): kept for the next start"
     );
+    session.end(mux, holder);
+}
+
+/// A holder that ends the connect of the start before its answer (it
+/// restarted its listener, or it had no room for the connect): it may still
+/// run the shell, so the start keeps the terminal as for a silent holder,
+/// and the terminal re-attaches on the new connect of the late thread.
+#[test]
+fn a_start_keeps_a_terminal_whose_holder_ends_the_first_connect() {
+    let session = Session::new("holder-late-start-first-eof");
+    let holder = session.holder();
+    holder.order(Order::EndNext(1));
+    // The stand-in read the order: it answers a count only after it.
+    assert_eq!(holder.connects(), 0);
+    // The clock does not move in the start, so the start's wait for the
+    // holder does not end by time: it ends when the holder ends the connect.
+    let clock = StepClock::new(Duration::ZERO, AT_START);
+    let mux = session.start(&clock).unwrap();
+    assert_eq!(
+        session.kept(&mux),
+        (true, TerminalLifecycle::Running, true, true),
+        "(no end, lifecycle, adopting mark, tab): an ended connect is not a dead holder"
+    );
+
+    clock.run(LATE_STEP, FAR);
+    let shell = KeptShell::new();
+    holder.order(Order::Answer(Some(shell.listed())));
+    wait_until("the late thread re-attaches the terminal", || session.late_work_done(&mux));
+    let resolved = mux.resolve_terminal(TERMINAL).unwrap().unwrap();
+    assert_eq!(
+        (
+            resolved.surface.is_some(),
+            resolved.terminal.lifecycle,
+            resolved.terminal.exit.is_none(),
+            mux.terminal_is_pending(TERMINAL),
+        ),
+        (true, TerminalLifecycle::Running, true, false),
+        "(runtime, lifecycle, no end, adopting mark): the same shell, attached again"
+    );
+    assert_eq!(holder.connects(), 2, "one new connect for the one the holder ended");
     session.end(mux, holder);
 }
