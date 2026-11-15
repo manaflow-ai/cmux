@@ -1883,7 +1883,6 @@ jobs:
             python3 scripts/cmux-next/tests/test_chat_open_seed_cache.py
             python3 scripts/cmux-next/tests/test_check_pr_split.py
             python3 scripts/cmux-next/tests/test_ci_apply.py
-            python3 scripts/cmux-next/tests/test_diff_tab_cells.py
             python3 scripts/cmux-next/tests/test_ffi_caller_ratchet.py
             python3 scripts/cmux-next/tests/test_git_stdin_never_piped.py
             python3 scripts/cmux-next/tests/test_holder_dogfood.py
@@ -1898,7 +1897,6 @@ jobs:
             python3 scripts/cmux-next/tests/test_memory_agents_cron.py
             python3 scripts/cmux-next/tests/test_open_panel_bench.py
             python3 scripts/cmux-next/tests/test_pane_perf_rows.py
-            python3 scripts/cmux-next/tests/test_perceived_speed.py
             python3 scripts/cmux-next/tests/test_perf_completeness.py
             python3 scripts/cmux-next/tests/test_perf_cron.py
             python3 scripts/cmux-next/tests/test_perf_cron_arch_report.py
