@@ -623,7 +623,8 @@
       "verb": "chief adopt"
     },
     {
-      "verb": "chief delete"
+      "verb": "chief delete",
+      "palette": "home.deleteChief"
     },
     {
       "verb": "chief edit"
@@ -648,7 +649,8 @@
       "palette": "home.newChief"
     },
     {
-      "verb": "chief primary"
+      "verb": "chief primary",
+      "palette": "home.setPrimaryChief"
     },
     {
       "verb": "chief shutdown",
@@ -757,7 +759,8 @@
       "reason": "keep: prints a shell completion script to stdout for a shell's setup"
     },
     {
-      "verb": "customize"
+      "verb": "customize",
+      "palette": "customize.open"
     },
     {
       "verb": "customize apply"
@@ -911,7 +914,8 @@
       "reason": "keep: a read for scripts and agents (branches); the app shows the same state on screen"
     },
     {
-      "verb": "git checkpoint create"
+      "verb": "git checkpoint create",
+      "palette": "git.checkpoint.create"
     },
     {
       "verb": "git checkpoint diff",
@@ -998,13 +1002,16 @@
       "reason": "keep: a `git diff --scope` value in the help's scope table, not a verb"
     },
     {
-      "verb": "git worktree apply"
+      "verb": "git worktree apply",
+      "palette": "git.worktree.apply"
     },
     {
-      "verb": "git worktree create"
+      "verb": "git worktree create",
+      "palette": "git.worktree.create"
     },
     {
-      "verb": "git worktree remove"
+      "verb": "git worktree remove",
+      "palette": "git.worktree.remove"
     },
     {
       "verb": "git worktree setup"
@@ -1052,7 +1059,8 @@
       "reason": "keep: prints the harness integration guide for an agent; the palette's Integrate a Harness with an Agent… (palette.addHarness) is the person's row"
     },
     {
-      "verb": "harness icon"
+      "verb": "harness icon",
+      "palette": "agent.harness.setIcon"
     },
     {
       "verb": "harness install",

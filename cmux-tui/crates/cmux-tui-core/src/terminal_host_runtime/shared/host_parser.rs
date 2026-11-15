@@ -171,11 +171,20 @@ pub(crate) fn run_host_parser(
                     // A terminal that cannot report cursor activity reports
                     // no cursor change.
                     let cursor_activity = legacy.then(|| term.cursor_activity().ok());
-                    let normalized =
-                        crate::prompt_mode_reset::write_output(&mut term, bytes, &mut shell_marks);
+                    // One walk of the chunk reads its OSC metadata and
+                    // rewrites the title ops ghostty-vt skips.
+                    let rewritten = parser_host
+                        .terminal_metadata
+                        .lock()
+                        .recover_poison()
+                        .observe_output_rewriting_titles(shell_marks.titles_mut(), bytes);
+                    let normalized = crate::prompt_mode_reset::write_rewritten_output(
+                        &mut term,
+                        rewritten,
+                        &mut shell_marks,
+                    );
                     {
                         let mut metadata = parser_host.terminal_metadata.lock().recover_poison();
-                        metadata.observe_output(bytes);
                         // Whether a running command took the terminal for
                         // interaction, so an adopting daemon still reads it
                         // `in_use` (cx-6so.59).
