@@ -7,12 +7,14 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { AcpmuxDirectClient, type EventRecord } from "../direct";
 import { harnessModeName } from "../harnessModes";
+import { turnView } from "../conversation/turns";
+import type { Folds } from "../conversation/viewFolds";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { permissionDecision } from "../permissions/record";
 import { permissionOptionKind } from "../permissions/prompt";
 import { adaptChat, askDecision } from "./adapter";
 import { ChatRowsHost } from "./host";
-import { NOT_YET } from "./notYet";
+import { NOT_IN_CORPUS, NOT_YET } from "./notYet";
 import { ChatRowStore } from "./store";
 import type { ChatRow } from "./wire";
 
@@ -21,22 +23,98 @@ const CORPUS = ["seed-turn", "r1-reply-1", "r1-reply-2", "parity"];
 const SESSION = "s1";
 const SID = "rows.1";
 
-/// Differences that are by design, each with the corpus row that shows it (`<log>:<rowId>`).
-const NAMED: readonly { field: string; row: string; why: string }[] = [
+/// Differences that are by design, each with the corpus row that shows it (`<log>:<rowId>`). A
+/// `view: "same"` one is a difference of the rows only: the view's turn shaping (`turnView`) draws
+/// both the same, and the view comparison below fails if it does not.
+const NAMED: readonly { field: string; row: string; why: string; view: "same" | "differs" }[] = [
   {
     field: "user.turnId",
     row: "parity:1",
     why: "a turn is named by its prompt's rowId (`row.turn`), not acpmux's turn id; the view compares turn ids only with each other",
+    view: "differs",
   },
   {
     field: "turnSummary.turnId",
     row: "parity:6",
     why: "as user.turnId",
+    view: "differs",
   },
   {
     field: "permissionRecord.at",
     row: "parity:16",
     why: "the ask row is written when asked and patched with its answer; v1's receipt is a row at the answer",
+    view: "differs",
+  },
+  {
+    field: "row:activity",
+    row: "r1-reply-1:11",
+    why: "v1 runs a turn's calls and thoughts together in one activity row as its reducer meets them; the store has a row per call or thought",
+    view: "same",
+  },
+  {
+    field: "activity.items",
+    row: "r1-reply-1:11",
+    why: "as row:activity",
+    view: "same",
+  },
+  {
+    field: "activity.toolCount",
+    row: "r1-reply-1:11",
+    why: "as row:activity: v1 counts the run's calls, a store row has one",
+    view: "same",
+  },
+];
+
+/// Fields neither comparison reads, beside NAMED: what each side names a row by, never drawn.
+const UNCOMPARED: readonly { field: string; why: string }[] = [
+  {
+    field: "id",
+    why: "v1 names a row by its record, the store by `row-<rowId>`; units are matched by what both share instead (`units`)",
+  },
+  {
+    field: "version",
+    why: "v1 counts its own edits of a row, the store gives the row's `rev`; either only tells the view a row changed",
+  },
+];
+const UNCOMPARED_KEYS = new Set(UNCOMPARED.map((entry) => entry.field));
+
+/// What the view makes from a field on `notYet.ts` or UNCOMPARED, so it differs while that one does.
+/// Each leaves with the field it is made from; one that no longer differs fails, as on the lists.
+const DRAWN_FROM: readonly { field: string; from: readonly string[]; why: string }[] = [
+  {
+    field: "worked.at",
+    from: ["user.at"],
+    why: "a turn's fold is dated by its prompt",
+  },
+  {
+    field: "turnSummary.turnWork",
+    from: ["tool.startedAt", "tool.endedAt"],
+    why: "the turn's waterfall holds the calls that have both times",
+  },
+  {
+    field: "turnSummary.turnCopy",
+    from: ["tool.startedAt", "tool.endedAt", "tool.provenance"],
+    why: "the turn's copy holds its calls whole",
+  },
+  {
+    field: "turnSummary.answerId",
+    from: ["id"],
+    why: "the turn's answer is named by its row's id",
+  },
+  {
+    field: "turnSummary.retryRowId",
+    from: ["id"],
+    why: "the turn's Retry is named by its prompt row's id",
+  },
+  {
+    field: "row:worked",
+    from: ["row:permissionRecord"],
+    why: "v1's receipt is the work of its turn, which the turn folds",
+  },
+  {
+    field: "turnSummary.folded",
+    from: ["row:permissionRecord"],
+    why: "as row:worked",
   },
 ];
 
@@ -90,7 +168,8 @@ type Unit = { key: string; kind: string; fields: Record<string, unknown> };
 
 /// A snapshot's rows as units keyed by what both sides share: a prompt by its promptId, a reply by
 /// its text, a call by its id, a turn's end by its seq, a receipt by its permission. An activity
-/// row's calls and thoughts are units of their own (v1 runs them together, the store does not).
+/// row's calls and thoughts are units of their own, and the run is one more, keyed by its first
+/// item: v1 runs calls and thoughts together and the store does not (NAMED).
 function units(rows: readonly AcpmuxRow[]): Unit[] {
   const out: Unit[] = [];
   const seen = new Map<string, number>();
@@ -99,17 +178,27 @@ function units(rows: readonly AcpmuxRow[]): Unit[] {
     seen.set(base, n);
     const kept: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(fields))
-      if (value !== undefined && key !== "id" && key !== "version") kept[key] = value;
+      if (value !== undefined && !UNCOMPARED_KEYS.has(key)) kept[key] = value;
     out.push({ key: n > 1 ? `${base}#${n}` : base, kind, fields: kept });
   };
+  const itemKey = (item: NonNullable<AcpmuxRow["items"]>[number]) =>
+    item.tool ? `tool:${item.tool.id}` : `${item.kind}:${item.text}`;
   for (const row of rows) {
     if (row.kind === "activity") {
-      for (const item of row.items ?? []) {
-        if (item.tool) add(`tool:${item.tool.id}`, "tool", { ...item.tool, text: item.text, at: row.at });
-        else add(`${item.kind}:${item.text}`, item.kind, { ...item, at: row.at });
+      const items = row.items ?? [];
+      // The run itself: which items it holds, and its own fields.
+      add(`activity:${items.map(itemKey)[0]}`, "activity", {
+        items: items.map(itemKey),
+        toolCount: row.toolCount,
+        streaming: row.streaming,
+      });
+      for (const item of items) {
+        if (item.tool) add(itemKey(item), "tool", { ...item.tool, text: item.text, at: row.at });
+        else add(itemKey(item), item.kind, { ...item, at: row.at });
       }
       continue;
     }
+    // The view's own rows (a turn's fold, its date) have no key both sides share but their place.
     const key =
       row.kind === "user"
         ? `user:${row.promptId}`
@@ -119,13 +208,20 @@ function units(rows: readonly AcpmuxRow[]): Unit[] {
             ? `turnSummary:${row.seq}`
             : row.kind === "permissionRecord"
               ? `permissionRecord:${row.permission?.permissionId}`
-              : `${row.kind}:${row.id}`;
+              : row.kind;
     add(key, row.kind, { ...row });
   }
   return out;
 }
 
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+/// The same when drawn: a row held inside a field (a fold's rows) is read without its UNCOMPARED fields.
+const drawn = (value: unknown) =>
+  JSON.stringify(value, function (this: Record<string, unknown>, key, field) {
+    return UNCOMPARED_KEYS.has(key) && typeof this.kind === "string" && typeof this.version === "number"
+      ? undefined
+      : field;
+  });
+const same = (a: unknown, b: unknown) => drawn(a) === drawn(b);
 
 /// Every field key that differs between v1's units and the adapter's, with one example each.
 function differences(want: Unit[], got: Unit[]): Map<string, string> {
@@ -182,6 +278,105 @@ test("the corpus draws the same through the store and adapter as through v1, but
     console.log(`PARITY ${allowed.has(key) ? "listed" : "OFF THE LIST"} ${key} | ${examples[0]}`);
   expect(offList.map(([key]) => key)).toEqual([]);
   expect(stale).toEqual([]);
+});
+
+/// Every fold closed, as a chat opens, and every fold open, as a person who opens each one.
+const FOLDS: readonly [string, Folds][] = [
+  ["closed", new Set<string>()],
+  ["open", { has: () => true, size: 1 }],
+];
+
+test("the view draws both the same: turnView over v1's rows and over the adapter's", async () => {
+  const found = new Map<string, string[]>();
+  for (const name of CORPUS) {
+    const before = v1(name).rows;
+    const after = adaptChat(await v2(name), { sessionId: SESSION }).rows;
+    const now = Math.max(...before.map((row) => row.at)) + 60_000;
+    for (const [folds, expanded] of FOLDS) {
+      const rows = differences(units(turnView(before, expanded, { now })), units(turnView(after, expanded, { now })));
+      for (const [key, example] of rows)
+        found.set(key, [...(found.get(key) ?? []), `${name} (folds ${folds}): ${example}`]);
+    }
+  }
+  // A difference of the rows only (NAMED `view: "same"`) is not allowed here.
+  const allowed = new Set([
+    ...NOT_YET.map((entry) => entry.field),
+    ...NAMED.filter((entry) => entry.view === "differs").map((entry) => entry.field),
+    ...DRAWN_FROM.map((entry) => entry.field),
+  ]);
+  for (const [key, examples] of found)
+    console.log(`VIEW ${allowed.has(key) ? "listed" : "OFF THE LIST"} ${key} | ${examples[0]}`);
+  expect([...found.keys()].filter((key) => !allowed.has(key))).toEqual([]);
+  // A field made from another leaves with it, and stays only while it differs.
+  const sources = new Set([...NOT_YET.map((entry) => entry.field), ...UNCOMPARED_KEYS]);
+  expect(
+    DRAWN_FROM.filter((entry) => !entry.from.every((field) => sources.has(field))).map((entry) => entry.field),
+  ).toEqual([]);
+  expect(DRAWN_FROM.map((entry) => entry.field).filter((field) => !found.has(field))).toEqual([]);
+});
+
+/// The `<kind>.<field>` keys v1 draws anywhere in the corpus, with `row:<kind>` for each kind, and
+/// `snapshot.<field>` for what v1's last snapshot holds that is not empty.
+async function shownByCorpus(): Promise<Set<string>> {
+  const shown = new Set<string>();
+  const empty = (value: unknown) =>
+    value === undefined ||
+    value === null ||
+    value === false ||
+    (Array.isArray(value) && value.length === 0) ||
+    (value instanceof Map && value.size === 0) ||
+    (typeof value === "object" && !Array.isArray(value) && !(value instanceof Map) && Object.keys(value).length === 0);
+  for (const name of CORPUS) {
+    const snapshot = v1(name);
+    for (const unit of units(snapshot.rows)) {
+      shown.add(`row:${unit.kind}`);
+      for (const field of Object.keys(unit.fields)) shown.add(`${unit.kind}.${field}`);
+    }
+    // `permissionGroups` is the page's permission client state; what FIELDS.md names is its groups.
+    for (const [field, value] of Object.entries(snapshot))
+      if (!empty(field === "permissionGroups" ? snapshot.permissionGroups?.groups : value))
+        shown.add(`snapshot.${field}`);
+    for (const entry of snapshot.queue)
+      for (const [field, value] of Object.entries(entry)) if (!empty(value)) shown.add(`queue.${field}`);
+  }
+  return shown;
+}
+
+/// The names FIELDS.md's "Not yet" gives in backquotes that are not one field the view reads: a
+/// type, a method or a wire name, each with what it stands for.
+const NOT_A_FIELD = new Map<string, string>([
+  ["QueueItem", "the queue entry's wire type; its new fields are named one by one"],
+  ["queue", "the snapshot's queue, compared whole (home d); its new fields are named one by one"],
+  ["_acpmux/view", "the method that carries presence, typing and the read mark"],
+  ["page {turns: true}", "the request for a page of turns"],
+  ["tasks: [{sessionId, name?, harness?}]", "the shape of `tasks`"],
+  ["background_turn", "the record a background turn comes from"],
+]);
+
+test("each field FIELDS.md has not yet is on one of notYet's lists, and the corpus shows none of the second", async () => {
+  const text = readFileSync(`${import.meta.dir}/FIELDS.md`, "utf8");
+  const section = text.slice(text.indexOf("\n## Not yet"));
+  const names = new Set(
+    [...section.matchAll(/`([^`]+)`/g)].map((match) => match[1]!).filter((name) => !NOT_A_FIELD.has(name)),
+  );
+  // FIELDS.md names the field (`<kind>.<field>` ends with it), the record a row is (`row:<kind>`),
+  // or a name the entry covers.
+  const entries = [...NOT_YET, ...NOT_IN_CORPUS];
+  const placed = (name: string) =>
+    entries.some(
+      (entry) =>
+        entry.field === name ||
+        entry.field === `row:${name}` ||
+        entry.field.endsWith(`.${name}`) ||
+        entry.covers?.includes(name),
+    );
+  const shown = await shownByCorpus();
+  console.log(`SHOWN ${[...shown].sort().join(" ")}`);
+  const unplaced = [...names].filter((name) => !placed(name)).sort();
+  console.log(`UNPLACED ${unplaced.join(" ")}`);
+  expect(unplaced).toEqual([]);
+  // The corpus showing one is a row to compare: it moves to NOT_YET, or off both lists once it draws the same.
+  expect(NOT_IN_CORPUS.map((entry) => entry.field).filter((field) => shown.has(field))).toEqual([]);
 });
 
 // A0's four named cases (2c's review), each shown at its fixture row.
