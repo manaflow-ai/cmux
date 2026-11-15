@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43686838280",
+  "recorded_at": "2026-11-15T06:51:51Z",
+  "reason": "cmux-tui 35fb9cda58c7 changes the image's cmux-tui (pinned 9cd626dce6da)",
+  "dry_run": false,
+  "cmux_tui": "35fb9cda58c74de2cf43a063c4f89c98bef5c9d4",
+  "fixes": [
+    {
+      "sha": "35fb9cda58c74de2cf43a063c4f89c98bef5c9d4",
+      "mergedAt": "2026-11-14T22:28:46-08:00",
+      "subject": "cmux-rd: Wayland screen capture through the ScreenCast portal and PipeWire (#43528)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T06:51:51Z",
+    "snapshot_id": "sh-cd58472456b54a4bbebdd7e8fc472b70",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43686838280): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9ea4e9acdfd8f905f7c3acf1213c0bac5577495f",
+    "image": "cloud-native-auto-35fb9cda-43686838280-1",
+    "revision": "ci-43686838280-1",
+    "at": "2026-11-15T06:51:51Z"
+  },
+  "rolled_back": false
+}
