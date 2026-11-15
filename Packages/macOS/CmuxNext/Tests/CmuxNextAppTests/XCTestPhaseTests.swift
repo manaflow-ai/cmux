@@ -17,7 +17,7 @@ import XCTest
 /// XCTest waits for its start-up work with a turn of the main run loop whenever that work is not
 /// done yet (there, a Contacts store lookup in xctest failed for 22 s first; on aws-m4pro-1 the
 /// same hang came with no Contacts line at all). The run-loop guard
-/// (Tests/Support/CmuxNextTestExitTrace) had queued a block that never returns, so that one turn
+/// (TestSupport/CmuxNextTestExitTrace) had queued a block that never returns, so that one turn
 /// took xctest's main thread and XCTest never ran its suite.
 nonisolated struct XCTestPhaseTests {
     @Test func theRunLoopGuardHoldsOnlyTheSwiftTestingHelper() {

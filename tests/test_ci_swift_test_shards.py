@@ -271,7 +271,7 @@ class SignalPolicy(unittest.TestCase):
     def test_the_sigpipe_handler_calls_only_async_signal_safe_functions(self) -> None:
         # A stack print (backtrace, backtrace_symbols_fd) in a signal handler can take a lock the interrupted
         # thread holds and deadlock the test process.
-        source = (PACKAGE / "Tests" / "Support" / "CmuxNextTestExitTrace" / "CmuxNextTestSignalPolicy.c").read_text()
+        source = (PACKAGE / "TestSupport" / "CmuxNextTestExitTrace" / "CmuxNextTestSignalPolicy.c").read_text()
         body = re.search(r"static void sigpipe_caught\(int signal\) \{\n(.*?)\n\}", source, re.S).group(1)
         body = re.sub(r'"(?:[^"\\]|\\.)*"', '""', body)
         calls = set(re.findall(r"\b([A-Za-z_]\w*)\s*\(", body)) - {"if", "sizeof", "void"}

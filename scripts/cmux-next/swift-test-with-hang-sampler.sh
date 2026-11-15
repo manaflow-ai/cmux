@@ -77,7 +77,7 @@ tee_pid=$!
 # interactive=no and timeout=0s so it never waits for a keypress that cannot
 # come; color=no so the log stays readable.
 # The test bundle drops the variable from its environment once the runtime has read it
-# (Tests/Support/CmuxNextTestExitTrace), so only the test process gets a backtracer: an exit
+# (TestSupport/CmuxNextTestExitTrace), so only the test process gets a backtracer: an exit
 # test's child traps on purpose and must not spend minutes symbolicating.
 export SWIFT_BACKTRACE="${SWIFT_BACKTRACE:-enable=yes,interactive=no,timeout=0s,symbolicate=fast,color=no,threads=crashed}"
 swift test "$@" >&3 2>&1 &
