@@ -61,7 +61,6 @@ extension AddMachineServices {
         AsyncThrowingStream { continuation in
             // task-owner: one CLI run; the stream's end cancels it (SSHProcessRunner stops the process).
             let run = Task { @MainActor in
-                // A cmux access token for the active team: the platform's machine routes refuse the session's.
                 guard let access = await auth.machineRoutesToken(identity: identity) else {
                     return continuation.finish(throwing: HostCLIStop(status: nil, message: RemoteStrings.signInToCheck))
                 }
