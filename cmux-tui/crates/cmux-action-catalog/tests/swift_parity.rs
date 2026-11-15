@@ -68,6 +68,10 @@ fn shortcut_awaits_repin(id: &str, exported: &Value) -> bool {
 /// it fails: the re-pin landed, so take it off.
 const FIELDS_AWAITING_REPIN: &[(&str, &[&str])] = &[];
 
+/// Top-level members of the catalog this crate added that the pinned app FFI, and so the Swift
+/// dump, does not have yet (step A). A listed member the dump already has fails: take it off.
+const MEMBERS_AWAITING_REPIN: &[&str] = &["customize_elements"];
+
 /// Gives `rust`'s rows the dump's value of each field on [`FIELDS_AWAITING_REPIN`], after
 /// checking that the two still differ there.
 fn awaiting_field_repin(rust: &mut Value, swift: &Value) {
@@ -211,6 +215,13 @@ fn english_catalog_equals_the_swift_dump() {
     object.remove("locale");
     // The dump is a Debug build's, which has every Debug-only entry; the list of them is new.
     object.remove("debug_build_only");
+    for member in MEMBERS_AWAITING_REPIN {
+        assert!(
+            swift.get(*member).is_none(),
+            "action-catalog.json has {member}: the re-pin landed, so take it off MEMBERS_AWAITING_REPIN"
+        );
+        object.remove(*member);
+    }
     check_awaiting_repin(
         swift["actions"].as_array().map_or(&[], Vec::as_slice),
         "action-catalog.json",
