@@ -460,13 +460,24 @@ class HotKeys(unittest.TestCase):
         self.assertEqual(plan["web_key"], "7" * 64)
         self.assertEqual(list(plan["left"]), ["Swift, resources and manifests"])
 
-    def test_an_ffi_change_keeps_the_daemon_and_a_new_web_abi_keeps_the_web(self):
+    def test_a_new_web_abi_keeps_the_web(self):
         self.publish(self.base)
-        self.publish(FIX, tree_key="8" * 40, ffi="9" * 64, web="b" * 64, web_key="a" * 64, web_abi=4)
+        self.publish(FIX, web="b" * 64, web_key="a" * 64, web_abi=4)
         code, plan, err = self.plan()
         self.assertEqual(code, 3, err)
         self.assertEqual(plan["parts"], [])
-        self.assertEqual(sorted(plan["left"]), ["Rust the app links (FFI)", "web ABI"])
+        self.assertEqual(list(plan["left"]), ["web ABI"])
+
+    def test_an_ffi_change_is_planned_from_the_diff(self):
+        # The app FFI may swap warm (cmux#43548), and which files changed decides it: the keys hand the pair over.
+        self.publish(self.base)
+        self.publish(FIX, tree_key="8" * 40, ffi="9" * 64)
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--base", self.base, "--app", str(self.tmp / "none")],
+                              capture_output=True, text=True, env=self.env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        plan = json.loads(done.stdout)
+        self.assertNotIn("via", plan)
+        self.assertEqual(plan["parts"], ["rust"])  # cmux#37155's real diff: no FFI file
 
     def test_equal_keys_are_a_no_op(self):
         self.publish(self.base)

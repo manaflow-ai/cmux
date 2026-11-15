@@ -475,7 +475,9 @@ def keys_plan(app: Path, sha: str, base: str, given_base: bool) -> dict | None:
     if want["tree_key"] != have["tree_key"]:
         out["tree_key"], out["base_tree_key"] = want["tree_key"], have["tree_key"]
         if want["ffi"] != have["ffi"]:
-            out["left"]["Rust the app links (FFI)"] = [f"ffi key {have['ffi'][:12]} -> {want['ffi'][:12]}"]
+            # The app FFI may swap warm (cmux#43548): which files changed decides it (the Swift build's own Rust
+            # inputs still need an app), and only the diff knows them, so the diff plans this pair.
+            return None
         else:
             out["parts"].append("rust")
             out["published"] = published(want["tree_key"])
