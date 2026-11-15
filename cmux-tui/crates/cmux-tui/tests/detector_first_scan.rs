@@ -12,7 +12,8 @@
 //! `terminal.close`, so a session that lived for long holds many such rows.
 //! A read of such a row gives nothing that its list row does not hold. The
 //! first test counts the reads on a session with a terminal that ended; the
-//! second is the table of the choice.
+//! second is the table of the choice; the third holds the item that the owner
+//! sends when a terminal that ended gets a new process.
 //!
 //! The tests do not run the detector's binary: the first test makes the list
 //! request, and then the reads that the detector's function names.
@@ -28,7 +29,9 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use cmux::{
-    Client, Config, Selector, Session, SessionId, TerminalId, TerminalLifecycle, TerminalSnapshot,
+    Client, Config, EventStreamOptions, ResourceChange, ResourceEntitySnapshot, ResourceReference,
+    Selector, Session, SessionEvent, SessionId, StreamPoll, TerminalId, TerminalLifecycle,
+    TerminalSnapshot,
 };
 use detector_first_scan::{ListedTerminal, first_scan_ids};
 use fault_support::{FaultDir, NO_MAINTENANCE, Owner};
@@ -225,4 +228,75 @@ fn detector_first_scan_reads_each_listed_terminal_but_an_ended_one_with_no_state
         "the detector's first reads of the rows {listed:?}"
     );
     assert!(first_scan_ids(Vec::<ListedTerminal<'_>>::new()).is_empty());
+}
+
+/// The wake that gives an ended terminal its read again, on the owner's side.
+/// A terminal whose process ended and whose tab stays (`on_exit: keep`) is in
+/// the list as `exited`. A `restart-tab` gives it a new process under the
+/// same id, and a session event stream that was open before the list then
+/// gets a delta with an upsert of that terminal which is not `exited`. The
+/// detector reads a terminal that such a delta names (`scanner.rs`,
+/// `terminal_wakes`). Each wait is on a stream item, with the liveness bound
+/// `SETUP_BOUND`. The test does not use the detector's choice: it holds what
+/// the owner sends.
+#[test]
+fn detector_first_scan_gets_an_upsert_when_an_ended_terminal_restarts() {
+    let label = "dfs-restart";
+    let dir = FaultDir::new(label);
+    let owner = Owner::start(&dir, label, &[NO_MAINTENANCE], READY_BOUND);
+    let workspace = fault_support::create_workspace(&dir.socket(), "kept");
+    let (_client, session) =
+        sdk_session(&dir.socket(), label).unwrap_or_else(|error| panic!("setup: {error}"));
+    let mut events = session
+        .events(EventStreamOptions::default())
+        .unwrap_or_else(|error| panic!("setup: session event stream open: {error}"));
+    let run = fault_support::v2(
+        &dir.socket(),
+        "workspace.run",
+        json!({"workspace": workspace, "argv": ["/bin/sh", "-c", "exit 3"], "on_exit": "keep"}),
+        "dfs-restart-run",
+    );
+    let terminal = run["value"]["terminal_id"].as_str().expect("the run names its terminal");
+    let mut restarted = None;
+    let woke = loop {
+        let item = match events.next_timeout(SETUP_BOUND) {
+            Ok(StreamPoll::Item(item)) => item,
+            Ok(StreamPoll::TimedOut) => panic!(
+                "within {SETUP_BOUND:?} the stream has no upsert of the terminal {terminal}; \
+                 the answer to `restart-tab`, if the test sent it: {restarted:?}"
+            ),
+            Ok(StreamPoll::End) => panic!("the session event stream ended before the upsert"),
+            Err(error) => panic!("session event stream item: {error}"),
+        };
+        let SessionEvent::Delta(delta) = item.value else { continue };
+        let upsert = delta.changes.iter().find_map(|change| match change {
+            ResourceChange::Upsert {
+                id: ResourceReference::Terminal(id),
+                value: ResourceEntitySnapshot::Terminal(row),
+                ..
+            } if id.as_str() == terminal => Some(row.clone()),
+            _ => None,
+        });
+        let Some(row) = upsert else { continue };
+        let ended = row.lifecycle == TerminalLifecycle::Exited;
+        if restarted.is_none() && ended {
+            // The list of a pass: the stream is open, and the row is there as ended.
+            let listed = session.terminal_snapshots().expect("terminal list");
+            let lifecycles = listed
+                .iter()
+                .filter(|row| row.id.as_str() == terminal)
+                .map(|row| row.lifecycle)
+                .collect::<Vec<_>>();
+            assert_eq!(lifecycles, [TerminalLifecycle::Exited], "setup: the rows of {terminal}");
+            let tab = &run["value"]["tab_id"];
+            restarted = Some(owner.data(json!({"cmd": "restart-tab", "surface": tab})));
+        } else if restarted.is_some() && !ended {
+            break row;
+        }
+    };
+    drop(events);
+    owner.stop();
+    eprintln!("{label}: after `restart-tab` the stream gives the terminal as {:?}", woke.lifecycle);
+    let restarted = restarted.expect("the loop ends after the restart only");
+    assert_eq!(restarted["terminal"], terminal, "`restart-tab` names another terminal");
 }
