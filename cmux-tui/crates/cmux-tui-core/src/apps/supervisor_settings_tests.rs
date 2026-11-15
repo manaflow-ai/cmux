@@ -17,7 +17,8 @@ fn prefs_fixture() -> Fixture {
             "greeting": { "type": "string", "title": "Greeting", "default": "Hello", "maxLength": 40 },
             "compact": { "type": "boolean", "title": "Compact rows", "default": false },
             "size": { "type": "string", "enum": ["small", "large"], "default": "small" },
-            "limit": { "type": "integer", "minimum": 1, "maximum": 50, "default": 10 }
+            "limit": { "type": "integer", "minimum": 1, "maximum": 50, "default": 10 },
+            "step": { "type": "integer", "enum": [10, 100, "bad"], "maximum": 50, "default": 10 }
         }
     });
     std::fs::write(&path, manifest.to_string()).unwrap();
@@ -53,7 +54,7 @@ fn extension_settings_are_listed_with_their_schema_and_defaults() {
     assert_eq!(prefs["schema"]["properties"]["compact"]["title"], "Compact rows");
     assert_eq!(
         prefs["values"],
-        json!({ "greeting": "Hello", "compact": false, "size": "small", "limit": 10 })
+        json!({ "greeting": "Hello", "compact": false, "size": "small", "limit": 10, "step": 10 })
     );
 }
 
@@ -105,6 +106,9 @@ fn a_setting_outside_the_manifest_schema_is_refused_and_nothing_changes() {
         ("b5", json!({ "greeting": "x".repeat(41) })),
         ("b6", json!({ "unknown": 1 })),
         ("b7", json!("not an object")),
+        // An enum value still has to fit the declared type and bounds.
+        ("b8", json!({ "step": 100 })),
+        ("b9", json!({ "step": "bad" })),
     ] {
         let error = set(&f, key, values.clone()).unwrap_err();
         assert_eq!(error.code, "apps.settings.invalid", "{values}");
@@ -151,4 +155,13 @@ fn stored_settings_are_written_with_the_install_record() {
     let file: Value =
         serde_json::from_slice(&std::fs::read(f.state.join("apps.json")).unwrap()).unwrap();
     assert_eq!(file["mirror"]["apps"]["cmux/prefs"]["settings"], json!({ "greeting": "Hi there" }));
+}
+
+/// A settings change is a mutation: the wire admits it only from the verified cmux app
+/// connection (Gate A2), like every other change to the install mirror.
+#[test]
+fn a_settings_change_is_gated_as_a_mutation() {
+    assert!(crate::apps::store_op_mutates("apps.settings.set"));
+    assert!(crate::apps::store_op_mutates("cmux.apps.settings.set"));
+    assert!(!crate::apps::store_op_mutates("apps.settings.list"));
 }

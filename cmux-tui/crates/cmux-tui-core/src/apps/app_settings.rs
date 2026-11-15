@@ -58,11 +58,16 @@ pub(super) fn effective(package: &Package, record: Option<&Record>) -> Value {
 
 /// Why `value` is not a valid value of the property `schema`, if it is not.
 fn invalid(schema: &Value, value: &Value) -> Option<String> {
-    if let Some(choices) = schema.get("enum").and_then(Value::as_array) {
-        return (!choices.contains(value))
-            .then(|| format!("must be one of {}", Value::from(choices.clone())));
+    // An enum narrows the declared type and bounds; it never replaces them.
+    if let Some(choices) = schema.get("enum").and_then(Value::as_array)
+        && !choices.contains(value)
+    {
+        return Some(format!("must be one of {}", Value::from(choices.clone())));
     }
     let kind = schema.get("type").and_then(Value::as_str).unwrap_or_default();
+    if kind.is_empty() && schema.get("enum").is_some() {
+        return None;
+    }
     let fits = match kind {
         "boolean" => value.is_boolean(),
         "string" => value.is_string(),
