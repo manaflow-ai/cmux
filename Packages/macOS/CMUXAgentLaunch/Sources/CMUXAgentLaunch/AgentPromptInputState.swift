@@ -110,8 +110,11 @@ extension AgentPromptInputState {
     private static func detect(rows: [[AgentPromptScreenSpan]], styles: Set<AgentPromptStyle>) -> AgentPromptInputState {
         let plainRows = rows.map(plainText)
         let promptRow = plainRows.lastIndex(where: { promptPrefix(in: $0, styles: styles) != nil })
+        // Hints count only below the last prompt-glyph row of any style, so a
+        // reply above it that quotes a hint isn't a dialog on any agent.
+        let glyphRow = plainRows.lastIndex(where: { promptPrefix(in: $0, styles: Set(AgentPromptStyle.allCases)) != nil })
 
-        let hintSearchStart = promptRow.map { $0 + 1 } ?? 0
+        let hintSearchStart = glyphRow.map { $0 + 1 } ?? 0
         let bottomRows = plainRows[hintSearchStart...].reversed()
             .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
             .prefix(dialogHintRowWindow)
