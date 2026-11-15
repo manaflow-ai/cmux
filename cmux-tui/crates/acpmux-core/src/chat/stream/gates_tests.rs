@@ -894,7 +894,9 @@ struct QueueSide {
     read: Vec<u64>,
 }
 
-/// From `sub` to the window's bytes at the client, and the bytes read on the way.
+/// From `sub` on a cold chat to the window's bytes at the client, and the bytes read on the way.
+/// Outside the clock: the actor is closed and joined after, so the next window reads its heads
+/// again and not the ones the actor kept, and each window read at least its 64 heads.
 fn queue_sample(rt: &Runtime, side: &mut QueueSide) -> u64 {
     let sid = side.reader.sid("q");
     let client = &mut side.reader.client;
@@ -913,6 +915,9 @@ fn queue_sample(rt: &Runtime, side: &mut QueueSide) -> u64 {
     assert_eq!(window.queue.count as usize, QUEUED);
     assert_eq!(window.queue.entries.len(), QUEUED);
     assert!(window.queue.entries.iter().all(|entry| entry.len == side.text_bytes as u64));
+    assert!(side.reader.fixture.chat.registry.evict("chat"), "the window's actor ran");
+    let heads = (QUEUED * queue::HEAD_TEXT) as u64;
+    assert!(read >= heads, "a window read {read} bytes, under the {heads} of its {QUEUED} heads");
     side.read.push(read);
     elapsed
 }
@@ -939,6 +944,20 @@ fn v2_pr03c_queue_window() {
         || queue_sample(&rt, small),
         || queue_sample(&rt, god),
     );
+    // Each round's timed samples, after its warm-ups, as `paired` takes them.
+    let rounds = |read: &[u64]| -> Vec<u64> {
+        read.chunks(WARMUP + SAMPLES)
+            .map(|round| percentile(round.get(WARMUP..).unwrap()))
+            .collect()
+    };
+    for (number, (small_round, god_round)) in
+        rounds(&small.read).into_iter().zip(rounds(&god.read)).enumerate()
+    {
+        println!(
+            "{name} mode=queue round={} small_read_p95={small_round} god_read_p95={god_round}",
+            number + 1
+        );
+    }
     let (small_read, god_read) = (percentile(&small.read), percentile(&god.read));
     println!("{name} mode=queue small_read_p95={small_read} god_read_p95={god_read}");
     emit(name, measures, "ns");
