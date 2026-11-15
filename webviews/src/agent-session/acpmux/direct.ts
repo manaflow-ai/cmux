@@ -761,6 +761,11 @@ const BACKGROUND_TURN_KIND = "background_turn";
 /// or the agent stopped waiting.
 /// The capability id an acpmux with `_acpmux/agent_login/*` names (and its versioned spelling).
 const AGENT_LOGIN_CAPABILITIES = ["agent_login", "agent-login-v1"];
+/// The feature a new chat's wire names when its machine signs its agent in before the chat has a
+/// session (RemoteAcpmuxWire `agent_login_machine`, cmux-tui `agent-session-login-machine-v1`):
+/// a login step that names no chat runs there. Only a remote wire names it; a local acpmux never
+/// does, so a step with no chat never signs this Mac's agent in from a Cloud chat's card.
+const AGENT_LOGIN_MACHINE_FEATURE = "agent_login_machine";
 /// The capability id an acpmux that serves the memory inbox names (`memory_offer` records and
 /// `_acpmux/memory_resolve`): without it no memory card draws.
 const MEMORY_INBOX_CAPABILITY = "memory-inbox-v1";
@@ -12620,6 +12625,11 @@ export class AcpmuxDirectClient {
   get supportsAgentLogin(): boolean {
     return AGENT_LOGIN_CAPABILITIES.some((id) => this.capabilities?.has(id) || this.features.has(id));
   }
+  /// Whether a new chat with no session yet signs its agent in on its machine (`agent_login_machine`
+  /// in `initialize`'s features): the failed start's sign-in card (hq#11225).
+  get supportsMachineLogin(): boolean {
+    return this.features.has(AGENT_LOGIN_MACHINE_FEATURE);
+  }
   /// Whether this acpmux serves the prompt coach (`prompt-coach-v1` in its capabilities).
   get supportsPromptCoach(): boolean {
     return this.capabilities?.has(PROMPT_COACH_CAPABILITY) === true || this.features.has(PROMPT_COACH_CAPABILITY);
@@ -12630,24 +12640,29 @@ export class AcpmuxDirectClient {
   }
   /// Starts `agent`'s own login on chat `sessionId`'s machine (`_acpmux/agent_login/start`; acpmux
   /// forwards a call that names a chat to the machine it lives on): the page to open, Codex's
-  /// device code, and whether the page gives a code to paste back (Claude).
-  agentLoginStart(agent: string, sessionId: string): Promise<unknown> {
-    return this.request("_acpmux/agent_login/start", { agent, sessionId });
+  /// device code, and whether the page gives a code to paste back (Claude). With no `sessionId` (a
+  /// new chat's, ``supportsMachineLogin``) the step runs on the chat's machine itself.
+  agentLoginStart(agent: string, sessionId: string | undefined): Promise<unknown> {
+    return this.request("_acpmux/agent_login/start", { agent, ...(sessionId ? { sessionId } : {}) });
   }
   /// Finishes login `loginId` (`_acpmux/agent_login/finish`) with Claude's pasted `code`, or waits
   /// for Codex's approval; acpmux restarts chat `sessionId`'s agent signed in. The wire log keeps
   /// no code (wire.ts).
-  agentLoginFinish(loginId: string, sessionId: string, code?: string): Promise<unknown> {
-    return this.request("_acpmux/agent_login/finish", { loginId, sessionId, ...(code ? { code } : {}) });
+  agentLoginFinish(loginId: string, sessionId: string | undefined, code?: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/finish", {
+      loginId,
+      ...(sessionId ? { sessionId } : {}),
+      ...(code ? { code } : {}),
+    });
   }
   /// Saves an API key for `agent` on the machine (`_acpmux/agent_login/api_key`) and restarts chat
   /// `sessionId`'s agent on it. The wire log keeps no key (wire.ts).
-  agentLoginApiKey(agent: string, sessionId: string, key: string): Promise<unknown> {
-    return this.request("_acpmux/agent_login/api_key", { agent, key, sessionId });
+  agentLoginApiKey(agent: string, sessionId: string | undefined, key: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/api_key", { agent, key, ...(sessionId ? { sessionId } : {}) });
   }
   /// Stops login `loginId` on chat `sessionId`'s machine (`_acpmux/agent_login/cancel`).
-  agentLoginCancel(loginId: string, sessionId: string): Promise<unknown> {
-    return this.request("_acpmux/agent_login/cancel", { loginId, sessionId });
+  agentLoginCancel(loginId: string, sessionId: string | undefined): Promise<unknown> {
+    return this.request("_acpmux/agent_login/cancel", { loginId, ...(sessionId ? { sessionId } : {}) });
   }
   async sessionAuth(query: SessionAuthQuery, refresh = false): Promise<unknown> {
     if (!this.features.has("sessionAuth")) return UNKNOWN_AUTH;
