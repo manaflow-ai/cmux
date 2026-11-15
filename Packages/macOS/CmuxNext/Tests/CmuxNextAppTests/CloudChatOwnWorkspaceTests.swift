@@ -58,6 +58,38 @@ struct CloudChatOwnWorkspaceTests {
         #expect(opened == [WorkspaceHandle(rawValue: 2)] && result.tab == "same tab", "a retry opened its chat somewhere else")
     }
 
+    /// DEV 0b53cf17, 2026-11-15: a new machine's link reconnected (after its software update, as remote approvals came
+    /// on) right as the chat opened; the open read no connection, the start answered "cloud-chats-8 didn't connect.
+    /// Retry once it's online." and deleted the machine. The open now waits for the link and runs once more.
+    @Test func anOpenThatFindsTheLinkDownWaitsForItAndOpensOnceMore() async throws {
+        let store = DaemonStore()
+        var tries = 0, up = false
+        let opened = try await CloudMachineWorkspace.chatRelinked(in: store, held: { up }, relink: .seconds(20)) {
+            tries += 1
+            guard up else {
+                // The link comes back while the start waits for it.
+                Task { @MainActor in
+                    _ = store.apply(.connected(DaemonIdentity(generation: "live"), generationChanged: false))
+                    store.apply(snapshot: DaemonTree(registryID: "s-vm", workspaces: []))
+                    up = true
+                }
+                throw Self.notConnected
+            }
+            return "chat"
+        }
+        #expect(opened == "chat" && tries == 2)
+    }
+
+    /// A link that stays down ends the start with its own failure, after one wait and no second open.
+    @Test func anOpenWhoseLinkStaysDownFailsAsItIs() async {
+        let store = DaemonStore()
+        var tries = 0
+        await #expect(throws: ActionFailure.self) {
+            try await CloudMachineWorkspace.chatRelinked(in: store, held: { false }, relink: .milliseconds(50)) { tries += 1; throw Self.notConnected }
+        }
+        #expect(tries == 1)
+    }
+
     /// The key is a UUID (acpmux names a session's display only for a UUID workspace key), fixed per start.
     @Test func theKeyIsAStableUUIDPerStart() {
         let one = CloudMachineWorkspace.chatKey(tabKey: "cloud-start-chat-k1")

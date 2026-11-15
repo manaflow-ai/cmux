@@ -347,6 +347,17 @@ public struct CloudMachineWorkspace {
         return (key, try await create(key), true)
     }
 
+    /// The composer start's chat open (`CloudStartChat`: ``chat(tabKey:in:within:notConnected:open:create:)`` and its
+    /// mirrored tab), tried once more when the machine's link was down or dropped under it, once the link is live again
+    /// (up to `relink`). A new machine's link reconnects after its software update and when remote approvals come on,
+    /// which can land on the open: the start read no connection and answered "didn't connect. Retry once it's online."
+    /// half a second after the machine connected, then deleted the machine (DEV 0b53cf17, 2026-11-15). The open is keyed,
+    /// so the second try gets the same workspace and tab. A failure with the link up, or a link that stays down, throws as it is.
+    public static func chatRelinked<T>(in store: DaemonStore, held: () -> Bool, relink: Duration = CloudWait.relinkWait,
+                                       _ open: () async throws -> T) async throws -> T {
+        try await CloudWait.relinkedOnce(epoch: { store.connectionEpoch }, held: held, relink: { await live(store, within: relink) }, open)
+    }
+
     /// ``chat(tabKey:in:within:notConnected:open:create:)`` once its workspace mirrors (`anchor`: its first pane, by
     /// workspace id), with the chat's tab in it: a CLI or agent start's chat (`cloud start-session`), its workspace's only
     /// tab. `open` and `create` answer the chat's surface. Throws `notConnected` when the tab never shows.
