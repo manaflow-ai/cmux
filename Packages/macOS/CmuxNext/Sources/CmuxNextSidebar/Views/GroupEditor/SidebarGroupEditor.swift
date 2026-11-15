@@ -16,6 +16,8 @@ public protocol SidebarGroupEditorSurface: AnyObject {
     func refresh(_ group: SidebarGroup)
     /// Closes the bubble; its last typed name commits, then `events.close` runs.
     func dismiss()
+    /// Makes what draws the bubble ahead of the first open (a hover over a group header), so that open is warm.
+    func prepare()
 }
 
 /// What the person did in the editor, in the order it happened.
@@ -87,6 +89,17 @@ public final class SidebarGroupEditor {
     }
 
     public var isVisible: Bool { shownGroup != nil }
+
+    /// Whether the surface was asked to make its bubble ahead of an open (once per editor).
+    private(set) var preparedSurface = false
+
+    /// Makes the surface's bubble ahead of the first open, on the first hover over a group header: the bubble is
+    /// a web page, made on this sign of intent and not at launch (`MenuTracking.onFirstMenu`). Later calls cost nothing.
+    func prepareSurface() {
+        guard !preparedSurface, let surface else { return }
+        preparedSurface = true
+        surface.prepare()
+    }
     /// False in tests: the bubble is laid out but never put on screen.
     var ordersFront = true
 

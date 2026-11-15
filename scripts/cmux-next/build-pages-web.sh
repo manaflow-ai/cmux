@@ -83,7 +83,11 @@ bun scripts/pages/gen-strings.mjs
 
 # No CSP meta: the scheme handler sends each page's policy as a header (PageCSP, strict unless a
 # first-party page widens it). A meta policy would also apply and could only narrow it.
-bun scripts/pages/bundle.mjs "$WORK" $PAGES
+if [ -n "${CMUX_ARTIFACT_RUNTIME_METAFILE:-}" ]; then
+  CMUX_ARTIFACT_RUNTIME_METAFILE="$CMUX_ARTIFACT_RUNTIME_METAFILE" bun scripts/pages/bundle.mjs "$WORK" $PAGES
+else
+  bun scripts/pages/bundle.mjs "$WORK" $PAGES
+fi
 [ -s "$WORK/__shared/page-base.css" ] || { echo "error: pages builder did not emit __shared/page-base.css" >&2; exit 1; }
 if [ -n "${CMUX_PAGES_METAFILE:-}" ]; then cp "$WORK/metafile.json" "$CMUX_PAGES_METAFILE"; fi
 for page in $PAGES; do

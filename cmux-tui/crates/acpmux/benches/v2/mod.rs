@@ -195,7 +195,9 @@ pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "3c",
         name: "v2.pr03c.queue_window",
-        done_when: "A window with 64 prompts of 100 KB waiting, against 64 of 1 KB (the head's bound, so both windows carry the same bytes): 1.2x. Window time and bytes read of the lines.",
+        done_when: "A window with 64 prompts of 100 KB waiting, against 64 of 16 KB (the head read's bound, so both sides fill each head's one read and both windows carry the same bytes), each on a cold actor: 1.2x. Window time and bytes read. A probe prints the 1 KB and 1 MB sides.",
+        // Best p95 time ratio 0.984, 0.965 and 0.945 in three runs, bytes read 1.000; the probe
+        // (`queue_window_sizes_probe`) has 1 MB within 1.013 of 16 KB on time and 1.000 on bytes.
         measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
@@ -240,7 +242,7 @@ pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "3b",
         name: "v2.pr03b.catchup_peak_rss",
-        done_when: "The god chat caught up from nothing over the v1 source: the most bytes the actor's thread holds at once (the test allocator's count, over its first chunk's, in any stretch of the same length or at the end) within 1.2x of small, after one catch-up nobody measures; one chunk held, the bytes read within 1.2x of the log, and the book equal to what translate gives. Resident size's rise is printed, not gated: glibc's held free pages and rows.idx's page cache move it.",
+        done_when: "The god chat caught up from nothing over the v1 source: the most bytes the actor's thread holds at once (the test allocator's count, over its first chunk's, in any stretch of the same length or at the end) within 1.2x of small, after one catch-up nobody measures; god's resident anonymous bytes grow at most 64 KiB from the stretch a quarter of the way through to its last (no small side: what the thread count cannot see); one chunk held, the bytes read within 1.2x of the log, and the book equal to what translate gives. Resident size's rise is printed, not gated: glibc's held free pages and rows.idx's page cache move it.",
         measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
@@ -983,6 +985,33 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "8",
         name: "v2.pr08.mirror_local_row",
         done_when: "A local row's submit-to-publish p95 while a unit of the largest size (MAX_UNIT_CHANGES, 512 changes; the dialer cuts a peer's frame of up to 5,242 into such units) applies in the same writer turn: within 1.2x with 11k chats and 16,000 rows held for 30 origins, against 20 chats and one origin. Rounds alternate.",
+        measured: true,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "8",
+        name: "v2.pr08.mirror_local_row_thirty",
+        done_when: "A local row's submit-to-publish p95 while 30 origins each queue a unit of 512 changes before one writer turn, 11k chats and 16,000 rows held: at most 10 ms under the turn's cap (MAX_TURN_UNIT_CHANGES, 2,048 changes), and the same with the cap lifted for comparison.",
+        measured: false,
+        ratio: f64::INFINITY,
+        ratio_all: None,
+        god_max: Some(10_000_000.0),
+    },
+    GateRow {
+        pr: "8",
+        name: "v2.pr08.dial_resume",
+        done_when: "A dial's resume with nothing missed into a hub reopened from its store, from the dial to the frame that ends it, and the link's bytes: a peer of 500 live rows with 11k closed beside them against none, rounds alternating, two hubs over a pipe, the serving side the real connection in peer role. One empty frame marked end, no walk; bytes equal but for the cursor's digits.",
+        measured: true,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "8",
+        name: "v2.pr08.edition_walk",
+        done_when: "A walk in a new edition, from the dial to whole, and the link's bytes: 500 live rows with 11k closed beside them against none, bytes under 200 KB; no index the writer publishes in the walk lacks a live row or holds it closed.",
         measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,

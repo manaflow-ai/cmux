@@ -91,6 +91,7 @@ impl Peer {
             read_tokens: tokens::TokenCache::default(),
             linked_once: AtomicBool::new(false),
             slow_banner: AtomicBool::new(false),
+            login_refused: AtomicBool::new(false),
             admitting: AtomicBool::new(false),
             attached: StdMutex::new(HashMap::new()),
             marks: AtomicU64::new(0),
@@ -405,6 +406,9 @@ impl Peer {
         if reason == Some(ssh_errors::BANNER_TIMEOUT) {
             self.slow_banner.store(true, Ordering::SeqCst);
         }
+        if ssh_errors::login_refused(reason) {
+            self.login_refused.store(true, Ordering::SeqCst);
+        }
     }
 
     /// The dashboard token (configured, else the remote daemon's own) and
@@ -689,8 +693,10 @@ impl Peer {
     /// A connection to the peer ended: what the peer kept for it is gone.
     pub(crate) fn link_ended(&self) {
         self.features.lock_or_recover().clear();
-        self.end_mirror();
+        // The epoch moves first: the mirror that ends with its inbox sees the link gone, and
+        // leaves the origin to the next link (`peer_dialer.rs`).
         self.link_epoch.fetch_add(1, Ordering::SeqCst);
+        self.end_mirror();
         self.github_revoked.notify_waiters();
     }
 
