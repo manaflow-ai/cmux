@@ -212,15 +212,17 @@ fn create(
 /// Starts the new worktree's setup from the project's recipe; what the
 /// reply says of it. No setup starts and no port is given when the
 /// worktree's `.git` file names a folder that is not a worktree's git
-/// folder of this repository ([`is_of`]).
+/// folder of this repository ([`worktree_setup::Place::is_of`]).
 fn setup(mux: &Mux, attempt: &Attempt, common_dir: &Path) -> Value {
     let main = main_root(common_dir).map(Path::to_path_buf);
-    let own = admin_dir(&attempt.root).filter(|admin| is_of(admin, common_dir));
-    let Some(git_dir) = own else { return json!({"state": "none"}) };
-    let resolved =
-        worktree_recipe::resolve(mux, main.as_deref(), main.as_deref().unwrap_or(common_dir));
+    let Some(git_dir) = admin_dir(&attempt.root) else { return json!({"state": "none"}) };
     let root = worktree_setup::resolved(&attempt.root);
     let place = worktree_setup::Place::new(root, main, &git_dir);
+    if !place.is_of(common_dir) {
+        return json!({"state": "none"});
+    }
+    let main = place.main_root.as_deref();
+    let resolved = worktree_recipe::resolve(mux, main, main.unwrap_or(common_dir));
     worktree_setup::start(place, resolved.recipe)
 }
 
@@ -233,17 +235,6 @@ pub(super) fn admin_dir(root: &Path) -> Option<PathBuf> {
     let admin = link.trim().strip_prefix("gitdir:")?.trim();
     let admin = root.join(admin);
     admin.is_dir().then_some(admin)
-}
-
-/// Whether `admin` is a worktree's git folder of the repository whose
-/// shared git folder is `common_dir`: a folder directly in the `worktrees`
-/// folder of `common_dir`, by the real paths of both.
-fn is_of(admin: &Path, common_dir: &Path) -> bool {
-    let real = |path: &Path| std::fs::canonicalize(path).ok();
-    let (Some(admin), Some(worktrees)) = (real(admin), real(&common_dir.join("worktrees"))) else {
-        return false;
-    };
-    admin.parent() == Some(worktrees.as_path())
 }
 
 /// The attempt's worktree exists on its branch and git finished making it:

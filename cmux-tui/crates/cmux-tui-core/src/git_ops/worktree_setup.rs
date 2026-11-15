@@ -119,6 +119,17 @@ impl Place {
         Self { root, main_root, own, shared: ports::folder(git_dir) }
     }
 
+    /// Whether the worktree's own git folder is a worktree's git folder of
+    /// the repository whose shared git folder is `common_dir`: a folder
+    /// directly in the `worktrees` folder of `common_dir`, by the real paths
+    /// of both.
+    pub(super) fn is_of(&self, common_dir: &Path) -> bool {
+        let real = |path: &Path| fs::canonicalize(path).ok();
+        let folders = (real(self.own.path()), real(&common_dir.join("worktrees")));
+        let (Some(own), Some(worktrees)) = folders else { return false };
+        own.parent() == Some(worktrees.as_path())
+    }
+
     fn name(&self) -> String {
         self.root.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default()
     }
