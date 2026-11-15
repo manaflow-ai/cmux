@@ -194,7 +194,7 @@ async fn peers_off_at_a_second_start_from_the_store_hands_the_origin_to_v1() {
         writing.await.unwrap().unwrap();
     }
     let (index, writer) = acpmux_core::hub::Hub::open(directory.path(), 2, || 8).unwrap();
-    let v2 = Arc::new(V2::with_surfaces(index, writer, vec!["list".to_owned()]));
+    let v2 = Arc::new(V2::with_surfaces(index, writer, ["list".to_owned()].into()));
     tokio::spawn(v2.take_writer().unwrap().run());
     v2.hub.wait_hydrated().await.unwrap();
     assert_eq!(
