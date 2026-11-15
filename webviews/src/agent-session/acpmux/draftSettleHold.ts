@@ -19,8 +19,7 @@ export function useDraftWaitOver(
   draftSettled: string | undefined,
 ): string | undefined {
   const [draftWaitOver, setDraftWaitOver] = useState<string>();
-  void draftSettled;
-  const waiting = rowsReadFor;
+  const waiting = rowsReadFor !== undefined && draftSettled !== rowsReadFor ? rowsReadFor : undefined;
   useEffect(() => {
     if (waiting === undefined) return;
     const timer = window.setTimeout(() => setDraftWaitOver(waiting), DRAFT_SETTLE_HOLD_MS);
