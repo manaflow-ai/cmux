@@ -1528,6 +1528,31 @@ async fn dispatch_request_with_identity(
             crate::cua_socket::enroll(socket.to_owned(), agent_token.to_owned());
             Ok(json!({"enrolled": true}))
         }
+        method::MUX_COMPUTER_USE_ENDPOINT => {
+            // What a new local session's `cmux-cua` server would get now. A chat that
+            // outlived an app relaunch holds the old launch's agent token in its spawn env;
+            // its `cmux mcp serve` asks here and restarts its proxy with this one
+            // (`cmux-tui` `cli/mcp/cua_recovery.rs`). Only a proven local session that
+            // gets computer use at spawn (never a remote-origin one) reads it.
+            if conn.origin != Origin::Local {
+                return Err(RpcError::invalid_params(
+                    "_acpmux/computer_use_endpoint is accepted only over the local unix socket",
+                ));
+            }
+            let Some(caller) = conn.caller() else {
+                return Err(RpcError::new(-32001, "only a proven acpmux session may ask"));
+            };
+            if hub.resolve(caller)?.meta().remote_origin {
+                return Err(RpcError::new(-32001, "a remote-origin session gets no computer use"));
+            }
+            Ok(match crate::cua_socket::from_env() {
+                Some(socket) => json!({
+                    "socket": socket.path.to_string_lossy(),
+                    "agentToken": socket.token,
+                }),
+                None => json!({"socket": null}),
+            })
+        }
         method::SESSION_NEW => {
             // A peer name in _meta.acpmux.peer creates the session on that daemon.
             if let Some(peer_name) =

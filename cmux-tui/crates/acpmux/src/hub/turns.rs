@@ -662,6 +662,19 @@ impl Hub {
         // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
         let after_turn = opts.after_turn.clone();
         super::auto_resume::check_cut(session, after_turn.as_deref(), false)?;
+        // The person's steer to an agent that steers, sent while no turn showed yet: another
+        // prompt holds the turn and is still starting (its agent spawning, its uploads read), so
+        // this one queues behind it, and steers in once that turn shows (`queue.rs`
+        // `queue_turn`). Two prompts sent close together never leave the second waiting for the
+        // whole turn (Leo, 2026-11-14: "but all my things should be steer by default in the
+        // app?").
+        let steer_on_start = steer
+            && running.is_none()
+            && !from_agent
+            && !trigger
+            && session.steering.load(Ordering::SeqCst)
+            && after_turn.is_none()
+            && !opts.no_queue;
         // Queued behind the running turn (and the queue) it waits for its turn (`queue.rs`).
         let slot = super::queue::Slot {
             text: &text,
@@ -686,6 +699,7 @@ impl Hub {
             no_queue: opts.no_queue,
             admitted: opts.admitted,
             after_turn: after_turn.is_some(),
+            steer_on_start,
         };
         let (turn_id, waiting, mut guard, run) =
             match self.queue_slot(session, slot, &mut accept).await {
