@@ -57,8 +57,8 @@ pub unsafe fn process_main() -> Result<()> {
     // glibc builds: two malloc arenas, not eight per core (malloc_arenas.rs).
     // SAFETY: as above, before any thread exists.
     unsafe {
-        cmux_tui_platform::malloc_arenas::cap(cmux_tui_platform::malloc_arenas::DAEMON_ARENAS)
-    };
+        cmux_tui_platform::malloc_arenas::cap(cmux_tui_platform::malloc_arenas::DAEMON_ARENAS);
+    }
     main(std::env::args_os().skip(1).collect(), Invocation::default())
 }
 
