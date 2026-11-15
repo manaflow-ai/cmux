@@ -466,6 +466,9 @@ type BurstResult = {
   /// Each function's total time per record, its callees' included (PROFILE=1): which caller the native self time
   /// (`getBoundingClientRect`, `getAnimations`) belongs to.
   totalMs?: Map<string, number>;
+  /// Each React effect's time per record, its callees' included (PROFILE=1, `effectTimes`): which effect a commit's
+  /// effect time belongs to.
+  effectMs?: Map<string, number>;
   /// What the page held when the burst ended: its elements, the transcript rows mounted and the animations running.
   dom?: { elements: number; mounted: number; animations: number };
   /// PROBE=1: what one record cost besides time (foldFrameReport.ts): geometry reads from script, the
@@ -554,6 +557,29 @@ export function totalTimes(profile: CpuProfile, records: number): Map<string, nu
     }
   });
   return total;
+}
+/// Time per record (ms) of each React effect, its callees' included (pure): a sample under React's effect runner
+/// (`commitHookEffectListMount`, `commitHookEffectListUnmount`) counts for the function right below the runner on its
+/// stack, the effect's own body, keyed `fn file:line` as `selfTimes` keys it (an anonymous effect by its line).
+const EFFECT_RUNNERS = new Set(["commitHookEffectListMount", "commitHookEffectListUnmount"]);
+export function effectTimes(profile: CpuProfile, records: number): Map<string, number> {
+  const parent = new Map<number, number>();
+  for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
+  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const effects = new Map<string, number>();
+  profile.samples.forEach((id, index) => {
+    let below: number | undefined;
+    for (let at: number | undefined = id; at !== undefined; below = at, at = parent.get(at)) {
+      if (!EFFECT_RUNNERS.has(byId.get(at)?.callFrame.functionName ?? "")) continue;
+      const frame = below === undefined ? undefined : byId.get(below)?.callFrame;
+      if (!frame) break;
+      const file = frame.url.split("/").pop() ?? "";
+      const key = `${frame.functionName || "(anon)"}${file ? ` ${file}:${frame.lineNumber + 1}` : ""}`;
+      effects.set(key, (effects.get(key) ?? 0) + (profile.timeDeltas[index] ?? 0) / 1000 / records);
+      break;
+    }
+  });
+  return effects;
 }
 /// The functions whose self time per record grew most from `first` to `last` (pure).
 export function grew(first: Map<string, number>, last: Map<string, number>, top = 12): [string, number, number][] {
@@ -680,6 +706,7 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
           ? {
               selfMs: selfTimes(profiled, records, process.env.PROFILE_LINES === "1"),
               totalMs: totalTimes(profiled, records),
+              effectMs: effectTimes(profiled, records),
             }
           : {}),
       });
@@ -772,7 +799,8 @@ async function pairedLiveRound(ctx: Ctx, god: ReplayLog, small: ReplayLog): Prom
 
 /// PAIRED=1 with PROFILE=1: per burst kind, the functions that cost god more per record than small, from the same
 /// checkpoints played seconds apart (pure). Self and total time per record are summed over the kind's checkpoints, so
-/// a function whose cost grows with the rows a chat holds leads the list; the self line also gives each page's sum.
+/// a function whose cost grows with the rows a chat holds leads the list; the self line also gives each page's sum, and
+/// the effect lines name the React effect (`effectTimes`) a commit's extra time went to.
 export function pairedProfile(god: Live, small: Live, top = 20): string[] {
   const lines: string[] = [];
   const r3 = (ms: number) => Math.round(ms * 1000) / 1000;
@@ -780,7 +808,7 @@ export function pairedProfile(god: Live, small: Live, top = 20): string[] {
     const pick = (live: Live) => live.bursts.filter((burst) => burst.kind === kind && burst.selfMs);
     const [g, s] = [pick(god), pick(small)];
     if (!g.length || g.length !== s.length) continue;
-    for (const field of ["selfMs", "totalMs"] as const) {
+    for (const field of ["selfMs", "totalMs", "effectMs"] as const) {
       const summed = (bursts: BurstResult[]) => {
         const into = new Map<string, number>();
         for (const burst of bursts)
@@ -790,7 +818,7 @@ export function pairedProfile(god: Live, small: Live, top = 20): string[] {
       const [gm, sm] = [summed(g), summed(s)];
       const sum = (m: Map<string, number>) => [...m.values()].reduce((a, b) => a + b, 0);
       lines.push(
-        `paired profile ${kind} ${field === "selfMs" ? "self" : "total"} ms per record over ${g.length} checkpoints` +
+        `paired profile ${kind} ${{ selfMs: "self", totalMs: "total", effectMs: "effect" }[field]} ms per record over ${g.length} checkpoints` +
           (field === "selfMs" ? `: god ${r3(sum(gm))} small ${r3(sum(sm))}` : "") +
           "; god minus small:",
       );
