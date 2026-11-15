@@ -115,7 +115,7 @@ public struct UiLayerPreviewView: View {
             Text(data.composerPlaceholder).foregroundStyle(.tertiary)
             Spacer()
             CmuxDialogActionButton("Send", hint: .return) {}
-                .buttonStyle(.borderless)
+                .buttonStyle(.cmuxPressFill)
                 .disabled(true)
         }
         .padding(Metrics.space3)
