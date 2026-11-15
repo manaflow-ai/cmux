@@ -79,8 +79,8 @@ def timing(action):
 def swaps(case_a, case_b, n):
     steps = [timing("start")]
     for i in range(1, n + 1):
-        steps.append(strip(f"Run {i} {case_a}: Opt-Cmd-` chat to terminal, frames around it"))
-        steps.append(strip(f"Run {i} {case_b}: Opt-Cmd-` terminal to chat, frames around it"))
+        steps.append(strip(f"Run {i} {case_a}: Toggle chat to terminal, frames around it"))
+        steps.append(strip(f"Run {i} {case_b}: Toggle terminal to chat, frames around it"))
     steps.append(timing("stop"))
     return steps
 
@@ -140,7 +140,7 @@ HOLD_S, RUNS_HOLD = 65, 1  # a capture drives at most 300 s and the setup takes 
 def held_swaps(n):
     steps = [timing("start")]
     for i in range(1, n + 1):
-        steps.append(strip(f"Run {i} (e) held: Opt-Cmd-` chat to terminal, frames around it"))
+        steps.append(strip(f"Run {i} (e) held: Toggle chat to terminal, frames around it"))
         # A tour step waits at most 30 s (tour.py), so the hold is cut into steps of up to 30 s.
         left = HOLD_S
         while left > 0:
@@ -148,7 +148,7 @@ def held_swaps(n):
             steps.append(write("Helper", "true\r", f"Run {i}: the terminal face shows for {HOLD_S} s"
                                + ("" if left == HOLD_S else f" ({left} s left)"), part))
             left -= part
-        steps.append(strip(f"Run {i} (f) held {HOLD_S} s: Opt-Cmd-` terminal to chat, frames around it", 2500))
+        steps.append(strip(f"Run {i} (f) held {HOLD_S} s: Toggle terminal to chat, frames around it", 2500))
     steps.append(timing("stop"))
     return steps
 

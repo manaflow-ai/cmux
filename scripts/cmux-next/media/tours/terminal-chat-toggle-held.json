@@ -146,7 +146,7 @@
       "shot": false
     },
     {
-      "title": "Run 1 (e) held: Opt-Cmd-` chat to terminal, frames around it",
+      "title": "Run 1 (e) held: Toggle chat to terminal, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
@@ -228,7 +228,7 @@
       "shot": false
     },
     {
-      "title": "Run 1 (f) held 65 s: Opt-Cmd-` terminal to chat, frames around it",
+      "title": "Run 1 (f) held 65 s: Toggle terminal to chat, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
