@@ -765,6 +765,12 @@ pub(super) struct StreamState {
     /// Set by a harness retry signal while `open_message` was streaming:
     /// (abandoned messageId, the retry notice text).
     pub(super) retry_from: Option<(String, String)>,
+    /// `messageId` of this turn's last reply, kept across thoughts and progress ticks until a
+    /// call the person sees, a plan or a prompt comes after it (`stream.rs` `ends_revision`).
+    pub(super) last_reply: Option<String>,
+    /// Set by a blocked Stop hook right after `last_reply`: (that messageId, the hook's reason).
+    /// The next reply replaces it (`message_superseded`, reason `stop_hook`).
+    pub(super) revise_from: Option<(String, String)>,
     /// A terminal error the harness reported in-band during this turn.
     pub(super) harness_error: Option<Value>,
     /// Text and sequences of the trailing `agent_message_chunk` records of

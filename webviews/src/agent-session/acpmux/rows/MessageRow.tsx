@@ -6,6 +6,7 @@ import { isVisiblyEmptyMessage } from "../conversation/visibleMessage";
 import { SteerWaitingActions, WaitingMessageMenu } from "../conversation/QueuedMessageCard";
 import { useT } from "../i18n";
 import { RevealedMarkdown } from "../conversation/RevealedMarkdown";
+import { RevisedReply, revisedReplyText } from "../conversation/RevisedReply";
 import { MessageFooterRow, PromptActions, ReceivedActions, ReplyActions } from "../conversation/MessageActions";
 import { IncomingMessageLine, IncomingNotice } from "../conversation/IncomingMessageCard";
 import { TurnActionsContext } from "../conversation/turnActions";
@@ -204,10 +205,15 @@ export const MessageRow = memo(
         </div>
       );
     }
-    const reply = (
+    // A reply the agent sent again after a Stop hook shows the first version until the new one has
+    // streamed (conversation/RevisedReply.tsx); the swap remounts the body, which shows the new text
+    // whole (a reveal only appends, so it must not run from the first text into the second).
+    const shown = revisedReplyText(row);
+    const body = (
       <RevealedMarkdown
-        text={row.text ?? ""}
-        streaming={row.streaming === true}
+        key={shown.revising ? "revising" : "reply"}
+        text={shown.text}
+        streaming={!shown.revising && row.streaming === true}
         githubRepository={githubRepository}
         messageAt={row.at}
         artifactIdentity={row.id}
@@ -216,6 +222,7 @@ export const MessageRow = memo(
         // written (Lucas, 2026-11-11: "we want to remove this red line thing").
       />
     );
+    const reply = <RevisedReply row={row}>{body}</RevisedReply>;
     // A finished reply its turn's footer does not serve keeps its own action row, whatever follows
     // it (model.ts hasReplyActions).
     if (!replyActions) return <AssistantPresentation>{reply}</AssistantPresentation>;

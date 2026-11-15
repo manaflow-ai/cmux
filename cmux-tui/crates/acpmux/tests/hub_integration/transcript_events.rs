@@ -364,6 +364,42 @@ async fn codex_retry_records_message_superseded_before_the_redelivery() {
     assert_eq!(find(&events, "message_superseded").len(), 1);
 }
 
+/// Leo, 2026-11-14, "why did u send this twice?": a Stop hook sent the agent back over one line of
+/// its reply, it sent the whole reply again, and the chat kept both. The reply after the hook
+/// replaces the one before it, keyed on the hook's event, never on the texts' likeness.
+#[tokio::test]
+async fn a_reply_sent_again_after_a_stop_hook_supersedes_the_first() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "stop-hook").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "stop-hook-resend", None)).await.unwrap();
+    let events = hub.events(&id, 0, 1000).unwrap();
+    let sup = find(&events, "message_superseded");
+    assert_eq!(sup.len(), 1, "{:?}", events.iter().map(|e| &e.kind).collect::<Vec<_>>());
+    assert_eq!(sup[0].msg["oldMessageId"], "r1");
+    assert_eq!(sup[0].msg["newMessageId"], "r2");
+    assert_eq!(sup[0].msg["reason"], "stop_hook");
+    assert_eq!(sup[0].msg["source"], "claude");
+    assert_eq!(sup[0].msg["notice"], "Rewrite only that sentence.");
+    assert_eq!(sup[0].msg["turnId"], find(&events, "turn_started")[0].msg["turnId"]);
+    let resent = events
+        .iter()
+        .find(|e| e.msg.pointer("/params/update/messageId") == Some(&json!("r2")))
+        .unwrap();
+    assert!(sup[0].seq < resent.seq);
+
+    // Work after the hook (a call the person sees) makes the next words a new reply.
+    let id = new_session(&mut c, "stop-hook-tool").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "stop-hook-after-tool", None)).await.unwrap();
+    let events = hub.events(&id, 0, 1000).unwrap();
+    assert!(find(&events, "message_superseded").is_empty());
+
+    // Two replies with no Stop hook between them are both kept.
+    let id = new_session(&mut c, "no-stop-hook").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "codex-retry-after-tool", None)).await.unwrap();
+    let events = hub.events(&id, 0, 1000).unwrap();
+    assert!(find(&events, "message_superseded").is_empty());
+}
+
 #[tokio::test]
 async fn a_subagent_ending_mid_message_keeps_the_codex_retry() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
