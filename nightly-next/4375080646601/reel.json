@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "build": "4375080646601",
+  "notes": "notes/4375080646601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43806,
+      "title": "cmux-next: a peer that refused an update shows it kept its build and why",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43870,
+      "title": "pre-push: a production journey workflow change needs its main twin",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43869,
+      "title": "Daemon start log: name 5 parts of the `mux.build` step",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43820,
+      "title": "ci: iOS E2E installs AXe from its pinned archive, not the Homebrew tap",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43845,
+      "title": "terminal.get reads an ended terminal that terminal.list gives",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43304,
+      "title": "Customize… opens a chat ready for what you want to change (step B)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43837,
+      "title": "palette coverage: the CLI verbs from cmux-tui 70e5c08 (today's feat-cmux-next build)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43218,
+      "title": "Agent chat: record rows for offers, approvals, agent pairs and background tasks (v2 row 2c, PR 3)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43875,
+      "title": "ci: prepare isolated native gallery resources (#21964 prerequisite)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43832,
+      "title": "cmux-tui tree build: the darwin legs build acpmux-standalone, so a commit no longer recompiles the acpmux lib",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43816,
+      "title": "Terminal holder: move the start code of the service to its own file; the doc of the late thread says what it keeps",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
