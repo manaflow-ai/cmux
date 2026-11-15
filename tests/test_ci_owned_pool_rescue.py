@@ -9026,6 +9026,35 @@ class StallMove(unittest.TestCase):
         dev = {**api.record(), "event": "workflow_dispatch", "display_title": "cmux NEXT DEV daily"}
         self.assertIsInstance(rescue.stall_target(dev, "manaflow-ai/cmux"), str)
 
+    def test_a_same_tree_dispatch_gating_one_pull_request_is_a_target(self):
+        # Run 43708481967 (PR #43498) and run 43708972337 (PR #43674), 2026-11-15: `cmux-next · <head>` dispatches
+        # whose daemon tests queued on glaeda-gui-std / glaeda-side-std from 11:21Z and 11:50Z. The scan listed
+        # pull_request runs only, so it never looked at them while it moved pull_request runs past them.
+        clock = Clock()
+        api = StallAPI(clock, lambda attempt, seconds: [], attempt=1, actor=CMUX_BOT)
+        same_tree = {**api.record(), "event": "workflow_dispatch", "display_title": f"cmux-next · {HEAD}"}
+        target = rescue.stall_target(same_tree, "manaflow-ai/cmux")
+        self.assertIsInstance(target, rescue.Target)
+        self.assertEqual((target.attempt, target.pr_number, target.head_sha), (1, 42, HEAD))
+        self.assertTrue(target.refusals_only)
+        # A tip or base-tier dispatch, a DEV daily, or one naming no single pull request gates no pull request.
+        for title in (f"cmux-next tip Swift suite · {HEAD}", f"cmux-next tip daemon suite · {HEAD}",
+                      f"cmux-next base tier · {HEAD}", f"cmux NEXT DEV daily · {HEAD}"):
+            self.assertIsInstance(rescue.stall_target({**same_tree, "display_title": title}, "manaflow-ai/cmux"),
+                                  str, title)
+        for pulls in ([], [{"number": 42}, {"number": 43}]):
+            self.assertIsInstance(rescue.stall_target({**same_tree, "pull_requests": pulls}, "manaflow-ai/cmux"),
+                                  str, pulls)
+        # A dispatch at a commit other than its pull request's listed head is no gate of that head either.
+        self.assertIsInstance(rescue.stall_target({**same_tree, "display_title": "cmux-next · " + "b" * 40},
+                                                  "manaflow-ai/cmux"), str)
+        # The listing the scan reads keeps such dispatches.
+        listed_runs = {"workflow_runs": [{"id": 1, "event": "pull_request"}, {"id": 2, "event": "workflow_dispatch"},
+                                         {"id": 3, "event": "push"}]}
+        client = rescue.GitHub.__new__(rescue.GitHub)
+        client.request = lambda method, path: listed_runs
+        self.assertEqual(sorted(int(run["id"]) for run in client.next_pull_runs(100)), [1, 1, 2, 2])
+
     def test_a_refusals_only_attempt_3_queued_past_the_bound_moves_to_blacksmith(self):
         # Run 42878905180 (PR #40461): attempt 3 (a person's re-run) queued its generated files on
         # glaeda-side-std-xcode-26.6 from 20:23Z to 22:26Z; its next bot attempt (4) takes Blacksmith.
@@ -9138,6 +9167,21 @@ class StallMove(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text()
         self.assertIn("STALL_RUNNER: ${{ vars.MACOS_RUNNER_26 }}", workflow)
         self.assertIn("STALL_POOLS: ${{ vars.RUNNER_POOLS }}", workflow)
+        self.assertIn("STALL_BLACKSMITH_MACOS: ${{ vars.CI_BLACKSMITH_MACOS }}", workflow)
+
+    def test_no_destination_while_the_blacksmith_macos_switch_is_off(self):
+        # 2026-11-15: CI_BLACKSMITH_MACOS unset (off, PR #43255), so cmux-next.yml's Mac fallbacks resolve to
+        # CI_SIDE_LANE_RUNNER. The 11:23Z move of run 43696823582 logged "attempt 4 takes Blacksmith", and its
+        # fast tier queued again on glaeda-side-std-xcode-26.6, at the back of a 42-job queue.
+        six = rescue.STALL_DESTINATION
+        for off in ("", "off", "0", "false", None):
+            self.assertIsNone(rescue.stall_destinations("", "", off), off)
+            self.assertIsNone(rescue.stall_destinations(six, json.dumps({"macos_26": six}), off), off)
+        self.assertEqual(rescue.stall_destinations("", "", "on"), (six,))
+        self.assertEqual(rescue.stall_destinations("", "", " on\n"), (six,))
+        env = {"STALL_RUNNER": six, "STALL_POOLS": json.dumps({"macos_26": six})}
+        self.assertIsNone(rescue.stall_destinations_from_env(env))
+        self.assertEqual(rescue.stall_destinations_from_env({**env, "STALL_BLACKSMITH_MACOS": "on"}), (six,))
 
     def test_a_handover_ends_a_pass_through_between_rounds(self):
         clock = Clock()

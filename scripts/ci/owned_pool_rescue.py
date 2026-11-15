@@ -2076,14 +2076,15 @@ class GitHub:
         return found
 
     def next_pull_runs(self, count: int) -> list[Mapping[str, Any]]:
-        """The unfinished cmux-next.yml pull request runs, for the stall move (stall_scan()): the same two listings
-        owned_reruns() makes every tick, so a scan between changes costs two 304s."""
+        """The unfinished cmux-next.yml pull request runs and dispatches, for the stall move (stall_scan()): the same
+        two listings owned_reruns() makes every tick, so a scan between changes costs two 304s. stall_target() keeps
+        the dispatches that gate one pull request (same_tree_pull_dispatch())."""
         name = CMUX_NEXT_WORKFLOW_PATH.rsplit("/", 1)[-1]
         found: list[Mapping[str, Any]] = []
         for status in ("queued", "in_progress"):
             data = self.request("GET", f"/actions/workflows/{name}/runs?status={status}&per_page={count}")
             found += [run for run in (data or {}).get("workflow_runs") or []
-                      if isinstance(run, Mapping) and run.get("id") and run.get("event") == "pull_request"]
+                      if isinstance(run, Mapping) and run.get("id") and run.get("event") in STALL_EVENTS]
         return found
 
     def portable_runs(self, count: int, oldest: dt.datetime, pages: int = 1) -> list[tuple[int, int]]:
@@ -5178,7 +5179,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             light_rescue = None
         outcomes = sweep(client, repository, seconds=seconds, queue_rounds=env.get("QUEUE_ROUNDS"),
                          now=clock, log=light_log, side_seconds=side_seconds, light_rescue=light_rescue,
-                         stall_destination=stall_destinations(env.get("STALL_RUNNER"), env.get("STALL_POOLS")))
+                         stall_destination=stall_destinations_from_env(env))
         return finish("swept: " + (", ".join(f"{count} {outcome}" for outcome, count in sorted(outcomes.items()))
                                    or "no run needed a watch"))
     run_id = (env.get("WATCH_RUN_ID") or "").strip()
@@ -5506,12 +5507,16 @@ STALL_MIN_AGE_SECONDS = min(SETUP_WAIT_SECONDS, STALL_CHECKOUT_SECONDS, STALL_QU
 STALL_DESTINATION = "blacksmith-6vcpu-macos-26"
 
 
-def stall_destinations(runner: str | None, pools: str | None) -> tuple[str, ...] | None:
+def stall_destinations(runner: str | None, pools: str | None, switch: str | None = "on") -> tuple[str, ...] | None:
     """The Blacksmith labels the stall move's re-runs may take, from vars.MACOS_RUNNER_26 (`runner`) and
     vars.RUNNER_POOLS (`pools`, JSON; its macos_26, or STALL_DESTINATION while it is unset). Every one must be a
     picker Blacksmith label, else None and nothing moves: cloud_overflow_switch.py points MACOS_RUNNER_26 at an owned
     pool during a failover, where a re-run would only rejoin an owned queue, and an unknown label's room cannot be
-    judged."""
+    judged. None too while vars.CI_BLACKSMITH_MACOS (`switch`) is not `on`: cmux-next.yml's Mac fallbacks then read
+    `vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER` (PR #43255), so the move's re-run rejoins the owned
+    side lane at the back of its queue (STALL_SWITCH_OFF)."""
+    if (switch or "").strip() != "on":
+        return None
     base = STALL_DESTINATION
     if (pools or "").strip():
         try:
@@ -5526,6 +5531,15 @@ def stall_destinations(runner: str | None, pools: str | None) -> tuple[str, ...]
         base = found.strip()
     labels = tuple(sorted({base, (runner or "").strip() or base}))
     return labels if all(label in simple_pool_picker.CAPACITY for label in labels) else None
+def stall_destinations_from_env(env: Mapping[str, str]) -> tuple[str, ...] | None:
+    """stall_destinations() from ci-owned-pool-rescue.yml's STALL_RUNNER, STALL_POOLS and STALL_BLACKSMITH_MACOS
+    (vars.CI_BLACKSMITH_MACOS: unset is off, as in the workflows that read it)."""
+    return stall_destinations(env.get("STALL_RUNNER"), env.get("STALL_POOLS"), env.get("STALL_BLACKSMITH_MACOS") or "")
+
+
+# Why the stall move has no destination, logged once a sweeper (sweep()).
+STALL_SWITCH_OFF = ("vars.CI_BLACKSMITH_MACOS is not on, or vars.MACOS_RUNNER_26 or RUNNER_POOLS names no Blacksmith "
+                    "label: a re-run would rejoin an owned queue at its back, so nothing is moved")
 # The janitor writes its snapshot every 10 minutes; a move made within two of them may not be counted in it yet.
 STALL_ROOM_WINDOW_SECONDS = 20 * 60
 STALL_MOVES_PER_SCAN = 1
@@ -5768,20 +5782,52 @@ def stall_move(api: GitHub, target: Target, stalls: Sequence[Stall], *, now: Cal
                f"after {STALL_PASS_LOOK_SECONDS} s, passed through to Blacksmith")
 
 
+# The events of the cmux-next.yml runs the stall scan reads (GitHub.next_pull_runs()).
+STALL_EVENTS = frozenset({"pull_request", "workflow_dispatch"})
+# A cmux-next.yml dispatch's default run name (its run-name's last branch): `cmux-next · <github.sha>`. The tip
+# suites, base tier, uncached and DEV daily dispatches have names of their own.
+SAME_TREE_PULL_TITLE = re.compile(r"cmux-next · ([0-9a-f]{40})")
+
+
+def same_tree_pull_dispatch(run: Mapping[str, Any]) -> bool:
+    """Whether a cmux-next.yml run is a dispatch that gates one pull request at its head: a same-tree run
+    (scripts/ci/cmux_next_tree_notify.py) or a dispatch on the pull request's branch, named
+    `cmux-next · <head>` for its own head, from this repository, naming exactly one pull request. Its daemon tests
+    and scheme compile post the pull request's statuses, so merge_hold waits on them like on a pull_request run's.
+    Runs 43708481967 (PR #43498) and 43708972337 (PR #43674) queued their daemon tests on owned labels from 11:21Z
+    and 11:50Z on 2026-11-15 while the scan, which listed pull_request runs only, moved others."""
+    if run.get("path") != CMUX_NEXT_WORKFLOW_PATH or run.get("event") != "workflow_dispatch":
+        return False
+    title = SAME_TREE_PULL_TITLE.fullmatch(str(run.get("display_title") or "").strip())
+    if title is None or title.group(1) != str(run.get("head_sha") or ""):
+        return False
+    pulls = [pr for pr in run.get("pull_requests") or [] if isinstance(pr, Mapping) and pr.get("number")]
+    return len(pulls) == 1
+
+
 def stall_target(run: Mapping[str, Any], repository: str) -> Target | str:
     """The stall move's target for an unfinished cmux-next.yml run from GitHub.next_pull_runs(), or why it is none:
     a same-repository pull request run naming one pull request, no delivery run, on an attempt whose owned jobs may
     be on the minis (the bot's attempts past REFUSAL_RESCUE_ATTEMPT take Blacksmith)."""
-    if run.get("path") != CMUX_NEXT_WORKFLOW_PATH or run.get("event") != "pull_request":
+    dispatch = same_tree_pull_dispatch(run)
+    if run.get("path") != CMUX_NEXT_WORKFLOW_PATH or run.get("event") != "pull_request" and not dispatch:
         return f"a {run.get('event') or 'unknown'} run of {run.get('path') or 'an unknown workflow'}"
     if run.get("status") == "completed":
         return "finished"
-    if never_fails_over(str(run.get("path") or ""), run.get("event"), run.get("name"), run.get("display_title")):
+    if not dispatch and never_fails_over(str(run.get("path") or ""), run.get("event"), run.get("name"),
+                                         run.get("display_title")):
         return "a delivery run"
     attempt = int(run.get("run_attempt") or 0)
     actor = str((run.get("triggering_actor") or {}).get("login") or "")
     if attempt < 1 or actor in RESCUE_ACTORS and attempt > REFUSAL_RESCUE_ATTEMPT:
         return f"attempt {attempt} takes Blacksmith"
+    if dispatch:
+        # Judged as its pull request's run: rescue() re-checks that the pull request is open at this head
+        # (pull_moved()) before any cancel, as for a pull_request run.
+        target = target_from_event({"workflow_run": {**run, "event": "pull_request", "run_attempt": 1}}, repository)
+        if isinstance(target, str):
+            return target
+        return dataclasses.replace(target, attempt=attempt, refusals_only=True, event=str(run.get("event")))
     target = target_from_event({"workflow_run": {**run, "run_attempt": 1}}, repository)
     if isinstance(target, str):
         return target
@@ -6280,8 +6326,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
             else:
                 try:
                     if stall_destination is None and looks == 1:
-                        log(f"{STALL_MOVE}: vars.MACOS_RUNNER_26 or RUNNER_POOLS names no Blacksmith label, "
-                            "so nothing is moved")
+                        log(f"{STALL_MOVE}: {STALL_SWITCH_OFF}")
                     stall_scan(client, repository, now=now, log=log, moved=stall_moved, moves=stall_moves,
                                start=start_move, destination=stall_destination)
                 except READ_ERRORS as error:

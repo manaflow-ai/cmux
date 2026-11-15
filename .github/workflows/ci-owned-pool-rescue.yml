@@ -209,6 +209,9 @@ jobs:
           # room, and moves nothing while one names an owned pool (owned_pool_rescue.stall_destinations()).
           STALL_RUNNER: ${{ vars.MACOS_RUNNER_26 }}
           STALL_POOLS: ${{ vars.RUNNER_POOLS }}
+          # Not `on` (unset): cmux-next.yml's Mac fallbacks take CI_SIDE_LANE_RUNNER, so the stall move would only
+          # re-queue a job at the back of the owned side lane; it moves nothing (owned_pool_rescue.STALL_SWITCH_OFF).
+          STALL_BLACKSMITH_MACOS: ${{ vars.CI_BLACKSMITH_MACOS }}
           WATCH_RUN_ID: ${{ inputs.run_id }}
           SWEEP: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && '1' || '' }}
           # 1: wait for ci-macos.yml's late-placement before calling the run ephemeral.
