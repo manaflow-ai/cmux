@@ -14672,6 +14672,792 @@
           }
         }
       }
+    },
+    "devices.join.notRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux's acpmux is not running on this Mac, so it can't read what this Mac allows. Mac Screen is refused until it can."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux الخاص بـ cmux لا يعمل على هذا الـ Mac، لذلك لا يمكنه قراءة ما يسمح به هذا الـ Mac. يُرفض Mac Screen إلى أن يتمكن من ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-ov acpmux ne radi na ovom Macu, pa ne može pročitati šta ovaj Mac dozvoljava. Mac Screen se odbija dok to ne uspije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux' acpmux kører ikke på denne Mac, så den kan ikke læse, hvad denne Mac tillader. Mac Screen afvises, indtil den kan."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der acpmux von cmux läuft auf diesem Mac nicht, daher kann er nicht lesen, was dieser Mac erlaubt. Mac Screen wird abgewiesen, bis er es kann."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El acpmux de cmux no se está ejecutando en este Mac, así que no puede leer lo que este Mac permite. Mac Screen se rechaza hasta que pueda."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’acpmux de cmux ne tourne pas sur ce Mac, il ne peut donc pas lire ce que ce Mac autorise. Mac Screen est refusé jusqu’à ce qu’il le puisse."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’acpmux di cmux non è in esecuzione su questo Mac, quindi non può leggere cosa consente questo Mac. Mac Screen viene rifiutato finché non potrà."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux の acpmux がこの Mac で動いていないため、この Mac が許可している内容を読み取れません。読み取れるまで Mac Screen は拒否されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux របស់ cmux មិនកំពុងដំណើរការលើ Mac នេះទេ ដូច្នេះវាមិនអាចអានអ្វីដែល Mac នេះអនុញ្ញាតបានទេ។ Mac Screen ត្រូវបានបដិសេធរហូតដល់វាអាចអានបាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux의 acpmux가 이 Mac에서 실행 중이 아니어서 이 Mac이 허용하는 항목을 읽을 수 없습니다. 읽을 수 있을 때까지 Mac Screen이 거부됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux sin acpmux kjører ikke på denne Macen, så den kan ikke lese hva denne Macen tillater. Mac Screen avvises til den kan."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux cmux nie działa na tym Macu, więc nie może odczytać, na co ten Mac pozwala. Mac Screen jest odrzucany, dopóki nie będzie mógł."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O acpmux do cmux não está em execução neste Mac, então ele não consegue ler o que este Mac permite. O Mac Screen é recusado até que consiga."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux от cmux не запущен на этом Mac, поэтому он не может прочитать, что разрешает этот Mac. Mac Screen отклоняется, пока это не станет возможно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux ของ cmux ไม่ได้ทำงานบน Mac เครื่องนี้ จึงอ่านไม่ได้ว่า Mac เครื่องนี้อนุญาตอะไรบ้าง Mac Screen จะถูกปฏิเสธจนกว่าจะอ่านได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'un acpmux'u bu Mac'te çalışmıyor, bu yüzden bu Mac'in neye izin verdiğini okuyamıyor. Okuyabilene kadar Mac Screen reddedilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux від cmux не запущено на цьому Mac, тож він не може прочитати, що дозволяє цей Mac. Mac Screen відхиляється, доки це не стане можливим."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux của cmux không chạy trên máy Mac này, nên không thể đọc những gì máy Mac này cho phép. Mac Screen bị từ chối cho đến khi đọc được."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 的 acpmux 未在这台 Mac 上运行，因此无法读取这台 Mac 允许的内容。在能读取之前，Mac Screen 会被拒绝。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 的 acpmux 未在這台 Mac 上執行，因此無法讀取這台 Mac 允許的內容。在能讀取之前，Mac Screen 會被拒絕。"
+          }
+        }
+      }
+    },
+    "devices.join.refusedDaemon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux did not trust what answers on its acpmux socket, so it can't read what this Mac allows. Mac Screen is refused until it can."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يثق cmux بما يستجيب على مقبس acpmux الخاص به، لذلك لا يمكنه قراءة ما يسمح به هذا الـ Mac. يُرفض Mac Screen إلى أن يتمكن من ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nije vjerovao onome što odgovara na njegovom acpmux socketu, pa ne može pročitati šta ovaj Mac dozvoljava. Mac Screen se odbija dok to ne uspije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux stolede ikke på det, der svarer på dens acpmux-socket, så den kan ikke læse, hvad denne Mac tillader. Mac Screen afvises, indtil den kan."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux hat dem, was auf seinem acpmux-Socket antwortet, nicht vertraut, daher kann es nicht lesen, was dieser Mac erlaubt. Mac Screen wird abgewiesen, bis es das kann."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux no confió en lo que responde en su socket de acpmux, así que no puede leer lo que este Mac permite. Mac Screen se rechaza hasta que pueda."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ne s’est pas fié à ce qui répond sur son socket acpmux, il ne peut donc pas lire ce que ce Mac autorise. Mac Screen est refusé jusqu’à ce qu’il le puisse."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux non si è fidato di ciò che risponde sul suo socket acpmux, quindi non può leggere cosa consente questo Mac. Mac Screen viene rifiutato finché non potrà."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux は自分の acpmux ソケットで応答しているものを信頼しなかったため、この Mac が許可している内容を読み取れません。読み取れるまで Mac Screen は拒否されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux មិនបានទុកចិត្តលើអ្វីដែលឆ្លើយតបនៅលើ socket acpmux របស់វាទេ ដូច្នេះវាមិនអាចអានអ្វីដែល Mac នេះអនុញ្ញាតបានទេ។ Mac Screen ត្រូវបានបដិសេធរហូតដល់វាអាចអានបាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 자신의 acpmux 소켓에서 응답하는 대상을 신뢰하지 않아 이 Mac이 허용하는 항목을 읽을 수 없습니다. 읽을 수 있을 때까지 Mac Screen이 거부됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux stolte ikke på det som svarer på acpmux-socketen, så den kan ikke lese hva denne Macen tillater. Mac Screen avvises til den kan."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nie zaufał temu, co odpowiada na jego gnieździe acpmux, więc nie może odczytać, na co ten Mac pozwala. Mac Screen jest odrzucany, dopóki nie będzie mógł."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux não confiou no que responde no socket do acpmux dele, então não consegue ler o que este Mac permite. O Mac Screen é recusado até que consiga."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не доверился тому, что отвечает на его сокете acpmux, поэтому не может прочитать, что разрешает этот Mac. Mac Screen отклоняется, пока это не станет возможно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ไม่ไว้วางใจสิ่งที่ตอบอยู่บนซ็อกเก็ต acpmux ของตน จึงอ่านไม่ได้ว่า Mac เครื่องนี้อนุญาตอะไรบ้าง Mac Screen จะถูกปฏิเสธจนกว่าจะอ่านได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux, acpmux soketinde yanıt verene güvenmedi, bu yüzden bu Mac'in neye izin verdiğini okuyamıyor. Okuyabilene kadar Mac Screen reddedilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не довірився тому, що відповідає на його сокеті acpmux, тож не може прочитати, що дозволяє цей Mac. Mac Screen відхиляється, доки це не стане можливим."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux không tin thứ đang trả lời trên socket acpmux của nó, nên không thể đọc những gì máy Mac này cho phép. Mac Screen bị từ chối cho đến khi đọc được."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 不信任在其 acpmux 套接字上应答的进程，因此无法读取这台 Mac 允许的内容。在能读取之前，Mac Screen 会被拒绝。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 不信任在其 acpmux socket 上回應的程序，因此無法讀取這台 Mac 允許的內容。在能讀取之前，Mac Screen 會被拒絕。"
+          }
+        }
+      }
+    },
+    "devices.join.noAnswer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac's acpmux did not answer, so cmux can't read what this Mac allows. Mac Screen is refused until it can."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يستجب acpmux على هذا الـ Mac، لذلك لا يمكن لـ cmux قراءة ما يسمح به هذا الـ Mac. يُرفض Mac Screen إلى أن يتمكن من ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux ovog Maca nije odgovorio, pa cmux ne može pročitati šta ovaj Mac dozvoljava. Mac Screen se odbija dok to ne uspije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Macs acpmux svarede ikke, så cmux kan ikke læse, hvad denne Mac tillader. Mac Screen afvises, indtil den kan."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der acpmux dieses Macs hat nicht geantwortet, daher kann cmux nicht lesen, was dieser Mac erlaubt. Mac Screen wird abgewiesen, bis es das kann."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El acpmux de este Mac no respondió, así que cmux no puede leer lo que este Mac permite. Mac Screen se rechaza hasta que pueda."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’acpmux de ce Mac n’a pas répondu, cmux ne peut donc pas lire ce que ce Mac autorise. Mac Screen est refusé jusqu’à ce qu’il le puisse."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’acpmux di questo Mac non ha risposto, quindi cmux non può leggere cosa consente questo Mac. Mac Screen viene rifiutato finché non potrà."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この Mac の acpmux が応答しなかったため、cmux はこの Mac が許可している内容を読み取れません。読み取れるまで Mac Screen は拒否されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux របស់ Mac នេះមិនបានឆ្លើយតបទេ ដូច្នេះ cmux មិនអាចអានអ្វីដែល Mac នេះអនុញ្ញាតបានទេ។ Mac Screen ត្រូវបានបដិសេធរហូតដល់វាអាចអានបាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac의 acpmux가 응답하지 않아 cmux가 이 Mac이 허용하는 항목을 읽을 수 없습니다. 읽을 수 있을 때까지 Mac Screen이 거부됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Macens acpmux svarte ikke, så cmux kan ikke lese hva denne Macen tillater. Mac Screen avvises til den kan."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux tego Maca nie odpowiedział, więc cmux nie może odczytać, na co ten Mac pozwala. Mac Screen jest odrzucany, dopóki nie będzie mógł."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O acpmux deste Mac não respondeu, então o cmux não consegue ler o que este Mac permite. O Mac Screen é recusado até que consiga."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux этого Mac не ответил, поэтому cmux не может прочитать, что разрешает этот Mac. Mac Screen отклоняется, пока это не станет возможно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux ของ Mac เครื่องนี้ไม่ตอบ cmux จึงอ่านไม่ได้ว่า Mac เครื่องนี้อนุญาตอะไรบ้าง Mac Screen จะถูกปฏิเสธจนกว่าจะอ่านได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac'in acpmux'u yanıt vermedi, bu yüzden cmux bu Mac'in neye izin verdiğini okuyamıyor. Okuyabilene kadar Mac Screen reddedilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux цього Mac не відповів, тож cmux не може прочитати, що дозволяє цей Mac. Mac Screen відхиляється, доки це не стане можливим."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux của máy Mac này không trả lời, nên cmux không thể đọc những gì máy Mac này cho phép. Mac Screen bị từ chối cho đến khi đọc được."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这台 Mac 的 acpmux 没有应答，因此 cmux 无法读取这台 Mac 允许的内容。在能读取之前，Mac Screen 会被拒绝。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這台 Mac 的 acpmux 沒有回應，因此 cmux 無法讀取這台 Mac 允許的內容。在能讀取之前，Mac Screen 會被拒絕。"
+          }
+        }
+      }
+    },
+    "devices.join.olderDaemon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac's acpmux is too old to say what this Mac allows. Quit it so cmux runs its own."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux على هذا الـ Mac أقدم من أن يخبر بما يسمح به هذا الـ Mac. أنهِه ليشغّل cmux نسخته الخاصة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux ovog Maca je prestar da kaže šta ovaj Mac dozvoljava. Zatvori ga kako bi cmux pokrenuo svoj."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Macs acpmux er for gammel til at oplyse, hvad denne Mac tillader. Afslut den, så cmux kører sin egen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der acpmux dieses Macs ist zu alt, um zu sagen, was dieser Mac erlaubt. Beende ihn, damit cmux seinen eigenen ausführt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El acpmux de este Mac es demasiado antiguo para indicar lo que este Mac permite. Ciérralo para que cmux ejecute el suyo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’acpmux de ce Mac est trop ancien pour indiquer ce que ce Mac autorise. Quittez-le pour que cmux lance le sien."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’acpmux di questo Mac è troppo vecchio per dire cosa consente questo Mac. Chiudilo così cmux avvia il proprio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この Mac の acpmux は古すぎて、この Mac が許可している内容を伝えられません。終了すると cmux が自分の acpmux を実行します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux របស់ Mac នេះចាស់ពេកមិនអាចប្រាប់ពីអ្វីដែល Mac នេះអនុញ្ញាតបានទេ។ បិទវា ដើម្បីឲ្យ cmux ដំណើរការ acpmux ផ្ទាល់ខ្លួន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac의 acpmux가 너무 오래되어 이 Mac이 허용하는 항목을 알려줄 수 없습니다. 종료하면 cmux가 자체 acpmux를 실행합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Macens acpmux er for gammel til å si hva denne Macen tillater. Avslutt den, så kjører cmux sin egen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux tego Maca jest zbyt stary, by powiedzieć, na co ten Mac pozwala. Zakończ go, aby cmux uruchomił własny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O acpmux deste Mac é antigo demais para dizer o que este Mac permite. Encerre-o para que o cmux execute o próprio."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux этого Mac слишком старый, чтобы сообщить, что разрешает этот Mac. Завершите его, чтобы cmux запустил собственный."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux ของ Mac เครื่องนี้เก่าเกินกว่าจะบอกได้ว่า Mac เครื่องนี้อนุญาตอะไรบ้าง ปิดมันเพื่อให้ cmux เรียกใช้ตัวของตัวเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac'in acpmux'u, bu Mac'in neye izin verdiğini söyleyemeyecek kadar eski. cmux'un kendininkini çalıştırması için onu kapatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux цього Mac занадто старий, щоб повідомити, що дозволяє цей Mac. Завершіть його, щоб cmux запустив власний."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux của máy Mac này quá cũ để cho biết máy Mac này cho phép những gì. Hãy thoát nó để cmux chạy acpmux của riêng mình."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这台 Mac 的 acpmux 太旧，无法说明这台 Mac 允许的内容。退出它，让 cmux 运行自己的 acpmux。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這台 Mac 的 acpmux 太舊，無法說明這台 Mac 允許的內容。結束它，讓 cmux 執行自己的 acpmux。"
+          }
+        }
+      }
+    },
+    "devices.join.otherDaemon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac's acpmux is %@, not the one cmux runs, so cmux shows what it allows but can't change it. Quit that acpmux so cmux runs its own."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux على هذا الـ Mac هو %@، وليس الذي يشغّله cmux، لذلك يعرض cmux ما يسمح به لكنه لا يستطيع تغييره. أنهِ ذلك الـ acpmux ليشغّل cmux نسخته الخاصة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux ovog Maca je %@, a ne onaj koji cmux pokreće, pa cmux prikazuje šta dozvoljava, ali to ne može promijeniti. Zatvori taj acpmux kako bi cmux pokrenuo svoj."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Macs acpmux er %@, ikke den, cmux kører, så cmux viser, hvad den tillader, men kan ikke ændre det. Afslut den acpmux, så cmux kører sin egen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der acpmux dieses Macs ist %@, nicht der, den cmux ausführt, daher zeigt cmux, was er erlaubt, kann es aber nicht ändern. Beende diesen acpmux, damit cmux seinen eigenen ausführt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El acpmux de este Mac es %@, no el que ejecuta cmux, así que cmux muestra lo que permite pero no puede cambiarlo. Cierra ese acpmux para que cmux ejecute el suyo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’acpmux de ce Mac est %@, pas celui que lance cmux : cmux affiche ce qu’il autorise mais ne peut pas le modifier. Quittez cet acpmux pour que cmux lance le sien."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’acpmux di questo Mac è %@, non quello che avvia cmux, quindi cmux mostra cosa consente ma non può cambiarlo. Chiudi quell’acpmux così cmux avvia il proprio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この Mac の acpmux は %@ で、cmux が実行しているものではありません。そのため cmux は許可内容を表示できますが、変更はできません。その acpmux を終了すると cmux が自分の acpmux を実行します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux របស់ Mac នេះគឺ %@ មិនមែនជាអ្វីដែល cmux ដំណើរការទេ ដូច្នេះ cmux បង្ហាញអ្វីដែលវាអនុញ្ញាត ប៉ុន្តែមិនអាចផ្លាស់ប្ដូរបានទេ។ បិទ acpmux នោះ ដើម្បីឲ្យ cmux ដំណើរការ acpmux ផ្ទាល់ខ្លួន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac의 acpmux는 cmux가 실행하는 것이 아닌 %@이므로 cmux는 허용 항목을 보여줄 수는 있지만 변경할 수는 없습니다. 그 acpmux를 종료하면 cmux가 자체 acpmux를 실행합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Macens acpmux er %@, ikke den cmux kjører, så cmux viser hva den tillater, men kan ikke endre det. Avslutt den acpmux-en, så kjører cmux sin egen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux tego Maca to %@, a nie ten, który uruchamia cmux, więc cmux pokazuje, na co pozwala, ale nie może tego zmienić. Zakończ ten acpmux, aby cmux uruchomił własny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O acpmux deste Mac é %@, não o que o cmux executa, então o cmux mostra o que ele permite, mas não consegue mudar. Encerre esse acpmux para que o cmux execute o próprio."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux этого Mac — %@, а не тот, что запускает cmux, поэтому cmux показывает, что он разрешает, но не может это изменить. Завершите этот acpmux, чтобы cmux запустил собственный."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux ของ Mac เครื่องนี้คือ %@ ไม่ใช่ตัวที่ cmux เรียกใช้ cmux จึงแสดงสิ่งที่อนุญาตได้แต่เปลี่ยนไม่ได้ ปิด acpmux นั้นเพื่อให้ cmux เรียกใช้ตัวของตัวเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac'in acpmux'u %@; cmux'un çalıştırdığı değil, bu yüzden cmux neye izin verdiğini gösterir ama değiştiremez. cmux'un kendininkini çalıştırması için o acpmux'u kapatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux цього Mac — %@, а не той, що запускає cmux, тож cmux показує, що він дозволяє, але не може це змінити. Завершіть цей acpmux, щоб cmux запустив власний."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux của máy Mac này là %@, không phải cái cmux chạy, nên cmux hiển thị những gì nó cho phép nhưng không thể thay đổi. Hãy thoát acpmux đó để cmux chạy acpmux của riêng mình."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这台 Mac 的 acpmux 是 %@，不是 cmux 运行的那个，因此 cmux 能显示它允许的内容，但无法更改。退出那个 acpmux，让 cmux 运行自己的。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這台 Mac 的 acpmux 是 %@，不是 cmux 執行的那個，因此 cmux 能顯示它允許的內容，但無法變更。結束那個 acpmux，讓 cmux 執行自己的。"
+          }
+        }
+      }
+    },
+    "devices.join.notProven": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not prove it's you to this Mac's acpmux, so these can't change. Quit and reopen cmux to try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يتمكن cmux من إثبات أنك أنت لـ acpmux على هذا الـ Mac، لذلك لا يمكن تغيير هذه. أنهِ cmux وأعد فتحه لتحاول مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nije mogao dokazati acpmux-u ovog Maca da si to ti, pa se ovo ne može promijeniti. Zatvori i ponovo otvori cmux da pokušaš ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kunne ikke bevise over for denne Macs acpmux, at det er dig, så disse kan ikke ændres. Afslut og åbn cmux igen for at prøve igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux konnte dem acpmux dieses Macs nicht nachweisen, dass du es bist, daher lassen sich diese nicht ändern. Beende cmux und öffne es erneut, um es noch einmal zu versuchen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux no pudo demostrar al acpmux de este Mac que eres tú, así que no se pueden cambiar. Cierra y vuelve a abrir cmux para intentarlo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux n’a pas pu prouver à l’acpmux de ce Mac que c’est bien vous, ces réglages ne peuvent donc pas changer. Quittez puis rouvrez cmux pour réessayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux non è riuscito a dimostrare all’acpmux di questo Mac che sei tu, quindi non possono essere modificati. Chiudi e riapri cmux per riprovare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux はこの Mac の acpmux に本人であることを証明できなかったため、これらは変更できません。cmux を終了して開き直し、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux មិនអាចបញ្ជាក់ទៅ acpmux របស់ Mac នេះថាជាអ្នកបានទេ ដូច្នេះមិនអាចផ្លាស់ប្ដូរទាំងនេះបានទេ។ បិទ ហើយបើក cmux ម្ដងទៀត ដើម្បីសាកល្បងម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 이 Mac의 acpmux에 본인임을 증명하지 못해 변경할 수 없습니다. cmux를 종료했다가 다시 열어 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kunne ikke bevise overfor denne Macens acpmux at det er deg, så disse kan ikke endres. Avslutt og åpne cmux på nytt for å prøve igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nie mógł udowodnić acpmux tego Maca, że to Ty, więc nie można tego zmienić. Zamknij i ponownie otwórz cmux, aby spróbować jeszcze raz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux não conseguiu provar ao acpmux deste Mac que é você, então isso não pode ser alterado. Encerre e reabra o cmux para tentar de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не смог доказать acpmux этого Mac, что это вы, поэтому их нельзя изменить. Закройте и снова откройте cmux, чтобы попробовать ещё раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux พิสูจน์กับ acpmux ของ Mac เครื่องนี้ไม่ได้ว่าเป็นคุณ จึงเปลี่ยนค่าเหล่านี้ไม่ได้ ปิดแล้วเปิด cmux ใหม่เพื่อลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux, bu Mac'in acpmux'una siz olduğunuzu kanıtlayamadı, bu yüzden bunlar değiştirilemez. Yeniden denemek için cmux'tan çıkıp tekrar açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не зміг довести acpmux цього Mac, що це ви, тож їх не можна змінити. Закрийте й знову відкрийте cmux, щоб спробувати ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux không thể chứng minh với acpmux của máy Mac này rằng đó là bạn, nên không thể thay đổi các mục này. Hãy thoát rồi mở lại cmux để thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 无法向这台 Mac 的 acpmux 证明是你本人，因此无法更改这些设置。退出并重新打开 cmux 再试一次。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 無法向這台 Mac 的 acpmux 證明是你本人，因此無法變更這些設定。結束並重新開啟 cmux 再試一次。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

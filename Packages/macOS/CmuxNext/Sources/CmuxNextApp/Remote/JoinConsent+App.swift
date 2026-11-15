@@ -30,17 +30,7 @@ extension JoinConsentServices {
                 #if DEBUG
                 if let fixture = fixtures.joinStatus { return fixture }
                 #endif
-                guard let data = await cli?.json(["acp", "host", "join", "--status", "--json"], deadline: .seconds(10), label: "join status")
-                else { return nil }
-                return JoinStatus.parse(data)
-            },
-            openLine: { [weak services] in
-                #if DEBUG
-                if fixtures.joinStatus != nil { return fixtures.joinLine }
-                #endif
-                guard let services, let environment = QuitAgents.environment(services),
-                      let line = await AcpmuxPersonLine.open(environment) else { return nil }
-                return JoinConsentPersonLine(line)
+                return (await cli?.json(["acp", "host", "join", "--status", "--json"], deadline: .seconds(10), label: "join status")).flatMap(JoinStatus.parse)
             },
             enabled: { [weak services] in services?.settings?.snapshot.machineJoin == true },
             settingsEpoch: { [weak services] in services?.settings?.loadCount ?? -1 },
@@ -52,7 +42,13 @@ extension JoinConsentServices {
                 return await LocalDeviceOwnerAuthenticator().authenticate(reason: JoinConsentStrings.confirmReason(surface)) ? .confirmed : .cancelled
             },
             askShown: { UserDefaults.standard.bool(forKey: askShownKey) },
-            markAskShown: { UserDefaults.standard.set(true, forKey: askShownKey) })
+            markAskShown: { UserDefaults.standard.set(true, forKey: askShownKey) },
+            open: { [weak services] in
+                #if DEBUG
+                if fixtures.joinStatus != nil { return .line(fixtures.joinLine) }
+                #endif
+                return await JoinConsentPersonLine.open(services.flatMap(QuitAgents.environment))
+            })
     }
 }
 
@@ -66,8 +62,19 @@ final class JoinConsentPersonLine: JoinConsentLine {
         self.line = line
     }
 
+    static func open(_ environment: AcpmuxEnvironment?) async -> JoinConsentOpen {
+        guard let environment else { return .failed(.notRunning(path: nil)) }
+        switch await AcpmuxPersonLine.connectEnrolling(environment) {
+        case .success(let line): .line(JoinConsentPersonLine(line))
+        case .failure(.noSocket(let path)): .failed(.notRunning(path: path))
+        case .failure(.refused(let why)): .failed(.refused(why))
+        case .failure(.noAnswer): .failed(.noAnswer)
+        case .failure(.olderDaemon(let path)): .failed(.olderDaemon(path: path))
+        }
+    }
     var isPerson: Bool { line.isPerson }
     var supportsConsent: Bool { line.capabilities.contains(Self.capability) }
+    var notProven: JoinConsentUnread? { line.notPersonReason.map { .notProven(foreignPath: line.foreignPeerPath, why: $0.description) } }
 
     func read() async -> JoinConsentRecord? {
         (await line.call("_acpmux/machine_consent_get", [:])).flatMap(JoinConsentRecord.parse)

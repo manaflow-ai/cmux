@@ -112,11 +112,69 @@ public nonisolated struct JoinConsentRecord: Equatable, Sendable {
     }
 }
 
+/// Why Settings > Devices has no consent record it may change: each way the page ends up without
+/// one, with its own line on the page (``JoinConsentModel/pageData()``) and in the app's log.
+public nonisolated enum JoinConsentUnread: Equatable, Sendable, CustomStringConvertible {
+    /// No acpmux runs for this app: no socket at `path`, or the app has none (a mock agent host).
+    case notRunning(path: String?)
+    /// The app refused the acpmux on its socket, or could not connect (the refusal's words).
+    case refused(String)
+    /// The acpmux connected but never answered `initialize` before the deadline, or closed.
+    case noAnswer
+    /// The acpmux on the socket is another install's that predates the person challenge (`path`).
+    case olderDaemon(path: String)
+    /// The acpmux has no `machine-consent-v1`.
+    case unsupported
+    /// `_acpmux/machine_consent_get` failed (acpmux's words, when it gave any).
+    case readFailed(String?)
+    /// The record was read, but acpmux did not take this app's person proof, so nothing can change:
+    /// `foreignPath` is the other install's acpmux that answers on this app's socket (the app never
+    /// proves there), nil for this app's own one without its key (`why`).
+    case notProven(foreignPath: String?, why: String)
+
+    public var description: String {
+        switch self {
+        case .notRunning(let path): "no acpmux runs at \(path ?? "(no acpmux for this app)")"
+        case .refused(let why): "the acpmux on the socket was refused: \(why)"
+        case .noAnswer: "acpmux did not answer initialize"
+        case .olderDaemon(let path): "the acpmux on the socket is \(path), which predates the person challenge"
+        case .unsupported: "acpmux has no machine-consent-v1"
+        case .readFailed(let why): "machine_consent_get failed: \(why ?? "no record in its answer, or the line closed")"
+        case .notProven(let path?, let why): "read from \(path), not the acpmux this app runs, so it is not proven the person's: \(why)"
+        case .notProven(nil, let why): "acpmux did not take this app's person proof: \(why)"
+        }
+    }
+
+    /// The page's line for it.
+    var pageText: String {
+        switch self {
+        case .notRunning: JoinConsentStrings.notRunning
+        case .refused: JoinConsentStrings.refusedDaemon
+        case .noAnswer: JoinConsentStrings.noAnswer
+        case .olderDaemon: JoinConsentStrings.olderDaemon
+        case .unsupported: JoinConsentStrings.unsupported
+        case .readFailed: JoinConsentStrings.unread
+        case .notProven(let path?, _): JoinConsentStrings.otherDaemon(path)
+        case .notProven(nil, _): JoinConsentStrings.notProven
+        }
+    }
+}
+
+/// What ``JoinConsentServices/open`` got: a line, or why there is none.
+public enum JoinConsentOpen {
+    case line(any JoinConsentLine)
+    case failed(JoinConsentUnread)
+}
+
 /// One connection to this Mac's acpmux for the consent record (the app's ``AcpmuxPersonLine``). acpmux
 /// changes it only for a connection proven as the person, as `_acpmux/pair_set`'s Full access does.
 @MainActor
 public protocol JoinConsentLine: AnyObject {
     var isPerson: Bool { get }
+    /// Why ``isPerson`` is false (a ``JoinConsentUnread/notProven(foreignPath:why:)``); nil when it is not.
+    var notProven: JoinConsentUnread? { get }
+    /// acpmux's words for the last failed ``read()``, when it gave any.
+    var readError: String? { get }
     /// acpmux announced `machine-consent-v1`: it keeps the record and answers the two calls below.
     var supportsConsent: Bool { get }
     /// `_acpmux/machine_consent_get`; nil when it failed.
@@ -127,6 +185,11 @@ public protocol JoinConsentLine: AnyObject {
     /// nothing and answers nil. A revoke has none.
     func set(_ surface: JoinConsentSurface, granted: Bool, ticket: JoinConsentGrantTicket?) async -> JoinConsentRecord?
     func close()
+}
+
+extension JoinConsentLine {
+    public var notProven: JoinConsentUnread? { isPerson ? nil : .notProven(foreignPath: nil, why: "not the person's") }
+    public var readError: String? { nil }
 }
 
 /// SECURITY: what makes a grant stale where its bytes go out (round 15 P1). A grant takes a ticket when it
@@ -198,6 +261,9 @@ public struct JoinConsentServices {
     public var status: @MainActor () async -> JoinStatus?
     /// A person-proof line to this Mac's acpmux; nil when no acpmux answers.
     public var openLine: @MainActor () async -> (any JoinConsentLine)?
+    /// ``openLine`` that says why it got no line; what the model reads with. Without one given, a nil
+    /// ``openLine`` is ``JoinConsentUnread/noAnswer``.
+    public var open: @MainActor () async -> JoinConsentOpen
     /// `labs.machineJoin`.
     public var enabled: @MainActor () -> Bool
     /// Moves on every settings load (`SettingsController.loadCount`): a grant is sent only when no load
@@ -211,12 +277,19 @@ public struct JoinConsentServices {
     public var askShown: @MainActor () -> Bool
     public var markAskShown: @MainActor () -> Void
 
-    public init(status: @escaping @MainActor () async -> JoinStatus?, openLine: @escaping @MainActor () async -> (any JoinConsentLine)?,
+    public init(status: @escaping @MainActor () async -> JoinStatus?, openLine: (@MainActor () async -> (any JoinConsentLine)?)? = nil,
                 enabled: @escaping @MainActor () -> Bool, settingsEpoch: @escaping @MainActor () -> Int = { 0 },
                 confirmOwner: @escaping @MainActor (JoinConsentSurface) async -> JoinConsentConfirm = JoinConsentServices.cannotConfirm,
-                askShown: @escaping @MainActor () -> Bool, markAskShown: @escaping @MainActor () -> Void) {
+                askShown: @escaping @MainActor () -> Bool, markAskShown: @escaping @MainActor () -> Void,
+                open: (@MainActor () async -> JoinConsentOpen)? = nil) {
         self.status = status
-        self.openLine = openLine
+        // One of the two, the other made from it: a nil line without `open` is ``JoinConsentUnread/noAnswer``.
+        let open: @MainActor () async -> JoinConsentOpen = open ?? { await openLine?().map(JoinConsentOpen.line) ?? .failed(.noAnswer) }
+        self.open = open
+        self.openLine = openLine ?? {
+            if case .line(let line) = await open() { return line }
+            return nil
+        }
         self.enabled = enabled
         self.settingsEpoch = settingsEpoch
         self.confirmOwner = confirmOwner
@@ -254,6 +327,8 @@ public final class JoinConsentModel {
     @ObservationIgnored private var verified: JoinConsentRecord?
     /// This Mac's acpmux has `machine-consent-v1` (without it nothing is granted); nil when none answered.
     public private(set) var consentSupported: Bool?
+    /// Why the last applied read left the page without a record it may change; nil when it has one.
+    public private(set) var unread: JoinConsentUnread?
     /// Why the last write failed; nil after a success.
     public private(set) var lastError: String?
     /// The refused request the one-time sheet shows; nil while it is hidden.
@@ -306,7 +381,10 @@ public final class JoinConsentModel {
         var status: JoinStatus?
         var consent: JoinConsentRecord?
         var supported: Bool?
+        var unread: JoinConsentUnread?
     }
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "join-consent")
 
     public func refresh() async {
         _ = await read()
@@ -328,6 +406,7 @@ public final class JoinConsentModel {
         consent = nil
         verified = nil
         consentSupported = nil
+        unread = nil
         changed()
         if !enabled, ask != nil { dismissAsk() }
     }
@@ -353,11 +432,21 @@ public final class JoinConsentModel {
         var reading = Reading()
         if services.enabled() {
             reading.status = await services.status()
-            if let line = await services.openLine() {
+            switch await services.open() {
+            case .failed(let why):
+                reading.unread = why
+            case .line(let line):
                 reading.supported = line.supportsConsent
-                if line.supportsConsent { reading.consent = await line.read() }
+                if line.supportsConsent {
+                    reading.consent = await line.read()
+                    reading.unread = reading.consent == nil ? .readFailed(line.readError) : line.notProven
+                } else {
+                    reading.unread = .unsupported
+                }
                 line.close()
             }
+            // Every way the page is left without a record it may change says why, here and on the page.
+            if let why = reading.unread { Self.logger.error("join consent: \(why.description, privacy: .public)") }
         }
         guard !duringWrite, mine == generation, kind == .afterWrite || !writing else { return (reading, false) }
         apply(reading)
@@ -369,6 +458,7 @@ public final class JoinConsentModel {
         consent = reading.consent
         verified = reading.consent
         consentSupported = reading.supported
+        unread = reading.unread
         changed()
         // The Labs switch went off, or the join went away or was revoked (said so, not merely unread): an
         // open sheet can no longer allow.
@@ -569,12 +659,18 @@ public final class JoinConsentModel {
         guard shown, let status else { return nil }
         let team = status.teamName ?? status.teamId ?? ""
         let name = status.name ?? status.machineId ?? ""
+        // Read but not the person's: the switches show what acpmux holds, and none can change, off included
+        // (acpmux takes a revoke only from the person too), so no Turn All Off either.
+        var proven = true
+        if case .notProven? = unread { proven = false }
+        let known = consentSupported == true && consent != nil && proven
+        let why = consentSupported == false ? JoinConsentUnread.unsupported : unread ?? .readFailed(nil)
         let page = JoinConsentPage(
             title: JoinConsentStrings.section, joined: JoinConsentStrings.joined(team: team, name: name), help: JoinConsentStrings.help,
-            error: lastError ?? (consentSupported == false ? JoinConsentStrings.unsupported : consent == nil ? JoinConsentStrings.unread : nil),
+            error: lastError ?? (consentSupported == false || consent == nil || !proven ? why.pageText : nil),
             busy: writing,
-            known: consentSupported == true && consent != nil,
-            revokeAll: consentSupported == true && consent != nil ? nil : JoinConsentStrings.revokeAll,
+            known: known,
+            revokeAll: known || !proven ? nil : JoinConsentStrings.revokeAll,
             switches: JoinConsentSurface.allCases.map {
                 JoinConsentPage.Switch(surface: $0.rawValue, title: JoinConsentStrings.title($0), help: JoinConsentStrings.switchHelp($0),
                                        on: consent?.allows($0) == true)
@@ -649,6 +745,25 @@ public nonisolated struct JoinConsentStrings {
     static var unread: String {
         s("devices.join.unread", "This Mac could not read what it allows, so Mac Screen is refused until it can. The switches come back when it reads again.")
     }
+    static var notRunning: String {
+        s("devices.join.notRunning", "cmux's acpmux is not running on this Mac, so it can't read what this Mac allows. Mac Screen is refused until it can.")
+    }
+    static var refusedDaemon: String {
+        s("devices.join.refusedDaemon", "cmux did not trust what answers on its acpmux socket, so it can't read what this Mac allows. Mac Screen is refused until it can.")
+    }
+    static var noAnswer: String {
+        s("devices.join.noAnswer", "This Mac's acpmux did not answer, so cmux can't read what this Mac allows. Mac Screen is refused until it can.")
+    }
+    static var olderDaemon: String {
+        s("devices.join.olderDaemon", "This Mac's acpmux is too old to say what this Mac allows. Quit it so cmux runs its own.")
+    }
+    /// Another install's acpmux (`path`) answers on cmux's socket: it shows what it holds, and cmux can't prove it's you there.
+    static func otherDaemon(_ path: String) -> String {
+        String(format: s("devices.join.otherDaemon", "This Mac's acpmux is %@, not the one cmux runs, so cmux shows what it allows but can't change it. Quit that acpmux so cmux runs its own."), path)
+    }
+    static var notProven: String {
+        s("devices.join.notProven", "cmux could not prove it's you to this Mac's acpmux, so these can't change. Quit and reopen cmux to try again.")
+    }
     static var busy: String { s("devices.join.busy", "Still saving the last change. Try again in a moment.") }
     static var revokeAll: String { s("devices.join.revokeAllSurfaces", "Turn All Off") }
     static var unsupported: String { s("devices.join.unsupported", "Still off: this Mac's cmux needs an update before you can allow this") }
@@ -681,3 +796,21 @@ public nonisolated struct JoinConsentStrings {
     }
     static var allow: String { s("devices.join.ask.allow", "Allow") }
 }
+
+#if DEBUG
+/// `debug.join_consent`'s line (the app's DebugJoinConsent): one acpmux proved as the person, over a fixture record.
+@MainActor
+public final class JoinConsentFixtureLine: JoinConsentLine {
+    public var record = JoinConsentRecord()
+    public var isPerson: Bool { true }
+    public var supportsConsent: Bool { true }
+    public init() {}
+    public func read() async -> JoinConsentRecord? { record }
+    public func set(_ surface: JoinConsentSurface, granted: Bool, ticket: JoinConsentGrantTicket?) async -> JoinConsentRecord? {
+        guard ticket?.write({}) ?? true else { return nil }
+        if surface == .screen { record.screen = granted } else { record.control = granted }
+        return record
+    }
+    public func close() {}
+}
+#endif
