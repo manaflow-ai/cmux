@@ -626,8 +626,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// `reset`) on the page's command stream. False when no page code listens.
     @discardableResult
     public func send(command: String, arguments: [String: JSONValue] = [:]) -> Bool {
-        router.publishCommand(command, arguments: arguments)
+        let sent = router.publishCommand(command, arguments: arguments)
+        // The page focuses a field for it in its own turn: keys typed until then wait for that field.
+        if sent, Self.focusMovingCommands.contains(command) { inputReadiness.awaitFocusMove() }
+        return sent
     }
+
+    /// The page commands that make the page focus one of its fields (Cmd-F's find bar, a page's search field).
+    static let focusMovingCommands: Set<String> = [EditorPageCommand.find, "focusSearch"]
 
     /// The page's owner link (the daemon) went up or down; the page shows its disconnected state.
     public func setConnected(_ connected: Bool) {
