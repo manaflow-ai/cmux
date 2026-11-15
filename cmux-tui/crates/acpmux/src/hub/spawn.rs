@@ -417,8 +417,9 @@ impl Hub {
         // The probe waits at most `PROBE_DEADLINE`; any failure keeps own.
         // The own-key check reads the env the child gets, as Claude's above does: the profile's
         // references resolved (one that does not resolve keeps own), over the vault's and
-        // `machine.env`'s values (`provider_cloud_auth::LaunchEnv`, #43800). Only an owner Cloud
-        // machine's launch, so no other resolves its references twice.
+        // `machine.env`'s values (`provider_cloud_auth::LaunchEnv`, #43800); a remote-origin launch
+        // (the app's Cloud chat, over its peer link) gets none of those, only its profile.
+        // Only an owner Cloud machine's launch, so no other resolves its references twice.
         let root = self.vm_marker_root();
         let provider = crate::provider_cloud_auth::Provider::for_family(
             &crate::config::derive_family(&meta.harness, &p),
@@ -438,7 +439,11 @@ impl Hub {
             None => None,
         };
         if let Some((provider, resolved)) = provider {
-            let launch = crate::provider_cloud_auth::LaunchEnv::now(provider.name(), resolved);
+            let launch = crate::provider_cloud_auth::LaunchEnv::now(
+                provider.name(),
+                resolved,
+                meta.remote_origin,
+            );
             match crate::provider_cloud_auth::decide_launch(
                 provider,
                 &launch,

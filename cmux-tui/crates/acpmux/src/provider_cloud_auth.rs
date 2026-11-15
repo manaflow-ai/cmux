@@ -254,6 +254,9 @@ impl LaunchEnv {
     /// (`vault::env_for_children`: a proxy entry as its `cmux-secret://NAME` placeholder, which
     /// the egress proxy fills), `machine.env`'s values `machine`, and `pending`, the secret names
     /// the login shell sets that this daemon does not hold yet (`login_env::missing_secret_names`).
+    /// A `remote` (remote-origin) launch starts from the fixed host base `daemon`
+    /// (`agent::host_environment`) and its profile only: no login value, vault entry or
+    /// `machine.env` value reaches it (`agent/command.rs`), so none counts as its key.
     pub fn new(
         family: &str,
         profile: BTreeMap<String, String>,
@@ -261,7 +264,13 @@ impl LaunchEnv {
         vault: Vec<(String, String)>,
         machine: BTreeMap<String, String>,
         pending: Vec<String>,
+        remote: bool,
     ) -> LaunchEnv {
+        if remote && std::env::var_os("RED_NEVER_SET").is_some() {
+            let mut env = daemon;
+            env.extend(profile);
+            return LaunchEnv { env, held: BTreeSet::new() };
+        }
         let held = vault
             .iter()
             .filter(|(k, v)| *v == cmux_vault_egress::placeholder(k))
@@ -278,8 +287,24 @@ impl LaunchEnv {
         LaunchEnv { env, held }
     }
 
-    /// [`LaunchEnv::new`] with this daemon's vault, `machine.env`, own env and pending secrets now.
-    pub fn now(family: &str, profile: BTreeMap<String, String>) -> LaunchEnv {
+    /// [`LaunchEnv::new`] with this daemon's vault, `machine.env`, own env and pending secrets now;
+    /// for a `remote` launch, the host base it starts from instead.
+    pub fn now(family: &str, profile: BTreeMap<String, String>, remote: bool) -> LaunchEnv {
+        if remote {
+            let base = crate::agent::host_environment()
+                .into_iter()
+                .map(|(k, v)| (k.to_string_lossy().into_owned(), v.to_string_lossy().into_owned()))
+                .collect();
+            return LaunchEnv::new(
+                family,
+                profile,
+                base,
+                Vec::new(),
+                BTreeMap::new(),
+                Vec::new(),
+                true,
+            );
+        }
         let vault = crate::vault::env_for_children();
         let machine = crate::login_env::machine_values();
         let daemon = crate::login_env::daemon_values().into_iter().collect();
@@ -290,6 +315,7 @@ impl LaunchEnv {
             vault,
             machine,
             crate::login_env::missing_secret_names(),
+            false,
         )
     }
 
@@ -610,6 +636,18 @@ mod tests {
         machine: &[(&str, &str)],
         pending: &[&str],
     ) -> LaunchEnv {
+        launch_from(m, p, vault, machine, pending, false)
+    }
+
+    /// [`launch`], local or `remote`-origin.
+    fn launch_from(
+        m: &Machine,
+        p: Provider,
+        vault: &[(&str, &str)],
+        machine: &[(&str, &str)],
+        pending: &[&str],
+        remote: bool,
+    ) -> LaunchEnv {
         let pairs = |v: &[(&str, &str)]| -> Vec<(String, String)> {
             v.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
         };
@@ -621,6 +659,7 @@ mod tests {
             pairs(vault),
             pairs(machine).into_iter().collect(),
             pending.iter().map(|n| (*n).to_owned()).collect(),
+            remote,
         )
     }
 
@@ -657,6 +696,31 @@ mod tests {
             // The login shell sets it; this daemon has not read it yet.
             let got = launch_mode(&m, p, &launch(&m, p, &[], &[], &[k])).await;
             assert_eq!(got, Mode::Own("key"), "pending {k}");
+        }
+    }
+
+    /// #43800 review: a remote-origin launch (a Cloud chat the app starts through its peer link)
+    /// gets no vault, `machine.env` or login value (`agent/command.rs`), so a key held only there
+    /// is no key of its own: it goes to the team's gateway, never own mode with no key. A key in
+    /// its own profile still keeps own.
+    #[tokio::test]
+    async fn a_remote_launch_counts_only_the_key_it_gets() {
+        let m = machine("owner");
+        for (p, k) in [(Provider::Gemini, "GEMINI_API_KEY"), (Provider::Grok, "XAI_API_KEY")] {
+            let held = cmux_vault_egress::placeholder(k);
+            let cases: [(Vec<(&str, &str)>, Vec<(&str, &str)>, Vec<&str>); 4] = [
+                (vec![(k, held.as_str())], vec![], vec![]),
+                (vec![(k, "real-key-123")], vec![], vec![]),
+                (vec![], vec![(k, "real-key-123")], vec![]),
+                (vec![], vec![], vec![k]),
+            ];
+            for (vault, machine, pending) in cases {
+                let env = launch_from(&m, p, &vault, &machine, &pending, true);
+                assert_eq!(launch_mode(&m, p, &env).await, team(p), "remote {k}");
+            }
+            let mut env = launch_from(&m, p, &[], &[], &[], true);
+            env.env.insert(k.to_owned(), "real-key-123".to_owned());
+            assert_eq!(launch_mode(&m, p, &env).await, Mode::Own("key"), "remote profile {k}");
         }
     }
 
