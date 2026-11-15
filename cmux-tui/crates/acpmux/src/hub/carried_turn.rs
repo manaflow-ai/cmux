@@ -216,6 +216,13 @@ impl Hub {
                 .collect::<Vec<_>>(),
         });
         now.carries.push_back((carried.seq, turn_id.clone()));
+        // Who sent each line it carries, read while `steer_now` is held (below).
+        let carried_devices: std::collections::HashMap<&String, Option<String>> = carried
+            .prompt_ids
+            .iter()
+            .map(|p| (p, now.sent.get(p).and_then(|s| s.device.clone())))
+            .filter(|(p, _)| now.sent.contains_key(*p))
+            .collect();
         while now.carries.len() > CARRIES_KEPT {
             now.carries.pop_front();
         }
@@ -250,12 +257,18 @@ impl Hub {
         let prompt_id = first.cloned().unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let mut turn = TurnInfo::prompted(&client, &text, &turn_id, &prompt_id, control);
         turn.trigger = trigger;
-        // The agent's own next turn goes on for the device that drove the one it follows. The
-        // lines it reads were steers into that turn, which already narrowed its device
-        // (`check_steer`).
+        // The agent's own next turn goes on for the device that drove the one it follows, and
+        // only while every line it reads is that device's too. A line `check_steer` narrowed an
+        // earlier turn for, read only now, never rides into a turn the phone still owns
+        // (post-merge review of cmux#43251, follow-up 1).
         turn.device = from
             .filter(|t| t.control == Control::Web && control == Control::Web)
-            .and_then(|t| t.device.clone());
+            .and_then(|t| t.device.clone())
+            .filter(|d| {
+                carried.prompt_ids.iter().all(|p| {
+                    carried_devices.get(p).is_some_and(|s| s.as_deref() == Some(d.as_str()))
+                })
+            });
         (turn.shown_as(&line), continues)
     }
 
