@@ -9,11 +9,13 @@
 //! `banners` answers the app's `notifications.banners`: `{banners: [{id,
 //! title, subtitle, body, surface, reply, approval, category}],
 //! authorization}`, newest last, the last banners the app asked for (an
-//! incognito window's as it showed, naming nothing of the window). It moves
-//! no focus. `open` answers `notifications.open`: it runs that banner's click
-//! on the banner's own tab, as the person's click does, so it shows the tab
-//! and moves the app's focus there, and answers `{opened, surface}`; an id the
-//! app lists no banner for is `not_found` and opens nothing. Both are app
+//! incognito window's as it showed, naming nothing of the window, its surface
+//! included). It moves no focus. `open` answers `notifications.open`: it shows
+//! the banner's own tab, as a click on it does, so it moves the app's focus
+//! there, and answers `{opened, surface}`; an id the app lists no banner for
+//! is `not_found` and opens nothing. Only a tab's banner opens (a page's click
+//! handler never runs): a passkey, pairing, attention or Run banner acts on
+//! the person's own click and is `person_required`. Both are app
 //! methods every build serves (release builds included, unlike
 //! `debug.notifications`), so a probe can check a Nightly: one banner per
 //! agent turn, and its click opens the chat. The daemon's notification rows
