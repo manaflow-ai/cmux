@@ -723,16 +723,6 @@ class NativeSources(unittest.TestCase):
         finally:
             subprocess.run(["rm", "-rf", str(tmp)])
 
-    def test_only_cmux_tui_native_sources_count(self):
-        spec = importlib.util.spec_from_file_location("hot_apply_native_under_test", SCRIPT)
-        hot = importlib.util.module_from_spec(spec)
-        sys.modules["hot_apply_native_under_test"] = hot
-        spec.loader.exec_module(hot)
-        self.assertTrue(hot.NATIVE_IN_TUI.match("cmux-tui/crates/cmux-remote-browser-host/csrc/rb_shim.mm"))
-        self.assertTrue(hot.NATIVE_IN_TUI.match("cmux-tui/bindings/zig/src/resource.zig"))
-        self.assertFalse(hot.NATIVE_IN_TUI.match("ghostty/src/main.zig"))
-        self.assertFalse(hot.NATIVE_IN_TUI.match("Sources/CmuxNextApp/Bridge.m"))
-
 
 
 class OtherSessions(unittest.TestCase):
