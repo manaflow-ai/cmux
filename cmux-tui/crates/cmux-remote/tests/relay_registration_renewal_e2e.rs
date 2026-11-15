@@ -152,6 +152,8 @@ async fn registration_outlives_its_ticket_with_no_failed_dial_or_broken_circuit(
         ..RelayConfig::default()
     })
     .unwrap();
+    // The sweep that ends an expired registration, as the relay binary runs it.
+    let cleanup = relay.spawn_cleanup();
     let (listener, router) = relay.server_parts(listener);
     let relay_task = tokio::spawn(async move {
         axum::serve(listener, router).await.unwrap();
@@ -332,4 +334,5 @@ async fn registration_outlives_its_ticket_with_no_failed_dial_or_broken_circuit(
 
     registration.shutdown().await;
     relay_task.abort();
+    cleanup.abort();
 }
