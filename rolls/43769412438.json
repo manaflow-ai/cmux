@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43769412438",
+  "recorded_at": "2026-11-15T22:37:54Z",
+  "reason": "cmux-tui 9750ac9e9926 changes the image's cmux-tui (pinned 5f9ffecdcf02)",
+  "dry_run": false,
+  "cmux_tui": "9750ac9e9926cfe6e9131c56ecd7c1efb22e391f",
+  "fixes": [
+    {
+      "sha": "9750ac9e9926cfe6e9131c56ecd7c1efb22e391f",
+      "mergedAt": "2026-11-15T14:10:53-08:00",
+      "subject": "cmux-tui: acpmux-cgu-sweep.sh, acpmux release rebuild time, size and pipe numbers per codegen-units count (#43926)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-15T22:37:54Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
