@@ -123,3 +123,9 @@ blob skills/cmux-customization/references/examples.md
 blob skills/cmux-customization/references/local-app-views.md
 blob skills/cmux-customization/references/viewer-types.md
 blob skills/cmux/SKILL.md
+# cmux-customize-recipes embeds the recipes guide and the widget templates it installs.
+blob docs/cmux-next/customize-recipes.md
+blob skills/cmux-customization/templates/clock-weather/cmux-app.json
+blob skills/cmux-customization/templates/clock-weather/main.js
+blob skills/cmux-customization/templates/my-prs/cmux-app.json
+blob skills/cmux-customization/templates/my-prs/main.js
