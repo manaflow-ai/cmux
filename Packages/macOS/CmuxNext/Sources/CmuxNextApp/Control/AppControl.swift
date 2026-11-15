@@ -387,10 +387,10 @@ final class AppControl {
             .async("debug.open_panel_bench") { [weak services] call in
                 await DebugOpenPanelBench.run(call.params, services)
             }.withDeadline(.fixed(.seconds(30))),
-            // One icon picker or group editor open, warm, cold or after a sign of intent, to its drawn frame (DebugOverlayOpenBench).
+            // One icon picker (Set Icon) or group editor (the first group's Rename) open, warm, cold or after intent, to its drawn frame.
             .async("debug.overlay_open_bench") { @MainActor [weak services] call in
                 guard let services else { return .null }
-                let open = { (kind: String) in services.registry.perform(kind == "icon_picker" ? "workspace.setIcon" : "workspaceGroup.rename") }
+                let open = { (kind: String) in kind == "icon_picker" ? services.registry.perform("workspace.setIcon") : services.windows.active?.sidebar.container.beginRenameFirstGroup() ?? false }
                 return await OverlayOpenBench(pages: ["icon_picker": services.iconPicker, "group_editor": services.groupEditor], open: open).run(call.params)
             }.withDeadline(.fixed(.seconds(30))),
             .mainActor("debug.omnibar_type") { [weak services] call in
