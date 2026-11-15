@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43671778334",
+  "recorded_at": "2026-11-15T03:32:03Z",
+  "reason": "cmux-tui ab233c7c78b4 changes the image's cmux-tui (pinned 1e3170a6e475)",
+  "dry_run": false,
+  "cmux_tui": "ab233c7c78b44c01522f2dc33b7bf78a0fc3e5e3",
+  "fixes": [
+    {
+      "sha": "ab233c7c78b44c01522f2dc33b7bf78a0fc3e5e3",
+      "mergedAt": "2026-11-14T19:02:32-08:00",
+      "subject": "carrier: the app's bundled cmux finds the tunnel hub its app's link serves (#43409)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T03:32:03Z",
+    "snapshot_id": "sh-80a342769fe6412aa1d060ff6c1ddf58",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43671778334): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f7e519b2e1460ee5e91d230224d536340809f490",
+    "image": "cloud-native-auto-ab233c7c-43671778334-1",
+    "revision": "ci-43671778334-1",
+    "at": "2026-11-15T03:32:03Z"
+  },
+  "rolled_back": false
+}
