@@ -541,7 +541,8 @@ exit 64"#;
     serve.token(read, JWT);
     let logs = serve.log("connect 1 failed: ").await;
     let failed = logs.last().expect("the failure line");
-    assert!(failed.contains("already leased"), "the reason: {failed:?}");
+    // A leased socket is the clear "socket taken" failure (`serve_machine::socket_taken`).
+    assert!(failed.contains("another cmux is serving"), "the reason: {failed:?}");
     // The child's exit comes before or after the failed connect.
     let exited = |text: &String| text.contains(" exited with code ");
     let mut exit = logs.iter().find(|text| exited(text)).cloned();
@@ -561,6 +562,10 @@ exit 64"#;
 fn a_log_line_is_one_bounded_line_with_no_credential() {
     let text = wire::log_text(&format!("refused: bearer {JWT}\nnext"));
     assert_eq!(text, "refused: bearer [redacted] next");
+    let key = "key=QUJDREVGR0hJSktMTU5PUFFSU1RVVldY/WVphYmNkZWZnaGlqa2xtbm9w+cXJzdA==";
+    assert_eq!(wire::log_text(key), "[redacted]", "standard base64 with `/` and `+`");
+    let path = "/var/folders/ab/cdefghijklmnopqrstuvwxyz0123/T/cmux-link-0123456789ab.sock";
+    assert_eq!(wire::log_text(&format!("unsafe socket {path}")), format!("unsafe socket {path}"));
     let long = wire::log_text(&"word ".repeat(200));
     assert_eq!(long.chars().count(), wire::LOG_MAX);
     assert!(long.ends_with('…'));

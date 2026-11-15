@@ -121,8 +121,10 @@ pub(crate) fn log_line(text: &str) -> String {
 
 /// `text` as a `log` line holds it: one line, bounded, no credential.
 pub(crate) fn log_text(text: &str) -> String {
+    // A run takes `/` too (standard base64), except at its start, so an
+    // absolute path stays readable.
     fn flush(run: &mut String, out: &mut String) {
-        if run.chars().count() >= SECRET_RUN {
+        if run.chars().count() >= SECRET_RUN && !run.starts_with('/') {
             out.push_str("[redacted]");
         } else {
             out.push_str(run);
@@ -132,7 +134,7 @@ pub(crate) fn log_text(text: &str) -> String {
     let mut out = String::new();
     let mut run = String::new();
     for c in text.chars() {
-        if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+' | '=') {
+        if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+' | '=' | '/') {
             run.push(c);
             continue;
         }
