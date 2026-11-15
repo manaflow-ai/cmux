@@ -7226,7 +7226,21 @@ jobs:
       - *x30
       - *x31
       - *x32
-      - *x33
+      # Bounded here, not on the anchor (build-nightly-app may compile cold on Blacksmith under its own job timeout):
+      # this job's bound is 300 min for the notary and publish-lease waits, so a stalled compile held the push slot and
+      # the next nightly for hours. Run 43673773157's build on ultra1 ran 80+ min against the 6-19 min one-job builds on
+      # cmux15 and ultra1's 7.8 min p50 (hq build-fleet/mini-fleet.json _sizing). 60 min is two cold builds (the script
+      # retries once on a cache failure); past it the step fails, the job ends red and the loop retry builds again.
+      - name: Build nightly app (Release)
+        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
+        timeout-minutes: 60
+        env:
+          IMPORT_VARIANT: ${{ needs.decide.outputs.import_variant }}
+          SWIFT_IMPORT_FLAGS: ${{ needs.decide.outputs.swift_import_flags }}
+          EMPTY_BROWSER_SOURCES: ${{ needs.decide.outputs.empty_browser_sources }}
+          BUILD_TRACK: ${{ needs.decide.outputs.track }}
+          DECIDE_COLD_CACHE_DISABLE: ${{ needs.decide.outputs.cold_cache == 'true' && '1' || '' }}
+        run: bash scripts/ci/nightly-steps/app-build-release.sh
       - name: Start the webview checks on the build commit
         if: ${{ !env.LEFT_SLOT }}
         run: python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" webview-checks -- python3 scripts/ci/fast_gate_webviews_checks.py --repo .
