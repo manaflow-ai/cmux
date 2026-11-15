@@ -14,7 +14,7 @@ struct DiffUserThemeTests {
     private struct Home {
         let root = FileManager.default.temporaryDirectory.appending(path: "cnc-diff-theme-\(UUID().uuidString)")
         var configFile: URL { root.appending(path: "cmux-next.json") }
-        var css: URL { DiffThemeFeed.file(configFile: configFile) }
+        var css: URL { DiffThemeFeed.stylesheet(configFile: configFile) }
 
         func write(_ text: String) throws {
             try FileManager.default.createDirectory(at: css.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -33,7 +33,7 @@ struct DiffUserThemeTests {
     }
 
     @Test func theStylesheetSitsInTheDiffFolderNextToTheSettingsFile() {
-        let file = DiffThemeFeed.file(configFile: URL(fileURLWithPath: "/Users/me/.config/cmux/cmux-next.json"))
+        let file = DiffThemeFeed.stylesheet(configFile: URL(fileURLWithPath: "/Users/me/.config/cmux/cmux-next.json"))
         #expect(file.path == "/Users/me/.config/cmux/diff/theme.css")
         let runtime = DiffPageRuntime(sidecar: .some(nil), configFile: URL(fileURLWithPath: "/tmp/x/cmux-next.json"))
         #expect(runtime.theme.file.path == "/tmp/x/diff/theme.css")

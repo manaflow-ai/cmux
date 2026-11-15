@@ -37,7 +37,7 @@ public final class DiffPageRuntime {
         self.sidecar = sidecar ?? bundled.map { DiffSidecarPool(runner: $0) }
         warmSidecar = bundled.map { DiffSidecarPool(runner: $0, limit: 1, queueLimit: 4) } ?? self.sidecar
         languages = DiffLanguageFeed(directory: DiffLanguagePack.directory(configFile: configFile))
-        theme = DiffThemeFeed(file: DiffThemeFeed.file(configFile: configFile))
+        theme = DiffThemeFeed(file: DiffThemeFeed.stylesheet(configFile: configFile))
         self.status = status ?? { _ in throw DiffTabFailure(title: "", message: DiffPageStrings.notRepository) }
         self.isRemote = isRemote
     }

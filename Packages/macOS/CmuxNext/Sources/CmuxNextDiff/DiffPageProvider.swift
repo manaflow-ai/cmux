@@ -123,7 +123,8 @@ public final class DiffPageProvider: PageProvider {
             return await languages.pack()
         case Self.themeOp:
             guard let theme else { throw PageError.unknownOp(op) }
-            return ["themeCSS": .string(await theme.css())]
+            let css = await theme.css()
+            return ["themeCSS": .string(css)]
         case _ where chatPatch:
             return try await chatPatchCall(op, params: params)
         case Self.recentsOp:

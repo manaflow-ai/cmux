@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextSettings
 public import Foundation
 
@@ -5,7 +6,7 @@ public import Foundation
 /// rule 4), the way the agent pane and the file pages load theirs: read off the main actor,
 /// watched while any tab listens (every save style, the folder appearing later), and pushed to
 /// every listener on a change (the page's `cmux.diff.theme` stream), "" once the file is gone.
-/// The page applies it as its last `<style>` (webviews/src/diff/page.ts `applyDiffUserTheme`).
+/// The page applies it as its last `<style>` (webviews/src/diff/page.ts `startPageDiffTheme`).
 public final class DiffThemeFeed {
     /// A stylesheet larger than this is not one: the page gets "" instead.
     static let fileLimit = 2 * 1024 * 1024
@@ -21,8 +22,8 @@ public final class DiffThemeFeed {
         self.file = file
     }
 
-    public static func file(configFile: URL) -> URL {
-        configFile.deletingLastPathComponent().appending(path: "diff/theme.css")
+    public static func stylesheet(configFile: URL) -> URL {
+        configFile.deletingLastPathComponent().appending(path: "diff/theme.css", directoryHint: .notDirectory)
     }
 
     /// The stylesheet now (read once on first use).
@@ -53,6 +54,7 @@ public final class DiffThemeFeed {
     private func startWatching() {
         let watcher = ConfigFileWatcher(url: file) { [weak self] in
             // task-owner: one hop to the main actor per file event; requestReload owns the read
+            // main-hop-allow: a file watch's kernel event, not an action's work: the hop only marks a reload pending (the read runs off the main actor) and bursts coalesce into one read
             Task { @MainActor in self?.requestReload() }
         }
         self.watcher = watcher
@@ -102,8 +104,8 @@ public final class DiffThemeFeed {
         // concurrency-allow: @concurrent, off the main actor
         let target = file.resolvingSymlinksInPath()
         // concurrency-allow: @concurrent, off the main actor
-        guard let size = (try? target.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= fileLimit else { return "" }
+        guard let size = (try? target.blockingResourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= fileLimit else { return "" }
         // concurrency-allow: @concurrent, off the main actor
-        return (try? String(contentsOf: target, encoding: .utf8)) ?? ""
+        return (try? String(blockingContentsOf: target, encoding: .utf8)) ?? ""
     }
 }
