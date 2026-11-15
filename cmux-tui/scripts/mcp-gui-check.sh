@@ -157,7 +157,7 @@ assert s["args"][:2] == ["mcp", "serve"], s["args"]
 assert s["env"].get("CMUX_NEXT_CONFIG_FILE") == settings, s["env"]
 print(json.dumps(s))
 PY
-check "agent chat [claude]: its MCP config has one server, cmux, this build's, with the app's settings file ($(basename "${cfg:-none}"))" $?
+rc=$?; check "agent chat [claude]: its MCP config has one server, cmux, this build's, with the app's settings file ($(basename "${cfg:-none}"))" $rc
 # That server, started as the chat starts it: tools/list and a cmux tool call.
 python3 - "$D/cmux-server.json" <<'PY'
 import json, os, subprocess, sys
@@ -246,7 +246,7 @@ start_chat gui-codex-global codex
 for _ in $(seq 1 40); do [ "$(codex_servers gui-codex-global)" != "0 -" ] && break; perl -e 'select(undef,undef,undef,0.5)'; done
 got=$(codex_servers gui-codex-global)
 [ "$got" = "1 $CMUX_NEXT_CONFIG_FILE" ] && [ ! -s "$L" ]
-check "agent chat [codex] over a global cmux entry with enabled = false: runs this build's server ($got), never the person's ($(tr '\n' ' ' < "$L"))" $?
+rc=$?; check "agent chat [codex] over a global cmux entry with enabled = false: runs this build's server ($got), never the person's ($(tr '\n' ' ' < "$L"))" $rc
 # 4. A Codex chat over the person's own HTTP `cmux` entry: no `cmux` (Codex would refuse a command
 # beside a url), the chat still starts, the other servers stay.
 cp "$D/codex-base.toml" "$CODEX_HOME/config.toml"
@@ -265,7 +265,7 @@ cp "$D/codex-base.toml" "$CODEX_HOME/config.toml"
 # passes, so the server is this build's `cmux mcp serve`, and ACPMUX_MCP_GUEST is sent empty.
 acp desktop link --app codex > "$D/link.out" 2>&1
 grep -q ACPMUX_MCP_GUEST "$CODEX_HOME/config.toml"
-check "desktop link codex wrote its guest-mode cmux entry into the scratch Codex config ($(tr '\n' ' ' < "$D/link.out" | cut -c1-120))" $?
+rc=$?; check "desktop link codex wrote its guest-mode cmux entry into the scratch Codex config ($(tr '\n' ' ' < "$D/link.out" | cut -c1-120))" $rc
 start_chat gui-codex-link codex
 for _ in $(seq 1 40); do [ "$(codex_servers gui-codex-link)" != "0 -" ] && break; perl -e 'select(undef,undef,undef,0.5)'; done
 got=$(codex_servers gui-codex-link)
@@ -367,7 +367,7 @@ for _ in $(seq 1 80); do [ -s "$D/peer.env" ] && break; python3 "$D/serve-env.py
 got=$(python3 "$D/serve-as.py" "$CMUX" "$D/peer.env" "$B/home/.config/cmux/cmux-next.json" 2>&1)
 keys=$(tr '\n' ' ' < "$D/peer.env")
 grep -q "^CMUX_AGENT_SESSION=." "$D/peer.env" && [ "$got" = on ]
-check "agent chat [codex] started on a peer whose own answer is off: the person's stdio entry there gets this Mac's answer ($keys) and cmux's tools ($got; $(head -c 160 "$D/peer.new" | tr '\n' ' '); machines: $(head -c 160 "$D/machines.txt" | tr '\n' ' '))" $?
+rc=$?; check "agent chat [codex] started on a peer whose own answer is off: the person's stdio entry there gets this Mac's answer ($keys) and cmux's tools ($got; $(head -c 160 "$D/peer.new" | tr '\n' ' '); machines: $(head -c 160 "$D/machines.txt" | tr '\n' ' '))" $rc
 
 # 2. Off and unanswered
 for value in off ask; do
