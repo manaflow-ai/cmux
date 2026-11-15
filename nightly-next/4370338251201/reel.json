@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "build": "4370338251201",
+  "notes": "notes/4370338251201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43617,
+      "title": "guards_new_reds: interpreter-shutdown ResourceWarning lines are not failure names",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43638,
+      "title": "ci: the CI guard group is green again (cmux-next.yml size room, same-tree reporters declared, side-label placement entries)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43656,
+      "title": "ActionContractTests: list app.menu.run among the palette-hidden actions (#43369 added it)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42440,
+      "title": "rd: add macOS viewer CPU delta helper",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43652,
+      "title": "bench: an idle open turn and a one-chunk-a-second turn, traced for frames, paints and running animations",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43571,
+      "title": "customize: layer diagnostics and a way out (library status, off --code, off --all, reset)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43573,
+      "title": "Action exports: palette.captureScreenshotToChat after the 8d052432 re-pin",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43632,
+      "title": "Browser: the spare Chromium window and page wait for a web tab",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43445,
+      "title": "acpmux: an unregistered Claude Code chat sends, then registers so the receiver can reply",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43414,
+      "title": "Keep a running terminal at a daemon start when its terminal holder answers late",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43553,
+      "title": "acpmux v2 3c: queue_window's small side fills its heads' read (HEAD_READ); a probe prints 1 KB to 1 MB",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43340,
+      "title": "cmux-tui: fold the browser host and the app host into the multicall cmux binary",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
