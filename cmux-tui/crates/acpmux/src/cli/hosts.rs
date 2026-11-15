@@ -348,7 +348,9 @@ pub(crate) fn version_cmd(bin: &str) -> String {
 /// Only the file goes (`self_command.rs`'s executable); no subcommand runs
 /// here, so no prefix: a copy named `acpmux` runs as acpmux by its argv0
 /// (cmux-tui's too), and [`version_cmd`] gives another name its `acp`.
-pub(crate) fn push_binary(r: &dyn Remote, bin: &str) -> Result<String> {
+/// The host refuses to replace a binary built from a newer commit
+/// ([`downgrade_check`]) unless `allow_downgrade`.
+pub(crate) fn push_binary(r: &dyn Remote, bin: &str, allow_downgrade: bool) -> Result<String> {
     if !plain_path(bin) {
         return Err(anyhow!("refusing that remote binary path (not a plain path)"));
     }
@@ -356,16 +358,77 @@ pub(crate) fn push_binary(r: &dyn Remote, bin: &str) -> Result<String> {
     let dir = bin.rsplit_once('/').map(|(d, _)| d).filter(|d| !d.is_empty()).unwrap_or("/");
     run(r, &format!("mkdir -p {dir} && {}", make_remote_home()))?;
     r.push(&exe, &format!("{bin}.new"))?;
-    run(r, &format!("rm -f {bin} && mv {bin}.new {bin} && chmod +x {bin} && {}", version_cmd(bin)))
+    run(
+        r,
+        &format!(
+            "d={}\n{}{{ ! acpmux_downgrade {bin} {bin}.new || {{ rm -f {bin}.new; exit 1; }}; }} && rm -f {bin} && mv {bin}.new {bin} && chmod +x {bin} && {}",
+            u8::from(allow_downgrade),
+            downgrade_check(),
+            version_cmd(bin)
+        ),
+    )
 }
+
+/// The reason code [`downgrade_check`] refuses a push with.
+pub(crate) const NEWER_INSTALLED: &str = "newerInstalled";
+
+/// Shell defining `acpmux_downgrade INSTALLED PUSHED`, which runs on the
+/// host, under its update lock, right before a pushed binary replaces the
+/// installed one: true (it prints [`REFUSED`] [`NEWER_INSTALLED`] and why on
+/// stderr) when INSTALLED is built from a newer commit than PUSHED, by the
+/// `acpmux-commit-time=<secs>;` stamp each carries (acpmux-build-id's
+/// `COMMIT_STAMP`), read from their bytes. A pushed binary with no stamp is
+/// from before the stamp, so older than any stamped one. An installed binary
+/// with no stamp (or 0, a build that could not tell) is never protected, and
+/// `$d` 1 (`--allow-downgrade`) turns the check off. gcp-codex-swarm-08,
+/// 2026-11-15: its self-update timer installed one build, then a cmux app
+/// whose bundled acpmux was hours older pushed that one over it, again and
+/// again, as the app's update queue does for every peer on another build.
+pub(crate) fn downgrade_check() -> String {
+    format!(
+        r#"acpmux_ct() {{ LC_ALL=C grep -aoE 'acpmux-commit-time=[0-9]+;' "$1" 2>/dev/null | head -n 1 | tr -cd '0-9'; }}
+acpmux_at() {{ case "$(uname -s 2>/dev/null)" in Linux*) date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ;; *) date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ;; esac 2>/dev/null || echo "$1"; }}
+acpmux_downgrade() {{
+  [ "$d" != 1 ] && [ -f "$1" ] || return 1
+  acpmux_i=$(acpmux_ct "$1"); case "$acpmux_i" in ''|0) return 1;; esac
+  acpmux_n=$(acpmux_ct "$2")
+  if [ -z "$acpmux_n" ]; then acpmux_w="a commit from before acpmux stamped commit times"
+  elif [ "$acpmux_n" = 0 ] || [ "$acpmux_n" -ge "$acpmux_i" ]; then return 1
+  else acpmux_w="a commit of $(acpmux_at "$acpmux_n")"; fi
+  echo "{REFUSED}{NEWER_INSTALLED}"
+  echo "the installed acpmux is built from a newer commit ($(acpmux_at "$acpmux_i")) than the pushed binary ($acpmux_w), so nothing was changed: pass --allow-downgrade to move it back" >&2
+}}
+"#
+    )
+}
+
+/// The host refused a push of an older build ([`downgrade_check`]): why.
+#[derive(Debug)]
+pub(crate) struct NewerInstalled(pub String);
+
+impl std::fmt::Display for NewerInstalled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for NewerInstalled {}
 
 /// `host update`'s push: copy `local` to the remote [`DAEMON_BIN`] (by a
 /// rename, never in place: macOS kills a running binary that is
 /// overwritten); answers the new binary's `--version`. The copy runs as
 /// acpmux by its argv0 (cmux-tui's too), so it waits as `.acpmux-new/acpmux`,
 /// the same name, while it is checked ([`INSTALL_PUSHED`]). `running` is
-/// the commit of the daemon that answered, if one did.
-fn push_update(r: &dyn Remote, local: &Path, running: Option<&str>) -> Result<String> {
+/// the commit of the daemon that answered, if one did. Without
+/// `allow_downgrade` the host refuses a binary of an older commit than the
+/// installed one ([`downgrade_check`]): a [`NewerInstalled`] error, nothing
+/// changed.
+fn push_update(
+    r: &dyn Remote,
+    local: &Path,
+    running: Option<&str>,
+    allow_downgrade: bool,
+) -> Result<String> {
     run(
         r,
         &format!(
@@ -375,7 +438,21 @@ fn push_update(r: &dyn Remote, local: &Path, running: Option<&str>) -> Result<St
     )?;
     r.push(local, "~/.local/bin/.acpmux-new/acpmux")?;
     let running = running.filter(|c| c.bytes().all(|b| b.is_ascii_hexdigit())).unwrap_or("");
-    run(r, &format!("c={running}; {INSTALL_PUSHED}"))
+    let script = format!(
+        "c={running}; d={}\n{}{INSTALL_PUSHED}",
+        u8::from(allow_downgrade),
+        downgrade_check()
+    );
+    let out = r.exec(&script, None)?;
+    if !out.ok {
+        let refused = format!("{REFUSED}{NEWER_INSTALLED}");
+        if out.stdout.lines().any(|l| l.trim() == refused) {
+            let why = out.stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or_default();
+            return Err(NewerInstalled(format!("{}: {}", r.host(), why.trim())).into());
+        }
+        return Err(anyhow!("ssh {} failed: {}", r.host(), out.stderr.trim()));
+    }
+    Ok(out.stdout.trim().to_owned())
 }
 
 /// Install the pushed `.acpmux-new/acpmux` once its `--version` runs (else
@@ -390,7 +467,7 @@ fn push_update(r: &dyn Remote, local: &Path, running: Option<&str>) -> Result<St
 /// Prints the new binary's version. Once it is in place nothing fails the
 /// install: a staging folder that will not go is left for the next push
 /// to clear.
-const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x .acpmux-new/acpmux && { v=$(.acpmux-new/acpmux --version) || { rm -rf .acpmux-new; echo 'the pushed acpmux does not run on this host' >&2; exit 1; }; } && { if [ ! -e acpmux ]; then rm -f acpmux.prev; elif [ -f acpmux.prev ] && ! { [ -n \"$c\" ] && grep -qaF \"($c\" acpmux; }; then :; else ln -f acpmux acpmux.prev 2>/dev/null || cp -p acpmux acpmux.prev; fi; } && mv -f .acpmux-new/acpmux acpmux && { rmdir .acpmux-new 2>/dev/null; printf '%s\\n' \"$v\"; }";
+const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x .acpmux-new/acpmux && { v=$(.acpmux-new/acpmux --version) || { rm -rf .acpmux-new; echo 'the pushed acpmux does not run on this host' >&2; exit 1; }; } && { ! acpmux_downgrade acpmux .acpmux-new/acpmux || { rm -rf .acpmux-new; exit 1; }; } && { if [ ! -e acpmux ]; then rm -f acpmux.prev; elif [ -f acpmux.prev ] && ! { [ -n \"$c\" ] && grep -qaF \"($c\" acpmux; }; then :; else ln -f acpmux acpmux.prev 2>/dev/null || cp -p acpmux acpmux.prev; fi; } && mv -f .acpmux-new/acpmux acpmux && { rmdir .acpmux-new 2>/dev/null; printf '%s\\n' \"$v\"; }";
 
 /// Put `acpmux.prev` back as `~/.local/bin/acpmux`; fails without one.
 const RESTORE_PREV: &str = "(cd ~/.local/bin && [ -f acpmux.prev ] && rm -f acpmux && { ln acpmux.prev acpmux 2>/dev/null || cp -p acpmux.prev acpmux; })";
@@ -870,20 +947,22 @@ pub(crate) fn short_name(host: &str) -> String {
 }
 
 /// `host setup`; `auto_update` false (`--no-auto-update`) leaves the
-/// marker that keeps the host off the self-update timer.
+/// marker that keeps the host off the self-update timer; `allow_downgrade`
+/// (`--allow-downgrade`) replaces a binary of a newer commit too.
 pub(crate) async fn setup(
     client: Arc<Client>,
     host: &str,
     name: Option<String>,
     port: u16,
     auto_update: bool,
+    allow_downgrade: bool,
     json_out: bool,
 ) -> Result<()> {
     let name = name.unwrap_or_else(|| short_name(host));
     let ssh = SshRemote(host);
     let lock = lock_to_install(&ssh)?;
     let remote = lock.fence(&ssh);
-    let version = push_binary(&remote, DAEMON_BIN)?;
+    let version = push_binary(&remote, DAEMON_BIN, allow_downgrade)?;
     if !auto_update {
         let mark = host_auto_update::NO_AUTO_UPDATE;
         run(&remote, &format!("mkdir -p {REMOTE_HOME} && touch {REMOTE_HOME}/{mark}"))?;

@@ -502,7 +502,14 @@ impl FakePeer {
         let binary_dir = Some(self.home.join("binaries"));
         update_peer(
             self,
-            &UpdateOptions { binary_dir, if_idle, keep_newer, caller: None, restart_window: None },
+            &UpdateOptions {
+                binary_dir,
+                if_idle,
+                keep_newer,
+                allow_downgrade: false,
+                caller: None,
+                restart_window: None,
+            },
         )
     }
 
@@ -513,6 +520,7 @@ impl FakePeer {
             binary_dir: Some(self.home.join("binaries")),
             if_idle: true,
             keep_newer: false,
+            allow_downgrade: false,
             caller: Some(caller),
             restart_window: None,
         };
@@ -804,6 +812,7 @@ fn a_current_peer_or_one_without_a_binary_is_left_alone() {
         binary_dir: None,
         if_idle: false,
         keep_newer: false,
+        allow_downgrade: false,
         caller: None,
         restart_window: None,
     };
@@ -849,6 +858,95 @@ fn keep_newer_leaves_a_later_or_own_build_and_updates_an_older_one() {
     let peer = FakePeer::new("keep-older");
     peer.offer(NEW, Some(NEW));
     assert_eq!(peer.update_with(false, true).outcome, Outcome::Updated);
+}
+
+/// A fake acpmux of `build` ([`fake_acpmux`]) that carries the commit-time
+/// stamp `committed` (Unix seconds) as a shipped binary does.
+#[cfg(unix)]
+fn stamped_acpmux(build: &str, runs: Option<&str>, committed: u64) -> String {
+    format!("{}# acpmux-commit-time={committed};\n", fake_acpmux(build, runs))
+}
+
+/// gcp-codex-swarm-08, 2026-11-15: its self-update timer installed
+/// af330854e at 13:31, then a cmux app whose bundled acpmux was the older
+/// c144c01f3 (same day, so `--keep-newer` saw nothing newer) pushed that
+/// one at 13:40 and restarted the daemon. The host's install script now
+/// refuses a binary built from an older commit than the installed one,
+/// whatever the pusher asked, and changes nothing.
+#[test]
+#[cfg(unix)]
+fn a_push_of_an_older_build_onto_a_newer_host_is_refused_on_the_host() {
+    let peer = FakePeer::new("downgrade");
+    let installed = stamped_acpmux(OLD, Some(OLD), 1_794_748_257);
+    peer.exe(".local/bin/acpmux", &installed);
+    peer.exe(&format!("binaries/acpmux-{TARGET}"), &stamped_acpmux(NEW, Some(NEW), 1_794_744_982));
+    for keep_newer in [false, true] {
+        let up = peer.update_with(false, keep_newer);
+        assert_eq!(
+            (up.outcome, up.reason.as_deref()),
+            (Outcome::Current, Some("newerInstalled")),
+            "{up:?}"
+        );
+        let why = up.error.as_deref().unwrap_or("");
+        assert!(why.contains("newer commit") && why.contains("--allow-downgrade"), "{why}");
+        assert_eq!(peer.read(".local/bin/acpmux"), installed);
+        assert!(!peer.exists(".local/bin/acpmux.prev"));
+        assert!(!peer.exists(".local/bin/.acpmux-new"));
+        assert_eq!(peer.daemon(), OLD);
+    }
+    // A binary from before the stamp is older than any stamped one.
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update_with(false, true);
+    assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Current, Some("newerInstalled")));
+    assert_eq!(peer.read(".local/bin/acpmux"), installed);
+    assert!(up.line().starts_with("kept: "), "{}", up.line());
+
+    // --allow-downgrade moves it back, keeping the newer one as acpmux.prev.
+    let older = stamped_acpmux(NEW, Some(NEW), 1_794_744_982);
+    peer.exe(&format!("binaries/acpmux-{TARGET}"), &older);
+    let opts = UpdateOptions {
+        binary_dir: Some(peer.home.join("binaries")),
+        if_idle: false,
+        keep_newer: false,
+        allow_downgrade: true,
+        caller: None,
+    };
+    let up = update_peer(&peer, &opts);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(peer.read(".local/bin/acpmux"), older);
+    assert_eq!(peer.read(".local/bin/acpmux.prev"), installed);
+
+    // The host's own install step refuses too, for a pusher that never asks
+    // first (as an older acpmux does not): nothing installed, nothing staged.
+    let peer = FakePeer::new("downgrade-host-side");
+    peer.exe(".local/bin/acpmux", &installed);
+    peer.exe(&format!("binaries/acpmux-{TARGET}"), &stamped_acpmux(NEW, Some(NEW), 1_794_744_982));
+    let binary = peer.home.join(format!("binaries/acpmux-{TARGET}"));
+    let e = push_update(&peer, &binary, None, false).expect_err("a refused push");
+    assert!(e.is::<NewerInstalled>(), "{e:#}");
+    assert!(e.to_string().contains("newer commit"), "{e:#}");
+    assert_eq!(peer.read(".local/bin/acpmux"), installed);
+    assert!(!peer.exists(".local/bin/acpmux.prev"));
+    assert!(!peer.exists(".local/bin/.acpmux-new"));
+    assert!(push_update(&peer, &binary, None, true).is_ok());
+    assert_eq!(peer.read(".local/bin/acpmux.prev"), installed);
+
+    // A newer push onto a stamped host goes in as before.
+    let peer = FakePeer::new("upgrade-stamped");
+    peer.exe(".local/bin/acpmux", &stamped_acpmux(OLD, Some(OLD), 1_794_744_982));
+    let newer = stamped_acpmux(NEW, Some(NEW), 1_794_748_257);
+    peer.exe(&format!("binaries/acpmux-{TARGET}"), &newer);
+    assert_eq!(peer.update_with(false, true).outcome, Outcome::Updated);
+    assert_eq!(peer.read(".local/bin/acpmux"), newer);
+}
+
+#[test]
+fn a_binarys_commit_time_is_read_from_its_bytes() {
+    let bytes =
+        b"\0x acpmux-commit-time=[0-9]+; acpmux-commit-time=;\0acpmux-commit-time=1794748257;\0";
+    assert_eq!(embedded_commit_time(bytes), Some(1_794_748_257));
+    assert_eq!(embedded_commit_time(b"acpmux-commit-time=0;"), Some(0));
+    assert_eq!(embedded_commit_time(b"acpmux 1.0.0 (a1b2c3d4e 2026-10-21)"), None);
 }
 
 #[test]
@@ -1692,6 +1790,7 @@ fn a_macos_daemon_restarts_by_bootout_then_bootstrap_once_the_old_one_exited() {
             binary_dir: Some(peer.home.join("binaries")),
             if_idle: false,
             keep_newer: false,
+            allow_downgrade: false,
             caller: None,
             restart_window: None,
         },
@@ -1767,6 +1866,7 @@ fn a_host_that_does_not_answer_is_unreachable_before_anything_runs() {
         binary_dir: None,
         if_idle: false,
         keep_newer: true,
+        allow_downgrade: false,
         caller: None,
         restart_window: None,
     };
@@ -1800,6 +1900,7 @@ fn a_held_peer_is_left_alone_without_reaching_it() {
         binary_dir: None,
         if_idle: false,
         keep_newer: true,
+        allow_downgrade: false,
         caller: None,
         restart_window: None,
     };

@@ -1105,9 +1105,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Rm { name } => {
                     client.request("_acpmux/peer_remove", json!({"name": name})).await?
                 }
-                PeerCmd::Setup { host, name, port, no_auto_update } => {
+                PeerCmd::Setup { host, name, port, no_auto_update, allow_downgrade } => {
                     let auto = !no_auto_update;
-                    return crate::cli::hosts::setup(client, &host, name, port, auto, json_out)
+                    let (allow, json) = (allow_downgrade, json_out);
+                    return crate::cli::hosts::setup(client, &host, name, port, auto, allow, json)
                         .await;
                 }
                 // Dispatched before the connect (above); kept here so the
@@ -1121,7 +1122,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Approvals { cmd } => {
                     return crate::cli::host_approvals::run(cmd, json_out).await;
                 }
-                PeerCmd::Update { name, all, binary_dir, if_idle, keep_newer, now } => {
+                PeerCmd::Update { name, all, binary_dir, if_idle, keep_newer, allow_downgrade, now } => {
                     // Run from a session, `--if-idle` never waits on that session's own turn.
                     let caller = match std::env::var("ACPMUX_SESSION_ID") {
                         Ok(session) if if_idle && !session.is_empty() => {
@@ -1136,6 +1137,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         binary_dir,
                         if_idle,
                         keep_newer,
+                        allow_downgrade,
                         caller,
                         restart_window: crate::cli::hosts::restart_window(now),
                     };

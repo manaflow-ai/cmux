@@ -357,6 +357,9 @@ pub(super) fn apply(
         binary_dir: Some(dir.clone()),
         if_idle: false,
         keep_newer: false,
+        // The channel names the build this host runs (an older one too, when
+        // it pulls a bad build back); only pushes from elsewhere are refused.
+        allow_downgrade: true,
         caller: None,
         restart_window,
     };

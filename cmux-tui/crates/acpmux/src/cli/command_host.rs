@@ -187,6 +187,10 @@ pub enum PeerCmd {
         /// keeps it off across updates; remove it to turn the timer on).
         #[arg(long)]
         no_auto_update: bool,
+        /// Replace the machine's acpmux even when it is built from a newer
+        /// commit than this one (the machine refuses that otherwise).
+        #[arg(long)]
+        allow_downgrade: bool,
     },
     /// Copy this binary to a machine you added (or every one with --all) and restart
     /// its daemon. The previous binary is kept and put back when the
@@ -216,6 +220,12 @@ pub enum PeerCmd {
         /// `restartWindow`) until the hour is over.
         #[arg(long)]
         now: bool,
+        /// Install the pushed binary even when the machine's acpmux is built
+        /// from a newer commit. Without it the machine refuses that move back
+        /// (`current`, reason `newerInstalled`) in its own install step, so a
+        /// push from an older build never undoes its self-update.
+        #[arg(long)]
+        allow_downgrade: bool,
     },
     /// Hold a machine (a machine name or its ssh host) off `machine update`: the
     /// update, `--all` and the app's own update queue leave it alone (`held`)
