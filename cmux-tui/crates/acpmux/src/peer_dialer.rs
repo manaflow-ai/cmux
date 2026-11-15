@@ -8,9 +8,15 @@
 //! window bounds what a peer may send ahead; a peer that sends past it fills
 //! the link's inbox to [`MIRROR_INBOX_BYTES`], and the next frame ends that
 //! mirror rather than the reader stopping or the queue growing.
+//!
+//! A mirror that ends on a link still up, or a link that comes up without the feature, hands
+//! the origin back to v1's tee ([`Peer::hand_back`]): a takeover as v1 writes the mark off, and
+//! once it applies the tee walks the origin's rows. A link that ends leaves the origin to the
+//! next link.
 use super::*;
 use crate::link_v2::{self, Adapter, Slot};
 use crate::peer_mirror::{DialCounters, MIRROR_INBOX_BYTES};
+use acpmux_core::hub::{Hub as Index, Source};
 use std::sync::atomic::Ordering;
 
 /// One link's frame lines on their way to its mirror, counted in frame bytes.
@@ -89,13 +95,48 @@ impl Peer {
 
     /// A v2 frame line read on `link`: to that link's mirror, or dropped when
     /// it runs none. Past the inbox's bound the mirror ends: its queue closes.
-    pub(super) fn mirror_frame(&self, link: u64, line: String) {
+    pub(crate) fn mirror_frame(&self, link: u64, line: String) {
         let mut inbox = self.mirror.inbox.lock_or_recover();
         let Some(open) = inbox.as_ref() else { return };
         if open.offer(link, line) == Offer::Overflow {
             tracing::warn!(peer = %self.name, "the peer sent past its credit; its list mirror ends");
             inbox.take();
         }
+    }
+
+    fn mirror_index(&self) -> Option<Arc<Index>> {
+        self.mirror.links.get().and_then(|links| links.v2()).map(|v2| v2.hub())
+    }
+
+    /// Gives the origin back to v1's tee if the mirror holds it: a takeover as v1, which writes
+    /// the mark off, then, once it applies, the tee's walk of the origin's rows. A takeover held
+    /// for a leaving origin applies when the removal is done. Another source's takeover that
+    /// applies first keeps the origin: no walk.
+    fn hand_back(self: &Arc<Self>, index: Arc<Index>) {
+        if index.source(&self.name) != Some(Source::Mirror) {
+            return;
+        }
+        let before = index.takeover_turns(&self.name).applied;
+        if let Err(error) = index.takeover(&self.name, Source::V1) {
+            tracing::warn!(peer = %self.name, %error, "the list mirror could not hand the peer back");
+            return;
+        }
+        let me = self.clone();
+        self.scope.spawn_named("peer-mirror-hand-back", async move {
+            index
+                .wait_mirror_until(|index| {
+                    index.source(&me.name) != Some(Source::Mirror)
+                        || index.takeover_turns(&me.name).applied != before
+                })
+                .await;
+            if index.source(&me.name) == Some(Source::Mirror) {
+                return;
+            }
+            me.mirror.counters.hand_backs.fetch_add(1, Ordering::Relaxed);
+            if let Some(links) = me.mirror.links.get() {
+                links.hand_back(&me.name);
+            }
+        });
     }
 
     /// The link ended: its mirror's queue closes, and the mirror with it.
@@ -105,12 +146,15 @@ impl Peer {
 
     /// Starts the mirror on `link` once its handshake is done, when the peer
     /// lists the feature and this daemon keeps the index.
-    pub(super) fn start_mirror(self: &Arc<Self>, link: u64) {
-        let Some(hub) = self.mirror.links.get().and_then(|links| links.v2()).map(|v2| v2.hub())
-        else {
+    pub(crate) fn start_mirror(self: &Arc<Self>, link: u64) {
+        let Some(hub) = self.mirror_index() else {
             return;
         };
-        if !self.lists(link_v2::FEATURE) || self.link_epoch() != link {
+        if self.link_epoch() != link {
+            return;
+        }
+        if !self.lists(link_v2::FEATURE) {
+            self.hand_back(hub);
             return;
         }
         let (open, mut inbox) = Inbox::new(link, self.mirror.counters.clone());
@@ -141,8 +185,13 @@ impl Peer {
                     }
                 }
             };
-            let mirroring =
-                crate::peer_mirror::mirror(hub, &me.name, reader, writer, &me.mirror.counters);
+            let mirroring = crate::peer_mirror::mirror(
+                hub.clone(),
+                &me.name,
+                reader,
+                writer,
+                &me.mirror.counters,
+            );
             tokio::select! {
                 () = feeding => {}
                 () = sending => {}
@@ -150,6 +199,11 @@ impl Peer {
                     Ok(end) => tracing::info!(peer = %me.name, ?end, "the peer's list mirror ended"),
                     Err(error) => tracing::info!(peer = %me.name, %error, "the peer's list mirror ended"),
                 },
+            }
+            // On a link still up no other mirror starts: refused, closed, or past its credit,
+            // the mirror ended for good. A link's end moves the epoch before it closes the inbox.
+            if me.link_epoch() == link {
+                me.hand_back(hub);
             }
         });
     }

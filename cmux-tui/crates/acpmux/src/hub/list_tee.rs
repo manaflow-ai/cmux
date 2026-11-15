@@ -645,6 +645,9 @@ pub(crate) fn start_v2_tee(
         if v1.config.read().await.peers.is_empty() {
             state.remote_ready();
         }
+        if !v2.allows_surfaces(&["list", "peers"]) {
+            write_off_mirror_marks(&v2);
+        }
         let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
         let mut remote_reconciled = false;
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -676,6 +679,7 @@ pub(crate) fn start_v2_tee(
                 biased;
                 _ = tick.tick() => true,
                 _ = state.notify.notified() => false,
+                _ = v1.link_v2.handed_back_ready.notified() => false,
                 _ = async {
                     if let Some(deadline) = rebuild_retry_at {
                         tokio::time::sleep_until(deadline.into()).await;
@@ -743,11 +747,46 @@ pub(crate) fn start_v2_tee(
                     tokio::task::yield_now().await;
                 }
             }
+            walk_handed_back(&v1, &v2, &state);
             drain_marks(&v1, &v2, &state, &mut expiries);
             tokio::task::yield_now().await;
         }
     };
     (handle, task)
+}
+
+/// With `peers` off no mirror runs here, and v1 holds every origin: a mark a mirror left on an
+/// earlier run is written off (a takeover as v1), so a later run with `peers` on walks rather
+/// than resumes past the rows v1 wrote meanwhile.
+fn write_off_mirror_marks(v2: &V2) {
+    for record in v2.hub.snapshot().mirror_marks() {
+        if let Err(error) = v2.hub.takeover(&record.origin, Source::V1) {
+            tracing::warn!(origin = %record.origin, %error, "v2 list tee could not write off a mirror mark");
+        }
+    }
+}
+
+/// Marks every row of each origin a mirror handed back (`link_v2::Shared::hand_back`): v1's
+/// rows are submitted again and the v2 rows v1 does not hold leave, so the origin's rows end
+/// equal to v1's list.
+fn walk_handed_back(v1: &Hub, v2: &V2, state: &TeeState) {
+    let origins: HashSet<String> = v1.link_v2.take_handed_back().into_iter().collect();
+    if origins.is_empty() {
+        return;
+    }
+    for row in v1.remote_sessions.snapshot().values() {
+        if origins.contains(&row.peer)
+            && let Some(id) = row.summary.session_id()
+        {
+            state.mark_remote(&row.peer, id);
+        }
+    }
+    let index = v2.hub.snapshot();
+    for origin in &origins {
+        for id in index.origin_chat_ids(origin) {
+            state.mark_remote(origin, id);
+        }
+    }
 }
 
 pub(crate) struct V1PageProvider {
@@ -780,6 +819,8 @@ impl acpmux_core::hub::PageProvider for V1PageProvider {
 
 #[cfg(all(test, target_os = "linux"))]
 mod gates;
+#[cfg(test)]
+mod handback_tests;
 #[cfg(test)]
 mod hub_rows_tests;
 #[cfg(test)]

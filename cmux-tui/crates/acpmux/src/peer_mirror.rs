@@ -63,6 +63,8 @@ pub struct DialCounters {
     pub inbox_overflows: AtomicU64,
     /// Frame bytes read off the link and not yet handed to the client.
     pub inbox_bytes: AtomicU64,
+    /// Origins handed back to v1's tee: a takeover as v1 applied over the mirror's.
+    pub hand_backs: AtomicU64,
 }
 
 /// The most frame bytes a link holds for its mirror: the client's credit

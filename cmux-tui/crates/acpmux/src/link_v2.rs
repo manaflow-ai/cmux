@@ -47,6 +47,10 @@ const KIND_REQUEST: u8 = 9;
 pub struct Shared {
     v2: OnceLock<Arc<acpmux_core::life::V2>>,
     pub counters: Counters,
+    /// Origins a mirror handed back to v1: their takeover as v1 applied, and v1's tee walks
+    /// their rows ([`Self::hand_back`]).
+    handed_back: Mutex<Vec<String>>,
+    pub handed_back_ready: Notify,
 }
 
 impl Shared {
@@ -59,6 +63,17 @@ impl Shared {
 
     pub fn v2(&self) -> Option<&Arc<acpmux_core::life::V2>> {
         self.v2.get()
+    }
+
+    /// `origin`'s takeover as v1 applied: v1's tee walks its rows again.
+    pub fn hand_back(&self, origin: &str) {
+        self.handed_back.lock().unwrap_or_else(|e| e.into_inner()).push(origin.to_owned());
+        self.handed_back_ready.notify_one();
+    }
+
+    /// The origins handed back since the last call.
+    pub fn take_handed_back(&self) -> Vec<String> {
+        std::mem::take(&mut *self.handed_back.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
     /// A link transport's slot, made at the connection's start, only when links serve the
