@@ -416,6 +416,63 @@ def healthy_role_label(live: str, runners: Sequence[Mapping[str, Any]] | None, s
     return live if role_room(live, runners, seen, waiting) else ""
 
 
+# The PR jobs that run on a session runner as well as on a side runner (cmux-next.yml reads `session_jobs` for
+# them): they need the mini's logged-in session, not its console gui token, and a push already sends them to the
+# session label (session_runner).
+SESSION_SPILL_JOBS = ("daemon-test", "generated-files")
+
+
+def _queue_depth(online: int, idle: int, queued: int) -> float:
+    """Jobs ahead of a new one per online runner: below 0 while a runner is idle beyond the queue."""
+    return (queued - idle) / online if online else math.inf
+
+
+def session_spill(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None, seen: Any,
+                  route: str, taken: Sequence[str] = ()) -> tuple[str, tuple[str, ...]]:
+    """(the session label, the SESSION_SPILL_JOBS that take it), else ("", ()): the shorter of two owned queues.
+
+    On 2026-11-15 at 03:15Z glaeda-side-std-xcode-26.6 had 57 jobs queued, the oldest 76 minutes, on its 8
+    online runners, while glaeda-session-std-xcode-26.6 had none queued on 13 online (3 listening). A same-repo
+    PR's daemon tests and generated files could run on either, yet their runs-on reached `deferred_runner` (the
+    side queue) before `session_runner`, which only a push reaches. With Blacksmith macOS off (#43103) nothing
+    took them off the side queue either.
+
+    So each such job no idle side runner took (`taken`: decide()'s, the light spill's) takes the session label
+    while its queue per online runner, counting the jobs placed here, stays shorter than the side route's, read
+    from the janitor snapshot's queued counts and the live runners. With no fresh snapshot only an idle session
+    runner counts. Never the console gui label: a PR test takes no gui token. A label the janitor found
+    unserved, or full by glaeda's listener health, takes nothing unless a runner carrying it is idle now.
+    """
+    if runners is None:
+        return "", ()
+    label = (env.get("SIDE_LABEL") or "").strip()
+    session = _live_role_label(label, runners, pool.session_label)
+    jobs = [job for job in (env.get("JOBS") or "").split() if job in SESSION_SPILL_JOBS and job not in taken]
+    if not session or not jobs:
+        return "", ()
+    online, idle = _role_online(session, runners)
+    blocked = (session in (getattr(seen, "unserved", None) or ())
+               or getattr(seen, "owned_full", {}).get(session, False))
+    if blocked and not idle:
+        return "", ()
+    queues = getattr(seen, "owned_queued", None) if seen is not None and not getattr(seen, "stale", False) else None
+    if not queues:
+        # No queue counts: only the idle session runners are known room.
+        return (session, tuple(jobs[:idle])) if idle else ("", ())
+    side = route or label
+    side_online = _online(side, runners)
+    side_idle = pool.live_owned_free(runners, [side])[side] if side_online else 0
+    side_queued = int(queues.get(side, 0) or 0)
+    session_queued = int(queues.get(session, 0) or 0)
+    placed: list[str] = []
+    there = _queue_depth(side_online, side_idle, side_queued)
+    for job in jobs:
+        if _queue_depth(online, idle, session_queued + len(placed)) >= there:
+            break
+        placed.append(job)
+    return (session, tuple(placed)) if placed else ("", ())
+
+
 def gui_route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
     """Return a live GUI-token label paired with a side or pool label.
 
@@ -859,6 +916,9 @@ def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
     overflow = "" if free_gui else gui_overflow(env, live, waiting, seen, placed)
     gui_why = (f"the GUI jobs take idle `{free_gui}`" if free_gui
                else f"no idle GUI runner, so the GUI jobs take `{overflow}`")
+    spill_session, session_jobs = session_spill(env, runners, seen, label, owned)
+    if session_jobs:
+        gui_why += f"; {', '.join(session_jobs)} take `{spill_session}`, the shorter queue"
     print(f"side-lane placement: the rescue's re-run; {why}; {gui_why}")
     output = env.get("GITHUB_OUTPUT")
     if output:
@@ -866,6 +926,7 @@ def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
             handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\n"
                          f"runner={label if owned else ''}\ndeferred_runner={label}\n"
                          f"gui_runner={free_gui}\nsession_runner={free_session}\n"
+                         f"session_spill_runner={spill_session}\nsession_jobs={delimited(session_jobs)}\n"
                          f"free_gui_runner={free_gui}\nfree_session_runner={free_session}\n"
                          f"gui_overflow={overflow}\n"
                          f"watch={'false' if fallback and not owned else 'true'}\n")
@@ -1129,6 +1190,11 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
     live_gui = gui_route_label(label, runners)
     gui_route = healthy_role_label(live_gui, runners, seen, waiting)
     session_route = healthy_role_label(session_route_label(label, runners), runners, seen, waiting)
+    # The PR session jobs no idle side or light runner took: the session queue while it is the shorter one.
+    spill_session, session_jobs = session_spill(env, runners, seen, route, (*owned, *light_jobs))
+    if session_jobs:
+        why += (f"; no idle side runner for {', '.join(session_jobs)}, and `{spill_session}`'s queue is shorter "
+                f"than `{route or label}`'s, so they take it")
     # Generated files' own session lane (vars.CI_SESSION_LANE_RUNNER, a glaeda-session-* label): written only while
     # it has room, so the variable never sends the job to a queue deeper than its pool.
     lane = (env.get("SESSION_LANE") or "").strip()
@@ -1208,6 +1274,7 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
             handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\n"
                          f"runner={route}\ndeferred_runner={route or label}\ngui_runner={gui_route}\n"
                          f"session_runner={session_route}\n"
+                         f"session_spill_runner={spill_session}\nsession_jobs={delimited(session_jobs)}\n"
                          f"free_gui_runner={free_gui}\nfree_session_runner={free_session}\n"
                          f"gui_overflow={overflow}\nsession_lane_runner={session_lane}\n"
                          f"nightly_runner_ready={'true' if dedicated_ready else ''}\n"

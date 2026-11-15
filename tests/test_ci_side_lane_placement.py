@@ -975,6 +975,101 @@ class LightSpillRoute(unittest.TestCase):
 FRESH = "glaeda-dev-std-xcode-26.6"
 
 
+class SessionSpill(unittest.TestCase):
+    """2026-11-15 03:15Z: glaeda-side-std-xcode-26.6 had 57 jobs queued (oldest 76 min) on 8 online runners while
+    glaeda-session-std-xcode-26.6 had none queued on 13 online. A same-repo PR's daemon tests and generated files
+    take the session label while its queue is the shorter one; a push already does (session_runner)."""
+
+    def side(self, count: int, *, busy: int):
+        return [runner(f"mini{index}-glaeda-3", busy=index < busy) for index in range(count)]
+
+    def session(self, count: int, *, busy: int):
+        return [runner(f"mini{index}-glaeda-11", busy=index < busy, labels=(SESSION,)) for index in range(count)]
+
+    def seen(self, **queued):
+        return placement.cascade.Seen(waits={}, owned_queued=queued)
+
+    def test_the_incident_moves_the_session_jobs_off_the_deep_side_queue(self):
+        runners = self.side(8, busy=8) + self.session(13, busy=10)
+        seen = self.seen(**{SIDE: 57, SESSION: 0})
+        self.assertEqual(placement.session_spill(env(), runners, seen, SIDE),
+                         (SESSION, ("daemon-test", "generated-files")))
+        # Only the session jobs, never swift-test (it needs the gui token) or a compile.
+        self.assertEqual(placement.session_spill(env(JOBS="swift-test release-compile"), runners, seen, SIDE), ("", ()))
+        # A job an idle side or light runner took keeps that runner.
+        self.assertEqual(placement.session_spill(env(), runners, seen, SIDE, ("daemon-test",)),
+                         (SESSION, ("generated-files",)))
+
+    def test_it_joins_only_the_shorter_queue(self):
+        runners = self.side(4, busy=4) + self.session(4, busy=4)
+        # Session 1 per runner ahead of a new job against side 2: the first job moves, the second ties and stays.
+        self.assertEqual(placement.session_spill(env(), runners, self.seen(**{SIDE: 8, SESSION: 3}), SIDE),
+                         (SESSION, ("daemon-test",)))
+        # The session queue as deep as the side one: nothing moves.
+        self.assertEqual(placement.session_spill(env(), runners, self.seen(**{SIDE: 4, SESSION: 4}), SIDE), ("", ()))
+        # A side runner idle beyond its queue: the side route is the shorter queue.
+        idle_side = self.side(4, busy=2) + self.session(4, busy=4)
+        self.assertEqual(placement.session_spill(env(), idle_side, self.seen(**{SIDE: 0, SESSION: 0}), SIDE), ("", ()))
+
+    def test_without_queue_counts_only_idle_session_runners_count(self):
+        runners = self.side(4, busy=4) + self.session(4, busy=3)
+        for seen in (None, placement.cascade.Seen(waits={}, owned_queued={SIDE: 50}, stale=True)):
+            with self.subTest(seen=seen):
+                self.assertEqual(placement.session_spill(env(), runners, seen, SIDE), (SESSION, ("daemon-test",)))
+        self.assertEqual(placement.session_spill(env(), self.side(4, busy=4) + self.session(4, busy=4), None, SIDE),
+                         ("", ()))
+
+    def test_an_unserved_full_offline_or_unread_session_label_takes_nothing(self):
+        runners = self.side(4, busy=4) + self.session(4, busy=4)
+        unserved = placement.cascade.Seen(waits={}, owned_queued={SIDE: 50}, unserved=frozenset({SESSION}))
+        full = placement.cascade.Seen(waits={}, owned_queued={SIDE: 50}, owned_full={SESSION: True})
+        for seen in (unserved, full):
+            with self.subTest(seen=seen):
+                self.assertEqual(placement.session_spill(env(), runners, seen, SIDE), ("", ()))
+        self.assertEqual(placement.session_spill(env(), self.side(4, busy=4), self.seen(**{SIDE: 50}), SIDE), ("", ()))
+        self.assertEqual(placement.session_spill(env(), None, self.seen(**{SIDE: 50}), SIDE), ("", ()))
+        # An AWS side label has no session route (a headless host).
+        aws = "glaeda-aws-side-std-xcode-26.6"
+        self.assertEqual(placement.session_spill(env(SIDE_LABEL=aws), runners, self.seen(**{aws: 50}), aws), ("", ()))
+
+    def test_placement_writes_the_spill_and_the_pr_jobs_take_it(self):
+        runners = self.side(8, busy=8) + self.session(13, busy=10)
+        seen = self.seen(**{SIDE: 57, SESSION: 0})
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            free = {placement.cascade.LARGE: 0, placement.cascade.SMALL: 0}
+            with mock.patch.object(placement.pool, "GitHub") as github, \
+                    mock.patch.object(placement.cascade, "read", return_value=(free, dict(free), seen)), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                github.return_value.runners.return_value = runners
+                placement.main(env(GITHUB_OUTPUT=str(output), ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux"))
+            lines = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
+        self.assertEqual(lines["session_spill_runner"], SESSION)
+        self.assertEqual(lines["session_jobs"], " daemon-test generated-files ")
+        wiring = CmuxNextWiring()
+        jobs = wiring.workflow()["jobs"]
+        for name in SESSION_JOBS:
+            context = wiring.context(runner="")
+            context["needs"][CmuxNextWiring.PLACEMENT]["outputs"].update(
+                deferred_runner=SIDE, session_spill_runner=SESSION, session_jobs=lines["session_jobs"],
+                placed_attempt="1")
+            for key in ("runs-on", "CMUX_NEXT_RUNNER"):
+                expression = runs_on_route(jobs[name], name) if key == "runs-on" else job_env(jobs[name])[key]
+                with self.subTest(job=name, key=key):
+                    self.assertEqual(evaluate(expression, context), SESSION)
+                    # Another attempt's reading is not this attempt's: the job keeps the side queue.
+                    stale = wiring.context("2", runner="")
+                    stale["needs"][CmuxNextWiring.PLACEMENT]["outputs"].update(
+                        deferred_runner=SIDE, session_spill_runner=SESSION, session_jobs=lines["session_jobs"],
+                        placed_attempt="1")
+                    self.assertNotEqual(evaluate(expression, stale), SESSION)
+                    # A job the spill did not list keeps the side queue.
+                    unlisted = wiring.context(runner="")
+                    unlisted["needs"][CmuxNextWiring.PLACEMENT]["outputs"].update(
+                        deferred_runner=SIDE, session_spill_runner=SESSION, session_jobs=" ", placed_attempt="1")
+                    self.assertEqual(evaluate(expression, unlisted), SIDE)
+
+
 class FreshRoute(unittest.TestCase):
     """A feed's compile takes the freshness slot (one extra runner per owned std mini) while it is idle, then
     the side route and the cascade (2026-10-26: no DEV publish from 21:01Z, every DEV Release compile queued
