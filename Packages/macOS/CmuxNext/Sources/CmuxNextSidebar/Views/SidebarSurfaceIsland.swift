@@ -99,7 +99,7 @@ public protocol SidebarUpdateSurfaces: AnyObject {
 
 /// The popover's content: the ready surface, and the pointer coming into it
 /// (a pending close is called off) and leaving it (the popover then closes
-/// after a short delay unless the pointer is back on it or the card).
+/// unless the pointer is on the card, or on its way there).
 final class SidebarPopoverIslandHost: NSView {
     var onPointerEnter: (() -> Void)?
     var onPointerExit: (() -> Void)?
