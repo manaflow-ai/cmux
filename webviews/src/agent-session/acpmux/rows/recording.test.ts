@@ -56,7 +56,10 @@ const range = (from: number, to: number) => Array.from({ length: to - from + 1 }
 
 test("the chat recording, step by step", async () => {
   const recording = steps("chat");
-  expect([...recording.keys()]).toEqual([
+  // Steps recorded for a later piece: the page of turns' PR (6d) replays them and empties this.
+  // Any other new step fails here.
+  const NOT_YET = ["page-turns", "page-turns-unsupported"];
+  expect([...recording.keys()].filter((name) => !NOT_YET.includes(name))).toEqual([
     "upgrade",
     "not-ready",
     "window",
