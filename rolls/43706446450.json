@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43706446450",
+  "recorded_at": "2026-11-15T11:07:10Z",
+  "reason": "cmux-tui 8ea04fcf8a97 changes the image's cmux-tui (pinned f9c59a3ea7fd)",
+  "dry_run": false,
+  "cmux_tui": "8ea04fcf8a9718f8ab7d659a5115defe97aa24af",
+  "fixes": [
+    {
+      "sha": "8ea04fcf8a9718f8ab7d659a5115defe97aa24af",
+      "mergedAt": "2026-11-15T02:39:54-08:00",
+      "subject": "cmux-tui-core: a bounded wait for a worktree's port lock; a setup's log and lock files with a second name are not used (#43518)"
+    },
+    {
+      "sha": "e1d60b9513a337592914f47db480c45ca2b942e7",
+      "mergedAt": "2026-11-15T02:38:37-08:00",
+      "subject": "cmux-journal: write the sync marker with the next records, not on its own (#43655)"
+    },
+    {
+      "sha": "64d2edc3aea9c644d3fb3ce3b4d279260a5c0674",
+      "mergedAt": "2026-11-15T02:35:42-08:00",
+      "subject": "cmux-tui: read a closed group's also_rooms before its record moves"
+    },
+    {
+      "sha": "2e06cfd578570aeaf88d3d63da64c91fb3784c86",
+      "mergedAt": "2026-11-15T02:35:40-08:00",
+      "subject": "cmux-tui: closing a space's last workspace deletes the space (one rule at every level)"
+    },
+    {
+      "sha": "93d4c9b2379645e6a77395b47039f72d618bcbe0",
+      "mergedAt": "2026-11-15T02:35:39-08:00",
+      "subject": "cmux-tui: red tests: closing a space's last workspace deletes the space"
+    },
+    {
+      "sha": "3ca94c30f5aa354025be794dab3b59f602244a39",
+      "mergedAt": "2026-11-15T02:34:20-08:00",
+      "subject": "acpmux: reload_config applies remoteDaemon, and every config field is reloaded or named restart-only (#43623)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T11:07:10Z",
+    "snapshot_id": "sh-99d899cf11bd41d097f934d304c47f2b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43706446450): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e736c9117ce3edf50caee020dcf89b3d4a31299e",
+    "image": "cloud-native-auto-8ea04fcf-43706446450-1",
+    "revision": "ci-43706446450-1",
+    "at": "2026-11-15T11:07:10Z"
+  },
+  "rolled_back": false
+}
