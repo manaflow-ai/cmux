@@ -258,11 +258,34 @@ async fn start_carrier(hub: &Arc<Hub>, carrier: Option<std::net::SocketAddr>) {
         let _ = hub.hub_carrier_websocket.set(websocket);
     }
     #[cfg(feature = "hub-carrier")]
-    if carrier.is_some() && hub.hub_carrier_serve.lock_or_recover().is_none() {
-        crate::hub_carrier::start_kept(hub, carrier).await;
+    if hub.hub_carrier_serve.lock_or_recover().is_none() {
+        if carrier.is_some() {
+            crate::hub_carrier::start_kept(hub, carrier).await;
+        } else if joined(hub).await {
+            tracing::warn!("hub carrier off: this home is a copy, or the daemon has no listener");
+        }
     }
+    // A joined machine whose build left the carrier out says so: the app's and the packages'
+    // acpmux once shipped without it and logged nothing (scripts/ci/acpmux-build-features.sh).
     #[cfg(not(feature = "hub-carrier"))]
-    let _ = (hub, carrier);
+    {
+        if joined(hub).await {
+            tracing::warn!(
+                "hub carrier off: this acpmux build has no hub carrier (feature hub-carrier)"
+            );
+        }
+        let _ = carrier;
+    }
+}
+
+/// Whether config.json joins this machine with its machine credential, which turns the carrier on.
+async fn joined(hub: &Hub) -> bool {
+    hub.config
+        .read()
+        .await
+        .mesh_relay
+        .as_ref()
+        .is_some_and(|relay| relay.credential.as_deref() == Some("join"))
 }
 
 /// The daemon start's mesh relay and hub carrier. A sign-out's leave the last run did not finish
