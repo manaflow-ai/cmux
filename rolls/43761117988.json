@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43761117988",
+  "recorded_at": "2026-11-15T21:12:06Z",
+  "reason": "cmux-tui 6eb08678a946 changes the image's cmux-tui (pinned 171c1fa97a74)",
+  "dry_run": false,
+  "cmux_tui": "6eb08678a9463367948910cbcf733b261ea343f9",
+  "fixes": [
+    {
+      "sha": "6eb08678a9463367948910cbcf733b261ea343f9",
+      "mergedAt": "2026-11-15T12:41:47-08:00",
+      "subject": "acpmux: a usage pass reads the live chats and those changed in the last day, not every chat (#43807)"
+    },
+    {
+      "sha": "1a53620f52a9ad64506dde357d72acb2e70e3e29",
+      "mergedAt": "2026-11-15T12:39:14-08:00",
+      "subject": "acpmux: a Mac machine's install and update scripts parse under macOS sh again (restart window check) (#43895)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-15T21:12:06Z",
+    "snapshot_id": "sh-9cb3574eab7142faa3166cb392e25f65",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43761117988): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "2ff9044a033d892b245a3ea1ac7873156d1d812f",
+    "image": "cloud-native-auto-6eb08678-43761117988-1",
+    "revision": "ci-43761117988-1",
+    "at": "2026-11-15T21:12:06Z"
+  },
+  "rolled_back": false
+}
