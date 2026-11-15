@@ -25,6 +25,10 @@ pub enum Span {
 pub struct Delta {
     pub seq: u64,
     pub at_ms: u64,
+    /// Rows the shown screen scrolls up before the spans apply (down when negative), the way
+    /// the terminal scrolled: a CLI that prints a line moves every row, and a plain cell diff
+    /// would resend them all.
+    pub shift: i16,
     pub spans: Vec<Span>,
 }
 
@@ -121,7 +125,58 @@ impl Overlay {
         spans
     }
 
-    /// Apply a delta's spans.
+    /// Scroll the shown screen up by `by` rows (down when negative), blank rows coming in. A
+    /// moved cell that the records draw the same at its new place needs no override.
+    pub fn scroll(&mut self, drawn: &Grid, by: i16) {
+        if by == 0 {
+            return;
+        }
+        let shown = self.compose(drawn);
+        let rows = usize::from(self.rows);
+        let n = usize::from(by.unsigned_abs());
+        let blank = Cell::default();
+        for (y, row) in self.cells.iter_mut().enumerate() {
+            let from = if by > 0 {
+                y.checked_add(n).filter(|from| *from < rows)
+            } else {
+                y.checked_sub(n)
+            };
+            for (x, slot) in row.iter_mut().enumerate() {
+                let moved = from.and_then(|from| cell_at(&shown, from, x)).unwrap_or(&blank);
+                let under = cell_at(drawn, y, x).unwrap_or(&blank);
+                *slot = (!moved.looks_same(under)).then(|| moved.clone());
+            }
+        }
+    }
+
+    /// The smallest delta that makes the shown screen look like `real`: the plain diff, or a
+    /// scroll and the diff after it, whichever takes fewer bytes.
+    pub fn delta(&self, drawn: &Grid, real: &Grid, seq: u64, at_ms: u64) -> Delta {
+        let mut best = Delta { seq, at_ms, shift: 0, spans: self.diff(drawn, real) };
+        let mut best_len = best.encode().len();
+        if best.spans.is_empty() {
+            return best;
+        }
+        let rows = i16::try_from(self.rows).unwrap_or(i16::MAX);
+        for by in (-(rows / 4)..rows).filter(|by| *by != 0) {
+            let mut moved = self.clone();
+            moved.scroll(drawn, by);
+            let candidate = Delta { seq, at_ms, shift: by, spans: moved.diff(drawn, real) };
+            let len = candidate.encode().len();
+            if len < best_len {
+                (best, best_len) = (candidate, len);
+            }
+        }
+        best
+    }
+
+    /// Apply a delta: its scroll, then its spans.
+    pub fn apply_delta(&mut self, delta: &Delta, drawn: &Grid) {
+        self.scroll(drawn, delta.shift);
+        self.apply(&delta.spans);
+    }
+
+    /// Apply spans.
     pub fn apply(&mut self, spans: &[Span]) {
         for span in spans {
             match span {
@@ -246,6 +301,9 @@ impl Delta {
         let mut out = Vec::new();
         put(&mut out, self.seq);
         put(&mut out, self.at_ms);
+        // Zigzag, so a small scroll either way is one byte.
+        let shift = i32::from(self.shift);
+        put(&mut out, ((shift << 1) ^ (shift >> 31)) as u64);
         put(&mut out, self.spans.len() as u64);
         for span in &self.spans {
             match span {
@@ -276,6 +334,8 @@ impl Delta {
         let mut r = Reader { bytes, pos: 0 };
         let seq = r.varint()?;
         let at_ms = r.varint()?;
+        let zigzag = r.u16()?;
+        let shift = ((zigzag >> 1) as i16) ^ -((zigzag & 1) as i16);
         let count = r.varint()?;
         let mut spans = Vec::new();
         for _ in 0..count {
@@ -292,7 +352,7 @@ impl Delta {
                 (0..n).map(|_| Some(Cell { text: r.text()?, style })).collect::<Option<_>>()?;
             spans.push(Span::Set { row, col, cells });
         }
-        (r.pos == bytes.len()).then_some(Delta { seq, at_ms, spans })
+        (r.pos == bytes.len()).then_some(Delta { seq, at_ms, shift, spans })
     }
 }
 
@@ -353,10 +413,27 @@ mod tests {
     }
 
     #[test]
+    fn a_scrolled_screen_moves_the_overlay_instead_of_resending_it() {
+        let drawn = Grid::blank(20, 4);
+        let line = |text| (text, Style::fg(246));
+        let before = grid(&[&[line("one")], &[line("two")], &[line("three")], &[line("four")]]);
+        let after = grid(&[&[line("three")], &[line("four")], &[line("five")], &[line("six")]]);
+        let mut overlay = Overlay::new(20, 4);
+        overlay.apply_delta(&overlay.delta(&drawn, &before, 1, 0), &drawn);
+        let delta = overlay.delta(&drawn, &after, 1, 10);
+        // Two lines printed: a scroll of two and the two new rows, nothing else.
+        assert_eq!(delta.shift, 2);
+        assert!(delta.spans.iter().all(|s| matches!(s, Span::Set { row: 2 | 3, .. })), "{delta:?}");
+        overlay.apply_delta(&delta, &drawn);
+        assert_eq!(after.parity(&overlay.compose(&drawn)), (80, 80));
+    }
+
+    #[test]
     fn a_delta_round_trips_through_its_bytes() {
         let delta = Delta {
             seq: 300,
             at_ms: 25_000,
+            shift: -3,
             spans: vec![
                 Span::Set {
                     row: 3,

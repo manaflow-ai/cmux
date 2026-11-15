@@ -370,12 +370,13 @@ fn hybrid(session: &Session, interval: u64, end: u64, draw: &mut Draw<'_>) -> Hy
     let mut send = |at: u64, term: &mut ghostty_vt::Terminal, overlay: &mut Overlay| {
         let real = snapshot(term);
         let (seq, drawn) = draw(at);
-        let spans = overlay.diff(&drawn, &real);
-        if spans.is_empty() {
+        let delta = overlay.delta(&drawn, &real, seq, at - start);
+        if delta.shift == 0 && delta.spans.is_empty() {
             return;
         }
-        overlay.apply(&spans);
-        let delta = Delta { seq, at_ms: at - start, spans };
+        overlay.apply_delta(&delta, &drawn);
+        // The phone, applying it over the same drawing, shows the real screen.
+        assert_eq!(real.parity(&overlay.compose(&drawn)), (3200, 3200));
         let bytes = delta.encode();
         assert_eq!(Delta::decode(&bytes).as_ref(), Some(&delta));
         delta_bytes += bytes.len();
@@ -509,10 +510,13 @@ fn claude_code_hybrid_records_plus_screen_deltas() {
     std::fs::remove_file(scratch).ok();
     println!("\nClaude Code 2.1.310, 100x32:\n{HEADER}{rows}");
 
-    // Every frame the hybrid sends puts the real screen on the phone, at a fraction of the PTY.
-    for (all, rate) in live_rows.iter().chain(&seeded_rows).chain(&blank_rows).take(1) {
-        assert!(*all >= 98.0, "parity {all:.1}%");
-        assert!(*rate < pty_rate, "{rate:.0} B/s against the PTY's {pty_rate:.0}");
+    // With frames at most 100 ms apart, the phone shows every scripted screen as the PTY does,
+    // for fewer bytes than the PTY however the records draw.
+    for rows in [&live_rows, &seeded_rows, &blank_rows] {
+        for (all, rate) in rows.iter().take(2) {
+            assert!(*all >= 98.0, "parity {all:.1}%");
+            assert!(*rate < pty_rate, "{rate:.0} B/s against the PTY's {pty_rate:.0}");
+        }
     }
 }
 
