@@ -1,9 +1,9 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextAgentPane
+public import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
-import CmuxNextServer
+public import CmuxNextServer
 
 extension AcpmuxPersonLine: JoinedDialLine {}
 
