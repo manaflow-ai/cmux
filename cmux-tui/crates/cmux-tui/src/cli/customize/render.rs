@@ -399,7 +399,7 @@ fn recipes_json(
                 "ask": recipe.ask,
                 "changes": recipe.parts(),
                 "path": path,
-                "try": path.map(|path| format!("cmux customize use {}", path.display())),
+                "try": path.map(|path| format!("cmux customize use {}", cmux_customize_recipes::shell_quote(&path.display().to_string()))),
             })
         })
         .collect();

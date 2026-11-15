@@ -5,6 +5,7 @@
 // the chosen one ("grouped"). References: extension browsers with one action per item, and Codex's
 // automation templates (the wish as an editable starting point).
 import { markdownPageEntry } from "../../gallery/format";
+import { githubSlug } from "./links";
 
 const DIR = "/Users/you/.local/state/cmux/customize/recipes";
 
@@ -126,7 +127,9 @@ const FLAT = [
 const TABLE = [
   INTRO,
   "## The recipes\n\n| Recipe | Changes | Or ask |\n| --- | --- | --- |\n" +
-    RECIPES.map((recipe) => `| [${recipe.title}](#${recipe.name}) | ${recipe.group} | "${recipe.ask}" |`).join("\n") +
+    RECIPES.map(
+      (recipe) => `| [${recipe.title}](#${githubSlug(recipe.title)}) | ${recipe.group} | "${recipe.ask}" |`,
+    ).join("\n") +
     "\n",
   "## Try one\n",
   ...RECIPES.map((recipe) => `### ${recipe.title}\n\n${tryBlock(recipe)}`),

@@ -275,9 +275,22 @@ pub const GUIDE: &str = include_str!("../../../../docs/cmux-next/customize-recip
 pub const GUIDE_DIR: &str = "~/.local/state/cmux/customize/recipes";
 
 /// The guide with its commands pointing at `dir`, where [`write_all`] put
-/// the recipe files.
+/// the recipe files. Each command's path is shell-quoted, since the Run
+/// button hands the line to a shell: a folder with a space or `;` in its
+/// name stays one argument and never runs as a command of its own.
 pub fn guide(dir: &Path) -> String {
-    GUIDE.replace(GUIDE_DIR, &dir.display().to_string())
+    let mut page = GUIDE.to_owned();
+    for recipe in RECIPES {
+        let file = format!("{}.json", recipe.name);
+        let path = dir.join(&file).display().to_string();
+        page = page.replace(&format!("{GUIDE_DIR}/{file}"), &shell_quote(&path));
+    }
+    page.replace(GUIDE_DIR, &dir.display().to_string())
+}
+
+/// `text` as one POSIX shell word: single-quoted, each `'` written `'\''`.
+pub fn shell_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
 }
 
 /// What [`write_all`] wrote.
