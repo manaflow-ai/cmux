@@ -506,7 +506,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case keybindings = "keybindings-v1"
     /// `settings.edit` (with `settings.snapshot`): cmux-next.json owned by the daemon (cmux-config);
     /// the app sends every write of the file there (plans/cmux-next/settings-react.md section 1).
-    case settingsEdit = "settings-edit-v1"
+    /// v2: the `set_exact` edit and the `file` check; an older owner cannot take the app's writes.
+    case settingsEdit = "settings-edit-v2"
     /// `put-blob`/`get-blob`: the owner's icon asset store, and `image:`/`svg:`
     /// icon values naming a stored asset on workspace, screen, room and profile icons.
     case iconAssets = "icon-assets-v1"

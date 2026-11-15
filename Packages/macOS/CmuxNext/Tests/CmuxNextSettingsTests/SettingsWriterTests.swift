@@ -53,6 +53,36 @@ import Testing
         #expect(try String(contentsOf: url, encoding: .utf8) == "{}\n")
     }
 
+    /// `settings.edit` refuses zero edits, so a write that changes nothing (choosing the Base
+    /// Keymap already in use) sends nothing and succeeds, also with no daemon.
+    @Test func anEmptyBatchSendsNothing() async throws {
+        let sent = SentJSON()
+        let sender = SettingsEditSender { json, _ in
+            await sent.append(json)
+            return nil
+        }
+        #expect(try await sender.edit([], file: URL(fileURLWithPath: "/tmp/cmux-next.json")) == [])
+        #expect(await sent.texts.isEmpty)
+    }
+
+    /// `.set` goes out as `set_exact`: the daemon keeps a default-valued key the app chose to write.
+    @Test func setIsSentAsSetExact() async throws {
+        let sent = SentJSON()
+        let sender = SettingsEditSender { json, _ in
+            await sent.append(json)
+            return [0]
+        }
+        #expect(try await sender.edit([.set(["editor", "wordWrap"], .string("off"))], file: URL(fileURLWithPath: "/tmp/cmux-next.json")) == [0])
+        let texts = await sent.texts
+        #expect(texts.count == 1)
+        #expect(texts.first?.contains("\"set_exact\"") == true)
+    }
+
+    actor SentJSON {
+        var texts: [String] = []
+        func append(_ text: String) { texts.append(text) }
+    }
+
     @Test func removePruningIsOnePublishThatDropsOnlyStillEmptyParents() async throws {
         let url = try file("{}\n")
         let writer = Recording()

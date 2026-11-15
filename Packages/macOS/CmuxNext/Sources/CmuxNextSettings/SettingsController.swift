@@ -138,7 +138,10 @@ public final class SettingsController {
     /// Themes says so (`rotateFavoriteThemeAtLaunch`); tests leave it off.
     /// A launch that made the settings file from nothing (``readAtLaunch(file:buildDefaults:)``) starts
     /// the window on Glass (`startFreshInstallOnGlass`).
-    public func start(announcingDiagnostics: Bool = false, rotatingFavoriteThemes: Bool = false) {
+    /// `untilWritable` returns once the writer can take a write (the app: the home daemon is live);
+    /// those two launch writes wait for it (``launchWrite(after:_:)``). Nil: they go at once.
+    public func start(announcingDiagnostics: Bool = false, rotatingFavoriteThemes: Bool = false,
+                      untilWritable: (@MainActor @Sendable () async -> Void)? = nil) {
         guard watcher == nil else { return }
         if announcingDiagnostics, diagnosticToasts == nil {
             let toasts = SettingsDiagnosticToasts(registry: applier.registry)
@@ -154,9 +157,27 @@ public final class SettingsController {
         watchThemeFiles(named: ThemeFileSetting.name(in: snapshot.root))
         let freshInstall = launchRead?.createdEmptyFile == true // loadNow lets the launch read go
         if loadCount == 0 { loadNow() } else { requestReload() }
-        if rotatingFavoriteThemes { rotateFavoriteThemeAtLaunch(root: snapshot.root) }
+        if rotatingFavoriteThemes { rotateFavoriteThemeAtLaunch(root: snapshot.root, untilWritable: untilWritable) }
         // A task, so it reads the Ghostty blur after the launch that called this set its reader.
-        if freshInstall { Task { [weak self] in try? await self?.startFreshInstallOnGlass() } }
+        if freshInstall {
+            Task { [weak self] in
+                guard let self else { return }
+                try? await Self.launchWrite(after: untilWritable) { try await self.startFreshInstallOnGlass() }
+            }
+        }
+    }
+
+    /// Runs a launch write once `untilWritable` returns, and once more after it returns again when
+    /// the writer was gone by then (``SettingsWriterDisconnected``: nothing was written).
+    static func launchWrite(after untilWritable: (@MainActor @Sendable () async -> Void)?,
+                            _ body: @MainActor () async throws -> Void) async throws {
+        await untilWritable?()
+        do {
+            try await body()
+        } catch is SettingsWriterDisconnected {
+            await untilWritable?()
+            try await body()
+        }
     }
 
     public func stop() {

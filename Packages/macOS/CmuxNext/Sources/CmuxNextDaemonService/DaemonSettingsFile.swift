@@ -1,4 +1,3 @@
-import CmuxNextCompat
 public import CmuxNextDaemon
 public import Foundation
 
@@ -9,7 +8,6 @@ public import Foundation
 public nonisolated struct DaemonSettingsFile: Sendable {
     /// The daemon's connection while it can take a settings write (``DaemonService/settingsWriteConnection``).
     let connection: @MainActor @Sendable () -> DaemonConnection?
-    private let served = ServedFiles()
 
     public init(connection: @escaping @MainActor @Sendable () -> DaemonConnection?) {
         self.connection = connection
@@ -17,26 +15,28 @@ public nonisolated struct DaemonSettingsFile: Sendable {
 
     /// Applies `json` (the `settings.edit` edits, `[{op, path, value?}]`) to the settings file at
     /// `file` in one publish. Returns the indexes of the edits that applied, or nil when this daemon
-    /// cannot take the write: not live, without `settings-edit-v1`, or its owner serves another file
-    /// than `file` (a daemon another build started). Nothing queues.
+    /// cannot take the write: not live, without `settings-edit-v2`, the connection lost during the
+    /// request, or its owner serves another file than `file` (a daemon another build started, or
+    /// one restarted on another `CMUX_NEXT_CONFIG_FILE`). Each edit names `file`, so the owner
+    /// checks it on the write itself (`settings.file_mismatch`). Nothing queues.
     public func edit(json: String, file: URL) async throws -> [Int]? {
         guard let connection = await self.connection() else { return nil }
-        let client = SettingsFileClient(connection: connection)
-        guard try await served.path(of: connection, client) == file.standardizedFileURL.path else { return nil }
         let edits = try JSONDecoder().decode([JSONValue].self, from: Data(json.utf8))
-        return try await client.edit(edits, idempotencyKey: UUID().uuidString)
+        do {
+            return try await SettingsFileClient(connection: connection)
+                .edit(edits, file: file.standardizedFileURL.path, idempotencyKey: UUID().uuidString)
+        } catch let error as DaemonError where Self.cannotWrite(error) {
+            return nil
+        }
     }
 
-    /// The settings file each connection's owner serves, read once per connection.
-    private nonisolated final class ServedFiles: Sendable {
-        private let paths = Mutex<[ObjectIdentifier: String]>([:])
-
-        func path(of connection: DaemonConnection, _ client: SettingsFileClient) async throws -> String {
-            let key = ObjectIdentifier(connection)
-            if let path = paths.withLock({ $0[key] }) { return path }
-            let path = URL(fileURLWithPath: try await client.path()).standardizedFileURL.path
-            paths.withLock { $0[key] = path }
-            return path
+    /// The owner serves another file, or the connection went away before the reply (not a missed
+    /// deadline: that edit may still apply).
+    static func cannotWrite(_ error: DaemonError) -> Bool {
+        switch error {
+        case .notConnected, .connectionClosed, .daemonShutdown, .connectFailed: true
+        case .command(_, _, let code, _, _): code == SettingsFileClient.fileMismatch
+        default: false
         }
     }
 }
@@ -45,7 +45,7 @@ extension DaemonService {
     /// This daemon as the writer of cmux-next.json (the home daemon's, at launch).
     public var settingsFile: DaemonSettingsFile { DaemonSettingsFile { [weak self] in self?.settingsWriteConnection } }
 
-    /// The connection while this daemon is live and serves `settings-edit-v1`, else nil.
+    /// The connection while this daemon is live and serves `settings-edit-v2`, else nil.
     var settingsWriteConnection: DaemonConnection? {
         isLive && supports(DaemonCapability.settingsEdit.rawValue) ? connection : nil
     }

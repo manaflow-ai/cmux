@@ -267,8 +267,9 @@ unreachable, Settings shows "Settings are read only until cmux reconnects" and r
 
 State of slice b (2026-11-15): the Swift writer is gone. `CmuxConfigFile` sends every write as one
 `settings.edit` to the home daemon (`SettingsFileWriter`, the app fills it with `DaemonService.settingsFile`), in
-call order, after checking that the owner's `settings.snapshot` `path` is the app's file; with no
-live daemon serving `settings-edit-v1`, or another file, a write throws `SettingsWriterDisconnected`
+call order, each edit naming the app's file (`file`; an owner serving another file refuses it with
+`settings.file_mismatch`), its sets as `set_exact` (the app already chose keep or remove); with no
+live daemon serving `settings-edit-v2`, or another file, a write throws `SettingsWriterDisconnected`
 and nothing queues. The app lock (`SettingsFileLock`, #40464) went with the writer: the owner's own
 lock now covers every write. The launch passes run once the home daemon is live. A launch that names
 its file (`CMUX_NEXT_CONFIG_FILE`) passes it to `server ensure`. Still open below: item 4 (the
@@ -318,8 +319,9 @@ launch passes in the daemon), item 5 (an object write above schema rows, which t
 2. Several edits in one publish (Swift `CmuxConfigFile.apply`), or the rules that need them in the
    owner's `settings.set`: a renamed row's old key goes with the write, the window background's
    opacity and material change together, a built-in density ends the custom one.
-   Daemon half, done: `settings.edit {edits, if_revision?, origin?}` (capability
-   `settings-edit-v1`). Each edit is `{op, key | path, value?}`; the owner applies them in order
+   Daemon half, done: `settings.edit {edits, file?, if_revision?, origin?}` (capability
+   `settings-edit-v2`; v2 added `file` and `op: set_exact`, a set that keeps a default-valued
+   key). Each edit is `{op, key | path, value?}`; the owner applies them in order
    to the file text and publishes once, with one revision and one `settings-changed`. Each edit
    passes the checks of `settings.set` (`op: set`) or `settings.reset` (`op: reset`): kind,
    managed keys, agent policy, removed keys, the overlap rule. One refused edit refuses the op

@@ -2,7 +2,9 @@ public import Foundation
 
 /// One edit of `cmux-next.json`, as the daemon's `settings.edit` takes it (cmux-config `EditKind`).
 public nonisolated enum SettingsFileEdit: Sendable, Equatable {
-    /// Sets the value at the path (`settings.set`); a schema row set to its default loses its key.
+    /// Sets the value at the path as given (`set_exact`): a schema row set to its default keeps its
+    /// key. The caller already decided keep or remove (`isUnsetValue`, the layers below the file,
+    /// `SettingsSchema.unsetIsNotDefaultKeys`, build defaults), as when the app wrote the file itself.
     case set([String], JSONValue)
     /// Sets the value only while the file has none at the path (JSON null is a value).
     case setUnset([String], JSONValue)
@@ -21,7 +23,7 @@ public nonisolated enum SettingsFileEdit: Sendable, Equatable {
     public var wire: JSONValue {
         let path = JSONValue.array(path.map(JSONValue.string))
         return switch self {
-        case .set(_, let value): ["op": "set", "path": path, "value": value]
+        case .set(_, let value): ["op": "set_exact", "path": path, "value": value]
         case .setUnset(_, let value): ["op": "set_unset", "path": path, "value": value]
         case .reset: ["op": "reset", "path": path]
         case .resetUnchanged(_, let value): ["op": "reset_unchanged", "path": path, "value": value]
@@ -60,7 +62,10 @@ public nonisolated struct SettingsEditSender: SettingsFileWriter {
         self.send = send
     }
 
+    /// An empty batch (a write that changes nothing) applies nothing and sends nothing:
+    /// `settings.edit` takes 1 to 1000 edits.
     public func edit(_ edits: [SettingsFileEdit], file: URL) async throws -> [Int] {
+        if edits.isEmpty { return [] }
         guard let applied = try await send(JSONValue.array(edits.map(\.wire)).compactText, file) else {
             throw SettingsWriterDisconnected()
         }
