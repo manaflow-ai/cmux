@@ -411,9 +411,7 @@ pub fn text_chunks(text: &str, n: usize) -> Vec<String> {
     let mut ri_run = 0usize;
     for (i, &c) in chars.iter().enumerate() {
         let prev = i.checked_sub(1).map(|j| chars[j]);
-        let joins = extends(c)
-            || prev == Some('\u{200D}')
-            || (regional(c) && ri_run % 2 == 1);
+        let joins = extends(c) || prev == Some('\u{200D}') || (regional(c) && ri_run % 2 == 1);
         if count >= n.max(1) && !joins {
             out.push(std::mem::take(&mut cur));
             count = 0;

@@ -63,7 +63,6 @@ fn a_background_chord_with_only_disabled_matches_needs_validation() {
     assert!(!roles::needs_menu_validation(&[m(false, true)]));
 }
 
-
 /// Review 9: a hit element that is a menu item the deny list blocks is
 /// refused before anything is pressed, whatever it offers.
 #[test]
@@ -168,7 +167,6 @@ fn the_open_key_equivalent() {
     let a = menu_item_key(Some("A"), None, None);
     assert!(!roles::is_open_key_equivalent(&a, 0));
 }
-
 
 /// Review 2 (B, 3): inside a scope an item is pressed only while the scope
 /// is live and focus is on the target window, and never a Services item.
@@ -382,9 +380,8 @@ fn input_is_posted_only_while_no_scope_is_open_and_under_the_app_lock() {
     let os = fake(&[(10, 5)]);
     let reg = activation::Registry::new();
     let short = std::time::Duration::from_millis(60);
-    let held = reg.post_unprimed(5, 10, short, |p| {
-        (reg.pid_locked(5), reg.pid_locked(7), p.route())
-    });
+    let held =
+        reg.post_unprimed(5, 10, short, |p| (reg.pid_locked(5), reg.pid_locked(7), p.route()));
     assert_eq!(held, Some((true, false, input::Route::Pid { pid: 5, window: 10 })));
     let own = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("own");
     let other = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("another session joins");
@@ -484,7 +481,6 @@ fn the_app_counts_as_primed_until_the_focus_out_is_posted() {
     assert_eq!(os.open_at_post.borrow().last(), Some(&true), "open at the focus-out");
     assert!(!reg.is_open(5), "removed after it");
 }
-
 
 /// Review 5 (1), 6 (6): long text is posted in chunks (the lock is held per
 /// chunk), never inside a user-perceived character; a stop part way says how
