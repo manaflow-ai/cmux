@@ -689,6 +689,58 @@ def cef_page_count(app: App) -> int | None:
     return sum(1 for p in pages if str(p.get("origin", "")).startswith("cmux-page://"))
 
 
+def heap_summary(pages: list, replies: dict) -> dict:
+    """--js-heap (pure): each cmux page's V8 heap from its `Runtime.getHeapUsage` reply, and the sums
+    by page path (the agent chat page, New Tab, Home...), so a sample says how much of the renderers'
+    footprint is JavaScript and on which page. `replies` maps a page's browser id to its parsed reply.
+    A page whose read failed is counted under `errors`, never as 0 MB."""
+    rows, errors = [], []
+    for page in pages:
+        if not isinstance(page, dict) or not str(page.get("origin", "")).startswith("cmux-page://"):
+            continue
+        reply = replies.get(page.get("browser")) or {}
+        used, total = reply.get("usedSize"), reply.get("totalSize")
+        if not isinstance(used, (int, float)) or not isinstance(total, (int, float)):
+            errors.append(str(reply.get("error") or "no heap in the reply")[:120])
+            continue
+        rows.append({"browser": page.get("browser"), "path": str(page.get("path") or "/"), "hidden": bool(page.get("hidden")),
+                     "used_mb": round(used / MB, 1), "total_mb": round(total / MB, 1)})
+    by_path = {}
+    for row in rows:
+        entry = by_path.setdefault(row["path"], {"pages": 0, "used_mb": 0.0, "total_mb": 0.0})
+        entry["pages"] += 1
+        entry["used_mb"] = round(entry["used_mb"] + row["used_mb"], 1)
+        entry["total_mb"] = round(entry["total_mb"] + row["total_mb"], 1)
+    return {"pages": len(rows), "used_mb": round(sum(r["used_mb"] for r in rows), 1),
+            "total_mb": round(sum(r["total_mb"] for r in rows), 1),
+            "by_path": dict(sorted(by_path.items(), key=lambda item: -item[1]["total_mb"])),
+            "per_page": sorted(rows, key=lambda r: -r["total_mb"])[:40], "errors": errors[:5], "error_count": len(errors)}
+
+
+def js_heaps(app: App) -> dict:
+    """--js-heap: every cmux page's V8 heap (DevTools `Runtime.getHeapUsage`, which needs no domain enabled
+    and runs no script), read after the sample's window so the read is not in it. A bench or DEV build has
+    `debug.cef_pages`; an app without it gives {"error": ...}."""
+    pages = (app.call("debug.cef_pages", timeout=30) or {}).get("pages")
+    if not isinstance(pages, list):
+        return {"error": "no debug.cef_pages (a bench or DEV build has it)"}
+
+    def read(page):
+        reply = app.call("debug.cef_page_devtools", {"browser": page["browser"], "method": "Runtime.getHeapUsage",
+                                                     "params": {}}, timeout=20)
+        if reply.get("error") or not isinstance(reply.get("result"), str):
+            return page["browser"], {"error": str(reply.get("error") or "no reply")}
+        try:
+            return page["browser"], json.loads(reply["result"])
+        except ValueError as error:
+            return page["browser"], {"error": str(error)}
+
+    own = [p for p in pages if isinstance(p, dict) and "browser" in p and str(p.get("origin", "")).startswith("cmux-page://")]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        replies = dict(pool.map(read, own))
+    return heap_summary(own, replies)
+
+
 def percentile(values: list[float], share: float) -> float | None:
     ordered = sorted(values)
     return ordered[min(len(ordered) - 1, int(share * len(ordered)))] if ordered else None
@@ -1153,6 +1205,9 @@ def main():
     parser.add_argument("--child-time", action="store_true",
                         help="with --measure: child_cpu_pct, the whole CPU of each process's children that ended "
                              "in the window (the daemon's git runs); none when the run's own check of the read fails")
+    parser.add_argument("--js-heap", action="store_true",
+                        help="after each sample: every cmux page's V8 heap (Runtime.getHeapUsage), summed by page path "
+                             "(`js_heap` in the sample; a bench or DEV build)")
     parser.add_argument("--out")
     args = parser.parse_args()
     global CHAT_PROMPT
@@ -1235,6 +1290,11 @@ def main():
         if attribution:
             result["attribution"] = attribution.finish()
             print_attribution(label, result["attribution"])
+        if args.js_heap:
+            result["js_heap"] = js_heaps(app)
+            heap = result["js_heap"]
+            print(f"   JS heap: {heap.get('pages', 0)} cmux pages, used {heap.get('used_mb', 0)} MB, "
+                  f"total {heap.get('total_mb', 0)} MB {json.dumps(heap.get('by_path') or heap.get('error'))[:400]}", flush=True)
         result["pane_failures"] = len(PANE_FAILURES)
         report["samples"].append(result)
         report["pane_failures"] = PANE_FAILURES[:20]
