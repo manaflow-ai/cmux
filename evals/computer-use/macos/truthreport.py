@@ -186,9 +186,14 @@ def build(arms, agent_dirs, out, videos):
         from cueval import claims
         ag = []
         for d in agent_dirs:
-            p = os.path.join(d, "results.jsonl")
+            p = os.path.join(d, "results.recheck.jsonl")  # cueval recheck's re-scored transcript checks, if run
+            if not os.path.exists(p):
+                p = os.path.join(d, "results.jsonl")
             if os.path.exists(p):
-                ag += load(p)
+                rs = load(p)
+                for r in rs:
+                    r["arm"] = f"{r['arm']} [{os.path.basename(d)}]"
+                ag += rs
         for r in ag:
             r.update(claims.label_row(r))
         cs = claims.summarize(ag)
