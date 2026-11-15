@@ -79,9 +79,11 @@ import Testing
     @Test func aLeadingIconHasEqualPadding() throws {
         let view = Self.laidOut(Self.hint, .iconCard)
         let icon = try #require(view.iconView)
-        let frame = icon.convert(icon.bounds, to: view)
-        let vertical = (view.bounds.height - frame.height) / 2
-        #expect(abs(frame.minX - vertical) <= 1, "the icon is \(frame.minX) pt from the side, \(vertical) pt from the top")
+        // The symbol's alignment rect, where layout puts it (a symbol image view's frame reaches past its glyph).
+        let frame = icon.convert(icon.alignmentRect(forFrame: icon.bounds), to: view)
+        let top = view.bounds.height - frame.maxY, bottom = frame.minY
+        #expect(abs(top - bottom) <= 1 && abs(frame.minX - top) <= 1,
+                "the icon \(frame) in \(view.bounds) is \(frame.minX) pt from the side, \(top) from the top, \(bottom) from the bottom")
     }
 
     /// The dialog card rounds from its buttons: its corner is the button corner plus the card's padding, and the
