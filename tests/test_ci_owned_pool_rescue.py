@@ -2345,6 +2345,46 @@ class BlacksmithStall(unittest.TestCase):
         self.assertTrue({"rerun", "rerun-failed"} & set(api.calls))
 
 
+GUI = "glaeda-gui-std-xcode-26.6"
+
+
+def depth_snapshot(*, source=1, destination=61, source_oldest=2, destination_oldest=203):
+    """Run 43718265555 at 14:37Z on 2026-11-15: one job queued on the gui label, 61 on the side label (oldest 203
+    min), as the janitor's snapshot counts each owned label's queue."""
+    return lambda seconds: {"generated_at": stamp(seconds), "pools": {
+        GUI: {"queued": source, "running": 4, "oldest_queued_minutes": source_oldest},
+        SIDE: {"queued": destination, "running": 8, "oldest_queued_minutes": destination_oldest}}}
+
+
+def gui_daemon_tests(seconds):
+    return [job("cmux-next daemon tests", labels=[GUI], created=0)]
+
+
+class DeeperDestination(unittest.TestCase):
+    """A rescue never sends a job to a pool deeper than the one it leaves. Run 43718265555's cmux-next daemon tests
+    waited on glaeda-gui-std-xcode-26.6 with 1 job queued there, and attempt 2 took glaeda-side-std-xcode-26.6, 61
+    deep with its oldest job queued 203 minutes (2026-11-15)."""
+
+    PAYLOAD = side_event(path=".github/workflows/cmux-next.yml", event="workflow_dispatch", pull_requests=[])
+
+    def test_a_job_stays_put_when_its_re_run_would_join_a_deeper_side_queue(self):
+        clock = Clock()
+        api = FakeAPI(clock, gui_daemon_tests, snapshot=depth_snapshot())
+        code, summary = run_main(api, clock, payload=self.PAYLOAD, env_extra={"SIDE_RESCUE_SECONDS": "30"})
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn(f"{SIDE} has 61 queued (oldest 203 min), deeper than {GUI}'s 1 queued", summary)
+
+    def test_a_shallower_side_queue_takes_the_job(self):
+        clock = Clock()
+        api = FakeAPI(clock, gui_daemon_tests, snapshot=depth_snapshot(destination=0, destination_oldest=0))
+        code, summary = run_main(api, clock, payload=self.PAYLOAD, env_extra={"SIDE_RESCUE_SECONDS": "30"})
+        self.assertEqual(code, 0)
+        self.assertIn("cancel", api.calls)
+        self.assertIn("rerun-failed", api.calls)
+
+
 class SideLanes(unittest.TestCase):
     def test_every_side_workflow_is_watched_like_a_pull_request(self):
         for path in sorted(rescue.SIDE_WORKFLOW_PATHS):
