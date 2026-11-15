@@ -1603,7 +1603,7 @@ jobs:
           set -euo pipefail
           bin="$RUNNER_TEMP/checks-venv/bin"
           python3 -m venv "$RUNNER_TEMP/checks-venv"
-          "$bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
+          "$bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3 Pillow==11.3.0
           # timeout: GNU timeout, else Homebrew's gtimeout, else scripts/ci/timeout.sh's perl watchdog.
           if ! command -v timeout >/dev/null; then
             if command -v gtimeout >/dev/null; then
@@ -1856,7 +1856,7 @@ jobs:
             python3 -I tests/test_git_history.py
             # A skip against an issue fails from its checked-in date on (tests/known_red.py).
             python3 -I tests/test_known_red.py
-            # The scripts/cmux-next Python tests no other line ran; each passes on Linux. A new test_*.py goes here too.
+            # The scripts/cmux-next Python tests no other line ran; each passes on Linux or skips naming the Mac it needs. A new test_*.py goes here too (ScriptTestsAreListed fails until it does).
             python3 scripts/cmux-next/notices/test_ghosttykit_repin.py
             python3 scripts/cmux-next/proxy-demo/test_proxy_demo.py
             python3 scripts/cmux-next/test_cloud_chat_matrix.py
@@ -1871,9 +1871,12 @@ jobs:
             python3 scripts/cmux-next/tests/test_bench_arms.py
             python3 scripts/cmux-next/tests/test_bench_background.py
             python3 scripts/cmux-next/tests/test_bench_hover_preload_stalls.py
+            python3 scripts/cmux-next/tests/test_bench_launch.py
             python3 scripts/cmux-next/tests/test_bench_launch_calls.py
             python3 scripts/cmux-next/tests/test_bench_launch_executable.py
             python3 scripts/cmux-next/tests/test_bench_memory_webkit_direct.py
+            python3 scripts/cmux-next/tests/test_bench_power_guard.py
+            python3 scripts/cmux-next/tests/test_bench_power_loaded.py
             python3 scripts/cmux-next/tests/test_bench_startup_agent_mark.py
             python3 scripts/cmux-next/tests/test_bench_startup_daemon_build.py
             python3 scripts/cmux-next/tests/test_bench_startup_linger.py
@@ -1885,6 +1888,8 @@ jobs:
             python3 scripts/cmux-next/tests/test_chat_open_seed_cache.py
             python3 scripts/cmux-next/tests/test_check_pr_split.py
             python3 scripts/cmux-next/tests/test_ci_apply.py
+            python3 scripts/cmux-next/tests/test_diff_tab_cells.py
+            python3 scripts/cmux-next/tests/test_every_action_sweep.py
             python3 scripts/cmux-next/tests/test_ffi_caller_ratchet.py
             python3 scripts/cmux-next/tests/test_git_stdin_never_piped.py
             python3 scripts/cmux-next/tests/test_holder_dogfood.py
@@ -1899,6 +1904,7 @@ jobs:
             python3 scripts/cmux-next/tests/test_memory_agents_cron.py
             python3 scripts/cmux-next/tests/test_open_panel_bench.py
             python3 scripts/cmux-next/tests/test_pane_perf_rows.py
+            python3 scripts/cmux-next/tests/test_perceived_speed.py
             python3 scripts/cmux-next/tests/test_perf_completeness.py
             python3 scripts/cmux-next/tests/test_perf_cron.py
             python3 scripts/cmux-next/tests/test_perf_cron_arch_report.py
