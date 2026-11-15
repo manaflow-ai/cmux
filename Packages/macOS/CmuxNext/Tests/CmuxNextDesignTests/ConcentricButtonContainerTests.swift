@@ -16,7 +16,7 @@ import Testing
 
     /// The padding a toast in `style` means between its edge and its buttons: its vertical padding.
     private static func toastPadding(_ style: CmuxToastStyle) -> CGFloat {
-        let vertical = CmuxToastTuning().verticalPadding
+        let vertical = CmuxToastTuning().padding
         return Metrics.scale(style.look.compact ? (vertical * 2 / 3).rounded() : vertical)
     }
 

@@ -156,7 +156,7 @@ struct CmuxToastOverlayHostTests {
         let view = try #require(Self.toastViews(in: window).first)
         view.layoutSubtreeIfNeeded()
         let close = view.closeButton
-        #expect(close.frame.width >= CmuxToastButton.closeSide - 0.5 && close.frame.height >= CmuxToastButton.closeSide - 0.5)
+        #expect(close.frame.width >= CmuxToastButton.height - 0.5 && close.frame.height >= CmuxToastButton.height - 0.5)
         let holder = try #require(view.superview)
         let point = close.convert(NSPoint(x: close.bounds.midX, y: close.bounds.midY), to: holder)
         let hit = try #require(view.hitTest(point), "a click on the close button reaches nothing")

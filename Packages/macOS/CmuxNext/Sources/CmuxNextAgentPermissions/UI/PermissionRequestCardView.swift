@@ -12,6 +12,11 @@ import CmuxNextDesign
 public final class PermissionRequestCardView: NSView {
     /// The card's width (points).
     public static let width: CGFloat = 420
+    /// Points from the card's edge to its content and buttons, the same on every side.
+    static let padding: CGFloat = 16
+    /// The card's corner, concentric with its buttons ``padding`` in (Lawrence 2026-11-15: "all dialogs needs
+    /// concentric padding with buttons inside").
+    static var cardCornerRadius: CGFloat { Metrics.buttonContainer(padding: padding).outerRadius }
 
     /// Deny, Continue and Close presses.
     public struct Actions {
@@ -43,7 +48,9 @@ public final class PermissionRequestCardView: NSView {
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
-        stack.edgeInsets = NSEdgeInsets(top: 14, left: 16, bottom: 14, right: 16)
+        // One padding on every side, the panel's corner rounded from it (``PermissionRequestPanel``).
+        let padding = Self.padding
+        stack.edgeInsets = NSEdgeInsets(top: padding, left: padding, bottom: padding, right: padding)
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         NSLayoutConstraint.activate([
