@@ -388,11 +388,25 @@ fn codex_wrapper_injects_into_agents_and_review_sessions() {
     }
     // `a` is `apply`, which starts no session.
     assert_eq!(launch.argv(launch.command().args(["a"])), ["a"]);
+    // With the person's yes, `agents` (which switches to other sessions, in their own folders) is
+    // doubt and gets the hooks only; `review` starts a new session and gets the server too.
+    let settings_file = launch.root.path().join("settings.json");
+    fs::write(&settings_file, r#"{"agents": {"cmuxMcp": "on"}}"#).unwrap();
+    let on = |args: &[&str]| {
+        launch.argv(launch.command().env("CMUX_NEXT_CONFIG_FILE", &settings_file).args(args))
+    };
+    let has_server = |argv: &[String]| argv.iter().any(|arg| arg.starts_with("mcp_servers."));
+    for args in [&["agents"][..], &["-m", "o3", "agents"]] {
+        let argv = on(args);
+        assert!(!has_server(&argv) && settings(&argv).get("hooks").is_some(), "{argv:?}");
+    }
+    assert!(has_server(&on(&["review", "--uncommitted"])));
 }
 
-/// With the person's yes (`agents.cmuxMcp` on), every Codex session started in a cmux terminal
-/// gets one MCP server, named `cmux`, running this build: interactive or not, whatever `cmux`
-/// entry the person's own config has (another cmux's, user or project). Codex merges the `-c`
+/// With the person's yes (`agents.cmuxMcp` on), every new Codex session started in a cmux
+/// terminal (interactive, with a prompt, `exec`, `review`) gets one MCP server, named `cmux`,
+/// running this build, over a stdio `cmux` entry of the person's own that Codex loads (another
+/// cmux's, user or trusted project). Codex merges the `-c`
 /// values into that entry key by key, so this build's command, args, env and `enabled = true`
 /// win; nothing is said on stderr.
 #[test]

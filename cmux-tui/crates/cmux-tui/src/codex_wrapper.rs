@@ -589,14 +589,21 @@ mod tests {
         }
     }
 
-    /// `codex agents` (the agent command center) and `codex review` start agent sessions: they get
-    /// the hooks and the server; a command that starts no session gets neither.
+    /// `codex agents` (the agent command center) and `codex review` start agent sessions, so both
+    /// get the hooks. Only `review` (a new session) gets the server: `agents` browses and switches
+    /// to other sessions, in their own folders, so what it loads is in doubt (`launch_doubt`) and it
+    /// gets the hooks only. A command that starts no session gets neither.
     #[test]
-    fn agents_and_review_get_the_server() {
+    fn agents_gets_the_hooks_only_and_review_the_server_too() {
         let pane = |name: &str| (name == "CMUX_TUI_TERMINAL_ID").then(|| OsString::from("term_1"));
         for args in [&["agents"][..], &["review", "--uncommitted"], &["-m", "o3", "agents"]] {
             assert!(should_inject(&os(args), pane), "{args:?}");
         }
+        for args in [&["agents"][..], &["-m", "o3", "agents"]] {
+            assert!(launch(AgentsCmuxMcp::On, args).is_empty(), "{args:?}");
+        }
+        let review = launch(AgentsCmuxMcp::On, &["review", "--uncommitted"]);
+        assert!(review.contains(&"mcp_servers.cmux.enabled=true".to_owned()), "{review:?}");
         for args in [&["a"][..], &["apply"], &["mcp", "list"], &["git-credential", "get"]] {
             assert!(!should_inject(&os(args), pane), "{args:?}");
         }

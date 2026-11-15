@@ -25,7 +25,7 @@
 //!
 //! - no answer from Codex (an error, unreadable output, or over [`TIMEOUT`]): [`CmuxEntry::Unknown`];
 //! - a `.codex/config.toml` from the launch folder up to the repository root (the nearest folder
-//!   with `.git`; every folder up to `/` without one), for the folder as written and as
+//!   with `.git`; the launch folder alone outside a repository), for the folder as written and as
 //!   resolved (`-C` applied), that defines `mcp_servers.cmux` and that Codex's answer does not
 //!   show it loads (the answer is not that same stdio entry): an untrusted folder the person may
 //!   trust at Codex's prompt, a `--trust` launch, a `-C <link>` whose trust key is the link's
@@ -221,15 +221,19 @@ fn resolve_within(
         .stderr(std::process::Stdio::piped())
         // Its own process group, so a timeout ends whatever it started too.
         .process_group(0);
+    let deadline = Instant::now() + timeout;
     let Ok(mut child) = command.spawn() else { return CmuxEntry::Unknown };
+    // Each pipe is read on a thread of its own, which sends what it read when the pipe closes.
     let read = |pipe: Option<Box<dyn std::io::Read + Send>>| {
-        pipe.map(|mut pipe| {
+        let (tx, rx) = std::sync::mpsc::channel();
+        if let Some(mut pipe) = pipe {
             std::thread::spawn(move || {
                 let mut text = String::new();
                 let _ = pipe.read_to_string(&mut text);
-                text
-            })
-        })
+                let _ = tx.send(text);
+            });
+        }
+        rx
     };
     let stdout = read(child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
     let stderr = read(child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
@@ -246,8 +250,15 @@ fn resolve_within(
             return CmuxEntry::Unknown;
         }
     };
-    let out = stdout.and_then(|r| r.join().ok()).unwrap_or_default();
-    let err = stderr.and_then(|r| r.join().ok()).unwrap_or_default();
+    // The output, by the same deadline: a pipe something outside the group (a process that left
+    // it) still holds open is a late answer, and a late answer is no answer. Its reader thread
+    // ends when that pipe closes.
+    let collect = |rx: &std::sync::mpsc::Receiver<String>| {
+        rx.recv_timeout(deadline.saturating_duration_since(Instant::now())).ok()
+    };
+    let (Some(out), Some(err)) = (collect(&stdout), collect(&stderr)) else {
+        return CmuxEntry::Unknown;
+    };
     let entry = entry_from(status.success(), &out, &err);
     if entry == CmuxEntry::Unknown {
         return entry;
@@ -264,8 +275,8 @@ fn resolve_within(
 }
 
 /// Why what a launch in `folder` loads may differ from Codex's answer `entry`: a
-/// `.codex/config.toml` from `folder` up to the repository root (the nearest folder with `.git`,
-/// else every folder up to `/`), for `folder` as written and as resolved, that defines
+/// `.codex/config.toml` from `folder` up to the repository root (the nearest folder with `.git`;
+/// outside a repository, `folder`'s own only), for `folder` as written and as resolved, that defines
 /// `mcp_servers.cmux` (or does not parse but names `cmux`) and is not the entry Codex answered
 /// (the same stdio command and args). `user` (the person's user config) is no project file. A
 /// read-only scan that only ever adds doubt: it never makes cmux send anything.
@@ -274,13 +285,17 @@ pub fn project_doubt(folder: &Path, user: Option<&Path>, entry: &CmuxEntry) -> O
     let resolved = folder.canonicalize().ok();
     let mut files: Vec<PathBuf> = Vec::new();
     for start in std::iter::once(folder.to_path_buf()).chain(resolved) {
-        let root = start.ancestors().find(|dir| dir.join(".git").exists()).map(Path::to_path_buf);
+        // Outside a repository, the launch folder is the project root.
+        let root = start
+            .ancestors()
+            .find(|dir| dir.join(".git").exists())
+            .map_or_else(|| start.clone(), Path::to_path_buf);
         for dir in start.ancestors() {
             let file = dir.join(".codex/config.toml");
             if !files.contains(&file) {
                 files.push(file);
             }
-            if root.as_deref() == Some(dir) {
+            if dir == root {
                 break;
             }
         }
@@ -355,7 +370,7 @@ pub fn launch_doubt(args: &[OsString]) -> Option<String> {
         "--output-last-message",
         "--color",
     ];
-    const SUBCOMMANDS: [&str; 26] = [
+    const SUBCOMMANDS: [&str; 36] = [
         "exec",
         "e",
         "review",
@@ -382,6 +397,16 @@ pub fn launch_doubt(args: &[OsString]) -> Option<String> {
         "agents",
         "plugin",
         "update",
+        "queue",
+        "archive",
+        "delete",
+        "unarchive",
+        "migrate-rollouts",
+        "migrate-nfs-db",
+        "remote-control",
+        "app",
+        "doctor",
+        "exec-server",
     ];
     let mut positionals: Vec<&str> = Vec::new();
     let mut args = args.iter().filter_map(|a| a.to_str());
@@ -603,6 +628,57 @@ mod tests {
             assert!(Instant::now() < deadline, "the resolver's child {pid} still runs");
             std::thread::yield_now();
         }
+    }
+
+    /// A process that leaves the resolver's group and keeps its output open makes the answer late,
+    /// and a late answer is no answer: the resolver ends by its deadline, never on that process.
+    #[test]
+    fn an_answer_still_open_at_the_deadline_is_no_answer() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let pid_file = root.join("pid");
+        let escaped = fake_codex(
+            &root,
+            &format!(
+                "perl -MPOSIX -e 'setsid(); open(my $f, \">\", \"{}\"); print $f \"$$\"; close $f; sleep 30' &\n\
+                 while [ ! -s \"{}\" ]; do :; done\n\
+                 printf '{{\"transport\":{{\"type\":\"streamable_http\"}}}}'; exit 0",
+                pid_file.display(),
+                pid_file.display()
+            ),
+        );
+        let started = Instant::now();
+        assert_eq!(
+            resolve_within(&escaped, &[], &root, &[], Duration::from_millis(500)),
+            CmuxEntry::Unknown
+        );
+        assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !pid_file.exists() && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        if let Ok(pid) = std::fs::read_to_string(&pid_file)
+            && let Ok(pid) = pid.trim().parse::<libc::pid_t>()
+        {
+            // SAFETY: ends the test's own escaped process; no memory is touched.
+            unsafe { libc::kill(pid, libc::SIGKILL) };
+        }
+    }
+
+    /// Outside a repository only the launch folder's own project file counts: a parent folder's
+    /// is not this project's.
+    #[test]
+    fn outside_a_repository_only_the_launch_folder_counts() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let leaf = root.join("a/b");
+        std::fs::create_dir_all(leaf.join(".codex")).unwrap();
+        std::fs::create_dir_all(root.join("a/.codex")).unwrap();
+        let http = "[mcp_servers.cmux]\nurl = \"http://x\"\n";
+        std::fs::write(root.join("a/.codex/config.toml"), http).unwrap();
+        assert_eq!(project_doubt(&leaf, None, &CmuxEntry::None), None, "a parent's file");
+        std::fs::write(leaf.join(".codex/config.toml"), http).unwrap();
+        assert!(project_doubt(&leaf, None, &CmuxEntry::None).is_some(), "its own file");
     }
 
     /// A project file defining `cmux` that Codex's answer does not show it loads is doubt: from

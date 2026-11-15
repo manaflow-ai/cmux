@@ -662,6 +662,29 @@ pub fn persons_cmux_entry(
 /// starts), its `session/new` or `session/load`.
 pub type CodexAnswer = std::sync::Arc<std::sync::OnceLock<crate::codex_cmux_entry::CmuxEntry>>;
 
+/// A start's answer ([`CodexAnswer`]) with the launch it was asked for: a later read for the same
+/// start reuses it only for that same launch (folder, argv and env), never for another. Nothing
+/// is cached across starts.
+#[derive(Clone, Debug)]
+pub struct AskedFor {
+    pub cwd: std::path::PathBuf,
+    pub argv: Vec<String>,
+    pub env: BTreeMap<String, String>,
+    pub answer: CodexAnswer,
+}
+
+impl AskedFor {
+    /// The answer, when it was asked for exactly this launch.
+    pub fn for_launch(
+        &self,
+        cwd: &Path,
+        argv: &[String],
+        env: &BTreeMap<String, String>,
+    ) -> Option<CodexAnswer> {
+        (self.cwd == cwd && self.argv == argv && &self.env == env).then(|| self.answer.clone())
+    }
+}
+
 /// Asks Codex for `answer` ([`persons_cmux_entry`] for a launch in `cwd` with `argv` and `env`)
 /// on a blocking thread, so the runtime never waits on Codex; a later read of `answer` is
 /// immediate. Nothing when it is already answered.

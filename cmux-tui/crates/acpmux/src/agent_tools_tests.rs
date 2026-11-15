@@ -878,3 +878,22 @@ async fn one_start_asks_codex_once_off_the_runtime_for_everything_it_reads() {
     let calls = std::fs::read_to_string(root.path().join("calls")).unwrap();
     assert_eq!(calls.lines().count(), 1, "{calls}");
 }
+
+/// A start's answer is reused only for the launch it was asked for: another folder, argv or env
+/// (a pool spec for another shape) asks again. Nothing is cached across starts.
+#[test]
+fn an_asked_answer_is_reused_only_for_its_own_launch() {
+    let env: std::collections::BTreeMap<String, String> = [("A".to_owned(), "1".to_owned())].into();
+    let argv = vec!["codex".to_owned(), "app-server".to_owned()];
+    let asked = super::AskedFor {
+        cwd: "/w".into(),
+        argv: argv.clone(),
+        env: env.clone(),
+        answer: super::CodexAnswer::default(),
+    };
+    let same = asked.for_launch(std::path::Path::new("/w"), &argv, &env).unwrap();
+    assert!(std::sync::Arc::ptr_eq(&same, &asked.answer));
+    assert!(asked.for_launch(std::path::Path::new("/x"), &argv, &env).is_none());
+    assert!(asked.for_launch(std::path::Path::new("/w"), &argv[..1], &env).is_none());
+    assert!(asked.for_launch(std::path::Path::new("/w"), &argv, &Default::default()).is_none());
+}

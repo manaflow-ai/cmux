@@ -796,11 +796,14 @@ impl Hub {
     /// `session/new` for `meta`: claim the pooled session of exactly this
     /// shape, waiting for one that is starting. Returns its reserved id,
     /// which the new session takes; None starts cold.
+    /// `asked`: the answer the claim's spec asked for the person's own `cmux` entry, with its
+    /// launch, whether or not a spare was found, so the session's first start reuses it.
     pub(super) async fn pool_claim(
         &self,
         meta: &SessionMeta,
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
+        asked: &mut Option<crate::agent_tools::AskedFor>,
     ) -> Option<String> {
         // MDM's off as this claim begins: its one read, first, before any await or pool lock
         // (reviews 76 and 122), kept with the entry it claims (`Pooled::claimed_under`, review 121
@@ -825,6 +828,14 @@ impl Hub {
             return None;
         }
         let spec = self.pool_spec_for(meta, profile, defaults_env).await.ok()?;
+        if spec.answer.get().is_some() {
+            *asked = Some(crate::agent_tools::AskedFor {
+                cwd: spec.draft.cwd.clone(),
+                argv: spec.spawn.argv.clone(),
+                env: spec.spawn.env.clone(),
+                answer: spec.answer.clone(),
+            });
+        }
         loop {
             let took = lock(&self.pool.pool).take(&spec.key);
             match took {
