@@ -318,7 +318,7 @@ async fn a_group_deny_logs_a_member_it_dismissed_as_a_cancel() {
     };
     let params =
         json!({"groupId": group, "decisionKey": "k1", "decision": "deny", "revision": revision});
-    hub.respond_permission_group(&s, params, Control::Local, true).await.unwrap();
+    hub.respond_permission_group(&s, params, Control::Local, true, None).await.unwrap();
     // The asking tasks log what each reply said.
     for (id, rx) in [("p1", replies.remove(0)), ("p2", replies.remove(0))] {
         let outcome = rx.await.unwrap();

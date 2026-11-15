@@ -7,7 +7,8 @@ public import CmuxNextDesign
 /// Lawrence 2026-11-07, a shot of `+ ⌄ ⋮` with a square grey block behind the ⌄: "i still dont like these UIs".
 /// The + drew a bare stroke, the ⌄ an SF Symbol on a narrow rounded plate and the ⋮ a pack glyph on a square plate.
 public nonisolated enum TabTrailingButtons: String, Sendable, CaseIterable, TunableChoice {
-    /// Before 2026-11-07: rounded plates behind the ⌄ and ⋮, none behind the +.
+    /// Before 2026-11-07: rounded plates behind the ⌄ and ⋮; the + takes the standard + plate (``PlusButtonLook``) since
+    /// 2026-11-15.
     case plates
     /// No fill behind any of them: one stroke weight, ink brightens on hover and lights while pressed (the default).
     case glyphs

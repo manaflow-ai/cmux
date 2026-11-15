@@ -132,6 +132,32 @@ pub(crate) fn exited() -> LinkError {
     LinkError::helper_not_running("cmux carrier serve exited")
 }
 
+/// The longest stderr line [`exited_with`] keeps.
+const STDERR_LINE_LIMIT: usize = 300;
+
+/// The child exited with `code` (`supervise`'s: its exit code, 128 + the
+/// signal that ended it, or -1 when unknown) after `stderr` (its stderr
+/// lines that were not events), so the link's end says which exit it was.
+/// Per `carrier serve`'s contract, 0 is its stdin ending (or SIGTERM or
+/// SIGINT) and 6 its listener failing for good.
+pub(crate) fn exited_with(code: i32, stderr: Option<&str>) -> LinkError {
+    let status = if code < 0 { "an unknown status".to_owned() } else { format!("status {code}") };
+    let last = stderr
+        .and_then(|text| text.lines().rev().map(str::trim).find(|line| !line.is_empty()))
+        .map(|line| match line.char_indices().nth(STDERR_LINE_LIMIT) {
+            Some((cut, _)) => format!("{}…", line.get(..cut).unwrap_or(line)),
+            None => line.to_owned(),
+        });
+    LinkError::HelperNotRunning {
+        reason: match last {
+            Some(line) => {
+                format!("cmux carrier serve exited with {status}; its last stderr line: {line}")
+            }
+            None => format!("cmux carrier serve exited with {status}"),
+        },
+    }
+}
+
 /// The child wrote no ready line in time.
 pub(crate) fn no_ready_line() -> LinkError {
     LinkError::helper_not_running("cmux carrier serve missed its deadline")
@@ -182,6 +208,9 @@ pub(crate) struct Ready {
     pub answer: Option<Caller>,
     pub refused: Option<LinkError>,
     pub token_read: Option<ReadId>,
+    /// The stderr tail the child ended with (its lines that were not
+    /// events); the exit that follows names it.
+    pub stderr: Option<String>,
 }
 
 impl Ready {
@@ -430,20 +459,24 @@ impl ServeMachine {
             Event::RefusalLine { child, code, detail } => {
                 self.refusal_line(child, &code, detail.as_deref())
             }
-            Event::StderrEnded { child, stderr } => {
-                // In ready, the exit follows.
-                if !self.spawning(child) {
-                    return Vec::new();
+            Event::StderrEnded { child, stderr } => match &mut self.state {
+                // In ready, the exit follows: it names this tail.
+                State::Ready(_, owned, ready) if *owned == child => {
+                    ready.stderr = Some(stderr);
+                    Vec::new()
                 }
-                self.fail(child, LinkError::HelperNotRunning { reason: stderr })
-            }
+                State::Spawning { child: owned, .. } if *owned == child => {
+                    self.fail(child, LinkError::HelperNotRunning { reason: stderr })
+                }
+                _ => Vec::new(),
+            },
             Event::ReadyDeadline(at) => match self.state {
                 State::Spawning { epoch, child, .. } if epoch == at => {
                     self.fail(child, no_ready_line())
                 }
                 _ => Vec::new(),
             },
-            Event::ChildExit { child, .. } => self.child_exit(child),
+            Event::ChildExit { child, code } => self.child_exit(child, code),
             Event::RefreshDue(at) => match &mut self.state {
                 State::Ready(epoch, _, ready) if *epoch == at && ready.token_read.is_none() => {
                     self.last_read = self.last_read.wrapping_add(1);
@@ -614,7 +647,7 @@ impl ServeMachine {
             _ => return Vec::new(),
         };
         if !ok {
-            return self.gone(child, true);
+            return self.gone(child, None);
         }
         self.answered(at)
     }
@@ -703,16 +736,16 @@ impl ServeMachine {
         }
     }
 
-    fn child_exit(&mut self, child: ChildId) -> Vec<Effect> {
+    fn child_exit(&mut self, child: ChildId, code: i32) -> Vec<Effect> {
         match &self.state {
             State::Spawning { child: owned, .. } if *owned == child => {
                 // Stderr ends before the exit is read, so this is only a
                 // reader that never saw its end.
-                let effects = self.fail(child, exited());
-                self.state = State::Idle { last_end: Some(exited()), alive: None };
+                let effects = self.fail(child, exited_with(code, None));
+                self.state = State::Idle { last_end: Some(exited_with(code, None)), alive: None };
                 effects
             }
-            State::Ready(_, owned, _) if *owned == child => self.gone(child, false),
+            State::Ready(_, owned, _) if *owned == child => self.gone(child, Some(code)),
             State::Draining(at, owned) if *owned == child => {
                 let at = *at;
                 self.state = State::Claiming(at);
@@ -745,17 +778,23 @@ impl ServeMachine {
         effects
     }
 
-    /// The ready child exited (`alive` false) or stopped taking stdin
-    /// (`alive` true). The refusal is its last refused dial, else that it
-    /// exited; parked connects relaunch.
-    fn gone(&mut self, child: ChildId, alive: bool) -> Vec<Effect> {
-        let refused = match &self.state {
-            State::Ready(_, owned, ready) if *owned == child => ready.refused.clone(),
+    /// The ready child exited with `exit` (its code), or stopped taking stdin
+    /// (`exit` None: it may still run). The refusal is its last refused dial,
+    /// else that it exited, with its status and last stderr line when it did;
+    /// parked connects relaunch.
+    fn gone(&mut self, child: ChildId, exit: Option<i32>) -> Vec<Effect> {
+        let ended = match &self.state {
+            State::Ready(_, owned, ready) if *owned == child => {
+                ready.refused.clone().unwrap_or_else(|| match exit {
+                    Some(code) => exited_with(code, ready.stderr.as_deref()),
+                    None => exited(),
+                })
+            }
             _ => return Vec::new(),
         };
         self.epoch = self.epoch.wrapping_add(1);
-        let exiting = alive.then_some(child);
-        self.state = State::Idle { last_end: Some(refused.unwrap_or_else(exited)), alive: exiting };
+        let exiting = exit.is_none().then_some(child);
+        self.state = State::Idle { last_end: Some(ended), alive: exiting };
         let mut effects = vec![Effect::CancelRefresh];
         if exiting.is_some() {
             effects.extend([Effect::CloseStdin(child), Effect::ArmStopDeadline(child)]);

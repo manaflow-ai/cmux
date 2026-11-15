@@ -156,8 +156,8 @@ struct PageFactory {
                           })
     }
 
-    /// The Settings page's engine options.
-    static let settingsEngineOptions = PageEngineOptions.standard
+    /// Settings' engine options: WebKit, so an open claims the pool's painted spare (``PageWebKitReason/pooledInstantOpen``).
+    static let settingsEngineOptions = PageEngineOptions(requiresWebKit: .pooledInstantOpen)
 
     /// The React Settings page (R82) on `route` (`#/settings/<section>?focus=<key>`). Its namespace
     /// goes to `SettingsPageProvider` (interim owner; the daemon relay once the config actor
@@ -244,7 +244,9 @@ struct PageFactory {
         provider.sharesList = { [weak services] in try await SettingsSharedLinks.list(services) }
         provider.sharesRevoke = { [weak services] id in try await SettingsSharedLinks.revoke(services, shareID: id) }
         provider.devicesWatching = { on in if on { devices.beginWatching() } else { devices.endWatching() } }
-        provider.integrations = SettingsAgentIntegrations(cli: { [bundled = services.bundledCLI] in await bundled.resolve() })
+        let cli: @MainActor () async -> URL? = { [bundled = services.bundledCLI] in await bundled.resolve() }
+        let integrations = SettingsAgentIntegrations(cli: cli)
+        provider.parts = ["cmux.settings.integrations.state": integrations, "cmux.settings.integrations.run": integrations, CustomizeTryOnPage.op: CustomizeTryOnPage(cli: cli)]
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         provider.themeColors = { [weak services] in (services?.themes.catalog).map { c in c.names.compactMap { c.colors[$0] } } ?? [] }

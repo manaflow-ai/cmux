@@ -46,9 +46,8 @@ final class SettingsPageProvider: PageProvider {
     var sharesList: (@MainActor () async throws -> JSONValue)?
     var sharesRevoke: (@MainActor (String) async throws -> JSONValue)?
     var devicesWatching: (@MainActor (Bool) -> Void)?
-    /// Settings > Agents > Agent integrations (`SettingsAgentIntegrations`): the coding-agent
-    /// hooks `cmux agent hook` installs; nil in tests without an app.
-    var integrations: (any PageProvider)?
+    /// Parts another package serves whole, by op (Agent integrations, try on); empty in tests without an app.
+    var parts: [String: any PageProvider] = [:]
     /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
     var setTheme: (@MainActor (_ level: String, _ spec: String?) throws -> Void)?
     var acceptsTheme: (@MainActor (String) -> Bool)?
@@ -150,6 +149,7 @@ final class SettingsPageProvider: PageProvider {
     }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+        if let part = parts[op] { return try await part.call(op, params: params, context: context) }
         switch op {
         case "cmux.settings.list": return list(section: params["section"]?.stringValue)
         case "cmux.settings.snapshot": return snapshot()
@@ -185,9 +185,9 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.devices.join_consent":
             guard let surface = params["surface"]?.stringValue, JoinConsentSurface(rawValue: surface) != nil,
                   let on = params["on"]?.boolValue else {
-                throw PageError.invalidParams("surface (screen or control) and on are required")
+                throw PageError.invalidParams("surface (screen, control or signedInMachines) and on are required")
             }
-            // SECURITY: turning one on lets the team's other machines see or control this Mac, so,
+            // SECURITY: turning one on lets the team's other machines (or the person's other Macs) see or control this Mac, so,
             // like Full access, only the person's own click or key in this page turns it on (spent
             // once), and acpmux then takes it only over a line proven as the person. Stricter than
             // Full access: the gesture must be the HID system's input (``PersonInputLedger``), so an
@@ -216,8 +216,6 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.agents.run": return try await Self.host(agents, "agents").runPage(params)
         case "cmux.settings.harnesses.state": return try Self.host(harnessesState, "harnesses")()
         case "cmux.settings.harnesses.run": return try await Self.host(harnessesRun, "harnesses")(params, context)
-        case "cmux.settings.integrations.state", "cmux.settings.integrations.run":
-            return try await Self.host(integrations, "agent integrations").call(op, params: params, context: context)
         case "cmux.settings.environments.state": return try Self.host(environmentsState, "environments")()
         case "cmux.settings.environments.run": return try await Self.host(environmentsRun, "environments")(params)
         case "cmux.settings.devices.state": return try Self.host(devicesState, "devices")()

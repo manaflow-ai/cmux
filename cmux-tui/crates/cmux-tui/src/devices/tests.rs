@@ -681,3 +681,40 @@ fn device_help_names_every_device_verb_and_points_vms_at_vm() {
         assert!(super::USAGE.contains(verb), "{verb} missing:\n{}", super::USAGE);
     }
 }
+
+/// Every row says what its device is, with the glyph its kind names: what a peer reported, the
+/// source (a `ws://` peer is a Cloud machine), the OS, a phone pairing, else generic.
+#[test]
+fn every_row_carries_its_device_kind_and_glyph() {
+    use cmux_device_kind::DeviceKind;
+    let mut src = sources();
+    src.peers["peers"][0]["health"] = json!({"os": "macos", "device": "mac-mini"});
+    src.pairing["devices"].as_array_mut().unwrap().push(json!({
+        "id": "dv_phone", "name": "phone-6a7b", "role": "phone", "created_at": "2026-10-24T00:00:00Z",
+        "revoked_at": null, "connections": 1,
+    }));
+    src.pairing["devices"].as_array_mut().unwrap().push(json!({
+        "id": "dv_tab", "name": "tab-1", "role": "phone", "created_at": "2026-10-24T00:00:00Z",
+        "revoked_at": null, "connections": 0, "device": "ipad",
+    }));
+    let listing = model::merge(&src, tailscale_up(), &nodes());
+    for (id, kind) in [
+        ("peer:mini-7", DeviceKind::MacMini),
+        ("peer:vm-1", DeviceKind::Generic),
+        ("peer:sandbox", DeviceKind::Cloud),
+        ("paired:dv_phone", DeviceKind::IPhone),
+        ("paired:dv_tab", DeviceKind::IPad),
+        ("paired:dv_leo", DeviceKind::Generic),
+    ] {
+        let row = device(&listing, id);
+        assert_eq!((row.device, row.symbol), (kind, kind.symbol()), "{id}");
+    }
+    let wire = serde_json::to_value(device(&listing, "peer:mini-7")).unwrap();
+    assert_eq!(
+        (wire["device"].as_str(), wire["symbol"].as_str()),
+        (Some("mac-mini"), Some("macmini"))
+    );
+    for row in &listing.devices {
+        assert_eq!(row.symbol, row.device.symbol(), "{}", row.id);
+    }
+}

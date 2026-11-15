@@ -83,7 +83,9 @@ export function installStabilityProbe(options: {
         (line) =>
           line && line !== "Error" && !line.includes("installStabilityProbe") && !/^at (w\.|window\.)/.test(line),
       )
-      .slice(1, 3)
+      // The caller that registered the callback first, then two of its callers (the wrapper's own frame is
+      // filtered above; slicing from 1 dropped the caller itself, naming only its caller's caller).
+      .slice(0, 3)
       .join(" < ") || "unknown";
   const note = (kind: keyof typeof counts, error: Error | undefined) => {
     counts[kind] += 1;

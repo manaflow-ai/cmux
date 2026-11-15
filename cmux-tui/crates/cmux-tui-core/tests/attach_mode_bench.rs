@@ -22,6 +22,12 @@
 //!   Neither includes drawing, which both modes do;
 //! - the attach's first message (`vt-state` or `render-state`) in KB.
 //!
+//! A third connection attaches in bytes mode after declaring
+//! `attach-output-coalesce-v1` (mode `bytes-coalesced`): `output` at most
+//! once per 60 Hz frame, the first bytes after idle at once. The
+//! `keypress-echo` workload also reports key-to-echo latency for both bytes
+//! attaches.
+//!
 //! Workloads (`CMUX_ATTACH_BENCH_WORKLOADS=a,b` picks some): an idle shell
 //! for 60 s, `yes`, a build log at 200 lines a second, a full-screen TUI that
 //! repaints every row 30 times a second, the same TUI drawing only its changed
@@ -85,11 +91,21 @@ struct Reader {
 
 impl Reader {
     /// Connect to the daemon and attach `surface` in `mode`; a thread reads
-    /// every line from then on.
-    fn attach(sock: &std::path::Path, surface: u64, mode: &str) -> Self {
+    /// every line from then on. `coalesce` declares
+    /// `attach-output-coalesce-v1` first (the phone's opt-in).
+    fn attach(sock: &std::path::Path, surface: u64, mode: &str, coalesce: bool) -> Self {
         let stream = transport::connect(sock).unwrap();
         stream.set_read_timeout(Some(Duration::from_millis(50))).unwrap();
         let mut writer = stream.try_clone_box().unwrap();
+        if coalesce {
+            writeln!(
+                writer,
+                "{}",
+                json!({"id": 0, "cmd": "set-client-info", "name": "attach bench",
+                       "capabilities": ["attach-output-coalesce-v1"]})
+            )
+            .unwrap();
+        }
         writeln!(
             writer,
             "{}",
@@ -173,10 +189,26 @@ fn record(got: &mut Received, now: Instant, line: String) {
     }
     if !got.attached && event.is_empty() {
         let value: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
-        if value.get("id").is_some() {
-            assert_eq!(value["ok"], true, "attach-surface failed: {line}");
-            got.attached = true;
-            return;
+        match value.get("id").and_then(Value::as_u64) {
+            // The `set-client-info` reply of a coalescing attach.
+            Some(0) => {
+                assert_eq!(
+                    value.get("ok"),
+                    Some(&Value::Bool(true)),
+                    "set-client-info failed: {line}"
+                );
+                return;
+            }
+            Some(_) => {
+                assert_eq!(
+                    value.get("ok"),
+                    Some(&Value::Bool(true)),
+                    "attach-surface failed: {line}"
+                );
+                got.attached = true;
+                return;
+            }
+            None => {}
         }
     }
     got.lines.push((now, line.len() + 1));
@@ -257,7 +289,60 @@ fn workloads() -> Vec<Workload> {
             seconds: None,
             drive: Drive::Writer(drive_slow_shell),
         },
+        Workload {
+            name: "keypress-echo",
+            what: "an interactive sh at its prompt, one key typed every 250 ms (echo latency)",
+            script: "PS1='$ '; export PS1; exec /bin/sh -i",
+            ready: Some("$"),
+            seconds: None,
+            drive: Drive::Writer(drive_keypresses),
+        },
     ]
+}
+
+/// When each key of `keypress-echo` was written.
+static KEYPRESSES: Mutex<Vec<Instant>> = Mutex::new(Vec::new());
+
+fn drive_keypresses(surface: &Surface, start: Instant, length: Duration) {
+    let period = Duration::from_millis(250);
+    let mut n: u64 = 0;
+    KEYPRESSES.lock().unwrap().clear();
+    while start.elapsed() < length {
+        KEYPRESSES.lock().unwrap().push(Instant::now());
+        surface.write_bytes(b"x").unwrap();
+        n += 1;
+        tick(start, n, period);
+    }
+}
+
+/// Key to the first `output` after it, per key: (p50, p95, max) ms and the
+/// keys whose echo did not arrive before the next key.
+fn echo_latency(got: &Received, keys: &[Instant]) -> (f64, f64, f64, usize) {
+    let mut latencies: Vec<f64> = Vec::new();
+    let mut missed = 0;
+    for (index, key) in keys.iter().enumerate() {
+        let next = keys.get(index + 1).copied();
+        let echo = got
+            .lines
+            .iter()
+            .zip(&got.names)
+            .find(|((at, _), name)| *at >= *key && name.as_str() == "output")
+            .map(|((at, _), _)| *at)
+            .filter(|at| next.is_none_or(|next| *at < next));
+        match echo {
+            Some(at) => latencies.push(at.duration_since(*key).as_secs_f64() * 1000.0),
+            None => missed += 1,
+        }
+    }
+    latencies.sort_by(f64::total_cmp);
+    let at = |q: f64| {
+        if latencies.is_empty() {
+            return 0.0;
+        }
+        let index = ((latencies.len() - 1) as f64 * q).round() as usize;
+        latencies[index.min(latencies.len() - 1)]
+    };
+    (at(0.5), at(0.95), latencies.last().copied().unwrap_or(0.0), missed)
 }
 
 /// Sleep until `start + n * period`.
@@ -539,8 +624,11 @@ fn measure(
     to: Instant,
 ) -> Row {
     let (wire_bytes, events, by_event) = window(got, from, to);
-    let (sample_ms, sample_payload) =
-        if mode == "bytes" { apply_bytes(got, from, to) } else { apply_render(got, from, to) };
+    let (sample_ms, sample_payload) = if mode.starts_with("bytes") {
+        apply_bytes(got, from, to)
+    } else {
+        apply_render(got, from, to)
+    };
     let sampled: usize = in_window(got, from, to).map(|(_, line)| line.len() + 1).sum();
     // A flood past SAMPLE_CAP: scale the kept part's cost to every line.
     let scale = if sampled == 0 { 1.0 } else { wire_bytes as f64 / sampled as f64 };
@@ -558,7 +646,17 @@ fn measure(
     }
 }
 
-fn run_workload(workload: &Workload, default_seconds: u64) -> Vec<Row> {
+/// Echo latency of one bytes attach on `keypress-echo`.
+struct Echo {
+    mode: &'static str,
+    keys: usize,
+    p50_ms: f64,
+    p95_ms: f64,
+    max_ms: f64,
+    missed: usize,
+}
+
+fn run_workload(workload: &Workload, default_seconds: u64) -> (Vec<Row>, Vec<Echo>) {
     let seconds = workload.seconds.unwrap_or(default_seconds);
     let opts = SurfaceOptions {
         command: Some(vec!["/bin/sh".to_string(), "-c".to_string(), workload.script.to_string()]),
@@ -580,10 +678,15 @@ fn run_workload(workload: &Workload, default_seconds: u64) -> Vec<Row> {
         .unwrap_or_else(|| panic!("{}: no {ready:?} on the screen", workload.name));
     }
     let sock = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
-    let bytes = Reader::attach(&sock, surface.id, "bytes");
-    let render = Reader::attach(&sock, surface.id, "render");
-    wait_for(|| (bytes.attached() && render.attached()).then_some(()), Duration::from_secs(10))
-        .unwrap_or_else(|| panic!("{}: an attach got no state and response", workload.name));
+    let bytes = Reader::attach(&sock, surface.id, "bytes", false);
+    // The same bytes attach with `attach-output-coalesce-v1` (default interval).
+    let coalesced = Reader::attach(&sock, surface.id, "bytes", true);
+    let render = Reader::attach(&sock, surface.id, "render", false);
+    wait_for(
+        || (bytes.attached() && coalesced.attached() && render.attached()).then_some(()),
+        Duration::from_secs(10),
+    )
+    .unwrap_or_else(|| panic!("{}: an attach got no state and response", workload.name));
     // Let the attach settle, then measure exactly `seconds`.
     std::thread::sleep(Duration::from_millis(500));
     let from = Instant::now();
@@ -598,13 +701,39 @@ fn run_workload(workload: &Workload, default_seconds: u64) -> Vec<Row> {
     // Lines of the window still in flight.
     std::thread::sleep(Duration::from_millis(300));
     let bytes = bytes.finish();
+    let coalesced = coalesced.finish();
     let render = render.finish();
     let _ = mux.close_surface(surface.id);
     cmux_tui_core::server::cleanup(&sock);
-    vec![
+    let mut echoes = Vec::new();
+    if workload.name == "keypress-echo" {
+        let keys = KEYPRESSES.lock().unwrap().clone();
+        for (mode, got) in [("bytes", &bytes), ("bytes-coalesced", &coalesced)] {
+            let (p50_ms, p95_ms, max_ms, missed) = echo_latency(got, &keys);
+            echoes.push(Echo { mode, keys: keys.len(), p50_ms, p95_ms, max_ms, missed });
+        }
+    }
+    let rows = vec![
         measure(workload.name, "bytes", &bytes, from, to),
+        measure(workload.name, "bytes-coalesced", &coalesced, from, to),
         measure(workload.name, "render", &render, from, to),
-    ]
+    ];
+    (rows, echoes)
+}
+
+fn echo_table(echoes: &[Echo]) -> String {
+    let mut out = String::from(
+        "\nKeypress to echo (`keypress-echo`: first `output` after each key, as read)\n\n",
+    );
+    out.push_str("| Mode | Keys | p50 ms | p95 ms | max ms | No echo before next key |\n");
+    out.push_str("| --- | --- | --- | --- | --- | --- |\n");
+    for echo in echoes {
+        out.push_str(&format!(
+            "| {} | {} | {:.2} | {:.2} | {:.2} | {} |\n",
+            echo.mode, echo.keys, echo.p50_ms, echo.p95_ms, echo.max_ms, echo.missed
+        ));
+    }
+    out
 }
 
 fn table(rows: &[Row], workloads: &[Workload]) -> String {
@@ -659,11 +788,17 @@ fn attach_modes_bytes_against_render() {
         .collect();
     assert!(!chosen.is_empty(), "CMUX_ATTACH_BENCH_WORKLOADS names no workload");
     let mut rows = Vec::new();
+    let mut echoes = Vec::new();
     for workload in &chosen {
         eprintln!("attach-mode-bench: {} ...", workload.name);
-        rows.extend(run_workload(workload, default_seconds));
+        let (workload_rows, workload_echoes) = run_workload(workload, default_seconds);
+        rows.extend(workload_rows);
+        echoes.extend(workload_echoes);
     }
-    let text = table(&rows, &chosen);
+    let mut text = table(&rows, &chosen);
+    if !echoes.is_empty() {
+        text.push_str(&echo_table(&echoes));
+    }
     println!("{text}");
     if let Some(dir) = std::env::var_os("FAST_CHECKS_OUT") {
         let path = std::path::Path::new(&dir).join("attach-mode-bench.json");

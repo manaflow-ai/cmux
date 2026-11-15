@@ -7,6 +7,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::network::{NetworkNode, NetworkStatus};
+use cmux_device_kind::DeviceKind;
 
 /// What the stores said, as their own `--json` printed it.
 #[derive(Clone, Debug, Default)]
@@ -91,6 +92,11 @@ pub(crate) struct Device {
     pub id: String,
     pub name: String,
     pub kind: Kind,
+    /// What the device is (`mac-mini`, `linux-server`, `iphone`): what it reports of itself
+    /// (`host_health` `device`), else what its record's source or OS tells.
+    pub device: DeviceKind,
+    /// The glyph every view of this device draws: [`DeviceKind::symbol`], an SF Symbol name.
+    pub symbol: &'static str,
     pub roles: Vec<Role>,
     pub state: State,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -277,10 +283,13 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
         } else {
             State::Offline
         };
+        let device = peer_device(peer, &url, node);
         devices.push(Device {
             id: format!("peer:{name}"),
             name: name.clone(),
             kind: kind_of(node.map(|n| n.os.as_str())),
+            device,
+            symbol: device.symbol(),
             roles: vec![Role::RunsAgents],
             state,
             os: node.map(|n| n.os.clone()).filter(|os| !os.is_empty()),
@@ -319,12 +328,15 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             continue;
         }
         let open = paired["connections"].as_u64().unwrap_or(0) > 0;
+        let device = paired_device(paired, &role);
         devices.push(Device {
             id: format!("paired:{id}"),
             name,
             // A phone's own record (acpmux role `phone`): the Mac app lists the phone and joins
             // this row to it for its Full-access setting.
             kind: if role == "phone" { Kind::Phone } else { Kind::Computer },
+            device,
+            symbol: device.symbol(),
             roles: vec![match role.as_str() {
                 "read-only" => Role::WatchOnly,
                 "daemon" => Role::RunsAgents,
@@ -348,10 +360,14 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
         if state == "revoked" {
             continue;
         }
+        let device = reported(row)
+            .unwrap_or_else(|| DeviceKind::from_os(&text(row, "platform").unwrap_or_default()));
         devices.push(Device {
             id: format!("joined:{id}"),
             name: text(row, "name").unwrap_or_else(|| id.clone()),
             kind: Kind::Computer,
+            device,
+            symbol: device.symbol(),
             roles: vec![Role::RunsAgents],
             state: if state == "online" { State::Connected } else { State::Offline },
             os: text(row, "platform"),
@@ -499,6 +515,8 @@ fn login_row(
         id,
         name: login.to_owned(),
         kind: Kind::Computer,
+        device: DeviceKind::Generic,
+        symbol: DeviceKind::Generic.symbol(),
         roles: vec![role],
         state,
         os: None,
@@ -519,6 +537,30 @@ fn rank(state: State) -> u8 {
         State::Connected => 2,
         State::Offline => 3,
     }
+}
+
+/// The kind a record says its device reported (`device`), when it names one.
+fn reported(record: &Value) -> Option<DeviceKind> {
+    record["device"].as_str().map(DeviceKind::parse)
+}
+
+/// An acpmux peer's kind: a Cloud machine (a `ws://`/`wss://` peer, as the app's location picker
+/// tells them apart) by its source; else what the peer reported in its health; else its OS.
+fn peer_device(peer: &Value, url: &str, node: Option<&NetworkNode>) -> DeviceKind {
+    if url.starts_with("ws://") || url.starts_with("wss://") {
+        return DeviceKind::Cloud;
+    }
+    reported(&peer["health"])
+        .or_else(|| reported(peer))
+        .unwrap_or_else(|| node.map_or(DeviceKind::Generic, |n| DeviceKind::from_os(&n.os)))
+}
+
+/// A pairing's kind: what the device reported, else its OS, else an iPhone for a phone pairing.
+fn paired_device(paired: &Value, role: &str) -> DeviceKind {
+    reported(paired)
+        .or_else(|| text(paired, "os").map(|os| DeviceKind::from_os(&os)))
+        .filter(|k| *k != DeviceKind::Generic)
+        .unwrap_or(if role == "phone" { DeviceKind::IPhone } else { DeviceKind::Generic })
 }
 
 fn kind_of(os: Option<&str>) -> Kind {

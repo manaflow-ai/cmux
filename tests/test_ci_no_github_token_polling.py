@@ -32,9 +32,6 @@ ALLOWED: dict[str, str] = {
         "release-admission only (release_build and full_suite): one jobs read every 5 s, up to 210; "
         "should become a `needs:` on linux-preflight",
     "cmux-tui-release.yml: Dispatch registry publishers": "a release, by hand: finds the publisher runs it dispatched",
-    "cmux-next.yml: Report the same-tree result on the tested commit":
-        "one status POST, retried at most twice (20 s, then 60 s) only when it fails, then red: a status "
-        "that never posts holds the PR (SAME_TREE_STATUS_NEVER_SILENT, cmux#43335)",
     "cmux-next.yml: Dispatch with GITHUB_TOKEN, waiting through a rate limit":
         "the DEV handoff's fallback dispatch (#25458), only when the App token cannot: at most three "
         "tries, each sleeping only after a rate-limit refusal (the /rate_limit read costs nothing)",
