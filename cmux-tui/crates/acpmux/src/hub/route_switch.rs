@@ -523,6 +523,19 @@ pub(crate) fn route_error(e: &routes::RouteError) -> RpcError {
     }
 }
 
+/// This machine's model plane origin when it is a cmux Cloud machine
+/// (`routes::cloud_gateway_origin`), read with the spawn's env over the daemon's.
+fn cloud_gateway(
+    root: &std::path::Path,
+    env: &std::collections::BTreeMap<String, String>,
+) -> Option<String> {
+    let var =
+        |k: &str| env.get(k).cloned().or_else(|| std::env::var(k).ok()).filter(|v| !v.is_empty());
+    let home =
+        var("HOME").map(std::path::PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
+    routes::cloud_gateway_origin(root, &home, &var)
+}
+
 #[cfg(test)]
 mod route_failure_tests {
     use super::is_route_failure;
@@ -542,17 +555,4 @@ mod route_failure_tests {
         }
         assert!(!is_route_failure("simulated internal error"));
     }
-}
-
-/// This machine's model plane origin when it is a cmux Cloud machine
-/// (`routes::cloud_gateway_origin`), read with the spawn's env over the daemon's.
-fn cloud_gateway(
-    root: &std::path::Path,
-    env: &std::collections::BTreeMap<String, String>,
-) -> Option<String> {
-    let var =
-        |k: &str| env.get(k).cloned().or_else(|| std::env::var(k).ok()).filter(|v| !v.is_empty());
-    let home =
-        var("HOME").map(std::path::PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
-    routes::cloud_gateway_origin(root, &home, &var)
 }
