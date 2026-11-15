@@ -201,7 +201,13 @@ async fn an_overflow_of_refused_machines_is_answered_by_one_whole_reconcile() {
         ids.len() == acpmux_core::hub::MAX_ORIGINS && overflow
     })
     .await;
-    assert!(live.index().origins().all(|o| o.state == OriginState::Removed));
+    // The writer applies the old machines' removals after the tee told the refusals.
+    until("the old machines removed", || {
+        let index = live.index();
+        index.origins().count() == 256 && index.origins().all(|o| o.state == OriginState::Removed)
+    })
+    .await;
+    assert!(v2_keys(&live.index()).is_empty(), "no new machine got in before a slot freed");
 
     live.compact().await;
     until("256 new machines in", || {
