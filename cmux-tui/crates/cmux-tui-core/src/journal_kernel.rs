@@ -340,6 +340,11 @@ impl JournalKernel {
         Ok(())
     }
 
+    /// The registry file this kernel reads, `None` in memory.
+    pub(crate) fn database_path(&self) -> Option<&std::path::Path> {
+        self.database_path.as_deref()
+    }
+
     pub(crate) const fn enabled(&self) -> bool {
         self.enabled
     }

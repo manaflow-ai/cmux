@@ -16,8 +16,6 @@ public nonisolated enum ServerIntentKind: Sendable, Equatable {
     case approveCode(code: String, team: String, name: String, placeChief: Bool = false)
     /// `server.health.fix {check}` (origin user only).
     case fixCheck(HealthCheckID)
-    /// Open the Health view (the App routes it).
-    case openHealth
     /// `host.revoke` for a paired device's access.
     case revokeDevice(String)
 }

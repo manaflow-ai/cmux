@@ -78,3 +78,23 @@ export function docsNavPath(pathname: string, locale: string): string {
     ? releasePath.slice(localePrefix.length)
     : releasePath;
 }
+
+/**
+ * Rewrites a docs zone applies to itself. The nightly zone renders every docs
+ * link through `docsChannelUrl("nightly", ...)` as /docs/nightly/..., the
+ * public path cmux.com rewrites to this zone's /docs/.... Opened on the
+ * zone's own host (a preview, the vercel.app address), those links had no
+ * route and 404'd, so the zone maps them to its own pages the same way
+ * cmux.com does (next.config.ts, the main site's /docs/nightly rewrites).
+ */
+export function docsZoneSelfRewrites(
+  channel: DocsChannel,
+): { source: string; destination: string }[] {
+  if (channel !== "nightly") return [];
+  return [
+    { source: "/docs/nightly", destination: "/docs/getting-started" },
+    { source: "/docs/nightly/:path*", destination: "/docs/:path*" },
+    { source: "/:locale/docs/nightly", destination: "/:locale/docs/getting-started" },
+    { source: "/:locale/docs/nightly/:path*", destination: "/:locale/docs/:path*" },
+  ];
+}

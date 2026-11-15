@@ -13,12 +13,14 @@ const MENTION_DEBOUNCE_MS = 80;
 /// email address) or inside an inline code span is not a mention. The prompt's markdown writes a
 /// space after an escaped character as an entity (`\_\_init\_\_.py&#x20;`), which ends the word too.
 export function mentionQuery(markdown: string, at: number): { start: number; query: string } | undefined {
-  const before = markdown.slice(0, at);
+  // A mention never spans a line, so only the caret's line is read: per key, not per draft.
+  const line = markdown.lastIndexOf("\n", at - 1) + 1;
+  const before = markdown.slice(line, at);
   const found = /(^|\s|&#x20;|&#32;|&nbsp;)@((?:\\.|(?!&#x20;|&#32;|&nbsp;)[^\s\\@])*)$/i.exec(before);
   if (!found) return undefined;
-  const start = before.length - found[2]!.length - 1;
+  const start = line + before.length - found[2]!.length - 1;
   // An odd number of backticks before it: inside a code span.
-  if ((before.slice(0, start).match(/`/g)?.length ?? 0) % 2 === 1) return undefined;
+  if ((markdown.slice(0, start).match(/`/g)?.length ?? 0) % 2 === 1) return undefined;
   return { start, query: found[2]!.replace(/\\(.)/g, "$1") };
 }
 
@@ -26,13 +28,25 @@ export function mentionQuery(markdown: string, at: number): { start: number; que
 /// backslash escape and a character reference (the serializer's `&#x20;`) each show as one, and so
 /// does an attachment placed in the text: the editor counts its atom as one place, the markdown
 /// holds its whole token (attachments.ts inlineToken).
+/// The prompt's every render asks this for the caret, so it runs over the plain stretches between
+/// escapes natively: a caret at the end of a 200,000-character draft took one regex per character.
+const ESCAPE_START = /[\\&\uFFFC]/g;
+const ESCAPE = /\\[!-/:-@[-`{-~]|&(#x[0-9a-f]+|#[0-9]+|[a-z][a-z0-9]*);|\uFFFC[\w.~%-]+\uFFFC/iy;
+// perf-hot: 1ms composer-draft-typing
 export function markdownOffset(markdown: string, shown: number): number {
   let index = 0;
-  for (let count = 0; count < shown && index < markdown.length; count++) {
-    const escape = /^(\\[!-/:-@[-`{-~]|&(#x[0-9a-f]+|#[0-9]+|[a-z][a-z0-9]*);|\uFFFC[\w.~%-]+\uFFFC)/i.exec(
-      markdown.slice(index),
-    );
-    index += escape ? escape[0].length : 1;
+  let count = 0;
+  while (count < shown && index < markdown.length) {
+    // Only `\`, `&` and U+FFFC can start an escape: every character before the next one shows as one.
+    ESCAPE_START.lastIndex = index;
+    const next = ESCAPE_START.exec(markdown)?.index ?? markdown.length;
+    if (next - index >= shown - count) return index + (shown - count);
+    count += next - index;
+    index = next;
+    if (index >= markdown.length) break;
+    ESCAPE.lastIndex = index;
+    index += ESCAPE.exec(markdown)?.[0].length ?? 1;
+    count += 1;
   }
   return index;
 }

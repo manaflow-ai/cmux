@@ -109,6 +109,33 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Thư mục trên máy"}}
       }
     },
+    "argument.cloudStartSession.fromFolder": {
+      "comment": "Argument title: a folder on this Mac copied to the Cloud machine; the agent session starts in the copy.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Folder on This Mac to Copy"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "コピーするこの Mac 上のフォルダ"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Zu kopierender Ordner auf diesem Mac"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Dossier de ce Mac à copier"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Carpeta de este Mac para copiar"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "المجلد على جهاز Mac هذا لنسخه"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "복사할 이 Mac의 폴더"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "要复制的这台 Mac 上的文件夹"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "要複製的這台 Mac 上的資料夾"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Folder na ovom Macu za kopiranje"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Mappe på denne Mac, der skal kopieres"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Cartella di questo Mac da copiare"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ថតនៅលើ Mac នេះដែលត្រូវចម្លង"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Mappe på denne Macen som skal kopieres"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Folder na tym Macu do skopiowania"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Pasta deste Mac para Copiar"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Папка на этом Mac для копирования"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "โฟลเดอร์บน Mac เครื่องนี้ที่จะคัดลอก"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kopyalanacak Bu Mac'teki Klasör"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Папка на цьому Mac для копіювання"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thư mục trên máy Mac này để sao chép"}}
+      }
+    },
     "argument.cloudStartSession.login": {
       "comment": "Argument title: how the Cloud machine's agent harness (Claude, Codex) gets a login: pass, machine or none.",
       "extractionState": "manual",

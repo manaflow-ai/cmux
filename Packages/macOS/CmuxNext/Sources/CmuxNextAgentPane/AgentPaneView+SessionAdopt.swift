@@ -83,12 +83,12 @@ extension AgentPaneView {
     /// the turn it reports the chat drawn (or the loading state's give-up marks it painted).
     private func holdPageAway(moved: (@MainActor () -> Void)?) {
         holdsPageAway = true
-        pageContent.frame = Self.awayFrame(of: topBar.contentFrame(in: bounds))
+        pageContent.frame = Self.awayFrame(of: topBar.pageFrame(in: bounds))
         moved?()
         model.whenPainted { [weak self] in
             guard let self, holdsPageAway else { return }
             holdsPageAway = false
-            pageContent.frame = topBar.contentFrame(in: bounds)
+            pageContent.frame = topBar.pageFrame(in: bounds)
             applyNativeRects() // the tab row's holes, taken while it was away, follow it back
             needsLayout = true
             moved?()

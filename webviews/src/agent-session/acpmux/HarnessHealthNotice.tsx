@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ErrorDetails } from "./conversation/ErrorDetails";
 import { Spinner } from "./conversation/icons";
 import { useT } from "./i18n";
 import { useNoticeTurn } from "./noticeSlotModel";
@@ -12,7 +13,7 @@ type Native = (method: string, params: Record<string, unknown>) => Promise<unkno
 /// Where an update started from this card is (cx-1mbnu), for the card it was started from.
 type Progress =
   | { key: string; phase: "updating" }
-  | { key: string; phase: "updated"; version: string; restarting?: boolean; error?: string }
+  | { key: string; phase: "updated"; version: string; restarting?: boolean; restartFailed?: boolean; error?: string }
   | { key: string; phase: "waiting"; version: string }
   | { key: string; phase: "failed"; error: string };
 
@@ -89,7 +90,7 @@ export function HarnessHealthNotice({
   // The offer (an outdated CLI nobody started updating) goes to the model chip, never this line.
   const offering = ours && kind === "outdated" && !state && key !== dismissed;
   const offerKey = offering ? key : undefined;
-  const actions = useRef({ start: () => {}, skip: () => {} });
+  const actions = useRef<{ start(reply?: Promise<unknown>): void; skip(): void }>({ start: () => {}, skip: () => {} });
   const offerOut = useRef(onOffer);
   offerOut.current = onOffer;
   const offerId = health?.id;
@@ -106,6 +107,7 @@ export function HarnessHealthNotice({
       version: offerVersion,
       latest: offerLatest,
       update: () => actions.current.start(),
+      updateWith: (reply) => actions.current.start(reply),
       skip: () => actions.current.skip(),
     });
   }, [offerKey, offerId, offerVersion, offerLatest, name]);
@@ -122,11 +124,12 @@ export function HarnessHealthNotice({
   const run = (text: string) => open({ kind: "terminal", text, ...(cwd ? { cwd } : {}), run: true });
   const id = health.id;
   const latest = health.latest ?? "";
-  const failed = (error: string) =>
-    setProgress({ key, phase: "failed", error: error || t("harness.updateFailedGeneric") });
-  const startUpdate = () => {
+  // The updater's own words are Details; none is no Details, never a stand-in sentence there.
+  const failed = (error: string) => setProgress({ key, phase: "failed", error });
+  // `reply`: an update the model menus' Update all already asked of the host, for this agent.
+  const startUpdate = (reply?: Promise<unknown>) => {
     setProgress({ key, phase: "updating" });
-    native("harness.update", { id }).then(
+    (reply ?? native("harness.update", { id })).then(
       (value) => {
         const reply = record(value);
         if (reply.ok === true)
@@ -148,7 +151,7 @@ export function HarnessHealthNotice({
         const later = typeof reply.after_turn === "number" ? reply.after_turn : 0;
         if (typeof reply.failed === "number" && reply.failed > 0) {
           const error = typeof reply.error === "string" ? reply.error.trim() : "";
-          setProgress({ key, phase: "updated", version, error: error || t("harness.restartFailedGeneric") });
+          setProgress({ key, phase: "updated", version, error, restartFailed: true });
           return;
         }
         if (later > 0) {
@@ -159,13 +162,7 @@ export function HarnessHealthNotice({
         setProgress(undefined);
         onUpdated?.();
       },
-      (error: unknown) =>
-        setProgress({
-          key,
-          phase: "updated",
-          version,
-          error: message(error) || t("harness.restartFailedGeneric"),
-        }),
+      (error: unknown) => setProgress({ key, phase: "updated", version, error: message(error), restartFailed: true }),
     );
   };
   actions.current = {
@@ -184,6 +181,8 @@ export function HarnessHealthNotice({
   );
   let text: string;
   let buttons: ReactNode;
+  // What failed, in the updater's or the host's own words, for Details.
+  let detail: string | undefined;
   if (kind === "signedOut") {
     text = health.auth === "expired" ? t("turn.authExpired") : t("harness.signedOut", { agent: name });
     buttons = (
@@ -192,9 +191,10 @@ export function HarnessHealthNotice({
       </button>
     );
   } else if (state?.phase === "updated") {
-    text = state.error
-      ? t("harness.restartFailed", { error: state.error })
+    text = state.restartFailed
+      ? t("harness.restartFailedShort")
       : t("harness.updated", { agent: name, version: state.version });
+    detail = state.restartFailed ? state.error || undefined : undefined;
     buttons = (
       <button
         type="button"
@@ -209,11 +209,21 @@ export function HarnessHealthNotice({
     text = t("harness.restartAfterTurn", { version: state.version });
     buttons = null;
   } else if (state?.phase === "failed") {
-    text = t("harness.updateFailed", { agent: name, error: state.error });
+    text = t("harness.updateFailedShort", { agent: name });
+    detail = state.error || undefined;
+    // Update in Terminal runs the same command where its output and any password prompt show.
+    const command = health.update?.command;
     buttons = (
-      <button type="button" data-notice-action="retry" onClick={startUpdate}>
-        {t("harness.tryAgain")}
-      </button>
+      <>
+        {command && (
+          <button type="button" data-notice-action="terminal" onClick={() => run(command)}>
+            {t("harness.updateInTerminal")}
+          </button>
+        )}
+        <button type="button" data-notice-action="retry" onClick={() => startUpdate()}>
+          {t("harness.tryAgain")}
+        </button>
+      </>
     );
   } else {
     // Only an update the person started reaches here (the offer is the chip's).
@@ -239,6 +249,7 @@ export function HarnessHealthNotice({
           {notNow}
           {buttons}
         </div>
+        {detail && <ErrorDetails text={detail} className="acpmux-host-error-details" />}
       </div>
     </output>
   );

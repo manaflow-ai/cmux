@@ -28,7 +28,7 @@ const bash = (command: string, fields: Partial<Tool> = {}): Tool => ({
 
 /// The coordinator's shape from Leo's screenshot (2026-10-30), names made up.
 const FUNCTION_BATCH =
-  'cd /tmp/coord; s(){ acpmux send --no-wait --from coord "$1" "$(cat "$2")" 2>&1 | tail -1; }; s build-box/nightly escalate-nightly.md; s gcp-lane/acpmux-owner relay-owner.md';
+  'cd /tmp/coord; s(){ acpmux send --no-wait --from coord "$1" "$(cat "$2")" 2>&1 | tail -1; }; s build-box/nightly escalate-nightly.md; s ci-box/acpmux-owner relay-owner.md';
 
 beforeEach(() => resetAcpmuxSendCallsCacheForTests());
 
@@ -51,7 +51,7 @@ describe("acpmuxSendBatch", () => {
     expect(acpmuxSendBatch(FUNCTION_BATCH)).toEqual({
       sends: [
         { target: "build-box/nightly", file: "escalate-nightly.md", noWait: true },
-        { target: "gcp-lane/acpmux-owner", file: "relay-owner.md", noWait: true },
+        { target: "ci-box/acpmux-owner", file: "relay-owner.md", noWait: true },
       ],
     });
     // `function name { … }` and literal prompt arguments.
@@ -66,7 +66,7 @@ describe("acpmuxSendBatch", () => {
   test("each message takes its own line of the output: queued, steered, or acpmux's error", () => {
     const calls = acpmuxSendCalls(
       bash(FUNCTION_BATCH, {
-        output: 'queued\nacpmux: no_session: no session matches "gcp-lane/acpmux-owner"',
+        output: 'queued\nacpmux: no_session: no session matches "ci-box/acpmux-owner"',
         exitCode: 0,
       }),
     );
@@ -74,7 +74,7 @@ describe("acpmuxSendBatch", () => {
       calls?.map(({ target, state, delivery, index, count }) => ({ target, state, delivery, index, count })),
     ).toEqual([
       { target: "build-box/nightly", state: "sent", delivery: "queued", index: 0, count: 2 },
-      { target: "gcp-lane/acpmux-owner", state: "failed", delivery: undefined, index: 1, count: 2 },
+      { target: "ci-box/acpmux-owner", state: "failed", delivery: undefined, index: 1, count: 2 },
     ]);
     // While the call runs, every message is going out.
     expect(
@@ -145,10 +145,7 @@ describe("acpmuxSendBatch", () => {
     const groups = toolGroups([{ kind: "tool", text: call.title, tool: call }]);
     // Leo, 2026-11-04: "why arent these collapsed/collapsible".
     expect(groups.map((group) => group.type)).toEqual(["sendGroup"]);
-    expect(sendEntries(groups).map((group) => group.send.target)).toEqual([
-      "build-box/nightly",
-      "gcp-lane/acpmux-owner",
-    ]);
+    expect(sendEntries(groups).map((group) => group.send.target)).toEqual(["build-box/nightly", "ci-box/acpmux-owner"]);
   });
 });
 

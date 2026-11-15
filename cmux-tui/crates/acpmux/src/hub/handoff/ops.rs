@@ -76,7 +76,7 @@ fn narrower_policy(p: PermissionPolicy) -> Option<PermissionPolicy> {
         PermissionPolicy::ApproveAll => Some(PermissionPolicy::ApproveEdits),
         PermissionPolicy::ApproveEdits => Some(PermissionPolicy::ApproveReads),
         PermissionPolicy::ApproveReads => Some(PermissionPolicy::Ask),
-        PermissionPolicy::Ask => Some(PermissionPolicy::DenyAll),
+        PermissionPolicy::Ask | PermissionPolicy::Review => Some(PermissionPolicy::DenyAll),
         PermissionPolicy::DenyAll => None,
     }
 }
@@ -598,6 +598,7 @@ impl Hub {
         }
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
         let opts = PromptOptions {
+            race_guard: None,
             cloud_turn: None,
             prompt_id: Some(prompt_id.to_owned()),
             message_id: None,
@@ -621,6 +622,7 @@ impl Hub {
             }),
             human_authenticated: false,
             unproven_owner: false,
+            coach: None,
             agent: None,
             class: None,
             after_turn: None,
@@ -631,7 +633,9 @@ impl Hub {
             admitted: false,
             send_now: false,
             thread: None,
+            wake_or_fail: false,
             inbox: false,
+            reply_reader: None,
         };
         let (hub, session) = (self.clone(), target.clone());
         let run =

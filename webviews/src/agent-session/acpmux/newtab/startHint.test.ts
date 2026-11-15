@@ -3,6 +3,7 @@ import { JSDOM } from "jsdom";
 import { newTabHost } from "../newTabModel";
 import { injectedNewTabContext, sameNewTabScreen } from "./adoption";
 import { reconciledProject, startFromContext } from "./startHint";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 // Leo, 2026-11-03: "the read defaults/the "not working in a project" thing that should all be
 // instant". The New Tab context the host injects as the document commits carries the chat's start,
@@ -24,7 +25,8 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

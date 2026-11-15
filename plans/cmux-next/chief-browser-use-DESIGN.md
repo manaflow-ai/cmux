@@ -55,7 +55,7 @@ asks the app `browser.page.right {agent, url?}` for the tab, then runs the verb 
 1. The column: the Home workspace (`kind: home`), the pane holding the chat (`home-dock` page),
    and the first scrolling column right of it (`ControlCallerLocation.besidePane`, the same rule
    `beside_caller` uses). Never the dock. No such column: `not_found` with `dock_pane`, so the
-   caller makes it once (`cmux pane <dock_pane> split --right --viewport-width 0.5`).
+   caller makes it once (`cmux pane <dock_pane> split --right --fit`).
 2. The tab, in order: the agent's own tab in that column (one it opened there); else, for a verb
    that does not navigate, a tab there it already drives (live lease), then the browser tab the column shows (else its last browser tab); else a
    new tab opened in that column through the `openBrowser` action with `focus: false`.

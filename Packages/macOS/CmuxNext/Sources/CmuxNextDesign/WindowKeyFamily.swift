@@ -34,8 +34,16 @@ final class WindowKeyFamily {
     private(set) var viewUpdates = 0
     /// The views it tracks now.
     var viewCount: Int { views.allObjects.count }
-    /// It observes the key and activation notices (only while it has a view).
+    /// It observes the key and activation notices (only while it has a view or a watcher).
     var isObserving: Bool { !observers.isEmpty }
+    /// Told when the window starts to look inactive (true: the keyboard left its family after the family held it)
+    /// and when it stops; the window's one watcher (``NSWindow/watchKeyFamily(_:)``).
+    var onInactiveChange: (@MainActor (Bool) -> Void)? {
+        didSet {
+            if onInactiveChange != nil, observers.isEmpty { startObserving() }
+            if onInactiveChange == nil, views.allObjects.isEmpty { observers.removeAll() }
+        }
+    }
 
     private static var key: UInt8 = 0
 
@@ -61,7 +69,7 @@ final class WindowKeyFamily {
     func remove(_ view: WindowMaterialView) {
         views.remove(view)
         // The last view left: no one reads the state, so no notice should cost a check.
-        if views.allObjects.isEmpty { observers.removeAll() }
+        if views.allObjects.isEmpty, onInactiveChange == nil { observers.removeAll() }
     }
 
     private func startObserving() {
@@ -125,6 +133,7 @@ final class WindowKeyFamily {
             // window may be between a resign and a become that a later pass posts: the wash
             // eases then, so a reversal one pass later does not flash.
             self.forEachView { $0.updateInactiveTint(fades: !settled) }
+            self.onInactiveChange?(inactive)
         }
     }
 

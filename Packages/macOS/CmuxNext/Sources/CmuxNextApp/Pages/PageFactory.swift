@@ -54,6 +54,21 @@ struct PageFactory {
         return page
     }
 
+    /// The Feed page (plans/cmux-next/feed-page.md) on `route` (`#/needs-you`, the only
+    /// route the app opens now); nil only when the page
+    /// resources are missing. `cmux.feed.` goes to the daemon's feed client through the page relay,
+    /// `cmux.app.` runs the page's actions (open an item, a GitHub action, Settings).
+    func feedWebPage(route: String) -> PageWebView? {
+        let relay = DaemonPageRelay(services: services)
+        let native = AppPageNativeProvider(services: services, page: .feed)
+        native.forward = { op, params, context in try await relay.call(op, params: params, context: context) }
+        let routes = [PageRoute(prefix: "cmux.feed.", provider: relay), PageRoute(prefix: "cmux.app.", provider: native)]
+        guard let page = PageWebView(descriptor: .feed, routes: routes, route: route) else { return nil }
+        native.anchor = { [weak page] in page }
+        PageConnectionWatch(page: page, store: services.machines.local.store).start()
+        return page
+    }
+
     /// The App Store page (react-pages.md 3, apps-web-DESIGN.md) on `route` (`#/discover?app=<id>`,
     /// `#/installed`); nil only when the page resources are missing.
     /// `cmux.apps.` goes to the daemon relay behind the native sheet of ``AppsPageConfirmations``
@@ -229,7 +244,9 @@ struct PageFactory {
         provider.sharesList = { [weak services] in try await SettingsSharedLinks.list(services) }
         provider.sharesRevoke = { [weak services] id in try await SettingsSharedLinks.revoke(services, shareID: id) }
         provider.devicesWatching = { on in if on { devices.beginWatching() } else { devices.endWatching() } }
-        provider.integrations = SettingsAgentIntegrations(cli: { [bundled = services.bundledCLI] in await bundled.resolve() })
+        let cli: @MainActor () async -> URL? = { [bundled = services.bundledCLI] in await bundled.resolve() }
+        let integrations = SettingsAgentIntegrations(cli: cli)
+        provider.parts = ["cmux.settings.integrations.state": integrations, "cmux.settings.integrations.run": integrations, CustomizeTryOnPage.op: CustomizeTryOnPage(cli: cli)]
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         provider.themeColors = { [weak services] in (services?.themes.catalog).map { c in c.names.compactMap { c.colors[$0] } } ?? [] }
@@ -257,6 +274,7 @@ struct PageFactory {
             return services.linkOpener.openFile(URL(fileURLWithPath: override.file), from: services.windows.active?.focusedPane,
                                                 asText: true, at: FilePosition(line: override.line))
         }
+        provider.openThemeFile = SettingsThemeFileOpener(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settingsFile: { settings.file.url }, root: { settings.snapshot.root })
         provider.themeFiles = SettingsThemeFiles(
             folders: {
                 .init(resources: GhosttyRuntime.resourcesDirectory(), home: FileManager.default.homeDirectoryForCurrentUser,
@@ -291,6 +309,8 @@ struct PageFactory {
                       // Agents > Chiefs: the same Chief editor routes as Home (ChiefProfilePageRelay, AgentHarnessCenter).
                       PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
+                      PageRoute(prefix: WorktreeSetupPageRoute.prefix,
+                                provider: WorktreeSetupPageRoute { [weak services] in services?.machines.local.connection }),
                       PageRoute(prefix: "cmux.settings.mobile.", provider: MobilePageProvider(host: services.iphone)),
                       PageRoute(prefix: ChannelsPageProvider.prefix,
                                 provider: ChannelsPageProvider(updater: services.updater, daemon: { @MainActor [weak services, daemons = services.acpmuxDaemons] in
@@ -309,6 +329,8 @@ struct PageFactory {
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute()),
                       // Settings > Menus: right-click menu arrangements (cmux.json contextMenus).
                       PageRoute(prefix: ContextMenusPageProvider.prefix, provider: services.settingsWindow.contextMenusRoute),
+                      // Settings > Server > This Mac on Your Tailnet: sign in and out on the app's person connection to acpmux.
+                      PageRoute(prefix: SettingsTailnet.prefix, provider: SettingsTailnet { [weak services] in services.flatMap(QuitAgents.environment) }),
                       // Settings > Server: Restart… (the toast's confirm) and Pair (the Server panel).
                       PageRoute(prefix: ServerSettingsPageRoute.prefix, provider: ServerSettingsPageRoute(
                           confirmRestart: { [weak services] in services?.serverUpdates.confirmRestart(kind: $0, host: $1) },

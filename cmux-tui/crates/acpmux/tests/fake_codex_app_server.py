@@ -23,6 +23,10 @@ Pro plan's 5-hour and weekly windows and credits; then the weekly window moved).
 terminate answers `terminated: false`. "bg-codex-interrupt" leaves `sleep 60`
 (3001) open when the turn is interrupted. FAKE_CODEX_END_FIRST=1 completes a
 terminated item before answering the terminate.
+FAKE_CODEX_HOLD_SUGGESTIONS=1 never answers a prompt suggestion's ask
+(`thread/prediction/request`, `thread/sample`, a prediction `thread/fork`): what the bridge asks
+after a turn completes stays in flight, as on a loaded machine whose answer lands
+after the prompt's own.
 """
 import json
 import os
@@ -140,6 +144,12 @@ for line in sys.stdin:
     if "id" not in message or mode == "hang":
         continue
     method, rid = message.get("method"), message["id"]
+    predicting = (message.get("params") or {}).get("experimentalPredictionMode")
+    if os.environ.get("FAKE_CODEX_HOLD_SUGGESTIONS") == "1" and (
+        method in ("thread/prediction/request", "thread/sample")
+        or (method == "thread/fork" and predicting)
+    ):
+        continue
     if method == "initialize":
         reply({"method": "codex/event", "params": {"note": "a notification first"}})
         reply({"id": rid, "result": {"userAgent": "fake"}})

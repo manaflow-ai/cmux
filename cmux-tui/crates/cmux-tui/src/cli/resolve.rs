@@ -404,8 +404,9 @@ fn caller_scopes(
     if explicit && !caller_route {
         return Err(lookup_error(
             "selector.invalid",
-            "`caller` names the caller's own objects, which are not in a session or machine \
-             named with --socket, --session or --machine; name an id instead"
+            "`caller` names the caller's own objects, and --socket or --session names \
+             another session than the caller's terminal is in (or --machine another \
+             machine); name an id instead, or drop --session to act in your own session"
                 .into(),
         ));
     }

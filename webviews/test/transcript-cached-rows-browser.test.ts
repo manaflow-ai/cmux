@@ -165,7 +165,9 @@ await requireBrowserLane("transcript-cached-rows-browser.test.ts", async () => {
                   visible.length === 0 ||
                   visible.some((row) => {
                     const style = getComputedStyle(row);
-                    return Number(style.opacity) < 1 || !row.textContent?.trim();
+                    // A turn's footer is its icon buttons alone, with no time (TurnRows.tsx
+                    // TurnFooter, Codex parity): drawn, not blank.
+                    return Number(style.opacity) < 1 || (!row.textContent?.trim() && !row.querySelector("button"));
                   });
                 if (phase === "return") {
                   const target = Math.abs(scroller.scrollTop - end()) < 1;
@@ -203,7 +205,8 @@ await requireBrowserLane("transcript-cached-rows-browser.test.ts", async () => {
                 if (frames >= 32 && phase === "away") {
                   phase = "return";
                   started = paint;
-                  if (way === "jump") document.querySelector<HTMLButtonElement>(".acpmux-jump-latest")!.click();
+                  if (way === "jump")
+                    document.querySelector<HTMLButtonElement>(".acpmux-jump-latest:not(.acpmux-jump-up)")!.click();
                   else revisit = true;
                 }
               },

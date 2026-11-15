@@ -10,6 +10,7 @@
 import { useEffect, useRef, type Ref } from "react";
 import { CARD_SCROLL_ATTRIBUTE, installScrollEdges } from "../../scrollers";
 import type { Strings } from "../shared/i18n";
+import type { AreaKey } from "./areas";
 import type { PreviewEntry } from "./updatedPreview";
 
 /** The tallest the preview gets, CSS px: its header line and about seven rows; the rest scrolls. */
@@ -23,6 +24,12 @@ export const PREVIEW_MAX_PX = 300;
  *   edge, the changes beyond it (the order before).
  * - `titles`: the header leads, and the changes are their titles alone, on up to three lines.
  */
+/** Where a click on a row takes What's New: the row's area, and the row itself. */
+export interface PreviewTarget {
+  area?: AreaKey;
+  title: string;
+}
+
 export type PreviewLayout = "header" | "header-bottom" | "titles";
 
 export function UpdatedCardPreview({
@@ -38,8 +45,8 @@ export function UpdatedCardPreview({
   strings: Strings;
   /** The preview's content (measured for its height). */
   bodyRef: Ref<HTMLDivElement>;
-  /** What's New and every row open the full What's New page. */
-  onOpen: () => void;
+  /** What's New opens the full What's New page; a row opens it at its change. */
+  onOpen: (target?: PreviewTarget) => void;
 }) {
   const scroller = useRef<HTMLUListElement | null>(null);
   useEffect(() => (scroller.current ? installScrollEdges(scroller.current) : undefined), [entries]);
@@ -48,7 +55,7 @@ export function UpdatedCardPreview({
     <div className="wn-preview" aria-hidden={!shown}>
       <div className="wn-preview-body" ref={bodyRef}>
         <div className="wn-preview-head">
-          <button type="button" className="wn-preview-whatsnew" tabIndex={tab} onClick={onOpen}>
+          <button type="button" className="wn-preview-whatsnew" tabIndex={tab} onClick={() => onOpen()}>
             {strings.t("changelog.page.title")}
             <span aria-hidden="true"> ↗</span>
           </button>
@@ -61,7 +68,12 @@ export function UpdatedCardPreview({
         >
           {entries.map((entry) => (
             <li key={entry.id}>
-              <button type="button" className="wn-preview-row" tabIndex={tab} onClick={onOpen}>
+              <button
+                type="button"
+                className="wn-preview-row"
+                tabIndex={tab}
+                onClick={() => onOpen({ area: entry.area, title: entry.title })}
+              >
                 <span className="wn-preview-title">{entry.title}</span>
                 {entry.detail && <span className="wn-preview-detail">{entry.detail}</span>}
               </button>

@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import bundled from "./cmuxIcons.json";
 import custom from "./cmuxIconsCustom.json";
 import neko from "./nekoCandidate.json";
+import rounds from "./nekoRounds.json";
 import { customIconPack, overlaidIconPack } from "./iconPack";
 import type { IconPack } from "./types";
 
@@ -36,7 +37,7 @@ describe("icon pack", () => {
     const pack = bundled as IconPack;
     const overlay = neko as IconPack;
     const names = Object.keys(overlay.icons);
-    expect(names.length).toBe(38);
+    expect(names.length).toBe(37);
     expect(names).toContain("action.copy");
     expect(names).toContain("action.pin");
     expect(names).toContain("agent.chat");
@@ -47,5 +48,26 @@ describe("icon pack", () => {
     const merged = overlaidIconPack(pack, overlay);
     expect(merged.icons["action.copy"]).toEqual(overlay.icons["action.copy"]);
     expect(merged.icons["action.more"]).toEqual(pack.icons["action.more"]);
+  });
+
+  // The gallery draws art-round directions through the shared renderer, so each must be a pack overlay
+  // of existing names at the pack's 1.5 grid stroke, not a file the renderer cannot normalize.
+  test("art-round directions are overlays of pack names at the pack stroke", () => {
+    const pack = bundled as IconPack;
+    const six = ["action.copy", "action.retry", "media.audio", "bookmark", "action.pin", "action.more"];
+    const directions = rounds as Record<string, IconPack>;
+    expect(Object.keys(directions).sort()).toEqual(["earfold", "r3mix", "r3tail", "tailterm", "whisker"]);
+    for (const [direction, overlay] of Object.entries(directions)) {
+      const names = Object.keys(overlay.icons);
+      for (const name of names) {
+        expect(six).toContain(name);
+        expect(Object.hasOwn(pack.icons, name)).toBe(true);
+        for (const layer of overlay.icons[name].line) {
+          expect(layer.accent).toBeUndefined();
+          if (layer.op === "stroke") expect(layer.w).toBe(1.5);
+        }
+      }
+      expect(names.length).toBe(direction.startsWith("r3") ? 6 : 3);
+    }
   });
 });

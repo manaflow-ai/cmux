@@ -211,18 +211,28 @@ extension SidebarSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.controlsOnHover", "Show Sidebar Controls Only on Hover"),
-                help: SettingsText.keyed("settings.sidebar.controlsOnHover.help", "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show."),
+                help: SettingsText.keyed("settings.sidebar.controlsOnHover.help", "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show unless Minimal Mode is on."),
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.controlsOnHoverDefault),
                 keywords: ["sidebar", "minimal", "hover", "hide", "show", "controls", "buttons", "search", "profile", "spaces", "footer", "clean"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.floatOnHoverPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.floatOnHover", "Float Hidden Sidebar on Hover"),
+                help: SettingsText.keyed("settings.sidebar.floatOnHover.help", "With the sidebar hidden, rest the pointer on the window's sidebar edge to show the sidebar over your content. It hides again when the pointer leaves it. Off, the sidebar shows only when you show it."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.floatOnHoverDefault),
+                keywords: ["sidebar", "float", "floating", "hover", "peek", "edge", "overlay", "reveal", "hidden", "auto hide"]
             ),
             SettingDescriptor(
                 SidebarSectionsSetting.minimalPath,
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.minimal", "Minimal Mode"),
-                help: SettingsText.keyed("settings.sidebar.minimal.help", "Workspace rows show only their icon, name and unread mark, and section titles become thin lines."),
-                summary: SettingsText.keyed("settings.sidebar.minimal.summary", "Rows show only icon, name and unread mark"),
+                help: SettingsText.keyed("settings.sidebar.minimal.help", "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Workspace rows show only their icon, name and unread mark, and section titles become thin lines."),
+                summary: SettingsText.keyed("settings.sidebar.minimal.summary", "Buttons show on hover; rows show icon, name and unread mark"),
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.minimalDefault),
                 keywords: ["sidebar", "minimal", "compact", "dense", "rows", "simple", "clean"]
@@ -347,14 +357,15 @@ extension SidebarSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.groupHeader.background", "Group Background"),
-                help: SettingsText.keyed("settings.sidebar.groupHeader.background.help", "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color."),
+                help: SettingsText.keyed("settings.sidebar.groupHeader.background.help", "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color. Sections draws each group as a plain section heading instead, with no background and no line beside its workspaces."),
                 kind: .choice([
                     SettingChoice(SidebarGroupBackgroundStyle.auto.rawValue, SettingsText.keyed("settings.choice.groupBackgroundAuto", "Automatic")),
                     SettingChoice(SidebarGroupBackgroundStyle.glass.rawValue, SettingsText.keyed("settings.choice.groupBackgroundGlass", "Glass")),
                     SettingChoice(SidebarGroupBackgroundStyle.solid.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSolid", "Solid")),
+                    SettingChoice(SidebarGroupBackgroundStyle.sections.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSections", "Sections")),
                 ]),
                 default: .string(SidebarSectionsSetting.groupHeaderBackgroundDefault.rawValue),
-                keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header"]
+                keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header", "sections", "section", "heading", "plain"]
             ),
             SettingDescriptor(
                 SidebarSectionsSetting.groupPalettePath,

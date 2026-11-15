@@ -43,7 +43,7 @@ enum SidebarNavigation {
         guard let window = services.windows.active else { return }
         let model = window.sidebar.model
         let walk = stepping(settings(services), scope: scope)
-        guard let item = model.itemOrder.step(from: current(in: window, services), by: offset, walk) else { return }
+        guard let item = model.step(from: current(in: window, services), by: offset, walk) else { return }
         activate(item, in: window, services)
     }
 

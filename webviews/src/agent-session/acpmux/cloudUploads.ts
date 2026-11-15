@@ -130,6 +130,10 @@ export async function uploadToMachine(
   host: Call,
   cancelled: UploadCancelled = () => false,
   progress?: UploadProgressReport,
+  /// The person's Send these files go with (sendUploads.ts): each begin holds its ticket instead of
+  /// a gesture, with no batch, and an older host's one-frame upload, which needs the gesture, is
+  /// not tried.
+  send?: { sessionId: string; promptId: string; ticket: string },
 ): Promise<UploadResult> {
   const call = callWithin(host);
   if (!files.length || files.some((file) => !file.name)) return undefined;
@@ -146,11 +150,14 @@ export async function uploadToMachine(
       started = await call("chat.upload.begin", {
         name: file.name,
         size: file.size,
-        ...(index === 0 && files.length > 1 ? { batch: manifest } : {}),
+        // A Send's files begin one by one, each under its ticket: the host refuses a held begin
+        // with a batch, whose token would let the later files skip the ticket.
+        ...(index === 0 && files.length > 1 && !send ? { batch: manifest } : {}),
         ...(batchToken ? { batchToken } : {}),
+        ...send,
       });
     } catch (error) {
-      if (!begun && notTaken(error)) {
+      if (!begun && notTaken(error) && !send) {
         // An old host can only accept one complete JSON frame. Refuse oversized files
         // explicitly instead of rebuilding the removed composer cap as a connection reset.
         if (files.some((entry, at) => !cancelled(at) && entry.size > LEGACY_FRAME_SAFE_BYTES))

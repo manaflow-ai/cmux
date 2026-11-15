@@ -1,6 +1,7 @@
 // Design B, Rail + reader (cx-urd.61; Debug Settings `whatsNew.design = rail`, kept until the
 // journal has been dogfooded): a narrow date rail (an update's releases marked with a dot) and
 // the selected release on the right.
+import { SplitEdge } from "../../ui/SplitEdge";
 import type { Strings } from "../shared/i18n";
 import { formatReleaseDate, releaseView } from "./model";
 import { ChangesFold, Groups, Hero, ReleaseMeta, type PartsContext } from "./ReleaseParts";
@@ -11,25 +12,36 @@ export function RailPage({ store, strings, s }: { store: ChangelogStore; strings
   const view = s.notes ? releaseView(s.notes, strings.language) : undefined;
   return (
     <div className="clr">
-      <nav className="clr-rail" aria-label={strings.t("changelog.page.versions")}>
-        {s.inSpan.length > 0 && <div className="clr-rail-head">{strings.t("changelog.page.sinceLastUpdate")}</div>}
-        {s.builds.length === 0 && <p className="cl-muted">{strings.t("changelog.page.noHistory")}</p>}
-        {s.builds.map((b) => (
-          <button
-            key={b.build}
-            type="button"
-            className={`clr-version${b.build === s.selected ? " is-selected" : ""}${s.inSpan.includes(b.build) ? " in-span" : ""}`}
-            aria-current={b.build === s.selected ? "true" : undefined}
-            onClick={() => void store.select(b.build)}
-          >
-            <span className="clr-date">{formatReleaseDate(b.date, strings.language)}</span>
-            {s.inSpan.includes(b.build) && (
-              <span className="clr-dot" aria-label={strings.t("changelog.page.sinceLastUpdate")} />
-            )}
-            <span className="clr-version-name">{b.shortVersion}</span>
-          </button>
-        ))}
-      </nav>
+      <div className="clr-side">
+        <nav className="clr-rail" aria-label={strings.t("changelog.page.versions")}>
+          {s.inSpan.length > 0 && <div className="clr-rail-head">{strings.t("changelog.page.sinceLastUpdate")}</div>}
+          {s.builds.length === 0 && <p className="cl-muted">{strings.t("changelog.page.noHistory")}</p>}
+          {s.builds.map((b) => (
+            <button
+              key={b.build}
+              type="button"
+              className={`clr-version${b.build === s.selected ? " is-selected" : ""}${s.inSpan.includes(b.build) ? " in-span" : ""}`}
+              aria-current={b.build === s.selected ? "true" : undefined}
+              onClick={() => void store.select(b.build)}
+            >
+              <span className="clr-date">{formatReleaseDate(b.date, strings.language)}</span>
+              {s.inSpan.includes(b.build) && (
+                <span className="clr-dot" aria-label={strings.t("changelog.page.sinceLastUpdate")} />
+              )}
+              <span className="clr-version-name">{b.shortVersion}</span>
+            </button>
+          ))}
+        </nav>
+        {/* The rail's line is the split's divider and drags as one (ui/SplitEdge.tsx). */}
+        <SplitEdge
+          side="right"
+          property="--changelog-rail-width"
+          storageKey="cmux.changelog.rail.width"
+          min={130}
+          max={360}
+          on="parent"
+        />
+      </div>
       <article className="clr-reader">
         {s.failed && <p className="cl-error">{s.failed}</p>}
         {s.span && (s.inSpan.length === 0 || (s.missing && !!s.selected && s.inSpan.includes(s.selected))) && (

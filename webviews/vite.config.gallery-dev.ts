@@ -54,12 +54,10 @@ export default {
     port: Number(process.env.CMUX_GALLERY_DEV_PORT) || 4210,
     strictPort: true,
     allowedHosts,
-    // The UI font's WOFF2 lives with the app's resources (src/gallery/frame/uiFont.ts).
     fs: {
       strict: true,
       allow: [
         webviewsRoot,
-        path.join(repoRoot, "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts"),
         // Gallery-only licensed candidates; no production import uses this directory.
         path.join(repoRoot, "design/icons/neko-candidates"),
       ],

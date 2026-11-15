@@ -58,3 +58,43 @@ export function useMachineRefresh(open: boolean, refresh: (() => void) | undefin
     return () => clearInterval(timer);
   }, [open]);
 }
+
+/// How a machine list shows the machines acpmux cannot reach (environments.ts
+/// environmentUnavailable). `collapsed` ships: an "Unavailable (N)" row after the reachable
+/// machines, above Add Machine…, that opens them in place. `after-add` puts that row below Add
+/// Machine…; `hidden` drops them from the list (a search still finds them); `inline` lists them greyed
+/// in place, as before (gallery only).
+export type UnavailableGroup = "collapsed" | "after-add" | "hidden" | "inline";
+
+/// A machine list's rows with its unavailable machines moved to their group. `rows` is the list as
+/// it reads with every machine in place; `actions` the setup rows that end it (Add Machine…);
+/// `kept` a row that stays in place however it is (the current pick, never hidden). A typed search
+/// lists every match in place, so a machine is always found by name.
+export function groupUnavailableRows({
+  rows,
+  actions,
+  unavailable,
+  kept,
+  searching,
+  group,
+  toggle,
+  expanded,
+}: {
+  rows: readonly string[];
+  actions: readonly string[];
+  unavailable: (value: string) => boolean;
+  kept?: string;
+  searching: boolean;
+  group: UnavailableGroup;
+  toggle: string;
+  expanded: boolean;
+}): { rows: string[]; count: number } {
+  const down = rows.filter((value) => value !== kept && unavailable(value));
+  if (searching || group === "inline" || down.length === 0) return { rows: [...rows, ...actions], count: 0 };
+  const gone = new Set(down);
+  const up = rows.filter((value) => !gone.has(value));
+  const tail = [toggle, ...(expanded ? down : [])];
+  if (group === "hidden") return { rows: [...up, ...actions], count: down.length };
+  if (group === "after-add") return { rows: [...up, ...actions, ...tail], count: down.length };
+  return { rows: [...up, ...tail, ...actions], count: down.length };
+}

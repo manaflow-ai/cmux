@@ -30,6 +30,15 @@ ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "measure"))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "cmux-next"))
 from bench_launch import account_home, rpc_at, socket_candidates  # noqa: E402
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 LIVE_MODE = os.path.join(ROOT, "scripts/live-code/live-mode.py")
 VIEW = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift")
@@ -331,11 +340,11 @@ def main():
         for name in sorted(os.listdir(opts.out)):
             if name != "live-mode-e2e.tar.gz":
                 bundle.add(os.path.join(opts.out, name), arcname=name)
-    print(json.dumps(result, indent=2))
+    safe_print(json.dumps(result, indent=2))
     for verb in ("start", "stop"):
         step = result.get(verb, {})
-        print(f"live-mode-swift: {verb}: restart {step.get('restart_s')} s (quit {step.get('quit_s')} s, launch "
-              f"{step.get('launch_s')} s), sessions kept {step.get('sessions')}, wall {step.get('wall_s')} s")
+        safe_print(f"live-mode-swift: {verb}: restart {step.get('restart_s')} s (quit {step.get('quit_s')} s, launch "
+                   f"{step.get('launch_s')} s), sessions kept {step.get('sessions')}, wall {step.get('wall_s')} s")
     sys.exit(0 if result["ok"] else 1)
 
 

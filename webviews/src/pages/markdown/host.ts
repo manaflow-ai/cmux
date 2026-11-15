@@ -29,6 +29,11 @@
 //     extended attribute, then an app-side copy (MARKDOWN-TABLE-WIDTHS-DESIGN.md). The config sends
 //     them back as `tableWidths`. `cmux.markdown.contextTable {table}` says which table (its index,
 //     or null) a right-click was on, for the native menu's Reset Column Widths;
+//   - `cmux.markdown.runBlock {path, command}` (a Run button on a shell block, runbook.ts) types
+//     `command` into a new terminal beside the page, started in the file's git repository (its
+//     folder outside one); `cmux.markdown.runAll {path, prompt}` (the toolbar's Run all) opens an
+//     agent chat there and sends `prompt`. Both require the click's user gesture and `path` this
+//     page's file;
 //   - `cmux.markdown.history {canBack, canForward}` tells the host after every change of the
 //     page's link history, so the native omnibar's Back and Forward buttons follow it;
 //   - page commands (cmux.page.command) from the app's key dispatcher: `save` (Cmd-S), `back`
@@ -68,6 +73,10 @@ export const MARKDOWN_CONTEXT_TABLE_OP = "cmux.markdown.contextTable";
  * value null resets it) through the settings write path; the host re-sends the look.
  */
 export const MARKDOWN_SET_PREFERENCE_OP = "cmux.markdown.setPreference";
+/** Page to host: `{path, command}` from a Run button; needs the click's gesture (runbook.ts). */
+export const MARKDOWN_RUN_BLOCK_OP = "cmux.markdown.runBlock";
+/** Page to host: `{path, prompt}` from Run all: an agent chat in the file's repository. */
+export const MARKDOWN_RUN_ALL_OP = "cmux.markdown.runAll";
 export const MARKDOWN_CHANGES = "cmux.markdown.changes";
 export const MARKDOWN_LOOK = "cmux.markdown.look";
 export const MARKDOWN_CONFLICT = "cmux.markdown.conflict";

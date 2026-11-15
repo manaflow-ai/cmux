@@ -85,6 +85,14 @@ import CmuxNextWakeupsTestSupport
         for _ in 0..<(done == nil ? 3 : 500) where done?() != true { try await Task.sleep(for: .milliseconds(10)) }
     }
 
+    /// Returns once the pending card's delay timer and its settle timer both sleep on the clock: an
+    /// advance before the settle timer registers would move its deadline (review F3 of #38872).
+    private static func bothTimersAsleep(_ clock: ManualClock) async throws {
+        try await clock.waitForSleeper()
+        for _ in 0..<10_000 where clock.sleeperCount < 2 { await Task.yield() }
+        try #require(clock.sleeperCount >= 2, "the settle timer never slept (\(clock.sleeperCount) sleepers)")
+    }
+
     /// Rests on `id` until its card shows.
     private static func open(_ id: String, _ s: Strip) async throws {
         s.move(to: try s.center(id))
@@ -94,18 +102,20 @@ import CmuxNextWakeupsTestSupport
         try #require(s.shows(id), "resting on tab \(id) showed no card")
     }
 
-    @Test func aCardOpensAfterTheHoverCardDelay() async throws {
+    /// A pointer that stops on a tab gets its card once it stops (`HoverCardTiming.settleQuiet`), well
+    /// before the hover card delay (Leo 2026-11-01: hover previews must appear a lot faster).
+    @Test func aCardOpensOnceThePointerStopsOnTheTab() async throws {
         let s = Self.strip()
         defer { s.tearDown() }
         s.move(to: try s.center("b"))
         #expect(!s.showsAny, "the card showed on the first frame")
-        try await s.clock.waitForSleeper()
-        s.clock.advance(by: Self.delay - .milliseconds(150))
+        try await Self.bothTimersAsleep(s.clock)
+        s.clock.advance(by: HoverCardTiming.settleQuiet - .milliseconds(10))
         try await Self.settle()
-        #expect(!s.showsAny, "the card showed before the delay")
-        s.clock.advance(by: .milliseconds(250))
+        #expect(!s.showsAny, "the card showed before the pointer had stopped")
+        s.clock.advance(by: .milliseconds(20))
         try await Self.settle(until: { s.shows("b") })
-        #expect(s.shows("b"), "no card after the delay on the tab")
+        #expect(s.shows("b"), "no card once the pointer stopped on the tab")
     }
 
     @Test func withACardOpenAnotherTabTakesItOverAtOnce() async throws {
@@ -227,5 +237,37 @@ import CmuxNextWakeupsTestSupport
         s.clock.advance(by: Self.delay + .milliseconds(100))
         try await Self.settle(until: { s.shows("c") })
         #expect(s.strip.hoverCard.resources.target == .tab("c"), "the shown card did not sample its tab")
+    }
+
+    /// Answers every tab with one picture and counts the asks.
+    private final class Previews: TabPreviewProvider {
+        var asked = 0
+        let image: CGImage?
+        init() {
+            let context = CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0,
+                                    space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            image = context?.makeImage()
+        }
+        func previewImage(for tab: TabID, maxPixelSize: CGSize) async -> CGImage? {
+            asked += 1
+            return image
+        }
+    }
+
+    /// A capture of the light theme showed a Markdown tab's card with the page's dark picture: the strip
+    /// kept each tab's picture until the tab closed. A theme change now asks the card on screen for its
+    /// picture again.
+    @Test func aThemeChangeAsksForTheCardsPictureAgain() async throws {
+        let s = Self.strip()
+        defer { s.tearDown() }
+        let previews = Previews()
+        s.strip.hoverCard.previewProvider = previews
+        try await Self.open("a", s)
+        try await Self.settle(until: { previews.asked == 1 })
+        try #require(previews.asked == 1, "the card asked for no picture")
+        let dark = s.strip.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        s.strip.appearance = NSAppearance(named: dark ? .aqua : .darkAqua)
+        try await Self.settle(until: { previews.asked == 2 })
+        #expect(previews.asked == 2, "the card kept its picture from the other theme")
     }
 }

@@ -43,13 +43,13 @@ pub(crate) fn field<'a>(record: &'a Value, path: &str) -> Option<&'a Value> {
 }
 
 /// The record cut down to `fields`, keyed by the path as given (`{"turn.activity": …}`). A
-/// field the record lacks is left out.
+/// field the record lacks is null.
 pub(crate) fn project_fields(record: &Value, fields: &[String]) -> Value {
     let mut row = serde_json::Map::new();
+    // Every selected key, null when the record lacks it (bench round 4 friction 10): a reader
+    // tells "empty" from "not asked for" and every row has the same keys.
     for path in fields {
-        if let Some(value) = field(record, path) {
-            row.insert(path.clone(), value.clone());
-        }
+        row.insert(path.clone(), field(record, path).cloned().unwrap_or(Value::Null));
     }
     Value::Object(row)
 }
@@ -150,9 +150,16 @@ mod tests {
         );
         assert_eq!(field(&wide, "名前."), None);
         let fields = parse_fields("name, turn.activity,nope").unwrap();
+        // W5-S, bench round 4 friction 10 (2026-11-08): a selected field the record lacks is
+        // null, so every row has every selected key (it was dropped).
         assert_eq!(
             project_fields(&info, &fields),
-            json!({"name": "lane", "turn.activity": "Bash"})
+            json!({"name": "lane", "turn.activity": "Bash", "nope": null})
+        );
+        let idle = json!({"name": "idle", "turn": {}});
+        assert_eq!(
+            project_fields(&idle, &fields),
+            json!({"name": "idle", "turn.activity": null, "nope": null})
         );
         assert!(parse_fields(" , ").is_err());
     }

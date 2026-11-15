@@ -9,9 +9,7 @@ scenario's gesture is timed from the press until the window rests (--settle seco
   split-right                Cmd-D in the bench workspace (`debug.key`, the real key path; --input action
                              runs splitRight instead), then the new pane closes (untimed)
   split-down                 Cmd-Shift-D (splitDown), then its close
-  right-sidebar-open/-close  Cmd-Opt-B (toggleRightSidebar, the side pane) twice; which press opened it is read
-                             from the main pane's width
-  sidebar-hide/-show         Cmd-B (toggleSidebar) twice, read the same way
+  sidebar-hide/-show         Cmd-B (toggleSidebar) twice; which press hid it is read from the main pane's width
   new-top                    New Workspace at Top above the existing ones, then it closes (untimed)
   switch                     goToWorkspace between the bench workspace and the last one, both ways
 
@@ -53,7 +51,7 @@ from bench_launch import LaunchError, launch_app  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory  # noqa: E402  (process lookups for --open)
 
-SCENARIOS = ["split-right", "split-down", "right-sidebar", "sidebar", "new-top", "switch"]
+SCENARIOS = ["split-right", "split-down", "sidebar", "new-top", "switch"]
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", required=True)
@@ -362,8 +360,6 @@ def fill(count, bench):
 
 def expected_rows(scenario):
     """The rows each round of a scenario must keep, by row label: both halves of a toggle, both switches."""
-    if scenario == "right-sidebar":
-        return {"right-sidebar-open": 1, "right-sidebar-close": 1}
     if scenario == "sidebar":
         return {"sidebar-show": 1, "sidebar-hide": 1}
     return {scenario: 2 if scenario == "switch" else 1}
@@ -513,8 +509,6 @@ def measure_count(count, wanted, bench):
             split(count, scenario, ["command"], "splitRight")
         elif scenario == "split-down":
             split(count, scenario, ["command", "shift"], "splitDown")
-        elif scenario == "right-sidebar":
-            toggle(count, scenario, "b", ["option", "command"], "toggleRightSidebar", ("open", "close"))
         elif scenario == "sidebar":
             toggle(count, scenario, "b", ["command"], "toggleSidebar", ("show", "hide"))
         elif scenario == "new-top":

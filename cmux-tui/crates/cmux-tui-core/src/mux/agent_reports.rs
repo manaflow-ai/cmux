@@ -11,6 +11,13 @@ impl Mux {
         source: AgentSource,
         session: Option<String>,
     ) -> anyhow::Result<AgentRecord> {
+        // A socket report that changes no durable state is answered from
+        // memory: no registry lock, no commit (`agent_reports_at_rest.rs`).
+        if let Some(record) =
+            self.answer_agent_report_at_rest(surface, state, source, session.as_deref())
+        {
+            return Ok(record);
+        }
         self.report_agent_with_sequence_lock(
             surface,
             state,

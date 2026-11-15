@@ -12,6 +12,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { playFailures } from "./support/galleryPlay";
 
 await requireBrowserLane("composer-emoji.browser.test.ts", async () => {
   setDefaultTimeout(150_000);
@@ -123,10 +124,10 @@ await requireBrowserLane("composer-emoji.browser.test.ts", async () => {
   for (const variant of ["arrow-return", "return-sends", "emoticon-tab", "arrows-escape", "no-trigger", "heart"])
     test(`play ${variant} passes`, async () => {
       const page = await stage(variant);
-      const play = await page.evaluate(() => document.documentElement.dataset.galleryPlay ?? "");
-      if (play === "fail")
-        console.log(variant, JSON.stringify(await page.evaluate(() => window.cmuxGalleryPlayReport)));
-      expect(play).not.toBe("fail");
+      // What the play did, not how fast the runner drew it: a frame over 33 ms on the shared runner
+      // fails the gallery's own grade (play.ts) but not this test (support/galleryPlay.ts, cx-mfkky).
+      const report = await page.evaluate(() => JSON.stringify(window.cmuxGalleryPlayReport ?? {}));
+      expect([variant, playFailures(report)]).toEqual([variant, []]);
       expect(await page.evaluate(() => document.documentElement.dataset.galleryReady)).not.toBe("error");
       if (variant === "arrow-return") expect((await read(page)).text).toContain("Ship it 🧸");
       if (variant === "return-sends") expect((await read(page)).text).not.toContain("🧸");

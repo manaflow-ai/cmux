@@ -126,7 +126,6 @@ extension ImportSuggestionsCenter {
             switch outcome {
             case .success(let opened?):
                 ledger.update(id) { $0.importedClassic(opened, now: now()) }
-                if ledger.job(id)?.kind == .conductor { conductorImportFinished() }
             case .success(nil): ledger.remove(id)
             case .failure(is CancellationError): ledger.update(id) { $0.paused(.interrupted, now: now()) }
             case .failure: ledger.update(id) { $0.failed(.importFailed, now: now()) }

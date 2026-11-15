@@ -17,9 +17,11 @@ public final class AgentPaneDroppedPaths {
     /// ``PageOpenPanel``): a chat on this Mac links the picked files where they are, as it does a
     /// Finder drop, instead of streaming a copy of each (a several-GB video took minutes and failed
     /// once the pick outlived the gesture's lifetime; Leo, 2026-10-31: "video attachments (big
-    /// attachments?) still sucks").
+    /// attachments?) still sucks"). `external`: files another app sent to the chat (the Send to
+    /// cmux Chat service, an image opened with cmux or dropped on its Dock icon, ``hold(external:claimed:)``),
+    /// which the page takes as a drop's (`chat.attach.external`).
     public nonisolated enum Kind: String, Sendable {
-        case drop, paste, choose
+        case drop, paste, choose, external
     }
 
     /// How long after the drop or paste the page may ask: it asks as soon as it has read the files.
@@ -56,8 +58,18 @@ public final class AgentPaneDroppedPaths {
     /// Exact copies of the person's recording drops, never their parent folders. These remain
     /// usable by this pane's existing file open/drag actions after the preview path disappears.
     private(set) var retainedPaths: [String] = []
+    /// The files and folders this pane handed the page from the person's own drop, paste or
+    /// pick, newest last, bounded to ``linkedLimit``: a new chat's first send to Cloud may carry these
+    /// to the machine (``AgentPaneModel/cloudCarriedFiles(_:)``). Page script can't add one.
+    private(set) var linkedFiles: [String] = []
+    /// Far past any one drop (a batch of a thousand files keeps every one); paths only, no handles.
+    nonisolated static let linkedLimit = 4096
     /// Invalidates async drop work when the pane switches to a different chat.
     private(set) var generation = UUID()
+    /// Files another app sent to this chat that the page has not taken yet (`chat.attach.external`),
+    /// oldest first, with the app they came from. Unlike a drop's record it has no lifetime: a new
+    /// chat's page may still be loading when they arrive. Only the App puts files here, never the page.
+    private var external: (urls: [URL], claimed: String?)?
 
     public init(now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
                 wall: @escaping @MainActor () -> TimeInterval = { Date().timeIntervalSince1970 }) {
@@ -147,6 +159,20 @@ public final class AgentPaneDroppedPaths {
         return picked
     }
 
+    /// Holds files another app sent to this chat for the page to take (``takeExternal()``), after any
+    /// it has not taken yet. `claimed`: the bundle id of the app they came from, when known; a file's
+    /// own metadata (a screenshot's) still says first.
+    public func hold(external urls: [URL], claimed: String?) {
+        guard !urls.isEmpty else { return }
+        external = ((external?.urls ?? []) + urls, claimed ?? external?.claimed)
+    }
+
+    /// The files ``hold(external:claimed:)`` holds, once.
+    func takeExternal() -> (urls: [URL], claimed: String?)? {
+        defer { external = nil }
+        return external
+    }
+
     /// Remembers only the trusted local upload owner's returned files, bounded to this pane's
     /// newest hundred copies. No parent directory becomes an allowed root.
     func retain(_ paths: [String]) {
@@ -157,6 +183,14 @@ public final class AgentPaneDroppedPaths {
         if retainedPaths.count > 100 { retainedPaths.removeFirst(retainedPaths.count - 100) }
     }
 
+    /// Records files handed to the page as link items, keeping the newest ``linkedLimit``.
+    func linked(_ paths: [String]) {
+        let fresh = Set(paths)
+        linkedFiles.removeAll { fresh.contains($0) }
+        linkedFiles.append(contentsOf: paths)
+        if linkedFiles.count > Self.linkedLimit { linkedFiles.removeFirst(linkedFiles.count - Self.linkedLimit) }
+    }
+
     /// A pane can move between chat sessions. Clear pending drops as well as already-retained
     /// copies so the next chat cannot consume or open the prior chat's recording.
     func clearForSessionChange() {
@@ -164,7 +198,9 @@ public final class AgentPaneDroppedPaths {
         held.values.forEach { $0.expiry.cancel() }
         held.removeAll()
         sourced.removeAll()
+        external = nil
         retainedPaths.removeAll()
+        linkedFiles.removeAll()
     }
 
     /// Whether WebKit names the file at `url` `name`. String equality is canonical: a name WebKit

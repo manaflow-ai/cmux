@@ -26,17 +26,13 @@ nonisolated struct SidebarSnapshotFile: Sendable {
 
     /// The folder of this build's small per-build files (sidebar snapshot,
     /// agent drafts and launch images, diff recents and viewed files). A
-    /// build that keeps its app names (``BuildIdentity/keepsAppNames``: the
-    /// shipped channels, cmux NEXT, a `reload.sh` DEV tag) keeps the folder it
-    /// had, so no file moves: `cmux/tags/<tag>/` for a tagged build, its
-    /// bundle's support folder for an untagged one. Every other build (its
-    /// bundle id names a tag that is not its own, an owned tag, the untagged
-    /// DEV build) uses the parent of its key's daemon state,
-    /// `cmux/builds/<key>/`.
+    /// build that keeps its app names (``BuildIdentity/keepsAppNames``) uses
+    /// `cmux-next/tags/<tag>/`, or its bundle's support folder untagged; every
+    /// other build `cmux-next/builds/<key>/` (``StateFolderMove`` moved both
+    /// out of classic's `cmux`).
     static func buildDirectory(launch: LaunchIdentity) -> URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let cmux = support.appending(path: "cmux", directoryHint: .isDirectory)
-        if !launch.build.keepsAppNames, let state = launch.build.daemonStateDirectory(appSupport: cmux) {
+        if !launch.build.keepsAppNames, let state = launch.build.daemonStateDirectory(appSupport: DaemonLauncher.nextSupport(support)) {
             return state.deletingLastPathComponent()
         }
         if let tag = launch.tag, !tag.isEmpty {

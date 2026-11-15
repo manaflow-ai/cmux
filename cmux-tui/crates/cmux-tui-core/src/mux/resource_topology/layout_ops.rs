@@ -177,6 +177,104 @@ impl Mux {
         )
     }
 
+    /// `set-divider-visible` (`split-divider-visibility-v1`): hide or show
+    /// one split's divider. It rides `pane.split_ratio.set` with the internal
+    /// [`DIVIDER_HIDDEN_FIELD`] in place of a ratio, so the change persists
+    /// to the registry and records an undo step as a ratio change does.
+    pub(super) fn resource_set_split_divider_hidden(
+        self: &Arc<Self>,
+        selectors: ResourceSelectors,
+        split_id: &str,
+        hidden: bool,
+        context: LayoutMutationContext<'_>,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        let LayoutMutationContext { coalesce, expected_revision, mutation, fingerprint } = context;
+        let split_id = SplitPublicId::parse(split_id.to_string()).map_err(anyhow::Error::new)?;
+        self.commit_resource_mutation_plan(
+            mutation,
+            "pane.split_ratio.set",
+            fingerprint,
+            None,
+            expected_revision,
+            move |state, registry| {
+                let resolved = self
+                    .resolve_resource_path_in_state(
+                        state,
+                        registry,
+                        ResourceTarget::Pane,
+                        &selectors,
+                    )
+                    .map_err(anyhow::Error::new)?;
+                let pane = resolved.pane.context("pane selector has no live pane")?;
+                let pane_id = resolved.path.pane.context("pane selector has no public id")?;
+                let split = state
+                    .resource_indexes
+                    .splits
+                    .get(&split_id)
+                    .copied()
+                    .with_context(|| format!("unknown split {split_id}"))?;
+                let (workspace, screen) =
+                    state.screen_of(pane).context("resolved pane has no screen")?;
+                let current = state
+                    .workspaces
+                    .get(workspace)
+                    .and_then(|workspace| workspace.screens.get(screen))
+                    .context("resolved pane's screen is gone")?;
+                anyhow::ensure!(
+                    current.root.contains_split(split),
+                    "split belongs to another screen"
+                );
+                let mut layout = current.layout_snapshot();
+                set_layout_divider_hidden(&mut layout, split, hidden)?;
+                let topology = registry.resource_topology_snapshot()?;
+                let durable = registry_screen_from_layout(
+                    state,
+                    workspace,
+                    screen,
+                    &layout,
+                    &topology,
+                    current.name.clone(),
+                )?;
+                let mut after = topology;
+                *after
+                    .screens
+                    .iter_mut()
+                    .find(|screen| screen.public_id == durable.public_id)
+                    .context("screen is absent from durable topology")? = durable.clone();
+                let value = pane_value(state, topology_pane(&after, &pane_id)?, &after)?;
+                let screen_value = screen_value(
+                    &durable,
+                    &after,
+                    after.active_workspace.as_ref(),
+                    active_screen(&after, &durable.workspace_id),
+                )?;
+                let result = json!({"pane":pane_id,"screen":durable.public_id});
+                let deltas = upserts([
+                    ("pane", pane_id.as_str(), value),
+                    ("screen", durable.public_id.as_str(), screen_value),
+                ]);
+                Ok(ResourceMutationPlan::new(
+                    ResourcePatch { changes: vec![ResourceChange::UpsertScreen(durable)] },
+                    result,
+                    deltas,
+                    move |state| {
+                        let Some(target) = state
+                            .workspaces
+                            .get_mut(workspace)
+                            .and_then(|workspace| workspace.screens.get_mut(screen))
+                        else {
+                            return;
+                        };
+                        let before = target.layout_snapshot_for_coalescing_change(coalesce);
+                        target.root = layout.root;
+                        target.layout_columns = layout.layout_columns;
+                        target.record_prepared_layout_change(before, Vec::new(), coalesce);
+                    },
+                ))
+            },
+        )
+    }
+
     pub(super) fn resource_set_viewport_width(
         self: &Arc<Self>,
         selectors: ResourceSelectors,

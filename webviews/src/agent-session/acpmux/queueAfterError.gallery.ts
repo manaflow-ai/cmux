@@ -63,11 +63,7 @@ export default agentPaneEntry({
   title: "Queue after a failed turn",
   area: "Agent pane",
   height: 420,
-  covers: [
-    "agent-session/acpmux/ComposerQueue.tsx",
-    "agent-session/acpmux/conversation/queuedMessages.ts",
-    "agent-session/acpmux/direct.ts",
-  ],
+  covers: ["agent-session/acpmux/ComposerQueue.tsx", "agent-session/acpmux/conversation/queuedMessages.ts"],
   variants: {
     before: {
       note: "Before: a failed turn held acpmux's inbox notice as the person's queued prompt, under \"Paused after an error\", until Resume.",

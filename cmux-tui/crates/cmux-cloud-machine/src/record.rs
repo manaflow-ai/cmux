@@ -399,6 +399,10 @@ pub struct Machine {
     /// When the machine last started running (epoch ms); nil while it is paused.
     #[serde(default)]
     pub running_since: Option<f64>,
+    /// When the server deletes the machine if it stays paused (the next record's `evict_at`,
+    /// epoch ms); nil when the record does not say (an older server, or one not deleting yet).
+    #[serde(default)]
+    pub evict_at: Option<f64>,
     /// The auto-size pick a create with `autosize` answered (`{vcpus, memoryGb, pick, reason}`).
     #[serde(default)]
     pub size_pick: Option<Value>,
@@ -442,6 +446,7 @@ impl Machine {
             updated_at: None,
             server_revision: None,
             running_since: None,
+            evict_at: None,
             size_pick: None,
             last_change_failure: None,
             pending_change: None,
@@ -643,6 +648,11 @@ pub fn from_next(value: &Value) -> Option<Machine> {
     machine.team = json::text(fields.get("team"));
     // The contract's `created_at` (epoch ms); the classic `createdAt` is never in this record.
     machine.created_at = fields.get("created_at").and_then(Value::as_f64);
+    // When a machine left paused is deleted (cmux-platform `evict_at`, epoch ms); null or absent
+    // while the server is not deleting paused machines, and a malformed value drops only itself.
+    machine.evict_at = first(fields, &["evict_at", "evictAt"])
+        .and_then(Value::as_f64)
+        .filter(|at| at.is_finite() && *at > 0.0);
     Some(machine)
 }
 

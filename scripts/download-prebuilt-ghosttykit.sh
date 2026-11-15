@@ -194,11 +194,7 @@ if [ "$FROM_CACHE" -eq 0 ]; then
       break
     fi
     if [ "$attempt" -gt "$DOWNLOAD_RETRIES" ]; then
-      if fetch_via_release_api && archive_matches_checksum; then
-        break
-      fi
-      echo "Failed to download $ARCHIVE_NAME after $attempt attempts (curl exit $status)" >&2
-      exit 1
+      break
     fi
     # 33: the server refused the byte range, so the partial file cannot be resumed.
     if [ "$status" -eq 33 ]; then
@@ -207,6 +203,14 @@ if [ "$FROM_CACHE" -eq 0 ]; then
     echo "Download attempt $attempt failed (curl exit $status); retrying in ${DOWNLOAD_RETRY_DELAY}s" >&2
     sleep "$DOWNLOAD_RETRY_DELAY"
   done
+  # The API fallback runs once, after the retries, never inside the sleeping loop:
+  # the loop must not call the GitHub API (tests/test_ci_no_github_token_polling.py).
+  if [ "$status" -ne 0 ] && ! archive_matches_checksum; then
+    if ! { fetch_via_release_api && archive_matches_checksum; }; then
+      echo "Failed to download $ARCHIVE_NAME after $attempt attempts (curl exit $status)" >&2
+      exit 1
+    fi
+  fi
 fi
 
 ACTUAL_SHA256="$(shasum -a 256 "$ARCHIVE_PATH" | awk '{print $1}')"

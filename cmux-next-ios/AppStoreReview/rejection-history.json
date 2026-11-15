@@ -1,0 +1,77 @@
+{
+  "about": "Every App Review rejection of the cmux iOS app, and the detector that now catches its class before submission in the NEXT app (cmux-next-ios). cmux-next-ios/scripts/app_review_gate.py lint fails when a rejection has no detector or names one that no longer exists. Add the next rejection here the day it arrives, with its detector, in the same PR as the fix.",
+  "rejections": [
+    {
+      "date": "2026-10 (first 1.0.0 submission)",
+      "guideline": "2.5.2",
+      "summary": "Apple read the app as downloading or executing code",
+      "apple_said_paraphrased": "Software Requirements: apps may not download, install or execute code that changes features or functionality.",
+      "root_cause": "The review notes did not explain that terminal commands run on the user's Mac; the binary carried code paths that looked like local execution.",
+      "detectors": [
+        "lint:exec.dynamic-code",
+        "lint:api.private-framework"
+      ]
+    },
+    {
+      "date": "2026-10 (second submission)",
+      "guideline": "2.1(a)",
+      "summary": "Reviewer could not access the app's features without a Mac",
+      "apple_said_paraphrased": "We were unable to review your app because it requires a paired device; provide a demo mode or demo hardware.",
+      "root_cause": "No demonstration mode; the reviewer had no Mac.",
+      "detectors": [
+        "uitest:testSignedInReviewerReachesHomeWithoutAMac",
+        "uitest:testChiefOpensAndAMessageSendsWithAReply"
+      ]
+    },
+    {
+      "date": "2026-10-27 (submission 40f744df)",
+      "guideline": "2.5.1",
+      "summary": "System VPN API (Network Extension packet tunnel) in the binary",
+      "apple_said_paraphrased": "Your app uses the VPN API; apps offering VPN services must be published by an organization and use NEVPNManager for VPN services only.",
+      "root_cause": "The CloudVPN packet tunnel extension and its entitlement shipped in the App Store binary.",
+      "detectors": [
+        "lint:entitlement.vpn",
+        "lint:binary.vpn-extension",
+        "lint:api.vpn",
+        "lint:api.vpn-source"
+      ]
+    },
+    {
+      "date": "2026-11-07",
+      "guideline": "2.1(a)",
+      "summary": "Scan Pairing Code did nothing (iPad, fresh install)",
+      "apple_said_paraphrased": "The Scan Pairing Code button was unresponsive.",
+      "root_cause": "The scanner gate swallowed the tap when Tailscale was not selected; tests used a mock that never hit that state.",
+      "detectors": [
+        "uitest:testScanWithCameraDeniedExplainsInsteadOfDoingNothing",
+        "uitest:testSettingsHaveNoDeadControls",
+        "uitest:testHomeHasNoDeadControls",
+        "uitest:testOnboardingHasNoDeadControls"
+      ]
+    },
+    {
+      "date": "2026-11-07",
+      "guideline": "2.1(a) / 2.1(b)",
+      "summary": "No way past the connect page, so the app's features were unreachable",
+      "apple_said_paraphrased": "We could not locate the in-app purchases in the app.",
+      "root_cause": "The connect page required a live Mac; the demonstration account hit the same gate.",
+      "detectors": [
+        "uitest:testOnboardingHasAWayForwardWithoutAMac",
+        "uitest:testSignedInReviewerReachesHomeWithoutAMac",
+        "uitest:testOnboardingHasNoDeadControls"
+      ]
+    },
+    {
+      "date": "2026-11-07",
+      "guideline": "1.5",
+      "summary": "Support URL did not lead to support",
+      "apple_said_paraphrased": "The Support URL provided in App Store Connect does not direct to a website with information users can use to ask questions and request support.",
+      "root_cause": "The support URL was not checked for a working page with a contact route.",
+      "detectors": [
+        "lint:url.support-contact",
+        "lint:url.status",
+        "lint:metadata.support-url"
+      ]
+    }
+  ]
+}

@@ -83,7 +83,7 @@ struct HomeWindowControlsTests {
         let win = Self.window()
         defer { win.close() }
         let suite = "cmux.tests.windowControls.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 700))
         let split = HomeSidebarSplitView(sidebar: home, content: NSView(), widths: HomeSidebarWidth(defaults: defaults))

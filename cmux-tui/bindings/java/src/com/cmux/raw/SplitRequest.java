@@ -12,6 +12,9 @@ import java.util.Objects;
 
 /** Immutable split request. Protocol v5; authority: control. */
 public final class SplitRequest implements WireValue {
+    /** The split the new split wraps whole (the new pane after it, as wide or tall as the whole subtree): inserting a pane at a divider. pane must be that split's last pane and dir right or down. */
+    private final Field<UInt64> around;
+    private final Field<Boolean> before;
     private final Field<Integer> cols;
     private final Field<String> cwd;
     private final SplitDirection dir;
@@ -28,6 +31,8 @@ public final class SplitRequest implements WireValue {
     private final Field<String> url;
 
     private SplitRequest(Builder builder) {
+        this.around = builder.around;
+        this.before = builder.before;
         this.cols = builder.cols;
         this.cwd = builder.cwd;
         if (!builder.dirSet) throw new IllegalArgumentException("dir is required");
@@ -48,6 +53,8 @@ public final class SplitRequest implements WireValue {
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<UInt64> around() { return around; }
+    public Field<Boolean> before() { return before; }
     public Field<Integer> cols() { return cols; }
     public Field<String> cwd() { return cwd; }
     public SplitDirection dir() { return dir; }
@@ -66,6 +73,14 @@ public final class SplitRequest implements WireValue {
     public static SplitRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "SplitRequest");
         Builder builder = builder();
+        Object rawAround = Wire.optional(object, "around");
+        if (!Wire.isMissing(rawAround)) {
+            builder.around(rawAround == null ? null : Wire.uint64(rawAround, "SplitRequest.around"));
+        }
+        Object rawBefore = Wire.optional(object, "before");
+        if (!Wire.isMissing(rawBefore)) {
+            builder.before(Wire.bool(rawBefore, "SplitRequest.before"));
+        }
         Object rawCols = Wire.optional(object, "cols");
         if (!Wire.isMissing(rawCols)) {
             builder.cols(rawCols == null ? null : Wire.uint16(rawCols, "SplitRequest.cols"));
@@ -124,6 +139,8 @@ public final class SplitRequest implements WireValue {
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "around", around);
+        Wire.put(object, "before", before);
         Wire.put(object, "cols", cols);
         Wire.put(object, "cwd", cwd);
         Wire.put(object, "dir", dir);
@@ -144,16 +161,18 @@ public final class SplitRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SplitRequest that)) return false;
-        return Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(dir, that.dir) && Objects.equals(env, that.env) && Objects.equals(keep, that.keep) && Objects.equals(kind, that.kind) && Objects.equals(pane, that.pane) && Objects.equals(paneId, that.paneId) && Objects.equals(rows, that.rows) && Objects.equals(shellArgs, that.shellArgs) && Objects.equals(splitId, that.splitId) && Objects.equals(tabId, that.tabId) && Objects.equals(terminalId, that.terminalId) && Objects.equals(url, that.url);
+        return Objects.equals(around, that.around) && Objects.equals(before, that.before) && Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(dir, that.dir) && Objects.equals(env, that.env) && Objects.equals(keep, that.keep) && Objects.equals(kind, that.kind) && Objects.equals(pane, that.pane) && Objects.equals(paneId, that.paneId) && Objects.equals(rows, that.rows) && Objects.equals(shellArgs, that.shellArgs) && Objects.equals(splitId, that.splitId) && Objects.equals(tabId, that.tabId) && Objects.equals(terminalId, that.terminalId) && Objects.equals(url, that.url);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cols, cwd, dir, env, keep, kind, pane, paneId, rows, shellArgs, splitId, tabId, terminalId, url); }
+    public int hashCode() { return Objects.hash(around, before, cols, cwd, dir, env, keep, kind, pane, paneId, rows, shellArgs, splitId, tabId, terminalId, url); }
 
     @Override
     public String toString() { return "SplitRequest" + toWire(); }
 
     public static final class Builder {
+        private Field<UInt64> around = Field.omitted();
+        private Field<Boolean> before = Field.omitted();
         private Field<Integer> cols = Field.omitted();
         private Field<String> cwd = Field.omitted();
         private SplitDirection dir;
@@ -171,6 +190,14 @@ public final class SplitRequest implements WireValue {
         private Field<String> terminalId = Field.omitted();
         private Field<String> url = Field.omitted();
 
+        public Builder around(UInt64 value) {
+            this.around = Field.ofNullable(value);
+            return this;
+        }
+        public Builder before(Boolean value) {
+            this.before = Field.of(value);
+            return this;
+        }
         public Builder cols(Integer value) {
             this.cols = Field.ofNullable(value);
             return this;

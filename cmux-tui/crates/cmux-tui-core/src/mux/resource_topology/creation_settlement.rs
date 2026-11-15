@@ -116,6 +116,11 @@ impl Mux {
                 ResourcePatchCommit { revision, result: created_path, replayed: true }
             }
             ResourceCreationPreparation::Blocked { idempotency_key, operation } => {
+                self.report_resource_effect_indeterminate(
+                    &idempotency_key,
+                    &operation,
+                    BLOCKED_CREATION_CAUSE,
+                );
                 return Err(anyhow::Error::new(resource_effect_indeterminate(
                     &idempotency_key,
                     &operation,
@@ -228,7 +233,7 @@ impl Mux {
     ) -> anyhow::Result<ResourcePatchCommit> {
         match self.settle_resource_creation(recovery, Some(failure.clone())) {
             Ok(settlement) => {
-                creation_settlement_result(settlement, idempotency_key, operation_name)
+                creation_settlement_result(self, settlement, idempotency_key, operation_name)
             }
             Err(error) => {
                 eprintln!(
@@ -344,19 +349,27 @@ impl Mux {
                     None,
                 ) {
                     Ok(_) => Ok(ResourceCreationSettlement::NotApplied(error)),
-                    Err(_) => {
+                    Err(commit_error) => {
                         if let Some(settlement) = self.persisted_creation_settlement(&recovery)? {
                             return Ok(settlement);
                         }
-                        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                        Ok(ResourceCreationSettlement::Indeterminate)
+                        self.indeterminate_creation(
+                            &recovery,
+                            &format!(
+                                "the creation did not apply ({}: {}) and its failure outcome \
+                                 commit failed: {commit_error:#}",
+                                error.code, error.message
+                            ),
+                        )
                     }
                 }
             }
             ResourceCreationEvidence::Ambiguous => {
                 self.rollback_interrupted_workspace_creation(&recovery.intent)?;
-                self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                Ok(ResourceCreationSettlement::Indeterminate)
+                self.indeterminate_creation(
+                    &recovery,
+                    &creation_cause("the creation evidence is ambiguous", failure.as_ref()),
+                )
             }
             ResourceCreationEvidence::AmbiguousLive => {
                 // The terminal's outcome is unknown, but the creation did not
@@ -375,15 +388,22 @@ impl Mux {
                     );
                 }
                 self.rollback_interrupted_workspace_creation(&recovery.intent)?;
-                self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                Ok(ResourceCreationSettlement::Indeterminate)
+                self.indeterminate_creation(
+                    &recovery,
+                    &creation_cause(
+                        "the live state does not show whether the creation applied",
+                        failure.as_ref(),
+                    ),
+                )
             }
             ResourceCreationEvidence::Pending => Ok(ResourceCreationSettlement::Pending),
             ResourceCreationEvidence::TerminalClosedAfterFailure => {
                 let Some(error) = failure else {
                     self.rollback_interrupted_workspace_creation(&recovery.intent)?;
-                    self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                    return Ok(ResourceCreationSettlement::Indeterminate);
+                    return self.indeterminate_creation(
+                        &recovery,
+                        "the created terminal closed and the failure that closed it is unknown",
+                    );
                 };
                 self.rollback_interrupted_workspace_creation(&recovery.intent)?;
                 match self.commit_resource_effect(
@@ -394,16 +414,38 @@ impl Mux {
                     None,
                 ) {
                     Ok(_) => Ok(ResourceCreationSettlement::NotApplied(error)),
-                    Err(_) => {
+                    Err(commit_error) => {
                         if let Some(settlement) = self.persisted_creation_settlement(&recovery)? {
                             return Ok(settlement);
                         }
-                        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                        Ok(ResourceCreationSettlement::Indeterminate)
+                        self.indeterminate_creation(
+                            &recovery,
+                            &format!(
+                                "the creation did not apply ({}: {}) and its failure outcome \
+                                 commit failed: {commit_error:#}",
+                                error.code, error.message
+                            ),
+                        )
                     }
                 }
             }
         }
+    }
+
+    /// Marks a creation indeterminate and logs `cause`, so the daemon log
+    /// says why the creation answers `mutation.indeterminate`.
+    pub(super) fn indeterminate_creation(
+        &self,
+        recovery: &ResourceCreationRecovery,
+        cause: &str,
+    ) -> anyhow::Result<ResourceCreationSettlement> {
+        self.report_resource_effect_indeterminate(
+            &recovery.idempotency_key,
+            &recovery.operation,
+            cause,
+        );
+        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
+        Ok(ResourceCreationSettlement::Indeterminate)
     }
 
     /// Roll back the workspace a creation staged, when it is not public.

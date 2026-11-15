@@ -3,7 +3,7 @@
 
 Runs on a GUI host through `nx-remote --needs gui --app-from-fleet cmux --tag TAG --ref SHA`,
 never on a laptop. Launches the tagged app with a scratch config (no-activate), then for each
-motion configuration (in memory through `debug.motion`: bounce, per-kind switches, Reduce Motion)
+motion configuration (in memory through `debug.motion`: per-kind switches, Reduce Motion)
 records `debug.new_tab` frame_strip around Cmd-T, the strip's +, closing a tab, Cmd-N, Cmd-D,
 Cmd-Shift-D and the close of each split, with `debug.motion` spans and per-frame samples (clock dt,
 travel left per animator) for each. Cmd-T and + start from a terminal tab (`newSurface`): on a New Tab
@@ -14,22 +14,24 @@ is left (`display_links`) and samples the app's CPU while idle. Writes OUT/resul
 strips under OUT/<config>/<gesture>/. A build without the new `debug.motion` actions (the base)
 ignores them; its results say which configurations it could not set.
 
-Usage: motion-proof.py --app APP --tag TAG [--out DIR] [--configs default,bouncy,...]
+Usage: motion-proof.py --app APP --tag TAG [--out DIR] [--configs default,panes-on,...]
 """
 import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 # Phase 3 (hq-1d 2026-10-14): every kind is off by default (instant, no spring); each opt-in alone,
-# all of them bouncy, and all of them under Reduce Motion (which still moves nothing).
+# and all of them under Reduce Motion (which still moves nothing). No configuration bounces: the
+# bounce setting is gone (no bounce in any motion, Lawrence 2026-11-10).
 ALL_ON = [{"action": "kind", "name": k, "value": True} for k in ("paneAnimations", "newTab", "newWorkspace")]
 CONFIGS = {
     "default": [],
     "panes-on": [{"action": "kind", "name": "paneAnimations", "value": True}],
     "newtab-on": [{"action": "kind", "name": "newTab", "value": True}],
     "newworkspace-on": [{"action": "kind", "name": "newWorkspace", "value": True}],
-    "bouncy": ALL_ON + [{"action": "bounce", "value": "subtle"}],
     "reduce": ALL_ON + [{"action": "reduce", "value": True}],
 }
-RESET = [{"action": "bounce", "value": "none"}, {"action": "reduce", "value": None},
+RESET = [{"action": "reduce", "value": None},
          {"action": "kind", "name": "paneAnimations", "value": False}, {"action": "kind", "name": "newTab", "value": False},
          {"action": "kind", "name": "newWorkspace", "value": False}, {"action": "speed", "value": "fast"}]
 
@@ -200,7 +202,7 @@ def run_config(name, settings):
         rpc("debug.motion", change)
     state = rpc("debug.motion", {"action": "read"}) or {}
     out = os.path.join(opts.out, name)
-    results = {"settings": settings, "state": {k: state.get(k) for k in ("speed", "reduce_motion", "bounce", "enabled_kinds", "pane_animations")},
+    results = {"settings": settings, "state": {k: state.get(k) for k in ("speed", "reduce_motion", "enabled_kinds", "pane_animations")},
                "gestures": []}
     # Cmd-T from a terminal tab (Cmd-T on a New Tab page only focuses it), then its close.
     terminal_tab()
@@ -333,7 +335,7 @@ try:
            "CMUX_NEXT_TEST_WINDOW_FRAME": f"40,40,{WIDTH},{HEIGHT}"}
     log = open(os.path.join(opts.out, f"app-{opts.tag}.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    print(f"launched pid {app.pid}", flush=True)
+    safe_print(f"launched pid {app.pid}", flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 120):
         sys.exit("the tagged app did not come up")
     time.sleep(3)  # test harness wait: first frame and the New Tab spare settle
@@ -354,7 +356,7 @@ try:
         report["loop"] = {"opens": opts.loop, "work": loop.get("work"), "spans": len(loop.get("spans") or []),
                           "sidebar_frames": sum(1 for x in loop.get("samples") or [] if x.get("name") == "sidebar.travel"),
                           "state": {k: loop.get(k) for k in ("enabled_kinds", "pane_animations", "display_links")}}
-        print("loop", json.dumps(report["loop"]), flush=True)
+        safe_print("loop", json.dumps(report["loop"]), flush=True)
         json.dump(report["loop"], open(os.path.join(opts.out, "loop.json"), "w"), indent=1)
     for name in ([] if opts.loop else opts.configs.split(",")):
         report["configs"][name] = run_config(name, CONFIGS[name])
@@ -365,13 +367,13 @@ try:
     state = rpc("debug.motion", {"action": "read"}) or {}
     report["idle"] = {"display_links": state.get("display_links"), "active_clients": state.get("active_clients"),
                       "cpu_percent_samples": idle_cpu(app.pid)}
-    print("idle", report["idle"], flush=True)
+    safe_print("idle", report["idle"], flush=True)
     json.dump(report, open(os.path.join(opts.out, "results.json"), "w"), indent=1)
 finally:
     if app and app.poll() is None:
         # The DEBUG quit fixture (a scripted quitEndSessions is user-only since cx-zk9t).
         reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
-        print("quit:", json.dumps(reply)[:200], flush=True)
+        safe_print("quit:", json.dumps(reply)[:200], flush=True)
         try:
             app.wait(30)
         except subprocess.TimeoutExpired:
@@ -389,4 +391,4 @@ finally:
                        env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
     ps = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
     left = [line for line in ps.splitlines() if (opts.app + "/") in line]
-    print(f"leftovers of this bundle: {len(left)}", flush=True)
+    safe_print(f"leftovers of this bundle: {len(left)}", flush=True)

@@ -6,7 +6,14 @@ import { Close } from "./icons";
 import { MessageCopy, MessageFooterRow } from "./MessageActions";
 import { ROW_ICON } from "./messageActionsModel";
 import { TurnActionsContext, type QueuedActions, type TakeBack } from "./turnActions";
-import { NewestSteerContext, sentNowState, sentNowListeners, publishSentNow, markSentNow } from "./pendingSteerModel";
+import {
+  NewestSteerContext,
+  SteerChatContext,
+  sentNowState,
+  sentNowListeners,
+  publishSentNow,
+  markSentNow,
+} from "./pendingSteerModel";
 export function PendingSteer({
   row,
   send,
@@ -21,22 +28,24 @@ export function PendingSteer({
   const t = useT();
   const { unsteer } = useContext(TurnActionsContext);
   const newest = useContext(NewestSteerContext);
+  const chat = useContext(SteerChatContext);
   const [sending, setSending] = useState(false);
   const waiting = row.steer === "waiting";
-  const [sentNow, setSentNow] = useState(false);
   const [kept, setKept] = useState(false);
   const promptId = row.steerPromptId;
   const sent = useSyncExternalStore(subscribeSentNow, readSentNow, readSentNow);
   // Sent now from any of its controls: this row's Send now, or the composer queue's or a queued
-  // card's, which turn a queued prompt into a steer under the same promptId.
-  const ownSent = sentNow || Boolean(promptId && sent.ids.has(promptId));
+  // card's, which turn a queued prompt into a steer under the same promptId. Read from the store by
+  // promptId, never this row's own state: row ids repeat across chats, so React keeps this row when
+  // the page switches chats in place (cmux#32846).
+  const ownSent = Boolean(promptId && sent.ids.has(promptId));
   // The newest steer's Send now covers the earlier ones: the agent reads them with it. Before paint,
   // so an earlier steer never shows its X for a frame after the newest's Send now worked.
   const isNewest = newest === row.id;
   useLayoutEffect(() => {
-    if (waiting && ownSent && isNewest) coverUntil(row.at);
-  }, [waiting, ownSent, isNewest, row.at]);
-  const covered = newest !== undefined && !isNewest && row.at <= sent.coveredAt;
+    if (waiting && ownSent && isNewest) coverUntil(chat, row.at);
+  }, [waiting, ownSent, isNewest, chat, row.at]);
+  const covered = newest !== undefined && !isNewest && row.at <= (sent.coveredAt.get(chat) ?? Number.NEGATIVE_INFINITY);
   // The transcript virtualizes rows: a remount must not offer an accepted send again.
   if (!waiting || ownSent || covered) return children ?? null;
   if (!promptId) return null;
@@ -83,9 +92,7 @@ export function PendingSteer({
               void send(promptId, { op: "send_now" })
                 .catch(() => false)
                 .then((sent) => {
-                  if (!sent) return;
-                  markSentNow(promptId);
-                  setSentNow(true);
+                  if (sent) markSentNow(promptId);
                 })
                 .finally(() => setSending(false));
             }}
@@ -103,6 +110,7 @@ function subscribeSentNow(listener: () => void): () => void {
   return () => sentNowListeners.delete(listener);
 }
 const readSentNow = () => sentNowState;
-function coverUntil(at: number): void {
-  if (at > sentNowState.coveredAt) publishSentNow({ ...sentNowState, coveredAt: at });
+function coverUntil(chat: string, at: number): void {
+  if (at > (sentNowState.coveredAt.get(chat) ?? Number.NEGATIVE_INFINITY))
+    publishSentNow({ ...sentNowState, coveredAt: new Map(sentNowState.coveredAt).set(chat, at) });
 }

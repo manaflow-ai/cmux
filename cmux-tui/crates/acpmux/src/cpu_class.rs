@@ -14,22 +14,33 @@
 //! plist parse at disk tier 3) with under 1 s of CPU, and every Chief turn failed; the same
 //! command at normal class answered in 14.5 s. So:
 //!
-//! 1. The harness starts at its starter's class (an agent host's utility clamp, `qos.rs`, or the
-//!    daemon's class) and keeps no background class it would inherit: between fork and exec it
+//! 1. The harness starts at the daemon's class (its agent host starts there too and takes no
+//!    utility clamp, `qos.rs`: a person waits on a start) and keeps no background class it would
+//!    inherit: between fork and exec it
 //!    clears one set on its starter by the starter itself (an agent host under
 //!    `ACPMUX_QOS=background`, [`start_at_normal`]), and right after the spawn the daemon clears
 //!    one that another process set ([`clear_running`]; a process cannot clear that one itself).
 //!    The exec and the harness's own start run at normal CPU class. Disk I/O stays at the
-//!    starter's `IOPOL_UTILITY` (`qos.rs`): utility, not throttled.
+//!    host's `IOPOL_UTILITY` (`qos.rs`): utility, not throttled.
 //! 2. Once the session's start is over (its `initialize` and `session/new` or `session/load`
 //!    answered, `hub/lifecycle.rs` `ensure_child`), the daemon puts the running harness in its
 //!    class ([`CpuClass::enter`]): `setpriority(PRIO_DARWIN_PROCESS, pid, PRIO_DARWIN_BG)`, which
-//!    macOS allows on another process of the same user. Every process the harness starts after
+//!    macOS allows on another process of the same user. A `normal` harness goes to the agent
+//!    tier's nice instead (`qos::AGENT_NICE`: +11 on macOS, the utility clamp's base priority;
+//!    +5 on Linux, and its host's session group), with its whole process group in one
+//!    `setpriority(PRIO_PGRP)`: the processes it started during its start, its MCP servers and a
+//!    launcher's agent, at its own priority as under the clamp they replace. Every process the harness starts after
 //!    that inherits it, so the builds and tests of its turns run below the GUI. A process it
 //!    started during its start keeps the class it started at: an MCP server, and the real agent
 //!    of a harness that is only a launcher (a script or adapter that starts the agent as a child
 //!    and waits for it), whose turns then run at normal class. acpmux does not list processes
 //!    (`scripts/cmux-next/check-no-process-scan.py`), so only the harness itself is reniced, once.
+//!    So a Claude Code launcher defaults to `normal` ([`default_for`]): lowering it cannot reach
+//!    its agent's tools, and it can carry the agent's stream. `sr2 claude` relays Claude Code's
+//!    stdin and stdout, so at background class on a busy Mac (2026-11-08, load 450 on 15 cores)
+//!    what Claude Code wrote reached acpmux 6.5 s late at the median and 54 s at p90, against
+//!    0.1 s at p90 for the relays moved back to normal class in the same minutes. A tool call
+//!    whose PreToolUse hook got no answer within its 90 s was refused ("hook did not respond").
 //! 3. A cold start that still fails or misses its deadline with its harness at background class
 //!    (set again during the start by another process) is retried once, and the retry is logged.
 //! 4. A start that misses its deadline says what its harness was doing ([`HarnessSeen`]): alive or
@@ -47,7 +58,8 @@
 //! The class, first set wins: the profile's env `ACPMUX_SESSION_CPU_CLASS` as the harness gets it
 //! (its `${env:…}` references resolved; one build-heavy profile can opt out), the daemon's env
 //! `ACPMUX_SESSION_CPU_CLASS`, config `session.cpuClass`
-//! (`acpmux config --set session.cpu_class=normal`), then `background`. Linux sessions get their
+//! (`acpmux config --set session.cpu_class=normal`), then [`default_for`] the harness:
+//! `background`, or `normal` for a Claude Code launcher. Linux sessions get their
 //! CPU share from their cgroup scope's `CPUWeight` instead (`session_scope.rs`), and other
 //! platforms start harnesses as before: there the class is read and ignored.
 
@@ -67,8 +79,30 @@ pub enum CpuClass {
     Background,
 }
 
-/// The class a session runs at when nothing names one.
+/// The class a session runs at when nothing names one, and its harness is no launcher.
 pub const DEFAULT: CpuClass = CpuClass::Background;
+
+/// Where Claude Code's installers keep its files (as `harness_health/channel.rs` lists them). A
+/// path into one of them is Claude Code under another name: the native installer's `claude` is a
+/// symlink to `versions/<version>`, and a remote chain's `argv[0]` is the resolved file.
+const CLAUDE_INSTALLS: &[&str] =
+    &["/.local/share/claude/", "/.claude/local/", "/@anthropic-ai/claude-code/"];
+
+/// The class a harness runs at when nothing names one (module docs, item 2). What the profile
+/// says decides, never what another process is named. A Claude Code profile whose `argv` does not
+/// start with Claude Code is a launcher. A wrapper that execs Claude Code reads as one too, and
+/// then it and its tools run at normal class; its profile can still ask for `background`.
+/// It reads the profile's `argv`, not the spawned program: a remote chain spawns `sandbox-exec`
+/// whatever the profile runs. An empty `argv` runs `claude` (`claude_stdio::spawn_plan`).
+pub fn default_for(kind: crate::config::HarnessKind, argv: &[String]) -> CpuClass {
+    let launcher = kind == crate::config::HarnessKind::ClaudeStdio
+        && argv.first().is_some_and(|program| {
+            let name = std::path::Path::new(program).file_name().and_then(|name| name.to_str());
+            !matches!(name, Some("claude" | "claude.exe"))
+                && !CLAUDE_INSTALLS.iter().any(|install| program.contains(install))
+        });
+    if launcher { CpuClass::Normal } else { DEFAULT }
+}
 
 impl CpuClass {
     /// `normal` or `background` (any case, trimmed); None for anything else.
@@ -80,25 +114,39 @@ impl CpuClass {
         }
     }
 
-    /// The class of a session whose harness gets the environment `harness_env` (the command's
-    /// complete one: the profile's values resolved, the daemon's own `ACPMUX_*` removed), with the
-    /// daemon's env and config read now (at each spawn, as the session scope's limits are).
+    /// The class of a session whose harness has `kind` and `argv` in its profile and gets the
+    /// environment `harness_env` (the command's complete one: the profile's values resolved, the daemon's own
+    /// `ACPMUX_*` removed), with the daemon's env and config read now (at each spawn, as the
+    /// session scope's limits are).
     #[cfg(target_os = "macos")]
-    pub fn for_session<'a>(harness_env: impl IntoIterator<Item = (&'a str, &'a str)>) -> Self {
+    pub fn for_session<'a>(
+        kind: crate::config::HarnessKind,
+        argv: &[String],
+        harness_env: impl IntoIterator<Item = (&'a str, &'a str)>,
+    ) -> Self {
         let profile = harness_env.into_iter().find(|(k, _)| *k == ENV).map(|(_, v)| v);
         let config = crate::config::Config::load().ok().and_then(|c| c.session.cpu_class);
-        Self::resolve(profile, std::env::var(ENV).ok(), config)
+        Self::resolve(profile, std::env::var(ENV).ok(), config, default_for(kind, argv))
     }
 
     /// Off macOS: `normal`, with nothing read.
     #[cfg(not(target_os = "macos"))]
-    pub fn for_session<'a>(_harness_env: impl IntoIterator<Item = (&'a str, &'a str)>) -> Self {
+    pub fn for_session<'a>(
+        _kind: crate::config::HarnessKind,
+        _argv: &[String],
+        _harness_env: impl IntoIterator<Item = (&'a str, &'a str)>,
+    ) -> Self {
         Self::Normal
     }
 
     /// The first valid of the profile's value, the daemon's env value and config's, else
-    /// [`DEFAULT`]. A value that names no class is skipped, with a warning.
-    pub fn resolve(profile: Option<&str>, daemon: Option<String>, config: Option<Self>) -> Self {
+    /// `default`. A value that names no class is skipped, with a warning.
+    pub fn resolve(
+        profile: Option<&str>,
+        daemon: Option<String>,
+        config: Option<Self>,
+        default: Self,
+    ) -> Self {
         let named = |source: &str, value: Option<&str>| {
             let value = value?;
             let class = Self::parse(value);
@@ -110,18 +158,24 @@ impl CpuClass {
         named("profile env", profile)
             .or_else(|| named("daemon env", daemon.as_deref()))
             .or(config)
-            .unwrap_or(DEFAULT)
+            .unwrap_or(default)
     }
 
-    /// Puts the running harness `pid` in this class (macOS; elsewhere nothing). Only
-    /// `Background` changes it, and only lowers. `pid` must be a harness its caller holds (a direct
-    /// child not reaped yet, or one its agent host reports alive): a pid that another process took
-    /// would be lowered instead. True when the class was set.
+    /// Puts the running harness `pid` in this class once its session's start is over, and only
+    /// lowers: its process group at the agent tier's nice value (`qos::AGENT_NICE`; on Linux its
+    /// host's session too) unless `ACPMUX_QOS=off`, then for `Background` the harness in
+    /// background class (macOS). The start itself ran at the daemon's tier (`qos.rs`). `pid` must
+    /// be a harness its caller holds (a direct child not reaped yet, or one its agent host reports
+    /// alive): a pid that another process took would be lowered instead. True when it was lowered.
     pub fn enter(self, pid: u32) -> bool {
-        if self == Self::Normal {
-            return false;
+        // Both classes leave the start's priority for the agent tier: on Linux that is all the
+        // lowering there is (it has no background class), and on macOS it takes the processes the
+        // harness started during its start (its MCP servers) with it, as the utility clamp did.
+        let tier = crate::qos::enabled() && imp::to_agent_tier(pid);
+        match self {
+            Self::Background => imp::set_background(pid, true) || tier,
+            Self::Normal => tier,
         }
-        imp::set_background(pid, true)
     }
 }
 
@@ -313,9 +367,45 @@ impl std::fmt::Display for HarnessState {
     }
 }
 
+/// Every process of the harness `pid`'s process group (it leads one: `agent_host/host.rs`,
+/// `agent/command.rs`), so the harness, the processes it started during its start (its MCP
+/// servers, a launcher's agent) and on Linux every thread of each, at [`crate::qos::AGENT_NICE`],
+/// in one call and with no process listed. Processes they start later inherit it. Never raises
+/// one: a group already at or past it is left, and an unprivileged process cannot lower a nice.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn lower_group(pid: u32) -> bool {
+    // `id_t` is the pid's own width on both platforms.
+    let group: libc::id_t = pid;
+    if group == 0 {
+        return false;
+    }
+    // `getpriority` answers -1 both for nice -1 and for an error: errno says which.
+    #[cfg(target_os = "macos")]
+    // SAFETY: the calling thread's errno.
+    let errno = || unsafe { libc::__error() };
+    #[cfg(target_os = "linux")]
+    // SAFETY: the calling thread's errno.
+    let errno = || unsafe { libc::__errno_location() };
+    // SAFETY: plain syscalls on a group its caller holds the leader of; the kernel checks that
+    // each process runs as this user. `PRIO_PGRP`'s get answers the group's lowest nice.
+    unsafe {
+        *errno() = 0;
+        let now = libc::getpriority(libc::PRIO_PGRP, group);
+        if *errno() != 0 {
+            return false;
+        }
+        now >= crate::qos::AGENT_NICE
+            || libc::setpriority(libc::PRIO_PGRP, group, crate::qos::AGENT_NICE) == 0
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod imp {
     use super::HarnessState;
+
+    pub(super) fn to_agent_tier(pid: u32) -> bool {
+        super::lower_group(pid)
+    }
 
     /// `PRIO_DARWIN_BG` on (`on`) or off for the process `pid`, another process of this user.
     pub(super) fn set_background(pid: u32, on: bool) -> bool {
@@ -472,6 +562,41 @@ mod imp {
         false
     }
 
+    /// The harness's process group at [`crate::qos::AGENT_NICE`] ([`super::lower_group`]), and
+    /// the session it runs in (its agent host's, which leads one: `agent_host/link.rs`) at the same
+    /// nice. Where the scheduler groups processes by session (autogroup, a process outside a CPU
+    /// cgroup), a session's share against the rest of the machine is its group's nice, not its
+    /// processes', so the group is lowered too. Never the daemon's own session (a harness it
+    /// started directly).
+    pub(super) fn to_agent_tier(pid: u32) -> bool {
+        let lowered = super::lower_group(pid);
+        let Ok(target) = libc::pid_t::try_from(pid) else { return lowered };
+        // SAFETY: getsid reads; a pid that is gone answers -1.
+        let (theirs, ours) = unsafe { (libc::getsid(target), libc::getsid(0)) };
+        if lowered && theirs > 0 && theirs != ours {
+            lower_autogroup(pid);
+        }
+        lowered
+    }
+
+    /// `/proc/<pid>/autogroup` at [`crate::qos::AGENT_NICE`], when the kernel has it and it is
+    /// lower: absent without `CONFIG_SCHED_AUTOGROUP`, and a no-op for a process in a CPU cgroup.
+    /// The kernel takes an unprivileged change at most every 100 ms across the machine (`EAGAIN`):
+    /// a start that lands in another's 100 ms keeps its group's nice, and its harness's own.
+    fn lower_autogroup(pid: u32) {
+        let path = format!("/proc/{pid}/autogroup");
+        // "/autogroup-123 nice 0"
+        let now = std::fs::read_to_string(&path).ok().and_then(|text| {
+            text.split_whitespace().last().and_then(|nice| nice.parse::<libc::c_int>().ok())
+        });
+        if now.is_none_or(|nice| nice >= crate::qos::AGENT_NICE) {
+            return;
+        }
+        if let Err(e) = std::fs::write(&path, crate::qos::AGENT_NICE.to_string()) {
+            tracing::debug!(pid, "lowering {path}: {e}");
+        }
+    }
+
     /// The one process record's fields after the parenthesized command name.
     /// The command may contain spaces, so split only after its final `)`.
     fn stat(pid: u32) -> Option<Vec<String>> {
@@ -506,6 +631,10 @@ mod imp {
         false
     }
 
+    pub(super) fn to_agent_tier(_pid: u32) -> bool {
+        false
+    }
+
     pub(super) fn state(_pid: u32) -> Option<HarnessState> {
         None
     }
@@ -518,22 +647,51 @@ mod imp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::HarnessKind;
+
+    /// `sr2 claude` is the case that starved (module docs, item 2).
+    #[test]
+    fn a_claude_launcher_defaults_to_normal_and_claude_itself_to_background() {
+        let default = |kind, program: &str| default_for(kind, &[program.to_owned()]);
+        for launcher in ["/Users/me/.local/bin/claude-sr2", "/Users/me/bin/sr", "sr2", "python3"] {
+            assert_eq!(default(HarnessKind::ClaudeStdio, launcher), CpuClass::Normal, "{launcher}");
+        }
+        for agent in [
+            "claude",
+            "/opt/homebrew/bin/claude",
+            "/x/bin/claude.exe",
+            "/Users/me/.local/share/claude/versions/2.1.34",
+            "/Users/me/.claude/local/node_modules/.bin/cli",
+            "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+        ] {
+            assert_eq!(default(HarnessKind::ClaudeStdio, agent), DEFAULT, "{agent}");
+        }
+        // An empty argv runs `claude`.
+        assert_eq!(default_for(HarnessKind::ClaudeStdio, &[]), DEFAULT);
+        // Another protocol keeps the default: no case of a relay is known there.
+        assert_eq!(default(HarnessKind::Acp, "/Users/me/.local/bin/codex"), DEFAULT);
+        assert_eq!(default(HarnessKind::Acp, "sr2"), DEFAULT);
+    }
 
     #[test]
-    fn the_first_valid_source_names_the_class_else_background() {
+    fn the_first_valid_source_names_the_class_else_the_default() {
         let bg = Some(CpuClass::Background);
-        assert_eq!(CpuClass::resolve(None, None, None), CpuClass::Background);
-        assert_eq!(CpuClass::resolve(None, None, Some(CpuClass::Normal)), CpuClass::Normal);
+        let normal = Some(CpuClass::Normal);
+        let resolve = |profile, daemon, config| CpuClass::resolve(profile, daemon, config, DEFAULT);
+        assert_eq!(resolve(None, None, None), CpuClass::Background);
+        assert_eq!(resolve(None, None, normal), CpuClass::Normal);
         // The daemon's env overrides config; the profile overrides both.
-        assert_eq!(CpuClass::resolve(None, Some("normal".into()), bg), CpuClass::Normal);
-        assert_eq!(
-            CpuClass::resolve(Some("background"), Some("normal".into()), Some(CpuClass::Normal)),
-            CpuClass::Background
-        );
-        assert_eq!(CpuClass::resolve(Some(" Normal "), None, bg), CpuClass::Normal);
+        assert_eq!(resolve(None, Some("normal".into()), bg), CpuClass::Normal);
+        assert_eq!(resolve(Some("background"), Some("normal".into()), None), CpuClass::Background);
+        assert_eq!(resolve(Some(" Normal "), None, bg), CpuClass::Normal);
         // A value that names no class is skipped.
-        assert_eq!(CpuClass::resolve(Some("utility"), Some("normal".into()), bg), CpuClass::Normal);
-        assert_eq!(CpuClass::resolve(Some(""), None, None), CpuClass::Background);
+        assert_eq!(resolve(Some("utility"), Some("normal".into()), bg), CpuClass::Normal);
+        assert_eq!(resolve(Some(""), None, None), CpuClass::Background);
+        // What the harness defaults to comes last: any named class wins over it.
+        let launcher = |profile, config| CpuClass::resolve(profile, None, config, CpuClass::Normal);
+        assert_eq!(launcher(None, None), CpuClass::Normal);
+        assert_eq!(launcher(Some("background"), None), CpuClass::Background);
+        assert_eq!(launcher(None, bg), CpuClass::Background);
     }
 
     /// The 2026-11-04 stall: `sr2 claude` waits on its `claude`, which does the work. A launcher

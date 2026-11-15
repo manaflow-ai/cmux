@@ -111,11 +111,50 @@ pub enum PeerCmd {
         #[arg(long)]
         local_only: bool,
     },
+    /// Record that the signed-in person signs out of the cmux app, before the app asks the daemon
+    /// to leave (no daemon needed): the daemon's next leave or start leaves the join signing in
+    /// made for `--user-id`, and nothing of another account's. The cmux app runs it.
+    LeaveIntent {
+        /// The platform user id of the account signing out.
+        #[arg(long)]
+        user_id: String,
+        /// When the app saw the sign-out (Unix ms; default: now). An intent from before that
+        /// account's last sign-in here is stale and not recorded.
+        #[arg(long)]
+        signed_out_at: Option<u64>,
+    },
+    /// Enroll this machine on the hub as the signed-in person, the way signing in to the cmux
+    /// app does: mints a single-use join token with the person's cmux access token, read from
+    /// stdin (never argv), and redeems it here, recorded under `--user-id`. A joined, revoked or
+    /// other person's machine, or one joined under no account, is left as it is, and with no
+    /// `--user-id` nothing is enrolled. For scripts; a box with no sign-in still uses a pair code
+    /// or join line.
+    EnrollSelf {
+        /// Read the cmux access token from stdin (required).
+        #[arg(long, required = true)]
+        access_token_stdin: bool,
+        /// Platform origin; defaults to CMUX_PLATFORM_ORIGIN or production.
+        #[arg(long, visible_alias = "origin")]
+        hub: Option<String>,
+        /// A DEV build's tag, added to this machine's name.
+        #[arg(long)]
+        build_tag: Option<String>,
+        /// The signed-in person's platform user id, the account the join is recorded under.
+        #[arg(long)]
+        user_id: Option<String>,
+    },
     /// Request screen/control consent through the daemon. Changing it requires
     /// the local app's person proof; a shell or agent cannot grant consent.
     Consent {
         #[command(subcommand)]
         cmd: ConsentCmd,
+    },
+    /// This Mac's Cloud tunnel on the team mesh, through the daemon: attach, detach, rekey.
+    /// The daemon takes them only from the cmux app (its person proof), with the person's
+    /// cmux access token on stdin; a shell or agent is refused.
+    Tunnel {
+        #[command(subcommand)]
+        cmd: TunnelCmd,
     },
     /// The person's vault on this joined machine: env vars and API keys kept
     /// once for every machine, stored in the OS secret store and given to
@@ -294,6 +333,24 @@ pub enum VaultCmd {
     /// Remove this machine's vault env values and its vault state. The daemon
     /// pulls again while the vault is shared with this machine.
     Forget,
+    /// Keep a key an agent made on this machine, with no sign-in or click: the
+    /// value comes piped on stdin (never argv) and goes to the Keychain or
+    /// Secret Service only. Agents started from then on get the placeholder
+    /// `cmux-secret://NAME`, which the egress proxy fills only in HTTPS
+    /// requests to the --host patterns. Example:
+    /// `mint-token | acpmux machine vault keep DEPLOY_TOKEN --host api.example.com`.
+    Keep {
+        /// The env name agents get, like DEPLOY_TOKEN.
+        name: String,
+        /// Where the key may be sent: a host or `*.domain` (repeatable).
+        #[arg(long = "host", value_name = "H")]
+        hosts: Vec<String>,
+        /// Give agents the value itself instead (weaker: agents can read it).
+        #[arg(long, conflicts_with = "hosts")]
+        env: bool,
+    },
+    /// Remove a kept key (`keep`) from this machine.
+    Drop { name: String },
 }
 
 #[derive(Subcommand)]
@@ -346,6 +403,24 @@ pub enum DepsCmd {
         /// The project folder (default: the current folder).
         dir: Option<std::path::PathBuf>,
     },
+}
+
+#[derive(Subcommand)]
+pub enum TunnelCmd {
+    /// Put this Mac in its team's WireGuard peer map.
+    Attach {
+        /// The team network id; it must be this Mac's own team.
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+    },
+    /// Take this Mac out of its team's peer map until the next attach.
+    Detach {
+        /// The team network id; it must be this Mac's own team.
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+    },
+    /// Give this Mac a new WireGuard key (in the process that holds the key).
+    Rekey,
 }
 
 #[derive(Subcommand)]

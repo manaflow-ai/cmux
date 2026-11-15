@@ -1,4 +1,5 @@
-import { Plugin } from "@milkdown/kit/prose/state";
+import { Plugin, PluginKey, type Transaction } from "@milkdown/kit/prose/state";
+import { ReplaceStep } from "@milkdown/kit/prose/transform";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import { FIELD_GROWTH_EVENT, type FieldGrowthDetail } from "./fieldGrowthEvent";
 import { experimentArm } from "../../../experiments/experiment";
@@ -7,6 +8,7 @@ import { MOTION_SPRINGS, springCurve, type SpringParameters } from "../../../fil
 import { MOTION_EASE_OUT, MOTION_MS } from "../../../motion/scale.generated";
 import { motionMode } from "../../../ui/motion/motionMode";
 import { fieldGrowthMotion, type FieldGrowthArm } from "./fieldGrowth.experiment";
+import { sliceHoldsInline } from "./inlineNode";
 
 // The prompt field's height moves to its text's on one motion, not in a step per line (Leo,
 // 2026-11-07: "it's like the composer kind of doesn't grow smoothly. It grows in bursts."). The
@@ -28,10 +30,16 @@ import { fieldGrowthMotion, type FieldGrowthArm } from "./fieldGrowth.experiment
 // motion's length although nothing is left to scroll once it lands (Leo 2026-11-08: "stop showing a
 // flash of the thumb scrollbar"). A move to the field's cap keeps its thumb: the text overflows.
 //
+// An edit that places an attachment (a paste, a drop, the + menu) changes the height in its frame:
+// its tile shows at its final slot from its first frame, and the lines already there keep their
+// place under the composer's top (composer-attach-no-jump.test.ts, Leo's #38155). Riding the moving
+// edge drew the new tile a line low and slid it up over the spring.
+//
 // An edit that lands while the field moves retargets from the height drawn, keeping the motion's
 // end. A value set from outside (a send clearing the prompt, a chat's draft), Reduce Motion and
-// motion off change the height in the frame, as before. Nothing runs at rest: the animation and the
-// text's observer exist only while the field moves, and both go when it lands or the editor goes.
+// motion off change the height in the frame, as before; motion turned off mid-growth lands it at once.
+// Nothing runs at rest: the animation, the text's observer and the motion gate's watch exist only
+// while the field moves, and all go when it lands or the editor goes.
 
 /** The spring arms' springs; `ease` and `instant` have none. */
 const SPRINGS: Partial<Record<FieldGrowthArm, SpringParameters>> = {
@@ -55,7 +63,37 @@ type Motion = {
   reveal: boolean;
   /** The text's own size changes while it moves (a rewrap): retarget. */
   observer: ResizeObserver | undefined;
+  /** Stops watching the motion gate (`watchMotionGate`). */
+  unwatch: () => void;
 };
+
+/** Calls `still` when the motion gate of `field`'s page leaves full motion while a growth runs: the
+ *  app's switch (`data-cmux-motion`), the pane's (`data-agent-motion`, its zero tokens on the root's
+ *  style) and Reduce Motion (ui/motion/motionMode.ts). Only while the field moves. */
+function watchMotionGate(field: HTMLElement, still: () => void): () => void {
+  const doc = field.ownerDocument;
+  const check = () => {
+    if (motionMode(doc) !== "full") still();
+  };
+  const observer = typeof MutationObserver === "function" ? new MutationObserver(check) : undefined;
+  observer?.observe(doc.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-cmux-motion", "data-agent-motion", "style"],
+  });
+  const media = doc.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)");
+  media?.addEventListener?.("change", check);
+  return () => {
+    observer?.disconnect();
+    media?.removeEventListener?.("change", check);
+  };
+}
+
+/** Whether a transaction placed an attachment's node: its steps' own slices, O(the edit). */
+const placesAttachment = (tr: Transaction) =>
+  tr.steps.some((step) => step instanceof ReplaceStep && sliceHoldsInline(step.slice));
+
+/** Set on the state an attachment was placed in, until the next edit. */
+const placedKey = new PluginKey<boolean>("fieldGrowthPlaced");
 
 /** The motion running on each field (`.acpmux-md-field`), read by caretInView. */
 const moving = new WeakMap<HTMLElement, Motion>();
@@ -91,6 +129,11 @@ function growthFrames(arm: FieldGrowthArm, from: number, to: number, remaining?:
 /** The plugin. `external` is true while the field applies a value set from outside it. */
 export function fieldGrowth(external: () => boolean): Plugin {
   return new Plugin({
+    key: placedKey,
+    state: {
+      init: () => false,
+      apply: (tr) => tr.docChanged && placesAttachment(tr),
+    },
     view(view: EditorView) {
       // The arm is read once per editor.
       const arm = experimentArm(fieldGrowthMotion);
@@ -115,6 +158,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
         moving.delete(field);
         field.removeAttribute(SETTLING_SCROLLER_ATTRIBUTE);
         motion.observer?.disconnect();
+        motion.unwatch();
         motion.animation.cancel();
       };
       /** Runs `motion` as `animation`, and lets the field rest when it ends. */
@@ -125,12 +169,13 @@ export function fieldGrowth(external: () => boolean): Plugin {
           moving.delete(field);
           field.removeAttribute(SETTLING_SCROLLER_ATTRIBUTE);
           motion.observer?.disconnect();
+          motion.unwatch();
         };
         animation.addEventListener("finish", done, { once: true });
         animation.addEventListener("cancel", done, { once: true });
       };
       // perf-hot: one layout read per edit (ProseMirror's own caret reveal reads the same layout next).
-      const follow = () => {
+      const follow = (atOnce = false) => {
         const field = scroller;
         if (!field) return;
         const running = moving.get(field);
@@ -143,7 +188,10 @@ export function fieldGrowth(external: () => boolean): Plugin {
         running?.animation.cancel();
         const to = field.getBoundingClientRect().height;
         shown = to;
-        if (running && Math.abs(to - running.to) < 0.5) {
+        // Read before the same-end path: an edit after motion went off (or a value set from outside)
+        // lands a running growth instead of playing it on.
+        const moves = !atOnce && arm !== "instant" && !external() && motionMode(field.ownerDocument) === "full";
+        if (running && moves && Math.abs(to - running.to) < 0.5) {
           // The same end (a second edit on the same line, the text's observer's first call): the
           // motion goes on where it was, on the same curve and clock. A started animation given its
           // start time runs from the next frame; left pending it would hold a frame still.
@@ -155,7 +203,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
         }
         if (running) land(field);
         if (from < 0 || Math.abs(to - from) < 0.5) return;
-        if (arm === "instant" || external() || motionMode(field.ownerDocument) !== "full") return;
+        if (!moves) return;
         const lineHeight = Number.parseFloat(getComputedStyle(field).lineHeight) || 20;
         const capped = field.scrollHeight > field.clientHeight + 1;
         const reveal = capped || Math.abs(to - from) > lineHeight * REVEAL_LINES || (running?.reveal ?? false);
@@ -187,7 +235,16 @@ export function fieldGrowth(external: () => boolean): Plugin {
                 if (moving.get(field) === motion) follow();
               })
             : undefined;
-        const motion: Motion = { animation, keyframes, timing, to, end: now + duration, reveal, observer };
+        const motion: Motion = {
+          animation,
+          keyframes,
+          timing,
+          to,
+          end: now + duration,
+          reveal,
+          observer,
+          unwatch: watchMotionGate(field, () => land(field)),
+        };
         moving.set(field, motion);
         // Read at the end height above: the text fits the field it lands on, so no thumb meanwhile.
         field.toggleAttribute(SETTLING_SCROLLER_ATTRIBUTE, !capped);
@@ -201,7 +258,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
       return {
         update(next, previous) {
           if (!scroller) attach();
-          if (!next.state.doc.eq(previous.doc)) follow();
+          if (!next.state.doc.eq(previous.doc)) follow(placedKey.getState(next.state) === true);
         },
         destroy() {
           restObserver?.disconnect();

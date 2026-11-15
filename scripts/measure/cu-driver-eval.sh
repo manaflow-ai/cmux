@@ -19,6 +19,8 @@
 # arena=run (cu-driver-bench.sh suite=arena) runs the computer-use arena instead (arena/README.md):
 # arms=a,b engines (each built or fetched as its PR or release runs it; engines=DIR holds the ones
 # build-engines.sh built), harness=claude:MODEL,codex:MODEL, arena_tasks=a,b, reps= runs per task.
+# arena=latency (cu-driver-bench.sh suite=latency) assembles the same arms and runs the per-call
+# latency bench on them instead (../cu-bench/README.md), reps= rounds, no model.
 set -uo pipefail
 reps=3 drivers="cmux-cua,cua-driver-0.38.0" electron=1 bench="" condition=background tasks="" waive=""
 arena="" arms="" harness="" arena_tasks="" engines="" arena_budget=0
@@ -45,7 +47,7 @@ done
 [[ -z "$bench" || "$bench" == preflight || "$bench" == run ]] || { echo "cu-driver-eval.sh: bench= is preflight or run" >&2; exit 2; }
 [[ "$condition" == background || "$condition" == foreground ]] || { echo "cu-driver-eval.sh: condition= is background or foreground" >&2; exit 2; }
 [[ "$tasks" =~ ^[A-Z0-9,-]*$ ]] || { echo "cu-driver-eval.sh: tasks= is a comma list of task ids" >&2; exit 2; }
-[[ -z "$arena" || "$arena" == run ]] || { echo "cu-driver-eval.sh: arena= is run" >&2; exit 2; }
+[[ -z "$arena" || "$arena" == run || "$arena" == latency ]] || { echo "cu-driver-eval.sh: arena= is run or latency" >&2; exit 2; }
 [[ "$arms" =~ ^[a-z0-9.,-]*$ && "$arena_tasks" =~ ^[a-z0-9,-]*$ ]] || { echo "cu-driver-eval.sh: arms= and arena_tasks= are comma lists of names" >&2; exit 2; }
 [[ "$arena_budget" =~ ^-?[0-9]+$ ]] || { echo "cu-driver-eval.sh: arena_budget= is seconds" >&2; exit 2; }
 [[ "$harness" =~ ^[a-z0-9.,:-]*$ ]] || { echo "cu-driver-eval.sh: harness= is a comma list of claude:MODEL or codex:MODEL" >&2; exit 2; }
@@ -302,6 +304,17 @@ if ! granted; then
   [[ -n "${CU_DRIVER_EVAL_GRANT:-}" ]] && $CU_DRIVER_EVAL_GRANT --diagnose >"$out/tcc-diagnose.txt" 2>&1 && cat "$out/tcc-diagnose.txt"
   finish "the step's processes lack Accessibility or event posting on this worker ($grants)"
   exit 3
+fi
+
+if [[ "$arena" == latency ]]; then
+  echo "CU-DRIVER-EVAL-STAGE latency"
+  budget_args=()
+  (( arena_budget > 0 )) && budget_args=(--budget "$arena_budget")
+  python3 -I "$here/../cu-bench/cu_bench.py" run --arms "$work/arena/arms.json" --out "$out/cu-bench" --rounds "$reps" \
+    ${budget_args[@]+"${budget_args[@]}"}
+  status=$?
+  finish
+  exit "$status"
 fi
 
 if [[ -n "$arena" ]]; then

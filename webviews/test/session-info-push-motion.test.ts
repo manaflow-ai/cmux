@@ -56,6 +56,8 @@ await requireBrowserLane("session-info-push-motion.test.ts", async () => {
       bridge.applyHeaderState({ inspector: true, version: 2 });
       document.documentElement.style.setProperty("--agent-motion-in", "4000ms");
       document.documentElement.style.setProperty("--agent-motion-out", "4000ms");
+      // The push opens on the move step (sessionInfo.css).
+      document.documentElement.style.setProperty("--agent-motion-move", "4000ms");
     });
     // It takes a column only with Settings Push always (SessionInfo.tsx pushes).
     await sessionInfoPushAlways(page, push);

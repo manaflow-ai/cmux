@@ -221,11 +221,7 @@ impl Mux {
                             )
                             .map(|s| s.public_id.clone());
                         changes.push(ResourceChange::UpsertWorkspace {
-                            workspace: registry_workspace(
-                                state,
-                                source_wi,
-                                registry.session_id().as_str(),
-                            ),
+                            workspace: registry_workspace(state, source_wi, &mux.session),
                             position: source_wi,
                             active_screen: remaining.clone(),
                         });

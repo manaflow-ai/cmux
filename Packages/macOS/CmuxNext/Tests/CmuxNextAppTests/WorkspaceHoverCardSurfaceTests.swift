@@ -36,9 +36,9 @@ import Testing
         ])
 
     /// The card in the hover card panel, as `HoverCardPanel.present` mounts it, drawing in `scope`.
-    private func mounted(in scope: ThemeScope) -> (HoverCardPanel, WorkspaceHoverCardView) {
+    private func mounted(in scope: ThemeScope, style: WorkspaceTabHoverCardStyle = .standard) -> (HoverCardPanel, WorkspaceHoverCardView) {
         let panel = HoverCardPanel()
-        let body = WorkspaceHoverCardView()
+        let body = WorkspaceHoverCardView(style: style)
         body.translatesAutoresizingMaskIntoConstraints = false
         panel.glass.contentView.addSubview(body)
         scope.adopt(panel)
@@ -77,17 +77,28 @@ import Testing
         panel.glass.materialOverride = nil
     }
 
-    /// The card's body lays a veil of the scope's own window background over the glass (Lawrence msg 19245:
-    /// the glass over a busy terminal was hard to read), under the overlay rule's solid alpha and never a
-    /// fixed gray; nothing inside it paints a fill of its own.
+    /// The shipped card sits on the shared hover card glass and paints no fill of its own (Leo 2026-11-06, #37176:
+    /// "when you hover on the left, there's no glass"). The `.frosted` gallery variant lays a veil of the scope's own
+    /// window background over the glass (Lawrence msg 19245: the glass over a busy terminal was hard to read), under
+    /// the overlay rule's solid alpha and never a fixed gray. In both, nothing inside the body paints a fill.
     @Test(arguments: Look.allCases)
     func theBodyPaintsOnlyAFrostedVeil(look: Look) throws {
         let scope = try scope(look)
-        let (_, body) = mounted(in: scope)
-        let fill = try #require(body.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)), "\(look): the card has no veil")
+        let (_, glass) = mounted(in: scope)
+        #expect(glass.layer?.backgroundColor == nil, "\(look): the shipped card paints a veil over the hover card glass")
+        Self.expectNoFillInside(glass, look: look)
+        var frostedStyle = WorkspaceTabHoverCardStyle.standard
+        frostedStyle.material = .frosted
+        let (_, body) = mounted(in: scope, style: frostedStyle)
+        let fill = try #require(body.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)), "\(look): the frosted card has no veil")
         let veil = scope.perform { Palette.windowBackground.withAlphaComponent(0.55) }
         #expect(Self.same(fill, veil), "\(look): the card paints \(fill)")
         #expect(fill.alphaComponent < 0.6, "\(look): the veil is solid")
+        Self.expectNoFillInside(body, look: look)
+    }
+
+    /// No view inside `body` paints a fill of its own.
+    private static func expectNoFillInside(_ body: NSView, look: Look) {
         var pending: [NSView] = body.subviews
         while let view = pending.popLast() {
             // A label's ink layer and the status indicator's glyph are not fills.

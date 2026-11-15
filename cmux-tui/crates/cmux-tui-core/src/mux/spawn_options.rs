@@ -14,6 +14,10 @@ pub(crate) const CLIENT_TAB_ID_FIELD: &str = "tab_id";
 /// `split-client-split-id-v1`: the creation field carrying the caller-minted
 /// public id (`split_<32 hex>`) of the split a `split` makes.
 pub(crate) const CLIENT_SPLIT_ID_FIELD: &str = "split_id";
+/// `split-around-v1`: the creation field naming (by its handle) the split
+/// whose whole subtree the new split wraps. The target pane must be that
+/// split's last leaf, and the new pane goes after it (`right` or `down`).
+pub(crate) const AROUND_SPLIT_FIELD: &str = "around_split";
 
 /// How to start the terminal a placement command creates.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -35,6 +39,9 @@ pub struct TerminalSpawnOptions {
     /// `split-client-split-id-v1`: the caller-minted public id of the split
     /// (`split_<32 hex>`). Only `split` reads it.
     pub split_id: Option<String>,
+    /// `split-around-v1`: the split (handle) the new split wraps whole,
+    /// instead of the target pane alone. Only `split` reads it.
+    pub around: Option<crate::SplitId>,
 }
 
 impl TerminalSpawnOptions {

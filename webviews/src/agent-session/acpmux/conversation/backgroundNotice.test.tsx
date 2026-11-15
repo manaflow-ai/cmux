@@ -15,6 +15,7 @@ import {
   useBackgroundNotice,
 } from "./backgroundNotice";
 import { AcpmuxRpcError } from "../handoff/protocol";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 describe("backgroundNotice", () => {
   test("work that moved says so, as does an answer that leaves `backgrounded` out", () => {
@@ -100,6 +101,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   latest = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

@@ -153,6 +153,6 @@ final class CloudMachineUpdates {
     private static func socket(of session: CloudMachineSession?) async -> String? {
         guard let session else { return nil }
         if let connection = session.daemon.connection, let path = await connection.endpoint?.socketPath { return path }
-        return await session.appLink?.currentSocket
+        return await session.appLink.currentSocket
     }
 }

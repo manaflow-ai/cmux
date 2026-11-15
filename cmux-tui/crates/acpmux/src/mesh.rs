@@ -304,12 +304,13 @@ pub struct Ack {
     pub prompt_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
-    /// A read control's answer: JSON text, at most [`MAX_READ_RESULT_BYTES`].
+    /// A read control's answer, or one part of it: JSON text, at most [`MAX_READ_RESULT_BYTES`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result: Option<String>,
 }
 
-/// The largest read answer the hub keeps (its 64 KiB body bound).
+/// The largest read answer one hub message carries (its 64 KiB body bound). A larger answer
+/// goes in parts, each one message (`server/mesh_read.rs`), so no page is refused for its size.
 pub const MAX_READ_RESULT_BYTES: usize = 64 * 1024;
 
 impl Ack {
@@ -427,6 +428,33 @@ pub trait MeshHub: Send + Sync {
         _wait: Duration,
     ) -> BoxFuture<'a, Result<Receipt, HubError>> {
         self.receipt(message_id)
+    }
+}
+
+/// The team hub client sends go through (`Hub::mesh`): set when a mesh relay starts, cleared
+/// when a sign-out's leave stops it, and replaced when a later enroll starts one again, perhaps
+/// against another hub. Each read takes the client then in use; the lock is never held across
+/// a call.
+#[derive(Default)]
+pub struct MeshSlot(std::sync::RwLock<Option<Arc<dyn MeshHub>>>);
+
+impl MeshSlot {
+    /// The client in use, if a relay runs.
+    pub fn get(&self) -> Option<Arc<dyn MeshHub>> {
+        use crate::no_panic::RwLockExt;
+        self.0.read_or_recover().clone()
+    }
+
+    /// Make `client` the one in use; the one it replaced, if any.
+    pub fn set(&self, client: Arc<dyn MeshHub>) -> Option<Arc<dyn MeshHub>> {
+        use crate::no_panic::RwLockExt;
+        self.0.write_or_recover().replace(client)
+    }
+
+    /// No client: the relay stopped. The one it removed, if any.
+    pub fn clear(&self) -> Option<Arc<dyn MeshHub>> {
+        use crate::no_panic::RwLockExt;
+        self.0.write_or_recover().take()
     }
 }
 

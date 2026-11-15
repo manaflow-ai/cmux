@@ -115,7 +115,7 @@ import Testing
         controller.demo?.layoutIfNeeded()
         controller.demo?.collection.layoutIfNeeded()
         var opened: [String] = []
-        controller.onAgentPill = { opened.append($0) }
+        controller.onAgentPill = { peer, _ in opened.append(peer) }
 
         let foldID = HomeMapping.id(fold, aliases: [:])
         let hit = try #require(pillCenter(in: controller, on: foldID, peer: "a931"), "no point is on a931's pill")

@@ -149,23 +149,6 @@ struct CloudNewMachineTests {
         await #expect(throws: CloudMachineRequest.ScriptUnreadable.self) { _ = try await request.loadScript(work: BackgroundWork()) }
     }
 
-    @Test func theAnswerSaysPersistentOnlyWhenTheServerStoredOff() throws {
-        let request = CloudMachineRequest(name: "lane-vm-1", size: "medium", memoryMb: 8192, persistent: true)
-        let stored = try CloudMachine.classic(Data(#"{"id":"vm-1","status":"running","idlePauseMinutes":0,"address":{"ipv4":"10.0.0.7"}}"#.utf8))
-        let fields = CloudHandlers.newMachineFields(request, stored)
-        #expect(fields["persistent"] == .bool(true))
-        #expect(fields["idle_pause_minutes"] == .int(0))
-        #expect(fields["cpu"] == .int(4))
-        #expect(fields["memory_mb"] == .int(8192))
-        #expect(fields["address"] == .string("10.0.0.7"))
-        let notStored = try CloudMachine.classic(Data(#"{"id":"vm-2","status":"running","idlePauseMinutes":30}"#.utf8))
-        #expect(CloudHandlers.newMachineFields(request, notStored)["persistent"] == .bool(false))
-        let pending = CloudHandlers.newMachineFields(request, nil)
-        #expect(pending["persistent"] == nil, "no machine yet: nothing stored to report")
-        #expect(pending["persistent_requested"] == .bool(true))
-        #expect(pending["memory_mb"] == .int(8192))
-    }
-
     // MARK: The bootstrap
 
     nonisolated final class FakeMachine: @unchecked Sendable {
@@ -223,14 +206,5 @@ struct CloudNewMachineTests {
         fake.startAnswer = CloudExecResult(exitCode: 1, stdout: "", stderr: "sha256sum: not found")
         let outcome = await CloudMachineBootstrap(kind: .plain, contents: Data("true\n".utf8)).start(name: nil, on: fake.machine)
         #expect(outcome == CloudMachineBootstrap.Outcome(status: "failed", reason: "sha256sum: not found"))
-    }
-
-    @Test func aLaneAnswerNamesTheRegistryCommand() throws {
-        let request = CloudMachineRequest(name: "lane-vm-3", size: "medium", memoryMb: 8192, persistent: true,
-                                          bootstrapPath: "/tmp/lane-vm-bootstrap", bootstrapKind: .lane)
-        let machine = try CloudMachine.classic(Data(#"{"id":"vm-3","status":"running","address":{"ipv4":"10.0.0.9"}}"#.utf8))
-        let answer = CloudHandlers.newMachineEnrollment(request, machine)
-        #expect(answer["registry_command"] == .string("tools/lane-vm-enroll lane-vm-3 vm-3 --address 10.0.0.9 --apply"))
-        #expect(CloudHandlers.newMachineEnrollment(CloudMachineRequest(), machine)["registry_command"] == nil)
     }
 }

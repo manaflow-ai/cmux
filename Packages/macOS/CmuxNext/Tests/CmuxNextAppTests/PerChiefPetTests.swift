@@ -7,6 +7,7 @@ import CmuxNextFloating
 @testable import CmuxNextHomeModel
 @testable import CmuxNextHomeEngine
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -96,7 +97,7 @@ import Testing
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let suite = "cnc-per-chief-pet-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         return Harness(settings: settings, url: url, suite: suite, defaults: defaults)
     }
 

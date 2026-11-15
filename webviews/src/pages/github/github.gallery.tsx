@@ -151,6 +151,18 @@ export default componentEntry<Props>({
       note: "Ready: one line with the SHIP that counts (its model and the head), linked to its receipt.",
       props: { answer: mockReady, details: mockReadyDetails, checks: mockReadyChecks },
     },
+    "ready-behind": {
+      note: "Review of #38115, F2: a SHIP and green checks, but GitHub says the branch is behind its base, so it is not ready.",
+      props: { answer: mockReady, details: { ...mockReadyDetails, mergeState: "behind" }, checks: mockReadyChecks },
+    },
+    "ready-partial-history": {
+      note: "Review of #38115, F3: the read kept only the newest comments, so an older BLOCK cannot be ruled out; never Ready.",
+      props: {
+        answer: mockReady,
+        details: { ...mockReadyDetails, conversationTotal: mockReadyDetails.conversationRead + 61 },
+        checks: mockReadyChecks,
+      },
+    },
     "conversation-unresolved": {
       note: "The conversation filtered to Unresolved: each review keeps only its open threads' comments; newest first.",
       props: {
@@ -228,7 +240,15 @@ export default componentEntry<Props>({
     "no-description": {
       note: "No body and no comments yet.",
       props: {
-        details: { ...mockDetails, body: "", conversation: [], conversationTotal: 0, reviewers: [], linked: [] },
+        details: {
+          ...mockDetails,
+          body: "",
+          conversation: [],
+          conversationTotal: 0,
+          conversationRead: 0,
+          reviewers: [],
+          linked: [],
+        },
       },
     },
     reading: { note: "The first read, before gh answered.", props: { answer: { pullRequest: null, reading: true } } },

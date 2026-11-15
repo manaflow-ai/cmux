@@ -81,8 +81,6 @@ tmux-*.log
 # Local-only prototype and deploy state
 /Prototypes/*-clone/
 /.cloudflare/
-# Locally downloaded prebuilt client for Packages/Shared/CmuxTerminalClient
-Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/
 
 # The settings export stamp is derived, never committed (Leo 2026-10-21):
 # scripts/ci/defaults_guard.py source-stamp --ref REF prints it for any commit.
@@ -138,3 +136,7 @@ Packages/macOS/CmuxNext/usage-warning-gallery.tar
 
 # Spotlight exclusion marker that scripts/measure/quiet-host.sh writes in a fleet checkout
 .metadata_never_index
+
+# The extension SDK's customize types: every build of cmux-extension-sdk writes them from
+# cmux_customize::schema (build.rs); `cmux customize schema --typescript` prints the same text.
+/cmux-tui/crates/cmux-extension-sdk/typescript/src/generated/

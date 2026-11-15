@@ -70,7 +70,9 @@ BUNDLE_B = "com.cmuxterm.app.debug"
 B_KEY_HASH = "650e93e3"
 B_SOCKET = f"/tmp/cmux-debug--{B_KEY_HASH}.sock"
 B_SESSION = f"cmux-app--{B_KEY_HASH}"
-B_STATE = os.path.expanduser("~/Library/Application Support/cmux/builds/com.cmuxterm.app.debug")
+B_STATE = os.path.expanduser("~/Library/Application Support/cmux-next/builds/com.cmuxterm.app.debug")
+# The same key's folder of a build from before NEXT's own folder: B moves it to B_STATE at launch.
+B_STATE_OLD = os.path.expanduser("~/Library/Application Support/cmux/builds/com.cmuxterm.app.debug")
 NEXT_NIGHTLY = "com.cmuxterm.app.nightly.cmux-next"
 B_HOME = os.path.join(ROOT, NEXT_NIGHTLY)
 ACPMUX_ROOT = os.path.join(SCRATCH, "acpmux")
@@ -414,7 +416,7 @@ try:
         failed = failed or 2
         raise SystemExit
     b_owned = True
-    b_state_new = not os.path.exists(B_STATE)
+    b_state_new = not os.path.lexists(B_STATE) and not os.path.lexists(B_STATE_OLD)
     b.launch({"CMUX_NEXT_CHIEF_ROOT": ROOT, "CMUX_NEXT_CHIEF_BUILD_ID": NEXT_NIGHTLY,
               "CMUX_NEXT_ACPMUX_ROOT": ACPMUX_ROOT})
     b_brain = wait(lambda: brain_pid(B_HOME), 180)

@@ -175,11 +175,20 @@ await requireBrowserLane("code-corner-veil-scrollbar.test.ts", async () => {
           await page.mouse.move(card.x + 40, card.y + card.height / 2);
           await eased(page);
         }
-        // A thumb that shows: Pierre's is clear until its card is hovered, and faint then.
+        // A thumb that shows: Pierre's is clear until its card is hovered, and faint then. WebKit keeps a
+        // scrollbar's parts as they were styled when it made the scrollbar (scrollers.ts), so the red only
+        // paints on a scrollbar made after it: take the scroller's scrollbar away and give it back.
         await page.evaluate((selector) => {
+          const root = document.querySelector(selector)!.shadowRoot!;
           const style = document.createElement("style");
           style.textContent = "[data-code]::-webkit-scrollbar-thumb { background-color: #f00 !important; }";
-          document.querySelector(selector)!.shadowRoot!.append(style);
+          root.append(style);
+          for (const scroller of root.querySelectorAll<HTMLElement>("[data-code]")) {
+            scroller.style.overflowX = "hidden";
+            void scroller.offsetHeight;
+            scroller.style.overflowX = "";
+            void scroller.offsetHeight;
+          }
         }, BODY);
         await eased(page);
         const at = await geometry(page);

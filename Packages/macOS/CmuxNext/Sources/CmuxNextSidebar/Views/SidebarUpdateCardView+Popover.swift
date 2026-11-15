@@ -2,8 +2,9 @@ import AppKit
 import CmuxNextDesign
 
 // UPDATE-CARD: the highlights popup (the React ready surface, cx-urd.61.2,
-// in the app's one hover card window) opens while the pointer is
-// anywhere over the card and stays while the pointer travels to it, so it can
+// in the app's one hover card window) opens once the pointer has rested
+// anywhere over the card for `notesOpenDelay` (a click opens it at once; a pass
+// over the card opens nothing) and stays while the pointer travels to it, so it can
 // be scrolled and "See all changes" clicked. Leaving the card or the popup
 // closes it after a short delay unless the pointer is back on either, or is
 // still on its way across the corridor between them (Leo 2026-10-19: it
@@ -23,6 +24,7 @@ extension SidebarUpdateCardView {
     /// window edge). No-op without a card or a window. A popup that is still
     /// closing (the pointer left and came back) opens again.
     func showNotes() {
+        cancelNotesOpen()
         cancelNotesClose()
         guard card != nil, let highlights, highlights.contentHeight > 0, let window, !isHiddenOrHasHiddenAncestor,
               let cards = hoverCards() else { return }
@@ -56,6 +58,13 @@ extension SidebarUpdateCardView {
 
     /// A pinned popup (a click on the card) may grow to this share of its window's height.
     static var pinnedMaxHeightFraction: CGFloat { 0.85 }
+
+    /// How long the pointer rests on the card before the popup opens (Lawrence 2026-11-12, msg 30807:
+    /// "hovering on update should wait longer before opening the card to the right"; it opened on
+    /// the first move). macOS tooltip territory, a beat past the workspace cards' 400 ms
+    /// (`HoverCardTiming.showDelay`): a pointer crossing the card on its way elsewhere is on it
+    /// for well under this, so it opens nothing. A click on the card opens it at once.
+    static var notesOpenDelay: Duration { .milliseconds(500) }
 
     /// How long the popup waits after the pointer left the card or the popup before it closes.
     static var notesCloseDelay: Duration { .milliseconds(250) }
@@ -104,6 +113,7 @@ extension SidebarUpdateCardView {
     /// noted as it starts, so a move during its fade does not reopen it.
     func hideNotes() {
         notesPinned = false
+        cancelNotesOpen()
         cancelNotesClose()
         guard notesAreShown else { return }
         if isHovered { notesDismissedWhileHovered = true }
@@ -182,6 +192,25 @@ extension SidebarUpdateCardView {
         if onTheWay, notesCloseWaited < Self.notesCorridorLimit { return armNotesClose() }
         hoverCards()?.endOwned(Self.notesID)
     }
+
+    /// The pointer came onto the card (or moved on it with nothing open): open the popup after
+    /// ``notesOpenDelay`` unless it leaves first. A move while the open is pending keeps the
+    /// first deadline (a hand resting on the card still opens it on time).
+    func scheduleNotesOpen() {
+        guard card != nil, !notesAreShown, !notesDismissedWhileHovered else { return }
+        notesOpenTimer.scheduleIfIdle(after: Self.notesOpenDelay) { @MainActor [weak self] in
+            self?.notesOpenFired()
+        }
+    }
+
+    /// The rest passed: open if the pointer is still on the card.
+    func notesOpenFired() {
+        notesOpenChecks &+= 1
+        guard isHovered, !notesDismissedWhileHovered, !notesAreShown, !isHiddenOrHasHiddenAncestor else { return }
+        showNotes()
+    }
+
+    func cancelNotesOpen() { notesOpenTimer.cancel() }
 
     func cancelNotesClose() {
         notesCloseTimer.cancel()

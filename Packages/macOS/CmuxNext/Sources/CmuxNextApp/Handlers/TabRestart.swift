@@ -64,6 +64,10 @@ enum TerminalTabContent {
         let fix: ActionID = "terminal.fixLastCommand", on = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id)), registry = services.registry
         let run: (@MainActor () -> Void) = { [weak registry] in _ = registry?.perform(fix, invocation: on) }
         entry.session.view.onFixCommand = daemon.supports(DaemonCapability.terminalCommandContext.rawValue) ? run : nil
+        // A pane that still starts offers Close in its label: Close Tab on this tab, the one path of
+        // its shortcut on the focused pane and of the tab's close button (the tab keeps its id at the confirm).
+        let close = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
+        entry.session.view.onCloseStarting = { [weak registry = services.registry] in _ = registry?.perform("closeTab", invocation: close) }
         return .terminal(entry)
     }
 }

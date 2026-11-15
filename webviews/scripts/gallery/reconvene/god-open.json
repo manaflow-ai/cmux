@@ -1,0 +1,40 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "god-open-now",
+      "entry": "agent-pane.reconvene-god-open",
+      "variant": "now",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "god-open-quiet-edge",
+      "entry": "agent-pane.reconvene-god-open",
+      "variant": "quiet-edge",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "god-open-earlier-row",
+      "entry": "agent-pane.reconvene-god-open",
+      "variant": "earlier-row",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "god-open-reserved",
+      "entry": "agent-pane.reconvene-god-open",
+      "variant": "reserved",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    }
+  ]
+}

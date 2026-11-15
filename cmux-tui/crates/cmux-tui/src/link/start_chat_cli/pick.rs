@@ -1,8 +1,9 @@
-//! The local pins of a Cloud first send. The platform chooses a project's
-//! default machine and may share it across workspaces (`claim_project`).
-//! The fallback create path gives a new workspace its own machine (`claim`)
-//! and never picks an arbitrary fleet VM or teammate's machine. A retry
-//! stays on the machine its first send took, preserving its tab key.
+//! The local pins of a Cloud first send. One workspace per machine: a new
+//! workspace gets its own machine, from the platform or the fallback create
+//! path (`claim`), and never an arbitrary fleet VM or teammate's machine
+//! (Leo, 2026-11-06: "one workspace per machine ... arbitrarily many until
+//! you hit the cap"). A retry stays on the machine its first send took,
+//! preserving its tab key.
 
 use std::collections::BTreeSet;
 
@@ -157,7 +158,7 @@ pub(crate) fn destination(
 
 /// Makes `machine` the workspace `workspace`'s own in `account` when the
 /// workspace has none yet and no other workspace of the account has it (a
-/// machine serves one workspace for now). Answers whether it is the
+/// machine serves one workspace). Answers whether it is the
 /// workspace's now.
 ///
 /// The first machine a workspace gets stays its own: a retry of an older send
@@ -171,21 +172,6 @@ pub(crate) fn claim(pins: &mut Ledger, workspace: &str, account: &str, machine: 
     }
     if pins.held_by_another(machine, workspace, account) {
         return false;
-    }
-    pins.bind(workspace, account, machine);
-    true
-}
-
-/// A platform ensure has already authorized this project's machine for the workspace.
-/// It may serve other workspaces; a racing older send still cannot replace this workspace's pin.
-pub(crate) fn claim_project(
-    pins: &mut Ledger,
-    workspace: &str,
-    account: &str,
-    machine: &str,
-) -> bool {
-    if let Some(own) = pins.workspace_machine(workspace, account) {
-        return own == machine;
     }
     pins.bind(workspace, account, machine);
     true

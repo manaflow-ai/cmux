@@ -79,7 +79,10 @@ def parse_args() -> argparse.Namespace:
         "--binaries-dir",
         required=True,
         type=Path,
-        help="Directory containing cmux-tui- and cmux-tui-hook-<rust-target> binaries.",
+        help=(
+            "Directory containing cmux-tui-, cmux-tui-hook- and "
+            "cmux-tui-agent-screen-detection-<rust-target> binaries."
+        ),
     )
     parser.add_argument(
         "--version",
@@ -119,7 +122,7 @@ def wheel_info(name: str, data: bytes, mode: int) -> tuple[zipfile.ZipInfo, byte
 
 
 def wheel_bytes(
-    version: str, tag: str, binary: bytes, hook_binary: bytes, notice: bytes
+    version: str, tag: str, binary: bytes, hook_binary: bytes, notice: bytes, detector_binary: bytes
 ) -> list[tuple[str, bytes, int]]:
     dist_info = f"{DIST_NAME}-{version}.dist-info"
     return [
@@ -147,6 +150,9 @@ def main() -> None:
         ),
         (f"{PACKAGE_NAME}/bin/cmux-tui", binary, 0o755),
         (f"{PACKAGE_NAME}/bin/cmux-tui-hook", hook_binary, 0o755),
+        # The daemon runs this exact sibling of its own executable by default
+        # (the agent screen-detection plugin).
+        (f"{PACKAGE_NAME}/bin/cmux-agent-screen-detection", detector_binary, 0o755),
         (
             f"{dist_info}/WHEEL",
             text_bytes(
@@ -227,8 +233,12 @@ def main() -> None:
             raise SystemExit(f"missing binary: {binary_path}")
         if not hook_binary_path.is_file():
             raise SystemExit(f"missing hook binary: {hook_binary_path}")
+        detector_path = binaries_dir / f"cmux-tui-agent-screen-detection-{target.rust_target}"
+        if not detector_path.is_file():
+            raise SystemExit(f"missing agent screen-detection binary: {detector_path}")
         binary = binary_path.read_bytes()
         hook_binary = hook_binary_path.read_bytes()
+        detector_binary = detector_path.read_bytes()
         notice_path = args.notices_dir / f"cmux-tui-{target.rust_target}.md"
         if not notice_path.is_file():
             raise SystemExit(f"missing third-party notice {notice_path} (package_notices.py generate)")
@@ -240,7 +250,7 @@ def main() -> None:
                 wheel_path.unlink()
             write_wheel(
                 wheel_path,
-                wheel_bytes(args.version, platform_tag, binary, hook_binary, notice),
+                wheel_bytes(args.version, platform_tag, binary, hook_binary, notice, detector_binary),
                 args.version,
             )
 

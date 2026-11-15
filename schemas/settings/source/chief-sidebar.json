@@ -8,18 +8,18 @@
         "key": "settings.group.chiefSubagents",
         "text": "Subagents"
       },
-      "note": "Which Chief subagents get a workspace in the sidebar (a1018, Lawrence 2026-11-05: \"the chief will make the decision if the workspace is visible in the sidebar or not\", with heuristics the user shapes). Under auto the host shows a task that mentions a show word, hides one that mentions a hide word, else shows a task of at least the minimum words; the words listed add to the built-in ones (optchat-chief sidebar_choice.rs). Read at each spawn.",
+      "note": "Which kind of workspace each Chief subagent gets: every one gets a workspace, in the sidebar or in the collapsed \"Chief's workspaces\" group (Aziz, relayed 2026-11-11: \"no hidden workspaces at all\"). Under auto the host puts a task that mentions a sidebar word in the sidebar and one that mentions a Chief word in the group, else a task of at least the minimum words in the sidebar; the words listed add to the built-in ones (optchat-chief sidebar_choice.rs). Read at each spawn.",
       "rows": [
         {
           "key": "chief.subagentSidebar",
           "name": "mode",
           "title": {
             "key": "settings.chief.subagentSidebar",
-            "text": "Subagents in the Sidebar"
+            "text": "Subagent Workspaces"
           },
           "help": {
             "key": "settings.chief.subagentSidebar.help",
-            "text": "Automatic lets the Chief decide for each subagent: work you will want to watch or join shows, short errands stay hidden. Always and Never override the Chief."
+            "text": "Every subagent gets a workspace. Chief Decides puts work you will watch or join in the sidebar and errands in the collapsed Chief's workspaces group, which search still finds. Sidebar or Chief's Workspaces puts every subagent there."
           },
           "kind": "choice",
           "choices": [
@@ -34,14 +34,14 @@
               "value": "always",
               "title": {
                 "key": "settings.choice.subagentSidebarAlways",
-                "text": "Always"
+                "text": "Sidebar"
               }
             },
             {
               "value": "never",
               "title": {
                 "key": "settings.choice.subagentSidebarNever",
-                "text": "Never"
+                "text": "Chief's Workspaces"
               }
             }
           ],
@@ -54,7 +54,8 @@
             "show",
             "hide",
             "hidden",
-            "visible"
+            "visible",
+            "group"
           ]
         },
         {
@@ -62,11 +63,11 @@
           "name": "showWords",
           "title": {
             "key": "settings.chief.subagentSidebarShowWords",
-            "text": "Show Tasks That Mention"
+            "text": "Sidebar for Tasks That Mention"
           },
           "help": {
             "key": "settings.chief.subagentSidebarShowWords.help",
-            "text": "Words or phrases that show a subagent when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you."
+            "text": "Words or phrases that put a subagent in the sidebar when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you."
           },
           "kind": "string_list",
           "default": [],
@@ -84,7 +85,8 @@
             "hidden",
             "visible",
             "words",
-            "rules"
+            "rules",
+            "group"
           ]
         },
         {
@@ -92,11 +94,11 @@
           "name": "hideWords",
           "title": {
             "key": "settings.chief.subagentSidebarHideWords",
-            "text": "Hide Tasks That Mention"
+            "text": "Chief's Workspaces for Tasks That Mention"
           },
           "help": {
             "key": "settings.chief.subagentSidebarHideWords.help",
-            "text": "Words or phrases that keep a subagent hidden when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A show word wins."
+            "text": "Words or phrases that put a subagent in the collapsed Chief's workspaces group when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A sidebar word wins."
           },
           "kind": "string_list",
           "default": [],
@@ -114,7 +116,8 @@
             "hidden",
             "visible",
             "words",
-            "rules"
+            "rules",
+            "group"
           ]
         },
         {
@@ -122,11 +125,11 @@
           "name": "minWords",
           "title": {
             "key": "settings.chief.subagentSidebarMinWords",
-            "text": "Show Tasks Longer Than"
+            "text": "Sidebar for Tasks Longer Than"
           },
           "help": {
             "key": "settings.chief.subagentSidebarMinWords.help",
-            "text": "A task with no show or hide word shows when it has at least this many words, and stays hidden when it is shorter."
+            "text": "A task with neither kind of word goes in the sidebar when it has at least this many words, and in Chief's workspaces when it is shorter."
           },
           "kind": "number",
           "range": {
@@ -146,7 +149,8 @@
             "hidden",
             "visible",
             "length",
-            "words"
+            "words",
+            "group"
           ]
         }
       ]

@@ -38,7 +38,7 @@ struct CloudLinkStateRootTests {
         let build = BuildIdentity(bundleID: "com.cmuxterm.app.nightly", bundledTag: nil)
         let link = try #require(CloudLinkLauncher.linkStateRoot(build: build, applicationSupport: support))
         #expect(link.root.standardizedFileURL.path
-            == support.appendingPathComponent("cmux/tags/nightly/tui").standardizedFileURL.path)
+            == support.appendingPathComponent("cmux-next/tags/nightly/tui").standardizedFileURL.path)
     }
 
     @Test func releaseUsesTheDefaultRootAndTheSharedPort() throws {

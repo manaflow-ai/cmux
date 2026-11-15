@@ -2,8 +2,9 @@ public import AppKit
 
 /// A page's native menu on selected text (POLISH.md right-click contract), in place of the pages'
 /// Copy-only default (``PageWebView/contextMenuEditor``): WebKit's Copy, then Quote in Reply, then
-/// Search the Web and WebKit's Look Up; macOS adds Services last. With nothing selected WebKit
-/// offers no Copy, and the menu stays empty, as the default left it. The Channels page uses it.
+/// Search the Web and WebKit's Look Up; macOS adds Services last. On a link, WebKit's Copy Link
+/// leads. With nothing selected and no link the menu stays empty, as the default left it. The
+/// Channels page uses it.
 @MainActor
 public struct PageSelectionMenu {
     /// The page command Quote in Reply sends; the page quotes its own selection (the Channels
@@ -11,6 +12,7 @@ public struct PageSelectionMenu {
     public nonisolated static let quoteCommand = "quoteSelection"
     static let copyItem = "WKMenuItemIdentifierCopy"
     static let lookUpItem = "WKMenuItemIdentifierLookUp"
+    static let copyLinkItem = "WKMenuItemIdentifierCopyLink"
 
     public var quote: () -> Void
     public var search: () -> Void
@@ -24,8 +26,11 @@ public struct PageSelectionMenu {
     public func rebuild(_ menu: NSMenu) {
         let copy = menu.items.first { $0.identifier?.rawValue == Self.copyItem }
         let lookUp = menu.items.first { $0.identifier?.rawValue == Self.lookUpItem }
+        let copyLink = menu.items.first { $0.identifier?.rawValue == Self.copyLinkItem }
         menu.removeAllItems()
+        if let copyLink { menu.addItem(copyLink) }
         guard let copy else { return }
+        if copyLink != nil { menu.addItem(.separator()) }
         menu.addItem(copy)
         menu.addItem(PageMenuAction.item(Strings.quoteInReply, handler: quote))
         menu.addItem(.separator())

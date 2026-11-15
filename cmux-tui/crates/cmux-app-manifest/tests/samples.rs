@@ -1,4 +1,5 @@
-//! Every sample app with a `cmux-app.v2.json` (`samples/apps/*`) is a valid
+//! Every sample app and example extension with a `cmux-app.v2.json` (`samples/apps/*`,
+//! `examples/extensions/*`) is a valid
 //! manifest v2 package; a sample with a script also has interface
 //! implementations that name exports its built script defines.
 //! `cmux-app.json` stays manifest v1 for the CmuxNextApps prototype and is
@@ -17,12 +18,16 @@ mod apps {
     const V2: &str = "cmux-app.v2.json";
 
     fn samples() -> Vec<PathBuf> {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../samples/apps");
-        let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root)
-            .unwrap_or_else(|e| panic!("{}: {e}", root.display()))
-            .map(|e| e.expect("entry").path())
-            .filter(|p| p.join(V2).is_file())
-            .collect();
+        let mut dirs = Vec::new();
+        for folder in ["samples/apps", "examples/extensions"] {
+            let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..").join(folder);
+            dirs.extend(
+                std::fs::read_dir(&root)
+                    .unwrap_or_else(|e| panic!("{}: {e}", root.display()))
+                    .map(|e| e.expect("entry").path())
+                    .filter(|p| p.join(V2).is_file()),
+            );
+        }
         dirs.sort();
         dirs
     }

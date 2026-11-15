@@ -1,5 +1,6 @@
 import CmuxNextCompat
 public import CmuxNextWakeups
+import CryptoKit
 public import Foundation
 
 /// The folder a chat moves with: the git working copy that holds the chat's folder, or the chat's
@@ -19,6 +20,56 @@ public nonisolated struct CloudMoveFolder: Sendable, Equatable, Decodable {
     @concurrent nonisolated public static func isFolder(_ path: String) async -> Bool {
         var isFolder: ObjCBool = false
         return FileManager.checked.fileExists(atPath: path, isDirectory: &isFolder) && isFolder.boolValue
+    }
+
+    /// A Cloud start's folder that left this Mac after the start checked it (a worktree removed while the machine came up):
+    /// the start's card says the pane's own `cloud_folder_missing`, never the copy's OS error with the machine's name and a
+    /// Retry that could only fail the same way. Leo, 2026-11-06, on "Couldn't copy the folder to lease-lease_u_…: cannot
+    /// list …: No such file or directory (os error 2)": "what's this".
+    public struct Gone: Error {
+        public init() {}
+    }
+
+    /// `failure`, unless `root` is no longer a folder on this Mac: then ``Gone``.
+    public static func orGone(_ failure: any Error, root: String) async -> any Error {
+        await isFolder(root) ? failure : Gone()
+    }
+
+    /// ``init(chat:)`` read off the main thread (it looks for `.git` above the folder).
+    @concurrent nonisolated public static func read(chat folder: String) async -> CloudMoveFolder? {
+        CloudMoveFolder(chat: folder)
+    }
+
+    /// `path` with its `.` and `..` parts resolved and no trailing slash, as written otherwise, from its words alone
+    /// (`cmux cloud start-session --from-folder` checks them before anything starts; Rust's `moves::folder::normalized`
+    /// is the same rule): standardizing would also turn /private/tmp into /tmp, a path the person never wrote.
+    ///
+    /// - Parameter path: An absolute path.
+    /// - Returns: The resolved path, or nil for a relative path or one that climbs above the root.
+    public static func normalized(_ path: String) -> String? {
+        guard path.hasPrefix("/") else { return nil }
+        var parts: [Substring] = []
+        for part in path.split(separator: "/") {
+            switch part {
+            case ".": continue
+            case "..": if parts.popLast() == nil { return nil }
+            default: parts.append(part)
+            }
+        }
+        return "/" + parts.joined(separator: "/")
+    }
+
+    /// A start's copy key (`cmux link start-chat copy` takes a UUID's spelling) made of `machine` and `folder` (canonical):
+    /// the same start again on the same machine is the same copy, which its ledger reuses (`cmux cloud start-session
+    /// --from-folder`).
+    public static func copyKey(machine: String, folder: String) -> String {
+        let digest = SHA256.hash(data: Data("cmux cloud start-session --from-folder\u{0}\(machine)\u{0}\(folder)".utf8))
+        var key = ""
+        for (offset, character) in digest.prefix(16).map({ String(format: "%02x", $0) }).joined().enumerated() {
+            if [8, 12, 16, 20].contains(offset) { key.append("-") }
+            key.append(character)
+        }
+        return key
     }
 
     /// Nil for a relative folder, or one whose `..` parts climb above the disk's root. Reads the disk for `.git`.

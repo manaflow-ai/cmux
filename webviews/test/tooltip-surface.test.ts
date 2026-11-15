@@ -3,9 +3,8 @@
 // ui/glass/glass.css) in the tooltip frost, in every glass mode: a strong backdrop blur under a tint
 // dense enough that the text reads over anything (the host's, TooltipSurface.swift), the glass rim as
 // its one edge and a small tight shadow; the opaque popup surface under Reduce Transparency.
-// The first tooltip of a group fades in over the
-// popup-open time (120 ms) rising 2px, a warm neighbor's is there at once, and each fades out over
-// the popup-close time (80 ms); Reduce Motion keeps the fade and drops the rise.
+// A tooltip shows and goes in one frame, with no fade and no rise, under every motion setting (Leo,
+// 2026-11-11: "the fade-in, the fade-out, is just so stupid... It's just sluggish.").
 //
 // The page is the real stylesheets and the real title tooltip (ui/titleTooltips.ts, bundled) in
 // Chromium; the pointer is Playwright's mouse.
@@ -97,50 +96,33 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
     });
   };
 
-  test("the first tooltip fades in rising 2px; a warm neighbor's is there at once; it fades out faster", async () => {
+  test("the first tooltip shows at once with no fade or rise; a warm neighbor's is there at once; it goes at once", async () => {
     const page = await open(theme("dark"));
     await page.mouse.move(400, 250);
     await hoverAndWait(page, "b0");
-    const first = await transitions(page, [0, 75, 150]);
-    const opacity = first.find((transition) => transition.property === "opacity");
-    const rise = first.find((transition) => transition.property === "translate");
-    expect(opacity?.duration).toBe(120);
-    expect(opacity?.samples[0].opacity).toBe(0);
-    expect(opacity?.samples[1].opacity).toBeGreaterThan(0.5);
-    expect(opacity?.samples[1].opacity).toBeLessThan(1);
-    expect(opacity?.samples[2].opacity).toBe(1);
-    expect(rise?.samples[0].translate).toBe("0px 2px");
-    expect(rise?.duration).toBe(120);
-    await page.evaluate(() =>
-      document
-        .querySelector(".ui-title-tooltip")!
-        .getAnimations()
-        .forEach((a) => a.finish()),
-    );
+    expect(await transitions(page)).toEqual([]);
+    expect(
+      await page.$eval(".ui-title-tooltip", (tip) => ({
+        opacity: getComputedStyle(tip).opacity,
+        translate: getComputedStyle(tip).translate,
+      })),
+    ).toEqual({ opacity: "1", translate: "none" });
 
-    // Straight to the neighbor: its text at once, with no fade.
+    // Straight to the neighbor: its text at once.
     const box = (await page.locator("#b1").boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.waitForFunction(() => document.querySelector(".ui-title-tooltip")!.textContent === "Forward");
     expect(await transitions(page)).toEqual([]);
     expect(await page.$eval(".ui-title-tooltip", (tip) => getComputedStyle(tip).opacity)).toBe("1");
 
-    // Away: it fades out over 80 ms, then hides.
+    // Away: hidden in the frame the hide runs, with no fade.
     await page.mouse.move(400, 250);
-    await page.waitForFunction(() => document.querySelector(".ui-title-tooltip")!.hasAttribute("data-ending-style"));
-    const out = (await transitions(page)).find((transition) => transition.property === "opacity");
-    expect(out?.duration).toBe(80);
-    await page.evaluate(() =>
-      document
-        .querySelector(".ui-title-tooltip")!
-        .getAnimations()
-        .forEach((a) => a.play()),
-    );
     await page.waitForFunction(() => document.querySelector<HTMLElement>(".ui-title-tooltip")!.hidden, null, {
       timeout: 2000,
     });
+    expect(await transitions(page)).toEqual([]);
 
-    // A click puts a shown tooltip away at once, with no fade over the menu it opens.
+    // A click puts a shown tooltip away at once over the menu it opens.
     await hoverAndWait(page, "b2");
     await page.mouse.down();
     expect(
@@ -153,14 +135,11 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
     await page.close();
   });
 
-  test("under Reduce Motion the first tooltip still fades in, with no rise", async () => {
+  test("under Reduce Motion the first tooltip shows at once too", async () => {
     const page = await open(theme("dark"), toolbar, { reducedMotion: "reduce" });
     await page.mouse.move(400, 250);
     await hoverAndWait(page, "b0");
-    const seen = await transitions(page, [0]);
-    expect(seen.map((transition) => transition.property)).toEqual(["opacity"]);
-    expect(seen[0].duration).toBe(120);
-    expect(seen[0].samples[0].opacity).toBe(0);
+    expect(await transitions(page)).toEqual([]);
     await page.close();
   });
 

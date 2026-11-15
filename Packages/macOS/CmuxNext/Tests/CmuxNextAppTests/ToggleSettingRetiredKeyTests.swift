@@ -43,16 +43,14 @@ import Testing
         #expect(SettingsSchema.isRetired(["labs", "classicHome"]))
         let (services, url) = try await make()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        toggle(services, "labs.classicHome")
-        // A key outside the schema still takes the raw write; once it lands, the retired key's
-        // write (sent first, on the same settings owner) would have landed too.
-        toggle(services, "test.toggleSettingProbe")
-        let deadline = ContinuousClock.now + .seconds(10)
-        while saved(url, ["test", "toggleSettingProbe"]) == nil, ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(5))
+        // Both toggles' writes, as a capturing caller (`action.run`) awaits them: each one has applied or
+        // been refused when its task ends. A key outside the schema still takes the raw write.
+        let work = services.registry.capturingWork {
+            toggle(services, "labs.classicHome")
+            toggle(services, "test.toggleSettingProbe")
         }
-        // A short grace for a write that started first but finished after the probe's.
-        try? await Task.sleep(for: .milliseconds(300))
+        #expect(work.count >= 2, "each toggle reports its write")
+        for task in work { _ = await task.value }
         #expect(saved(url, ["test", "toggleSettingProbe"]) as? Bool == true)
         #expect(saved(url, ["labs", "classicHome"]) == nil, "toggle-setting wrote the retired key labs.classicHome")
     }

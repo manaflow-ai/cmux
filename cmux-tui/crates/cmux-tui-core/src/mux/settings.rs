@@ -17,6 +17,11 @@ use super::{Mux, MuxEvent};
 /// The daemon serves `settings.*` and emits `settings-changed`.
 pub const SETTINGS_CAPABILITY: &str = "settings-v1";
 
+/// The daemon serves `settings.edit`: several edits in one publish, and the
+/// conditional `set_unset` and `reset_unchanged` edits
+/// (plans/cmux-next/settings-react.md section 7, items 2 and 3).
+pub const SETTINGS_EDIT_CAPABILITY: &str = "settings-edit-v1";
+
 #[derive(Default)]
 pub(crate) struct SettingsSlot(OnceLock<SettingsOwner>);
 
@@ -50,7 +55,10 @@ impl Mux {
 
     /// Starts the owner on `CMUX_NEXT_CONFIG_FILE` or
     /// `~/.config/cmux/cmux-next.json`, with this session's state directory
-    /// for the cache.
+    /// for the cache. The variable is the launch input for the settings
+    /// file: the Mac app sets it on the `server ensure` that starts its
+    /// daemon, the detached owner inherits it, and a `server restart`
+    /// carries it to the next owner (`CarriedLaunch` in cmux-tui).
     pub fn start_default_settings_owner(self: &Arc<Self>) -> bool {
         self.start_settings_owner(self.default_settings_paths())
     }
@@ -103,6 +111,11 @@ impl Mux {
     pub(crate) fn with_settings<T>(self: &Arc<Self>, read: impl FnOnce(&State) -> T) -> T {
         let store = self.settings_store().lock().unwrap_or_else(|poison| poison.into_inner());
         read(store.state())
+    }
+
+    /// The `settings.snapshot` answer, with the owner's settings file path.
+    pub(crate) fn settings_snapshot(self: &Arc<Self>) -> serde_json::Value {
+        self.settings_store().lock().unwrap_or_else(|poison| poison.into_inner()).snapshot_json()
     }
 }
 

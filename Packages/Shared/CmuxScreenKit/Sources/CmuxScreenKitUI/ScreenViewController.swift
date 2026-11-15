@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxScreenKit
+import GameController
 import UIKit
 
 /// The remote screen: a zoomable view of the framebuffer, the local cursor,
@@ -81,6 +82,19 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     override public func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
+        // However the software keyboard was hidden: the screen takes the focus back for a
+        // hardware keyboard's keys, and the toolbar's keyboard button learns it is down.
+        keyInput.onResign = { [weak self] in
+            // After the resign has finished: taking the focus inside it handed the keyboard
+            // over to the screen instead of letting it go.
+            // task-owner: one main-actor hop; nothing waits on it
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                onKeyboardHidden?()
+                // Only when nothing took it meanwhile (a sign-in field the person tapped).
+                if currentFirstResponder() == nil { becomeFirstResponder() }
+            }
+        }
         // UI tests drive the screen through this element (a query by id stays cheap while it redraws).
         scrollView.accessibilityIdentifier = "screen.view"
         scrollView.frame = view.bounds
@@ -140,7 +154,33 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         }
     }
 
-    override public var canBecomeFirstResponder: Bool { true }
+    /// The screen takes the focus only for a hardware keyboard's keys
+    /// (`pressesBegan`). Without one it stays unfocused: a focused screen
+    /// had UIKit raise the software keyboard whenever a menu opened over it.
+    override public var canBecomeFirstResponder: Bool { GCKeyboard.coalesced != nil }
+
+    /// The responder that holds the focus now, if any: a nil-targeted action reaches it,
+    /// and it writes itself into the box sent along.
+    private func currentFirstResponder() -> UIResponder? {
+        let box = ScreenFirstResponderBox()
+        UIApplication.shared.sendAction(#selector(UIResponder.screenReportFirstResponder(_:)), to: nil, from: box, for: nil)
+        return box.responder
+    }
+
+    /// Called when the software keyboard was hidden by anything but `isKeyboardVisible`.
+    public var onKeyboardHidden: (() -> Void)?
+
+    /// A touch on the screen or its trackpad: the screen holds the focus while a
+    /// hardware keyboard is connected (one that connected since the screen
+    /// appeared included) and gives it up once none is. The software keyboard keeps it.
+    private func syncKeyboardFocus() {
+        guard !keyInput.isFirstResponder else { return }
+        if GCKeyboard.coalesced == nil {
+            if isFirstResponder { resignFirstResponder() }
+        } else if !isFirstResponder {
+            becomeFirstResponder()
+        }
+    }
 
     override public func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
@@ -285,8 +325,9 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     /// video carries none); the agent's pointer is drawn beside it.
     private func updateCursor() {
         updateAgentPointer()
-        let hostShape = !cursor.isEmpty && (session.preferences.localCursor || inputMode == .trackpad)
-        let local = hostShape || inputMode == .trackpad || pointerHovering
+        let relative = inputMode == .trackpad || trackpadPadActive
+        let hostShape = !cursor.isEmpty && (session.preferences.localCursor || relative)
+        let local = hostShape || relative || pointerHovering
         let remote = local ? nil : streamPixels(streamPerson)
         let visible = frameSize != .zero && (local || remote != nil)
         cursorLayer.isHidden = !visible
@@ -359,6 +400,20 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         }
     }
 
+    /// The size of the display the view was last fitted to (framebuffer
+    /// pixels), for chrome that sizes itself around the fitted screen.
+    var focusSize = CGSize.zero {
+        didSet { onFocusSize?(focusSize) }
+    }
+
+    var onFocusSize: ((CGSize) -> Void)?
+
+    /// The display the view is fitted to while paged or fitted, else the whole frame.
+    private func reportFocusSize() {
+        let size = fitToDisplay || paged ? focusRect.size : frameSize
+        if size != focusSize { focusSize = size }
+    }
+
     /// The display the view is pinned to: one of several, or the whole frame.
     private var focusRect: CGRect {
         screens.indices.contains(page) ? screens[page] : CGRect(origin: .zero, size: frameSize)
@@ -382,6 +437,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         paged = true
         pageControl.currentPage = page
         let rect = focusRect
+        reportFocusSize()
         let scale = fitScale(rect)
         let apply = { [self] in
             scrollView.minimumZoomScale = fitToDisplay ? scale : fitScale(CGRect(origin: .zero, size: frameSize))
@@ -467,6 +523,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
     private func updateZoomLimits(resetToFit: Bool) {
         guard frameSize.width > 0, frameSize.height > 0, view.bounds.width > 0 else { return }
+        defer { reportFocusSize() }
         if fitToDisplay || paged {
             // Re-fit after a rotation or resize; keep a zoomed-in view zoomed.
             let wasAtFit = abs(scrollView.zoomScale - scrollView.minimumZoomScale) < 0.001
@@ -631,6 +688,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     @objc private func handleLongPress(_ recognizer: UILongPressGestureRecognizer) {
         switch recognizer.state {
         case .began:
+            syncKeyboardFocus()
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             session.movePointer(to: framebufferPoint(recognizer))
             pressButton(.left)
@@ -649,6 +707,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     /// quick taps are two clicks at one point, which the Mac counts as a
     /// double click.
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
+        syncKeyboardFocus()
         let point = clickSnap.point(for: framebufferPoint(recognizer), at: CACurrentMediaTime(), radius: 24 * pixelsPerPoint)
         session.movePointer(to: point)
         session.click(.left, modifiers: keyInput.takeModifiers())
@@ -696,7 +755,20 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
     // MARK: Trackpad mode
 
-    private func handleTrackpad(_ event: SingleTouchRecognizer.Event) {
+    /// Which finger the trackpad gesture follows: the screen's (trackpad
+    /// mode) or the overlay pad's. One gesture at a time: the other's
+    /// touches are ignored while it is down.
+    private enum TrackpadFinger { case screen, pad }
+    private var trackpadFinger: TrackpadFinger?
+
+    private func handleTrackpad(_ event: SingleTouchRecognizer.Event, from finger: TrackpadFinger = .screen) {
+        if case .down = event {
+            if lastTrackpadPoint != nil, trackpadFinger != finger { return }
+            syncKeyboardFocus()
+            trackpadFinger = finger
+        } else if trackpadFinger != finger {
+            return
+        }
         switch event {
         case let .down(point, time):
             lastTrackpadPoint = point
@@ -752,6 +824,44 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         }
     }
 
+    // MARK: Trackpad overlay
+
+    /// The trackpad overlay is open: its pad moves the pointer, so the cursor
+    /// shows (and a zoomed view follows it) in either input mode.
+    public var trackpadPadActive = false {
+        didSet {
+            guard trackpadPadActive != oldValue else { return }
+            // Closing the pad mid-gesture (a tap's window, a drag) lets the button go.
+            if !trackpadPadActive, trackpadFinger == .pad { endPadGesture() }
+            updateCursor()
+            followCursor()
+        }
+    }
+
+    /// One finger on the overlay's pad: the same gesture as trackpad mode's finger on the screen.
+    func padTouch(_ event: SingleTouchRecognizer.Event) {
+        handleTrackpad(event, from: .pad)
+    }
+
+    private func endPadGesture() {
+        lastTrackpadPoint = nil
+        trackpadFinger = nil
+        applyTrackpad(trackpad.cancel())
+        scheduleTrackpadDeadline()
+    }
+
+    /// Two fingers tapped on the pad: a right click where the pointer is.
+    func padRightClick() {
+        session.click(.right, modifiers: keyInput.takeModifiers())
+        updateCursor()
+    }
+
+    /// Two fingers dragged on the pad: scrolls what is under the pointer.
+    func padScroll(by translation: CGPoint, began: Bool) {
+        if began { scrollRemainder = .zero }
+        scroll(by: translation)
+    }
+
     /// A pointer position kept on the focused display (fitted mode) or the frame.
     private func clampedToFocus(_ point: CGPoint) -> CGPoint {
         let rect = fitToDisplay ? focusRect : CGRect(origin: .zero, size: frameSize)
@@ -761,7 +871,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
     /// Trackpad mode, zoomed in: scrolls the view so the cursor stays clear of its edges.
     private func followCursor() {
-        guard inputMode == .trackpad, frameSize != .zero, view.bounds.width > 0 else { return }
+        guard inputMode == .trackpad || trackpadPadActive, frameSize != .zero, view.bounds.width > 0 else { return }
         let zoom = scrollView.zoomScale, bounds = scrollView.bounds.size
         let cursor = CGPoint(x: session.pointer.x * zoom, y: session.pointer.y * zoom)
         let margin = min(bounds.width, bounds.height) * 0.12
@@ -842,7 +952,12 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     public var isKeyboardVisible: Bool {
         get { keyInput.isFirstResponder }
         set {
-            if newValue { keyInput.becomeFirstResponder() } else { keyInput.resignFirstResponder(); becomeFirstResponder() }
+            if newValue {
+                keyInput.becomeFirstResponder()
+            } else {
+                keyInput.resignFirstResponder()
+                becomeFirstResponder()
+            }
         }
     }
 
@@ -857,6 +972,17 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
     override public func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         if !keyInput.forward(presses, down: false) { super.pressesCancelled(presses, with: event) }
+    }
+}
+/// Carries the focused responder back from a nil-targeted action.
+private final class ScreenFirstResponderBox: NSObject {
+    weak var responder: UIResponder?
+}
+
+extension UIResponder {
+    /// Answers `ScreenViewController.currentFirstResponder()`: the action goes to the focus.
+    @objc fileprivate func screenReportFirstResponder(_ sender: Any?) {
+        (sender as? ScreenFirstResponderBox)?.responder = self
     }
 }
 #endif

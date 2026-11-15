@@ -31,7 +31,6 @@ import Testing
         case .view: Strings.menuView
         case .server: Strings.menuServer
         case .window: Strings.menuWindow
-        case .debug: Strings.menuDebug
         case .app, .help: nil
         }
         return bar.items.first { $0.title == title }?.submenu
@@ -40,7 +39,7 @@ import Testing
     @Test func compactMainMenuPlacementsStayInTheirTopMenu() {
         _ = NSApplication.shared
         let registry = ActionRegistry.standard()
-        let bar = MainMenu.make(registry: registry, blocking: .forProcess())
+        let bar = MainMenu.make(registry: registry)
         var missing: [String] = []
         for (placement, ids) in MainMenu.compactActionIDs {
             guard let menu = Self.topMenu(placement, in: bar) else {
@@ -70,7 +69,7 @@ import Testing
     @Test func compactMenuCountsMatchAudit() {
         _ = NSApplication.shared
         let registry = ActionRegistry.standard()
-        let bar = MainMenu.make(registry: registry, blocking: .forProcess())
+        let bar = MainMenu.make(registry: registry)
         // The audit counts the rows a menu shows. An alternate (Edit's Opt-Shift-Cmd-V Paste and
         // Match Style, #27619) takes its primary's row while Option is held, so it adds none.
         let counts = ActionMainMenu.allCases.reduce(into: [ActionMainMenu: Int]()) { result, menu in
@@ -85,13 +84,12 @@ import Testing
         #expect(counts[.server] == 2)
         #expect(counts[.window] == 10) // Merge All Windows (Leo 2026-10-29)
         #expect(counts[.help] == 5)
-        #expect(counts[.debug] == 0 || DevTools.isEnabled)
     }
 
     @Test func appMenuStartsWithOneAbout() throws {
         _ = NSApplication.shared
         let registry = ActionRegistry.standard()
-        let app = try #require(MainMenu.make(registry: registry, blocking: .forProcess()).items.first?.submenu)
+        let app = try #require(MainMenu.make(registry: registry).items.first?.submenu)
         let about = try #require(registry.title(for: "about"))
         #expect(app.items.filter { $0.title == about }.count == 1, "About rows: \(app.items.map(\.title))")
         #expect(app.items.first?.representedObject as? String == "about", "first row: \(app.items.first?.title ?? "none")")

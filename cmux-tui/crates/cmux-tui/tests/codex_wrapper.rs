@@ -12,9 +12,18 @@ use std::time::{Duration, Instant};
 
 const TERMINAL_ONE: &str = "term_00000000000000000000000000000001";
 const TERMINAL_TWO: &str = "term_00000000000000000000000000000002";
-/// The reads of the Codex shim's SessionStart hook for the context it gives the agent.
-const PLACE_READS: [&str; 6] =
-    ["session.get", "terminal.get", "tab.get", "pane.get", "screen.get", "workspace.get"];
+/// The reads of the Codex shim's SessionStart hook for the context it gives the agent: the
+/// session's other agents (`agent.list`, `tab.list`; W5-Q #39040), then its place.
+const PLACE_READS: [&str; 8] = [
+    "agent.list",
+    "tab.list",
+    "session.get",
+    "terminal.get",
+    "tab.get",
+    "pane.get",
+    "screen.get",
+    "workspace.get",
+];
 
 #[cfg(target_os = "linux")]
 struct RouteOwner(std::process::Child);

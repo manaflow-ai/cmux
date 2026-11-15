@@ -40,7 +40,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from cmux_next_route import PACKAGE, closure, load_graph, route  # noqa: E402,F401
+from cmux_next_route import PACKAGE, closure, load_graph, matches, route  # noqa: E402,F401
 from select_package_tests import input_prefixes, package_dirs, under  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]

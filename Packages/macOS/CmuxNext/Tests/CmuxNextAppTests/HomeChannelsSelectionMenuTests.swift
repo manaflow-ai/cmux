@@ -44,4 +44,26 @@ struct HomeChannelsSelectionMenuTests {
         PageSelectionMenu(quote: {}, search: {}).rebuild(menu)
         #expect(menu.items.isEmpty)
     }
+
+    // Leo, 2026-11-09: "feel like this should have a copy link button". A right-click on a link in a
+    // page (the Channels page, the Markdown viewer) keeps WebKit's Copy Link, which copies the href.
+    @Test func linkKeepsCopyLinkWithAndWithoutSelection() {
+        let link = Self.webKitMenu(["WKMenuItemIdentifierOpenLink", "WKMenuItemIdentifierOpenLinkInNewWindow",
+                                    "WKMenuItemIdentifierDownloadLinkedFile", "WKMenuItemIdentifierCopyLink"])
+        PageSelectionMenu(quote: {}, search: {}).rebuild(link)
+        #expect(link.items.map { $0.identifier?.rawValue } == ["WKMenuItemIdentifierCopyLink"])
+
+        let selected = Self.webKitMenu(["WKMenuItemIdentifierOpenLink", "WKMenuItemIdentifierCopyLink",
+                                        "WKMenuItemIdentifierCopy", "WKMenuItemIdentifierLookUp"])
+        PageSelectionMenu(quote: {}, search: {}).rebuild(selected)
+        #expect(selected.items.first?.identifier?.rawValue == "WKMenuItemIdentifierCopyLink")
+        #expect(selected.items.dropFirst(2).first?.identifier?.rawValue == "WKMenuItemIdentifierCopy")
+    }
+
+    @Test func pageDefaultMenuKeepsCopyAndCopyLinkOnly() {
+        let menu = Self.webKitMenu(["WKMenuItemIdentifierOpenLink", "WKMenuItemIdentifierCopyLink",
+                                    "WKMenuItemIdentifierCopy", "WKMenuItemIdentifierReload"])
+        PageWKWebView.keepDesktopItems(in: menu)
+        #expect(menu.items.map { $0.identifier?.rawValue } == ["WKMenuItemIdentifierCopyLink", "WKMenuItemIdentifierCopy"])
+    }
 }

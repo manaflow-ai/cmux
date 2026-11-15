@@ -1,14 +1,14 @@
 // Applies a font study pairing (candidates.ts) to a gallery document: declares its faces and sets the
 // chrome face (`--font-ui`), the prose face (`--cv-font`, a serif a step larger) and the code face
-// (`--cv-mono`), each at its designed spacing as chatUiFont.ts sets a non-Inter face. `inter-tuned`
-// keeps today's Inter and its tracking. Resolves once every face has loaded, so no capture shows a
+// (`--cv-mono`), each at its designed spacing as chatUiFont.ts sets a bundled face. `inter-tuned`
+// sets nothing: the page's own UI font (the system font since 2026-11-07). Resolves once every face has loaded, so no capture shows a
 // fallback.
 import { FACES, type FaceKey, pairingById } from "./candidates";
 
 /// The type scale's steps with their own letter-spacing token (pages/shared/desktop.css).
 const STEPS = ["caption", "detail", "body", "field", "title", "heading"] as const;
 
-const stack = (key: FaceKey) => `"${FACES[key].family}", "Inter", system-ui, sans-serif`;
+const stack = (key: FaceKey) => `"${FACES[key].family}", -apple-system, system-ui, sans-serif`;
 
 export async function applyFontStudy(id: string, doc: Document = document): Promise<void> {
   const pairing = pairingById(id);

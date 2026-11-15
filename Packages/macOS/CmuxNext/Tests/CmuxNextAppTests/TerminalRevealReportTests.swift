@@ -34,6 +34,16 @@ struct TerminalRevealReportTests {
         #expect(!report.isBlank)
     }
 
+    /// A frame Ghostty showed since the reveal (its present callback) means the pane drew: not blank, and the report
+    /// says how many.
+    @Test func aFrameShownSinceTheRevealIsNotBlank() {
+        var report = Self.report(content: 2, layer: 2, window: 2, hasFrame: false)
+        report.framesSinceReveal = 2
+        #expect(!report.isBlank)
+        #expect(report.message.hasSuffix(" frames_since_reveal=2"))
+        #expect(report.fields["frames_since_reveal"] == "2")
+    }
+
     // MARK: The blank check
 
     @Test func aPaneStillBlankAtTheLimitIsReportedOnce() async throws {

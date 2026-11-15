@@ -49,6 +49,18 @@ await requireBrowserLane("settings-controls-browser.test.ts", async () => {
     if (out) await page.screenshot({ path: path.join(out, `${name}.png`) });
   }
   const row = (key: string) => `[data-row-key="${key}"]`;
+  // Rows have no Reset button (standup 2026-11-11): a person resets a row from its title's
+  // right-click menu. `enabled` is whether that menu's Reset to Default can be chosen.
+  async function resetItem(page: Page, selector: string, enabled: boolean) {
+    await page.locator(`${selector} .row-title`).click({ button: "right" });
+    await page.waitForFunction((enabled) => {
+      const item = [...document.querySelectorAll<HTMLButtonElement>("[role=menu] [role=menuitem]")].find(
+        (button) => button.textContent === "Reset to Default" || button.textContent === "Use Theme Color",
+      );
+      return item !== undefined && (item.disabled || item.getAttribute("aria-disabled") === "true") !== enabled;
+    }, enabled);
+    return page.locator("[role=menu] [role=menuitem]", { hasText: /^(Reset to Default|Use Theme Color)$/ });
+  }
 
   for (const width of [1000, 480])
     for (const scheme of ["light", "dark"]) {
@@ -68,19 +80,17 @@ await requireBrowserLane("settings-controls-browser.test.ts", async () => {
             (s) => document.querySelector(`${s} [role=switch]`)?.getAttribute("aria-checked") === "true",
             selector,
           );
-          const reset = page.locator(`${selector} [data-reset]`);
-          await reset.waitFor();
           const changed = await toggle.boundingBox();
           expect(Math.abs(changed!.x - before!.x)).toBeLessThanOrEqual(0.5);
           expect(Math.abs(changed!.y - before!.y)).toBeLessThanOrEqual(0.5);
-          if (!baseline) expect((await reset.boundingBox())!.width).toBe(24);
           await capture(page, `settings-switch-${width}-${scheme}`);
-          await reset.click();
+          await (await resetItem(page, selector, true)).click();
           await page.waitForFunction(
             (s) => document.querySelector(`${s} [role=switch]`)?.getAttribute("aria-checked") === "false",
             selector,
           );
-          expect(await page.locator(`${selector} [data-reset]`).count()).toBe(0);
+          const reset = await toggle.boundingBox();
+          expect(Math.abs(reset!.x - before!.x)).toBeLessThanOrEqual(0.5);
           const geometry = await page.locator(selector).evaluate((element) => {
             const style = getComputedStyle(element);
             return {
@@ -112,12 +122,13 @@ await requireBrowserLane("settings-controls-browser.test.ts", async () => {
       if (!baseline) expect(await field.getAttribute("class")).toContain("ui-input");
       await field.fill("https://example.org/settings");
       await field.press("Enter");
-      await page.locator(`${selector} [data-reset]`).waitFor();
+      await (await resetItem(page, selector, true)).waitFor();
+      await page.keyboard.press("Escape");
       await field.fill("invalid address");
       await field.press("Enter");
       await page.locator(`${selector} [role=alert]`).waitFor();
       expect(await field.getAttribute("aria-invalid")).toBe("true");
-      await page.locator(`${selector} [data-reset]`).click();
+      await (await resetItem(page, selector, true)).click();
       await page.waitForFunction(
         ({ selector, original }) =>
           (document.querySelector(`${selector} input.text`) as HTMLInputElement)?.value === original,
@@ -137,13 +148,12 @@ await requireBrowserLane("settings-controls-browser.test.ts", async () => {
       const toggle = page.locator(`${selector} [role=switch]`);
       await toggle.waitFor();
       expect(await toggle.isDisabled()).toBe(true);
-      expect(
-        await page.locator(`${selector} .reset-button`).evaluate((element) => getComputedStyle(element).opacity),
-      ).toBe("0");
       expect(await toggle.getAttribute("aria-checked")).toBe("false");
       await toggle.evaluate((element) => (element as HTMLButtonElement).click());
       expect(await toggle.getAttribute("aria-checked")).toBe("false");
-      expect(await page.locator(`${selector} [data-reset]`).count()).toBe(0);
+      // A managed row cannot be reset either.
+      await resetItem(page, selector, false);
+      await page.keyboard.press("Escape");
       await capture(page, "settings-managed");
     } finally {
       await page.close();

@@ -24,7 +24,9 @@ concurrency:
 jobs:
   autofix:
     name: namespace autofix
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository
       && !github.event.pull_request.draft

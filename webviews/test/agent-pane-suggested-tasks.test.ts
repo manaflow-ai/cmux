@@ -15,7 +15,7 @@
 // - Off (the `sessions.promptSuggestions` setting off, no Debug tunable, no experiment) nothing
 //   draws; suggested tasks on (`applySuggestedTasks`) alone draws the card; `applyPreview` does not.
 // - Another agent's message (`agent_message` provenance, a Claude Code `<cross-session-message>`
-//   in an adopted chat's history) draws as one disclosure line from that agent, toggle or not; Claude
+//   in an adopted chat's history) draws as one message line from that agent, toggle or not; Claude
 //   Code's task notifications and reminders there draw no raw XML.
 // - Reply on such a line sends the typed answer as this chat's cmux agent message to the sending
 //   chat: one `_acpmux/app_reply` naming this chat, that chat, the message's thread and the message
@@ -216,8 +216,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
     extra?: () => Record_[];
     width?: number;
   };
-  /// The Retry buttons a page shows: under the person's prompts (the Messages view's), and anywhere
-  /// else (a turn's reply footer, where the transcript's Retry is).
+  /// Inline Retry controls, which completed turns and received-message rows no longer expose.
   async function retryButtons(page: Page): Promise<{ prompts: number; elsewhere: number }> {
     return page.evaluate(() => {
       const shown = [...document.querySelectorAll('button[aria-label="Retry"]')].filter(
@@ -538,7 +537,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
   describe("messages from other agents", () => {
     const incoming = (page: Page) => page.locator(".cv-received");
     /// The pointer on a message's line: its hover actions (Reply, Retry, ⋯) take clicks only then.
-    const hoverLine = (card: Locator) => card.locator(":scope > .cv-disclosure__line").hover();
+    const hoverLine = (card: Locator) => card.locator(":scope > .cv-agentmsg__line").hover();
     /// One message as cmux's agent_message_prompt.rs `render` writes it: the prompt's text.
     const renderedMessage = (body: string, { id = "m-1", from = "Grid fix (acp:child-3)", reply = true } = {}) =>
       [
@@ -582,7 +581,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       expect(await card.locator(".cv-received__preview").innerText()).toBe(
         "The grid fix is on cmux/grid-fix; tests pass.",
       );
-      expect(await card.locator(".cv-disclosure__panel").count()).toBe(0);
+      expect(await card.locator(".cv-agentmsg__card").count()).toBe(0);
       expect(await card.getByRole("button", { name: "Details" }).count()).toBe(0);
       expect(await page.locator(".cv-user__bubble").filter({ hasText: "The grid fix is on" }).count()).toBe(0);
       // Opened, the whole message, and the prompt as the agent got it (cmux's envelope, message id
@@ -619,7 +618,9 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
       expect(await card.locator(".cv-received__preview").innerText()).toBe("Step 1 of the landing report.");
-      expect(await card.locator(".cv-disclosure__line").evaluate((el) => el.getBoundingClientRect().height)).toBe(22);
+      expect(
+        await card.locator(":scope > .cv-agentmsg__line").evaluate((el) => el.getBoundingClientRect().height),
+      ).toBe(22);
       expect(await page.locator(".cv-received__body, .cv-received__show, [data-cut]").count()).toBe(0);
       const toggle = card.getByRole("button", { name: /Message from Grid fix/ });
       expect(await toggle.getAttribute("aria-expanded")).toBe("false");
@@ -633,8 +634,10 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       await textBox.getByText("Step 20 of the landing report.").waitFor({ timeout: 5_000 });
       expect(await textBox.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
       expect(await textBox.locator("p").count()).toBe(20);
-      await toggle.click();
-      await card.locator(".cv-disclosure__panel").waitFor({ state: "detached", timeout: 5_000 });
+      // Opened, the toggle button holds no words and has no box of its own (AgentMessageRow.css):
+      // the pointer closes it from the line, here its chevron.
+      await card.locator(":scope > .cv-agentmsg__line .cv-agentmsg__chevron").click();
+      await card.locator(".cv-agentmsg__card").waitFor({ state: "detached", timeout: 5_000 });
       expect(await toggle.getAttribute("aria-expanded")).toBe("false");
       await page.close();
     });
@@ -848,11 +851,13 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       await field.waitFor({ timeout: 5_000 });
       await field.fill("Rebase first");
       const toggle = card.getByRole("button", { name: /Message from Grid fix/ });
-      await toggle.click();
-      // Closed with the message, nothing sent, and the focus on the chevron rather than lost.
+      // Opened, the toggle button has no box of its own (AgentMessageRow.css): the pointer closes
+      // the message from its line, here its chevron.
+      await card.locator(":scope > .cv-agentmsg__line .cv-agentmsg__chevron").click();
+      // Closed with the message, nothing sent, and the focus on the line's toggle rather than lost.
       await field.waitFor({ state: "detached", timeout: 5_000 });
       expect(await toggle.getAttribute("aria-expanded")).toBe("false");
-      await page.waitForFunction(() => document.activeElement?.classList.contains("cv-disclosure__toggle"), undefined, {
+      await page.waitForFunction(() => document.activeElement?.classList.contains("cv-agentmsg__toggle"), undefined, {
         timeout: 5_000,
       });
       expect(sentReply()).toBe(false);
@@ -960,14 +965,12 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       expect(order.first).toBeGreaterThanOrEqual(0);
       expect(order.footers.some((index) => index > order.first && index < order.second)).toBe(true);
       expect(await page.locator("body").innerText()).not.toContain("The date changed.");
-      // The last turn is the reminder's, which has no prompt of the person's to send again, so its
-      // footer offers no Retry. The person's one prompt keeps one, on its own turn's footer
-      // (cmux#34779: Retry is the reply footer's, never the prompt bubble's).
-      expect(await retryButtons(page)).toEqual({ prompts: 0, elsewhere: 1 });
+      // Resend belongs to the message menu; neither the person's footer nor the reminder adds it inline.
+      expect(await retryButtons(page)).toEqual({ prompts: 0, elsewhere: 0 });
       await page.close();
     });
 
-    test("another agent's message offers no Retry: the person's own prompt keeps the chat's one", async () => {
+    test("another agent's message and the person's own prompt offer no inline Retry", async () => {
       const text = [
         '<cross-session-message from="uds:/tmp/cc-socks/72618.sock" from-name="leoli-fb" from-mode="bypass">',
         "Please review #123.",
@@ -985,10 +988,9 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       });
       await page.getByText("Reviewing #123 now.").first().waitFor({ timeout: 10_000 });
       await hoverLine(incoming(page).last());
-      // Only a prompt of the person's own draws Retry (turns.ts isRetryablePrompt, cmux#34779): the
-      // message line and its turn's footer draw none, and the person's prompt keeps the one Retry.
+      // A received message must not introduce an inline resend control on either turn.
       expect(await incoming(page).last().getByRole("button", { name: "Retry", exact: true }).count()).toBe(0);
-      expect(await retryButtons(page)).toEqual({ prompts: 1, elsewhere: 0 });
+      expect(await retryButtons(page)).toEqual({ prompts: 0, elsewhere: 0 });
       await page.close();
     });
 
@@ -1007,9 +1009,8 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
         ],
       });
       await page.getByText("The build is done.").first().waitFor({ timeout: 10_000 });
-      // Only the person's one prompt has a Retry; the notification's turn offers none. Its turn's
-      // footer draws nothing at rest here, so the prompt keeps it (turns.ts retryPlacement, cmux#34779).
-      expect(await retryButtons(page)).toEqual({ prompts: 1, elsewhere: 0 });
+      // The notification is not a resend target, and the person's prompt has no inline fallback.
+      expect(await retryButtons(page)).toEqual({ prompts: 0, elsewhere: 0 });
       await page.close();
     });
 

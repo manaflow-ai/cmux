@@ -379,7 +379,8 @@ struct ClickedLinkFocusTests {
         let store = services.daemon.store
         let before = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
         if native {
-            #expect(WebPageTab.openGitHub(link, from: pane, services: services) == true)
+            // explicit: the page whatever `browser.openPullRequestsInGitHubPage` (off by default); these tests are about its placement.
+            #expect(WebPageTab.openGitHub(link, from: pane, services: services, explicit: true) == true)
         } else {
             services.linkOpener.openWeb(link, from: pane, background: false)
         }

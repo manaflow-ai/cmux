@@ -153,8 +153,7 @@ pub(super) fn focus_pane_plan(
         .find(|screen| screen.public_id == screen_id)
         .context("pane screen is absent from durable topology")? = durable_screen.clone();
     let deltas = focus_deltas(state, &topology, &after, previous, Some(workspace_id.clone()))?;
-    let workspace_record =
-        registry_workspace(state, workspace_index, registry.session_id().as_str());
+    let workspace_record = registry_workspace(state, workspace_index, &mux.session);
     let result = json!({"pane":pane_id,"screen":screen_id});
     let mux = Arc::clone(mux);
     Ok(ResourceMutationPlan::new(

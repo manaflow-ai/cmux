@@ -9,8 +9,8 @@ pub(crate) async fn clear_peer_snapshots() -> Result<()> {
 }
 
 async fn clear_at(home: &Path, socket: &Path) -> Result<()> {
-    // timeout: an accepted socket that never completes initialization is a hung
-    // writer; after this grace the lock-protected path can safely decide.
+    // An accepted socket that never completes initialization is a hung writer.
+    // timeout: after this grace the lock-protected path can safely decide.
     const SNAPSHOT_CONNECT_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
     if let Ok(Ok(client)) =
         tokio::time::timeout(SNAPSHOT_CONNECT_BUDGET, Client::connect_without_caller(socket)).await
@@ -23,8 +23,8 @@ async fn clear_at(home: &Path, socket: &Path) -> Result<()> {
         if std::fs::canonicalize(served)? != std::fs::canonicalize(home)? {
             anyhow::bail!("refusing to clear peer snapshots belonging to another daemon home");
         }
-        // timeout: a live daemon that accepts the clear but never answers must not hold
-        // sign-out's caller forever; on expiry this fails and nothing is reported cleared.
+        // A live daemon may accept the clear and never answer.
+        // timeout: sign-out's caller is not held forever; on expiry this fails, nothing cleared.
         const SNAPSHOT_CLEAR_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
         tokio::time::timeout(
             SNAPSHOT_CLEAR_BUDGET,

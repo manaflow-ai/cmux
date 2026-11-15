@@ -1,0 +1,149 @@
+/* CloudChatHint.tsx: the one-time Cloud hint over a new chat's composer. Borderless: flat tonal
+   fills only (Leo 2026-11-07: flat blocky tonal fills, no borders). It is a row in the column above
+   the composer, never over it. It opens and closes by its own height (a grid row from 0fr to 1fr)
+   with a fade, on the house settle, so the composer moves with it in one transition; motion off or
+   Reduce Motion shows and hides it at once. */
+.acpmux-cloud-hint-fold {
+  --acpmux-cloud-hint-fill: color-mix(in srgb, var(--agent-text) 5%, transparent);
+  --acpmux-cloud-hint-fill-strong: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  --acpmux-cloud-hint-fill-hover: color-mix(in srgb, var(--agent-text) 13%, transparent);
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  animation: acpmux-cloud-hint-open var(--cmux-motion-settle, 180ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1))
+    both;
+}
+.acpmux-cloud-hint-fold[data-leaving="true"] {
+  pointer-events: none;
+  animation-name: acpmux-cloud-hint-close;
+}
+.acpmux-cloud-hint-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+@keyframes acpmux-cloud-hint-open {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+@keyframes acpmux-cloud-hint-close {
+  from {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+  to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+:root:is([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"])
+  .acpmux-cloud-hint-fold {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-cloud-hint-fold {
+    animation: none;
+  }
+}
+
+.acpmux-cloud-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2, 8px);
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 760px;
+  min-width: 0;
+  margin: 0 auto var(--ds-space-2, 8px);
+  padding: var(--ds-space-1, 4px) var(--ds-space-1, 4px) var(--ds-space-1, 4px) var(--ds-space-3, 12px);
+  border-radius: var(--ds-radius-control, 8px);
+  background: var(--acpmux-cloud-hint-fill);
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  line-height: 16px;
+}
+.acpmux-cloud-hint-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--agent-text);
+}
+.acpmux-cloud-hint-text {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0;
+}
+.acpmux-cloud-hint-body {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-cloud-hint-title {
+  color: var(--agent-text);
+  font-weight: 600;
+}
+.acpmux-cloud-hint-use,
+.acpmux-cloud-hint-close {
+  flex: none;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 6px;
+  background: var(--acpmux-cloud-hint-fill-strong);
+  color: var(--agent-text);
+  font: inherit;
+  font-weight: normal;
+  cursor: default;
+}
+.acpmux-cloud-hint-use {
+  min-height: 24px;
+  padding: 0 var(--ds-space-2, 8px);
+  white-space: nowrap;
+}
+.acpmux-cloud-hint-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  color: var(--agent-muted);
+}
+.acpmux-cloud-hint-use:hover,
+.acpmux-cloud-hint-close:hover {
+  background: var(--acpmux-cloud-hint-fill-hover);
+  color: var(--agent-text);
+}
+.acpmux-cloud-hint button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--agent-text) 40%, transparent);
+  outline-offset: 1px;
+}
+
+/* Card: a title over the sentence on a taller block, the actions on the right. */
+.acpmux-cloud-hint[data-look="card"] {
+  align-items: center;
+  padding: var(--ds-space-2, 8px) var(--ds-space-2, 8px) var(--ds-space-2, 8px) var(--ds-space-3, 12px);
+}
+.acpmux-cloud-hint[data-look="card"] .acpmux-cloud-hint-body {
+  white-space: normal;
+}
+
+/* Chip: one small block centered in the column, the icon, Try Cloud and the X. */
+.acpmux-cloud-hint[data-look="chip"] {
+  width: max-content;
+  max-width: 100%;
+  margin-inline: auto;
+  padding: var(--ds-space-1, 4px) var(--ds-space-1, 4px) var(--ds-space-1, 4px) var(--ds-space-2, 8px);
+  gap: var(--ds-space-1, 4px);
+}
+.acpmux-cloud-hint[data-look="chip"] .acpmux-cloud-hint-use {
+  background: transparent;
+}

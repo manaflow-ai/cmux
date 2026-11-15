@@ -370,10 +370,13 @@ struct TerminalSurfaceCommitSizeTests {
             let committed = await withCheckedContinuation { (done: CheckedContinuation<ContinuousClock.Instant?, Never>) in
                 CommitBoundary().after { outcome in done.resume(returning: outcome == .committed ? .now : nil) }
             }
-            // The real signal: the presenter's waiting state of both terminals, read after each commit.
+            // The real signal: the presenter's waiting state of both terminals, read after each commit. A Reduce Motion
+            // press shows at the next frame tick (RESIZE P0 13, KEY SNAP GRID): until then its presentation waits.
             let presenter = TerminalFramePresenter.forWindow(window)
             let deadline = ContinuousClock.now.advanced(by: .seconds(2))
-            while ContinuousClock.now < deadline, sessions.contains(where: { presenter.isWaiting($0.surfaceView) }) {
+            let screen = root.screenViews["s"]
+            while ContinuousClock.now < deadline,
+                  screen?.frameInput.presentationWaiting == true || sessions.contains(where: { presenter.isWaiting($0.surfaceView) }) {
                 await Self.commit()
             }
             for (index, session) in sessions.enumerated() where presenter.isWaiting(session.surfaceView) {

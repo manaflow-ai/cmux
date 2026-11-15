@@ -7,9 +7,13 @@
 //! cmux attention list
 //! ```
 //!
-//! `next` answers `{target, queue_length, focused}`: `target` is the entry
-//! after the focused tab (or after `--after`), wrapping, else the first, or
-//! null when nothing needs the person. It moves focus only with `--focus`,
+//! `next` answers `{target, queue_length, focused}`: `target` is the first
+//! (most urgent) entry, or with `--after` the entry after that tab, wrapping,
+//! or null when nothing needs the person. `--focus` without `--after` starts
+//! after the focused tab, so the same key cycles. A blocked entry's `reason`
+//! is the agent's own message (its program status `msg`, else its unread
+//! notification), never the record's title; an agent's finished turn nobody
+//! viewed is `kind: done`. It moves focus only with `--focus`,
 //! which sends `tab <tab> focus` (the app's window follows as for that
 //! command). `list` answers `{queue}`. `request` and `clear` stay with the
 //! resource grammar (`command/state.rs`).
@@ -80,8 +84,9 @@ fn run(global: &GlobalArgs, verb: &str, flags: &Flags) -> i32 {
     if verb == "list" {
         return wire::print_local_success(&json!({"queue": queue}), global.output);
     }
-    let current = flags.after.clone().or_else(|| focused_tab(&snapshot));
-    let target = next_entry(&queue, current.as_deref()).cloned();
+    // `--focus` cycles: it starts after the tab the person looks at.
+    let focused_now = flags.focus.then(|| focused_tab(&snapshot)).flatten();
+    let target = next_target(&queue, flags.after.as_deref(), focused_now.as_deref()).cloned();
     let mut focused = false;
     if flags.focus
         && let Some(tab) = target.as_ref().and_then(|entry| text(entry, "tab"))
@@ -145,7 +150,7 @@ fn by_id<'a>(records: &'a [Value], id: &Value) -> Option<&'a Value> {
 }
 
 /// The tab the person looks at: the focused tab of the focused pane of the
-/// focused screen of the focused workspace.
+/// focused screen of the focused workspace. `next --focus` starts after it.
 fn focused_tab(snapshot: &Value) -> Option<String> {
     let focused = |kind: &str| -> Vec<&Value> {
         records(snapshot, kind).iter().filter(|record| field(record, "focused") == true).collect()
@@ -185,6 +190,7 @@ fn snapshot_queue(snapshot: &Value) -> Vec<Value> {
             push(id.to_owned(), AttentionKind::Requested, AttentionLevel::Warning, since, reason);
         }
     }
+    let notifications = records(snapshot, "notifications");
     for terminal in terminals {
         let blocked = records(field(terminal, "extra"), "program_status")
             .iter()
@@ -192,25 +198,54 @@ fn snapshot_queue(snapshot: &Value) -> Vec<Value> {
             .filter_map(|record| millis(field(record, "since_ms")))
             .min();
         let (Some(since), Some(tab)) = (blocked, text(terminal, "tab_id")) else { continue };
-        push(tab.to_owned(), AttentionKind::Blocked, AttentionLevel::Warning, since, None);
+        let reason = blocked_reason(terminal, notifications);
+        push(tab.to_owned(), AttentionKind::Blocked, AttentionLevel::Warning, since, reason);
     }
     for agent in records(snapshot, "agents") {
         if text(agent, "state") != Some("blocked") {
             continue;
         }
-        let Some(tab) = tab_of_terminal(field(agent, "terminal_id")) else { continue };
+        let terminal_id = field(agent, "terminal_id");
+        let Some(tab) = tab_of_terminal(terminal_id) else { continue };
         let since = millis(field(agent, "updated_at_ms")).unwrap_or(u64::MAX);
-        push(tab, AttentionKind::Blocked, AttentionLevel::Warning, since, None);
+        let reason = by_id(terminals, terminal_id)
+            .and_then(|terminal| blocked_reason(terminal, notifications));
+        push(tab, AttentionKind::Blocked, AttentionLevel::Warning, since, reason);
     }
-    for notification in records(snapshot, "notifications") {
+    // A terminal whose agent finished a turn nobody viewed: the roster's
+    // `done`, the word `terminal list --agents` shows.
+    let finished: std::collections::HashSet<String> =
+        super::terminal_talk::roster::agent_rows(snapshot)
+            .into_iter()
+            .filter(|row| row.status == Some(cmux_tui_core::AgentStatus::Done))
+            .map(|row| row.terminal)
+            .collect();
+    // Every row of a terminal carries that terminal's current unread marker,
+    // so only its newest row says why the tab is unread.
+    let mut newest: std::collections::BTreeMap<&str, &Value> = std::collections::BTreeMap::new();
+    for notification in notifications {
+        let Some(terminal) = text(notification, "terminal_id") else { continue };
+        let created = millis(field(notification, "created_at_ms")).unwrap_or(0);
+        let kept = newest.get(terminal).map(|row| millis(field(row, "created_at_ms")).unwrap_or(0));
+        if kept.is_none_or(|kept| created > kept) {
+            newest.insert(terminal, notification);
+        }
+    }
+    for notification in newest.into_values() {
         if field(notification, "unread") != true {
             continue;
         }
-        let Some(tab) = tab_of_terminal(field(notification, "terminal_id")) else { continue };
+        let terminal_id = field(notification, "terminal_id");
+        let Some(tab) = tab_of_terminal(terminal_id) else { continue };
         let level = AttentionLevel::parse(text(notification, "level").unwrap_or_default());
         let since = millis(field(notification, "created_at_ms")).unwrap_or(u64::MAX);
         let title = text(notification, "title").filter(|title| !title.is_empty());
-        push(tab, AttentionKind::Unread, level, since, title.map(str::to_owned));
+        let kind = if terminal_id.as_str().is_some_and(|id| finished.contains(id)) {
+            AttentionKind::Done
+        } else {
+            AttentionKind::Unread
+        };
+        push(tab, kind, level, since, title.map(str::to_owned));
     }
     attention_queue(candidates)
         .into_iter()
@@ -221,6 +256,38 @@ fn snapshot_queue(snapshot: &Value) -> Vec<Value> {
             entry_json(snapshot, &entry, tab.unwrap_or(&NULL), reason, since)
         })
         .collect()
+}
+
+/// `value` trimmed, when any text is left.
+fn shown(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|text| !text.is_empty())
+}
+
+/// Why a blocked terminal waits on the person: its blocked program status
+/// message (Claude Code's `approve Bash: …`), else its newest unread
+/// notification's body or title (a hook's "needs your permission"). The
+/// record's title ("Claude Code") says nothing about why: never used.
+fn blocked_reason(terminal: &Value, notifications: &[Value]) -> Option<String> {
+    let reported = records(field(terminal, "extra"), "program_status")
+        .iter()
+        .filter(|record| text(record, "state") == Some("blocked"))
+        .find_map(|record| shown(text(record, "msg")));
+    if let Some(reason) = reported {
+        return Some(reason.to_owned());
+    }
+    let terminal_id = field(terminal, "id");
+    notifications
+        .iter()
+        .filter(|notification| {
+            field(notification, "unread") == true
+                && !terminal_id.is_null()
+                && field(notification, "terminal_id") == terminal_id
+        })
+        .max_by_key(|notification| millis(field(notification, "created_at_ms")).unwrap_or(0))
+        .and_then(|notification| {
+            shown(text(notification, "body")).or_else(|| shown(text(notification, "title")))
+        })
+        .map(str::to_owned)
 }
 
 fn entry_json(
@@ -256,6 +323,18 @@ fn entry_json(
         "level": level,
         "since_ms": (since != u64::MAX).then_some(since),
     })
+}
+
+/// The entry `attention next` answers: the one after `after` (wrapping),
+/// else after `focused` (`--focus`: the key cycles), else the first, the
+/// most urgent. Without `--focus` the focused tab does not move the start:
+/// an agent asks what needs the person most, wherever the person looks.
+fn next_target<'a>(
+    queue: &'a [Value],
+    after: Option<&str>,
+    focused: Option<&str>,
+) -> Option<&'a Value> {
+    next_entry(queue, after.or(focused))
 }
 
 /// The entry after `current` in `queue` (wrapping), else the first.
@@ -305,11 +384,11 @@ mod tests {
                 {"id": "tab_e", "pane_id": "pane_1", "content_id": "term_e", "focused": true, "name": null, "extra": {}},
             ],
             "terminals": [
-                {"id": "term_a", "tab_id": "tab_a", "title": "build"},
-                {"id": "term_b", "tab_id": "tab_b", "title": "claude"},
-                {"id": "term_c", "tab_id": "tab_c", "title": "codex"},
-                {"id": "term_d", "tab_id": "tab_d", "title": "tests"},
-                {"id": "term_e", "tab_id": "tab_e", "title": "zsh"},
+                {"id": "term_a", "tab_id": "tab_a", "title": "build", "lifecycle": "running"},
+                {"id": "term_b", "tab_id": "tab_b", "title": "claude", "lifecycle": "running"},
+                {"id": "term_c", "tab_id": "tab_c", "title": "codex", "lifecycle": "running"},
+                {"id": "term_d", "tab_id": "tab_d", "title": "tests", "lifecycle": "running"},
+                {"id": "term_e", "tab_id": "tab_e", "title": "zsh", "lifecycle": "running"},
             ],
             "agents": [
                 {"id": "agent_c", "terminal_id": "term_c", "state": "blocked", "updated_at_ms": "200"},
@@ -352,6 +431,27 @@ mod tests {
         assert_eq!(queue[3]["workspace"], "work");
     }
 
+    /// `term_d` had an error that was read, then an info notification: every
+    /// row shows the terminal's unread marker, and the newest row decides.
+    #[test]
+    fn attention_cli_uses_the_newest_notification_of_a_terminal() {
+        let mut snapshot = snapshot();
+        snapshot["notifications"] = json!([
+            {"id": "n4", "terminal_id": "term_d", "unread": true, "level": "info", "created_at_ms": "900", "title": "today"},
+            {"id": "n2", "terminal_id": "term_d", "unread": true, "level": "error", "created_at_ms": "10", "title": "yesterday"},
+            {"id": "n1", "terminal_id": "term_a", "unread": true, "level": "info", "created_at_ms": "100", "title": "bench done"},
+        ]);
+        let queue = snapshot_queue(&snapshot);
+        assert_eq!(
+            tabs(&queue),
+            vec!["tab_c", "tab_b", "tab_a", "tab_d"],
+            "tab_d is info, newest last"
+        );
+        assert_eq!(queue[3]["level"], "info");
+        assert_eq!(queue[3]["reason"], "today");
+        assert_eq!(queue[3]["since_ms"], 900);
+    }
+
     #[test]
     fn attention_cli_next_starts_at_the_top_from_a_tab_outside_the_queue_and_cycles() {
         let snapshot = snapshot();
@@ -380,6 +480,116 @@ mod tests {
         assert_eq!(tabs(&queue), vec!["tab_d"]);
         assert_eq!(queue[0]["kind"], "blocked");
         assert_eq!(queue[0]["since_ms"], 70);
+    }
+
+    /// W5-Q (bench r4 #5): a blocked row says why: the program status
+    /// message (`approve Bash: ...`), for a block a program reported and for
+    /// one the agent roster shows.
+    #[test]
+    fn w5q_attention_blocked_rows_carry_the_status_message() {
+        let mut program = snapshot();
+        program["terminals"][2]["extra"] = json!({"program_status": [
+            {"app": "claude-code", "state": "blocked", "kind": "permission",
+             "title": "Claude Code", "msg": "approve Bash: touch /tmp/x", "since_ms": "150"},
+        ]});
+        let queue = snapshot_queue(&program);
+        assert_eq!(queue[0]["tab"], "tab_c");
+        assert_eq!(queue[0]["kind"], "blocked");
+        assert_eq!(queue[0]["reason"], "approve Bash: touch /tmp/x", "{}", queue[0]);
+
+        // The roster's block alone (no program status record) has no
+        // message; the terminal's unread notification says why.
+        let mut roster_only = snapshot();
+        roster_only["notifications"] = json!([
+            {"id": "n9", "terminal_id": "term_c", "unread": true, "level": "info",
+             "created_at_ms": "210", "title": "Claude Code", "body": "Claude needs your permission to use Bash"},
+        ]);
+        let queue = snapshot_queue(&roster_only);
+        assert_eq!(queue[0]["tab"], "tab_c");
+        assert_eq!(queue[0]["reason"], "Claude needs your permission to use Bash", "{}", queue[0]);
+    }
+
+    /// W5-Q (bench r4 #5): `attention next` without `--after` answers the
+    /// most urgent entry, wherever the focus is; `--after` still cycles.
+    #[test]
+    fn w5q_attention_next_without_after_starts_at_the_most_urgent() {
+        let mut snapshot = snapshot();
+        // The person looks at tab_b (requested, second in the queue).
+        snapshot["tabs"][4]["focused"] = json!(false);
+        snapshot["panes"][0]["focused"] = json!(false);
+        snapshot["panes"][1]["focused"] = json!(true);
+        snapshot["screens"][0]["focused"] = json!(false);
+        snapshot["screens"][1]["focused"] = json!(true);
+        snapshot["workspaces"][0]["focused"] = json!(false);
+        snapshot["workspaces"][1]["focused"] = json!(true);
+        snapshot["tabs"][1]["focused"] = json!(true);
+        snapshot["tabs"][2]["focused"] = json!(false);
+        assert_eq!(focused_tab(&snapshot).as_deref(), Some("tab_b"));
+        let queue = snapshot_queue(&snapshot);
+        assert_eq!(tabs(&queue), vec!["tab_c", "tab_b", "tab_d", "tab_a"]);
+        assert_eq!(next_target(&queue, None, None).unwrap()["tab"], "tab_c");
+        assert_eq!(next_target(&queue, Some("tab_c"), None).unwrap()["tab"], "tab_b");
+        assert_eq!(next_target(&queue, Some("tab_a"), None).unwrap()["tab"], "tab_c");
+    }
+
+    /// W5-Q review (PR A finding 9): `attention next --focus` without
+    /// `--after` starts after the focused tab, so pressing it again cycles;
+    /// it does not stay on a blocked tab that focus does not clear.
+    #[test]
+    fn w5q_attention_next_focus_starts_after_the_focused_tab() {
+        let queue = snapshot_queue(&snapshot());
+        assert_eq!(tabs(&queue), vec!["tab_c", "tab_b", "tab_d", "tab_a"]);
+        assert_eq!(next_target(&queue, None, Some("tab_c")).unwrap()["tab"], "tab_b");
+        assert_eq!(next_target(&queue, None, Some("tab_a")).unwrap()["tab"], "tab_c");
+        // A focused tab that needs nothing: the most urgent entry.
+        assert_eq!(next_target(&queue, None, Some("tab_e")).unwrap()["tab"], "tab_c");
+        // `--after` wins over the focused tab.
+        assert_eq!(next_target(&queue, Some("tab_b"), Some("tab_c")).unwrap()["tab"], "tab_d");
+    }
+
+    /// W5-Q review (PR A finding 10): a blocked row's reason is never the
+    /// program status record's title ("Claude Code" says nothing about why);
+    /// without a message the terminal's unread notification says why.
+    #[test]
+    fn w5q_attention_blocked_reason_is_never_the_record_title() {
+        let mut program = snapshot();
+        program["terminals"][2]["extra"] = json!({"program_status": [
+            {"app": "claude-code", "state": "blocked", "kind": "permission",
+             "title": "Claude Code", "since_ms": "150"},
+        ]});
+        program["notifications"] = json!([
+            {"id": "n9", "terminal_id": "term_c", "unread": true, "level": "info",
+             "created_at_ms": "210", "title": "Claude Code",
+             "body": "Claude needs your permission to use Bash"},
+        ]);
+        let queue = snapshot_queue(&program);
+        assert_eq!(queue[0]["tab"], "tab_c");
+        assert_eq!(queue[0]["reason"], "Claude needs your permission to use Bash", "{}", queue[0]);
+        program["notifications"] = json!([]);
+        let queue = snapshot_queue(&program);
+        assert_eq!(queue[0]["reason"], Value::Null, "{}", queue[0]);
+    }
+
+    /// W5-Q (bench r4 #5): a finished agent turn nobody viewed (`done`)
+    /// comes before a bell or another info notification, whatever their
+    /// ages: blocked, then done, then the rest.
+    #[test]
+    fn w5q_attention_puts_a_finished_turn_before_a_bell() {
+        let mut snapshot = snapshot();
+        snapshot["tabs"][1]["extra"] = json!({});
+        snapshot["agents"] = json!([
+            {"id": "agent_c", "terminal_id": "term_c", "state": "blocked", "updated_at_ms": "200"},
+            {"id": "agent_e", "terminal_id": "term_e", "state": "idle", "updated_at_ms": "1"},
+        ]);
+        snapshot["notifications"] = json!([
+            {"id": "n1", "terminal_id": "term_a", "unread": true, "level": "info", "created_at_ms": "100", "title": "Bell"},
+            {"id": "n3", "terminal_id": "term_e", "unread": true, "level": "info", "created_at_ms": "500", "title": "Claude finished"},
+        ]);
+        let queue = snapshot_queue(&snapshot);
+        assert_eq!(tabs(&queue), vec!["tab_c", "tab_e", "tab_a"]);
+        assert_eq!(queue[1]["kind"], "done");
+        assert_eq!(queue[2]["kind"], "unread");
+        assert_eq!(next_target(&queue, None, None).unwrap()["kind"], "blocked");
     }
 
     #[test]

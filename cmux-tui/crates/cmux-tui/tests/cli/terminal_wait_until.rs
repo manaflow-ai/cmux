@@ -96,6 +96,7 @@ fn assert_timed_out(output: &Output) {
     assert_eq!(output.status.code(), Some(124), "{}", String::from_utf8_lossy(&output.stderr));
     let error = json_error(output);
     assert_eq!(error["code"], "wait.timeout", "{error}");
+    assert_eq!(error["details"]["timed_out"], true, "{error}");
 }
 
 /// `--until idle` returns at once on a terminal with nothing running, waits
@@ -129,6 +130,22 @@ fn terminal_wait_until_idle_returns_when_the_command_ends() {
     assert!(started.elapsed() >= Duration::from_secs(1), "the wait ended before its timeout");
     assert_timed_out(&output);
     write(&server, &terminal, "go\n");
+}
+
+/// `--until ready` on a terminal whose agent never gets ready fails its
+/// timeout like the other waits: 124, `wait.timeout`, `timed_out: true` and
+/// `waited_ms`.
+#[test]
+fn terminal_wait_until_ready_timeout_says_timed_out() {
+    let server = HeadlessServer::start_without_shell_integration("terminal-wait-ready-timeout");
+    let terminal = new_terminal(&server);
+    let output = finished(
+        spawn_wait(&server, &terminal, &["--until", "ready", "--timeout", "1s"]),
+        SECONDS_10,
+    );
+    assert_timed_out(&output);
+    let error = json_error(&output);
+    assert_eq!(error["details"]["waited_ms"], "1000", "{error}");
 }
 
 /// `--until prompt` waits for the shell's prompt mark: a terminal that never
@@ -175,4 +192,33 @@ fn terminal_wait_until_refuses_an_unknown_condition() {
             String::from_utf8_lossy(&output.stderr)
         );
     }
+}
+
+/// Bench round 4 item 10 (W5-R): `wait --until idle` right after input
+/// returned the idle state the terminal had before that input, because the
+/// command the input started had not shown yet. The wait now holds until
+/// the terminal answers the input (here the command it started ends), or a
+/// short grace passes with nothing started.
+#[test]
+fn w5r_terminal_wait_until_idle_after_input_waits_for_the_input_to_answer() {
+    let server = HeadlessServer::start_without_shell_integration("w5r-wait-after-input");
+    let terminal = new_terminal(&server);
+    // The command shows as running only after a moment, as an agent's turn
+    // starts a moment after Enter.
+    write(
+        &server,
+        &terminal,
+        &format!("sleep 1; printf '{COMMAND_START}'; sleep 1; printf '{COMMAND_END}'\n"),
+    );
+    let output = finished(
+        spawn_wait(&server, &terminal, &["--until", "idle", "--timeout", "30s"]),
+        Duration::from_secs(30),
+    );
+    assert_success(&output);
+    let shown = json_output(&output);
+    assert!(
+        shown["extra"]["last_command"]["finished_at_ms"].is_string(),
+        "the wait returned before the command the input started ended: {shown}"
+    );
+    assert!(shown["extra"]["activity"].is_null(), "a command still shows: {shown}");
 }

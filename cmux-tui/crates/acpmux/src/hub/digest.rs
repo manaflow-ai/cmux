@@ -232,23 +232,23 @@ impl Hub {
             {
                 return;
             }
-            queue
+            let ids: Vec<String> = queue
                 .iter_mut()
                 .filter(|q| q.held && q.goes_in_by_itself())
                 .map(|q| {
                     q.held = false;
                     q.prompt_id.clone()
                 })
-                .collect()
+                .collect();
+            // Logged under the lock that let them go (`queue.rs` `QUEUE_KINDS`).
+            if !ids.is_empty() {
+                let msg = json!({"queued": session.queued(), "promptIds": ids});
+                self.append(session, "mux", "queue_resumed", msg);
+            }
+            ids
         };
         if !ids.is_empty() {
             session.queue_moved.notify_waiters();
-            self.append(
-                session,
-                "mux",
-                "queue_resumed",
-                json!({"queued": session.queued(), "promptIds": ids}),
-            );
         }
     }
 
@@ -494,8 +494,8 @@ impl Hub {
             if let Some(display_parts) = &q.run.display_parts {
                 queued.set("displayParts", display_parts.clone());
             }
+            let mut queued = crate::prompt_provenance::marked(queued, q.run.provenance.as_ref());
             super::session::mark_pasted(&mut queued, &q.run.blocks);
-            let queued = crate::prompt_provenance::marked(queued, q.run.provenance.as_ref());
             self.append(session, "mux", "queued", queued);
         }
         // Held: by this failure, or before an inbox digest took them. Their retry is scheduled
@@ -740,6 +740,7 @@ mod tests {
             restored: false,
             resume: false,
             steer: false,
+            steer_on_start: false,
             held: false,
             awaiting_owner: false,
             revision: 0,
@@ -775,6 +776,7 @@ mod tests {
             restored: false,
             resume: false,
             steer: false,
+            steer_on_start: false,
             held: false,
             sent_now: false,
             joined: Arc::new(StdMutex::new(None)),

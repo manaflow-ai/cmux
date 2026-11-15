@@ -44,7 +44,13 @@ import Testing
         }
     }
 
+    /// Measured at Compact, the density the two old sizes below were taken at: the + grows with the density, and
+    /// the fresh-install density is Default since #37274, whose + is larger.
     @Test func theTabRowsPlusAndTheSidebarsPlusAreOneSize() throws {
+        try DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) { try plusSizesAtTheScopedDensity() }
+    }
+
+    private func plusSizesAtTheScopedDensity() throws {
         _ = NSApplication.shared
         let tabPlus = NewTabButtonView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
         tabPlus.layoutSubtreeIfNeeded()

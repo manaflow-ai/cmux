@@ -1,16 +1,43 @@
 /* acpmux's inbox notice (InboxNoticeCard.tsx): each thread a received line (conversation.css
-   `.cv-received`), with the thread's label before the preview and "+N more" after it, muted, never cut; the group's head
-   is a tool row (below). Colours, glass and type are the transcript's. */
+   `.cv-received`), with the thread's label and "+N more" after the sender, muted, never cut, and the
+   newest message under it; the group's head is a tool row (below). Colours, glass and type are the
+   transcript's. */
 .cv-inbox__label {
   flex: none;
   color: var(--cv-text-muted);
 }
-/* "+N more" right after the preview, which gives way to it. */
+/* "+N more" right after the label: its own control, which opens the whole thread in the card under
+   the line (and closes it). Under the pointer only its words go to full ink, so the line never
+   reflows. */
 .cv-inbox__more {
   flex: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
   color: var(--cv-text-muted);
+  font: inherit;
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
+}
+.cv-inbox__more:is(:hover, :focus-visible, [aria-expanded="true"]) {
+  color: var(--cv-text);
+}
+.cv-inbox__more:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+/* Shut, the newest message under the line, cut between whole lines past eight (ClampedText.tsx). */
+.cv-inbox__newest.is-cut {
+  overflow: hidden;
+}
+/* An opened thread of more than a page: "Show earlier messages" over the newest ones. */
+.cv-expand-row.cv-inbox__earlier {
+  min-height: 24px;
+  margin: 0 0 var(--ds-space-2);
+  padding: 0;
+  line-height: 20px;
 }
 /* Several messages in an opened thread: each under its sender's name, a small gap between them. */
 .cv-inbox__message + .cv-inbox__message {
@@ -44,4 +71,75 @@
 }
 .cv-inbox__body {
   margin-inline-start: var(--cv-tool-text-inset);
+}
+/* `drill` (a gallery version, inboxThreadLook.ts): opened, a back control and the thread's name
+   over a row per message, as the Background tasks panel drills in; a row opens its message whole. */
+.cv-inbox__drill-head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-height: 24px;
+  margin-top: 4px;
+}
+.cv-inbox__back {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin: 0 0 0 -4px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--cv-text-muted);
+}
+.cv-inbox__back:hover {
+  background: var(--ds-color-hover);
+  color: var(--cv-text);
+}
+.cv-inbox__drill-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-inbox__rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cv-inbox__row {
+  display: flex;
+  gap: var(--ds-space-2);
+  align-items: baseline;
+  width: 100%;
+  min-height: var(--cv-tool-row-height);
+  margin: 0;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--cv-text);
+  font: inherit;
+  text-align: start;
+}
+.cv-inbox__row:hover {
+  background: var(--ds-color-hover);
+}
+.cv-inbox__row > .cv-inbox__from {
+  flex: none;
+}
+.cv-inbox__row-preview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-inbox__drill > .cv-inbox__message {
+  margin-top: 4px;
 }

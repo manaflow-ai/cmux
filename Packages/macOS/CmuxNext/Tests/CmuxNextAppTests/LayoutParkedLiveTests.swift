@@ -78,9 +78,9 @@ struct LayoutParkedLiveTests {
         #expect(shown.rect == shown.targetRect, "the pane rests at its full size")
     }
 
-    /// A screen switch still sliding when its workspace parks lands in the park with the panes: the motion that ends
-    /// there is the whole layout's, and the show finds nothing left to slide.
-    @Test func aScreenSwitchSlidingWhenItsWorkspaceParksLandsInThePark() throws {
+    /// A screen switch is complete in its own turn (no slide), so a workspace that parks right after one is still: the
+    /// park has nothing of the switch to land, and the show finds the new screen in place and starts no frame.
+    @Test func aScreenSwitchBeforeItsWorkspaceParksLeavesNothingToLand() throws {
         let provider = Panes()
         let model = LayoutModel(screens: [LayoutScreen(id: "s1", name: "s1", layout: .splits(.leaf("p1"))),
                                           LayoutScreen(id: "s2", name: "s2", layout: .splits(.leaf("p2")))],
@@ -98,15 +98,17 @@ struct LayoutParkedLiveTests {
         root.driver.isManual = true
         model.selectScreen("s2")
         root.syncWithModel()
-        #expect(root.advanceFrame(1.0 / 120), "the switch slides")
-        let sliding = try #require(root.screenFrames["s2"])
-        #expect(sliding.rect != sliding.targetRect)
+        let incoming = try #require(root.screenViews["s2"]), outgoing = try #require(root.screenViews["s1"])
+        #expect(!root.isInLayoutMotion, "the switch put the layout in motion")
+        #expect(!root.advanceFrame(1.0 / 120), "the switch left something to move")
         container.park(true)
         #expect(!root.isInLayoutMotion)
-        for (id, frame) in root.screenFrames {
-            #expect(frame.rect == frame.targetRect && frame.alpha.value == frame.alpha.target, "\(id) still slides after the park")
-        }
+        #expect(!incoming.isHidden && incoming.frame == root.bounds && incoming.alphaValue == 1, "the park moved the shown screen")
+        #expect(outgoing.isHidden)
         container.park(false)
-        #expect(!root.advanceFrame(1.0 / 120), "the show restarted a slide")
+        #expect(root.isLive)
+        #expect(!root.advanceFrame(1.0 / 120), "the show started a motion")
+        #expect(!incoming.isHidden && incoming.frame == root.bounds && incoming.alphaValue == 1, "the show moved the shown screen")
+        #expect(outgoing.isHidden)
     }
 }

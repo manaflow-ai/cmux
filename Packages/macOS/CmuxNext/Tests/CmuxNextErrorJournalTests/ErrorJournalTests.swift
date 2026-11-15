@@ -195,6 +195,49 @@ struct ErrorJournalTests {
         #expect(open < .milliseconds(50), "init took \(open) for a \(lines.count)-byte journal")
     }
 
+    /// A journal this build wrote is already redacted with today's rules, so reopening it decodes
+    /// the lines and redacts nothing. Re-redacting every line of a 2 MB journal on each launch cost
+    /// about 18 s of background CPU in a debug build (a1049, after f185601 moved it off the main
+    /// thread). Printed for the PR: bytes, lines, wall time and process CPU of the reopen.
+    @Test func aJournalThisBuildWroteReopensWithoutRedactingIt() async throws {
+        let writer = ErrorJournal(directory: directory)
+        let filler = String(repeating: "lorem ipsum dolor sit amet ", count: 40)
+        let events = (0..<1000).map { index in
+            let word = String(index, radix: 26).map { Character(UnicodeScalar(UInt8(97 + Int(String($0), radix: 26)!))) }
+            let name = String(word)
+            // The filler first: the Authorization rule redacts to the end of its line.
+            return event("fetch \(name) failed: \(filler) https://u:p@h.example/\(name)?token=s\(index)&page=2 "
+                + "password=hunter\(index) Authorization: Bearer abc.def\(index)",
+                source: "app", at: TimeInterval(index), frame: "Loader.swift:\(name)")
+        }
+        await writer.record(contentsOf: events)
+        await writer.flush()
+        #expect(await writer.entryCount == 1000)
+        let bytes = await writer.diskBytes
+        #expect(bytes > 1_500_000, "a journal the size the cost was measured on (\(bytes) bytes)")
+
+        let reader = ErrorJournal(directory: directory)
+        let clock = ContinuousClock()
+        let cpuBefore = Self.processCPUSeconds()
+        var count = 0
+        let reopen = await clock.measure { count = await reader.entryCount }
+        let cpu = Self.processCPUSeconds() - cpuBefore
+        #expect(count == 1000)
+        print("error journal reopen (\(bytes) bytes, \(count) entries): wall \(reopen), process cpu \(String(format: "%.3f", cpu)) s")
+        #expect(reopen < .seconds(1), "reopening a \(bytes)-byte journal this build wrote took \(reopen)")
+        let entry = try #require(await reader.entries(ErrorQuery(limit: 1)).first)
+        #expect(!entry.sample.contains("hunter"))
+        #expect(await reader.diskBytes == bytes, "nothing to rewrite")
+    }
+
+    /// User plus system CPU of this process so far, in seconds.
+    private static func processCPUSeconds() -> Double {
+        var usage = rusage()
+        getrusage(RUSAGE_SELF, &usage)
+        func seconds(_ time: timeval) -> Double { Double(time.tv_sec) + Double(time.tv_usec) / 1_000_000 }
+        return seconds(usage.ru_utime) + seconds(usage.ru_stime)
+    }
+
     @Test func migratedEntriesKeepTheirFingerprintContinuity() async throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let legacy = ErrorEntry(

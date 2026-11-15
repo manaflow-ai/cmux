@@ -39,3 +39,17 @@ terminal's text. Return (the next command), a successful command, Fix or the clo
 Fix puts the command, its output tail, its status and its folder in the workspace's agent chat
 after its draft, or in a new chat beside the terminal; nothing is sent until the person presses
 Return. Variants: `design/terminal-fix-chip-gallery.html` (A shipped).
+
+## Selecting text while a program has the mouse
+
+A full-screen TUI (Claude Code, Codex, vim with `mouse=a`) takes every click and drag. Option-drag
+selects text anyway, as in other Mac terminals, and so does Shift-drag (Ghostty's own override);
+Option-Shift-drag is the rectangle selection. Cmd-C then copies exactly that selection. Without a
+program on the mouse, Option-drag stays the rectangle selection.
+
+The first plain drag a TUI takes in a terminal shows the hint once: the shared modifier-hint glass
+chip (`ShortcutHintChipView`, the one held Command or Option shows), centered 12 pt above the
+bottom, "Option or Shift + drag selects text". It fades in (`Motion.overlays`), stays four seconds
+(a one-shot `DemandTimer`), fades out, and clicks go through it.
+
+Variants: `design/terminal-selection-hint-gallery.html`.

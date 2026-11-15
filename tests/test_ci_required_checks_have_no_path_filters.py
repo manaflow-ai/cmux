@@ -37,14 +37,10 @@ from test_ci_required_checks_are_bounded import context_of, load
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
 
-_SPEC = importlib.util.spec_from_file_location(
-    "required_status_checks", ROOT / "scripts/ci/required_status_checks.py"
-)
-_required_status_checks = importlib.util.module_from_spec(_SPEC)
-assert _SPEC.loader is not None
-# Registered before execution: the module defines a dataclass.
-sys.modules["required_status_checks"] = _required_status_checks
-_SPEC.loader.exec_module(_required_status_checks)
+# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import required_status_checks as _required_status_checks  # noqa: E402
 REQUIRED_CHECKS = _required_status_checks.REQUIRED_CHECKS
 
 # The events a required check has to report on before a pull request can merge.

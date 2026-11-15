@@ -23,20 +23,29 @@
 //!   that keeps its harness's mode, a resumed or forked chat;
 //! - every policy change, acpmux's own included (an aside's deny-all, a
 //!   handoff target narrowed to its source): `Hub::set_policy` follows it;
-//! - deny-all as the default policy (`_acpmux/set_default_policy`), a
-//!   lockdown: every chat without a policy of its own follows it. The default
-//!   `ask` is not narrowing: chats start in full access by design
-//!   (Lawrence 2026-10-14);
+//! - deny-all or review as the default policy (`_acpmux/set_default_policy`),
+//!   a lockdown: every chat without a policy of its own follows it. The
+//!   defaults `ask`, `approve-reads` and `approve-edits` are not narrowing:
+//!   chats start in full access by design (Lawrence 2026-10-14);
 //! - a switch into a mode that does not ask is refused (`policy_mode`) while
 //!   the harness has one that does (`refuse_wider_mode`), except the person's
 //!   own pick, which first widens the chat's policy to approve-all
 //!   (`person_widens_policy_for`; not under deny-all);
 //! - the start mode preview (`_acpmux/start_mode`) answers the policy's mode.
 //!
-//! Claude Code asks in `default`. A harness with no mode that asks (opencode,
-//! whose own settings on this machine decide what it asks, `web_modes.rs`;
-//! pi; an ACP agent with no modes) cannot keep the policy: the chat logs
-//! `policy_unenforced` so a client can say so.
+//! Claude Code asks in `default`, and acpmux's own Claude Code backend holds
+//! the policy in any mode with its PreToolUse gate (`policy_gate.rs`). An ACP
+//! agent can say it asks before every tool call (`agentCapabilities._meta.
+//! acpmux.asksBeforeTools`, [`asks_before_tools`]), which acpmux believes only
+//! from an agent it started from a harness entry of its own config
+//! ([`claim_distrust`]; lead, 2026-11-09), and logs (`asks_before_tools_claim`).
+//! A harness that keeps the
+//! policy none of these ways (pi; an ACP agent with no modes that says
+//! nothing) does not run under it (lead, 2026-11-08: a policy that silently
+//! does not hold is a security bug): its start fails with
+//! `policy_unenforceable` (`require_enforced`), however the chat got the
+//! policy (asked for, a preset's or profile's, inherited, a lockdown), and a
+//! live chat narrowed to it has its agent stopped (`policy_refused`).
 //!
 //! OpenCode is asked to ask instead (`opencode_ask.rs`): its agent starts
 //! with `OPENCODE_CONFIG_CONTENT` whose `permission` is `{"*": "ask"}`, merged
@@ -54,8 +63,8 @@
 
 use super::*;
 
-/// The policy `meta` holds when it is narrower than approve-all: its own, else deny-all when that
-/// is the default policy (`default`, module docs).
+/// The policy `meta` holds when it is narrower than approve-all: its own, else the default policy
+/// (`default`) when that is a lockdown, deny-all or review (module docs).
 pub(super) fn narrow_policy(
     meta: &SessionMeta,
     default: PermissionPolicy,
@@ -68,8 +77,8 @@ pub(super) fn narrower(
     own: Option<PermissionPolicy>,
     default: PermissionPolicy,
 ) -> Option<PermissionPolicy> {
-    own.or((default == PermissionPolicy::DenyAll).then_some(PermissionPolicy::DenyAll))
-        .filter(|p| *p != PermissionPolicy::ApproveAll)
+    let lockdown = matches!(default, PermissionPolicy::DenyAll | PermissionPolicy::Review);
+    own.or(lockdown.then_some(default)).filter(|p| *p != PermissionPolicy::ApproveAll)
 }
 
 /// Whether `meta`'s agent, spawned from `profile`, is OpenCode asked to ask before every tool
@@ -175,15 +184,20 @@ impl Hub {
         default: PermissionPolicy,
     ) -> Option<Option<String>> {
         let policy = narrow_policy(meta, default)?;
-        Some(policy_mode(policy, &crate::web_modes::family_of(meta), offered))
+        Some(policy_mode(policy, &crate::web_modes::mode_family(meta), offered))
     }
 
     /// After a chat's start mode is set: a policy narrower than approve-all that its harness's
     /// mode cannot keep is logged (`policy_unenforced`), with the mode it runs in.
-    pub(super) fn note_unenforced_policy(&self, session: &Arc<Session>, default: PermissionPolicy) {
+    pub(super) fn note_unenforced_policy(&self, session: &Arc<Session>, cfg: &Config) {
         let meta = session.meta();
-        let Some(policy) = narrow_policy(&meta, default) else { return };
-        let family = crate::web_modes::family_of(&meta);
+        let Some(policy) = narrow_policy(&meta, cfg.permission_policy) else { return };
+        // Its PreToolUse gate holds the policy in any mode (`policy_gate.rs`), and so does an agent
+        // that asks before every tool call.
+        if super::policy_gate::has_gate(&meta) || asks_before_tools(&meta, cfg) {
+            return;
+        }
+        let family = crate::web_modes::mode_family(&meta);
         let offered = super::start_mode::offered_ids(&meta);
         let current = crate::web_modes::mode_of(&meta);
         let wanted = policy_mode(policy, &family, &offered);
@@ -206,22 +220,29 @@ impl Hub {
 
     /// `_acpmux/set_policy` made a live chat's policy narrower: a mode wider than the policy's
     /// (full access, or another mode that does not ask) moves to it. A mode as narrow (Claude
-    /// Code `plan`) stays. Soft: a refusal is logged as `policy_unenforced`. A chat whose agent is
-    /// not running keeps the mode for its next start.
+    /// Code `plan`) stays. A chat whose agent is not running keeps the mode for its next start. An
+    /// agent that cannot keep the policy then is stopped (`stop_unheld`).
     pub(crate) async fn follow_policy(self: &Arc<Self>, session: &Arc<Session>) {
+        self.follow_policy_mode(session).await;
+        // Then the policy holds, or the agent stops (module docs).
+        self.stop_unheld(session).await;
+    }
+
+    /// `follow_policy`'s move of the chat's mode.
+    async fn follow_policy_mode(self: &Arc<Self>, session: &Arc<Session>) {
         let default = self.config.read().await.permission_policy;
         let meta = session.meta();
         let Some(policy) = narrow_policy(&meta, default) else { return };
-        let family = crate::web_modes::family_of(&meta);
+        let family = crate::web_modes::mode_family(&meta);
         if family == "opencode" {
             self.ask_opencode(session).await;
-            self.note_unenforced_policy(session, default);
+            self.note_unenforced_policy(session, &*self.config.read().await);
             return;
         }
         let Some(current) = crate::web_modes::mode_of(&meta) else { return };
         let offered = super::start_mode::offered_ids(&meta);
         let Some(wanted) = policy_mode(policy, &family, &offered) else {
-            self.note_unenforced_policy(session, default);
+            self.note_unenforced_policy(session, &*self.config.read().await);
             return;
         };
         let asks = super::start_mode::asks(&current, &family);
@@ -261,7 +282,7 @@ impl Hub {
         if let Err(e) = self.set_mode(session, &wanted).await {
             tracing::warn!(session = %session.id, mode = %wanted, "policy mode not set: {}", e.message);
         }
-        self.note_unenforced_policy(session, default);
+        self.note_unenforced_policy(session, &*self.config.read().await);
     }
 
     /// A paired machine's Full-access setting ended (turned off, or the machine revoked;
@@ -380,15 +401,28 @@ impl Hub {
 
     /// A chat whose agent just started (cold, or from the pool) runs in its policy's mode
     /// (module docs). Sent to the agent itself: the start holds `spawn_lock`, so `set_mode` would
-    /// wait on it. Soft, as on a live chat: a refusal is logged as `policy_unenforced`. `pinned`:
-    /// the profile pins its mode in argv, which the chat does not record yet.
+    /// wait on it. `pinned`: the profile pins its mode in argv, which the chat does not record
+    /// yet. Then the policy must hold (`require_enforced`): an agent that cannot keep it is an
+    /// error, and the caller stops it.
     pub(super) async fn hold_policy_mode(
         &self,
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
         pinned: bool,
-    ) {
+    ) -> Result<(), RpcError> {
         let default = self.config.read().await.permission_policy;
+        self.move_to_policy_mode(session, child, pinned, default).await;
+        require_enforced(&session.meta(), &*self.config.read().await)
+    }
+
+    /// `hold_policy_mode`'s move: the agent to its policy's mode, when it runs in a wider one.
+    async fn move_to_policy_mode(
+        &self,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+        pinned: bool,
+        default: PermissionPolicy,
+    ) {
         let meta = session.meta();
         let Some(policy) = narrow_policy(&meta, default) else { return };
         let (Some(current), Some(sid)) =
@@ -396,7 +430,7 @@ impl Hub {
         else {
             return;
         };
-        let family = crate::web_modes::family_of(&meta);
+        let family = crate::web_modes::mode_family(&meta);
         let offered = super::start_mode::offered_ids(&meta);
         let Some(wanted) = policy_mode(policy, &family, &offered) else { return };
         let asks = super::start_mode::asks(&current, &family);
@@ -421,9 +455,64 @@ impl Hub {
             }
             Err(e) => {
                 tracing::warn!(session = %session.id, mode = %wanted, "policy mode not set at start: {}", e.message);
-                self.note_unenforced_policy(session, default);
             }
         }
+    }
+
+    /// After a live chat's policy changed (`follow_policy`): an agent that runs and cannot keep
+    /// the chat's policy has its turn cancelled and is stopped (`refuse_unheld`); its next start
+    /// fails with `policy_unenforceable` (module docs). An agent in a host this daemon has not
+    /// reached yet (adoption after a restart) counts as running.
+    async fn stop_unheld(self: &Arc<Self>, session: &Arc<Session>) {
+        if require_enforced(&session.meta(), &*self.config.read().await).is_ok() {
+            return;
+        }
+        let child = session.child.lock().await.clone();
+        let running = match child {
+            Some(child) => child.is_alive().await,
+            None => false,
+        } || (Self::host_record_live(&session.id)
+            && !session.closing.load(Ordering::SeqCst));
+        if !running {
+            return;
+        }
+        if session.turn().is_some()
+            && let Err(e) = self.cancel(session).await
+        {
+            tracing::warn!(session = %session.id, "the turn of an agent that cannot keep its policy was not cancelled: {}", e.message);
+        }
+        self.refuse_unheld(session).await;
+    }
+
+    /// An agent of `session` that runs now (started, adopted after a restart, reached again) must
+    /// keep the chat's policy: when it cannot, it is stopped and `policy_refused` says why. Returns
+    /// whether it was stopped.
+    pub(super) async fn refuse_unheld(&self, session: &Arc<Session>) -> bool {
+        let held = require_enforced(&session.meta(), &*self.config.read().await);
+        let Err(e) = held else { return false };
+        tracing::warn!(session = %session.id, "the agent cannot keep the chat's policy: stopped: {}", e.message);
+        self.stop_started_agent(session, false, "policy_refused", refusal_record(&e)).await;
+        true
+    }
+
+    /// At its agent's `initialize` (a cold start, or a pooled agent taken): the agent's
+    /// `asksBeforeTools` claim, when it makes one, is logged as `asks_before_tools_claim`, with
+    /// whether acpmux believes it and, when not, why ([`claim_distrust`]).
+    pub(super) async fn note_asks_claim(&self, session: &Arc<Session>) {
+        let meta = session.meta();
+        if !claims_asks(&meta) {
+            return;
+        }
+        let distrust = claim_distrust(&meta, &*self.config.read().await);
+        if let Some(why) = distrust {
+            tracing::warn!(session = %session.id, harness = %meta.harness, "the agent says it asks before every tool call; not believed: {why}");
+        }
+        self.append(
+            session,
+            "mux",
+            "asks_before_tools_claim",
+            json!({"harness": meta.harness, "trusted": distrust.is_none(), "reason": distrust}),
+        );
     }
 
     /// The person picked a mode that does not ask (`session/set_mode`, or the `mode` config
@@ -443,8 +532,14 @@ impl Hub {
             return;
         }
         let default = self.config.read().await.permission_policy;
-        let narrow = narrow_policy(&session.meta(), default);
-        if narrow.is_none_or(|p| p == PermissionPolicy::DenyAll) || !self.full_access_allowed() {
+        let meta = session.meta();
+        let narrow = narrow_policy(&meta, default);
+        // Not under a lockdown default, which the person's pick does not lift (module docs).
+        let lockdown = meta.permission_policy.is_none() && narrow.is_some();
+        if narrow.is_none_or(|p| p == PermissionPolicy::DenyAll)
+            || lockdown
+            || !self.full_access_allowed()
+        {
             return;
         }
         self.set_policy(session, PermissionPolicy::ApproveAll).await;
@@ -490,7 +585,7 @@ impl Hub {
         if granted && meta.remote_origin && policy != PermissionPolicy::DenyAll {
             return Ok(());
         }
-        let family = crate::web_modes::family_of(&meta);
+        let family = crate::web_modes::mode_family(&meta);
         let offered = super::start_mode::offered_ids(&meta);
         let table = self.web_modes();
         if policy_mode(policy, &family, &offered).is_none()
@@ -505,6 +600,121 @@ impl Hub {
     }
 }
 
+/// Fails chat `meta` whose policy is narrower than approve-all and that its agent cannot keep
+/// (module docs): `Ok` when the agent has the PreToolUse gate (`policy_gate.rs`), says it asks
+/// before every tool call ([`asks_before_tools`]), is OpenCode asked to ask before every tool
+/// (`opencode_ask.rs`), or runs in a mode that keeps the policy (the policy's own, or another
+/// that asks; for deny-all on a harness with `read-only`, that one). Every agent start
+/// (`hold_policy_mode`), every creation (`lifecycle.rs`) and every policy change on a live chat
+/// (`stop_unheld`) calls it. `cfg`: the daemon's config now, its default policy and the harness
+/// entries an `asksBeforeTools` claim is judged against ([`claim_distrust`]).
+pub(super) fn require_enforced(meta: &SessionMeta, cfg: &Config) -> Result<(), RpcError> {
+    let Some(policy) = narrow_policy(meta, cfg.permission_policy) else { return Ok(()) };
+    if super::policy_gate::has_gate(meta)
+        || asks_before_tools(meta, cfg)
+        || crate::web_modes::family_of(meta) == "opencode"
+    {
+        return Ok(());
+    }
+    let family = crate::web_modes::mode_family(meta);
+    let offered = super::start_mode::offered_ids(meta);
+    let current = crate::web_modes::mode_of(meta);
+    let held = match (policy_mode(policy, &family, &offered), current) {
+        (Some(wanted), Some(current)) => {
+            let narrower = wanted == "read-only" && policy == PermissionPolicy::DenyAll;
+            current == wanted || (super::start_mode::asks(&current, &family) && !narrower)
+        }
+        _ => false,
+    };
+    if held {
+        return Ok(());
+    }
+    let mut why = match policy_mode(policy, &family, &offered) {
+        Some(wanted) => format!("it does not run in its mode that asks ({wanted})"),
+        None => crate::web_modes::NO_ASKING_MODE.to_owned(),
+    };
+    if claims_asks(meta)
+        && let Some(distrust) = claim_distrust(meta, cfg)
+    {
+        why.push_str(&format!(
+            "; it says it asks before every tool call, which acpmux believes only from an agent it started from a harness entry of its own config ({distrust})"
+        ));
+    }
+    Err(unenforceable(policy, &meta.harness, &why))
+}
+
+/// Whether `meta`'s agent said at `initialize` that it asks the client
+/// (`session/request_permission`) before every tool call it makes, and acpmux believes it: the
+/// claim ([`claims_asks`]) comes from an agent acpmux started from a harness entry of its own
+/// config (`cfg`, [`claim_distrust`]), and it does not run in a mode that skips approvals
+/// (`start_mode::is_full_access`). The policy then answers each call, so it holds.
+pub(super) fn asks_before_tools(meta: &SessionMeta, cfg: &Config) -> bool {
+    // A mode that skips approvals overrides the claim.
+    claims_asks(meta)
+        && claim_distrust(meta, cfg).is_none()
+        && crate::web_modes::mode_of(meta).is_none_or(|m| !super::start_mode::is_full_access(&m))
+}
+
+/// Whether `meta`'s agent says it asks before every tool call:
+/// `agentCapabilities._meta.acpmux.asksBeforeTools` is `true`. Believed only as
+/// [`claim_distrust`] says.
+fn claims_asks(meta: &SessionMeta) -> bool {
+    meta.agent_capabilities
+        .as_ref()
+        .and_then(|c| c.pointer("/_meta/acpmux/asksBeforeTools"))
+        .and_then(Value::as_bool)
+        == Some(true)
+}
+
+/// Why acpmux does not believe `meta`'s `asksBeforeTools` claim, or None when it does (lead,
+/// 2026-11-09). Any program can say it asks; acpmux believes the agent it started from a harness
+/// entry of its own config (`config.json`, a discovered harness: `Config::profile`), and only while
+/// that entry still launches what the agent started from (its `launch_digest`, argv and env, as
+/// `profile_respawn.rs` judges it):
+/// - `not_started_here`: no launch is recorded (a forked chat before its own start, a chat moved
+///   from another machine, a start by an older build): the claim was copied, not made to acpmux;
+/// - `not_a_config_entry`: the harness is no entry of the config (a folder profile, the
+///   repository's `.cmux/harnesses`, or an entry removed since the start);
+/// - `entry_changed`: the entry launches something else now (changed since the start, such as an
+///   agent host adopted after a restart).
+///
+/// A start records the entry's launch as the entry is written, a remote start too (before its
+/// admission resolves the program, `Resolved::launch_digest`), so this compares digests only and
+/// reads no file.
+pub(super) fn claim_distrust(meta: &SessionMeta, cfg: &Config) -> Option<&'static str> {
+    let Some(started) = meta.launch_digest.as_deref() else { return Some("not_started_here") };
+    let Some(entry) = cfg.profile(&meta.harness) else { return Some("not_a_config_entry") };
+    (entry.launch_digest() != started).then_some("entry_changed")
+}
+
+/// The `policy_refused` record of refusal `e` (`unenforceable`): its data and its message.
+pub(super) fn refusal_record(e: &RpcError) -> Value {
+    let mut record = e.data.clone().unwrap_or_else(|| json!({}));
+    if let Some(fields) = record.as_object_mut() {
+        fields.insert("message".to_owned(), json!(e.message));
+    }
+    record
+}
+
+/// The typed error of a start under a policy that harness `harness` cannot keep
+/// (`require_enforced`): `data.reason` is `policy_unenforceable`, with the policy, the harness
+/// and a hint.
+pub(super) fn unenforceable(policy: PermissionPolicy, harness: &str, why: &str) -> RpcError {
+    let hint = format!(
+        "start it with --policy approve-all, or on a harness that keeps {policy} (Claude Code, the Codex bridge)"
+    );
+    RpcError::invalid_params(format!(
+        "permission policy {policy} cannot be enforced on harness {harness}: {why}. The chat did not start; {hint}"
+    ))
+    .with_data(json!({
+        "reason": "policy_unenforceable",
+        "policy": policy.to_string(),
+        "harness": harness,
+        "why": why,
+        "hint": hint,
+    }))
+}
+
 /// Whether a chat a remote connection started runs in a mode its narrower policy does not hold:
 /// what `refuse_wider_mode` refuses (a mode that does not ask, under a policy whose harness has
 /// a mode that keeps it), so only a paired machine's Full-access setting moves a chat there.
@@ -516,7 +726,7 @@ pub(super) fn out_of_policy(
     if !meta.remote_origin {
         return false;
     }
-    let family = crate::web_modes::family_of(meta);
+    let family = crate::web_modes::mode_family(meta);
     let offered = super::start_mode::offered_ids(meta);
     narrow_policy(meta, default)
         .is_some_and(|policy| policy_mode(policy, &family, &offered).is_some())
@@ -540,6 +750,63 @@ fn full_access_ended() -> RpcError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An `asksBeforeTools` claim is believed only from an agent started from a harness entry of
+    /// the config that still launches what it started from (`claim_distrust`).
+    #[test]
+    fn a_policy_claim_is_believed_only_from_an_unchanged_config_entry() {
+        let mut cfg: Config =
+            serde_json::from_value(json!({"harnesses": {"lane": {"argv": ["lane-acp"]}}})).unwrap();
+        let mut meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "s", "name": "s", "harness": "lane",
+            "cwd": "/w", "status": "ready", "createdAt": 0, "updatedAt": 0,
+            "agentCapabilities": {"_meta": {"acpmux": {"asksBeforeTools": true}}},
+        }))
+        .unwrap();
+        // A copy of the claim (a fork before its start, a moved chat): no launch recorded.
+        assert_eq!(claim_distrust(&meta, &cfg), Some("not_started_here"));
+        assert!(!asks_before_tools(&meta, &cfg));
+        meta.launch_digest = Some(cfg.harnesses["lane"].launch_digest());
+        assert_eq!(claim_distrust(&meta, &cfg), None);
+        assert!(asks_before_tools(&meta, &cfg));
+        // In a mode that skips approvals, a believed claim still does not hold.
+        meta.modes = Some(json!({"currentModeId": "bypassPermissions"}));
+        assert!(!asks_before_tools(&meta, &cfg));
+        meta.modes = None;
+        let lane = cfg.harnesses.get_mut("lane").unwrap();
+        lane.env.insert("LANE_FLAG".to_owned(), "1".to_owned());
+        assert_eq!(claim_distrust(&meta, &cfg), Some("entry_changed"));
+        assert!(!asks_before_tools(&meta, &cfg));
+        // A folder profile, or an entry removed since.
+        meta.harness = "acme".to_owned();
+        assert_eq!(claim_distrust(&meta, &cfg), Some("not_a_config_entry"));
+        // No claim at all: nothing to believe.
+        meta.harness = "lane".to_owned();
+        meta.agent_capabilities = Some(json!({}));
+        assert!(!claims_asks(&meta));
+    }
+
+    /// The claim is judged by the recorded launch alone, with no look at the filesystem: a start
+    /// records the digest of its config entry as the entry is written, a remote start too (lead,
+    /// 2026-11-09). A launch whose program is some other path than the entry's (here the
+    /// canonical path a remote start resolves the entry's bare program to) is another launch.
+    #[test]
+    fn a_launch_with_another_program_path_is_not_the_entrys_launch() {
+        let cfg: Config =
+            serde_json::from_value(json!({"harnesses": {"py": {"argv": ["python3", "agent.py"]}}}))
+                .unwrap();
+        let mut resolved = cfg.harnesses["py"].clone();
+        super::super::resolve::fix_remote_executable(&mut resolved).unwrap();
+        assert_ne!(resolved.argv, cfg.harnesses["py"].argv, "python3 resolves to a path");
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "s", "name": "s", "harness": "py",
+            "cwd": "/w", "status": "ready", "createdAt": 0, "updatedAt": 0,
+            "launchDigest": resolved.launch_digest(),
+            "agentCapabilities": {"_meta": {"acpmux": {"asksBeforeTools": true}}},
+        }))
+        .unwrap();
+        assert_eq!(claim_distrust(&meta, &cfg), Some("entry_changed"));
+    }
 
     fn ids(modes: &[&str]) -> Vec<String> {
         modes.iter().map(|m| (*m).to_owned()).collect()

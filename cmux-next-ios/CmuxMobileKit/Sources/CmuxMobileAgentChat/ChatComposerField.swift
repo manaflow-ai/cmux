@@ -3,8 +3,9 @@ import CmuxMobileDesign
 import SwiftUI
 import UIKit
 
-/// The agent chat composer's text: a multi-line field that grows with the
-/// draft up to `maxLines`, then scrolls. Return on the on-screen keyboard
+/// The agent chat composer's text: a multi-line field that grows upward with
+/// the draft up to `maxLines`, then scrolls (`ComposerFieldHeight`, shared
+/// with the terminal composer). Return on the on-screen keyboard
 /// starts a new line and the send button sends; on a hardware keyboard
 /// Return sends and Shift-Return (or Option-Return) starts a new line
 /// (`ComposerReturnStyle.chat`, as in the ChatGPT and Claude iPhone apps).
@@ -19,12 +20,12 @@ struct ChatComposerField: UIViewRepresentable {
     /// Command-V): the composer attaches it.
     var onPasteAttachments: (() -> Void)?
 
-    static let maxLines = 8
+    static let maxLines = ComposerFieldHeight.defaultMaxLines
     static let accessibilityIdentifier = "chat.composer.field"
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     func makeUIView(context: Context) -> ChatComposerTextView {
-        let view = ChatComposerTextView(policy: ComposerReturnPolicy(style: .chat, maxLines: Self.maxLines))
+        let view = ChatComposerTextView()
         view.delegate = context.coordinator
         view.onSend = { [weak coordinator = context.coordinator] in coordinator?.parent.onSend() }
         view.font = .preferredFont(forTextStyle: .body)
@@ -33,7 +34,6 @@ struct ChatComposerField: UIViewRepresentable {
         view.textColor = .label
         view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
-        view.isScrollEnabled = false
         // Prompts are code-like: no autocorrect, no capitals (full verify D5).
         view.autocorrectionType = .no
         view.autocapitalizationType = .none
@@ -86,15 +86,10 @@ struct ChatComposerField: UIViewRepresentable {
         if coordinator.parent.isFocused { coordinator.parent.isFocused = false }
     }
 
+    /// Grows a line at a time up to `maxLines`, then scrolls inside
+    /// (`ComposerFieldHeight`); measuring changes nothing on the view.
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: ChatComposerTextView, context: Context) -> CGSize? {
-        let width = proposal.width ?? 280
-        let font = uiView.font ?? .preferredFont(forTextStyle: .body)
-        let insets = uiView.textContainerInset.top + uiView.textContainerInset.bottom
-        let maxHeight = ceil(font.lineHeight * CGFloat(uiView.returnPolicy.maxLines) + insets)
-        let fitting = max(ceil(font.lineHeight + insets), uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height)
-        let scrolls = fitting > maxHeight
-        if uiView.isScrollEnabled != scrolls { uiView.isScrollEnabled = scrolls }
-        return CGSize(width: width, height: min(fitting, maxHeight))
+        uiView.fittingSize(proposedWidth: proposal.width)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -114,7 +109,7 @@ struct ChatComposerField: UIViewRepresentable {
             parent.text = textView.text
             (textView as? ComposerReturnTextView)?.updatePlaceholder()
             textView.invalidateIntrinsicContentSize()
-            if textView.isScrollEnabled { textView.scrollRangeToVisible(textView.selectedRange) }
+            (textView as? ComposerReturnTextView)?.followCaret()
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) { if !parent.isFocused { parent.isFocused = true } }
@@ -125,6 +120,13 @@ struct ChatComposerField: UIViewRepresentable {
 /// The chat field: takes a focus asked for before it had a window once it gets one.
 final class ChatComposerTextView: ComposerReturnTextView {
     var focusWhenInWindow = false
+
+    init() {
+        super.init(policy: ComposerReturnPolicy(style: .chat, maxLines: ChatComposerField.maxLines))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()

@@ -59,6 +59,9 @@ pub struct RelayOptions {
     pub backoff_cap: Duration,
     /// Deliveries running at once; the inbox waits for one to end past it.
     pub max_in_flight: usize,
+    /// Called when the hub takes a heartbeat again after failing ones (the joined relay states
+    /// the machine's capabilities then, `cli/cloud_join/self_capabilities.rs`).
+    pub on_reconnect: Option<fn()>,
 }
 
 impl Default for RelayOptions {
@@ -70,6 +73,7 @@ impl Default for RelayOptions {
             backoff_first: Duration::from_secs(1),
             backoff_cap: Duration::from_secs(60),
             max_in_flight: 32,
+            on_reconnect: None,
         }
     }
 }
@@ -183,6 +187,7 @@ async fn started(hub: &Weak<Hub>, stop: &mut watch::Receiver<bool>) -> bool {
 /// for sends (`Hub::mesh`). None, and nothing started, when none is named or it is unusable.
 pub async fn start_configured(hub: &Arc<Hub>) -> Option<MeshRelay> {
     let config = hub.config.read().await.mesh_relay.clone()?;
+    let joined = config.credential.as_deref() == Some("join");
     let client: Arc<dyn MeshHub> = match crate::mesh_http::HttpHub::new(&config) {
         Ok(client) => Arc::new(client),
         Err(e) => {
@@ -190,7 +195,8 @@ pub async fn start_configured(hub: &Arc<Hub>) -> Option<MeshRelay> {
             return None;
         }
     };
-    let _ = hub.mesh.set(client.clone());
+    // Replaces a client a leave left, if one did: a re-enroll may name another hub.
+    hub.mesh.set(client.clone());
     // The origin only (no user, password or query is accepted in the URL).
     let shown = config.shown();
     tracing::info!("mesh relay: on, through {shown}");
@@ -199,7 +205,12 @@ pub async fn start_configured(hub: &Arc<Hub>) -> Option<MeshRelay> {
         MeshControlHook::new(config.control_from, ledger)
             .with_own_user(Arc::new(crate::cli::cloud_join::machine_user_id)),
     );
-    Some(MeshRelay::start(hub, client, control, RelayOptions::default()))
+    // A joined relay's reconnect: a machine joined before the hub recorded capabilities states
+    // them then, too.
+    let on_reconnect =
+        joined.then_some(crate::cli::cloud_join::state_capabilities_on_reconnect as fn());
+    let options = RelayOptions { on_reconnect, ..RelayOptions::default() };
+    Some(MeshRelay::start(hub, client, control, options))
 }
 
 /// The wait after a failed call: the next backoff, or the hub's own wait when longer.
@@ -236,6 +247,7 @@ async fn read_book(
 }
 
 /// How long a start's ack waits for the heartbeat that lists its new session.
+// timeout: past this the start acks without the listing heartbeat; the start never fails on it.
 const START_LISTED_WAIT: Duration = Duration::from_secs(5);
 
 /// A heartbeat on demand. A start through the hub acks only once a heartbeat that lists the new
@@ -329,6 +341,9 @@ async fn heartbeats(
                     taken = true;
                     if std::mem::take(&mut failing) {
                         tracing::info!("mesh relay: the hub takes heartbeats again");
+                        if let Some(on_reconnect) = options.on_reconnect {
+                            on_reconnect();
+                        }
                     }
                     backoff.reset();
                     if !reply.daemon_id.is_empty() {
@@ -352,6 +367,8 @@ async fn heartbeats(
                     }
                     halt.all();
                     if let Some(hub) = hub.upgrade() {
+                        #[cfg(feature = "hub-carrier")]
+                        hub.set_mesh_book_machines(Default::default());
                         hub.set_mesh_book(Default::default(), Vec::new());
                     }
                     return;
@@ -377,6 +394,7 @@ async fn heartbeats(
         };
         let read_receipts = async {
             if let Some(hub) = hub.upgrade() {
+                // timeout: receipts not flushed by then go with a later heartbeat.
                 let budget = wait.min(Duration::from_secs(5));
                 let _ = tokio::time::timeout(budget, hub.flush_team_read_receipts(client.as_ref()))
                     .await;
@@ -405,9 +423,12 @@ async fn heartbeats(
         }
     }
     if let Some(hub) = hub.upgrade() {
+        #[cfg(feature = "hub-carrier")]
+        hub.set_mesh_book_machines(Default::default());
         hub.set_mesh_book(Default::default(), Vec::new());
     }
     let last = Heartbeat { host, sessions: Vec::new(), leaving: true };
+    // timeout: the leaving heartbeat is best effort; the relay must still end.
     let _ = tokio::time::timeout(Duration::from_secs(5), client.heartbeat(&last)).await;
 }
 
@@ -962,7 +983,7 @@ pub async fn deliver(
         }
         // No such session here is the lease's to bring back too, as before (`Next::NoSession`
         // settles only an outbox delivery).
-        Err((why, Next::Retry | Next::Unsent | Next::NoSession)) => {
+        Err((why, Next::Retry | Next::Unsent | Next::NoSession | Next::Stale)) => {
             tracing::info!(
                 "mesh relay: {prompt_id} not delivered yet ({why}); its lease brings it back"
             );

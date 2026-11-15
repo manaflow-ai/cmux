@@ -10,22 +10,17 @@ import Foundation
 /// Settings > Agents use.
 ///
 /// - `list`: `{harnesses: _acpmux/harnesses, models: _acpmux/models | null}`.
-/// - `add {kind, name, command, args}` or `{kind: anthropic-endpoint|openai-endpoint, name,
-///   baseUrl, model, apiKey}`: only on the person's click. An endpoint's key goes to the Keychain
-///   first (`_acpmux/harness/secret/set`); the profile names only its item. Answers `{id}`.
+/// - `add {kind, name, id?, replace?, command, args | baseUrl, model, apiKey?}`, on a click only, passed to acpmux's
+///   add (`replace` only when it names the same id; acpmux refuses an id it has before any key is stored). `{id}`.
 /// - `doctor {id}`: `_acpmux/harness/doctor {id, prompt: true}`, `{ok, steps}`.
 @MainActor
 final class ChiefBackendPageRoute: PageProvider {
     nonisolated static let prefix = "cmux.chief.backend."
-    /// The env key an endpoint profile reads its key from.
-    nonisolated static let keyName = "API_KEY"
 
     private let center: AgentHarnessCenter
     private var spentGesture: TimeInterval?
 
-    init(center: AgentHarnessCenter) {
-        self.center = center
-    }
+    init(center: AgentHarnessCenter) { self.center = center }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         do {
@@ -55,11 +50,12 @@ final class ChiefBackendPageRoute: PageProvider {
         }
     }
 
-    /// Writes the profile (and an endpoint's key, first); answers the harness id acpmux keeps.
+    /// One acpmux add (it checks the id, writes the profile and stores the key in one locked step).
     private func add(_ backend: BroughtChiefBackend) async throws -> String {
         var request = AgentHarnessAddRequest()
         request.id = backend.id
         request.displayName = backend.name
+        request.replace = backend.replace
         switch backend.kind {
         case .command(let command, let args):
             request.command = command
@@ -68,10 +64,9 @@ final class ChiefBackendPageRoute: PageProvider {
             request.example = example
             request.baseURL = baseURL
             request.model = model
-            request.keychainItem = try await center.setSecret(id: backend.id, key: Self.keyName, value: apiKey)
+            request.apiKey = apiKey
         }
-        let answer = try await center.add(request)
-        return answer["id"]?.stringValue ?? backend.id
+        return try await center.add(request)["id"]?.stringValue ?? backend.id
     }
 }
 
@@ -79,19 +74,20 @@ final class ChiefBackendPageRoute: PageProvider {
 nonisolated struct BroughtChiefBackend: Equatable {
     enum Kind: Equatable {
         case command(String, args: [String])
-        /// `example` is `anthropic-endpoint` or `openai-endpoint`.
+        /// `example` is `anthropic-endpoint` or `openai-endpoint`; an empty `apiKey` sends none.
         case endpoint(example: String, baseURL: String, model: String, apiKey: String)
     }
 
-    var id: String
-    var name: String
+    var id, name: String
     var kind: Kind
+    var replace = false
 
     init(_ params: JSONValue) throws {
         let text = { (key: String) in params[key]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
         name = text("name")
         guard !name.isEmpty else { throw PageError.invalidParams("name is required") }
-        id = Self.id(for: name)
+        id = Self.id(for: text("id").isEmpty ? name : text("id"))
+        replace = params["replace"]?.stringValue == id
         switch text("kind") {
         case "command":
             guard !text("command").isEmpty else { throw PageError.invalidParams("command is required") }
@@ -102,10 +98,7 @@ nonisolated struct BroughtChiefBackend: Equatable {
                 throw PageError.invalidParams("baseUrl must be an http or https URL")
             }
             guard !text("model").isEmpty else { throw PageError.invalidParams("model is required") }
-            // The key is taken as typed (no trimming inside it): only surrounding whitespace goes.
-            guard let apiKey = params["apiKey"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !apiKey.isEmpty else {
-                throw PageError.invalidParams("apiKey is required")
-            }
+            let apiKey = params["apiKey"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             kind = .endpoint(example: example, baseURL: baseURL, model: text("model"), apiKey: apiKey)
         default:
             throw PageError.invalidParams("kind must be command, anthropic-endpoint or openai-endpoint")
@@ -122,7 +115,7 @@ nonisolated struct BroughtChiefBackend: Equatable {
                 id.append("-")
             }
         }
-        while id.hasSuffix("-") { id.removeLast() }
-        return id.isEmpty ? "my-backend" : String(id.prefix(48))
+        while id.count > 40 || id.hasSuffix("-") { id.removeLast() }
+        return id.isEmpty ? "my-backend" : id
     }
 }

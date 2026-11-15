@@ -8,6 +8,7 @@ import { OnNewTab } from "./newTabComposer";
 import type { QuickFamily, QuickModel, QuickProviderLook, QuickSearchField } from "./quickModelMenuModel";
 import type { SessionAuth } from "./sessionAuth";
 import { effortLevel, openEffort } from "../../../test/support/effortDropdown";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let QuickModelMenu: typeof import("./QuickModelMenu").QuickModelMenu;
 const loadQuickModelMenu = async () => {
@@ -38,7 +39,7 @@ function installDom(): HTMLElement {
     "cancelAnimationFrame",
     "IS_REACT_ACT_ENVIRONMENT",
   ])
-    saved.set(key, scope[key]);
+    if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -63,6 +64,7 @@ afterEach(async () => {
     });
   root = undefined;
   await new Promise((resolve) => setTimeout(resolve, 0));
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

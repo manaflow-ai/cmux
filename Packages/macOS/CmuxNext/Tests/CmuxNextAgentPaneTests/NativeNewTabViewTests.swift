@@ -1,11 +1,12 @@
 import AppKit
 @testable import CmuxNextAgentPane
+import CmuxNextTestSupport
 import Testing
 
 /// The native New Tab page is AppKit (plans/cmux-next/no-swiftui-DESIGN.md): its field exists before
 /// any layout, typing in it changes the rows in the same turn, Up and Down move the highlight, Return
 /// and a click run a row, and the switch sets the kind.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct NativeNewTabViewTests {
     private struct Calls {
         var submits: [(String, AgentPaneTabKind)] = []

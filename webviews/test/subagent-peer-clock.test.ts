@@ -31,7 +31,7 @@ const header = (offset: number, startedAt: number) => {
       createElement(SubagentGroupHeader, { row, expanded: false, onToggle: () => {} }),
     ),
   );
-  return html.match(/class="cv-subagents__time">([^<]*)</)?.[1];
+  return html.match(/class="[^"]*\bcv-subagents__time\b[^"]*"[^>]*>([^<]*)</)?.[1];
 };
 
 test("a running subagent on a session a minute ahead counts in the session's clock", () => {

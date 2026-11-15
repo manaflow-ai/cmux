@@ -33,6 +33,9 @@ extension UpdaterService {
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
                 self?.refreshTip()
                 self?.refreshUpdateSnooze()
+                // The person is back: a staged update's Restart to Update is likely next, so its
+                // feed and pulled-list reads happen now rather than after the click.
+                self?.prefetchForInstallClick()
             }
         }
     }

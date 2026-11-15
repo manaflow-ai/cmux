@@ -122,8 +122,10 @@ class TaggedApp:
                     except OSError:
                         break
                     time.sleep(0.1)
-            state = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{self.tag}/tui")
-            for path in (self.chromium_root, state):
+            # NEXT's own tag folder and an older build's in classic's (a new build adopts that one at launch).
+            states = [os.path.expanduser(f"~/Library/Application Support/{parent}/tags/{self.tag}/tui")
+                      for parent in ("cmux-next", "cmux")]
+            for path in (self.chromium_root, *states):
                 if os.path.isdir(path):
                     shutil.rmtree(path)
         switches = [f"remote-debugging-port={self.cdp_port}", "remote-allow-origins=*"] + self.extra_switches

@@ -6,7 +6,10 @@ import Foundation
 /// The command palette's chats page (`agentPane.searchChats`, decision K1): the local acpmux
 /// daemon's chats, newest first, each opening its chat as a session link does. acpmux searches its
 /// own index (P-RUST): the page is a window over it (`palette.chats`) whose spec carries the query,
-/// so each query gets acpmux's newest matches and the app holds no copy of the index. It replaces
+/// so each query gets acpmux's newest matches and the app holds no copy of the index. A query also
+/// finds a chat by what was said in it (the window's `content`, acpmux `chats/text.rs`): such a row
+/// shows a snippet of the message with the words emphasized, and opens the chat scrolled to that
+/// message (``saidReveal(_:query:)``). It replaces
 /// the agent pane's own Search chats sheet, so every search goes through the one command palette.
 ///
 /// The composition root builds it with the feed's windows, the palette's choice history and the
@@ -22,16 +25,17 @@ public struct AgentChatsPalettePage {
 
     private let windows: AcpmuxChatWindows?
     private let history: @MainActor (String) async -> String?
-    private let open: @MainActor (String) -> Void
+    private let open: @MainActor (String, String?) -> Void
 
     /// - Parameters:
     ///   - windows: The chat feed's windows over acpmux's index; nil without a local acpmux.
     ///   - history: The person's past choices of chats for a query (`FrecencyStore.rankerHistory`
     ///     over the rows' `chat:<key>` use), so acpmux ranks them as the palette does; nil: none. It is
     ///     encoded off the main thread (`FrecencyStore.encodedRankerHistory`), never in a key's turn.
-    ///   - open: Opens a chat by key (the app's Open Chat path).
+    ///   - open: Opens a chat by key (the app's Open Chat path), scrolled to a message when the
+    ///     second value names one (an agent page's `revealTurn` value).
     public init(windows: AcpmuxChatWindows?, history: @escaping @MainActor (String) async -> String?,
-                open: @escaping @MainActor (String) -> Void) {
+                open: @escaping @MainActor (String, String?) -> Void) {
         self.windows = windows
         self.history = history
         self.open = open
@@ -70,14 +74,16 @@ public struct AgentChatsPalettePage {
     }
 
     /// The window's rows for `query`: acpmux's first answer to its spec, then the stream ends (the
-    /// palette's spinner runs until it ends, and an empty answer shows the empty state). An edit
+    /// palette's spinner runs until it ends, and an empty answer shows the empty state). While acpmux
+    /// still reads chats for the first time (`filling`), each answer shows and the stream stays open,
+    /// so a chat whose words are read later still appears. An edit
     /// opens the next query's spec; the window stays open until the page closes.
     /// - Parameters:
     ///   - history: The person's choice history of chats (`FrecencyStore.rankerHistory`), so acpmux
     ///     ranks a chat chosen before as the palette did; nil: none.
     ///   - open: Opens a chat by key (the app's Open Chat path).
     static func answers(_ query: String, windows: AcpmuxChatWindows?, history: @escaping @MainActor (String) async -> String?,
-                        counts: PastPageCounts? = nil, open: @escaping @MainActor (String) -> Void) -> AsyncStream<[PaletteItem]> {
+                        counts: PastPageCounts? = nil, open: @escaping @MainActor (String, String?) -> Void) -> AsyncStream<[PaletteItem]> {
         // The choice history is encoded off the main thread first; a query the palette moved past by
         // then (its stream ended) opens no window, so an older spec never replaces a newer one.
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -93,7 +99,7 @@ public struct AgentChatsPalettePage {
     }
 
     static func answers(_ query: String, windows: AcpmuxChatWindows?, history: String? = nil, counts: PastPageCounts? = nil,
-                        open: @escaping @MainActor (String) -> Void) -> AsyncStream<[PaletteItem]> {
+                        open: @escaping @MainActor (String, String?) -> Void) -> AsyncStream<[PaletteItem]> {
         let (stream, continuation) = AsyncStream.makeStream(of: [PaletteItem].self, bufferingPolicy: .bufferingNewest(1))
         guard let windows else {
             continuation.yield([])
@@ -103,11 +109,11 @@ public struct AgentChatsPalettePage {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let spec = AcpmuxChatWindows.Spec(window: window, limit: pageLimit, topLevel: true, query: text.isEmpty ? nil : text,
                                           untitled: AgentChatsPaletteStrings.untitled, history: text.isEmpty ? nil : history,
-                                          count: true)
+                                          count: true, content: true)
         // The follower lives as long as this query's stream: ending it releases the token.
         let token = FollowToken()
         let answer = { (rows: [AcpmuxChat]) in
-            var shown = items(rows, windows: windows, open: open)
+            var shown = items(rows, query: text, windows: windows, open: open)
             // More chats than one page holds: say so, and how to reach the rest (R-L5: a limit
             // that leaves chats out shows it).
             if let total = windows.window(window).total, total > rows.count {
@@ -116,7 +122,7 @@ public struct AgentChatsPalettePage {
             // How many matching chats this answer leaves past its page, kept with the query (Search's more row).
             counts?.record(query, pastPage: max(0, (windows.window(window).total ?? rows.count) - rows.count))
             continuation.yield(shown)
-            continuation.finish()
+            if !windows.window(window).filling { continuation.finish() }
         }
         windows.window(window).follow(token) { rows in
             if windows.isAnswered(spec) { answer(rows) }
@@ -165,12 +171,22 @@ public struct AgentChatsPalettePage {
     /// Owns one query's follower (released with its stream).
     final class FollowToken: Sendable {}
 
-    static func items(_ chats: [AcpmuxChat], windows: AcpmuxChatWindows, open: @escaping @MainActor (String) -> Void) -> [PaletteItem] {
+    /// The `revealTurn` value that opens a chat at the message a query found in it: the newest
+    /// prompt or answer row whose text holds every word (the agent page's `said:` reveal,
+    /// webviews/src/agent-session/acpmux/links.ts).
+    static func saidReveal(_ said: AcpmuxChat.Said, query: String) -> String {
+        "said:" + (said.isAnswer ? "answer" : "prompt") + ":" + query
+    }
+
+    static func items(_ chats: [AcpmuxChat], query: String = "", windows: AcpmuxChatWindows,
+                      open: @escaping @MainActor (String, String?) -> Void) -> [PaletteItem] {
         let formatter = RelativeDateTimeFormatter()
         return chats.map { chat in
-            PaletteItem(
+            let reveal = chat.said.map { saidReveal($0, query: query) }
+            var item = PaletteItem(
                 id: "chat:\(chat.id)", title: chat.title ?? AgentChatsPaletteStrings.untitled,
-                subtitle: chat.cwd.map { ($0 as NSString).abbreviatingWithTildeInPath },
+                // A chat found by what was said shows the message's words where its folder was.
+                subtitle: chat.said?.snippet ?? chat.cwd.map { ($0 as NSString).abbreviatingWithTildeInPath },
                 accessory: chat.updatedAt.timeIntervalSince1970 > 0 ? formatter.localizedString(for: chat.updatedAt, relativeTo: Date()) : nil,
                 symbol: "bubble.left", brand: chat.brand ?? AgentBrandCatalog.brand(for: chat.harness)?.rawValue,
                 keywords: [chat.harness] + (chat.cwd.map { [$0] } ?? []),
@@ -178,8 +194,10 @@ public struct AgentChatsPalettePage {
                                         effect: .perform {
                                             // The page closes with this command: its window too.
                                             windows.close(window)
-                                            open(chat.id)
+                                            open(chat.id, reveal)
                                         }))
+            item.subtitleHighlights = chat.said?.highlights ?? []
+            return item
         }
     }
 }

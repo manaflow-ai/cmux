@@ -7,6 +7,7 @@ use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use anyhow::{Context, bail};
 
@@ -131,8 +132,25 @@ pub(crate) fn adopt_master(
     Ok(Box::new(MacOsMasterPty { file, took_writer: Cell::new(false), eof_on_drop: false }))
 }
 
+/// The code of a PTY master open that macOS refused for a moment: when many
+/// masters are opened at the same time (a burst of terminal launches, such as
+/// the restore of 170 kept terminals after an update), `posix_openpt` fails
+/// with -6, far below `kern.tty.ptmx_max`. -6 is not a POSIX errno: it is a
+/// code the kernel uses inside itself to say "drive this open again"
+/// (`EREDRIVEOPEN` in XNU's `bsd/sys/errno.h`), and here it reaches the
+/// caller. Measured with opens at the same moment and no second try: 44 of
+/// 64 failed on macOS 26.5.2, 38 of 64 on 27.0.1. With the waits below every
+/// one of 170 opened, the slowest on its 4th try.
+const MASTER_OPEN_REFUSED_FOR_A_MOMENT: i32 = -6;
+
+/// A refused master open is tried again this many times, after 1, 2, 4, 8,
+/// 16, 32 ms and then 64 ms each: about 0.3 s in sum. After that the failure
+/// is the caller's.
+const MASTER_OPEN_SECOND_TRIES: u32 = 10;
+
 fn open_pty_master() -> anyhow::Result<File> {
     let flags = libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC;
+    let mut second_tries: u32 = 0;
     loop {
         let descriptor = unsafe { libc::posix_openpt(flags) };
         if descriptor >= 0 {
@@ -141,9 +159,17 @@ fn open_pty_master() -> anyhow::Result<File> {
             return Ok(master);
         }
         let error = io::Error::last_os_error();
-        if error.raw_os_error() != Some(libc::EINTR) {
-            return Err(PtyOpenError::from_io(error).into());
+        if error.raw_os_error() == Some(libc::EINTR) {
+            continue;
         }
+        if error.raw_os_error() == Some(MASTER_OPEN_REFUSED_FOR_A_MOMENT)
+            && second_tries < MASTER_OPEN_SECOND_TRIES
+        {
+            std::thread::sleep(Duration::from_millis(1 << second_tries.min(6)));
+            second_tries += 1;
+            continue;
+        }
+        return Err(PtyOpenError::from_io(error).into());
     }
 }
 

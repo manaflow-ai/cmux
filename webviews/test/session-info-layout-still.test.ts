@@ -211,10 +211,11 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
             await settle(page);
             const closing = await moved(page);
             // Where it lies over the chat (560, 900 and 1100px: Chat Text Width's 800px column does not fit
-            // beside the whole panel; SessionInfo.tsx sessionInfoStage), nothing else moves at all. Where
-            // the column fits (1200 and 1600px) it pushes: the column moves left as it opens and back as it closes, the
-            // chat centered beside it (Lucas, 2026-11-06), only sideways, nothing resized or moved up or
-            // down; its content changing still moves nothing.
+            // beside the whole panel; SessionInfo.tsx sessionInfoStage) or floats in a gutter that holds it
+            // (1600px; Leo, 2026-11-09: "if it has enough space, then don't push the layout"), nothing else
+            // moves at all. Where the gutter lacks room and the column fits (1200px) it pushes: the column
+            // moves left as it opens and back as it closes, by what the gutter lacks, only sideways,
+            // nothing resized or moved up or down; its content changing still moves nothing.
             // The thread rail on the left fits the gutter the column leaves it: where the moved column
             // takes part of that gutter (1200px), the rail narrows with it (useRailPlacement.ts); that it
             // stays pinned is thread-minimap-left-rail-stays.test.ts's check, so it is left out here.
@@ -222,7 +223,8 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
             // What moved other than sideways, named, so a red says what it was.
             const offSideways = (list: Moved[]) =>
               list.filter((one) => !rail(one) && (one.dy !== 0 || one.dw !== 0 || one.dh !== 0)).map((one) => one.name);
-            if (width < 1160) expect({ opening, content, closing }).toEqual({ opening: [], content: [], closing: [] });
+            if (width < 1160 || width >= 1600)
+              expect({ opening, content, closing }).toEqual({ opening: [], content: [], closing: [] });
             else
               expect({
                 pushed: opening.length > 0,

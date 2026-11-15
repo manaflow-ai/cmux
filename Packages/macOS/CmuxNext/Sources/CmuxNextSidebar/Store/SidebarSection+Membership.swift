@@ -115,7 +115,8 @@ nonisolated extension SidebarSection {
     /// `sections` without placeholder rows, which no daemon knows: a new
     /// workspace's slot is resolved against the rows it will sit among.
     public static func withoutPlaceholders(_ sections: [SidebarSection]) -> [SidebarSection] {
-        sections.map { section in
+        SidebarPerfCounters.add(.slotRows, sections.reduce(0) { $0 + $1.nodes.count })
+        return sections.map { section in
             var section = section
             section.nodes = section.nodes.compactMap { node in
                 switch node {

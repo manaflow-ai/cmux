@@ -1,0 +1,130 @@
+/* The share nudge (ShareNudge.tsx): one quiet line over the composer, in the chat's column. Muted
+   ink, text actions in the theme's accent (the pane's neutral --agent-accent, never orange or system
+   blue), no border, no fill: it reads as a footnote to the reply, not a banner. It folds its own
+   height open and closed on the house settle, so nothing over it jumps. */
+.acpmux-share-nudge {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: acpmux-share-nudge-open var(--cmux-motion-settle, 180ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1))
+    both;
+}
+.acpmux-share-nudge[data-state="closing"] {
+  animation: acpmux-share-nudge-close var(--cmux-motion-settle, 180ms)
+    var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+.acpmux-share-nudge__fold {
+  min-height: 0;
+  overflow: hidden;
+}
+.acpmux-share-nudge__row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-2);
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 760px;
+  min-width: 0;
+  margin: 0 auto;
+  padding: 0 var(--ds-space-4) var(--ds-space-2);
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  line-height: var(--ds-control-compact, 20px);
+}
+.acpmux-share-nudge__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-share-nudge__actions {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+.acpmux-share-nudge__action,
+.acpmux-share-nudge__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--ds-control-compact, 20px);
+  padding: 0 var(--ds-space-1);
+  border: 0;
+  border-radius: var(--ds-radius-control, 4px);
+  background: transparent;
+  color: var(--agent-accent, var(--agent-text));
+  font: inherit;
+  font-weight: var(--weight-emphasis);
+  white-space: nowrap;
+  cursor: default;
+}
+.acpmux-share-nudge__close {
+  width: var(--ds-control-compact, 20px);
+  padding: 0;
+  color: var(--agent-muted);
+}
+.acpmux-share-nudge__action:hover,
+.acpmux-share-nudge__close:hover {
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+}
+.acpmux-share-nudge__action:focus-visible,
+.acpmux-share-nudge__close:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--agent-text) 40%, transparent);
+  outline-offset: 1px;
+}
+
+/* Gallery only: the harness notice's card, a title over the line. */
+.acpmux-share-nudge[data-look="card"] .acpmux-share-nudge__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  justify-content: stretch;
+  row-gap: 0;
+  margin-bottom: var(--ds-space-2);
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border-radius: var(--grid-cards-radius, 8px);
+  background: color-mix(in srgb, var(--agent-text) 4%, var(--agent-page-bg, transparent));
+  max-width: calc(760px - 2 * var(--ds-space-4));
+}
+.acpmux-share-nudge[data-look="card"] .acpmux-share-nudge__title {
+  grid-column: 1;
+  color: var(--agent-text);
+  font-weight: var(--weight-emphasis);
+}
+.acpmux-share-nudge[data-look="card"] .acpmux-share-nudge__text {
+  grid-column: 1;
+}
+.acpmux-share-nudge[data-look="card"] .acpmux-share-nudge__actions {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+/* Gallery only: left-aligned under the reply, in the transcript's text column. */
+.acpmux-share-nudge[data-look="reply"] .acpmux-share-nudge__row {
+  justify-content: flex-start;
+  padding-inline: var(--cv-inset, var(--ds-space-4));
+  max-width: none;
+}
+
+@keyframes acpmux-share-nudge-open {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+@keyframes acpmux-share-nudge-close {
+  to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-share-nudge,
+  .acpmux-share-nudge[data-state="closing"] {
+    animation: none;
+  }
+}
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"]) .acpmux-share-nudge {
+  animation: none;
+}

@@ -10,12 +10,12 @@ import Observation
 final class SidebarTunablesWatch {
     static let shared = SidebarTunablesWatch()
 
-    typealias Values = (agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackCap: SidebarRowBadgeStackCap, workspaceTitleMotion: SidebarWorkspaceTitleMotionVariant,
+    typealias Values = (agentMark: SidebarAgentMarkVariant, presenceDots: Bool, driveIndicator: SidebarDriveIndicatorVariant, rowBadge: SidebarRowBadgeStyle, stackCap: SidebarRowBadgeStackCap, workspaceTitleMotion: SidebarWorkspaceTitleMotionVariant,
                          rowTitle: SidebarRowTitleMode, rowTitleSingleChat: Bool)
 
     /// Every tunable a listed row draws or lays out from, read together so one pass can tell whether any changed.
     private struct Snapshot: Equatable {
-        var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackCap: SidebarRowBadgeStackCap
+        var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, driveIndicator: SidebarDriveIndicatorVariant, rowBadge: SidebarRowBadgeStyle, stackCap: SidebarRowBadgeStackCap
         var workspaceTitleMotion: SidebarWorkspaceTitleMotionVariant
         var rowTitle: SidebarRowTitleMode, rowTitleSingleChat: Bool
         /// Laid out, not configured: the hover close's spot and glyph size.
@@ -23,6 +23,7 @@ final class SidebarTunablesWatch {
 
         static func read() -> Snapshot {
             Snapshot(agentMark: SidebarTunables.agentMark.value, presenceDots: SidebarTunables.presenceDots.value,
+                     driveIndicator: SidebarTunables.driveIndicator.value,
                      rowBadge: SidebarRowBadgeStyle.tunable.value, stackCap: SidebarRowBadgeStackCap.tunable.value,
                      workspaceTitleMotion: SidebarTunables.workspaceTitleMotion.value,
                      rowTitle: SidebarTunables.rowTitle.value, rowTitleSingleChat: SidebarTunables.rowTitleSingleChat.value,
@@ -30,7 +31,7 @@ final class SidebarTunablesWatch {
         }
 
         var values: Values {
-            (agentMark, presenceDots, rowBadge, stackCap, workspaceTitleMotion, rowTitle, rowTitleSingleChat)
+            (agentMark, presenceDots, driveIndicator, rowBadge, stackCap, workspaceTitleMotion, rowTitle, rowTitleSingleChat)
         }
     }
 

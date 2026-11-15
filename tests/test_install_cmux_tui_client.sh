@@ -58,14 +58,18 @@ assert_layout() { # <app>: bin/cmux is the file, cmux-tui and acpmux link to it
 install_client
 cmp "$CLIENT" "$APP/Contents/Resources/bin/cmux"
 assert_layout "$APP"
-# Release bundles carry no agent screen detector until its notices are mapped
-# (scripts/cmux-next/bundle-cmux-tui.sh places it in dev builds only): an
-# install drops a stale copy, even one beside a local client.
+# The agent screen detector (mapped in bundle-map.json) installs beside a local
+# client as bin/cmux-agent-screen-detection, the name the daemon runs; a local
+# client without one removes a stale copy.
 printf stale > "$APP/Contents/Resources/bin/cmux-agent-screen-detection"
 printf detector > "$TEST_DIR/cmux-agent-screen-detection"
 install_client
-[ ! -e "$APP/Contents/Resources/bin/cmux-agent-screen-detection" ]
+cmp "$TEST_DIR/cmux-agent-screen-detection" "$APP/Contents/Resources/bin/cmux-agent-screen-detection"
+[ -x "$APP/Contents/Resources/bin/cmux-agent-screen-detection" ]
 rm -f "$TEST_DIR/cmux-agent-screen-detection"
+install_client
+[ ! -e "$APP/Contents/Resources/bin/cmux-agent-screen-detection" ]
+echo "PASS: a local client brings its agent screen detector, and one without it removes a stale copy"
 # A reinstall over an earlier layout (a real bin/cmux-tui and bin/acpmux)
 # replaces both files with the symlinks.
 rm "$APP/Contents/Resources/bin/cmux-tui" "$APP/Contents/Resources/bin/acpmux"
@@ -560,11 +564,33 @@ grep -q '^lipo -create .*cmux-tui-app-host-aarch64-apple-darwin' "$EVENTS"
 # signed), so a lipo'd companion is signed ad hoc as a whole; unsigned, the
 # tagged build's check-bundled-browser-host.sh refuses bin/cmux-browser-host.
 grep -q '^codesign --force --sign - .*/AppHostUniversal.app/Contents/Resources/bin/cmux-app-host$' "$EVENTS"
+# Off main the build publishes no Intel Mac slice: an arm64 install still takes
+# the arm64 companion and fetches nothing x86_64.
+cat > "$SERVE/manifest.json" <<JSON
+{"commit":"$COMMIT","binaries":{"cmux-tui-aarch64-apple-darwin":"$ARM_SHA","cmux-tui-aarch64-unknown-linux-musl":"$ARM_SHA","cmux-tui-x86_64-unknown-linux-musl":"$ARM_SHA","cmux-tui-app-host-aarch64-apple-darwin":"$APP_HOST_ARM_SHA"}}
+JSON
+: > "$EVENTS"
+install_remote "$TEST_DIR/AppHostArmOnly.app" --arch arm64 > "$TEST_DIR/app-host-arm-only.log" 2>&1
+cmp "$SERVE/cmux-tui-app-host-aarch64-apple-darwin" "$TEST_DIR/AppHostArmOnly.app/Contents/Resources/bin/cmux-app-host"
+if grep -q 'x86_64-apple-darwin' "$EVENTS"; then
+  echo "FAIL: an arm64 install fetched an Intel Mac slice" >&2; exit 1
+fi
+echo "PASS: an arm64 install takes its companions from a build without Intel Mac slices"
 printf '%s\n' "$MANIFEST_WITHOUT_APP_HOST" > "$SERVE/manifest.json"
 install_remote "$APP_HOST_APP" --arch arm64 > "$TEST_DIR/app-host-gone.log" 2>&1
 [ ! -e "$APP_HOST_APP/Contents/Resources/bin/cmux-app-host" ]
 grep -q 'publishes no cmux-app-host' "$TEST_DIR/app-host-gone.log"
 echo "PASS: the app host installs from the same build and a build without one removes it"
+
+# --require-companions (the nightly bundle) makes a companion the build lacks
+# fail the install, so a nightly without bin/cmux-app-host never publishes.
+printf '%s\n' "$MANIFEST_WITHOUT_APP_HOST" > "$SERVE/manifest.json"
+if install_remote "$TEST_DIR/RequireCompanions.app" --arch arm64 --require-companions > "$TEST_DIR/require-companions.log" 2>&1; then
+  echo "FAIL: --require-companions accepted a build with no app host" >&2; exit 1
+fi
+grep -q 'publishes no cmux-app-host for arm64' "$TEST_DIR/require-companions.log"
+[ ! -e "$TEST_DIR/RequireCompanions.app/Contents/Resources/bin/cmux-app-host" ]
+echo "PASS: --require-companions refuses a build without the app host"
 
 # The Cloud app server (cmux/cloud) installs beside the app host as bin/cmux-cloud the
 # same way; a wrong sha256 is refused and leaves no binary; a build without it removes it.
@@ -593,6 +619,31 @@ install_remote "$CLOUD_APP" --arch arm64 > "$TEST_DIR/cloud-gone.log" 2>&1
 [ ! -e "$CLOUD_APP/Contents/Resources/bin/cmux-cloud" ]
 grep -q 'publishes no cmux-cloud' "$TEST_DIR/cloud-gone.log"
 echo "PASS: the Cloud app server installs from the same build, a wrong sha256 is refused, and a build without one removes it"
+
+# The agent screen detector installs beside the client as
+# bin/cmux-agent-screen-detection (the exact name the daemon runs) from the
+# manifest's cmux-tui-agent-screen-detection-<target> slices, lipo'd like the
+# client; a build that publishes none removes a copy left by an earlier install.
+printf 'detector arm\n' > "$SERVE/cmux-tui-agent-screen-detection-aarch64-apple-darwin"
+printf 'detector intel\n' > "$SERVE/cmux-tui-agent-screen-detection-x86_64-apple-darwin"
+DETECTOR_ARM_SHA="$(slice_sha "$SERVE/cmux-tui-agent-screen-detection-aarch64-apple-darwin")"
+DETECTOR_X64_SHA="$(slice_sha "$SERVE/cmux-tui-agent-screen-detection-x86_64-apple-darwin")"
+cat > "$SERVE/manifest.json" <<JSON
+{"commit":"$COMMIT","binaries":{"cmux-tui-aarch64-apple-darwin":"$ARM_SHA","cmux-tui-x86_64-apple-darwin":"$X64_SHA","cmux-tui-aarch64-unknown-linux-musl":"$ARM_SHA","cmux-tui-x86_64-unknown-linux-musl":"$ARM_SHA","cmux-tui-agent-screen-detection-aarch64-apple-darwin":"$DETECTOR_ARM_SHA","cmux-tui-agent-screen-detection-x86_64-apple-darwin":"$DETECTOR_X64_SHA"}}
+JSON
+DETECTOR_APP="$TEST_DIR/Detector.app"
+install_remote "$DETECTOR_APP" --arch arm64 > "$TEST_DIR/detector-arm.log" 2>&1
+cmp "$SERVE/cmux-tui-agent-screen-detection-aarch64-apple-darwin" "$DETECTOR_APP/Contents/Resources/bin/cmux-agent-screen-detection"
+[ -x "$DETECTOR_APP/Contents/Resources/bin/cmux-agent-screen-detection" ]
+install_remote "$TEST_DIR/DetectorUniversal.app" > "$TEST_DIR/detector-universal.log" 2>&1
+grep -q '^lipo -create .*cmux-tui-agent-screen-detection-aarch64-apple-darwin' "$EVENTS"
+[ -x "$TEST_DIR/DetectorUniversal.app/Contents/Resources/bin/cmux-agent-screen-detection" ]
+grep -q '^codesign --force --sign - .*/DetectorUniversal.app/Contents/Resources/bin/cmux-agent-screen-detection$' "$EVENTS"
+printf '%s\n' "$MANIFEST_WITHOUT_APP_HOST" > "$SERVE/manifest.json"
+install_remote "$DETECTOR_APP" --arch arm64 > "$TEST_DIR/detector-gone.log" 2>&1
+[ ! -e "$DETECTOR_APP/Contents/Resources/bin/cmux-agent-screen-detection" ]
+grep -q 'publishes no cmux-agent-screen-detection' "$TEST_DIR/detector-gone.log"
+echo "PASS: the agent screen detector installs from the same build as bin/cmux-agent-screen-detection, and a build without one removes it"
 
 # Native means the hardware architecture, including an Intel process translated
 # by Rosetta on Apple Silicon. Exercise through the actual installer entry point.

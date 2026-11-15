@@ -3,14 +3,18 @@
 # Leo, 2026-11-04: "is it possible to HARD MARK certain files or whatever as like "classic, don't touch until we
 # decide to do the migration"" and "for next related paths, only look there / simply skip the old code".
 #
-# A pull request into feat-cmux-next or main that changes a frozen path fails the classic-frozen-guard check
-# (scripts/ci/classic_frozen_guard.py, .github/workflows/classic-frozen-guard.yml) unless it carries the label
-# `classic-migration`, which is Leo's decision to add. NEXT work never reads, greps or builds on these files:
-# NEXT Cloud backend code goes to manaflow-ai/cmux-platform. The same file is on feat-cmux-next and main.
+# Leo, 2026-11-14, on a feat-cmux-next PR this refused: "if it's on the next branch, classic cloud is irrelevant.
+# it's only relevant on main rn".
 #
-# One rule per line: GLOB SCOPE REASON. `**` crosses directories, `*` stays within one segment. SCOPE is `all`
-# (frozen into feat-cmux-next and main) or `main` (frozen into main only: on feat-cmux-next the same path is NEXT's,
-# like the NEXT devbox image under web/services/vms that cloud-devbox-image-rebake.yml bakes).
+# Only a pull request into main is held: one that changes a frozen path fails the classic-frozen-guard check
+# (scripts/ci/classic_frozen_guard.py, .github/workflows/classic-frozen-guard.yml) and merge_hold unless it carries
+# the label `classic-migration`, which is Leo's decision to add. A pull request into feat-cmux-next may change or
+# delete these files freely. NEXT Cloud backend code goes to manaflow-ai/cmux-platform.
+#
+# One rule per line: GLOB SCOPE REASON. `**` crosses directories, `*` stays within one segment. SCOPE no longer
+# changes what a merge into feat-cmux-next may touch (nothing is held there); it is what NEXT work's reads skip
+# (repo-tools, prior-art): `all` is skipped on feat-cmux-next and main, `main` on main only (on feat-cmux-next the
+# same path is NEXT's, like the NEXT devbox image under web/services/vms that cloud-devbox-image-rebake.yml bakes).
 #
 # Not classic, and not frozen: NEXT code that calls classic (CloudAPIClient.swift's /api/vm routes,
 # CloudClassicPageOps.swift), cmux-api (backend/apps/api) and workers/cmux-vm.

@@ -4,6 +4,171 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDevicePolicyParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDevicePolicyResultDefaults {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDevicePolicyResultEnforced {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDevicePolicyResultFeatures {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDevicePolicyResult {
+    pub team: TeamId,
+    pub managed: bool,
+    pub team_name: String,
+    pub version: i64,
+    pub defaults: TeamDevicePolicyResultDefaults,
+    pub enforced: TeamDevicePolicyResultEnforced,
+    pub features: TeamDevicePolicyResultFeatures,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes team.device.policy declares.
+    TeamDevicePolicyError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Stop managing an install: team admins for any install; the install's user only for an install they accepted (not one enrolled by an MDM token). Agents never.
+    TeamDeviceReleaseOp {
+        name: "team.device.release",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: TeamDeviceReleaseParams,
+        result: TeamDeviceReleaseResult,
+        error: TeamDeviceReleaseError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDeviceReleaseParams {
+    pub install: InstallId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDeviceReleaseResult {
+    pub install: InstallId,
+}
+
+wire_errors! {
+    /// The error codes team.device.release declares.
+    TeamDeviceReleaseError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Report what this install applied (policy version, MDM key names, conflicts). Send when it changes; the latest report replaces the previous one.
+    TeamDeviceReportStatusOp {
+        name: "team.device.report_status",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-own",
+        principals: [Install],
+        params: TeamDeviceReportStatusParams,
+        result: DeviceStatus,
+        error: TeamDeviceReportStatusError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDeviceReportStatusParams {
+    pub policy_version: i64,
+    pub app_version: String,
+    pub mdm_keys: Vec<String>,
+    pub conflicts: Vec<String>,
+}
+
+wire_errors! {
+    /// The error codes team.device.report_status declares.
+    TeamDeviceReportStatusError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Read a team's directory: the first 200 members and hosts (U2). Page larger teams with team.members.list and team.hosts.list.
+    TeamDirectoryOp {
+        name: "team.directory",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: TeamDirectoryParams,
+        result: TeamDirectoryResult,
+        error: TeamDirectoryError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDirectoryParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<TeamId>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDirectoryResult {
+    pub team: TeamId,
+    pub members: Vec<TeamMember>,
+    pub hosts: Vec<Host>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes team.directory declares.
+    TeamDirectoryError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Create a device enrollment token (owners and admins). The caller generates the token, sends only its SHA-256, and shows the token once.
+    TeamEnrollmentTokenCreateOp {
+        name: "team.enrollment_token.create",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: TeamEnrollmentTokenCreateParams,
+        result: EnrollmentToken,
+        error: TeamEnrollmentTokenCreateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamEnrollmentTokenCreateParams {
+    pub label: String,
+    pub token_hash: EnrollmentTokenHash,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_domains: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<i64>,
+}
+
 wire_errors! {
     /// The error codes team.enrollment_token.create declares.
     TeamEnrollmentTokenCreateError {
@@ -734,162 +899,4 @@ pub struct TeamVmRetiredDeleteParams {
 pub struct TeamVmRetiredDeleteResult {
     pub vm: String,
     pub deleted: bool,
-}
-
-wire_errors! {
-    /// The error codes team_vm.retired.delete declares.
-    TeamVmRetiredDeleteError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        TeamVmInUse = "team_vm.in_use",
-        TeamVmNotConfigured = "team_vm.not_configured",
-        TeamVmNotInLedger = "team_vm.not_in_ledger",
-        TeamVmNotTainted = "team_vm.not_tainted",
-        TeamVmPlanGateMissing = "team_vm.plan_gate_missing",
-        TeamVmRetiredFilesUnconfirmed = "team_vm.retired_files_unconfirmed",
-        TeamVmRetiredFull = "team_vm.retired_full",
-        TeamVmStaleEpoch = "team_vm.stale_epoch",
-        TeamVmStaleTaint = "team_vm.stale_taint",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Download the team files (/srv/team) of a VM that a rebuild replaced (team_vm.status `retired`) as one tar, without starting it: only a paused retired VM whose run budget is spent (fenced) is read, through the provider's file API. Answers a single-use download path valid for 5 minutes; refuses more than 2 GiB of files or 5000 entries (team_vm.export_too_large) and a VM not fenced yet (team_vm.retired_not_fenced). Symlinks and special files are skipped and listed. Owners and admins only, in a person's session; audited.
-    TeamVmRetiredExportOp {
-        name: "team_vm.retired.export",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: TeamVmRetiredExportParams,
-        result: TeamVmRetiredExportResult,
-        error: TeamVmRetiredExportError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmRetiredExportParams {
-    pub vm: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmRetiredExportResult {
-    pub vm: String,
-    pub path: String,
-    pub expires_at: i64,
-    pub files: i64,
-    pub bytes: i64,
-    pub archive_bytes: i64,
-    pub skipped: Vec<String>,
-    pub skipped_count: i64,
-}
-
-wire_errors! {
-    /// The error codes team_vm.retired.export declares.
-    TeamVmRetiredExportError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        TeamVmExportNoFiles = "team_vm.export_no_files",
-        TeamVmExportTimeout = "team_vm.export_timeout",
-        TeamVmExportTooLarge = "team_vm.export_too_large",
-        TeamVmInUse = "team_vm.in_use",
-        TeamVmNotConfigured = "team_vm.not_configured",
-        TeamVmNotInLedger = "team_vm.not_in_ledger",
-        TeamVmNotTainted = "team_vm.not_tainted",
-        TeamVmPlanGateMissing = "team_vm.plan_gate_missing",
-        TeamVmProviderFailed = "team_vm.provider_failed",
-        TeamVmProviderRefused = "team_vm.provider_refused",
-        TeamVmRetiredFull = "team_vm.retired_full",
-        TeamVmRetiredNotFenced = "team_vm.retired_not_fenced",
-        TeamVmStaleEpoch = "team_vm.stale_epoch",
-        TeamVmStaleTaint = "team_vm.stale_taint",
-        TeamVmVmMissing = "team_vm.vm_missing",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// The team SSH CA public keys and the current revocation list (KRL), for the team VM's sshd.
-    TeamVmSshCaOp {
-        name: "team_vm.ssh_ca",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: TeamVmSshCaParams,
-        result: TeamVmSshCaResult,
-        error: TeamVmSshCaError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmSshCaParams {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmSshCaResult {
-    pub team: TeamId,
-    pub generation: i64,
-    pub trusted_ca_keys: Vec<String>,
-    pub krl: String,
-    pub krl_version: i64,
-}
-
-wire_errors! {
-    /// The error codes team_vm.ssh_ca declares.
-    TeamVmSshCaError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Replace the team SSH CA key (owners and admins, in a person's session). Without `compromised`, certificates from the old key stay valid until they expire (at most 60 minutes).
-    TeamVmSshCaRotateOp {
-        name: "team_vm.ssh_ca.rotate",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "destructive",
-        principals: [Session],
-        params: TeamVmSshCaRotateParams,
-        result: TeamVmSshCaRotateResult,
-        error: TeamVmSshCaRotateError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmSshCaRotateParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub compromised: Option<bool>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmSshCaRotateResult {
-    pub generation: i64,
-    pub ca_public_key: String,
-    pub previous_trusted_until: Option<i64>,
-}
-
-wire_errors! {
-    /// The error codes team_vm.ssh_ca.rotate declares.
-    TeamVmSshCaRotateError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        TeamVmSshCaNotConfigured = "team_vm.ssh_ca_not_configured",
-        ValidationInvalid = "validation.invalid",
-    }
 }

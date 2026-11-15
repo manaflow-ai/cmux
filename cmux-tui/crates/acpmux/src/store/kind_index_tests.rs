@@ -333,3 +333,108 @@ fn a_copy_is_written_under_a_group_writable_umask() {
     assert!(std::fs::read_dir(&dir).unwrap().next().is_some(), "a copy was written");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A scan that read [`kind_index::COPY_AFTER`] bytes past a copy adds only those lines to it: the
+/// copy's earlier bytes are not written again, so the bytes written per scan stay bounded by what
+/// the log grew, not by the copy's size (cmuxterm-hq#9263). Every record still comes back once, in
+/// order, and a later scan reads the grown copy.
+#[test]
+fn a_scan_adds_to_a_copy_and_never_writes_its_lines_again() {
+    let root = root();
+    // One segment, so every scan reads the same copy.
+    let store = LocalStore::new(root.clone(), 1 << 30).unwrap();
+    let big = |seq: u64, kind: &str| {
+        let msg = json!({"promptId": format!("p{seq}"), "text": "x".repeat(64 * 1024)});
+        EventRecord { seq, at: seq, dir: "mux".into(), kind: kind.into(), msg, host_seq: None }
+    };
+    let kinds = ["user_message"];
+    let mut log = Vec::new();
+    let mut seq = 0;
+    let mut grow = |log: &mut Vec<EventRecord>, n: u64| {
+        for _ in 0..n {
+            seq += 1;
+            let r = big(seq, if seq % 2 == 0 { "user_message" } else { "tool_call_update" });
+            store.append("c", &r).unwrap();
+            log.push(r);
+        }
+        store.flush().unwrap();
+    };
+    let mut sizes = Vec::new();
+    for _ in 0..6 {
+        // Past COPY_AFTER (1 MiB) each round: 20 records of 64 KiB.
+        grow(&mut log, 20);
+        let index = store.segments("c").unwrap()[0].0;
+        let copy = root.join("c").join(kind_index::DIR).join(format!("{index:06}.ndjson"));
+        let before = std::fs::metadata(&copy).ok().map(|m| (m.len(), inode(&copy)));
+        let expected: Vec<EventRecord> =
+            log.iter().filter(|r| r.kind == "user_message").cloned().collect();
+        assert_eq!(scanned(&store, &kinds), expected);
+        let after = (std::fs::metadata(&copy).unwrap().len(), inode(&copy));
+        if let Some((len, ino)) = before {
+            assert_eq!(ino, after.1, "the copy was added to, not replaced");
+            assert!(after.0 > len, "the copy grew");
+        }
+        sizes.push(after.0);
+        assert_eq!(scanned(&store, &kinds), expected, "from the grown copy");
+    }
+    assert!(sizes.windows(2).all(|w| w[1] > w[0]), "{sizes:?}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// An addition a crash cut before its header (lines past the ones the header covers) is read
+/// past; a torn header fails the seal and the copy is made again. Neither is ever read wrong.
+#[test]
+fn a_cut_addition_or_a_torn_header_is_read_past() {
+    let root = root();
+    let (store, log) = store_with_log(&root, 6);
+    let kinds = ["queued", "turn_result"];
+    let expected: Vec<EventRecord> =
+        log.iter().filter(|r| kinds.contains(&r.kind.as_str())).cloned().collect();
+    scanned(&store, &kinds);
+    let copies = root.join("c").join(kind_index::DIR);
+    for (n, entry) in std::fs::read_dir(&copies).unwrap().enumerate() {
+        let path = entry.unwrap().path();
+        let mut bytes = std::fs::read(&path).unwrap();
+        assert_eq!(bytes[kind_index::HEADER_WIDTH - 1], b'\n', "a fixed-width header");
+        if n % 2 == 0 {
+            // A line the header does not cover.
+            bytes.extend_from_slice(b"{\"seq\":999999,\"kind\":\"queued\"}\n");
+        } else {
+            // A header half written: one digit of it changed.
+            let at = bytes.iter().position(|b| b.is_ascii_digit()).unwrap();
+            bytes[at] = if bytes[at] == b'9' { b'8' } else { bytes[at] + 1 };
+        }
+        std::fs::write(&path, bytes).unwrap();
+    }
+    assert_eq!(scanned(&store, &kinds), expected);
+    assert_eq!(scanned(&store, &kinds), expected);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[cfg(unix)]
+fn inode(path: &Path) -> u64 {
+    std::os::unix::fs::MetadataExt::ino(&std::fs::metadata(path).unwrap())
+}
+
+#[cfg(not(unix))]
+fn inode(_: &Path) -> u64 {
+    0
+}
+
+/// The checked copy is rebuildable. Its atomic replacement needs no durability work.
+#[test]
+fn a_kind_index_write_does_not_sync() {
+    let home = tempfile::tempdir().unwrap();
+    let store = LocalStore::new(home.path().join("sessions"), 64 * 1024).unwrap();
+    std::fs::create_dir(store.dir("c")).unwrap();
+    let copy = store.kind_index_path("c", 1);
+    let syncs = crate::config::startup_seams::Count::syncs(home.path());
+    // An explicit stamp makes this independent of filesystem birth-time support.
+    let stamp = Stamp { id: (1, 2, 3), len: 0 };
+    store.write_kind_index("c", 1, &stamp, 0, true, b"").unwrap();
+    let first = std::fs::read(&copy).unwrap();
+    assert_eq!(first.len(), HEADER_WIDTH);
+    store.write_kind_index("c", 1, &stamp, 0, false, b"").unwrap();
+    assert_ne!(std::fs::read(&copy).unwrap(), first, "the copy was replaced");
+    assert_eq!(syncs.get(), 0, "a derived kind index performed durability work");
+}

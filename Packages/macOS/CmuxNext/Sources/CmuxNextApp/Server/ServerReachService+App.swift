@@ -52,15 +52,17 @@ extension ServerMenuBarController {
             guard let services else { return nil }
             return CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, cli: services.bundledCLI,
                                    chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
-        }, makeCards: { [weak services] in services.flatMap { WebCardPanel.serverCards(services: $0) } })
+        }, makeCards: { [weak services] cards in services.flatMap { WebCardPanel.serverCards(services: $0, with: cards) } },
+        qr: { [qrCode = PairingQRCode()] in qrCode.pngDataURL(for: $0) })
     }
 }
 
 extension WebCardPanel {
     /// The App's server card panel, kept warm: Pair Another Machine (the invite minted and watched as the
-    /// signed-in user; its arrived machine previewed and approved by Add Server's own cloud source).
+    /// signed-in user; its arrived machine previewed and approved by Add Server's own cloud source),
+    /// Add Machine (``AppServices/addMachine``'s runs) and the menu bar item's own `cards` (Add Server).
     @MainActor
-    static func serverCards(services: AppServices) -> WebCardPanel? {
+    static func serverCards(services: AppServices, with cards: [any WebCard] = []) -> WebCardPanel? {
         let feed = services.feed
         let call: CloudPairingSource.Call = { [weak feed] path, body in
             guard let feed else { throw FeedServiceError.signedOut }
@@ -89,7 +91,8 @@ extension WebCardPanel {
             // A single-use code: marked concealed and transient (nspasteboard.org) so clipboard managers do not keep it.
             copy: { SystemPasswordPasteboard().write($0, markers: [ConcealedPasteboard.concealedType, ConcealedPasteboard.transientType]) },
             qr: { qrCode.pngDataURL(for: $0) })
-        guard let panel = WebCardPanel(descriptor: .serverCards, cards: [invite]) else { return nil }
+        guard let panel = WebCardPanel(descriptor: .serverCards, cards: [invite, services.addMachine.provider] + cards,
+                                       overlayProcess: services.overlayProcess) else { return nil }
         panel.isPersonEvent = { [person = PersonInputCheck(sources: services.personInput.sources)] in person.isPerson($0) }
         return panel
     }

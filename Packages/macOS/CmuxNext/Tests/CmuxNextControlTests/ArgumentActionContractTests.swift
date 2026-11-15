@@ -61,7 +61,7 @@ import Testing
     /// for a release, and arrives under the canonical name.
     @Test(arguments: ["publicKey", "public-key", "public_key"])
     func anySpellingOfAnArgumentNamesIt(_ given: String) throws {
-        let descriptor = try #require(ActionCatalog.all.first { $0.id.rawValue == "cloudTunnelRotateKey" })
+        let descriptor = try #require(ActionCatalog.all.first { $0.id.rawValue == "cloudPrepareSCP" })
         let request = try Self.validated(Self.info(descriptor), [given: .string("ssh-ed25519 AAAA")])
         #expect(request.arguments["publicKey"] != nil)
         #expect(request.arguments.count == 1)
@@ -82,7 +82,7 @@ import Testing
 
     /// Two spellings of one argument in one request are refused, never one silently winning.
     @Test func twoSpellingsOfOneArgumentAreRefused() throws {
-        let descriptor = try #require(ActionCatalog.all.first { $0.id.rawValue == "cloudTunnelRotateKey" })
+        let descriptor = try #require(ActionCatalog.all.first { $0.id.rawValue == "cloudPrepareSCP" })
         let args: [String: JSONValue] = ["publicKey": .string("ssh-ed25519 AAAA"), "public-key": .string("ssh-ed25519 BBBB")]
         #expect(throws: ControlError.self) { try Self.validated(Self.info(descriptor), args) }
     }

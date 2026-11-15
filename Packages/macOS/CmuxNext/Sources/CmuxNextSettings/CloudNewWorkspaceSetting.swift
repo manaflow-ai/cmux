@@ -17,6 +17,12 @@ public nonisolated struct CloudNewWorkspaceSetting: Sendable {
         root.value(at: Self.inCloudPath)?.boolValue ?? Self.inCloudDefault
     }
 
+    /// Whether a Cloud chat saves a whole-machine checkpoint between turns (`cloud.turnCheckpoints`);
+    /// a missing or non-boolean value is off.
+    public func turnCheckpoints(in root: JSONValue) -> Bool {
+        root.value(at: Self.turnCheckpointsPath)?.boolValue ?? Self.turnCheckpointsDefault
+    }
+
     /// What a new Cloud workspace starts with; a missing or unknown value inherits.
     public func folder(in root: JSONValue) -> CloudWorkspaceFolder {
         root.value(at: Self.folderPath)?.stringValue.flatMap(CloudWorkspaceFolder.init(rawValue:)) ?? Self.folderDefault

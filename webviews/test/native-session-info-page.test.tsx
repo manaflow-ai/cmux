@@ -20,6 +20,7 @@ import {
   SESSION_INFO_WIDTH,
 } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { resetSectionOrderForTests } from "../src/agent-session/acpmux/session-info/sectionOrder";
+import { settleReact } from "./support/domTeardown";
 
 const global = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
@@ -61,6 +62,7 @@ afterEach(async () => {
   resetSessionInfoState();
   resetSectionOrderForTests();
   frames.clear();
+  await settleReact();
   dom.window.close();
   for (const [key, value] of saved) {
     if (value === undefined) delete global[key];

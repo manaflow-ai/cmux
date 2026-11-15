@@ -270,21 +270,6 @@ pub(crate) fn live_home(connection: &Connection) -> anyhow::Result<Option<(Strin
         .optional()?)
 }
 
-/// The kind a workspace snapshot shows in `extra.kind` and, for an app
-/// workspace, its app (`extra.app`); `None` is normal.
-pub(crate) fn workspace_kind(
-    connection: &Connection,
-    workspace_id: &str,
-) -> anyhow::Result<Option<(String, Option<String>)>> {
-    Ok(connection
-        .query_row(
-            "SELECT kind, app_id FROM workspace_kind WHERE workspace_id = ?1",
-            [workspace_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
-        )
-        .optional()?)
-}
-
 /// A refused change to the home workspace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HomeRuleKind {

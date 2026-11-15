@@ -121,8 +121,11 @@ impl Hub {
                 hub.unclaim(&s, &claim);
             } else if hub.end_attempt(&s, id, wait) {
                 // Its own task: this one's result is not held up by the next attempt's wait.
-                let (hub, s, id, idle) = (hub.clone(), s.clone(), id.clone(), claim.idle);
-                tokio::spawn(async move { hub.after_manual(&s, &id, idle).await });
+                let (owner, s, id, idle) = (hub.clone(), s.clone(), id.clone(), claim.idle);
+                let hub = hub.clone();
+                owner.scope.spawn_until_cancelled("subagent-after-manual", async move {
+                    hub.after_manual(&s, &id, idle).await;
+                });
             }
             result
         });
@@ -190,7 +193,9 @@ impl Hub {
                 // No attempt comes: its entry says this one is no longer in flight.
                 self.log_entry(&session, &id, &claim.failure, "failed", Value::Null, true);
             } else {
-                tokio::spawn(async move { hub.schedule_subagent_retry(&session, &id).await });
+                self.scope.spawn_until_cancelled("subagent-retry-schedule", async move {
+                    hub.schedule_subagent_retry(&session, &id).await;
+                });
             }
             return;
         };
@@ -201,7 +206,9 @@ impl Hub {
         let step = Step { outcome: "scheduled", state: "failed", retry, retryable: true, extra };
         self.log_step(&session, &id, &failure, step);
         let delay = wait.next_at.saturating_sub(crate::store::now_ms());
-        tokio::spawn(async move { hub.run_subagent_retry(&session, &id, wait, delay).await });
+        self.scope.spawn_until_cancelled("subagent-retry", async move {
+            hub.run_subagent_retry(&session, &id, wait, delay).await;
+        });
     }
 
     /// Claims an attempt at the chat's failed subagent `subagent` (by id or agent id): its waiting

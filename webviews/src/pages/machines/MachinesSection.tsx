@@ -7,6 +7,7 @@
 import { memo, useRef, useSyncExternalStore, type MouseEvent } from "react";
 import { Icon } from "../../agent-session/acpmux/icons/Icon";
 import { Spinner } from "../../agent-session/acpmux/conversation/icons";
+import { TeamTag } from "../../agent-session/acpmux/TeamTag";
 import { Dialog } from "../../ui/Dialog";
 import { DialogButton } from "../../ui/DialogButton";
 import type { Strings } from "../shared/i18n";
@@ -35,6 +36,7 @@ export function MachinesSection({ store, strings }: { store: MachinesStore; stri
               return (
                 <li key={item.key} className="machines-header" data-first={item.first ? "" : undefined}>
                   {item.title}
+                  {item.team && <TeamTag team={item.team} />}
                 </li>
               );
             case "add":

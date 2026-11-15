@@ -2,7 +2,7 @@
 import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextDaemonService
-@testable import CmuxNextFeed
+import CmuxNextFeedClient
 import Foundation
 import Testing
 
@@ -124,19 +124,20 @@ import Testing
         #expect(backend.sessionCalls == 0, "a hold the feed showed answered was looked up or answered again")
     }
 
-    @Test func theFeedKeepsTheCloudHoldOfItsOwnTeamsItemOnly() {
-        func hold(scope: String, team: String, poster: String = "integration", home: String = "cloud") -> String? {
-            FeedWireDecode.item([
+    @Test func theFeedKeepsTheCloudHoldOfItsOwnTeamsItemOnly() throws {
+        func hold(scope: String, team: String, poster: String = "integration", home: String = "cloud") throws -> String? {
+            let wire: [String: Any] = [
                 "id": "fi_1", "title": "Approve a Cloud change from your device", "created_at": 1, "kind": "approve", "state": "answered", "home": home,
                 "poster": ["kind": poster, "scope": scope],
                 "prompt": ["action": ["type": "tool", "tool": "cloud.machine.create",
                                       "input": ["approval": ["team": team, "request": "apr_1", "digest": "dg_1"]]]],
-            ])?.cloudHold?.request
+            ]
+            return try JSONDecoder().decode(FeedDaemonItem.self, from: JSONSerialization.data(withJSONObject: wire)).cloudHold?.request
         }
-        #expect(hold(scope: "system:cloud:team_a", team: "team_a") == "apr_1")
-        #expect(hold(scope: "system:cloud:team_b", team: "team_a") == nil, "another team's owner posted it")
-        #expect(hold(scope: "system:connections:team_a", team: "team_a") == nil, "an integrations hold, not a Cloud one")
-        #expect(hold(scope: "system:cloud:team_a", team: "team_a", poster: "agent") == nil)
-        #expect(hold(scope: "system:cloud:team_a", team: "team_a", home: "local:ins_1") == nil, "a local owner's item")
+        #expect(try hold(scope: "system:cloud:team_a", team: "team_a") == "apr_1")
+        #expect(try hold(scope: "system:cloud:team_b", team: "team_a") == nil, "another team's owner posted it")
+        #expect(try hold(scope: "system:connections:team_a", team: "team_a") == nil, "an integrations hold, not a Cloud one")
+        #expect(try hold(scope: "system:cloud:team_a", team: "team_a", poster: "agent") == nil)
+        #expect(try hold(scope: "system:cloud:team_a", team: "team_a", home: "local:ins_1") == nil, "a local owner's item")
     }
 }

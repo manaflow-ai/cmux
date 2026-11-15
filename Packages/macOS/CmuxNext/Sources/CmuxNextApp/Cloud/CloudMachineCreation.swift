@@ -421,7 +421,7 @@ struct CloudCreationFlow {
 
     private static func mirrored(_ id: String, on session: CloudMachineSession) async -> Bool {
         let store = session.daemon.store
-        for await known in ObservationStream({ store.workspaces.contains { $0.id == id } }) where known { return true }
+        for await known in ObservationStream({ store.workspace(id: id) != nil }) where known { return true } // O(1), the index
         return false
     }
 }

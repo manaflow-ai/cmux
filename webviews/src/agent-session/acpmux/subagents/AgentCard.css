@@ -24,6 +24,11 @@
   min-width: 0;
   height: 24px;
 }
+/* The name chip that opens the chat takes the room the name needs, not AgentTag.css's 40%. */
+.cv-agent-card__head > .cv-agent-tag {
+  flex: 0 1 auto;
+  max-width: none;
+}
 /* An agent session's own avatar (agentAvatar.ts), in place of its harness mark: also the sender chip's. */
 .cv-agent-avatar {
   display: block;
@@ -62,25 +67,6 @@
 }
 .cv-agent-card__state[data-state="failed"] {
   color: var(--agent-status-failure);
-}
-/* A card that opens its chat: its line is the button (AgentCard.tsx). */
-.cv-agent-card__head.is-open-chat {
-  all: unset;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  gap: var(--ds-space-2);
-  min-width: 0;
-  max-width: 100%;
-  height: 24px;
-  margin-inline: -4px;
-  padding-inline: var(--ds-space-1);
-  border-radius: var(--ds-radius-control);
-  cursor: default;
-}
-.cv-agent-card__head.is-open-chat:hover,
-.cv-agent-card__head.is-open-chat:focus-visible {
-  background: color-mix(in srgb, var(--cv-text) 6%, transparent);
 }
 .cv-agent-card__doing {
   margin: 0;

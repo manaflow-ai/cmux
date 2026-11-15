@@ -26,6 +26,10 @@ fn read<'a, T: Deserialize<'a>>(request: &'a [u8]) -> Result<T, i32> {
 
 pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
     let answer = match operation {
+        b"cloud_auth_capture_next" => {
+            let request: cmux_cloud_config::capture_auth::Request = read(request)?;
+            json!(cmux_cloud_config::capture_auth::next(&request))
+        }
         // The build's Cloud from the runtime selection, with its token store's names.
         b"cloud_config_from_selection" => {
             let inputs: config::Inputs = read(request)?;
@@ -134,6 +138,27 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 Err(refusal) => json!({ "refusal": refusal }),
             }
         }
+        // The backend ids of an account and its active team (`identity::worker_user_id`,
+        // `personal_team_id`, `team_header`): `{workerUser, personalTeam, teamHeader}`, each null
+        // when its input (`stackUser`, `team`) is absent. The app hashes no id itself.
+        b"cloud_identity_team_ids" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                project: String,
+                #[serde(default)]
+                stack_user: Option<String>,
+                #[serde(default)]
+                team: Option<String>,
+            }
+            let request: Request = read(request)?;
+            let user = request.stack_user.as_deref();
+            json!({
+                "workerUser": user.map(|user| identity::worker_user_id(&request.project, user)),
+                "personalTeam": user.map(|user| identity::personal_team_id(&request.project, user)),
+                "teamHeader": request.team.as_deref().map(|team| identity::team_header(&request.project, team)),
+            })
+        }
         // `{user, expiresAt, team}`, each null when absent: `team` is the backend team an
         // install token names, the one `cmux auth token` mints for with no asked or active team.
         b"cloud_identity_token" => {
@@ -158,6 +183,23 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 "isTeam": request.team.as_deref().map(identity::is_team),
                 "transient": request.refusal_code.as_deref().map(identity::is_transient),
             })
+        }
+        // The device hub identity's items (`device_identity_slots`): `{accounts, current}` from
+        // the accounts the Keychain listed, and `replacement`, the generation a new identity goes
+        // in from the statuses of the deletes a renewal made (none made: generation 1).
+        b"cloud_identity_device_slots" => {
+            use cmux_cloud_config::device_identity_slots as slots;
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                accounts: Vec<String>,
+                #[serde(default)]
+                deletes: Vec<slots::Delete>,
+            }
+            let request: Request = read(request)?;
+            let mut answer = json!(slots::slots(&request.accounts));
+            answer["replacement"] = json!(slots::replacement(&request.deletes));
+            answer
         }
         b"cloud_identity_install_key" => {
             #[derive(Deserialize)]
@@ -245,6 +287,25 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 .filter(|id| request.managed.as_ref().is_none_or(|managed| managed == *id))
                 .collect();
             json!({ "active": active, "refusal": refusal, "allowed": allowed })
+        }
+        // The account's teams as every team list shows them: whose each is, its plan, the active one.
+        b"cloud_auth_team_rows" => {
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                teams: Vec<auth::TeamFacts>,
+                active: Option<String>,
+                /// The signed-in account's email: its sign-in service default team shows as Personal.
+                #[serde(default, rename = "ownEmail")]
+                own_email: Option<String>,
+            }
+            let request: Request = read(request)?;
+            let rows = auth::team_rows(
+                &request.teams,
+                request.active.as_deref(),
+                request.own_email.as_deref(),
+            );
+            json!({ "rows": rows })
         }
         b"cloud_vm_agent_key_request" => {
             #[derive(Deserialize)]

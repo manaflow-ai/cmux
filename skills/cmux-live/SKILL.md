@@ -1,6 +1,6 @@
 ---
 name: cmux-live
-description: "Edit cmux's own web UI and daemon while it runs, and try a change or pull request in the running app before asking for a dev build: point the running cmux at a checkout's webviews dev server so every saved edit shows at once in every open page and chat, with no build and no relaunch. Use when changing or trying anything under webviews/ (agent chat pane, pages such as Settings, Home and the new tab page, the Markdown viewer), when the user wants to see a UI change live in their own app, or asks for hot reload, live reload, 'edit cmux live', 'cmux live', the dev server or web-dev.json, or wants a saved Rust edit to the cmux-tui daemon or acpmux live in the running daemon (`cmux live start --rust`), or is about to request a dev build to try a change (try-pr.sh, hot-apply.py)."
+description: "Try a change to cmux's web UI or daemon live in the running app, with no build or relaunch: point cmux at a checkout's webviews dev server, or `cmux live start --rust` for cmux-tui and acpmux. Use when changing webviews/ (agent chat pane, Settings, Home, new tab, Markdown viewer), when asked for hot or live reload, or before asking for a dev build to try a change or pull request."
 ---
 
 # cmux live
@@ -32,7 +32,7 @@ state; React components hot reload in place.
 ```bash
 cmux live start                      # the checkout around the current folder
 cmux live start --worktree ~/src/wt  # another checkout (a worktree for one change)
-cmux live status                     # what cmux loads its web UI from
+cmux live status                     # what cmux loads its web UI from, and why
 cmux live stop                       # back to the web UI cmux shipped with
 ```
 
@@ -79,12 +79,17 @@ Swift outside function bodies still needs a build; edits inside them take a live
 
 ## When it does not change
 
-- `cmux live status` shows `web-dev.json` and the Live Web Reload setting. The switch is
-  `updates.liveWebReload` (on by default); `cmux settings set updates.liveWebReload true` turns it
+- `cmux live status` starts with what the app loads its web UI from and why (the cmux Live
+  setting, `web-dev.json`, whether its server answers with its token, when it stopped on its own),
+  then the details. The switch is Settings > General > cmux Live, `updates.liveWebReload` (on by default); `cmux settings set updates.liveWebReload true` turns it
   back on.
 - The dev server's log is in the status output's state folder (`dev-server.log`).
 - cmux loads only a dev server that proves it holds the token `start` wrote; one started some
   other way is ignored. Start it with `cmux live start`, not `bun run dev` by hand.
+- A page that goes blank or shows another page: the server's checkout predates the 404 for files
+  it lacks, or lacks that page. Pull, `cmux live start` again, and serve a tree near the app's commit.
+- `cmux live` and Live Web Reload are one feature: the command starts it, the setting lets the app
+  load it. Swift, Rust and Chromium are `--swift`, `--rust` and `--chromium` of the same command.
 
 The full guide, including remote slots and following a pull request's head, is
 `docs/cmux-next/hot-reload.md`.

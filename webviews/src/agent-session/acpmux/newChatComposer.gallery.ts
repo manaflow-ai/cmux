@@ -12,7 +12,6 @@
 import { agentPaneEntry } from "../../gallery/format";
 import { assistant, chat, CWD, manySessions, noChat, user } from "../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../gallery/play";
-import { setComposerLook } from "./composerLook";
 import type { AcpmuxSnapshot } from "./model";
 
 const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481";
@@ -40,11 +39,6 @@ function fresh(fields: Partial<NonNullable<AcpmuxSnapshot["summary"]>> = {}, ext
 /// workspace (`workspaceContext`), in its private folder, whose host offers Choose Folder…
 /// (`workspace.chooseFolder`).
 const PRIVATE = { newSession: true, cwd: AGENT_HOME, chooseFolder: true, workspaceContext: true };
-
-const codexLook = async (ctx: PlayContext) => {
-  setComposerLook("codex", { remember: false });
-  await ctx.waitFor(() => ctx.document.querySelector('[data-composer-look="codex"]'));
-};
 
 const openFolderMenu = async (ctx: PlayContext) => {
   await ctx.click({ selector: '.acpmux-composer-strip [aria-label="Folder"]' });
@@ -74,15 +68,16 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/FolderPopover.tsx#FolderPopover"],
   variants: {
     claude: {
+      composerLook: "claude",
       note: "Cmd-I's new chat in the workspace's private folder, Claude's look: the chat's own card, the folder and computer chips over it, no sentence above.",
       ready: PRIVATE,
       snapshot: fresh(),
     },
     codex: {
+      composerLook: "codex",
       note: "The same new chat on Codex, in Codex's look: the folder and computer tray tucked under the same card.",
       ready: PRIVATE,
       snapshot: fresh({ harness: "codex", model: "gpt-6-astra" }),
-      play: codexLook,
     },
     project: {
       note: "A new chat in a project on this Mac: the folder chip names it, the branch at the strip's end.",
@@ -131,7 +126,7 @@ export default agentPaneEntry({
         const data = new view.DataTransfer();
         data.setData(
           "text/plain",
-          Array.from({ length: 130 }, (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`).join(
+          Array.from({ length: 600 }, (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`).join(
             "\n",
           ),
         );
@@ -147,13 +142,14 @@ export default agentPaneEntry({
       },
     },
     started: {
+      composerLook: "claude",
       note: "The same composer after a chat's first send, to set beside the new chat: the same card.",
       snapshot: startedChat(),
     },
     "started-codex": {
+      composerLook: "codex",
       note: "A started Codex chat in Codex's look, to set beside `codex`: the same card.",
       snapshot: startedChat("codex"),
-      play: codexLook,
     },
     "alt-bump": {
       note: "Alternative (Debug: Composer top strip style Bump): the chips in a closed rim of their own over the card.",

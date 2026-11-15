@@ -44,9 +44,9 @@ final class RemoteStateCard: NSView {
     }
 
     func configure(overlay: RemotePaneOverlay, host: String, viaCloudTunnel: Bool = false, reconnecting: Bool = false,
-                   colors: RemotePaneColors) {
+                   reason: String? = nil, colors: RemotePaneColors) {
         for view in content { column.removeArrangedSubview(view); view.removeFromSuperview() }
-        let spec = Self.spec(for: overlay, host: host, viaCloudTunnel: viaCloudTunnel, reconnecting: reconnecting)
+        let spec = Self.spec(for: overlay, host: host, viaCloudTunnel: viaCloudTunnel, reconnecting: reconnecting, reason: reason)
         let icon: NSView = spec.spinner ? Self.spinner() : {
             let image = RemoteChrome.symbol(spec.symbol, size: 24)
             image.contentTintColor = spec.symbolIsAttention ? colors.attention : colors.textSecondary
@@ -112,10 +112,13 @@ final class RemoteStateCard: NSView {
     /// (the development note) does not describe.
     /// `reconnecting`: an earlier session showed frames, so this connect is a reconnect (the last
     /// frame stays behind the card).
-    static func spec(for overlay: RemotePaneOverlay, host: String, viaCloudTunnel: Bool = false, reconnecting: Bool = false) -> Spec {
+    /// `reason`: what the Cloud connect waits on and how long is left, in the dial's words
+    /// (``RemoteViewStatus/connectingReason``); the card's detail while it has one.
+    static func spec(for overlay: RemotePaneOverlay, host: String, viaCloudTunnel: Bool = false, reconnecting: Bool = false,
+                     reason: String? = nil) -> Spec {
         if viaCloudTunnel, overlay == .connecting {
             return Spec(spinner: true, title: reconnecting ? RemoteViewStrings.reconnectingTitle(host) : RemoteViewStrings.connectingTitle(host),
-                        detail: RemoteViewStrings.connectingCloudDetail, buttons: [.cancel])
+                        detail: reason ?? RemoteViewStrings.connectingCloudDetail, buttons: [.cancel])
         }
         switch overlay {
         case .connecting:

@@ -228,13 +228,16 @@ impl Supervisor {
             Self::admit_server_op(inner, app, op, origin)?;
             return Ok(Target::Server);
         };
+        if inner.safe_mode.is_some() {
+            return Err(ApiError::new("apps.safe_mode", super::safe_mode::OFF));
+        }
         if self.config.host_binary.is_none() {
             return Err(ApiError::new("apps.unavailable", "this daemon has no app host"));
         }
         Ok(Target::Host(HostKey { app: app.to_string(), preview: false }, export))
     }
 
-    fn start_run_locked(
+    pub(super) fn start_run_locked(
         &self,
         inner: &mut Inner,
         key: &HostKey,

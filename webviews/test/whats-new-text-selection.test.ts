@@ -44,7 +44,7 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
      (window as any).calls = calls;
      // As surface.tsx's mountUpdateSurface mounts them (#28004): the PR chips' host routed (no
      // host here) and the card inside the page's UiProvider.
-     (window as any).mount = (kind: "ready" | "updated", data: unknown) => {
+     (window as any).mount = (kind: "ready" | "updated", data: unknown, props: Record<string, unknown> = {}) => {
        routeChipHost(null);
        document.documentElement.dataset.surface = kind;
        const actions = kind === "updated"
@@ -53,7 +53,7 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
        const strings = createStrings(table);
        const container = document.getElementById("root")!;
        const root = createRoot(container);
-       const card = createElement(kind === "ready" ? UpdateReadyHighlights : UpdatedCard, { data, strings, actions } as any);
+       const card = createElement(kind === "ready" ? UpdateReadyHighlights : UpdatedCard, { data, strings, actions, ...props } as any);
        flushSync(() => root.render(createElement(UiProvider, { container, dir: languageDirection(strings.language), overlayPosition: "fixed" }, card)));
      };`,
   );
@@ -111,7 +111,12 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
       });
       afterAll(async () => browser?.close());
 
-      async function open(kind: "ready" | "updated", width?: number, highlights: typeof data = data): Promise<Page> {
+      async function open(
+        kind: "ready" | "updated",
+        width?: number,
+        highlights: typeof data = data,
+        props: Record<string, unknown> = {},
+      ): Promise<Page> {
         const page = await browser.newPage({ viewport: { width: 420, height: 400 } });
         await page.setContent(
           `<!doctype html><html style="--page-text:#ddd;--page-text-2:#aaa;--page-text-3:#888"><head><style>${css}</style></head><body><div id="root"${width ? ` style="width:${width}px"` : ""}></div></body></html>`,
@@ -121,7 +126,7 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
         page.on("pageerror", (error) => errors.push(error.stack ?? String(error)));
         await page.addScriptTag({ content: script });
         if (errors.length > 0) throw new Error(`the bundle threw as it loaded: ${errors.join("; ")}`);
-        await page.evaluate(([k, d]) => (window as any).mount(k, d), [kind, highlights] as const);
+        await page.evaluate(([k, d, p]) => (window as any).mount(k, d, p), [kind, highlights, props] as const);
         return page;
       }
 
@@ -160,7 +165,9 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
       });
 
       test("the Updated card's buttons still work on a click", async () => {
-        const page = await open("updated");
+        // The card's own What's New link shows only in the top-right placement: since 8d5626228bc3 the
+        // shipped title line is the title alone and What's New leads the open preview.
+        const page = await open("updated", undefined, data, { placement: "top-right" });
         await page.locator(".wn-card-link").click();
         await page.locator(".wn-card").hover();
         await page.locator(".wn-card-close").click();

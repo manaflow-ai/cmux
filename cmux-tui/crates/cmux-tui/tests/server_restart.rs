@@ -25,8 +25,12 @@ struct Fixture {
 
 impl Fixture {
     fn new(session: &str) -> Self {
+        // Tests run in parallel threads of one process and can read the same
+        // clock value: the counter keeps each fixture's directory its own.
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let dir = PathBuf::from("/tmp").join(format!("cmux-rs-{}-{stamp}", std::process::id()));
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = PathBuf::from("/tmp").join(format!("cmux-rs-{}-{stamp}-{n}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
         fs::create_dir(dir.join("home")).unwrap();

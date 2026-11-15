@@ -16,6 +16,13 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/defaults_guard.py"
@@ -424,6 +431,16 @@ struct Flags: TunableFactory {
         self.assertEqual(result.returncode, 1)
         self.assertIn("DEFAULTS steps-aside.yieldsToTerminal: + splitRight", result.stdout)
 
+    def test_a_default_that_steps_aside_in_the_rust_catalog_fails(self):
+        rust = "pub static YIELDS_TO_TERMINAL: &[&str] = &[\n    \"focusHistoryBack\",\n];\n"
+        self.repo.write("cmux-tui/crates/cmux-action-catalog/src/bindings.rs", rust)
+        self.base = self.repo.commit("steps aside in Rust")
+        head = self.head(extra={"cmux-tui/crates/cmux-action-catalog/src/bindings.rs":
+                                rust.replace("];", '    "splitRight",\n];')})
+        result = self.check(head)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("DEFAULTS steps-aside.yieldsToTerminal: + splitRight", result.stdout)
+
     def test_a_newline_in_a_default_cannot_start_a_workflow_command(self):
         settings = [*BASE_SETTINGS, {"key": "x\n::error::forged @someone", "default": True}]
         result = self.check(self.head(settings=settings))
@@ -600,58 +617,48 @@ struct Flags: TunableFactory {
             self.receipt(f"Review (subagent): SHIP at {head}", at="2026-10-21T11:00:00Z")])
         self.assertEqual(later.returncode, 0, later.stdout)
 
-    def test_a_self_review_an_outsider_or_a_bot_does_not_pass(self):
+    def test_an_outsider_or_a_bot_does_not_pass_but_a_self_review_does(self):
         head = self.changed_head()
-        for receipt in (self.receipt(f"Review (self): SHIP at {head}"),
-                        self.receipt(f"Review (subagent): SHIP at {head}", association="CONTRIBUTOR",
+        # Leo, 2026-11-14, on "need a review from a model family other than": "this is no longer a requirement".
+        self.assertEqual(self.check(head, comments=[self.receipt(f"Review (self): SHIP at {head}")]).returncode, 0)
+        for receipt in (self.receipt(f"Review (subagent): SHIP at {head}", association="CONTRIBUTOR",
                                      login="outsider"),
                         self.receipt(f"Review (subagent): SHIP at {head}", kind="Bot")):
             self.assertEqual(self.check(head, comments=[receipt]).returncode, 1, receipt)
 
-    # cmux-ad m25 item 7: a SHIP from the author's own account names its reviewer agent and who started it, neither
-    # of them the description's `Author-agent:` (risk_tier.py). #36311: the author agent's own subagent posted
-    # `Review (claude-review-subagent): SHIP at ...` from the author's account and the guard read it as independent.
+    # A SHIP from the author's own account counts from any reviewer, the pull request's own agent included (Leo,
+    # 2026-11-14: "this is no longer a requirement"). Before, cmux-ad m25 item 7 (#36311) refused one unless it named
+    # a reviewer agent and its starter, neither the description's `Author-agent:`. A BLOCK still holds.
 
     def same_account(self, head, text, body="Author-agent: claude-author", extra=()):
         return self.check(head, body=body, comments=[self.receipt(text, login=AUTHOR), *extra])
 
-    def test_the_author_agent_as_its_own_reviewer_is_refused(self):
+    def test_a_ship_from_the_pull_requests_own_agent_counts(self):
         head = self.changed_head()
         for text in (f"Review (claude-author, started by lead): SHIP at {head}",
-                     f"Review (claude-review-subagent): SHIP at {head}"):
-            result = self.same_account(head, text)
-            self.assertEqual(result.returncode, 1, text)
-            self.assertIn("Needs a review", result.summary)
-
-    def test_a_reviewer_the_author_agent_started_is_refused(self):
-        head = self.changed_head()
-        result = self.same_account(head, f"Review (claude-review-subagent, started by claude-author): SHIP at {head}")
-        self.assertEqual(result.returncode, 1, result.stdout)
-
-    def test_an_independent_agent_the_lead_started_counts(self):
-        head = self.changed_head()
+                     f"Review (claude-review-subagent): SHIP at {head}",
+                     f"Review (claude-review-subagent, started by claude-author): SHIP at {head}",
+                     f"Review (codex-reviewer-7, started by claude-author): SHIP at {head}"):
+            for body in ("Author-agent: claude-author", "no agent"):
+                result = self.same_account(head, text, body=body)
+                self.assertEqual(result.returncode, 0, (text, body, result.stdout))
         result = self.same_account(head, f"Review (codex-reviewer-7, started by lead): SHIP at {head}")
-        self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn("Signed off on this commit by `review (codex-reviewer-7, started by lead)`", result.summary)
-        refused = self.same_account(head, f"Review (codex-reviewer-7, started by claude-author): SHIP at {head}")
-        self.assertEqual(refused.returncode, 1, refused.stdout)
 
-    def test_a_same_account_ship_without_an_author_agent_line_is_refused_and_a_block_still_holds(self):
+    def test_a_block_still_holds(self):
         head = self.changed_head()
-        result = self.same_account(head, f"Review (codex-reviewer-7, started by lead): SHIP at {head}", body="no agent")
-        self.assertEqual(result.returncode, 1, result.stdout)
         ship = self.receipt(f"Review (codex): SHIP at {head}", at="2026-10-21T09:00:00Z")
         blocked = self.same_account(head, f"Review (claude-review-subagent): BLOCK at {head}", body="no agent",
                                     extra=[ship])
         self.assertEqual(blocked.returncode, 1, blocked.stdout)
         self.assertIn("BLOCK from `review (claude-review-subagent)`", blocked.summary)
 
-    def test_a_receipt_from_another_account_keeps_the_old_rule(self):
+    def test_a_receipt_counts_from_another_account_and_the_authors_own(self):
         head = self.changed_head()
         line = f"Review (claude-review-subagent): SHIP at {head}"
         other = self.check(head, body="Author-agent: claude-author", comments=[self.receipt(line)])
         self.assertEqual(other.returncode, 0, other.stdout)
-        self.assertEqual(self.same_account(head, line).returncode, 1)
+        self.assertEqual(self.same_account(head, line).returncode, 0)
 
     # A SHIP carried across base merges (2026-11-02: #30961, #31798, #27745 waited on a SHIP one base merge back).
 
@@ -728,6 +735,43 @@ struct Flags: TunableFactory {
         result = self.check(head, comments=[receipt])
         self.assertEqual(result.returncode, 0, result.stdout)
 
+    def test_needs_a_review_ends_with_the_one_review_request_command(self):
+        # #38430: a head with no counted receipt named no way to get one the lane could run. The plain form now ends
+        # with that command.
+        head = self.changed_head()
+        result = self.check(head, body="Author-agent: claude-author")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("Needs a review", result.summary)
+        self.assertEqual(result.summary.strip().splitlines()[-1], "next: router-review OWNER/REPO N --request")
+        self.assertIn("next: router-review OWNER/REPO N --request", result.stdout)
+        # The service's receipt, which cmux-bot posts, passes the same head and prints no next line.
+        service = self.receipt(f"Review (codex gpt-6.1-sol xhigh, next-review): SHIP at {head}",
+                               kind="Bot", login="cmux-bot[bot]", node_id="BOT_kgDOFMYsLQ")
+        passed = self.check(head, body="Author-agent: claude-author", comments=[service])
+        self.assertEqual(passed.returncode, 0, passed.stdout)
+        self.assertNotIn("next:", passed.summary)
+
+    def test_a_cmux_bot_approval_body_never_counts_but_its_plain_review_does(self):
+        head = self.changed_head()
+        line = f"Review (codex gpt-6.1-sol xhigh, next-review): SHIP at {head}"
+        for state, code in (("APPROVED", 1), ("COMMENTED", 0)):
+            pull = {"author": {"login": AUTHOR}, "body": "Author-agent: claude-author", "headRefOid": head,
+                    "merged": False, "comments": {"nodes": []},
+                    "reviews": {"nodes": [{"author": {"login": "cmux-bot", "__typename": "Bot", "id": "BOT_kgDOFMYsLQ"},
+                                           "authorAssociation": "NONE", "state": state,
+                                           "submittedAt": "2026-10-21T10:00:00Z", "body": line,
+                                           "commit": {"oid": head}}]}}
+            path = self.repo.root.parent / f"{self.repo.root.name}-bot-review-{state}.json"
+            path.write_text(json.dumps(pull), encoding="utf-8")
+            result = self.repo.guard("check", "--base", self.base, "--head", head, "--pull-json", str(path))
+            self.assertEqual(result.returncode, code, (state, result.stdout))
+
+    def test_a_block_says_push_a_fix_before_a_new_request(self):
+        head = self.changed_head()
+        result = self.check(head, comments=[self.receipt(f"Review (subagent): BLOCK at {head}")])
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertTrue(result.summary.strip().splitlines()[-1].startswith("next: none (address the BLOCK and push"))
+
     def test_the_cmux_bot_receipt_at_an_old_head_fails(self):
         head = self.changed_head()
         receipt = self.receipt(f"Review (codex gpt-6-astra high, next-review): SHIP at {self.base}",
@@ -792,7 +836,7 @@ struct Flags: TunableFactory {
         path.write_text(json.dumps(pull), encoding="utf-8")
         result = self.repo.guard("check", "--base", self.base, "--head", head, "--pull-json", str(path),
                                  "--repo", "manaflow-ai/cmux",
-                                 env={"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"})
+                                 env=git_fixture_env.fixture_env({"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}))
         result.calls = calls.read_text(encoding="utf-8").splitlines() if calls.exists() else []
         return result
 

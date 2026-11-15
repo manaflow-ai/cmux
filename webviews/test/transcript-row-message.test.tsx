@@ -7,6 +7,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -27,12 +28,9 @@ beforeAll(() => {
   host = window.document.querySelector<HTMLElement>("#root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const send = (status: string, output?: string, command = 'tell-coordinator "cg-next-reds BLOCKED on #20276"') => ({
@@ -112,8 +110,8 @@ test("opening it grows the message in place: the card holds the text and nothing
   expect(host.querySelector(".cv-agentmsg__preview")?.textContent).toBe("");
   const row = host.querySelector(".cv-message")!;
   // Nothing but the line and the card: no receipt line, no output block, no Show more.
-  expect([...row.children].map((child) => child.className)).toEqual([
-    "cv-tool cv-agentmsg__line is-strong",
+  expect(row.firstElementChild?.className).toBe("cv-tool cv-agentmsg__line is-strong");
+  expect([...row.querySelector(".cv-agentmsg__open")!.children].map((child) => child.className)).toEqual([
     "cv-agentmsg__card selectable",
   ]);
   expect(row.querySelector(".cv-tool-output")).toBeNull();

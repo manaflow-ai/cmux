@@ -1,0 +1,22 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "My views",
+  "version": "1.0.0",
+  "description": "Your Figma files and other design links in the sidebar; a click opens one in a cmux browser tab beside your terminals.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderLinks",
+      "title": "Designs",
+      "symbol": "paintbrush",
+      "options": { "defaultRegion": "bottom", "maxRows": 10 }
+    }
+  },
+  "scopes": {
+    "storage:local": "Keep your links.",
+    "actions:run": "Open a link in a browser tab when you click it."
+  }
+}

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextOnboarding
 
@@ -8,21 +9,22 @@ struct ClassicImportConfirmation {
     static let importButton = "import"
     static let identifier = "cmux.dialog.classicImport"
 
-    let plan: ClassicImportPlan
+    let preview: ClassicImportPreview
     let services: AppServices
 
-    func ask() async -> Bool {
+    func ask() async -> ClassicImportAnswer {
         let window = services.windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             ?? NSApp.windows.first(where: \.isVisible)
-        guard let window else { return false }
-        let answer = await CmuxDialogCenter.shared.present(spec(), in: .window(window))
-        return answer.button == Self.importButton
+        // No window yet (the launch's is still coming up): the dialog shows on its own rather than not at all.
+        let answer = await CmuxDialogCenter.shared.present(spec(), in: window.map(CmuxDialogScope.window) ?? .app)
+        if answer.button == Self.importButton { return .accepted }
+        return answer.isDismissal ? .unanswered : .declined
     }
 
     func spec() -> CmuxDialogSpec {
         return CmuxDialogSpec(
             title: ClassicImportStrings.previewTitle,
-            lines: ClassicImportStrings.previewLines(plan),
+            lines: ClassicImportStrings.previewLines(preview),
             buttons: [
                 .cancel(ConfirmationStrings.cancel),
                 CmuxDialogButton(id: Self.importButton, title: ClassicImportStrings.previewButton, role: .default),

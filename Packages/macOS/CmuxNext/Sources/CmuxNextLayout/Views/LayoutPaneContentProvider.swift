@@ -74,6 +74,8 @@ final class LayoutViewContext {
     }
     /// The first split or close started (true) or the last one landed (false): `LayoutRootView.onTerminalGridHold`.
     var gridHoldDidChange: (Bool) -> Void = { _ in }
+    /// The right-click menu of a split's divider (``LayoutRootView/dividerMenu``).
+    var dividerMenu: ((SplitID) -> NSMenu?)?
     /// The strip scrollbar's fade-out deadline clock.
     let scrollbarClock: any Clock<Duration>
     /// Where the pointer is now, in `window`'s coordinates; nil when it cannot
@@ -90,11 +92,45 @@ final class LayoutViewContext {
     var hoverPassThroughWindows: () -> Set<Int> = { [] }
     /// The last topmost answer and what it was asked for (`hoverReaches`).
     private var topmost: (window: Int, pointer: NSPoint, passThrough: Set<Int>, reaches: Bool)?
+    /// The answer held for a live resize of a window (`hoverReaches`): the window, the tracker's count at the ask
+    /// (`Motion.liveResizeChanges`: the hold ends when it changes), the answer, and whether the ask came after
+    /// ``invalidateHoverTopmost()`` in that resize (the windows of the step were in their places).
+    private var heldInResize: (window: Int, changes: Int, reaches: Bool, settled: Bool)?
+    /// The count of the resize whose next ask is the settled one (`invalidateHoverTopmost()` ended an answer of it).
+    private var settlesAt: Int?
 
     /// ``hoverReachesWindow``, asked again only when the pointer (in window coordinates), the window or the
     /// pass-through panels changed, or after ``invalidateHoverTopmost()``: a presentation pass under a still pointer
     /// (a pan, a spring) asks the window server nothing.
-    func hoverReaches(_ window: NSWindow, pointer: NSPoint) -> Bool {
+    ///
+    /// In a live resize of `window` (or of its parent) one answer holds until the resize ends: the person holds the
+    /// mouse button on the window's own edge and AppKit's resize loop has the pointer. Each step moves the handles
+    /// and the catcher panels under the pointer, and each of those asked again: a window server round trip two or
+    /// three times in every step of the drag (WINDOW RESIZE 2). The held answer can differ from the window server's
+    /// until the resize ends (a window of another app that the edge moves under, a dialog that opens): the first ask
+    /// after the end goes to the window server again.
+    ///
+    /// Which answer holds: the first ask of a drag comes from the layout pass of its first step, before the page
+    /// windows and the catcher panels of that step are in their places, so it can meet a window that is on top
+    /// there only until the step ends. The first ``invalidateHoverTopmost()`` of the resize (the catcher sync of that
+    /// step) ends that answer, and the ask that follows is the one that holds. So a drag asks two times at most.
+    ///
+    /// The hold ends by the tracker's count (`Motion.liveResizeChanges`), not by a view callback: a full screen
+    /// transition counts as a live resize (`Motion.isLiveResizing`) and ends with no `viewDidEndLiveResize`, and a
+    /// second resize can start with no ask after the first (no handle under the pointer then).
+    func hoverReaches(_ window: NSWindow, pointer: NSPoint) -> Bool { // perf-hot: 1ms window-resize-step
+        guard !Motion.isLiveResizing(window) else {
+            let changes = Motion.liveResizeChanges
+            if let heldInResize, heldInResize.window == window.windowNumber, heldInResize.changes == changes {
+                return heldInResize.reaches
+            }
+            let reaches = hoverReachesWindow(window)
+            heldInResize = (window.windowNumber, changes, reaches, settlesAt == changes)
+            settlesAt = nil
+            return reaches
+        }
+        settlesAt = nil
+        heldInResize = nil
         let passThrough = hoverPassThroughWindows()
         if let topmost, topmost.window == window.windowNumber, topmost.pointer == pointer, topmost.passThrough == passThrough {
             return topmost.reaches
@@ -105,7 +141,15 @@ final class LayoutViewContext {
     }
 
     /// The windows over the pointer may have changed (a key change, a panel shown or moved, a tracking event).
-    func invalidateHoverTopmost() { topmost = nil }
+    /// In a live resize this ends the held answer one time only, when that answer is from before the first call
+    /// (`hoverReaches`): the later steps of the drag ask the window server nothing.
+    func invalidateHoverTopmost() {
+        topmost = nil
+        if let held = heldInResize, !held.settled {
+            heldInResize = nil
+            settlesAt = held.changes
+        }
+    }
 
     init(model: LayoutModel, provider: any LayoutPaneContentProvider, scrollbarClock: any Clock<Duration> = ContinuousClock()) {
         self.model = model
@@ -127,12 +171,16 @@ final class LayoutViewContext {
     /// test that runs while an async test is suspended.
     var reduceMotionOverride: Bool?
 
-    /// Movement snaps: Reduce Motion or `ui.animationSpeed` "off" (`Motion`).
-    var reduceMotion: Bool { reduceMotionOverride ?? !Motion.panes.animatesMovement }
+    /// The window that shows this layout (its root view's): a live resize or a full screen
+    /// transition of it snaps the layout's movement; another window's does not.
+    var window: () -> NSWindow? = { nil }
+
+    /// Movement snaps: Reduce Motion, `ui.animationSpeed` "off" or a live resize of the layout's window (`Motion`).
+    var reduceMotion: Bool { reduceMotionOverride ?? !Motion.panes.animatesMovement(in: window()) }
 
     /// Pane layout changes spring (`ui.paneAnimations`, on by default; plans/cmux-next/motion.md rule 9).
     /// A test that pins `reduceMotionOverride` pins this too, so its springs run as before the setting.
-    var animatesPaneLayout: Bool { reduceMotionOverride.map { !$0 } ?? Motion.panes.animatesPaneLayout }
+    var animatesPaneLayout: Bool { reduceMotionOverride.map { !$0 } ?? Motion.panes.animatesPaneLayout(in: window()) }
 
     func host(for pane: PaneID) -> PaneHostView {
         if let host = hosts[pane] { return host }

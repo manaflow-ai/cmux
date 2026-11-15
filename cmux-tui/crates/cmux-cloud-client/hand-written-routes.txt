@@ -5,6 +5,9 @@ acpmux/src/cloud_rewind.rs /v1/workspaces/{}/machine/turns
 acpmux/src/cloud_rewind.rs /v1/workspaces/{}/machine/turns/{}
 acpmux/src/cloud_rewind.rs /v1/workspaces/{}/machine/turns/{}/{}
 acpmux/src/vault/wire.rs /v1/vault/machine
+# Not in openapi.json yet (cmux-platform#1037 adds it); it matches /v1/machines/{id}/chat-grants/{user}
+# only by placeholders. It moves onto the client when the spec has it.
+acpmux/src/machine_tunnel.rs /v1/machines/credentials/{}/wg-key
 cmux-host/src/cloud/client.rs /v1/auth/challenge
 cmux-host/src/cloud/client.rs /v1/auth/token
 cmux-server/src/pairing/confirmation.rs /v1/auth/challenge

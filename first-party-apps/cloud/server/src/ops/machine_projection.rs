@@ -10,7 +10,7 @@
 //! older than what the projection holds (or than the removal it saw) is
 //! dropped, so a late event never undoes a newer answer.
 
-use crate::api::models::{Machine, Revision};
+use crate::api::models::{Machine, Revision, order};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -111,9 +111,12 @@ impl Projection {
     /// holds for its id, and newer than any removal it saw (a record at the
     /// removal's revision is the one that was removed).
     fn current(&self, machine: &Machine) -> bool {
-        let known = self.machines.get(&machine.id).is_none_or(|m| machine.revision >= m.revision);
-        let removed = self.tombstones.get(&machine.id).is_none_or(|r| machine.revision > *r);
-        known && removed && !self.gone.contains(&machine.id)
+        let id = machine.id();
+        let known =
+            self.machines.get(id).is_none_or(|m| order(machine.revision(), m.revision()).is_ge());
+        let removed =
+            self.tombstones.get(id).is_none_or(|r| order(machine.revision(), r.as_str()).is_gt());
+        known && removed && !self.gone.contains(id)
     }
 
     /// Records a removal at `revision`; an older one never lowers it.
@@ -141,7 +144,7 @@ impl Projection {
             removed.into_iter().filter(|id| self.machines.contains_key(id)).collect();
         let upserts: Vec<Machine> = upserts
             .into_iter()
-            .filter(|m| self.current(m) && self.machines.get(&m.id) != Some(m))
+            .filter(|m| self.current(m) && self.machines.get(m.id()) != Some(m))
             .collect();
         if removed.is_empty() && upserts.is_empty() {
             return;
@@ -150,13 +153,13 @@ impl Projection {
         let revision = self.revision;
         for id in removed {
             if let Some(gone) = self.machines.remove(&id) {
-                self.tombstone(&id, gone.revision);
+                self.tombstone(&id, gone.revision_key());
             }
             self.events.push(WatchEvent::Removed { revision, id });
         }
         for machine in upserts {
-            self.tombstones.remove(&machine.id);
-            self.machines.insert(machine.id.clone(), machine.clone());
+            self.tombstones.remove(machine.id());
+            self.machines.insert(machine.record.id.clone(), machine.clone());
             self.events.push(WatchEvent::Upsert { revision, machine: Box::new(machine) });
         }
     }
@@ -179,7 +182,7 @@ impl Projection {
             _ => None,
         };
         if let Some(s) = sweep.as_mut() {
-            s.seen.extend(machines.iter().map(|m| m.id.clone()));
+            s.seen.extend(machines.iter().map(|m| m.record.id.clone()));
         }
         let removed = match (next_cursor, sweep) {
             (Some(next), Some(mut s)) => {
@@ -190,9 +193,9 @@ impl Projection {
             (None, Some(s)) => self
                 .machines
                 .values()
-                .filter(|m| !s.seen.contains(&m.id))
-                .filter(|m| s.at.as_ref().is_none_or(|at| m.revision <= *at))
-                .map(|m| m.id.clone())
+                .filter(|m| !s.seen.contains(m.id()))
+                .filter(|m| s.at.as_ref().is_none_or(|at| order(m.revision(), at.as_str()).is_le()))
+                .map(|m| m.record.id.clone())
                 .collect(),
             (_, None) => Vec::new(),
         };
@@ -238,7 +241,7 @@ impl Projection {
     /// `cloud.machine.removed {machine, revision}`: removes the machine
     /// unless the projection holds a newer record.
     pub(crate) fn remove_at(&mut self, id: &str, revision: Revision) {
-        if self.machines.get(id).is_some_and(|m| m.revision > revision) {
+        if self.machines.get(id).is_some_and(|m| order(m.revision(), revision.as_str()).is_gt()) {
             return;
         }
         self.tombstone(id, revision);

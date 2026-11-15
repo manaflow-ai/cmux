@@ -82,7 +82,7 @@ public final class WebDevOverrideWatcher {
     /// Reloads every page and agent pane from where the override now says, in both engines: the
     /// same URL again, which the WebKit scheme handlers and (with ``PageChromiumHosting/setLivePages(_:)``)
     /// Chromium's page host answer from the dev server, the overlay, a web update or the bundle.
-    /// Also run when the Live Web Reload setting changes (``WebDevOverride/setAllowed(_:)``).
+    /// Also run when the cmux Live setting changes (``WebDevOverride/setAllowed(_:)``).
     ///
     /// - Parameters:
     ///   - live: Whether the override points pages at a server or an overlay.

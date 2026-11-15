@@ -32,8 +32,8 @@ import Testing
         model.selectScreen("s2")
         root.syncWithModel()
         root.layoutSubtreeIfNeeded()
-        // Not the active screen any more (its fade-out ends on later frames, which a headless window never draws;
-        // a hidden screen view keeps the same geometry, so the lookup reads it either way).
+        // Not the active screen any more: its view is hidden, and a hidden screen view keeps its geometry, so the
+        // lookup reads it.
         try #require(model.activeScreenID == "s2")
         #expect(RightColumnPlacement.column(beside: PaneID("chat"), frames: root.navigationFrames).isEmpty,
                 "fixture: the active screen's frames hold none of the chat's screen")

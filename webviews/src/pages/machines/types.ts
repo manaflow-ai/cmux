@@ -1,5 +1,5 @@
 // The right sidebar's Machines section (cmux-page://cmux.machines/): its ops, answered by the app's
-// MachineSectionPageProvider (CmuxNextApp/RightSidebar), which reads the machine registry, each
+// MachineSectionPageProvider (CmuxNextServer/AddMachine), which reads the machine registry, each
 // machine's last check, the person's hub-joined machines and the section's layout tunable.
 
 export const MachinesOps = {
@@ -74,4 +74,6 @@ export interface MachinesSnapshot {
   failed: Record<string, JoinedMachineChange>;
   /** The joined machine whose menu shows as open (the capture fixture's). */
   openMenu?: string;
+  /** The team the Cloud machines belong to (the app's active team), named on the Cloud header. */
+  cloudTeam?: { name: string; personal: boolean };
 }

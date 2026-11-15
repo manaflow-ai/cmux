@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { currentLanguage, setPaneLanguage } from "../i18n";
 import { DateLine } from "./DateLine";
 import { timestampText } from "./timestamps";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const now = new Date(2026, 9, 29, 12).getTime();
 const cases = [0, 1, 10];
@@ -35,6 +36,7 @@ function mountDom() {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   cleanup?.();
   cleanup = undefined;
 });

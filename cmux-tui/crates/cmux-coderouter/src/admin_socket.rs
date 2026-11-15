@@ -3,7 +3,7 @@
 //! (Swift `LocalRouterClient.socketPath(acpmuxHome:uid:)`) share.
 //!
 //! `<home>/router/router.sock` when that path fits a Unix socket address
-//! ([`MAX_SOCKET_PATH_BYTES`]); else `/tmp/acpmux-<uid>/<fnv1a64(home)>-router.sock`,
+//! ([`cmux_unix_socket::PORTABLE_MAX_PATH_BYTES`]); else `/tmp/acpmux-<uid>/<fnv1a64(home)>-router.sock`,
 //! in the private per-user folder where the acpmux daemon socket of a long home
 //! also is (cmux-agent-pane-policy `environment::socket_path`). The name is
 //! derived from the home path, so every side gets the same path with no file
@@ -11,10 +11,6 @@
 //! Network framework traps on one (cx-8iw6m).
 
 use std::path::{Path, PathBuf};
-
-/// The longest Unix socket path every host binds: macOS's `sun_path` (104
-/// bytes) less its NUL (cmux-agent-pane-policy `MAX_SOCKET_PATH_BYTES`).
-pub const MAX_SOCKET_PATH_BYTES: usize = 103;
 
 /// The router admin socket of the acpmux home `home` (see the module docs).
 /// Where the short folder cannot be used (it is not a folder that only this
@@ -35,7 +31,9 @@ pub fn admin_socket_path(home: &Path) -> PathBuf {
 #[cfg(unix)]
 fn short_admin_socket_path(home: &Path) -> Option<PathBuf> {
     use std::os::unix::ffi::OsStrExt;
-    if home.join("router").join("router.sock").as_os_str().len() <= MAX_SOCKET_PATH_BYTES {
+    if home.join("router").join("router.sock").as_os_str().len()
+        <= cmux_unix_socket::PORTABLE_MAX_PATH_BYTES
+    {
         return None;
     }
     // SAFETY: getuid has no preconditions.

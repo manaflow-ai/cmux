@@ -4,7 +4,7 @@ use super::Controller;
 
 const DEFAULT_MSS: usize = 1024;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Reno {
     cwnd: usize,
@@ -80,6 +80,14 @@ impl Controller for Reno {
             self.cwnd = self.ssthresh.min(self.rwnd).saturating_add(3 * self.mss);
 
             self.in_fast_recovery = true;
+        }
+    }
+
+    fn on_sack_loss(&mut self, now: Instant, in_flight: usize) {
+        let entering = !self.in_fast_recovery;
+        self.on_loss(now, in_flight);
+        if entering {
+            self.cwnd = self.ssthresh.min(self.rwnd).max(self.mss);
         }
     }
 

@@ -1,3 +1,5 @@
+public import CmuxNextCompat
+
 /// The sidebar section settings in cmux.json (`sidebar.sectionLook`,
 /// `sidebar.topBandMaxShare`, `sidebar.bottomBandMaxShare`,
 /// `sidebar.pinnedBandsScroll` and
@@ -40,6 +42,10 @@ public nonisolated enum SidebarGroupBy: String, Hashable, Sendable, CaseIterable
 }
 
 public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
+    /// The document projection overrides from `sidebar.sections` and
+    /// `sidebar.workspaces`. The document remains the persistence owner;
+    /// these values only choose what the native view projects.
+    public var projection = SidebarProjectionCustomization.defaults
     /// A `SectionsLookVariant` raw value (CmuxNextSidebar); unknown = quiet.
     public var look: String
     /// Share of the sidebar height the band above the list takes before it
@@ -100,11 +106,22 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// button, spaces strip, profile control and Search button show only while the pointer is over
     /// the sidebar. Off by default: they always show.
     public var controlsOnHover = false
+    /// `sidebar.floatOnHover` (Lawrence 2026-11-08): with the sidebar hidden, the pointer resting on
+    /// the window's sidebar edge floats the sidebar over the content until the pointer leaves it.
+    /// On by default.
+    public var floatOnHover = true
     /// Minimal mode (`sidebar.minimal`, cx-w1r5; Lawrence 2026-10-09: "some
     /// people like minimal mode"): workspace rows draw only their icon, name,
     /// unread mark and attention state (no second line, no counts or badges,
     /// no tab rows), and section headers become thin lines (the `lines` look).
     public var minimal = false
+    /// Whether the window's hover chrome hides until the pointer is over it: Minimal Mode (user
+    /// 2026-11-15: "only when minimal mode is enabled, we should hide the buttons, spaces, and bottom
+    /// left profile picture, and sidebar buttons and back/forth and plus buttons in sidebar, unless user
+    /// is hovered on sidebar/hovered on tabbar"), or the older sidebar-only Show Sidebar Controls Only on
+    /// Hover. Off (the default), every button shows at rest; only a tab's or a workspace's close X waits
+    /// for hover.
+    public var hidesControlsUntilHover: Bool { minimal || controlsOnHover }
     /// `sidebar.detailedStatusIcons`: a workspace row's badge draws each state apart (working,
     /// waiting for input, error, done, as agents and OSC 7501 programs report them). Off by default:
     /// the row says Working (one spinner) or Ready (the blue dot) only (Lawrence 2026-10-18).
@@ -118,9 +135,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// and keeps every stored color (Lawrence 2026-10-22: "need to be able to remove all
     /// workspace colors"). On by default.
     public var showColors = true
-    /// `workspaceColors.indicatorStyle` (#25653): a workspace's color as its row's dot (the
-    /// default), a leading rail or the whole row's fill. `showColors` off draws none of them.
-    public var workspaceColorIndicator: WorkspaceColorIndicatorStyle = .dot
+    /// `workspaceColors.indicatorStyle` (#25653): a workspace's color as its row's dot, a leading
+    /// rail (the default, as in classic: Lawrence 2026-11-09, "red dot on left feels weird") or the
+    /// whole row's fill. `showColors` off draws none of them.
+    public var workspaceColorIndicator: WorkspaceColorIndicatorStyle = .leftRail
     /// `sidebar.showLocalMachine`: with more than one machine listed, this Mac's workspace rows
     /// carry its machine mark too. Off by default (Leo 2026-10-20): only another machine's rows
     /// are marked, since that is the news; this Mac is where a row runs unless it says otherwise.

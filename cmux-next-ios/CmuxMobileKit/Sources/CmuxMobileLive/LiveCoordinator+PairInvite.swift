@@ -13,11 +13,13 @@ extension LiveCoordinator {
     public func accept(_ invite: PairInvite) -> Bool {
         guard let pairing, !invite.isExpired() else { return false }
         let personal = Self.personalTeamID(userID: userID)
-        if !store.teams.isEmpty, invite.team != personal, !store.teams.contains(where: { $0.id == invite.team }) {
+        if knowsAccountSpaces, invite.team != personal, !store.teams.contains(where: { $0.id == invite.team }) {
             log.info("pairing code for a space this account is not in")
             return false
         }
-        // Before the spaces load it is held only; steerToInvite checks the space before it moves.
+        // Before the account's spaces load (a cold launch shows only its snapshot's space) it is
+        // held only; steerToInvite checks the space before it moves, and the code expires unchecked
+        // (PairInvite.lifetime) if the list never loads.
         // A code whose token was already presented is not taken again.
         guard pairing.invites.hold(invite) else { return false }
         log.info("pairing code for \(invite.mac, privacy: .private)")
@@ -33,7 +35,7 @@ extension LiveCoordinator {
         // A code taken before this account's spaces loaded is checked again once they have:
         // one for a space this account is not in is dropped, and nothing moves for it.
         guard personal || store.teams.contains(where: { $0.id == invite.team }) else {
-            if !store.teams.isEmpty {
+            if knowsAccountSpaces {
                 log.info("pairing code for a space this account is not in")
                 pairing.invites.drop()
             }
@@ -73,6 +75,10 @@ extension LiveCoordinator {
             break
         }
     }
+
+    /// The account's spaces are listed: not before any loaded, and not while only the launch
+    /// snapshot's space is shown.
+    var knowsAccountSpaces: Bool { !store.teams.isEmpty && !spacesFromSnapshot }
 
     /// Closes a Mac's link and dials it again (a new `auth`).
     func redial(_ session: MacSession) {

@@ -43,9 +43,13 @@ public struct TerminalRevealReport: Sendable, Equatable {
     public var fontScale: Double?
     /// The surface view's size in points.
     public var viewSize: CGSize
+    /// Frames Ghostty showed on the layer since the reveal (its present callback, ``TerminalPresents``): 0 in the
+    /// report made at the reveal itself.
+    public var framesSinceReveal: UInt64
 
     public init(contentScale: CGFloat?, layerScale: CGFloat?, windowScale: CGFloat?, savedFrame: SavedFrame,
-                holdingFrame: Bool, hasFrame: Bool, fontPoints: Double?, fontScale: Double?, viewSize: CGSize) {
+                holdingFrame: Bool, hasFrame: Bool, fontPoints: Double?, fontScale: Double?, viewSize: CGSize,
+                framesSinceReveal: UInt64 = 0) {
         self.contentScale = contentScale
         self.layerScale = layerScale
         self.windowScale = windowScale
@@ -55,6 +59,7 @@ public struct TerminalRevealReport: Sendable, Equatable {
         self.fontPoints = fontPoints
         self.fontScale = fontScale
         self.viewSize = viewSize
+        self.framesSinceReveal = framesSinceReveal
     }
 
     /// Ghostty draws at the scale the layer shows and the window has: text has its true size. False is the
@@ -68,8 +73,8 @@ public struct TerminalRevealReport: Sendable, Equatable {
     /// Ghostty draws).
     public var isSuspect: Bool { !scalesAgree || savedFrame == .purged }
 
-    /// The pane shows nothing: no frame on the layer and none held over it.
-    public var isBlank: Bool { !hasFrame && !holdingFrame }
+    /// The pane shows nothing: no frame on the layer, none held over it, and Ghostty showed none since the reveal.
+    public var isBlank: Bool { !hasFrame && !holdingFrame && framesSinceReveal == 0 }
 
     /// One log line, numbers only.
     public var message: String {
@@ -79,6 +84,7 @@ public struct TerminalRevealReport: Sendable, Equatable {
             + " scales_agree=\(scalesAgree) saved_frame=\(savedFrame.rawValue) holding_frame=\(holdingFrame)"
             + " has_frame=\(hasFrame) font_points=\(number(fontPoints)) font_scale=\(number(fontScale))"
             + " view=\(Int(viewSize.width.rounded()))x\(Int(viewSize.height.rounded()))"
+            + " frames_since_reveal=\(framesSinceReveal)"
     }
 
     /// Key-value data for a crash-telemetry breadcrumb, numbers only.
@@ -87,6 +93,7 @@ public struct TerminalRevealReport: Sendable, Equatable {
             "scales_agree": String(scalesAgree), "saved_frame": savedFrame.rawValue,
             "holding_frame": String(holdingFrame), "has_frame": String(hasFrame),
             "view": "\(Int(viewSize.width.rounded()))x\(Int(viewSize.height.rounded()))",
+            "frames_since_reveal": String(framesSinceReveal),
         ]
         if let contentScale { fields["content_scale"] = String(format: "%.2f", Double(contentScale)) }
         if let layerScale { fields["layer_scale"] = String(format: "%.2f", Double(layerScale)) }

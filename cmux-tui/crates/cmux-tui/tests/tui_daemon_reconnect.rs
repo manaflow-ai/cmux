@@ -270,3 +270,101 @@ fn open_pty() -> (File, OwnedFd) {
     // SAFETY: both descriptors are fresh, owned, and valid.
     unsafe { (File::from_raw_fd(master), OwnedFd::from_raw_fd(slave)) }
 }
+
+/// The session's state directories under the fixture's state root.
+fn session_state_dirs(fixture: &Fixture) -> Vec<String> {
+    let prefix = format!("{}-", fixture.session);
+    fs::read_dir(fixture.dir.join("state"))
+        .map(|entries| {
+            entries
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .filter(|name| name.starts_with(&prefix))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Seeds `table` of the sqlite store `path` with one row, as the Chief and
+/// conversation stores keep theirs next to the session registry.
+fn seed_store(path: &std::path::Path, table: &str, row: &str) {
+    let db = rusqlite::Connection::open(path).unwrap();
+    db.execute_batch(&format!(
+        "CREATE TABLE IF NOT EXISTS {table}(id TEXT); INSERT INTO {table} VALUES('{row}');"
+    ))
+    .unwrap();
+}
+
+fn store_row(path: &std::path::Path, table: &str) -> Option<String> {
+    let db =
+        rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
+            .ok()?;
+    db.query_row(&format!("SELECT id FROM {table}"), [], |row| row.get::<_, String>(0)).ok()
+}
+
+fn terminal_host_dirs(fixture: &Fixture) -> Vec<String> {
+    fs::read_dir(fixture.dir.join("state"))
+        .map(|entries| {
+            entries
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .filter(|name| name.starts_with("terminal-hosts-"))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Bench round 4 item 10 (W5-R): `daemon stop --end-terminals` with a TUI
+/// attached left the session's launch snapshot (written at the stop) and
+/// its terminal-host records: nothing is left to resume, so the stop
+/// removes that terminal and resume state. Only that: the Chief store and
+/// the conversations in the same session directory stay (review 6731023492,
+/// item 3). A plain stop keeps everything: `agent resume` and the next owner
+/// need it.
+#[test]
+fn w5r_stop_with_end_terminals_removes_terminal_state_and_keeps_chiefs_and_conversations() {
+    let fixture = Fixture::new("w5r-state");
+    fixture.server("ensure", &[]);
+    let client = Client::start(&fixture);
+    wait_for("the client to take the terminal", &client, || client.printed(INPUT_MODES_ENABLED));
+    wait_for("the client to attach", &client, || fixture.has_tui_client());
+
+    fixture.server("stop", &[]);
+    assert!(client.wait(DEADLINE).is_some(), "the client still ran after the stop");
+    let kept = session_state_dirs(&fixture);
+    let [session_dir] = kept.as_slice() else {
+        panic!("a plain stop did not keep one session state directory: {kept:?}")
+    };
+    let session_dir = fixture.dir.join("state").join(session_dir);
+    assert!(
+        session_dir.join("launch-snapshot.json").is_file(),
+        "a plain stop removed the launch snapshot"
+    );
+
+    fixture.server("ensure", &[]);
+    let client = Client::start(&fixture);
+    wait_for("the client to take the terminal", &client, || client.printed(INPUT_MODES_ENABLED));
+    wait_for("the client to attach", &client, || fixture.has_tui_client());
+    seed_store(&session_dir.join("chiefs.sqlite3"), "w5r_chief", "chief-survives");
+    seed_store(&session_dir.join("conversations.sqlite3"), "w5r_conversation", "conv-survives");
+
+    let stopped = fixture.server("stop", &["--end-terminals"]);
+    assert!(client.wait(DEADLINE).is_some(), "the client still ran after the stop");
+    assert!(
+        !session_dir.join("launch-snapshot.json").exists(),
+        "stop --end-terminals left the launch snapshot: {stopped}"
+    );
+    let hosts = terminal_host_dirs(&fixture);
+    assert!(hosts.is_empty(), "stop --end-terminals left terminal-host records {hosts:?}");
+    assert_eq!(
+        store_row(&session_dir.join("chiefs.sqlite3"), "w5r_chief").as_deref(),
+        Some("chief-survives"),
+        "stop --end-terminals removed the Chief store: {stopped}"
+    );
+    assert_eq!(
+        store_row(&session_dir.join("conversations.sqlite3"), "w5r_conversation").as_deref(),
+        Some("conv-survives"),
+        "stop --end-terminals removed the conversations: {stopped}"
+    );
+    assert_eq!(stopped["removed_terminal_state"], true, "{stopped}");
+}

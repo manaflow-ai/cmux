@@ -70,7 +70,7 @@ const READ_HANG_GUARD: Duration = Duration::from_secs(60);
 
 fn connect(entry: &Entry) -> (UnixStream, BufReader<UnixStream>) {
     let stream = UnixStream::connect(entry.server.path()).unwrap();
-    stream.set_read_timeout(Some(READ_HANG_GUARD)).unwrap();
+    cmux_tui_platform::read_timeout_or_ended(&stream, READ_HANG_GUARD).unwrap();
     let reader = BufReader::new(stream.try_clone().unwrap());
     (stream, reader)
 }
@@ -138,8 +138,10 @@ fn remote_clients(mux: &Mux) -> Vec<u64> {
 fn a_process_that_is_not_the_link_gets_nothing_and_registers_no_client() {
     let entry = entry(false, Arc::new(AdmitAll));
     let (mut stream, mut reader) = connect(&entry);
-    send(&mut stream, STAMP);
-    send(&mut stream, r#"{"id":1,"cmd":"ping"}"#);
+    // The entry closes a refused process at once, so each write races that
+    // close; the read below stays the assertion that no reply comes.
+    send_racing_close(&mut stream, STAMP);
+    send_racing_close(&mut stream, r#"{"id":1,"cmd":"ping"}"#);
     let mut line = String::new();
     let read = reader.read_line(&mut line).unwrap_or(0);
     assert_eq!(read, 0, "a refused process must get no reply, got {line:?}");

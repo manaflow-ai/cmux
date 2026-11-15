@@ -1,0 +1,12 @@
+{
+  "caption": "The Update Ready card's Automatic Updates switch reads at the sidebar's text size: before, then after.",
+  "frameInterval": 0.25,
+  "steps": [
+    {"title": "Launch", "wait": 3},
+    {"title": "Show a pretend staged update", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.updateCard.simulatePending", "value": true}}, "wait": 2},
+    {"title": "Before: the caption-size control", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.updateCard.automaticSize", "value": "compact"}}, "wait": 1.5, "clip": true},
+    {"title": "After: body-size text and a switch to match", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.updateCard.automaticSize", "value": "regular"}}, "wait": 1.5, "clip": true},
+    {"title": "Reset", "rpc": {"method": "debug.tunables", "params": {"action": "reset", "section": "sidebar"}}, "wait": 0.3}
+  ],
+  "crop": [0, 0.55, 0.185, 0.45]
+}

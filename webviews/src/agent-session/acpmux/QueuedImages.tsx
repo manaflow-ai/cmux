@@ -19,6 +19,8 @@ import { formatDuration } from "./chips/replyMediaModel";
 import { PlayTriangle } from "./conversation/icons";
 import { QUEUED_TILES_SHOWN, type QueuedTile, type QueuedVideo, queuedTiles } from "./queuedImagesModel";
 import { RemoveGlyph } from "./composer/RemoveGlyph";
+import { useVideoLengthFit } from "./composer/videoLengthFit";
+import { signed } from "../../ui/Typography";
 
 export function QueuedImages({
   images,
@@ -106,7 +108,7 @@ export function QueuedImages({
           );
         })}
       </span>
-      {more > 0 && <span className="acpmux-queued-images-more">{t("multiplayer.more", { count: more })}</span>}
+      {more > 0 && <span className="acpmux-queued-images-more">{signed(t("multiplayer.more", { count: more }))}</span>}
     </span>
   );
 }
@@ -163,6 +165,8 @@ function QueuedImage({
     };
   }, [image.id, image.src, read]);
   const length = video?.durationMs ? formatDuration(video.durationMs / 1000) : undefined;
+  const tile = useRef<HTMLButtonElement>(null);
+  useVideoLengthFit(tile, length);
   const label = video ? [video.name, length].filter(Boolean).join(", ") : imageLabel(t, { name: image.name });
   return (
     <span
@@ -172,6 +176,7 @@ function QueuedImage({
       data-video={video ? "" : undefined}
     >
       <button
+        ref={tile}
         type="button"
         className="acpmux-queued-image"
         /* tooltip-allow: an image thumbnail shows no name */ title={label}
@@ -194,11 +199,12 @@ function QueuedImage({
           <span className="acpmux-queued-image-empty" />
         )}
         {/* One corner chip, the play glyph and the length, on the composer's video scrim
-            (composerAttachments.css): a 36px tile has no room for a centred glyph as well. */}
+            (composerAttachments.css): a 36px tile has no room for a centred glyph as well. A tile too
+            narrow for the length keeps the glyph alone (composer/videoLengthFit.ts). */}
         {video && (
-          <span className="acpmux-attachment-video-length acpmux-queued-video" aria-hidden="true">
+          <span className="acpmux-attachment-video-length acpmux-queued-video" data-video-length="" aria-hidden="true">
             <PlayTriangle size={12} />
-            {length}
+            {length && <span className="acpmux-queued-video-time">{length}</span>}
           </span>
         )}
       </button>

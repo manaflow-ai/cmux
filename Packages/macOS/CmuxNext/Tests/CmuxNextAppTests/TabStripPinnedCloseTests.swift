@@ -52,10 +52,10 @@ import Testing
         #expect(pinned == ids("p1", "p2", "t4"))
     }
 
-    /// Cmd-W with `tabs.cmdWClosesPinnedTabs` on closes a pinned tab, as Chrome's Cmd-W does.
-    @Test func cmdWClosesAPinnedTabWhenTheSettingSaysSo() {
-        #expect(model().keyboardClose(TabID("p1"), closesPinned: true) == .close)
-        #expect(model().keyboardClose(TabID("p1"), closesPinned: false) == .select(TabID("p2")))
+    /// Cmd-W closes a pinned tab, as Chrome's Cmd-W does; there is no kept pinned tab (cmux-ad i8).
+    @Test func cmdWClosesAPinnedTab() {
+        #expect(model().keyboardClose(TabID("p1")) == .close)
+        #expect(model().keyboardClose(TabID("p0")) == .close)
     }
 
     /// Move Tab Left and Move Tab Right stop at the pinned boundary (Chrome): the daemon puts a

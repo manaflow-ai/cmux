@@ -3,22 +3,36 @@
 //! One boringtun/smoltcp mesh owns one UDP socket. Incoming streams can reach
 //! only this daemon's loopback WebSocket listener, which still checks tokens,
 //! peer proofs and policy. They never reach the privileged local socket.
+//!
+//! It runs only where no cmux link serves this home's node key
+//! (`mesh_node_key::link_serves_node_key`): where one does (it adopted the key,
+//! or the app recorded this home for it and it adopts at its next start), the
+//! link is the one holder of this machine's WireGuard key and the transport
+//! never takes the key lock, so a link that starts later still gets it. Peers
+//! with a link route dial through the link; the others go on over their URL or
+//! ssh. Anywhere else (a link-less Linux host, a link that keeps a key of its
+//! own, a link that refuses a home copied from another machine) it runs under
+//! the same lock the link would take, in the acpmux home
+//! (`cmux_link::key_holder`).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::net::{IpAddr, SocketAddr};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, ensure};
 use base64::Engine;
+use cmux_link::key_holder::{KeyHolder, KeyHolderError};
 use cmux_wg::{
-    InterfaceAddress, IpNetwork, WgMesh, WgMeshConfig, WgMeshListener, WgPeer, WgStream,
+    InterfaceAddress, IpNetwork, PeerCandidate, WgMesh, WgMeshConfig, WgMeshListener, WgPeer,
+    WgStream,
 };
 use serde::{Deserialize, Serialize};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::{RwLock, watch};
 use tokio::task::{JoinHandle, JoinSet};
+use zeroize::Zeroizing;
 
 const CONNECT_BOUND: Duration = Duration::from_secs(10);
 const MAX_BRIDGES: usize = 64;
@@ -48,13 +62,78 @@ pub struct Transport {
     stop: watch::Sender<bool>,
     bridge: Mutex<Option<JoinHandle<()>>>,
     local: SocketAddr,
+    /// This machine's WireGuard key lock, released when the transport stops.
+    key: Mutex<Option<Arc<KeyHolder>>>,
+    /// What [`Self::restart`] starts the mesh again with: the service address, the
+    /// configured peers and the listener the bridge forwards to.
+    service: SocketAddr,
+    peers: Vec<WgPeer>,
+    websocket: SocketAddr,
+    /// The daemon's other users of the node key this lock guards (the hub carrier): each takes a
+    /// rotated key as [`Self::put_key`] puts it in place.
+    key_users: Mutex<Vec<KeyUser>>,
+}
+
+/// Another user of the node key: given the new private key and `write` (which makes it the
+/// machine's node key on disk), it runs `write` and takes the key, both or neither.
+pub(crate) type KeyUser =
+    Arc<dyn Fn(&[u8; 32], &mut dyn FnMut() -> Result<()>) -> Result<()> + Send + Sync>;
+
+/// This machine's cmux link state directory: the one the app recorded in this daemon's home
+/// (`mesh_node_key::record_link_home`), else `<daemon state dir>/link` by this process's
+/// environment.
+pub(crate) fn link_state_dir() -> Option<PathBuf> {
+    crate::cli::mesh_node_key::recorded_link_dir(&crate::config::home()).or_else(env_link_state_dir)
+}
+
+/// `<daemon state dir>/link` by this process's environment.
+pub(crate) fn env_link_state_dir() -> Option<PathBuf> {
+    cmux_tui_platform::platform::workspace_state_dir().map(|dir| dir.join("link"))
+}
+
+/// The install the link in `link_dir` paired with `wireguard_key`, if it did.
+pub(crate) fn paired_install_in(link_dir: &Path, wireguard_key: &str) -> Option<String> {
+    let pairings = cmux_link::pairing::Pairings::load(&link_dir.join("peers.json")).ok()?;
+    pairings
+        .peers
+        .iter()
+        .find(|record| record.public_key == wireguard_key && record.is_valid())
+        .map(|record| record.install.clone())
+}
+
+/// One line per WireGuard peer the link has no route to: it goes on over its URL or ssh.
+fn warn_unlinked_peers(config: &crate::config::Config, link_dir: Option<&Path>) {
+    for (name, peer) in &config.peers {
+        if let Some(wg) = &peer.wireguard
+            && peer.link_host.is_none()
+            && link_dir.and_then(|dir| paired_install_in(dir, &wg.public_key)).is_none()
+        {
+            tracing::warn!(
+                peer = %name,
+                "the cmux link has no route to this WireGuard peer: it goes on over its URL or ssh"
+            );
+        }
+    }
 }
 
 impl Transport {
     /// Disabled means no key access, DNS lookup, UDP bind or background task.
+    /// So does a host with a cmux link, or a key lock another process holds:
+    /// the transport steps down.
     pub async fn start(
         config: &crate::config::Config,
         state_dir: &Path,
+        websocket: SocketAddr,
+    ) -> Result<Option<Arc<Self>>> {
+        Self::start_with_link(config, state_dir, link_state_dir().as_deref(), websocket).await
+    }
+
+    /// [`Transport::start`] beside the cmux link whose state directory is `link_dir` (none:
+    /// no link on this machine).
+    pub async fn start_with_link(
+        config: &crate::config::Config,
+        state_dir: &Path,
+        link_dir: Option<&Path>,
         websocket: SocketAddr,
     ) -> Result<Option<Arc<Self>>> {
         if !config.transport.wireguard {
@@ -66,8 +145,29 @@ impl Transport {
             .as_ref()
             .context("transport.wireguard requires wireguardStatic settings")?;
         let target = local_websocket(websocket)?;
+        if crate::cli::mesh_node_key::link_serves_node_key(link_dir, state_dir) {
+            tracing::info!(
+                "WireGuard transport off: the cmux link holds this machine's WireGuard key; peers with a link route use the link, the others their URL or ssh"
+            );
+            warn_unlinked_peers(config, link_dir);
+            return Ok(None);
+        }
+        let key = match KeyHolder::acquire(state_dir) {
+            Ok(key) => key,
+            Err(KeyHolderError::KeyHeld { pid }) => {
+                tracing::warn!(
+                    holder_pid = ?pid,
+                    "WireGuard transport off for this run: another process holds this machine's WireGuard key; peers with a link route use the cmux link, the others their URL or ssh"
+                );
+                warn_unlinked_peers(config, link_dir);
+                return Ok(None);
+            }
+            Err(KeyHolderError::Io(error)) => {
+                return Err(anyhow::Error::from(error).context("take the WireGuard key lock"));
+            }
+        };
         let socket = UdpSocket::bind(settings.listen).await.context("bind WireGuard UDP")?;
-        Self::from_socket(settings, &config.peers, state_dir, target, socket).await.map(Some)
+        Self::from_socket(settings, &config.peers, state_dir, target, socket, key).await.map(Some)
     }
 
     async fn from_socket(
@@ -76,6 +176,7 @@ impl Transport {
         state_dir: &Path,
         websocket: SocketAddr,
         socket: UdpSocket,
+        key: KeyHolder,
     ) -> Result<Arc<Self>> {
         ensure!(settings.address.port() != 0, "WireGuard service port must be nonzero");
         ensure!(
@@ -84,24 +185,13 @@ impl Transport {
         );
         let websocket = local_websocket(websocket)?;
         let local = socket.local_addr()?;
-        let keys = crate::cli::mesh_node_key::load_or_create_at(state_dir)?;
-        let mesh = WgMesh::start(
-            WgMeshConfig {
-                private_key: keys.private_key(),
-                addresses: vec![InterfaceAddress {
-                    address: settings.address.ip(),
-                    prefix: host_prefix(settings.address.ip()),
-                }],
-                mtu: cmux_wg::DEFAULT_MTU,
-            },
-            socket,
-        )?;
+        let (_, private_key) = crate::cli::mesh_node_key::load_or_create_held(state_dir, &key)?;
+        let mesh = WgMesh::start(mesh_config(private_key, settings.address), socket)?;
         let mut routes = BTreeMap::new();
-        let mut identities = BTreeSet::new();
+        let mut peers: BTreeMap<[u8; 32], WgPeer> = BTreeMap::new();
         for (name, peer) in configured {
             let Some(peer) = &peer.wireguard else { continue };
             let public_key = public_key(&peer.public_key)?;
-            ensure!(identities.insert(public_key), "duplicate WireGuard peer key");
             ensure!(
                 peer.address.port() != 0
                     && peer.address.ip() != settings.address.ip()
@@ -110,16 +200,27 @@ impl Transport {
                     && !peer.address.ip().is_multicast(),
                 "invalid WireGuard peer service address"
             );
-            let mut endpoints = tokio::time::timeout(
+            let endpoints = tokio::time::timeout(
                 CONNECT_BOUND,
                 tokio::net::lookup_host(peer.endpoint.as_str()),
             )
             .await
             .context("WireGuard endpoint lookup timed out")??;
-            let endpoint = endpoints
-                .find(|a| a.is_ipv4() == local.is_ipv4() && a.port() != 0)
+            // Every address the name resolves to is a path: the mesh probes
+            // each one and the path selector picks (LAN before routed).
+            let mut usable: Vec<SocketAddr> = Vec::new();
+            for address in endpoints {
+                if address.is_ipv4() == local.is_ipv4()
+                    && address.port() != 0
+                    && !usable.contains(&address)
+                {
+                    usable.push(address);
+                }
+            }
+            let endpoint = *usable
+                .first()
                 .context("WireGuard endpoint has no address matching the UDP socket family")?;
-            mesh.add_peer(WgPeer {
+            let wg_peer = WgPeer {
                 public_key,
                 preshared_key: None,
                 allowed_ips: vec![IpNetwork::new(
@@ -127,10 +228,36 @@ impl Transport {
                     host_prefix(peer.address.ip()),
                 )?],
                 route: Some(endpoint.into()),
+                candidates: usable.into_iter().map(PeerCandidate::from).collect(),
                 persistent_keepalive: None,
-            })
-            .await?;
+            };
+            // Configured names may alias one host. Its cryptographic identity
+            // owns one session, with all explicitly configured addresses and
+            // endpoint candidates; adding it twice would replace that session.
+            match peers.entry(public_key) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(wg_peer);
+                }
+                std::collections::btree_map::Entry::Occupied(mut entry) => {
+                    let existing = entry.get_mut();
+                    for address in wg_peer.allowed_ips {
+                        if !existing.allowed_ips.contains(&address) {
+                            existing.allowed_ips.push(address);
+                        }
+                    }
+                    for candidate in wg_peer.candidates {
+                        if !existing.candidates.contains(&candidate) {
+                            existing.candidates.push(candidate);
+                        }
+                    }
+                }
+            }
             routes.insert(name.clone(), peer.clone());
+        }
+        let peers: Vec<_> = peers.into_values().collect();
+        for peer in &peers {
+            // The mesh still refuses an address claimed by different keys.
+            mesh.add_peer(peer.clone()).await?;
         }
         let listener = mesh.listen(settings.address.port()).await?;
         let (stop, stopped) = watch::channel(false);
@@ -141,7 +268,80 @@ impl Transport {
             stop,
             bridge: Mutex::new(Some(bridge)),
             local,
+            key: Mutex::new(Some(Arc::new(key))),
+            service: settings.address,
+            peers,
+            websocket,
+            key_users: Mutex::new(Vec::new()),
         }))
+    }
+
+    /// `f` with this transport's key lock, while it holds it (until [`Self::shutdown`]).
+    pub(crate) fn with_key<R>(&self, f: impl FnOnce(&KeyHolder) -> R) -> Option<R> {
+        self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_deref().map(f)
+    }
+
+    /// `user` takes every key a rekey puts in place from now on ([`Self::put_key`]).
+    #[cfg_attr(not(feature = "hub-carrier"), allow(dead_code))]
+    pub(crate) fn add_key_user(&self, user: KeyUser) {
+        self.key_users.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(user);
+    }
+
+    /// A rekey's new key in place: `write` (the key file's rename) runs inside each key user's
+    /// own rotation, so every one takes the key with the file or none does. The mesh itself
+    /// starts again with it in [`Self::restart`].
+    pub(crate) fn put_key(
+        &self,
+        private: &[u8; 32],
+        write: &mut dyn FnMut() -> Result<()>,
+    ) -> Result<()> {
+        fn nest(
+            users: &[KeyUser],
+            private: &[u8; 32],
+            write: &mut dyn FnMut() -> Result<()>,
+        ) -> Result<()> {
+            match users.split_first() {
+                None => write(),
+                Some((user, rest)) => user(private, &mut || nest(rest, private, &mut *write)),
+            }
+        }
+        let users =
+            self.key_users.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        nest(&users, private, write)
+    }
+
+    /// Start the mesh again with `private_key` on the same UDP port, peers and service
+    /// address: what a rekey (`machine_tunnel.rs`) does once the new key is on disk. Open
+    /// tunnel streams and bridges end; peers handshake again with the new key.
+    pub(crate) async fn restart(&self, private_key: Zeroizing<[u8; 32]>) -> Result<()> {
+        let mut mesh = self.mesh.write().await;
+        ensure!(!*self.stop.borrow() && mesh.is_some(), "WireGuard transport stopped");
+        let old_bridge =
+            self.bridge.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+        if let Some(old_bridge) = old_bridge {
+            old_bridge.abort();
+            let _ = old_bridge.await;
+        }
+        if let Some(old) = mesh.take() {
+            old.shutdown().await;
+        }
+        let socket = UdpSocket::bind(self.local).await.context("bind WireGuard UDP again")?;
+        let fresh = WgMesh::start(mesh_config(private_key, self.service), socket)?;
+        for peer in &self.peers {
+            fresh.add_peer(peer.clone()).await?;
+        }
+        let listener = fresh.listen(self.service.port()).await?;
+        let task = tokio::spawn(bridge(listener, self.websocket, self.stop.subscribe()));
+        *self.bridge.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(task);
+        *mesh = Some(fresh);
+        Ok(())
+    }
+
+    /// This machine's WireGuard key lock while the transport runs: the daemon's other user of
+    /// the node key (the hub carrier) shares it, since a second lock in one process is refused.
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) fn key_holder(&self) -> Option<Arc<KeyHolder>> {
+        self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     pub fn local_addr(&self) -> SocketAddr {
@@ -169,6 +369,41 @@ impl Transport {
         }
     }
 
+    /// The handoff to the cmux link of a transport that started before the link was set up on
+    /// this home (the daemon first): it waits, asking every `every`, until a link serves this
+    /// home's node key (`mesh_node_key::link_serves_node_key`, the app's record and the link's
+    /// config: what `cmux link ensure` writes before it starts the link), then stops within
+    /// `budget`, which frees the key lock for the link (the hub carrier keeps no share of it).
+    /// Returns once it stopped, or when the transport stopped otherwise.
+    pub async fn yield_to_link(&self, state_dir: &Path, every: Duration, budget: Duration) {
+        let mut stopped = self.stop.subscribe();
+        loop {
+            let home = state_dir.to_path_buf();
+            let wanted = tokio::task::spawn_blocking(move || {
+                let link_dir =
+                    crate::cli::mesh_node_key::recorded_link_dir(&home).or_else(env_link_state_dir);
+                // Cheap first (two reads); the full check (with the clone check) only then.
+                link_dir.as_deref().is_some_and(|dir| {
+                    dir.join("config.json").is_file()
+                        && crate::cli::mesh_node_key::link_serves_node_key(Some(dir), &home)
+                })
+            })
+            .await
+            .unwrap_or(false);
+            if wanted {
+                break;
+            }
+            tokio::select! {
+                () = tokio::time::sleep(every) => {}
+                _ = stopping(&mut stopped) => return,
+            }
+        }
+        tracing::info!(
+            "WireGuard transport off: the cmux link now serves this machine's WireGuard key; peers with a link route use the link, the others their URL or ssh"
+        );
+        self.shutdown(tokio::time::Instant::now() + budget).await;
+    }
+
     /// Stop by `deadline`, delivering first what this daemon's listener sent each peer before
     /// it closed (the WebSocket close 1012 of a restart): each bridge forwards its listener's
     /// side to its end, and the mesh closes each tunnel connection after those bytes
@@ -187,6 +422,8 @@ impl Transport {
         if let Some(mesh) = mesh {
             mesh.close(deadline).await;
         }
+        // The mesh no longer runs with the key: another process may take it.
+        drop(self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take());
     }
 }
 
@@ -198,6 +435,17 @@ impl Drop for Transport {
         {
             task.abort();
         }
+    }
+}
+
+fn mesh_config(private_key: Zeroizing<[u8; 32]>, service: SocketAddr) -> WgMeshConfig {
+    WgMeshConfig {
+        private_key,
+        addresses: vec![InterfaceAddress {
+            address: service.ip(),
+            prefix: host_prefix(service.ip()),
+        }],
+        mtu: cmux_wg::DEFAULT_MTU,
     }
 }
 
@@ -218,7 +466,7 @@ fn public_key(text: &str) -> Result<[u8; 32]> {
     Ok(key)
 }
 
-fn local_websocket(mut address: SocketAddr) -> Result<SocketAddr> {
+pub(crate) fn local_websocket(mut address: SocketAddr) -> Result<SocketAddr> {
     if address.ip().is_unspecified() {
         address.set_ip(if address.is_ipv4() {
             IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)

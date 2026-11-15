@@ -7,8 +7,8 @@
 // center and the composer card's center are measured at a narrow, a normal and a wide pane, with
 // Session Info closed, floating over the chat and pushing it, with a classic scrollbar, in both
 // composer looks and with the computer use preview beside the column, and must be within 0.5px of
-// each other. A last case reads every painted frame while Session Info slides in and out at the wide
-// pane: the button moves with the composer in the same frames.
+// each other. A last case reads every painted frame while Session Info, with Push always, slides in and
+// out at the wide pane: the button moves with the composer in the same frames.
 //
 // CMUX_BROWSER_TESTS=1 bun test test/agent-pane-jump-latest-centered.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -60,7 +60,7 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
       return {
         button: center(".acpmux-jump-latest"),
         composer: center(".acpmux-main > .acpmux-dock > .acpmux-composer > .acpmux-composer-box"),
-        shown: document.querySelector(".acpmux-jump-latest")?.hasAttribute("data-shown") ?? false,
+        shown: document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)")?.hasAttribute("data-shown") ?? false,
       };
     });
 
@@ -115,7 +115,7 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
     await page.evaluate(() => {
       document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 0;
     });
-    await page.locator(".acpmux-jump-latest[data-shown]").waitFor({ timeout: 10_000 });
+    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]").waitFor({ timeout: 10_000 });
     await settle(page);
     return page;
   };
@@ -156,6 +156,9 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
       browser = browsers.get(name)!;
       const page = await open(1600, { info: "closed" });
       try {
+        // A 1600px gutter holds the panel by default, so it floats and moves nothing (Leo, 2026-11-09);
+        // Push always makes it slide the column, the motion this case reads.
+        await sessionInfoPushAlways(page);
         await page.emulateMedia({ reducedMotion: "no-preference" });
         await page.evaluate(() => {
           const holder = window as unknown as { __centered?: number[][] };

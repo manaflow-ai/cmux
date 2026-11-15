@@ -28,6 +28,7 @@ on:
       - scripts/cmux-next/test-password-reveal-relay-cpp.sh
       - scripts/cmux-next/test-shim-switches-cpp.sh
       - scripts/cmux-next/test-auth-callback-policy-cpp.sh
+      - scripts/cmux-next/test-permission-prompt-policy-cpp.sh
       - scripts/cmux-next/test-local-file-handoff-cpp.sh
       - schemas/local-file-handoff/vectors.json
       - scripts/cmux-next/test-local-file-scope-cpp.sh
@@ -38,6 +39,7 @@ on:
       - scripts/cmux-next/test-shim-devtools-id-cpp.sh
       - scripts/cmux-next/test-shim-devtools-dock-cpp.sh
       - scripts/cmux-next/test-shim-devtools-ready-cpp.sh
+      - scripts/cmux-next/test-shim-devtools-call-target-cpp.sh
       - scripts/cmux-next/test-cmux-page-path-cpp.sh
       - scripts/cmux-next/test-chromium-host-wire-cpp.sh
       - scripts/cmux-next/test-shim-file-dialog-cpp.sh
@@ -55,6 +57,7 @@ on:
       - scripts/cmux-next/test-password-reveal-relay-cpp.sh
       - scripts/cmux-next/test-shim-switches-cpp.sh
       - scripts/cmux-next/test-auth-callback-policy-cpp.sh
+      - scripts/cmux-next/test-permission-prompt-policy-cpp.sh
       - scripts/cmux-next/test-local-file-handoff-cpp.sh
       - schemas/local-file-handoff/vectors.json
       - scripts/cmux-next/test-local-file-scope-cpp.sh
@@ -65,6 +68,7 @@ on:
       - scripts/cmux-next/test-shim-devtools-id-cpp.sh
       - scripts/cmux-next/test-shim-devtools-dock-cpp.sh
       - scripts/cmux-next/test-shim-devtools-ready-cpp.sh
+      - scripts/cmux-next/test-shim-devtools-call-target-cpp.sh
       - scripts/cmux-next/test-cmux-page-path-cpp.sh
       - scripts/cmux-next/test-chromium-host-wire-cpp.sh
       - scripts/cmux-next/test-shim-file-dialog-cpp.sh
@@ -106,6 +110,9 @@ jobs:
       - name: Sign-in session callbacks end only their own session
         if: ${{ !cancelled() }}
         run: ./scripts/cmux-next/test-auth-callback-policy-cpp.sh
+      - name: A notification request is refused at once, never left pending
+        if: ${{ !cancelled() }}
+        run: ./scripts/cmux-next/test-permission-prompt-policy-cpp.sh
       - name: Local file handoff (shared vectors)
         if: ${{ !cancelled() }}
         run: ./scripts/cmux-next/test-local-file-handoff-cpp.sh
@@ -127,6 +134,9 @@ jobs:
       - name: DevTools shows only after its frontend reported loadCompleted
         if: ${{ !cancelled() }}
         run: ./scripts/cmux-next/test-shim-devtools-ready-cpp.sh
+      - name: A DevTools call naming a docked frontend reaches it
+        if: ${{ !cancelled() }}
+        run: ./scripts/cmux-next/test-shim-devtools-call-target-cpp.sh
       - name: cmux-page:// paths, MIME types and ids
         if: ${{ !cancelled() }}
         run: ./scripts/cmux-next/test-cmux-page-path-cpp.sh

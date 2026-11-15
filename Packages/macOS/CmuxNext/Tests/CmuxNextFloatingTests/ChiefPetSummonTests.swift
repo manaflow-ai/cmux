@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextFloating
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 @MainActor @Suite(.serialized) struct ChiefPetSummonTests {
     static func controller() -> ChiefPetController {
         let name = "ChiefPetSummonTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
+        let defaults = UserDefaults(testSuiteName: name)!
         defaults.removePersistentDomain(forName: name)
         return ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
                                   actions: ChiefPetActions(open: { _ in }, send: { _, _ in true }))

@@ -107,12 +107,16 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
         public var sha256: String
         public var kind: String
         public var alt: String
+        /// `after` or `before` when the highlight shows a before/after pair (release-notes.py
+        /// add_gallery_media); nil for a lone picture, and then left out of the JSON.
+        public var role: String?
 
-        public init(url: URL, sha256: String, kind: String, alt: String) {
+        public init(url: URL, sha256: String, kind: String, alt: String, role: String? = nil) {
             self.url = url
             self.sha256 = sha256
             self.kind = kind
             self.alt = alt
+            self.role = role
         }
     }
 

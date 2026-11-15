@@ -51,7 +51,8 @@ final class NativeNewTabRowView: NSView {
     func show(_ content: NativeNewTabRowContent, selected: Bool) {
         if content != self.content {
             self.content = content
-            symbol.image = NSImage(systemSymbolName: content.symbol, accessibilityDescription: nil)
+            symbol.image = NSImage.packOverride(forSymbol: content.symbol, pointSize: NSFont.systemFontSize)
+                ?? NSImage(systemSymbolName: content.symbol, accessibilityDescription: nil)
             title.stringValue = content.title
             detail.stringValue = content.detail ?? ""
             detail.isHidden = content.detail == nil

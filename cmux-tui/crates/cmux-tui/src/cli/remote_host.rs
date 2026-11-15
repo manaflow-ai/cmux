@@ -37,11 +37,11 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         ["refresh"] => call("refresh", json!({})),
         ["request", permission] => match permission_name(permission) {
             Some(name) => call("request", json!({"permission": name})),
-            None => usage(),
+            None => usage(&global, args),
         },
         ["open-settings", permission] => match permission_name(permission) {
             Some(name) => call("open_settings", json!({"permission": name})),
-            None => usage(),
+            None => usage(&global, args),
         },
         ["restart", worker @ ("computer-use" | "screen-sharing")] => {
             call("restart", json!({"worker": worker, "force": false}))
@@ -64,13 +64,17 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
             print!("{HELP}");
             0
         }
-        _ => usage(),
+        _ => usage(&global, args),
     }
 }
 
-fn usage() -> i32 {
-    eprint!("{HELP}");
-    2
+fn usage(global: &GlobalArgs, args: &[String]) -> i32 {
+    super::scope_usage_failure(
+        global.output,
+        "remote-host",
+        &super::unknown_words("remote-host", args),
+        HELP,
+    )
 }
 
 fn permission_name(word: &str) -> Option<&'static str> {
@@ -145,6 +149,38 @@ pub(super) fn daemon_value(global: &GlobalArgs, request: &Value) -> Result<Value
 fn app(global: &GlobalArgs, params: Value) -> i32 {
     match super::mcp::agent_app(global, "remote.confirm", params, CONFIRM_TIMEOUT, None) {
         Ok(value) => super::wire::print_local_success(&value, global.output),
-        Err(error) => super::wire::print_local_error(&error, global.output, 1),
+        Err(error) => super::wire::print_local_error(&still_open(error), global.output, 1),
+    }
+}
+
+/// A confirmation past its wait, from the app (`timeout`) or this read: the
+/// dialog stays open in cmux and an Allow there still makes the change, so the
+/// error says that instead of "the cmux app did not answer".
+fn still_open(mut error: Value) -> Value {
+    let timed_out = error.get("code").and_then(Value::as_str) == Some("timeout")
+        || error.pointer("/details/timeout_seconds").is_some();
+    if timed_out && let Some(object) = error.as_object_mut() {
+        let message = crate::localization::catalog().app_control.remote_confirm_still_open;
+        object.insert("message".into(), Value::String(message.into()));
+    }
+    error
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::still_open;
+
+    #[test]
+    fn a_confirmation_past_its_wait_says_the_dialog_still_counts() {
+        let expected = crate::localization::catalog().app_control.remote_confirm_still_open;
+        let read = json!({"code": "app.transport", "message": "the cmux app did not answer", "details": {"timeout_seconds": 130}});
+        assert_eq!(still_open(read)["message"], expected);
+        let app =
+            json!({"code": "timeout", "message": "remote.confirm did not finish within 130000 ms"});
+        assert_eq!(still_open(app)["message"], expected);
+        let other = json!({"code": "app.unreachable", "message": "no app"});
+        assert_eq!(still_open(other.clone()), other);
     }
 }

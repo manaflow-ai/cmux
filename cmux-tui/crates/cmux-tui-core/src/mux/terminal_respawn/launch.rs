@@ -71,7 +71,7 @@ impl Mux {
             }
             match registry.terminal_exit_snapshot(public_id) {
                 Ok(Some(snapshot))
-                    if plan.old_incarnation.as_deref() == Some(snapshot.generation.as_str()) =>
+                    if plan.screen_incarnation.as_deref() == Some(snapshot.generation.as_str()) =>
                 {
                     return Some(TerminalReplay {
                         cols: snapshot.cols,

@@ -23,12 +23,18 @@ struct TabClosingModeHit {
     /// elsewhere than a neighbor without one (#36837).
     func tab(at point: CGPoint, in strip: TabStripView) -> TabID? {
         guard let anchorY, point.x >= 0, point.x <= strip.tabsClip.bounds.width,
-              abs(point.y - anchorY) <= strip.metrics.closeButtonSize / 2 + 2,
+              abs(point.y - anchorY) <= Self.slack(strip.metrics) + strip.metrics.closeButtonSize / 2,
               let hit = Self.laidOut(strip).first(where: { $0.frame.minX <= point.x && point.x < $0.frame.maxX }),
               let item = strip.model.tab(hit.id), !item.isPinned, item.isClosable,
               let span = Self.hoveredCloseSpan(of: item, at: hit.frame, in: strip),
-              span.lowerBound - 2 <= point.x, point.x <= span.upperBound + 2 else { return nil }
+              span.lowerBound - Self.slack(strip.metrics) <= point.x, point.x <= span.upperBound + Self.slack(strip.metrics) else { return nil }
         return hit.id
+    }
+
+    /// The slack around the x a click still closes in: the x's hit rect beyond its square (``TabStripMetrics/closeHitRect(_:)``).
+    static func slack(_ m: TabStripMetrics) -> CGFloat {
+        let side = m.closeButtonSize
+        return (m.closeHitRect(CGRect(x: 0, y: 0, width: side, height: side)).width - side) / 2
     }
 
     /// Where tab `item`, laid out at clip frame `frame`, draws its x across while hovered (clip x, the

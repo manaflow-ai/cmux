@@ -13,7 +13,7 @@ enum TaskManagerHandlers {
         })
         registry.bind("taskManager.killProcess", run: { invocation in
             let text = invocation["process"]?.stringValue
-            try services.taskManager.kill(services.taskManager.process(text))
+            try services.taskManager.kill(services.taskManager.hub.process(text))
         })
     }
 }

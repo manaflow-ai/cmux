@@ -29,6 +29,28 @@ import Testing
         #expect(received == (0..<1000).map(String.init))
     }
 
+    /// `send` queues the line on the feed and returns: a hostd that is not reading (here for a second)
+    /// never holds the caller, which is the supervisor on the main actor. The line still arrives whole.
+    @Test(.timeLimit(.minutes(1))) func sendNeverWaitsForHostdToRead() async throws {
+        let directory = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let script = try Self.script(in: directory, body: """
+        echo ready
+        sleep 1
+        head -c 1048577 | wc -c
+        """)
+        let child = MobileHostProcess()
+        try child.start(MobileHostTests.launch(executable: script), environment: [:], log: nil)
+        defer { child.stop() }
+        var lines = child.lines.makeAsyncIterator()
+        #expect(await lines.next() == "ready")
+        let clock = ContinuousClock()
+        let start = clock.now
+        #expect(child.send(Data(repeating: 0x61, count: 1_024 * 1_024) + Data("\n".utf8)))
+        #expect(clock.now - start < .milliseconds(250))
+        #expect(await lines.next()?.trimmingCharacters(in: .whitespaces) == "1048577")
+    }
+
     /// The first token is held while hostd asks for it again and sends a pairing
     /// request. The request must arrive without a second token lookup or a wait.
     @Test(.timeLimit(.minutes(1))) func startupTokenRequestDoesNotRaceOrHoldPairing() async throws {

@@ -104,8 +104,8 @@ export function themeTokens(input) {
   const bg = input.background;
   const fg = input.foreground;
   const isDark = luminance(bg) < luminance(fg);
-  const pressed = withAlpha(fg, isDark ? 0.14 : 0.11);
-  const selection = withAlpha(fg, isDark ? 0.1 : 0.08);
+  const pressed = withAlpha(fg, isDark ? 0.12 : 0.1);
+  const selection = withAlpha(fg, isDark ? 0.08 : 0.06);
   // The neutral pressed fill is always the stronger row fill.
   const worstSurface = composited(pressed, bg);
   // In a see-through window the quieter inks also hold over the tint on the worst desktop.
@@ -126,7 +126,7 @@ export function themeTokens(input) {
     textPrimary: primary,
     textSecondary: secondary,
     textTertiary: tertiary,
-    hoverFill: withAlpha(fg, isDark ? 0.06 : 0.05),
+    hoverFill: withAlpha(fg, isDark ? 0.05 : 0.04),
     selectionFill: selection,
     separator: withAlpha(fg, isDark ? 0.08 : 0.07),
     paneBorder: withAlpha(fg, isDark ? 0.07 : 0.09),

@@ -10,23 +10,39 @@ public struct HangLoad: Sendable, Equatable {
     public var pageIns: UInt64?
     /// The process's page faults over the same span; nil when unknown.
     public var faults: UInt64?
+    /// The host's load when last measured; nil when unknown (``StallVerdict``).
+    public var host: HostLoad?
+    /// The main thread was parked in a nested run loop taking no input (``StallVerdict/waiting``).
+    public var idleWait: Bool
 
     /// - Parameters:
     ///   - mainThreadCPU: CPU the main thread used since the stall began.
     ///   - pageIns: The process's page-ins since the stall's first sample.
     ///   - faults: The process's page faults since the stall's first sample.
-    public init(mainThreadCPU: Duration? = nil, pageIns: UInt64? = nil, faults: UInt64? = nil) {
+    ///   - host: The host's load averages and core count.
+    ///   - idleWait: The main thread sat in a nested run loop.
+    public init(mainThreadCPU: Duration? = nil, pageIns: UInt64? = nil, faults: UInt64? = nil, host: HostLoad? = nil,
+                idleWait: Bool = false) {
         self.mainThreadCPU = mainThreadCPU
         self.pageIns = pageIns
         self.faults = faults
+        self.host = host
+        self.idleWait = idleWait
+    }
+
+    /// Who held up a hang `duration` long (``StallVerdict/classify(wall:mainThreadCPU:host:idleWait:)``).
+    public func verdict(duration: Duration) -> StallVerdict {
+        StallVerdict.classify(wall: duration, mainThreadCPU: mainThreadCPU, host: host, idleWait: idleWait)
     }
 }
 
 extension HangLoad {
-    /// The hang file's two load lines for a hang `duration` long:
+    /// The hang file's load lines for a hang `duration` long:
     ///
     /// ```
+    /// verdict: starved (the Mac starved the main thread of CPU (...))
     /// main thread cpu: 0.100 s of 2.000 s (5%): blocked (waited: page-ins, WindowServer, a lock or another process)
+    /// host load: 205.1 / 172.0 / 144.3 on 10 cores (overloaded)
     /// page-ins: 812, faults: 30500 (this process, since the stall's first sample)
     /// ```
     ///
@@ -43,7 +59,8 @@ extension HangLoad {
         }
         let pageLine = pageIns.map { "page-ins: \($0), faults: \(faults.map(String.init) ?? "?") (this process, since the stall's first sample)" }
             ?? "page-ins: unknown"
-        return [cpuLine, pageLine]
+        let who = verdict(duration: duration)
+        return ["verdict: \(who.rawValue) (\(who.explanation))", cpuLine, host?.line ?? "host load: unknown", pageLine]
     }
 }
 

@@ -167,3 +167,5 @@ impl Default for Config {
 mod cmux_journal_tests;
 #[cfg(test)]
 mod crash_sim_tests;
+#[cfg(test)]
+mod page_charge_tests;

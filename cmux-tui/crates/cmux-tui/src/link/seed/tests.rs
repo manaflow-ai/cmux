@@ -291,6 +291,10 @@ fn a_seed_plan_never_writes_skipped_secret_blobs_into_local_git_objects() {
         ("config/colon:name.key", "FAKE_KEY_UNTRACKED\n"),
         ("secrets/id_rsa", "FAKE_SSH_KEY_UNTRACKED\n"),
         (".npmrc", "//registry.example.invalid/:_authToken=FAKE_ONLY\n"),
+        // A plain copy's credential folders and files, by the same rule.
+        (".aws/credentials", "[default]\naws_secret_access_key=FAKE_ONLY\n"),
+        (".config/gh/hosts.yml", "github.com:\n  oauth_token: FAKE_ONLY\n"),
+        (".cargo/credentials.toml", "[registry]\ntoken = \"FAKE_ONLY\"\n"),
     ];
     for &(path, contents) in &excluded {
         write(&work.join(path), contents);

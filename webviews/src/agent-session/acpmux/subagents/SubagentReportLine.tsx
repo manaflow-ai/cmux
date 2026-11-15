@@ -10,19 +10,20 @@
 // (BackgroundTurnLine.tsx). How it draws is an experiment (reportRow.experiment.ts).
 import { useContext, useId } from "react";
 import { AgentTag } from "../conversation/AgentTag";
-import { Markdown } from "../conversation/Markdown";
 import { ChevronRight } from "../conversation/icons";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 
-import { SubagentViewsContext } from "./subagentGroupModel";
+import { SubagentNavContext, SubagentPaneContext } from "./subagentGroupModel";
 import { AgentIdentity } from "./AgentIdentity";
 import { SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { agentTone } from "./agentTones";
 import { type ReportRowLook } from "./reportRow.experiment";
 
 import "./SubagentReportLine.css";
-import { reportText, reportSender } from "./subagentReportLineModel";
+import { reportFallback, reportSender } from "./subagentReportLineModel";
+import { useWholeReport } from "./wholeReport";
+import { WholeReportBody } from "./WholeReportBody";
 export function SubagentReportLine({
   row,
   look,
@@ -37,9 +38,12 @@ export function SubagentReportLine({
   const t = useT();
   const id = useId();
   const name = reportSender(t, row);
-  const readView = useContext(SubagentViewsContext);
+  const nav = useContext(SubagentNavContext);
+  const pane = useContext(SubagentPaneContext);
+  const agent = row.subagentReport;
   // Read only while open: a closed line never walks the subagent's transcript.
-  const text = expanded ? reportText(row, row.subagentReport && readView?.(row.subagentReport.id)) : undefined;
+  const report = useWholeReport(agent, expanded, expanded ? reportFallback(row) : undefined);
+  const openView = agent && (pane ?? nav) ? () => (pane ?? nav)!(agent.id) : undefined;
   const [before, after = ""] = t("subagents.report.from", { name: "\u0000" }).split("\u0000");
   const label = t("subagents.report.from", { name });
   const failed = row.background?.cause?.weight === "failure";
@@ -81,9 +85,9 @@ export function SubagentReportLine({
           <ChevronRight size={12} className={`cv-rotor${expanded ? " is-open" : ""}`} />
         </span>
       </button>
-      {expanded && text && (
-        <div id={id} className="cv-subagent-report__body selectable">
-          <Markdown>{text}</Markdown>
+      {expanded && report && (
+        <div id={id} className="cv-subagent-report__body">
+          <WholeReportBody report={report} className="selectable" onOpenView={openView} />
         </div>
       )}
     </div>
