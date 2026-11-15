@@ -107,6 +107,33 @@ struct AppWebPaneTests {
         #expect(sent["params"] == ["all": true])
     }
 
+    /// next-review's BLOCK at b2afa11 (P1-F1, blocks:security): a page's call with a 17 MiB param
+    /// made a control request over the socket's 16 MiB line limit, which closed the app's shared
+    /// daemon connection before the daemon's own 256 KiB bridge check ran. A message over the
+    /// bridge limit is refused here, before it is sent; one at the limit still goes.
+    @Test func anOversizedPageMessageNeverReachesTheDaemon() async throws {
+        let transport = Transport()
+        transport.answers["workspace.list"] = ["ok": true, "value": ["workspaces": []]]
+        let provider = Self.provider(transport)
+        let huge = String(repeating: "x", count: 17 * 1024 * 1024)
+        do {
+            _ = try await provider.call("local.web-pane.workspace.list", params: ["pad": .string(huge)],
+                                        context: PageCallContext(page: "local.web-pane"))
+            Issue.record("an oversized message was sent")
+        } catch let error as PageError {
+            #expect(error.code == "bridge.message_too_large")
+        }
+        let over = String(repeating: "y", count: 256 * 1024)
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("local.web-pane.workspace.list", params: ["pad": .string(over)],
+                                        context: PageCallContext(page: "local.web-pane"))
+        }
+        #expect(transport.pageCalls.isEmpty)
+        _ = try await provider.call("local.web-pane.workspace.list", params: ["pad": .string(String(repeating: "z", count: 1024))],
+                                    context: PageCallContext(page: "local.web-pane"))
+        #expect(transport.pageCalls.count == 1)
+    }
+
     /// A call outside the app's scopes is refused by the daemon, and the page gets that refusal
     /// as its call's error; nothing on this side lets it through.
     @Test func theDaemonsRefusalReachesThePage() async throws {
