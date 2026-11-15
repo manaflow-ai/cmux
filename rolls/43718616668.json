@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43718616668",
+  "recorded_at": "2026-11-15T13:33:39Z",
+  "reason": "cmux-tui a01de096d93b changes the image's cmux-tui (pinned b3f54727d579)",
+  "dry_run": false,
+  "cmux_tui": "a01de096d93b897ac71fc404f1958284552ccbd6",
+  "fixes": [
+    {
+      "sha": "a01de096d93b897ac71fc404f1958284552ccbd6",
+      "mergedAt": "2026-11-15T05:06:31-08:00",
+      "subject": "Daemon start: check the registry foreign keys once and read each topology table once (#43697)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-15T13:33:39Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
