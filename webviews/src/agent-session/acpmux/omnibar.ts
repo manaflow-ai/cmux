@@ -192,13 +192,33 @@ export function matchScore(query: string, ...texts: (string | undefined)[]): num
   if (!needle) return 0;
   let best = 0;
   for (const text of texts) {
-    const hay = text?.toLowerCase();
-    if (!hay) continue;
-    const at = hay.indexOf(needle);
-    if (at === 0) return 3;
-    if (at > 0) best = Math.max(best, /[\s/._:@#-]/.test(hay[at - 1]!) ? 2 : 1);
+    best = Math.max(best, foldedScore(needle, text?.toLowerCase()));
+    if (best === 3) return 3;
   }
   return best;
+}
+
+/// ``matchScore`` for a needle and a text both already trimmed and lowercased: a list folded once
+/// (``foldedTexts``) scores each key without lowercasing every entry again.
+// perf-hot: 1ms new-tab-omnibar-keystroke
+export function foldedScore(needle: string, hay: string | undefined): number {
+  if (!hay || !needle) return 0;
+  const at = hay.indexOf(needle);
+  if (at === 0) return 3;
+  if (at < 0) return 0;
+  return /[\s/._:@#-]/.test(hay[at - 1]!) ? 2 : 1;
+}
+
+const folded = new WeakMap<object, unknown>();
+
+/// `fold(list)` once per list: the omnibar's lists are new objects only when the host sends new
+/// ones, so every key between reads the same folded copy.
+export function foldedTexts<T extends object, F>(list: T, fold: (list: T) => F): F {
+  const known = folded.get(list) as F | undefined;
+  if (known !== undefined) return known;
+  const made = fold(list);
+  folded.set(list, made);
+  return made;
 }
 
 /// The rows under the bar. Empty: where you can go (open tabs and workspaces first),
