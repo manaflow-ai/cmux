@@ -105,7 +105,7 @@ fn build_all(dir: &Path, out: &Path) -> Result<(), Failure> {
 fn build_surfaces(dir: &Path, out: &Path) -> Result<(), Failure> {
     std::fs::create_dir_all(out).map_err(|error| failure(format!("{}: {error}", out.display())))?;
     let mut started = Vec::new();
-    for ((builder, extra), (prefix, surface)) in BUILDERS.iter().zip(SURFACES.iter()) {
+    for ((builder, extra), (prefix, bundle)) in BUILDERS.iter().zip(SURFACES.iter()) {
         // A surface is a nested path (…/Resources/agent-pane/): its log sits in
         // `out` itself, and its folder's parents are made first.
         let target = out.join(prefix.trim_end_matches('/'));
@@ -113,7 +113,7 @@ fn build_surfaces(dir: &Path, out: &Path) -> Result<(), Failure> {
             std::fs::create_dir_all(parent)
                 .map_err(|error| failure(format!("{}: {error}", parent.display())))?;
         }
-        let log = out.join(format!(".{surface}.log"));
+        let log = out.join(format!(".{bundle}.log"));
         let file = std::fs::File::create(&log)
             .map_err(|error| failure(format!("{}: {error}", log.display())))?;
         let copy =
@@ -463,7 +463,14 @@ fn watch_folder(
                     continue;
                 }
                 let old = std::mem::replace(&mut layer, next.clone());
-                match customize.library_use_code(next.clone(), Vec::new(), origin, now_ms()) {
+                let applied =
+                    customize.library_use_code(next.clone(), Vec::new(), origin, now_ms());
+                // The replaced layer goes before the line that says so: a watch
+                // stopped right after it keeps no stale layer.
+                if applied.is_ok() && !old.web.is_empty() && old.web != next.web {
+                    prune(customize, &old.web);
+                }
+                match applied {
                     Ok(_) if next.has_web() => println!(
                         "  built in {seconds:.0} s and applied ({}); open pages reload",
                         pr::short(&next.web)
@@ -473,9 +480,6 @@ fn watch_folder(
                         next.needs_build.join("; ")
                     ),
                     Err(error) => println!("  built in {seconds:.0} s; not applied: {error}"),
-                }
-                if !old.web.is_empty() && old.web != next.web {
-                    prune(customize, &old.web);
                 }
             }
             Err(error) => {
