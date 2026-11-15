@@ -2121,6 +2121,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/machine_routes",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_route_probe",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/machine_enroll",
       "params": true,
       "result": true

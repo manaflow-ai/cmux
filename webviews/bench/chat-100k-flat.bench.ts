@@ -21,6 +21,10 @@
 // of noise.
 // HIDDEN=0 keeps every chat shown. PROFILE=DIR writes CDP CPU profiles of the long x1 and grown x1 idle and streaming
 // windows.
+// WAKES=1 counts what wakes the renderers in each idle window, per second: the renderer threads' context switches
+// (/proc/PID/task/*/status), and on every page the timer and interval callbacks, animation frames, MessagePort posts
+// (React's scheduler) and DOM mutations. CASES=running runs only empty x1 and running x1, for an A/B of the running
+// chat (bench/chat-running-idle-ab.sh).
 // GROW_OPEN=1 grows the grown chats as one turn that never ends (a coordinator's: steers, replies and tool calls into a
 // running turn, ten records a grown row pair, no turn_result), which a chat that sheds only at a turn's end never
 // sheds (direct.ts `shedOlderHeld`, `midTurnCut`). For the case cmux#43436 left out.
@@ -40,6 +44,8 @@ import type { CDPSession, Page } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { chromium } from "./browsers";
 import { newestPage } from "./daemonPage";
+import { describePaintWindow, paintWindow } from "./paintWindow";
+import { sourceMapper } from "./sourceMapper";
 import { perfRow } from "./perfRow";
 import { settledAt } from "./stability";
 
@@ -55,6 +61,15 @@ const GROW_BATCH = Number(process.env.GROW_BATCH ?? 400);
 const REPEAT = Math.max(1, Number(process.env.REPEAT ?? 3));
 const CASES = process.env.CASES ?? "all";
 const RESIZE = process.env.RESIZE !== "0";
+// Paint (x1 launches; PAINT=0 skips it): IDLE_S seconds of nothing with a turn open, one command in it still running
+// and no record arriving (in empty x1 and long x1 a turn opened for it and closed after; running x1's own turn, a
+// command started in it and finished after), read twice: the renderers' CPU, then a
+// trace of what the shown page draws (paintWindow.ts: frames, main-thread frames and paints, the running animations
+// and what each animates). A chat with a turn open moves only its running marks, on the compositor. Beside it, the
+// same trace before the turn opens and while the open turn takes one reply chunk a second. Rows per window
+// (idle_closed, idle_open, trickle_open): frames_per_s, main_frames_per_s, paints_per_s, main_ms_per_s, and
+// idle_open_cpu_pct; none is in ratio_max.
+const PAINT = process.env.PAINT !== "0";
 const RESIZE_WIDTHS = [700, 620, 540, 460];
 // CPU settle: once a launch's chats are loaded or grown, its renderers are sampled every second until two samples in
 // a row are at most SETTLE_PCT of a core (a 1 s sample counts 10 ms ticks, so a 1 % threshold would be one tick of
@@ -64,11 +79,13 @@ const SETTLE_PCT = Number(process.env.SETTLE_PCT ?? 2);
 const SETTLE_MAX_S = Number(process.env.SETTLE_MAX_S ?? 60);
 // A grown-many run's rows carry their own prefix: the perf cron stores them from a part of their own.
 const ROW = CASES === "grown-many" ? "chat_100k_flat.grown_many" : "chat_100k_flat";
-if (!["all", "main", "grown-many"].includes(CASES)) {
-  console.error("chat-100k-flat: CASES is all, main or grown-many");
+if (!["all", "main", "grown-many", "running"].includes(CASES)) {
+  console.error("chat-100k-flat: CASES is all, main, grown-many or running");
   process.exit(2);
 }
 const GROW_OPEN = process.env.GROW_OPEN === "1";
+const WAKES = process.env.WAKES === "1";
+type Wakes = { timers: number; raf: number; posts: number; mutations: number };
 if (!Number.isInteger(ROWS) || ROWS < 2 || !Number.isInteger(CHATS) || CHATS < 2) {
   console.error("usage: bun bench/chat-100k-flat.bench.ts [rows=100000] [chats=20]");
   process.exit(2);
@@ -161,9 +178,11 @@ try {
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true },
+    build: { outDir: out, emptyOutDir: true, sourcemap: PAINT },
     logLevel: "error",
   });
+  // The paint windows name the sites that ask for frames by their source (the build's maps; PAINT above).
+  const sources = PAINT ? sourceMapper(out) : undefined;
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -291,6 +310,39 @@ try {
     const root = server.process().pid!;
     const browser = await chromium.connect(server.wsEndpoint());
     const context = await browser.newContext({ viewport: { width: 1200, height: 800 } });
+    if (WAKES)
+      await context.addInitScript(() => {
+        const wakes = { timers: 0, raf: 0, posts: 0, mutations: 0 };
+        (globalThis as unknown as { __benchWakes: typeof wakes }).__benchWakes = wakes;
+        type Callback = (...args: unknown[]) => unknown;
+        const counted = (fn: unknown) =>
+          typeof fn === "function"
+            ? (...args: unknown[]) => {
+                wakes.timers += 1;
+                return (fn as Callback)(...args);
+              }
+            : fn;
+        const timeout = globalThis.setTimeout;
+        const interval = globalThis.setInterval;
+        const frame = globalThis.requestAnimationFrame;
+        const post = MessagePort.prototype.postMessage;
+        globalThis.setTimeout = ((fn: unknown, ...rest: unknown[]) =>
+          (timeout as Callback)(counted(fn), ...rest)) as typeof setTimeout;
+        globalThis.setInterval = ((fn: unknown, ...rest: unknown[]) =>
+          (interval as Callback)(counted(fn), ...rest)) as typeof setInterval;
+        globalThis.requestAnimationFrame = (fn: FrameRequestCallback) =>
+          frame((time) => {
+            wakes.raf += 1;
+            fn(time);
+          });
+        MessagePort.prototype.postMessage = function (this: MessagePort, ...args: unknown[]) {
+          wakes.posts += 1;
+          return (post as Callback).apply(this, args) as void;
+        };
+        new MutationObserver((records) => {
+          wakes.mutations += records.length;
+        }).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+      });
     try {
       const origin = `http://127.0.0.1:${statics.port}`;
       const urlFor = (index: number) =>
@@ -484,12 +536,55 @@ try {
       // (single windows swung the worst ratio 3.1x to 15.8x between runs of the same commit). Only the first window of
       // each kind is profiled.
       const idleWindows: number[] = [];
+      // WAKES=1: what woke the renderers in each idle window, per second (a sum over every page).
+      const switches = () =>
+        renderers(root).reduce((sum, pid) => {
+          let tasks: string[] = [];
+          try {
+            tasks = fs.readdirSync(`/proc/${pid}/task`);
+          } catch {
+            return sum;
+          }
+          for (const task of tasks) {
+            try {
+              const status = fs.readFileSync(`/proc/${pid}/task/${task}/status`, "utf8");
+              sum += Number(/^voluntary_ctxt_switches:\s+(\d+)/m.exec(status)?.[1] ?? 0);
+              sum += Number(/^nonvoluntary_ctxt_switches:\s+(\d+)/m.exec(status)?.[1] ?? 0);
+            } catch {
+              // Gone.
+            }
+          }
+          return sum;
+        }, 0);
+      const pageWakes = async (): Promise<Wakes> => {
+        const total: Wakes = { timers: 0, raf: 0, posts: 0, mutations: 0 };
+        for (const { page } of pages) {
+          const one = await page.evaluate(
+            () => (globalThis as unknown as { __benchWakes?: Wakes }).__benchWakes ?? null,
+          );
+          if (one) for (const key of Object.keys(total) as (keyof Wakes)[]) total[key] += one[key];
+        }
+        return total;
+      };
+      const idleWakes: (Wakes & { switches: number })[] = [];
       for (let round = 0; round < REPEAT; round++) {
         if (profile && round === 0) {
           await shownProfiler.send("Profiler.enable");
           await shownProfiler.send("Profiler.start");
         }
+        const wakesFrom = WAKES ? { ...(await pageWakes()), switches: switches() } : undefined;
         idleWindows.push(await window(IDLE_S));
+        if (wakesFrom) {
+          const switchesTo = switches();
+          const to = await pageWakes();
+          idleWakes.push({
+            switches: (switchesTo - wakesFrom.switches) / IDLE_S,
+            timers: (to.timers - wakesFrom.timers) / IDLE_S,
+            raf: (to.raf - wakesFrom.raf) / IDLE_S,
+            posts: (to.posts - wakesFrom.posts) / IDLE_S,
+            mutations: (to.mutations - wakesFrom.mutations) / IDLE_S,
+          });
+        }
         if (profile && round === 0) {
           const { profile: cpu } = (await shownProfiler.send("Profiler.stop")) as { profile: unknown };
           fs.mkdirSync(profile, { recursive: true });
@@ -497,6 +592,82 @@ try {
         }
       }
       const idlePct = median(idleWindows);
+      for (const [round, wakes] of idleWakes.entries())
+        console.log(
+          `  ${name}: idle window ${round + 1} ${idleWindows[round]!.toFixed(2)} % cpu; wakes/s: ` +
+            `switches ${wakes.switches.toFixed(1)}, timers ${wakes.timers.toFixed(1)}, raf ${wakes.raf.toFixed(1)}, ` +
+            `posts ${wakes.posts.toFixed(1)}, mutations ${wakes.mutations.toFixed(1)}`,
+        );
+      // Idle with a turn open (PAINT, above): the shown chat's running marks are all that may move.
+      if (PAINT && count === 1) {
+        const { page, cdp } = pages[0]!;
+        const id = sessionId(0);
+        // Each window's rows (`${window}_frames_per_s`, ...): numbers of their own, never in ratio_max.
+        const rows = (prefix: string, paint: Awaited<ReturnType<typeof paintWindow>>) => {
+          const row = (key: string, value: number, unit: string) =>
+            perfRow({ name: `${ROW}.${name}.${prefix}_${key}`, p50: value, p95: value, unit });
+          row("frames_per_s", paint.framesPerS, "count");
+          row("main_frames_per_s", paint.mainFramesPerS, "count");
+          row("paints_per_s", paint.paintsPerS, "count");
+          row("main_ms_per_s", paint.taskMsPerS, "ms");
+        };
+        if (runGrow === 0) {
+          const closed = await paintWindow(page, cdp, IDLE_S, sources);
+          console.log(describePaintWindow(`${name} idle, no turn`, closed));
+          rows("idle_closed", closed);
+          emit(id, "mux", "user_message", { text: "Wait on the lanes" });
+          emit(id, "mux", "turn_started", {});
+          setStatus(id, "running");
+        }
+        // The open turn waits on one command that runs on (a coordinator's `glaeda-gh wait`), as the app's does.
+        const said = (u: Record<string, unknown>) =>
+          emit(id, "in", String(u.sessionUpdate), {
+            method: "session/update",
+            params: { sessionId: "agent-1", update: u },
+          });
+        said({
+          sessionUpdate: "tool_call",
+          toolCallId: "paint-wait",
+          title: "glaeda-gh wait pr 1",
+          kind: "execute",
+          status: "in_progress",
+          rawInput: { command: "glaeda-gh wait pr 1" },
+        });
+        // fixed-wait: the opened turn's marks mount and its records apply.
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const openPct = await window(IDLE_S);
+        const paint = await paintWindow(page, cdp, IDLE_S, sources);
+        console.log(describePaintWindow(`${name} idle, turn open, ${openPct.toFixed(2)} % CPU`, paint));
+        perfRow({ name: `${ROW}.${name}.idle_open_cpu_pct`, p50: openPct, p95: openPct, unit: "pct", clock: "cpu" });
+        rows("idle_open", paint);
+        // A trickle: the open turn takes one reply chunk a second (a coordinator's slow stream), so what one record
+        // costs in frames and paints shows beside the window above.
+        let trickling = true;
+        const trickle = (async () => {
+          for (let n = 0; trickling; n++) {
+            said({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `still waiting ${n}. ` } });
+            // fixed-wait: the trickle's own pacing.
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
+        })();
+        const trickled = await paintWindow(page, cdp, IDLE_S, sources);
+        trickling = false;
+        await trickle;
+        console.log(describePaintWindow(`${name} turn open, a chunk a second`, trickled));
+        rows("trickle_open", trickled);
+        said({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "paint-wait",
+          status: "completed",
+          content: [{ type: "content", content: { type: "text", text: "green" } }],
+        });
+        if (runGrow === 0) {
+          emit(id, "mux", "turn_result", { status: "completed" });
+          setStatus(id, "ready");
+        }
+        // fixed-wait: the closed command's (and turn's) marks unmount before the streaming windows.
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
       // Streaming: the shown chat (the newest) gets a reply of TPS chunks a second for STREAM_S seconds, REPEAT times.
       // In a running launch the reply goes into the open turn; otherwise each round is a turn of its own.
       const shown = sessionId(count - 1);
@@ -614,17 +785,20 @@ try {
   const pairs: [string, Launch, Launch][] = [];
   if (CASES !== "grown-many") {
     const emptyOne = await runLaunch("empty_x1", small, 1);
-    const longOne = await runLaunch("long_x1", long, 1, { profile: PROFILE });
-    const grownOne = await runLaunch("grown_x1", small, 1, { profile: PROFILE, grow: long.turns });
-    pairs.push(["long_x1", longOne, emptyOne], ["grown_x1", grownOne, emptyOne]);
+    if (CASES !== "running") {
+      const longOne = await runLaunch("long_x1", long, 1, { profile: PROFILE });
+      const grownOne = await runLaunch("grown_x1", small, 1, { profile: PROFILE, grow: long.turns });
+      pairs.push(["long_x1", longOne, emptyOne], ["grown_x1", grownOne, emptyOne]);
+    }
     // Running: one chat whose single open turn takes about ROWS records live (a chunk, a tool call and its update per
     // step), the coordinator chat that never finishes its turn.
     const runningOne = await runLaunch("running_x1", small, 1, { profile: PROFILE, runGrow: Math.ceil(ROWS / 3) });
     pairs.push(["running_x1", runningOne, emptyOne]);
   }
-  const emptyMany = await runLaunch(`empty_x${CHATS}`, small, CHATS);
-  if (CASES !== "grown-many") pairs.push([`long_x${CHATS}`, await runLaunch(`long_x${CHATS}`, long, CHATS), emptyMany]);
-  if (CASES !== "main")
+  const emptyMany = CASES === "running" ? undefined : await runLaunch(`empty_x${CHATS}`, small, CHATS);
+  if (emptyMany && CASES !== "grown-many")
+    pairs.push([`long_x${CHATS}`, await runLaunch(`long_x${CHATS}`, long, CHATS), emptyMany]);
+  if (emptyMany && CASES !== "main")
     pairs.push([`grown_x${CHATS}`, await runLaunch(`grown_x${CHATS}`, small, CHATS, { grow: long.turns }), emptyMany]);
   const cpuRatio = (a: number, b: number) => Math.max(a, CPU_FLOOR_PCT) / Math.max(b, CPU_FLOOR_PCT);
   const ratios: [string, number][] = [];

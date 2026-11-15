@@ -132,6 +132,10 @@ path = "tests/test_cmux_next_dev_release_import_out.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_dispatch_heavy_compiles.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_fast_gates.py"
 lane = "linux-guard"
 
@@ -262,6 +266,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_prepush_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_prepush_main_twin.py"
 lane = "linux-guard"
 
 [[test]]
@@ -418,6 +426,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_superseded_push.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_team_sign.py"
 lane = "linux-guard"
 
 [[test]]

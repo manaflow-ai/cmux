@@ -14,6 +14,14 @@ branch, not with the last FFI tag: runs 37551889292 and 38682698310 had the
 last tag's workflow tree, minted contents:write only and got HTTP 403. Only the
 release create uses that token.
 
+The xcframework holds one dynamic library, `libcmux_app_ffi.dylib` (install name
+`@rpath/libcmux_app_ffi.dylib`, ad hoc signed, with its dSYM). An app built
+against such a pin carries it at `Contents/Frameworks/libcmux_app_ffi.dylib`
+(Xcode embeds and signs a package's dynamic binary target), where the nightly's bundle signing signs
+it with the app, and `hot-apply.py` can swap a newer release in warm. The
+release also carries `libcmux_app_ffi-prelinked.a`, the same objects as one
+archive, for the size and parity checks.
+
 ## The pin, after a publish
 
 The run's `repin` job first pins its release straight on `feat-cmux-next`

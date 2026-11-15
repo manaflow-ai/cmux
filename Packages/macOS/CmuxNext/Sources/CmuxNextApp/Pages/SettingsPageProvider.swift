@@ -45,6 +45,8 @@ final class SettingsPageProvider: PageProvider {
     /// Settings > Privacy > Shared Links (``SettingsSharedLinks``): this Mac's chat shares, and Revoke.
     var sharesList: (@MainActor () async throws -> JSONValue)?
     var sharesRevoke: (@MainActor (String) async throws -> JSONValue)?
+    /// Settings > Keys (CmuxNextKeys `SettingsKeys`): its `cmux.settings.keys.*` ops and stream; nil in tests without an app.
+    var keys: (any PageProvider)?
     var devicesWatching: (@MainActor (Bool) -> Void)?
     /// Parts another package serves whole, by op (Agent integrations, try on); empty in tests without an app.
     var parts: [String: any PageProvider] = [:]
@@ -185,9 +187,9 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.devices.join_consent":
             guard let surface = params["surface"]?.stringValue, JoinConsentSurface(rawValue: surface) != nil,
                   let on = params["on"]?.boolValue else {
-                throw PageError.invalidParams("surface (screen or control) and on are required")
+                throw PageError.invalidParams("surface (screen, control or signedInMachines) and on are required")
             }
-            // SECURITY: turning one on lets the team's other machines see or control this Mac, so,
+            // SECURITY: turning one on lets the team's other machines (or the person's other Macs) see or control this Mac, so,
             // like Full access, only the person's own click or key in this page turns it on (spent
             // once), and acpmux then takes it only over a line proven as the person. Stricter than
             // Full access: the gesture must be the HID system's input (``PersonInputLedger``), so an
@@ -224,6 +226,8 @@ final class SettingsPageProvider: PageProvider {
             guard let id = params["share_id"]?.stringValue, !id.isEmpty else { throw PageError.invalidParams("share_id") }
             return try await Self.host(sharesRevoke, "shares")(id)
         case "cmux.settings.devices.run": return try await Self.host(devicesRun, "devices")(params)
+        case "cmux.settings.keys.list", "cmux.settings.keys.answer", "cmux.settings.keys.decline", "cmux.settings.keys.revoke":
+            return try await Self.host(keys, "keys").call(op, params: params, context: context)
         case "cmux.settings.theme.set":
             guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }
             guard let level = params["level"]?.stringValue else { throw PageError.invalidParams("level is required") }
@@ -353,6 +357,7 @@ final class SettingsPageProvider: PageProvider {
                 Task { @MainActor in watching?(false) }
             }
         }
+        if stream == "cmux.settings.keys.changed", let keys { return try await keys.subscribe(stream, filter: filter, context: context, onEvent: onEvent) }
         if stream == "cmux.settings.harnesses.changed", let harnessesState {
             return Self.watch(harnessesState, onEvent: onEvent)
         }

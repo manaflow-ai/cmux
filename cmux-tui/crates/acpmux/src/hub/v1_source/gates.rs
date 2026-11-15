@@ -430,6 +430,11 @@ fn v2_pr03b_catchup_peak_rss() {
         god.held_kib,
         small.held_kib
     );
+    // With no stretch ended both are (0, 0), and a growth of 0 would pass.
+    assert!(
+        last_n > quarter_n,
+        "god's growth check needs two stretches ended: a quarter of the way at {quarter_n}, the last at {last_n}"
+    );
     assert!(
         growth <= GOD_ANON_ALLOWANCE_KIB,
         "god's resident anonymous bytes grew {growth} KiB from stretch {quarter_n} to {last_n} \

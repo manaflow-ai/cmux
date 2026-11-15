@@ -165,6 +165,8 @@ public struct SettingsSchemaExport {
         // names, installed fonts, system sounds) or with its own shape (row-facts.json).
         row["validation"] = SettingsSchema.validationByKey[descriptor.id]
             ?? (row["kind"] as? String).flatMap { SettingsSchema.validationByKind[$0] } ?? SettingsSchema.defaultValidation
+        // An app id row carries the manifest's id pattern, so the web page checks the same rule.
+        if row["validation"] as? String == "domain:app_id" { row["pattern"] = SettingsSchema.appIDPattern }
         let samples = SettingsSchemaSamples.samples(row: row)
         row["accepts"] = samples.accept.filter(descriptor.accepts).map(foundation)
         row["refuses"] = samples.refuse.filter { !descriptor.accepts($0) }.map(foundation)

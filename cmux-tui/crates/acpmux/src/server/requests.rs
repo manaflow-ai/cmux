@@ -84,6 +84,20 @@ fn hold_attach_filter(params: &Value) -> Result<crate::hub::EventFilter, RpcErro
     crate::hub::EventFilter::parse(Some(&Value::Array(kinds.clone())))
 }
 
+/// Whether an `_acpmux/attach` opens the chat on someone's screen, so a hibernated agent wakes
+/// for it (`hub/idle.rs` `wake_for`, cause `click`): it says `visible: true`, or it says nothing
+/// and is no acpmux CLI (the app's pages say; cmux-tui's and the phone's opens say nothing and
+/// were always opens). An acpmux CLI that says nothing is a read (`session tail`, `wait
+/// --match`, a send's reply stream), not an open: on cmux NIGHTLY (2026-11-15) the tools that
+/// tail lanes every few minutes woke 11 idle Chief sub-sessions and about 20 other chats each
+/// pass, a Claude process each for two minutes. `acpmux attach` says `visible: true`.
+fn attach_shows(conn: &Conn, params: &Value) -> bool {
+    match params.get("visible") {
+        Some(Value::Bool(visible)) => *visible,
+        _ => conn.declared().is_none(),
+    }
+}
+
 /// A create's admission ask (`hub/admission.rs`): `_meta.acpmux.forceAdmit`
 /// (`acpmux new --force-admit`), and whether the person asks here (proven, or
 /// this host's app pane; a peer's `via: app` is its client's word, not proof).
@@ -216,7 +230,7 @@ pub(super) async fn handle_notification(
             if let Err(e) = hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params) {
                 return cancel_refused::tell(hub, conn, &sent, &e);
             }
-            let device = super::remote_guard::full_access_device(hub, conn, &params);
+            let device = super::remote_guard::sending_device(conn, &params);
             if conn.origin != Origin::Local
                 && let Err(e) = super::remote_guard::check(
                     hub,
@@ -710,7 +724,7 @@ async fn dispatch_brief(
     let task_session = session.clone();
     let task_via = params.pointer("/_meta/acpmux/via").cloned();
     let task_agent = row.get("from").and_then(Value::as_str).map(str::to_owned);
-    let task_device = super::remote_guard::full_access_device(hub, conn, &prompt);
+    let task_device = super::remote_guard::sending_device(conn, &prompt);
     tokio::spawn(async move {
         let mut blocks =
             vec![json!({"type":"text","text":prompt.get("text").cloned().unwrap_or(Value::Null)})];
@@ -962,7 +976,7 @@ pub(super) async fn handle_request(
     }
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
     if conn.origin != Origin::Local {
-        let device = super::remote_guard::full_access_device(hub, conn, &params);
+        let device = super::remote_guard::sending_device(conn, &params);
         super::remote_guard::check(
             hub,
             conn.origin,
@@ -1307,7 +1321,7 @@ async fn dispatch_request_with_identity(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::sender_token::FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::sender_token::FEATURE, crate::hub::register::AUTO_FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE], "trustGate": true}}
             });
             // This link carries the v2 list stream (`link_v2.rs`): the one change `peers` makes
             // to what v1 sends a link.
@@ -1316,6 +1330,7 @@ async fn dispatch_request_with_identity(
                     reply.pointer_mut("/_meta/acpmux/features").and_then(Value::as_array_mut)
             {
                 features.push(json!(crate::link_v2::FEATURE));
+                features.push(json!(acpmux_core::hub::PEER_PAGES_FEATURE));
             }
             // The daemon's v2 list holds the hub machines' rows (`hub/list_tee.rs`): a fact of
             // its index, named on every connection.
@@ -2198,7 +2213,7 @@ async fn dispatch_request_with_identity(
                         )
                     })
                 },
-                full_access_device: super::remote_guard::full_access_device(hub, conn, &params),
+                full_access_device: super::remote_guard::sending_device(conn, &params),
                 no_queue: false,
                 admitted: false,
                 send_now: false,
@@ -3124,7 +3139,7 @@ async fn dispatch_request_with_identity(
             let hidden = params.get("visible") == Some(&Value::Bool(false));
             if params.get("hold") == Some(&Value::Bool(true)) {
                 let filter = hold_attach_filter(&params)?;
-                if !hidden {
+                if attach_shows(conn, &params) {
                     hub.wake_for(&s, super::trust_gate::for_web(conn.origin, &params), "click");
                 }
                 view::attach(
@@ -3172,8 +3187,9 @@ async fn dispatch_request_with_identity(
             }
             let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
             let event_stream = params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
-            // Opening a hibernated chat on screen wakes its agent (`hub/idle.rs`).
-            if !hidden {
+            // Opening a hibernated chat on screen wakes its agent, unless an earlier daemon
+            // hibernated it (`hub/idle.rs` `wake_for`); a CLI's read does not (`attach_shows`).
+            if attach_shows(conn, &params) {
                 hub.wake_for(&s, super::trust_gate::for_web(conn.origin, &params), "click");
             }
             view::attach(
@@ -3266,7 +3282,8 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_VIEW => {
             let done = view::view(hub, conn, &params)?;
-            // Showing a hibernated chat wakes its agent (`hub/idle.rs`).
+            // Showing a hibernated chat wakes its agent, unless an earlier daemon hibernated it
+            // (`hub/idle.rs` `wake_for`).
             // The person's own view only: an authored one is a collaborator's presence.
             if params.get("visible").and_then(Value::as_bool) == Some(true)
                 && crate::author::author(&params).ok().flatten().is_none()
@@ -3382,7 +3399,7 @@ async fn dispatch_request_with_identity(
                     "this queued prompt holds a masked secret: edit it on the machine that runs the session",
                 ));
             }
-            let device = super::remote_guard::full_access_device(hub, conn, &params);
+            let device = super::remote_guard::sending_device(conn, &params);
             let gated = super::trust_gate::gated(conn.origin, &params);
             hub.queue_edit(&s, &params, control, gated, device.as_deref()).await
         }
@@ -3412,7 +3429,9 @@ async fn dispatch_request_with_identity(
         method::MUX_PERMISSION_GROUP_RESPOND => {
             let s = hub.resolve(session_key(&params)?)?;
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
-            hub.respond_permission_group(&s, params, control, conn.is_person()).await
+            let device = super::remote_guard::sending_device(conn, &params);
+            hub.respond_permission_group(&s, params, control, conn.is_person(), device.as_deref())
+                .await
         }
         method::MUX_PERMISSION_CHAT_REVOKE => {
             let s = hub.resolve(session_key(&params)?)?;
@@ -3434,6 +3453,9 @@ async fn dispatch_request_with_identity(
             // Who answered, when a person other than the owner did (`author.rs`): a label only.
             let author = crate::author::author(&params)?;
             answerer.author = author.as_ref();
+            // The paired machine that answers, for D13 (`Hub::local_claude_refusal`).
+            let device = super::remote_guard::sending_device(conn, &params);
+            answerer.device = device.as_deref();
             hub.respond_permission_annotated(
                 &s,
                 pid,

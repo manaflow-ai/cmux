@@ -53,8 +53,9 @@ A step red on both sides is the base's only when its head failure names nothing 
 run_ci_guards.py --results writes each red step's output beside the results (`<results>.failures.json`), and a head
 failure that names a test, file or item the base failure does not (#41351's new unwired test in "Validate every
 workflow guard is wired", already red on the base for two others, job 130668132153) is the change's. Run-to-run
-noise (numbers, temp paths, shas) is left out. When the head has that output and either side has none for the step,
-it cannot be told, and the step is the change's. Results without it (the webview tests) compare by name.
+noise (numbers, temp paths, shas) and Python warning lines (hq#11346: `sys:1: ResourceWarning` read as `sys:0`) are
+left out. When the head has that output and either side has none for the step, or the head's is only warnings, it
+cannot be told, and the step is the change's. Results without it (the webview tests) compare by name.
 
 --red-steps prints, one a line, each step red on the head (a red "<step> :: <check>" names its step), and exits 0.
 cmux-next-guards.yml re-runs only those steps on the base (run_ci_guards.py --step): a step green on the head is never
@@ -143,12 +144,40 @@ _TEMP = re.compile(r"(?:/tmp|/var/folders)/\S*|\btmp[\w-]{4,}")
 _HEX = re.compile(r"\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,}\b")
 _NUMBER = re.compile(r"\d+")
 _NAME = re.compile(r"[A-Za-z_<][\w./<>:-]*")
+# A Python warning names nothing that failed, and comes and goes from run to run (hq#11346, cmux#43507: CPython's
+# shutdown `sys:1: ResourceWarning: unclosed file <...>` read as the name `sys:0`, charging a step red on both sides
+# to the change). warnings.formatwarning writes `<file>:<line>: <Category>: <message>`, where the file is a path, `sys` or
+# `<frozen ...>` and the category ends in Warning (dotted for a library's own), often glued to unittest's progress
+# dots; then, for a real file, its source line indented two spaces. CPython's tracemalloc hint is its own line. A
+# category with no location (`FAILED x::test - DeprecationWarning: ...`, a traceback's last line under -W error) is
+# a failure message and stays.
+_WARNING_CATEGORY = r"(?:[A-Za-z_]\w*\.)*[A-Z]\w*Warning: "
+_LOCATED_WARNING = re.compile(r"(?P<file>sys|<[^<>\n]*>|(?:<\w+>)?[\w./\\~+-]*\.pyw?):\d+: "
+                              + _WARNING_CATEGORY + ".*")
+_BARE_WARNING = re.compile(r"^\s*ResourceWarning: Enable tracemalloc to get the object allocation traceback\s*$")
+_WARNING_SOURCE = re.compile(r"^  \S")
+
+
+def without_warnings(lines: list[str]) -> list[str]:
+    """LINES with every Python warning (and the source line it echoes) cut out; a line's text before one stays."""
+    kept: list[str] = []
+    echoed = False  # the previous line was a warning whose source line may follow
+    for line in lines:
+        if echoed and _WARNING_SOURCE.match(line):
+            echoed = False
+            continue
+        located = _LOCATED_WARNING.search(line)
+        echoed = located is not None and located["file"].endswith((".py", ".pyw"))  # not sys or <frozen ...>
+        line = _BARE_WARNING.sub("", _LOCATED_WARNING.sub("", line))
+        if line.strip():
+            kept.append(line)
+    return kept
 
 
 def failure_names(lines: list[str]) -> set[str]:
-    """The names a red step's output holds (paths, tests, items), order and run-to-run noise aside."""
+    """The names a red step's output holds (paths, tests, items), order, warnings and run-to-run noise aside."""
     names: set[str] = set()
-    for line in lines:
+    for line in without_warnings(lines):
         line = _NUMBER.sub("0", _HEX.sub("<hex>", _TEMP.sub("<tmp>", line)))
         names.update(name.strip(".:-") for name in _NAME.findall(line))
     names.discard("")
@@ -242,7 +271,11 @@ def main(argv: list[str]) -> int:
             if base_failures is None or step not in head_failures or step not in base_failures:
                 named_new[step] = []
             else:
-                extra = failure_names(head_failures[step]) - failure_names(base_failures[step])
+                head_names = failure_names(head_failures[step])
+                if not head_names and without_warnings(head_failures[step]) != head_failures[step]:
+                    named_new[step] = []  # its output was only warnings: nothing to compare, so it is not excused
+                    continue
+                extra = head_names - failure_names(base_failures[step])
                 if extra:
                     named_new[step] = sorted(extra)
         old = [step for step in old if step not in named_new]

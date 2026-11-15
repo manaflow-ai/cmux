@@ -67,6 +67,9 @@ final class SidebarPullRequestBadgeView: NSView {
 
     private var hoverCard: SidebarPullRequestCardController { .shared }
     private var pointedAt = false
+    /// The pull requests the badge lists while the pointer is on it and it shows (nil otherwise):
+    /// what a card that waited out its delay opens with.
+    var pointedItems: [SidebarPullRequestItem]? { pointedAt && !isHidden && window != nil ? badge?.items : nil }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()

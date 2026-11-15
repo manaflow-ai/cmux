@@ -1,0 +1,18 @@
+[package]
+name = "cmux-device-kind"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "What kind of device a machine is (MacBook, Mac mini, Linux server, iPhone...) and the one glyph each kind draws. acpmux reports its own; the app's web and native views draw the glyph this crate names."
+
+[dependencies]
+libc = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
