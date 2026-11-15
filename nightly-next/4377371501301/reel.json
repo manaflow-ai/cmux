@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4377371501301",
+  "notes": "notes/4377371501301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43967,
+      "title": "fix(next): an open classic stops the launch's classic import preview",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43981,
+      "title": "perf(acpmux): a resend's prompt state reads one prompt's records, not the chat's whole copy",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43968,
+      "title": "ffi-caller-baseline: list #43039's acpmux_client exports until step B",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43986,
+      "title": "perf(tab-switch): frame-judged tab switch harness: long chat, new/close tab, idle/cpu/agents load, budgets, tab-switch/v1 report",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43789,
+      "title": "v2 peer pages: a peer's all page reads a bounded number of pieces (row 8b, decisions 285 and 290)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43852,
+      "title": "acpmux: a daemon's start task sorts the list order first, before any log is read",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43969,
+      "title": "measure: nightly-fresh-launch fetches base= from the repository URL, and arms=adhoc signs inside-out with no entitlements (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
