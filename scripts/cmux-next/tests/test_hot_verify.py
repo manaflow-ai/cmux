@@ -142,6 +142,20 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(planned["build"]["Rust the app links (FFI)"], ["cmux-tui/crates/cmux-app-ffi/src/lib.rs"])
         self.assertNotIn("rust", planned["layers"])
 
+    def test_rust_only_bundled_helpers_use_needs_build(self):
+        # cmux#43713 review: a change to a crate only a bundled helper builds from (the diff sidecar, cmux-git)
+        # moves the cmux-tui tree key, but hot-apply leaves the helper on the app's build; a daemon-only look
+        # would show the change without it, so it is not hot.
+        h = hv.hot()
+        saved = h.helper_rust
+        h.helper_rust = lambda repo, paths: [p for p in paths if "/cmux-git/" in p]
+        try:
+            planned = self.plan(self.fx.change({"cmux-tui/crates/cmux-git/src/lib.rs": "pub fn diff() {}\n"}))
+        finally:
+            h.helper_rust = saved
+        self.assertTrue(planned["needs_build"])
+        self.assertEqual(planned["build"]["Rust only bundled helpers use"], ["cmux-tui/crates/cmux-git/src/lib.rs"])
+
     def test_docs_only_has_no_layer(self):
         planned = self.plan(self.fx.change({"docs/notes.md": "more notes\n"}))
         self.assertEqual(planned["layers"], [])
