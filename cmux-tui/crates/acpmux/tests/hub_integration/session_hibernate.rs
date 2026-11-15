@@ -353,8 +353,9 @@ async fn a_failed_wake_fails_its_prompt_with_its_error_and_a_retry_wakes_it() {
     assert_eq!(retried["stopReason"], "end_turn");
 }
 
-/// Opening a hibernated chat on screen (a click: `_acpmux/view` visible, or an attach that
-/// shows it) wakes it; one attached hidden does not.
+/// Opening a chat this daemon hibernated on screen (a click: `_acpmux/view` visible, or an attach
+/// that shows it) wakes it; one attached hidden does not. One an earlier daemon hibernated does
+/// not (`a_daemon_restart_wakes_no_hibernated_chat_when_viewers_open_them_again`).
 #[tokio::test]
 async fn opening_a_hibernated_chat_wakes_it_and_a_hidden_attach_does_not() {
     let mut r = rig(PermissionPolicy::ApproveAll).await;
