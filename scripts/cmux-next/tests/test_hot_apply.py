@@ -319,6 +319,165 @@ class HotApplyRust(unittest.TestCase):
         self.assertIn("the app already contains SHA", receipt["notes"])
         self.assertEqual(self.sha(), self.old)
 
+    def test_the_receipt_times_each_phase_and_stderr_prints_them(self):
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        phases = receipt["phases"]
+        for name in ("plan", "key", "fetch", "verify", "backup", "swap"):
+            self.assertIn(name, phases)
+        # Exclusive phases: together they never exceed the run.
+        self.assertLessEqual(sum(phases.values()), receipt["seconds"] + 0.01)
+        self.assertRegex(err, r"hot-apply: apply \d+\.\d s: ")
+        code, receipt, err = self.hot("rollback")
+        self.assertEqual(code, 0, err)
+        self.assertIn("rollback", receipt["phases"])
+
+    def test_a_dry_run_fetches_and_verifies_and_changes_nothing(self):
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app), "--dry-run")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(receipt["action"], "dry-run")
+        self.assertEqual(receipt["steps"]["rust"]["to"], self.new)
+        self.assertIn("fetch", receipt["phases"])
+        self.assertNotIn("swap", receipt["phases"])
+        self.assertEqual(self.sha(), self.old)
+        state = self.tmp / "state"
+        self.assertFalse((state / "last.json").exists())  # `rollback` never reads a dry run
+        self.assertEqual(json.loads((state / "history.jsonl").read_text().splitlines()[-1])["action"], "dry-run")
+        self.assertTrue((state / "builds" / self.new / "cmux").is_file())
+
+    def test_base_stands_in_for_an_app(self):
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--base", self.base,
+                               "--app", str(self.tmp / "no such app")], capture_output=True, text=True, env=self.env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(json.loads(done.stdout)["parts"], ["rust"])
+        code, _, err = self.hot("apply", FIX, "--app", str(self.app), "--base", self.base)
+        self.assertEqual(code, 2, err)  # a real apply reads the app's own commit
+
+
+    def test_after_a_prefetch_apply_fetches_nothing(self):
+        code, receipt, err = self.hot("prefetch", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(receipt["action"], "prefetch")
+        self.assertEqual(self.sha(), self.old)
+        # files.cmux.com goes away: everything apply needs is in the state folder, by content.
+        subprocess.run(["rm", "-rf", str(self.tmp / "tree"), str(self.tmp / "commits")], check=True)
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(receipt["applied"], ["rust"])
+        self.assertNotIn("fetch", receipt["phases"])
+        self.assertEqual(self.sha(), self.new)
+
+    def test_a_kept_build_that_no_longer_hashes_is_fetched_again(self):
+        code, _, err = self.hot("prefetch", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        (self.tmp / "state" / "builds" / self.new / "cmux").write_bytes(b"#!/bin/sh\necho rot\n")
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertIn("fetch", receipt["phases"])
+        self.assertEqual(self.sha(), self.new)
+
+    def test_a_completion_without_this_host_s_binary_is_not_kept(self):
+        (self.tmp / "tree" / self.key / "completion.json").write_text(json.dumps({"key": self.key, "binaries": {}}))
+        code, _, _ = self.hot("prefetch", FIX, "--app", str(self.app))
+        self.assertEqual(code, 1)
+        self.publish(self.new_body, self.new)  # the build for this host lands later
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sha(), self.new)
+
+    def test_a_build_the_app_already_runs_is_skipped(self):
+        code, _, err = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(receipt["applied"], [])
+        self.assertEqual(receipt["unchanged"], ["rust"])
+        self.assertNotIn("swap", receipt["phases"])
+        # The rollback still puts back the build that ran before the first apply.
+        code, receipt, err = self.hot("rollback")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sha(), self.old)
+
+
+class WebCache(unittest.TestCase):
+    """web_bundles(): a web key's bundles fetched once, checked on each use, bounded."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="hot-apply-web-test-"))
+        os.environ["CMUX_HOT_APPLY_STATE_DIR"] = str(self.tmp / "state")
+        spec = importlib.util.spec_from_file_location("hot_apply_web_under_test", SCRIPT)
+        self.hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_web_under_test"] = self.hot
+        spec.loader.exec_module(self.hot)
+        self.fetched = []
+
+        def fetch_web(key, out):
+            self.fetched.append(key)
+            (out / "pages").mkdir(parents=True)
+            (out / "pages/index.html").write_text(f"<p>{key}</p>")
+        self.hot.fetch_web = fetch_web
+
+    def tearDown(self):
+        os.environ.pop("CMUX_HOT_APPLY_STATE_DIR", None)
+        subprocess.run(["rm", "-rf", str(self.tmp)])
+
+    def test_a_key_is_fetched_once_and_again_when_its_files_change(self):
+        key = "a" * 64
+        state = self.tmp / "state"
+        root = self.hot.web_bundles(key, state)
+        self.assertEqual(self.hot.web_bundles(key, state), root)
+        self.assertEqual(self.fetched, [key])
+        (root / "pages/index.html").write_text("tampered")
+        self.hot.web_bundles(key, state)
+        self.assertEqual(self.fetched, [key, key])
+        self.assertEqual((root / "pages/index.html").read_text(), f"<p>{key}</p>")
+
+    def test_only_the_newest_keys_stay(self):
+        state = self.tmp / "state"
+        for i in range(self.hot.WEB_KEEP + 3):
+            root = self.hot.web_bundles(f"{i:064x}", state)
+            os.utime(root, (1000 + i, 1000 + i))
+        self.hot.prune_web(state)
+        kept = sorted(p.name for p in (state / "web").iterdir() if not p.name.startswith("."))
+        self.assertEqual(len(kept), self.hot.WEB_KEEP)
+        self.assertNotIn(f"{0:064x}", kept)
+
+    def test_an_overlay_holding_the_key_is_unchanged(self):
+        commit = "c" * 40
+        key = "d" * 64
+
+        class Live:
+            def overlay_paths(inner):
+                return self.tmp / "overlay", None
+        (self.tmp / "overlay").mkdir()
+        (self.tmp / "overlay/manifest.json").write_text(json.dumps({"commit": commit}))
+        self.assertFalse(self.hot.web_unchanged(Live(), key))  # its key was never computed here
+        keys = self.tmp / "state/keys/web"
+        keys.mkdir(parents=True)
+        (keys / commit).write_text(key + "\n")
+        self.assertTrue(self.hot.web_unchanged(Live(), key))
+        self.assertFalse(self.hot.web_unchanged(Live(), "e" * 64))
+
+
+class Phases(unittest.TestCase):
+    def test_an_inner_phase_pauses_the_outer_one(self):
+        spec = importlib.util.spec_from_file_location("hot_apply_phases_under_test", SCRIPT)
+        hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_phases_under_test"] = hot
+        spec.loader.exec_module(hot)
+        clock = iter([0.0, 1.0, 3.0, 4.0, 10.0])
+        real = hot.time.monotonic
+        hot.time.monotonic = lambda: next(clock)
+        try:
+            phases = hot.Phases()  # 0
+            with phases("plan"):  # 1
+                with phases("key"):  # 3
+                    pass  # 4
+            # 10: plan ran 1-3 and 4-10, key 3-4
+        finally:
+            hot.time.monotonic = real
+        self.assertEqual(phases.rounded(), {"plan": 8.0, "key": 1.0})
+
 
 class Fetch(unittest.TestCase):
     """fetch() against files.cmux.com, which answers Python's default user agent with 403."""
