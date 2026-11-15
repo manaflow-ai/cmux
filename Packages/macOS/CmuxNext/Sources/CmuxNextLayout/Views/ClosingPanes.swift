@@ -23,9 +23,12 @@ import CmuxNextDesign
 /// moves. Chrome's tab close does the same: the closing tab shrinks to zero width on the strip's own animation.
 /// The host goes when the motion lands (`ScreenContentView.releaseClosing`); a close taken back starts the pane's live
 /// frame from where it shows, with its neighbours' velocities.
+///
+/// The rules are Rust's (``ClosingPanesRules`` owns one `cmux_closing_panes_*` handle): copies of this value share that
+/// state, so a screen keeps one and never copies it (a new value starts with none closing).
 struct ClosingPanes {
     /// A closing pane as the screen reads it: the space it showed in and its stacking rank. Its sides and their travel are
-    /// the rules' (``ClosingPanesRules``).
+    /// the rules' (``ClosingPanesRules``, Rust's `cmux_closing_panes_*`).
     struct Entry {
         /// It scrolls with the strip (not a docked pane), and the row column and scroll area it showed in.
         let scrolls: Bool
@@ -176,14 +179,12 @@ struct ClosingPanes {
         ClosingPanesRules.Edges(minX: rect.minX, maxX: rect.maxX, minY: rect.minY, maxY: rect.maxY)
     }
 
-    /// The live panes' frames the rules may read (the panes they have a number for); `fixed`: the ones that do not scroll;
-    /// `landed`: each frame on its target (where a landing puts it).
-    private func frameFacts(_ frames: [PaneID: AnimatedFrame], fixed: Set<PaneID>, landed: Bool = false) -> [ClosingPanesRules.FrameFact] {
+    /// The live panes' frames the rules may read (the panes they have a number for); `fixed`: the ones that do not scroll.
+    private func frameFacts(_ frames: [PaneID: AnimatedFrame], fixed: Set<PaneID>) -> [ClosingPanesRules.FrameFact] {
         frames.compactMap { pane, frame in
             guard let number = paneNumbers[pane] else { return nil }
-            let moving = !landed && Self.hasTravel(frame)
-            return ClosingPanesRules.FrameFact(id: number, now: Self.edges(landed ? frame.targetRect : frame.rect),
-                                               target: Self.edges(frame.targetRect), moving: moving,
+            return ClosingPanesRules.FrameFact(id: number, now: Self.edges(frame.rect), target: Self.edges(frame.targetRect),
+                                               moving: Self.hasTravel(frame),
                                                vx: frame.x.velocity, vy: frame.y.velocity, vw: frame.width.velocity, vh: frame.height.velocity,
                                                scrolls: !fixed.contains(pane))
         }
@@ -207,9 +208,10 @@ struct ClosingPanes {
     /// now, which puts every live frame on its target, move a side of a closing pane more than `snap`? A closing pane's
     /// free side follows its rider's share of the rider's travel (`ClosingPanesRules.collapse`), so the part of a point a
     /// live pane has left when it lands is, on the closing pane, that part times the pane's size over the rider's travel:
-    /// 22 pt of a 352 pt pane on a rider with 4 pt to go, ground the landing took away in one frame. The rules place the
-    /// closing panes two times on copies, from the live frames where this frame's step put them (`frames`, not shown yet)
-    /// and from the same frames on their targets, and the answer is the largest difference of a side. It falls with the
+    /// 22 pt of a 352 pt pane on a rider with 4 pt to go, ground the landing took away in one frame. The rules (Rust,
+    /// `cmux_closing_panes_landing_moves`) place the closing panes two times on copies, from the live frames where this
+    /// frame's step put them (`frames`, not shown yet) and from the same frames on their targets, and the answer is
+    /// whether a side differs by more than `snap`. It falls with the
     /// live frames' way left, so the motion lands a few frames later, never not at all: a side the frames do not move is
     /// the same in both. The cameras are taken at rest (the strip's view shift `restStrip`, no row travel): they land on
     /// their own springs, and a side they move does not hold the panes' landing.
@@ -218,18 +220,11 @@ struct ClosingPanes {
     /// one step further away: with `snap` a quarter point, a side moves up to about 0.44 pt on the screen in the
     /// landing's frame at 120 Hz (about 0.8 pt at 60 Hz), under the one point the ground rule allows. It does not see a
     /// side the rules gave no travel (a pane like that keeps its place; `hasTravel` and
-    /// `ScreenContentView.settleClosing` are what keep one from being made), and it needs the rules to be a value: the
-    /// two placements run on copies.
+    /// `ScreenContentView.settleClosing` are what keep one from being made). The two placements run on copies inside
+    /// Rust: the state is not changed.
     func landingMovesAClosingPane(frames: [PaneID: AnimatedFrame], fixed: Set<PaneID>, restStrip: CGFloat, snap: CGFloat) -> Bool { // perf-hot: 4ms motion-frame
         guard !entries.isEmpty else { return false }
-        var stepped = rules, landed = rules
-        let now = stepped.rects(frames: frameFacts(frames, fixed: fixed), rows: [], strip: restStrip, restStrip: restStrip)
-        let then = landed.rects(frames: frameFacts(frames, fixed: fixed, landed: true), rows: [], strip: restStrip, restStrip: restStrip)
-        // Both lists are in the rules' order (the same entries, the same order).
-        return zip(now, then).contains { a, b in
-            abs(a.1.x - b.1.x) > snap || abs(a.1.x + a.1.width - b.1.x - b.1.width) > snap
-                || abs(a.1.y - b.1.y) > snap || abs(a.1.y + a.1.height - b.1.y - b.1.height) > snap
-        }
+        return rules.landingMoves(frames: frameFacts(frames, fixed: fixed), restStrip: restStrip, snap: snap)
     }
 
     /// Where the closing panes' row columns' scrolls are and rest.

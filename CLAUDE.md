@@ -48,6 +48,50 @@ Read the matching skill before changing an area, then only the references needed
   OS-dependent bug or a launch on 14/15 in Tart VMs: `scripts/cmux-next/os-matrix.sh --build JOB
   --os 14,15` ([MATRIX.md](scripts/fuzz/macos-matrix/MATRIX.md)). VM timing is not perf evidence.
 
+## Finishing a task
+
+A change to the Mac or iOS app is not done until the person can open it. Every agent report for
+such a change ends with the dev build link, the fleet simulator evidence and the iPhone install result.
+Use one task tag, `<task-slug>` (for example `sidebar-star-align-v1`), for the Mac and iOS builds.
+A documentation-only change needs no build; give the file path instead.
+
+- **Mac:** build the pushed exact head on the fleet and publish it to HQ, never on the person's Mac:
+
+  ```bash
+  JOB_ID=$(cmux-ci build cmux --ref "$(git rev-parse HEAD)" --tag <task-slug> \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+  cmux-ci wait "$JOB_ID"
+  cmux-ci publish-hq "$JOB_ID"
+  ```
+
+  Report the Tag Opener link `http://127.0.0.1:17320/<task-slug>`. Never `open` it (macOS sends it
+  to the default browser); team members add it to their workspace with hq's `scripts/open-dev-build.sh <task-slug>`.
+- **iOS:** first check which app you changed. `ios/` is the classic iPhone app; `cmux-next-ios/` is
+  the cmux-next iPhone app, and `ios/scripts/reload.sh` does not build it. For the classic app, run
+  `ios/scripts/reload.sh --review --tag <task-slug>`. In one command it builds on the
+  fleet (the Mac build above included, same tag, published to HQ), installs on every connected
+  iPhone, not only the configured one, through the authenticated install
+  (`scripts/verify-iphone-auth.sh` must pass; never raw `devicectl`), then checks the build in a
+  fleet simulator (hq's `verify-remote.sh`, signed in, with a screenshot and recording). Nothing
+  boots in a simulator on the person's Mac. Details: [ios/AGENTS.md](ios/AGENTS.md#finishing-a-task).
+- **Install on every connected phone.** A phone that is connected gets the build, including one
+  you have not seen before: `--review` registers a new phone and installs on it too. The cmux-next
+  iOS app does not need Tailscale, but a fleet-built dev app talks to hq's tagged dev backend, a
+  tailnet-only `*.ts.net` host. A phone off the tailnet then installs the app but fails the auth
+  gate with "never published a signed-in app receipt"; report that as the phone's blocker and name
+  the cause. Locally built dev apps use the public staging API and have no such requirement.
+- **A phone is always connected.** No connected phone, a locked phone, a queued install or a
+  failed auth gate is a blocker to report with its error and retry command, never a step to skip
+  or replace with a simulator-only result.
+- End the report with:
+
+  ```text
+  Dev build:  http://127.0.0.1:17320/<task-slug>   (fleet job <JOB_ID>, head <sha>)
+  Simulator:  fleet simulator, signed in: <evidence dir> (screenshot.png and the recording)
+  iPhone:     <name> (<model>, <udid>): installed, verify-iphone-auth PASS
+              <name> (<model>, <udid>): BLOCKED: <reason>; retry: <command>   (one line per connected phone)
+  ```
+
 ## cmux-next checks before every push
 
 Before every push, run `python3 scripts/cmux-next/prepush-gate.py` (the pre-push hook runs it
@@ -238,20 +282,23 @@ such as `LINUX_RUNNER` or `MACOS_RUNNER_*`) to a nightly job; when owned
 capacity is short, fix the owned pool. `tests/test_ci_nightly_off_blacksmith.py`
 enforces this.
 
-**Nightlies run on one Mac mini, and nobody cancels them** (Lawrence, 2026-11-04).
+**Nightlies run on one signing Mac, end to end, and nobody cancels them** (Lawrence,
+2026-11-04: "the single nightly mini: cmux15"; Leo, 2026-11-12, hq#10366: "ultra1
+signs the nightly too, cmux15 stays ready as the standby signer").
 The whole nightly (build, sign, notarize, verify and publish, for cmux-next on
-`nightly-next` and classic on `main`) runs on the single nightly mini: cmux15, the
-signing-reserved mini (its runners carry `glaeda-trusted-next-signing` and the
-nightly-only labels). This applies to humans, Leo and every agent:
+`nightly-next` and classic on `main`) runs on one signing Mac: ultra1 or cmux15,
+the hosts whose runners carry `glaeda-trusted-next-signing` (cmuxterm-hq
+`build-fleet/mini-fleet.json` `runner.trustedNextSigning`). This applies to humans,
+Leo and every agent:
 
-- Never move a nightly job to Blacksmith, a GitHub-hosted runner or another mini,
-  and never split one nightly across minis, also not "only for this run".
+- Never move a nightly job to Blacksmith, a GitHub-hosted runner or a Mac without
+  that label, and never split one nightly across Macs, also not "only for this run".
 - Never cancel a nightly run, a nightly job or the nightly queue to make room or
   to speed up a proof. A queued nightly waits its turn; the sign yield
   (`scripts/ci/nightly_sign_yield.py`) hands an older build's slot to a newer
   one without cancelling anything.
-- When the nightly mini is short of capacity or a nightly is slow, report it and
-  fix the mini or the workflow on that mini. Do not reroute the nightly.
+- When a signing Mac is short of capacity or a nightly is slow, report it and
+  fix that Mac or the workflow on it. Do not reroute the nightly.
 
 - Commit the failing behavioral regression before its fix; record the same
   focused command's red and green results ([testing policy](skills/cmux-testing/SKILL.md#reproduce-and-repair)).
