@@ -5,6 +5,7 @@ The ci guard group never ran for feat-cmux-next before cmux-next-guards.yml's jo
 already red there (2026-10-21). A job red on every pull request would hide the red a change adds, so the job
 compares each step's result on the head with the same runner's result on the base.
 """
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -463,6 +464,19 @@ class ANewItemInABaseRedStepIsTheChanges(unittest.TestCase):
         # Fewer items on the head than on the base: still the base's.
         done = self.compare(self.outputs(old[:1], "41"), self.outputs(old, "93"))
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
+    def test_an_interpreter_warning_on_one_side_names_no_failure(self):
+        # cmux#43558: the head's output held `sys:1: ResourceWarning: unclosed file ...`, the base's did not,
+        # and the step both sides failed the same way was charged to the change ("sys:0").
+        spec = importlib.util.spec_from_file_location("guards_new_reds_warning", SCRIPT)
+        reds = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(reds)
+        failure = "FAIL: test_every_job (__main__.GuardJobs.test_every_job) (file='cmux-next.yml')"
+        head = [failure, "sys:1: ResourceWarning: unclosed file <_io.BufferedReader name=5>",
+                "/usr/lib/python3.12/subprocess.py:1127: ResourceWarning: subprocess 42 is still running"]
+        self.assertEqual(reds.failure_names(head), reds.failure_names([failure]))
+        # A failure line that names a Warning class is still a name.
+        self.assertIn("DeprecationWarning", reds.failure_names(["FAIL: test_x raised DeprecationWarning"]))
 
     def test_a_step_whose_failures_cannot_be_compared_is_not_excused(self):
         old = ["tests/test_cargo_locks.py"]

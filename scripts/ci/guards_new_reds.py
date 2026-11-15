@@ -143,12 +143,18 @@ _TEMP = re.compile(r"(?:/tmp|/var/folders)/\S*|\btmp[\w-]{4,}")
 _HEX = re.compile(r"\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,}\b")
 _NUMBER = re.compile(r"\d+")
 _NAME = re.compile(r"[A-Za-z_<][\w./<>:-]*")
+# An interpreter warning printed beside a failure, which one run prints and the next does not (Python's
+# `sys:1: ResourceWarning: unclosed file ...` when the collector closes a file late). It names no failure:
+# counted, it made a red the base shares look new (cmux#43558: "names what the base's does not: sys:0").
+_INTERPRETER_WARNING = re.compile(r"^\s*(?:sys|<\w+>|\S+\.py):\d+: \w*Warning: ")
 
 
 def failure_names(lines: list[str]) -> set[str]:
     """The names a red step's output holds (paths, tests, items), order and run-to-run noise aside."""
     names: set[str] = set()
     for line in lines:
+        if _INTERPRETER_WARNING.match(line):
+            continue
         line = _NUMBER.sub("0", _HEX.sub("<hex>", _TEMP.sub("<tmp>", line)))
         names.update(name.strip(".:-") for name in _NAME.findall(line))
     names.discard("")
