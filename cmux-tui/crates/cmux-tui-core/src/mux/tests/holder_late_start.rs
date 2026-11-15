@@ -4,8 +4,9 @@
 //! wait for the holder, and the terminal must re-attach when the holder
 //! answers.
 //!
-//! A stand-in for the holder takes each connect, holds it (or ends it, when
-//! the test says so) and counts it, and answers only when the test says so.
+//! A stand-in for the holder takes each connect, holds it (or ends or
+//! refuses it, when the test says so) and counts it, and answers only when
+//! the test says so.
 //! The start and the late thread wait by a clock the test steps
 //! ([`StepClock`]), so a result here is a count of asks and never a time:
 //! the waits in these tests are waits for an event, and their only limit is
@@ -16,6 +17,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::mpsc;
 
+use cmux_holder::holder::error_code;
 use cmux_holder::wire::{self, Kind, Out};
 
 use super::*;
@@ -24,6 +26,9 @@ use crate::mux::holder_late::{HolderClock, set_holder_clock_for_test};
 
 const TERMINAL: &str = "0000000000004000800000000000002b";
 const INCARNATION: &str = "1000000000004000800000000000002b";
+/// The second terminal of a session with two.
+const SECOND_TERMINAL: &str = "0000000000004000800000000000002c";
+const SECOND_INCARNATION: &str = "1000000000004000800000000000002c";
 /// One step of the clock in the start pass: the start's wait for the holder
 /// ends after a handful of asks.
 const STEP: Duration = Duration::from_millis(50);
@@ -35,6 +40,8 @@ const AT_START: Duration = Duration::from_millis(400);
 const LATE_STEP: Duration = Duration::from_millis(600);
 /// Far past every bound a start had for the holder (it was 30 s).
 const FAR: Duration = Duration::from_secs(120);
+/// A failure limit for a start whose clock stands: see [`StartWatch`].
+const START_LIMIT: Duration = Duration::from_secs(20);
 
 /// A clock that moves only when it is asked: each `now` moves it one step
 /// and each pause moves it by the pause, up to a limit. At its limit it
@@ -130,10 +137,16 @@ enum Order {
     /// From now on answer each connect it holds or takes: a WELCOME, with
     /// this terminal listed.
     Answer(Option<Held>),
+    /// The same, with each of these terminals listed.
+    AnswerEach(Vec<Held>),
     /// End each connect it holds, and go on listening.
     DropConnects,
     /// End each of the next connects it takes, this many, when it takes it.
     EndNext(usize),
+    /// Refuse each of the next connects it takes, this many, when it takes
+    /// it, as a holder does whose link another connect took before the
+    /// answer (an ERROR, no WELCOME), and end it.
+    RefuseNext(usize),
     /// Say how many connects it took, after it took each one that waits.
     Count(mpsc::Sender<usize>),
     /// Stop: no holder serves the socket any more (its file stays).
@@ -154,9 +167,10 @@ impl StandIn {
         let thread = std::thread::spawn(move || {
             let mut held: Vec<UnixStream> = Vec::new();
             let mut connects = 0;
-            let mut answer: Option<Option<Held>> = None;
+            let mut answer: Option<Vec<Held>> = None;
             let mut answered = 0;
             let mut end_next = 0;
+            let mut refuse_next = 0;
             loop {
                 match listener.accept() {
                     Ok((stream, _)) => {
@@ -168,6 +182,11 @@ impl StandIn {
                         // An accepted socket takes the listener's mode on macOS.
                         stream.set_nonblocking(false).unwrap();
                         stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+                        if refuse_next > 0 {
+                            refuse_next -= 1;
+                            refuse_as_taken(&stream);
+                            continue;
+                        }
                         held.push(stream);
                         continue;
                     }
@@ -176,17 +195,19 @@ impl StandIn {
                 }
                 if let Some(listed) = &answer {
                     while answered < held.len() {
-                        welcome(&held[answered], listed.as_ref());
+                        welcome(&held[answered], listed);
                         answered += 1;
                     }
                 }
                 match inbox.try_recv() {
-                    Ok(Order::Answer(listed)) => answer = Some(listed),
+                    Ok(Order::Answer(listed)) => answer = Some(listed.into_iter().collect()),
+                    Ok(Order::AnswerEach(listed)) => answer = Some(listed),
                     Ok(Order::DropConnects) => {
                         held.clear();
                         answered = 0;
                     }
                     Ok(Order::EndNext(count)) => end_next = count,
+                    Ok(Order::RefuseNext(count)) => refuse_next = count,
                     Ok(Order::Count(reply)) => {
                         let _ = reply.send(connects);
                     }
@@ -231,8 +252,8 @@ impl Drop for StandIn {
     }
 }
 
-/// Answer the HELLO on `stream` with a WELCOME that lists `listed`.
-fn welcome(stream: &UnixStream, listed: Option<&Held>) {
+/// Read the HELLO the daemon sent on `stream`.
+fn read_hello(stream: &UnixStream) {
     let fd = stream.as_raw_fd();
     let mut reader = wire::Reader::default();
     let hello = loop {
@@ -242,19 +263,75 @@ fn welcome(stream: &UnixStream, listed: Option<&Held>) {
         assert!(reader.fill(fd).unwrap(), "the daemon ended its connect before the HELLO");
     };
     assert_eq!(hello.kind, Kind::Hello as u16);
-    let count = u32::from(listed.is_some());
+}
+
+/// Answer the HELLO on `stream` with a WELCOME that lists `listed`, each on
+/// its own channel.
+fn welcome(stream: &UnixStream, listed: &[Held]) {
+    let fd = stream.as_raw_fd();
+    read_hello(stream);
+    let count = u32::try_from(listed.len()).unwrap();
     let payload = Out::default().u16(wire::VERSION).u32(count).0;
     wire::send_all(fd, &wire::encode(Kind::Welcome, 0, &payload), &[]).unwrap();
-    if let Some(held) = listed {
+    for (held, chan) in listed.iter().zip(1u32..) {
         let entry = Out::default().i32(held.pid).u64(0).u64(0).u8(0).bytes(&held.id).0;
-        let frame = wire::encode_with_fds(Kind::Listed, 0, 1, &entry, 1);
+        let frame = wire::encode_with_fds(Kind::Listed, 0, chan, &entry, 1);
         wire::send_all(fd, &frame, &[held.master.as_raw_fd()]).unwrap();
+    }
+}
+
+/// Answer the HELLO on `stream` with the frame a holder writes to a connect
+/// whose link another connect took: an ERROR about the HELLO with the code
+/// [`error_code::SUPERSEDED`], and no WELCOME before it.
+fn refuse_as_taken(stream: &UnixStream) {
+    read_hello(stream);
+    let payload = Out::default()
+        .u16(Kind::Hello as u16)
+        .u16(error_code::SUPERSEDED)
+        .bytes(b"another daemon took this holder")
+        .0;
+    wire::send_all(stream.as_raw_fd(), &wire::encode(Kind::Error, 0, &payload), &[]).unwrap();
+}
+
+/// A failure limit for a start whose clock stands. Such a start ends only
+/// when the holder ends its connect. A start that waits on a connect the
+/// stand-in holds would never end: after [`START_LIMIT`] this lets the clock
+/// run, so the start ends by time and the test fails by an assert.
+struct StartWatch {
+    ended: mpsc::Sender<()>,
+    thread: std::thread::JoinHandle<bool>,
+}
+
+impl StartWatch {
+    fn of(clock: &Arc<StepClock>) -> Self {
+        let clock = clock.clone();
+        let (ended, start) = mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            let late =
+                matches!(start.recv_timeout(START_LIMIT), Err(mpsc::RecvTimeoutError::Timeout));
+            if late {
+                clock.run(STEP, AT_START);
+            }
+            late
+        });
+        Self { ended, thread }
+    }
+
+    /// The start ended: whether the limit ended it.
+    fn ended_by_the_limit(self) -> bool {
+        let _ = self.ended.send(());
+        self.thread.join().unwrap()
     }
 }
 
 /// The terminal of these tests, as a holder lists it.
 fn held(pid: i32, master: OwnedFd) -> Held {
-    let id = *TerminalId::from_hex(TERMINAL).unwrap().as_bytes();
+    held_as(TERMINAL, pid, master)
+}
+
+/// The terminal `terminal`, as a holder lists it.
+fn held_as(terminal: &str, pid: i32, master: OwnedFd) -> Held {
+    let id = *TerminalId::from_hex(terminal).unwrap().as_bytes();
     Held { id, pid, master }
 }
 
@@ -267,26 +344,41 @@ fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
     }
 }
 
-/// A session whose one terminal ran on the holder when its daemon stopped.
+/// A session whose one terminal ran on the holder when its daemon stopped
+/// (or its two terminals, each in its own tab of the one pane).
 struct Session {
     name: &'static str,
     root: std::path::PathBuf,
     host_root: std::path::PathBuf,
     socket: std::path::PathBuf,
     tab: TabPublicId,
+    second_tab: Option<TabPublicId>,
 }
 
 impl Session {
     fn new(name: &'static str) -> Self {
+        Self::with_terminals(name, &[(TERMINAL, INCARNATION)])
+    }
+
+    fn with_two_terminals(name: &'static str) -> Self {
+        Self::with_terminals(
+            name,
+            &[(TERMINAL, INCARNATION), (SECOND_TERMINAL, SECOND_INCARNATION)],
+        )
+    }
+
+    fn with_terminals(name: &'static str, terminals: &[(&str, &str)]) -> Self {
         let root = std::env::temp_dir()
             .join(format!("cmux-mux-{name}-{}", crate::workspace_registry::new_uuid_v4()));
-        let tab = registry_with_running_terminal(&root, name, TERMINAL, INCARNATION);
+        let mut tabs = registry_with_running_terminals(&root, name, terminals).into_iter();
+        let tab = tabs.next().unwrap();
+        let second_tab = tabs.next();
         let host_root = crate::terminal_host_runtime::terminal_host_root(&root, name);
         std::fs::create_dir_all(&host_root).unwrap();
         std::fs::set_permissions(&host_root, std::fs::Permissions::from_mode(0o700)).unwrap();
         let socket = HolderService::socket_for_test(&host_root).unwrap();
         let _ = std::fs::remove_file(&socket);
-        Self { name, root, host_root, socket, tab }
+        Self { name, root, host_root, socket, tab, second_tab }
     }
 
     /// The socket of this session's holder, listening.
@@ -336,14 +428,28 @@ impl Session {
     /// What the start kept of the terminal: no recorded end, its lifecycle,
     /// the `adopting` mark of its tab, and the tab.
     fn kept(&self, mux: &Mux) -> (bool, TerminalLifecycle, bool, bool) {
-        let resolved = mux.resolve_terminal(TERMINAL).unwrap().unwrap();
+        self.kept_terminal(mux, TERMINAL, &self.tab)
+    }
+
+    /// The same for the second terminal of a session with two.
+    fn kept_second(&self, mux: &Mux) -> (bool, TerminalLifecycle, bool, bool) {
+        self.kept_terminal(mux, SECOND_TERMINAL, self.second_tab.as_ref().unwrap())
+    }
+
+    fn kept_terminal(
+        &self,
+        mux: &Mux,
+        terminal: &str,
+        tab: &TabPublicId,
+    ) -> (bool, TerminalLifecycle, bool, bool) {
+        let resolved = mux.resolve_terminal(terminal).unwrap().unwrap();
         let tabs =
             mux.workspace_registry.lock().unwrap().resource_topology_snapshot().unwrap().tabs;
         (
             resolved.terminal.exit.is_none(),
             resolved.terminal.lifecycle,
-            mux.terminal_is_pending(TERMINAL),
-            tabs.iter().any(|kept| kept.public_id == self.tab),
+            mux.terminal_is_pending(terminal),
+            tabs.iter().any(|kept| &kept.public_id == tab),
         )
     }
 
@@ -386,6 +492,11 @@ impl KeptShell {
         held(self.pid(), self.pty.try_clone_reader_descriptor().unwrap())
     }
 
+    /// This shell as the holder's terminal `terminal`.
+    fn listed_as(&self, terminal: &str) -> Held {
+        held_as(terminal, self.pid(), self.pty.try_clone_reader_descriptor().unwrap())
+    }
+
     fn pid(&self) -> i32 {
         i32::try_from(self.process.id()).unwrap()
     }
@@ -398,14 +509,14 @@ impl Drop for KeptShell {
     }
 }
 
-/// One workspace with one tab whose terminal runs (`incarnation`), as a
-/// daemon that stopped left it.
-fn registry_with_running_terminal(
+/// One workspace with one pane and one tab for each of `terminals` (a
+/// terminal id and its incarnation), each terminal running, as a daemon that
+/// stopped left them. The tabs, in the order of `terminals`.
+fn registry_with_running_terminals(
     root: &Path,
     session: &str,
-    terminal_id: &str,
-    incarnation: &str,
-) -> TabPublicId {
+    terminals: &[(&str, &str)],
+) -> Vec<TabPublicId> {
     let workspace = RegistryWorkspace {
         id: 1,
         public_id: restore_workspace_id(42),
@@ -417,17 +528,68 @@ fn registry_with_running_terminal(
     };
     let screen = restore_screen_id(42);
     let pane = restore_pane_id(42);
-    let tab = restore_tab_id(42);
-    let terminal_public_id = restore_terminal_id(42);
-    let terminal = RegistryTerminal {
-        terminal_id: terminal_id.into(),
-        workspace_key: workspace.key.clone(),
-        incarnation: None,
-        lifecycle: TerminalLifecycle::Launching,
-        launch_spec: serde_json::json!({"command":["/bin/sh"]}),
-        exit: None,
-        on_exit: TerminalOnExit::Close,
-    };
+    let tabs: Vec<TabPublicId> = (42u128..).take(terminals.len()).map(restore_tab_id).collect();
+    let mut changes = vec![
+        ResourceChange::UpsertWorkspace {
+            workspace: workspace.clone(),
+            position: 0,
+            active_screen: Some(screen.clone()),
+        },
+        ResourceChange::UpsertScreen(RegistryScreen {
+            public_id: screen.clone(),
+            workspace_id: workspace.public_id.clone(),
+            position: 0,
+            name: None,
+            layout: RegistryLayoutNode::Leaf { pane: pane.clone() },
+            active_pane: pane.clone(),
+            zoomed_pane: None,
+            auto_layout: None,
+            viewport: RegistryViewport::default(),
+        }),
+        ResourceChange::UpsertPane(RegistryPane {
+            public_id: pane.clone(),
+            screen_id: screen.clone(),
+            name: None,
+            active_tab: tabs.first().cloned(),
+            creation_ordinal: 1,
+        }),
+    ];
+    let seeded = terminals.iter().zip(&tabs).zip(42u128..);
+    for (position, ((&(terminal_id, _), tab), seed)) in seeded.enumerate() {
+        let terminal_public_id = restore_terminal_id(seed);
+        changes.push(ResourceChange::UpsertTerminal {
+            public_id: terminal_public_id.clone(),
+            terminal: RegistryTerminal {
+                terminal_id: terminal_id.into(),
+                workspace_key: workspace.key.clone(),
+                incarnation: None,
+                lifecycle: TerminalLifecycle::Launching,
+                launch_spec: serde_json::json!({"command":["/bin/sh"]}),
+                exit: None,
+                on_exit: TerminalOnExit::Close,
+            },
+        });
+        changes.push(ResourceChange::UpsertTab(RegistryTab {
+            name_source: Default::default(),
+            name_revision: 0,
+            public_id: tab.clone(),
+            pane_id: pane.clone(),
+            position,
+            content_id: ContentPublicId::Terminal(terminal_public_id),
+            name: None,
+            browser_url: None,
+            terminal_id: Some(terminal_id.into()),
+        }));
+    }
+    changes.extend([
+        ResourceChange::SetWorkspaceOrder { workspace_ids: vec![workspace.public_id.clone()] },
+        ResourceChange::SetScreenOrder {
+            workspace_id: workspace.public_id.clone(),
+            screen_ids: vec![screen],
+        },
+        ResourceChange::SetTabOrder { pane_id: pane, tab_ids: tabs.clone() },
+        ResourceChange::SetActiveWorkspace { workspace_id: Some(workspace.public_id) },
+    ]);
     let mut registry = WorkspaceRegistry::open(root, session).unwrap();
     registry
         .commit_resource_patch(
@@ -436,72 +598,24 @@ fn registry_with_running_terminal(
             &serde_json::json!({"fixture":"held-terminal"}),
             None,
             Some(0),
-            &ResourcePatch {
-                changes: vec![
-                    ResourceChange::UpsertWorkspace {
-                        workspace: workspace.clone(),
-                        position: 0,
-                        active_screen: Some(screen.clone()),
-                    },
-                    ResourceChange::UpsertScreen(RegistryScreen {
-                        public_id: screen.clone(),
-                        workspace_id: workspace.public_id.clone(),
-                        position: 0,
-                        name: None,
-                        layout: RegistryLayoutNode::Leaf { pane: pane.clone() },
-                        active_pane: pane.clone(),
-                        zoomed_pane: None,
-                        auto_layout: None,
-                        viewport: RegistryViewport::default(),
-                    }),
-                    ResourceChange::UpsertPane(RegistryPane {
-                        public_id: pane.clone(),
-                        screen_id: screen.clone(),
-                        name: None,
-                        active_tab: Some(tab.clone()),
-                        creation_ordinal: 1,
-                    }),
-                    ResourceChange::UpsertTerminal {
-                        public_id: terminal_public_id.clone(),
-                        terminal,
-                    },
-                    ResourceChange::UpsertTab(RegistryTab {
-                        name_source: Default::default(),
-                        name_revision: 0,
-                        public_id: tab.clone(),
-                        pane_id: pane.clone(),
-                        position: 0,
-                        content_id: ContentPublicId::Terminal(terminal_public_id),
-                        name: None,
-                        browser_url: None,
-                        terminal_id: Some(terminal_id.into()),
-                    }),
-                    ResourceChange::SetWorkspaceOrder {
-                        workspace_ids: vec![workspace.public_id.clone()],
-                    },
-                    ResourceChange::SetScreenOrder {
-                        workspace_id: workspace.public_id.clone(),
-                        screen_ids: vec![screen],
-                    },
-                    ResourceChange::SetTabOrder { pane_id: pane, tab_ids: vec![tab.clone()] },
-                    ResourceChange::SetActiveWorkspace { workspace_id: Some(workspace.public_id) },
-                ],
-            },
+            &ResourcePatch { changes },
             &serde_json::json!({"created":true}),
             &serde_json::json!([{"kind":"fixture.created"}]),
         )
         .unwrap();
-    commit_terminal_lifecycle(
-        &mut registry,
-        "terminal-ready",
-        "seed-running-terminal",
-        terminal_id,
-        TerminalLifecycle::Running,
-        Some(incarnation),
-        None,
-    )
-    .unwrap();
-    tab
+    for &(terminal_id, incarnation) in terminals {
+        commit_terminal_lifecycle(
+            &mut registry,
+            "terminal-ready",
+            "seed-running-terminal",
+            terminal_id,
+            TerminalLifecycle::Running,
+            Some(incarnation),
+            None,
+        )
+        .unwrap();
+    }
+    tabs
 }
 
 #[test]
@@ -639,6 +753,66 @@ fn an_ended_connect_of_a_late_holder_gets_one_new_connect_and_keeps_the_terminal
         (true, TerminalLifecycle::Running, true, true),
         "(no end, lifecycle, adopting mark, tab): an end of file is not a dead holder"
     );
+    session.end(mux, holder);
+}
+
+/// A holder that gave its link to another connect before it answered the
+/// one ask of the start: two connects waited at the holder (this daemon's,
+/// and one whose client is gone), and the holder read the other one last.
+/// The start gets the holder's refusal and no WELCOME. A holder that writes
+/// a refusal runs, and it still runs every shell: the start must keep each
+/// of its terminals, and the late thread re-attaches them on a new connect.
+#[test]
+fn a_start_keeps_each_terminal_of_a_holder_that_gave_its_link_to_another_connect() {
+    let session = Session::with_two_terminals("holder-late-start-first-taken");
+    let holder = session.holder();
+    holder.order(Order::RefuseNext(1));
+    // The stand-in read the order: it answers a count only after it.
+    assert_eq!(holder.connects(), 0);
+    // The clock does not move in the start, so the start's wait for the
+    // holder does not end by time: it ends with the holder's refusal.
+    let clock = StepClock::new(Duration::ZERO, AT_START);
+    let watch = StartWatch::of(&clock);
+    let mux = session.start(&clock).unwrap();
+    assert!(
+        !watch.ended_by_the_limit(),
+        "the start did not end with the holder's refusal: it waited to the failure limit of \
+         {START_LIMIT:?}"
+    );
+    assert_eq!(
+        (session.kept(&mux), session.kept_second(&mux)),
+        (
+            (true, TerminalLifecycle::Running, true, true),
+            (true, TerminalLifecycle::Running, true, true)
+        ),
+        "(no end, lifecycle, adopting mark, tab) of each of the 2 terminals: a holder that \
+         refused the start's connect because another connect took its link still runs the shells"
+    );
+
+    clock.run(LATE_STEP, FAR);
+    let (first, second) = (KeptShell::new(), KeptShell::new());
+    holder.order(Order::AnswerEach(vec![
+        first.listed_as(TERMINAL),
+        second.listed_as(SECOND_TERMINAL),
+    ]));
+    wait_until("the late thread re-attaches the terminals", || session.late_work_done(&mux));
+    for (terminal, incarnation) in [(TERMINAL, INCARNATION), (SECOND_TERMINAL, SECOND_INCARNATION)]
+    {
+        let resolved = mux.resolve_terminal(terminal).unwrap().unwrap();
+        assert_eq!(
+            (
+                resolved.surface.is_some(),
+                resolved.terminal.lifecycle,
+                resolved.terminal.exit.is_none(),
+                resolved.terminal.incarnation.as_deref(),
+                mux.terminal_is_pending(terminal),
+            ),
+            (true, TerminalLifecycle::Running, true, Some(incarnation), false),
+            "(runtime, lifecycle, no end, incarnation, adopting mark) of {terminal}: the same \
+             shell, attached again"
+        );
+    }
+    assert_eq!(holder.connects(), 2, "one new connect of the late thread after the refusal");
     session.end(mux, holder);
 }
 
