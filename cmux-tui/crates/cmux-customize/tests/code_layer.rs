@@ -276,3 +276,25 @@ fn an_older_entry_reads_as_a_pull_request() {
     let back = serde_json::to_value(&code).unwrap();
     assert!(back.get("kind").is_none() && back.get("source").is_none());
 }
+
+#[test]
+fn a_refresh_updates_an_entry_in_place_and_keeps_it_off() {
+    let home = Home::new();
+    let customize = home.customize();
+    install(&customize, 1);
+    install(&customize, 2);
+    install(&customize, 3);
+    customize.library_use_code(layer(10, 1), vec![], "cli", 1).unwrap();
+    customize.library_use_code(kinded(CodeKind::Branch, "feat-x", 2), vec![], "cli", 2).unwrap();
+    customize.library_settle_code("pr-10", "", Some(false), "cli", 3).unwrap();
+    // pr-10 is second and off; a newer head for it stays second and off.
+    let newer = CodeLayer { head: "c".repeat(40), ..layer(10, 3) };
+    let changed = customize.library_update_code(newer, "cli", 4).unwrap();
+    let names: Vec<&str> = changed.library.entries.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(names, ["branch-feat-x", "pr-10"]);
+    let pr = changed.library.entries.iter().find(|e| e.name == "pr-10").unwrap();
+    assert!(!pr.on);
+    assert_eq!(pr.code.as_ref().unwrap().head, "c".repeat(40));
+    // An entry nobody has is an error, not a new entry.
+    assert!(customize.library_update_code(layer(99, 1), "cli", 5).is_err());
+}
