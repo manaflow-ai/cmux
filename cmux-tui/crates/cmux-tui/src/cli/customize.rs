@@ -11,6 +11,7 @@
 //! work with cmux quit and in safe mode.
 
 mod ask;
+mod library;
 mod render;
 #[cfg(test)]
 mod tests;
@@ -35,6 +36,7 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
   cmux customize use NAME|FILE                Preview a profile, then apply or discard it
   cmux customize profiles                     The saved profiles
   cmux customize recipes [--open]             Ten ready-made changes to try with `use` (--open: the guide, in cmux)
+  cmux customize library [VERB]               Everything you applied, kept as layers: list|on|off|order|export|import|remove
 
 You can also edit the files yourself (`cmux customize paths`): every save shows in cmux at
 once, an agent you ask next keeps your edits, and apply, discard and rollback work the same.
@@ -67,6 +69,7 @@ const VERBS: &[&str] = &[
     "use",
     "profiles",
     "recipes",
+    "library",
     "paths",
     "brief",
     "check",
@@ -99,6 +102,7 @@ pub(super) enum Request {
     Use { source: String },
     Profiles,
     Recipes { open: bool },
+    Library(library::Request),
     Paths,
 }
 
@@ -134,6 +138,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             [flag] if flag == "--open" => Ok(Request::Recipes { open: true }),
             _ => Err("customize recipes takes only --open".to_owned()),
         },
+        "library" | "lib" => library::parse(rest).map(Request::Library),
         "paths" => none(Request::Paths),
         "apply" => Ok(Request::Apply { note: (!rest.is_empty()).then(|| rest.join(" ")) }),
         "rollback" | "undo" | "switch" => match rest {
@@ -394,6 +399,7 @@ pub(super) fn execute(
         }
         Request::Profiles => Answer::Profiles(customize.profiles()?),
         Request::Recipes { open } => recipes(customize, open, chat)?,
+        Request::Library(request) => library::execute(customize, request, origin, now_ms)?,
         Request::Paths => Answer::Paths(customize.roots().clone()),
     })
 }
