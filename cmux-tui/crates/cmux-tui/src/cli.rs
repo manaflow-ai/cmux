@@ -1086,7 +1086,8 @@ fn parse_command(
         && CMUX_TUI_ONLY_SCOPES.contains(&scope)
     {
         // Its app verbs (`cmux sidebar add-section`) are cmux's: help lists only those.
-        let help = command_args[0] == "help" || has_help_option(&command_args);
+        let help = command_args.first().is_some_and(|word| word == "help")
+            || has_help_option(&command_args);
         if help && app_action_help::has_section(scope) {
             return Ok(ParsedCommand::Help(Some(format!("{scope} app-actions"))));
         }

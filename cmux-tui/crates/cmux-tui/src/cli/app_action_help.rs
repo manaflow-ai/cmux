@@ -27,16 +27,18 @@ fn offered() -> &'static BTreeMap<String, Vec<(String, String)>> {
     OFFERED.get_or_init(|| {
         let doc: Value = serde_json::from_str(ACTIONS_JSON).unwrap_or(Value::Null);
         let mut scopes: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
-        for action in doc["actions"].as_array().into_iter().flatten() {
-            if action["cli"] != "offered" {
+        for action in doc.get("actions").and_then(Value::as_array).into_iter().flatten() {
+            if action.get("cli").and_then(Value::as_str) != Some("offered") {
                 continue;
             }
-            let Some((scope, verb)) =
-                action["cli_name"].as_str().and_then(|name| name.split_once(' '))
+            let Some((scope, verb)) = action
+                .get("cli_name")
+                .and_then(Value::as_str)
+                .and_then(|name| name.split_once(' '))
             else {
                 continue;
             };
-            let title = action["title"].as_str().unwrap_or_default().to_owned();
+            let title = action.get("title").and_then(Value::as_str).unwrap_or_default().to_owned();
             scopes.entry(scope.to_owned()).or_default().push((verb.to_owned(), title));
         }
         for verbs in scopes.values_mut() {
