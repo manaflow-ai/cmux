@@ -1204,3 +1204,6 @@ fn now_nanos() -> u128 {
 fn emission_idempotency_key(nonce: &str, sequence: u64) -> String {
     format!("agent-emission-{nonce}-{sequence}")
 }
+
+#[cfg(test)]
+mod knows_terminal_tests;

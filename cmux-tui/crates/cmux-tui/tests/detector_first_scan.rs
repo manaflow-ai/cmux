@@ -30,8 +30,8 @@ use std::time::{Duration, Instant};
 
 use cmux::{
     Client, Config, EventStreamOptions, ResourceChange, ResourceEntitySnapshot, ResourceReference,
-    Selector, Session, SessionEvent, SessionId, StreamPoll, TerminalId, TerminalLifecycle,
-    TerminalSnapshot,
+    Selector, Session, SessionEvent, SessionEventStream, SessionId, StreamPoll, TerminalId,
+    TerminalLifecycle, TerminalSnapshot,
 };
 use detector_first_scan::{ListedTerminal, first_scan_ids};
 use fault_support::{FaultDir, NO_MAINTENANCE, Owner};
@@ -102,17 +102,21 @@ fn first_reads(socket: &Path, session_name: &str) -> Result<FirstReads, String> 
 }
 
 /// Waits until `terminal.list` holds one terminal that ended and has no tab,
-/// and each other listed terminal runs (one of them at least). A wait on
-/// that state with the liveness bound `SETUP_BOUND` (60 s): after the bound
-/// the test fails as `setup:`.
-fn wait_for_an_ended_terminal_with_no_tab(socket: &Path, session_name: &str) {
-    let (_client, session) =
-        sdk_session(socket, session_name).unwrap_or_else(|error| panic!("setup: {error}"));
+/// and each other listed terminal runs (one of them at least).
+///
+/// The wait is on items of `events`, a session event stream that the test
+/// opened before the request that makes the ended terminal: the function
+/// reads the list, and reads it again only after the stream gives an item.
+/// A change before the stream opened is in the first list, and a change
+/// after it gives an item, so there is no sleep and no change is lost.
+/// `SETUP_BOUND` (60 s) is a liveness bound of the whole wait: after it the
+/// test fails as `setup:`.
+fn wait_for_an_ended_terminal_with_no_tab(session: &Session, events: &mut SessionEventStream) {
     let deadline = Instant::now() + SETUP_BOUND;
     loop {
-        let listed = session.terminal_snapshots().unwrap_or_else(|error| {
-            panic!("the terminal list on the session `{session_name}` fails: {error}")
-        });
+        let listed = session
+            .terminal_snapshots()
+            .unwrap_or_else(|error| panic!("setup: the terminal list fails: {error}"));
         let (ended, others): (Vec<_>, Vec<_>) =
             listed.iter().partition(|terminal| terminal.lifecycle == TerminalLifecycle::Exited);
         let no_tab = ended.len() == 1 && ended[0].tab_ids.is_empty();
@@ -121,17 +125,24 @@ fn wait_for_an_ended_terminal_with_no_tab(socket: &Path, session_name: &str) {
         if no_tab && !others.is_empty() && others_run {
             return;
         }
-        let seen = listed
-            .iter()
-            .map(|terminal| (terminal.lifecycle, terminal.tab_ids.len()))
-            .collect::<Vec<_>>();
-        assert!(
-            Instant::now() < deadline,
-            "setup: within {SETUP_BOUND:?} the list does not have one ended terminal with no \
-             tab beside terminals that run; the lifecycle and the tab count of each listed \
-             terminal: {seen:?}"
-        );
-        std::thread::sleep(Duration::from_millis(20));
+        match events.next_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(StreamPoll::Item(_)) => {}
+            Ok(StreamPoll::TimedOut) => {
+                let seen = listed
+                    .iter()
+                    .map(|terminal| (terminal.lifecycle, terminal.tab_ids.len()))
+                    .collect::<Vec<_>>();
+                panic!(
+                    "setup: within {SETUP_BOUND:?} the list does not have one ended terminal \
+                     with no tab beside terminals that run; the lifecycle and the tab count of \
+                     each listed terminal: {seen:?}"
+                );
+            }
+            Ok(StreamPoll::End) => {
+                panic!("setup: the session event stream ended before the list had the ended row")
+            }
+            Err(error) => panic!("setup: session event stream item: {error}"),
+        }
     }
 }
 
@@ -153,10 +164,16 @@ fn detector_first_scan_does_not_read_a_listed_terminal_that_ended() {
     let dir = FaultDir::new(label);
     let owner = Owner::start(&dir, label, &[NO_MAINTENANCE], READY_BOUND);
     owner.data(json!({"cmd": "new-workspace", "name": "stays", "cols": 160, "rows": 40}));
+    let (_client, session) =
+        sdk_session(&dir.socket(), label).unwrap_or_else(|error| panic!("setup: {error}"));
+    let mut events = session
+        .events(EventStreamOptions::default())
+        .unwrap_or_else(|error| panic!("setup: session event stream open: {error}"));
     owner.data(json!({
         "cmd": "run", "argv": ["/bin/sh", "-c", "exit 3"], "new_workspace": true, "name": "ended",
     }));
-    wait_for_an_ended_terminal_with_no_tab(&dir.socket(), label);
+    wait_for_an_ended_terminal_with_no_tab(&session, &mut events);
+    drop(events);
     let reads = first_reads(&dir.socket(), label);
     owner.stop();
     let reads = match reads {
