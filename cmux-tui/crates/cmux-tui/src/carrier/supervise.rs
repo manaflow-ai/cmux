@@ -359,8 +359,6 @@ impl Supervisor {
             }
             Msg::ReadyTimer { generation, epoch } => {
                 if generation == self.ready.0 {
-                    let waited = self.config.ready_deadline.as_secs();
-                    self.note(&format!("the serve child was not ready within {waited} s"));
                     self.dispatch(Event::ReadyDeadline(epoch));
                 }
             }
